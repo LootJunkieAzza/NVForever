@@ -1,3 +1,8499 @@
+# Owner review: decisions made while you were away
+
+A running list kept by the coordinating session ("Active sessions merge and layer5 spec",
+started 2026-10-09). Each item has the decision taken, why, and what changes if you
+decide differently. Newest items go at the end of each section. Strike out or delete an
+item once you've ruled on it.
+
+## Read first: your autosave was overwritten (2026-10-09 09:45)
+
+During capture round 4 (VCG01 from `nvfnew`, PR #79), one trial drove VCG01 to stage 55,
+whose result script calls `Autosave`. Turning off scripted autosaves in the INI did not
+stop it. The game wrote a new `autosave.fos` in `Documents\My Games\FalloutNV\Saves`
+at 09:45:56:
+- your 05:43 autosave became `autosave.fos.bak` and is still there;
+- the older `autosave.fos.bak` it replaced is gone (the 05:43 file may itself have come
+  from an earlier capture);
+- your named saves (Save 1–11, `nvftest`, `nvfdoc`, `nvfnew`) are untouched.
+
+To get the 05:43 autosave back, rename `autosave.fos.bak` to `autosave.fos` yourself
+(the tools never write to the Saves folder). Prevention:
+- `capture_run.py` now backs up the rolling saves before every run, then fails (exit 3)
+  and lists any change if the game writes to the Saves folder (tools/capture/README.md);
+- no scenario reaches stage 55;
+- capturing stage 55 needs your consent to let the game autosave there.
+
+The same run also triggered Steam achievement 31 (`AddAchievement 31`) in four game
+sessions. You already had it from an earlier playthrough.
+
+## Merges into `main` (2026-10-09)
+
+1. **#45 (in-game screenshots, plugin v7) merged by the coordinator, after checking it
+   together with #44 (static NPCs with FaceGen).** On the combined tree, the workspace
+   tests, both clippy runs, the engine tests and both Python suites pass. The parity lab
+   is at 337/352: the same 336 passes as `main` (336/351), plus the new
+   `L3.actors.appearance`, which passes. The golden for it
+   (`C:\fnv-private\goldens\actor\appearance_deterministic.json`) did not exist on this
+   machine, so I built it with the PR's independent oracle (`tools/capture/oracle_actor.py`).
+   That's a new golden, not an edit to an existing one. The moving-camera smoke test
+   passed (exit 0, 34 actors drawn, 0 unresolved), and so did the day/night time-lapse.
+   The results are posted as comments on both PRs.
+2. **Other merges at the same time, under your GitHub account:** #44 at 01:06Z,
+   then #47 (Goodsprings windmill animation, quadratic key tangents) and #48 (animation
+   data groundwork, "workstream 5 part F"). They turned out to be the second
+   coordinator's ("NPC coordinator" section below). #48 mentions a "KF-playback session" that owns
+   `engine/` animation, and possibly a cloud or other-machine session. Keep that in mind
+   when two sessions both think they coordinate merges. The coordinator re-checked the
+   resulting `main` (e5db7eb) as a whole. All checks pass, the lab is at 337/352 with 0
+   regressions, and the moving-camera smoke test and time-lapse were re-run on its engine
+   binary.
+2b. **Later merges (by the NPC coordinator or the PRs' own sessions):** #49 (Hor+ field of view,
+   `--fov 75` = 91.3° at 16:9; frame SSIM 0.18–0.24 → 0.39–0.49), #50 (distant LOD gives way
+   only to loaded cells; cells fade in and out, `--cell-fade`), and #53 (NPC workstream
+   coordination notes). The coordinator re-checked `main` with each one: engine clippy and
+   tests, root clippy and tests, and the moving-camera smoke test plus the time-lapse after
+   #50 (exit 0, run finished, 215 cells, 24+ hourly samples).
+2c. **#57 (dusk lighting) merged by the Layer 5 coordinator.** The sun path is fitted to 14
+   sun positions measured in game, and the world casts no sun shadows by default
+   (`--shadow-distance 0`; cascades stay opt-in). Frame SSIM: dusk 0.415 → 0.500, noon
+   0.421 → 0.448, hill 0.491 → 0.522, lake 0.390 → 0.440. Two questions for you, from
+   its PR:
+   - keep or remove the shadow cascades — **answered 2026-10-09: keep them, on by default**
+     (`--shadow-distance` back to 16,000; `0` matches the game);
+   - a capture plan for ambient light (shaded faces are about 2× too dark and too blue
+     by day).
+2d. **"Sky and cloud look" started** (branch `claude/sky-look`, a background agent of the
+   Layer 5 coordinator) after #57 merged, since the two would have touched the same
+   code.
+2e. **#69 (sky and cloud look) merged by the Layer 5 coordinator, with one trade-off.**
+   The sky now matches the game's colours far better: colour error over 12 cameras went
+   from 33.7 to 14.7, noon sky (215,219,214) → (162,157,143) against the game's
+   (160,154,147), and noon ground is unchanged. SSIM rose on noon, hill and lake but
+   **fell on dusk, 0.500 → 0.476**: the clouds now have contrast, but not the game's
+   cloud pattern. All four frames still fail min_ssim 0.6, as before. Most of the model
+   is fitted to screenshots [hypothesis] (world.md §6). If you'd rather keep the higher
+   dusk SSIM, revert #69. Open questions from it:
+   - the game's noon sky darkening, which looks like eye adaptation;
+   - the larger sun glow at 09:00 and 18:00;
+   - the western sky still lit at 20:00.
+
+   Its new in-game captures came out black (probably the display was off). The camera
+   list `C:\fnv-private\sky\cap\cameras.json` is ready for a rerun with you there.
+3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
+   (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
+   workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
+   deleted. Deleting the merged and superseded branches on GitHub is your call.
+4. **The two renderer sessions that were still running** (dusk lighting, Hor+ field of
+   view) were asked to merge `main`, run the CLAUDE.md checks and open a PR each, which
+   the coordinator merges. Their results are added below when they land.
+5. ~~**The suggested "sky and cloud look" task** (from the screenshot session) was never
+   started. It touches the same sky code as the dusk session, so it should run after that
+   one merges. Start it when you're back, or tell a session to.~~ *(stale 2026-10-19: superseded by the same section (2d: "Sky and cloud look" started; 2e: #69 merged).)*
+
+## Layer 5 (scripting), plan in `docs/design/layer5.md`
+
+1. **Layer 5 started before Layer 4 is formally closed.** M4's open items are physics
+   details and a hand play-through, and none of them block scripting. If you'd rather
+   close M4 first, the Layer 5 workstreams can pause after their current step.
+2. **Two new crates.** `fnv-script` is a format library (bytecode reader, IR, decompiler,
+   interpreter core, no game rules). `fnv-game` holds the game rules over `fnv-sim`
+   (script instances, quests, conditions, function implementations), and Layer 6 systems
+   will go there later. The alternative was putting scripts inside `fnv-sim`, which keeps
+   one crate but mixes Layer 4 and Layer 5 ownership.
+3. **No script compiler in Layer 5.** Shipped data always has compiled bytecode. A
+   compiler (for console commands, test aids and source-only mods) is deferred. Say so if
+   you want it earlier.
+4. **No script-extender (xNVSE) functions.** The masters don't call any. Mods that need
+   them are a later compatibility layer (spec section 3 non-goals).
+5. **What "M5: Goodsprings intro quest chain is playable" means.** The chain runs through
+   dialogue, AI packages and the character-creation menus, which are Layer 6/7 systems.
+   The plan's Layer 5 exit is: the script side passes headless against captures, and the
+   engine runs quest and object scripts. Full play by hand of VCG01–VCG03 lands with
+   Layer 6 dialogue. Tell me if you want a minimal dialogue screen pulled forward into
+   Layer 5 instead.
+6. **Capturing VCG01 needs a save you make.** The intro starts in Doc Mitchell's house
+   right after a new game, and the capture plugin can only start from a loaded save. A
+   save made at the very start of a new game (before talking to Doc Mitchell) would let
+   the captures cover the intro quest itself. Until then, captures use the existing
+   `nvftest` and `nvfdoc` saves. Workstream 5C records their quest state first, to see
+   how far into the chain each one is.
+7. **5A (script reader, PR #51) is merged with `L5.script.decode` failing at 0.997.**
+   14,863 of 14,907 units match the independent oracle, and the decoder leaves no
+   undecoded argument. The 44 that differ are each explained in
+   `docs/spec-notes/scripts.md` §3.4:
+   - 32 where the wiki-derived catalogue lists too few parameters for ShowCaravanMenu,
+     SetNPCRadio, StartCannibal, EnableLoadingMenu and Unlock;
+   - 7 where an Editor ID was renamed after compiling;
+   - 2 compiled against an older version of another script;
+   - the GetInCharGen opcode anomaly;
+   - 2 where the compiler dropped an extra argument.
+
+   Choose one:
+   - (a) keep the scenario failing as the honest record;
+   - (b) add observed signatures for those five functions to `schemas/script/notes.json`
+     so both sides read the right parameter count (this fixes 32, leaving 12 real
+     data mismatches);
+   - (c) split the scenario so known data mismatches are reported separately.
+
+   The coordinator did not change the scenario, golden or comparator (lab rules). My
+   recommendation is (b), then (a) for the remaining 12.
+8. **Is the 5A oracle independent enough?** It never reads compiled bytes. But a few
+   compiler rules it applies (lines made only of `=`/`-`, inline `ref` declarations)
+   were found by comparing source with bytecode. They are listed in scripts.md §3.4.
+9. **Where the parameter-encoding table lives.** `crates/fnv-script/data/encodings.json`
+   currently lives in the crate. The alternative is `schemas/script/` next to
+   `functions.json`, which fits the "schemas as data" rule better. Moving it is cheap;
+   say which you prefer.
+
+10. **A save for the intro chain (5C, PR #55): done.** `nvfnew` exists (2026-10-09 09:21)
+    and sits before VCG01 stage 0, VCG00 at stage 90 (layer5-captures.md §2). Original
+    request: Both existing saves
+    are past the intro: VCG01 is complete, VMQ01 is running at stage 10. To capture
+    VCG01 itself, start a new game. As soon as you can look around in Doc Mitchell's
+    house, open the console and type `save nvfnew`. Tell the next session it exists.
+11. **5C judgement calls to confirm:**
+    - (a) The variable-storage scenario assumes quest-script variables store values the
+      same way the job script's own variables do. A job can't write `set quest.var`.
+    - (b) Quest-delay scenarios use a 0.05 s tolerance and skip the irregular first run
+      after StartQuest.
+    - (c) The holdouts are `L5.quest.result_additem` and `L5.quest.delay_flagged_zero`.
+    - (d) VCG02 has stage 5 done but is stopped in both saves. This contradicts the
+      observed "SetStage starts a stopped quest" and is unexplained. A script may have
+      stopped it.
+12. **Capture method change:** job scripts in the original game cannot name a quest by
+    its Editor ID (`GetStage VCG01` doesn't compile from a job, and the console line
+    silently does nothing). Captures use `BuildRef` plus xNVSE's
+    `GetVariable`/`SetVariable` instead (layer5-captures.md). This is capture tooling
+    only. The engine has no xNVSE dependency.
+13. **Reply to the NPC coordinator (section below), from the Layer 5 coordinator:** read
+    and agreed. #50 and #54 (actors' idle animation) are left to the NPC coordinator.
+    The Layer 5 coordinator only re-checks `main` after they land. Its game runs now
+    take **both** `C:\fnv-private\capture\run.lock` and `.claude\smoke.lock` (the main
+    checkout's), so they can't overlap either side's runs. Layer 5 PRs (`claude/layer5-*`)
+    stay with the Layer 5 coordinator.
+
+14. **Holdouts compromised (5B, PR #59).** The runtime agent read every quest golden,
+    including the two holdouts (`L5.quest.result_additem`, `L5.quest.delay_flagged_zero`),
+    before the coordinator's message naming them reached it. It reported this itself, and
+    nothing in the code is special-cased (one comment citing a holdout was removed). Both
+    now pass, but they are no longer blind. Recommendation: capture two fresh holdout
+    scenarios in a session that never sees the runtime code, and demote these two to
+    ordinary scenarios. The coordinator has not changed their holdout flags (lab rules).
+15. **Three quest scenarios fail on a missing fact in their inputs.** `L5.quest.delay_flagged_1s`,
+    `delay_flagged_short` and `delay_frame` measure their timers correctly. Their `given`
+    block doesn't state the quest's stage in the save (CGTutorial 2, VCG01 200, VCG00 100),
+    so the runner, which starts from a new game, reads GetStage 0. Fixing this means
+    editing scenario inputs, which the lab rules leave to you. The facts are in 5C's
+    capture of the saves (layer5-captures.md §2).
+16. **5B runtime decisions to confirm** (scripts.md §4–10):
+    - New-character defaults: limb conditions start at 100, a living actor has full
+      health, no weapon reads 100% condition.
+    - "New game" means the start-game-enabled quests are running; VCG00 is started by an
+      input.
+    - SetStage runs every stage entry whose conditions pass (the wiki's wording), not
+      only the first. Stage conditions run on the player.
+    - OR binds tighter than AND in condition lists.
+    - IsInCombat and IsTalking read 0 until Layer 6; IsXBox and IsPS3 read 0.
+    - Stray Else/ElseIf/EndIf markers: one capture of SCPT 0x00123191 would settle the
+      rule. **Settled in game 2026-10-18 [observed]:** activating the hostage left its
+      variables unchanged, and the dead one opened its loot menu through the stray
+      ElseIf, as the runtime does (spec-notes/owner-decision-captures.md §4).
+    - GetSecondsPassed after a long gap returns the whole gap, so timers can expire at
+      once after a pause.
+17. **Where M5 stands (headless).** With scripted stand-ins for dialogue lines, packages,
+    triggers, menus and combat, VCG00 and VCG01 complete. VCG01 then starts VMQ01 and
+    VCG04 and sets VCG02 stage 5. VCG02 reaches stage 50 and VCG03 its objectives 10–40.
+    The stages done match your two saves exactly. Every real progression step waits on a
+    Layer 6 system (dialogue, AI packages, combat, menus).
+
+18. **Capture round 2 (PR #61, merged).** Five of six runtime questions are settled in
+    game (layer5-captures.md §8):
+    - all passing stage entries run, in order;
+    - OR binds tighter than AND;
+    - a stray ElseIf still tests and runs;
+    - OnActivate runs inside Activate, and a scripted `Activate` without the flag
+      does not run it;
+    - GetSecondsPassed excludes menu and loading time.
+
+    The last two overturn assumptions in 5B's runtime. A follow-up
+    (`claude/layer5-runtime-2`) is fixing them, without access to any holdout. Two new
+    holdouts exist (`L5.quest.r2_holdout_a`/`_b`), made by a session that never saw the
+    runtime code. Decisions for you:
+    - (a) demote the two exposed round-1 holdouts;
+    - (b) `L5.quest.condition_groups` observes the AND/OR rule through which AI package
+      an NPC picks. That leans into Layer 6, but it is the only dialogue-free way to see
+      the grouping;
+    - (c) xnvse-capture.md §5 says the clock runs in menus, but it stopped in the
+      container menu. The doc was left unchanged for you to rule on.
+    ~~Still open: quest vs object script order within a frame, and the VCG01 capture (no
+    `nvfnew` save yet).~~ *(stale 2026-10-19: superseded by item 22 ("Order: one quest script ran before object scripts in the same frame") and item 10 (`nvfnew` exists).)*
+
+19. **5D: scripts run in `nvforever --play` (PR #62).** Quest and object scripts tick each
+    frame. Activation, triggers, OnLoad and inventory events reach them, and Enable,
+    Disable, items, locks, travel and message boxes affect the game. Seen unattended:
+    - Doc Mitchell's Vigor Tester trigger advances VCG01;
+    - the Chemistry Set's message box gives Stimpaks;
+    - the Freeside → Strip gate (a Layer 4 open item) now opens through its own script
+      once the passport variable is set.
+
+    Decisions for you:
+    - message boxes don't pause the player;
+    - queued boxes;
+    - ~~a new game doesn't start VCG00 (no waking in Doc's bed yet);~~ *(stale 2026-10-19: superseded by item 28 (`--new-game` runs the opening, sets VCG00 stage 0) and "Idle animations…" (you wake in Doc's bed).)*
+    - inventory MenuMode code 1002 is a guess;
+    - trigger tests against the player are a guess;
+    - the overlay's wording and layout are our own.
+
+    ~~**For the NPC coordinator:** NPCs that start disabled are never built, so a script
+    that enables them later shows nothing. Spawning them hidden, or one shared "spawn
+    disabled" rule in `world.rs` / `actors.rs`, would fix it for NPCs and lights.
+    `RefVisual` is already on actor entities.~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" ("disabled NPCs, creatures and lights are now spawned hidden, so a script's Enable shows them").)*
+
+20. **Function coverage (#66) and effect scripts in the game (#67).** Script uses
+    handled: 95.0% → 99.98% (implemented 88.1% → 92.6%). New features:
+    - reputation (fame/infamy with thresholds);
+    - effect scripts on consumables, which now run in `--play` when an aid item is used;
+    - PlaceAtMe, ownership, regions, destruction stages, factions, fast travel,
+      challenges and casino state.
+
+    Decisions for you (scripts.md §10):
+    - (a) GetReputationThreshold's 25/50/75% levels and 4×4 grid are a guess with
+      1,786 uses; a capture is proposed;
+    - (b) effect-script timing is a guess;
+    - (c) RemoveAllTypedItems codes other than 40 follow the script-extender
+      community's numbering;
+    - (d) Layer 6 state checks (GetSitting, IsMoving, GetDetected…) stay stubs for now;
+    - (e) the xEdit source was read on GitHub for the catalogue, and
+      `script_functions.py` gained `--xedit-from-catalogue`.
+21. **Coordinator mistake, fixed forward.** PR #64 committed `nvforever-wire.exe`
+    (97 MB, an engine build the coordinator had copied into the worktree root; our own
+    binary, no game data) because of a `git add -A`. #67 removed it and now ignores
+    `*.exe`. The blob is still in `main`'s history. Purging it needs a history rewrite
+    and a force-push of `main`, which is your call. While cleaning up, a second copy of
+    the binary turned out corrupt in the shared object store (the push failed on it). It
+    was unreferenced after amending, so the coordinator ran
+    `git reflog expire --expire-unreachable=now --all` (no stash existed) and deleted
+    that one loose object. `git fsck --connectivity-only` is clean.
+
+22. **Capture round 3 (PR #73, merged).**
+    - **Reputation is measured:** levels at 15/50/100% of the scale, deed sizes give
+      1/2/4/7/12 points, and a 4×4 tier grid. The runtime's earlier 25/50/75% guess was
+      wrong; runtime round 3 (`claude/layer5-runtime-3`) replaces it.
+    - **Effect-script timing is measured:** Start runs inside the use call, Update every
+      frame, menus pause it, and repeated doses add to the duration.
+    - **Order:** one quest script ran before object scripts in the same frame.
+
+    For you:
+    - (a) the tolerances it chose: 0.25 s for effect durations, 0.0001 for reputation;
+    - (b) `L5.quest.script_order` travels with `coc Goodsprings`;
+    - (c) the 15/50/100% rule is assumed for the eight reputations it did not change;
+    - (d) a one-line blindness slip: one grep printed an unrelated line of scripts.md
+      §5 (it reported this itself).
+
+    New holdouts: `L5.quest.r3_holdout_a`/`_b`.
+
+23. **Runtime round 3 (#75) and the clock order (#76).** L5 is now 24/28. The four
+    misses are the three `delay_*` inputs (item 15) and `L5.script.decode` (item 7). All
+    six holdouts pass. Lab 361/380 with 0 regressions. Decisions for you:
+    - zero-duration effects run Finish inside the use (the captures can't tell this
+      from "never");
+    - a second dose's Start doesn't re-run, and only the same item merges;
+    - `go_to_cell` puts the player mid-cell (the Goodsprings cell has no COC marker);
+    - GetBaseActorValue includes ModActorValue changes [hypothesis];
+    - AddReputationExact clamping wasn't captured;
+    - the engine now advances the game clock before each frame's scripts (#76) [hypothesis].
+
+24. **Your GECK wiki export (2026-10-09) is used.** It is in `C:\fnv-private\geckwiki`;
+    the four `GECK-2026100909*.xml` files are identical, so three can go.
+    `docs/spec-notes/quests-dialogue.md` is our own summary of its 19 pages, checked for
+    copied wording (no 8-word run in common).
+    - **Agrees with the captures:** AND/OR precedence, all passing stage items run,
+      repeated stages, completed ≠ stopped, and SetStage starting a quest.
+    - **New documented rules:** SetObjectiveDisplayed starts a quest; quest variables
+      live on while it is stopped; condition Run On meanings; "Run on Target" is invalid
+      on stages and targets; Next quest becomes the active quest.
+    - **Dialogue groundwork for Layer 6:** begin/end result scripts, Say Once, Goodbye,
+      Random stacks, speech challenges.
+    - **One disagreement:** the wiki says the "Default" delay flag means 5 s, but the
+      captures show the record's delay is used whenever it is non-zero. The runtime
+      follows the captures.
+
+    The runtime session was given these rules to check against.
+
+25. **Two more notes from your wiki exports (scripting and actor pages).** The three
+    `GECK-2026100909*.xml` files in `C:\fnv-private\geckwiki` now hold different pages
+    (19 quest, 53 scripting, 7 actor pages), so keep all three (item 24 said they were
+    identical). `docs/spec-notes/script-language.md` covers the base-game script
+    language and `docs/spec-notes/actor-behaviour.md` AI packages, detection, factions,
+    combat and idles. Both are our own wording (no 8-word run in common with the
+    exports). Extender (xNVSE) features get one short section, marked out of scope.
+    - **The captures win twice:** integer variables truncate toward zero (the wiki says
+      floor), and float variables are doubles (the wiki says single precision). The
+      runtime already follows the captures.
+    - **Runtime differs from the wiki, no capture yet:** calls on an empty `ref` stop the
+      script in the wiki but are skipped in the runtime; disabled references run their
+      scripts in the wiki but not in the runtime; scripted items in other actors' or
+      containers' inventories don't run; Return ends one block, not the frame (matters
+      in 5 shipped scripts); result-script variables don't overwrite the quest script's;
+      script packages stack instead of replacing each other; EvaluatePackage keeps a
+      script package. **Captured 2026-10-18 [observed]:**
+      - A second AddScriptPackage **replaces** the first.
+      - EvaluatePackage keeps a script package.
+      - A disabled reference's GameMode **runs**.
+
+      **No runtime fix was needed:** the runtime already did all three; see "Script
+      packages and disabled references: the 2026-10-18 captures" at the end of this file.
+      The actor now holds one script-package slot instead of a one-entry list (older
+      saves load). Scripted items in other inventories are still to be captured
+      (spec-notes/owner-decision-captures.md §4).
+      All three confirm the runtime's rules. The runtime has replaced script packages
+      since 2026-10-10 and run disabled references' GameMode since 2026-10-09, so this
+      item's wording on those two points was out of date (#441). Scripted items in other
+      inventories are still to be captured (spec-notes/owner-decision-captures.md §4).
+      **2026-10-19:** not settled; the Legion aura token's script cast nothing even in
+      the player's inventory (the control), so it cannot answer for NPCs
+      (spec-notes/owner-decision-captures.md §7).
+    - Each note ends with capture candidates. Nothing was changed in the runtime.
+
+26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
+    new; each is handled as below.
+    - **Quest items can't be dropped or sold, and bodies holding one don't despawn until
+      it's taken.** Nothing read a quest-item record flag, so `--play` let you drop
+      anything. A session on `claude/quest-items` is adding the flag (from xEdit's
+      definitions, confirmed in the data) and the rule.
+    - ~~**"Random Anim Start":** world objects with it start their idle animation at a
+      random time, so copies don't animate in step. Nothing reads it yet. **For the
+      NPC/animation coordinator:** this belongs with the placed-model animation of #47
+      (`engine/nvf-assets` model.rs).~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" ("Random Anim Start" objects no longer animate in step).)*
+    - **Leveled lists pick by the player's level relative to the encounter zone.**
+      `fnv-sim` uses the player's level only (no ECZN). This matters for leveled actors
+      (Layer 6); noted, not changed.
+
+    The export is kept as `C:\fnv-private\geckwiki\objects.xml`.
+
+27. **Your "Getting started" export (Bethesda's tutorial series, 20 pages used).**
+    `docs/spec-notes/level-design.md` is our own summary (no 8-word run in common with the
+    export), with data checks run on `FalloutNV.esm` this session. The tutorials were
+    written for Fallout 3, so each rule still needs a New Vegas check where it matters.
+    - **Settled from the data:** placed primitive bounds (`XPRM`) are half extents. Of
+      1,341 portal/room pairs, 1,298 put the portal on a room face that way, none the
+      other way. Physics already reads them so.
+    - **Triggers (for the `--play` session):** any actor can fire a trigger (and, without
+      the "ActorZone" flag, any object); OnTrigger runs every frame. Ours tests the player
+      only, as three points on the player's axis.
+    - ~~**Lights (for the renderer):** a placed light's radius can differ from its base.
+      6,484 of 7,742 interior lights carry `XRDS`, which looks like an offset added to the
+      base radius; the renderer ignores it. Emittance from a light should also carry its
+      brightness, and objects should fade in by size. None of this is changed yet.~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" (a placed light's radius is its base radius plus XRDS, settled with seven interior frames).)*
+    - **Culling:** rooms, portals and occlusion planes are described in detail. The
+      renderer has none of them; that costs speed, not looks, except in rare cases.
+    - **Encounter zones:** a zone's level is fixed the first time you enter it. This
+      adds to item 26.
+
+    The full list of differences, by file, is the note's §11.2; capture ideas are its §13.
+
+28. **The intro, headless (#86) and in the game (#96).** The runtime reproduces your
+    `nvfnew` captures: all four `L5.intro.*` pass, holdout included, and L5 is 28/32.
+    `nvforever --play --new-game` runs the opening in Doc Mitchell's house unattended to
+    VCG01 stage 200, with stage timings matching the walk-through and the capture
+    (mostly within a few hundredths of a second). Decisions for you, from #86 and #96:
+    - (a) message boxes hold scripts only in inputs whose `given` includes a menu; the
+      alternative is adding the pack quests' state to the older inputs;
+    - (b) a new game puts the player at `VCG01PlayerStartMarkerREF` and sets VCG00
+      stage 0 directly;
+    - (c) dialogue line length is fitted (1.1 s + 1/16 s per character) until voice
+      files are read; the psych intro runs 18 s against about 13 s in game;
+    - (d) unattended `--play` runs answer script boxes after 0.25 s; attended runs wait
+      for you;
+    - (e) NPC trigger capsules use the player's placeholder size times scale;
+    - (f) `--new-game` lives in `engine/nvforever/src/main.rs`.
+29. **Quest items (#91).** Bit 10 "Quest Item" on WEAP/ARMO/ALCH/BOOK/KEYM/MISC/LIGH
+    [documented: xEdit]. 339 shipped items set it [observed]. The player can't drop them
+    (`--play` says so). A scripted `Drop` still drops them, as tested in game, and
+    storing them in containers is allowed [hypothesis] until checked by hand
+    (layer4-captures.md B14). Record-header flags are now schema data (`header_flags`).
+30. ~~**Lock trouble and a proposal.** Twice today the shared lock folders got stuck:~~
+    - ~~a session that hit the usage limit died holding them;~~
+    - ~~at 14:22 an unknown session created both and never used them;~~
+    - ~~once they vanished while the coordinator held them, cause unknown.
+
+    The coordinator removed stale locks only after checking that no FalloutNV or
+    nvforever process was running. Proposal: one shared helper (e.g.
+    `tools/capture/locks.py`) that writes an owner file (session, PID, time) into each
+    lock, treats a lock as stale when its PID is gone, and is used by every runner. Say
+    if you want it built.~~ *(stale 2026-10-19: superseded by "Smoke tests reworked" and tools/smoke/smoke/runner.py:30-131 (owner/ticket files with the PID, a dead runner's lock cleared, the first-come queue).)*
+31. **Dialogue started (2026-10-10), plan in `docs/design/dialogue.md`.** You asked
+    whether dialogue lines can be worked on now; they can, and no other session had
+    taken it. Decisions taken, each reversible:
+    - (a) dialogue is treated as a parity target (unlike combat), because lines and
+      their result scripts move the quests;
+    - (b) two workstreams run now: records plus headless conversations
+      (`claude/dialogue-core`), and voice files (`claude/dialogue-voice`); the dialogue
+      screen in `--play` follows;
+    - (c) the screen will be plain (a list of choices and subtitles); its look is
+      Layer 7;
+    - (d) lip sync, the dialogue camera, barter, companion wheels, radio and NPC-to-NPC
+      conversations are left out of this plan (§7).
+
+    **Needs you:** the capture questions in the plan's §6 need the original game running
+    on this desktop, which takes the screen and the keyboard. No capture run is started
+    until you say when you are away. Until then the rules marked [hypothesis] in the
+    plan's §3 stay hypotheses.
+32. **Dialogue records and headless conversations are on main (#117, 2026-10-10).**
+    Topics and lines are read in full (21,298 topics, 28,896 lines, 37,403 responses in
+    the ten masters) and a conversation runs without the game window
+    (`fnvtool dialogue topics|lines|talk`; facts and rules in
+    `docs/spec-notes/dialogue.md`). In the headless intro, the psych test and Doc
+    Mitchell's farewell are now real conversations; the chain still ends at VCG01 200.
+
+    **Your ruling on which line is picked is applied** (quest priority, then stored
+    order, first eligible from the top unless Random). It is recorded as your statement
+    and stays on the capture list as "to confirm". How much rides on it: 102 topics have
+    lines of several quests; in 99 an actor could say lines of quests with different
+    priorities, in 76 of quests with equal priority. GREETING has lines of 228 quests.
+
+    **Questions for you** (your GECK experience may settle them without a capture):
+    - (a) **Does dialogue pause the game?** **Answered 2026-10-10: yes.** A conversation
+      with the player now pauses the game behind it like the other menus (scripts'
+      GameMode and game time stop, MenuMode runs); lines spoken outside a conversation
+      (SayTo) pause nothing. The Securitron script fits this reading better than the
+      first one. The intro still ends at VCG01 200.
+    - (b) **AddTopic and a line's "Add Topics" list:** **Answered 2026-10-10:** every
+      actor offers a known topic if they can say a line of it. That is what the runtime
+      did; it is now recorded as your statement.
+    - (c) **Follow-up lines:** **Answered 2026-10-10: correct**, no player response.
+      Nothing to change; recorded as your statement.
+    - (d) **Random lines:** **Answered 2026-10-10:** Random lines that sit together are
+      a pool, and a normal line between two groups splits them into two pools. Fixed:
+      the runtime used to let a pool run on across a normal line the actor could not
+      say.
+    - (e) **Shared lines** (the Info Connection list on 2,435 topics; e.g. GREETING
+      lists four lines stored under `VMS07Greeting`): not used, because nothing we have
+      says what the game does with them. If the GECK shows these as lines shared
+      between two topics, they should also count as greetings.
+      (Since then the runtime counts shared lines as the topic's own, `GameData::shared_lines`.)
+      **Captured 2026-10-19 [observed], not settled:** Red Lucy's list starts with the
+      same three entries as ours; the topic with only a shared line has the same prompt as
+      one with a line of its own, and the list could not be scrolled to see a second one
+      (spec-notes/owner-decision-captures.md §7).
+    - (f) **Skill checks:** New Vegas marks a line with a skill or perk and uses ordinary
+      conditions in pass/fail pairs (1,499 lines). The Fallout 3 percentage roll exists
+      on 3 left-over lines only and is not modelled. The numbers shown ("Speech 35",
+      "30/35") are taken from the line's own skill condition.
+    - (g) **A line of a stopped quest cannot be said:** **Answered 2026-10-10: right**,
+      and the quest's own conditions must pass as well as the line's (113 of 640 quests
+      have such conditions, covering 8,151 lines; the runtime already checked them).
+      Still assumed: an actor with no eligible greeting cannot be talked to.
+      **Partly captured 2026-10-18 [observed]:** two such actors could not be talked to.
+      HVRangerREF could; his screenshot decides whether he had a greeting after all
+      (spec-notes/owner-decision-captures.md §4).
+      **Second run 2026-10-19 [observed]:** the ranger had a greeting: his picture shows
+      his name and a GREETING subtitle, and our runtime picks the same line (0x000ACD4D)
+      once he is enabled. The three actors were "without greeting" only because they are
+      disabled in a new game, where our tool cannot talk to them. Nothing contradicts the
+      runtime; the rule still has no clean test case (spec-notes/owner-decision-captures.md §7).
+
+    **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
+    packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
+    Smiles's and Trudy's lines (between travel packages, combat and crafting).
+
+    **Captures when you are away:** the 15 items of `docs/spec-notes/dialogue.md` §7.
+    Real-data tests of the dialogue code need `FNVLAB_DATA_DIR=<Data>`; without it they
+    are skipped.
+
+    Two small things your answers leave open (#120): when a Random pool's last line
+    carries "Random End" but the actor cannot say that line, does the pool still end
+    there (assumed yes); and do a quest's own conditions run on the speaking actor, like
+    a line's conditions (assumed yes).
+    **Not settled by the 2026-10-19 captures:** Ralph spoke GOODBYE twelve times by
+    script, but the plugin could not see which line (Tab does not reach the dialogue
+    menu, SayToDone names the topic, no subtitle in the pictures) (spec-notes/owner-decision-captures.md §7).
+33. **Dialogue voice (#119, 2026-10-10).** Lines last as long as their voice files and
+    are heard in `--play`; 97.3 % of the masters' 37,403 responses have a sound
+    (`docs/spec-notes/voice.md`). Nobody has listened to it yet: playback is confirmed
+    from the log only. Decisions for you:
+    - (a) **A missing 0.3 to 0.4 s per line.** With real sound lengths every captured
+      span of Doc Mitchell's lines comes out short by that much per line (one line
+      2.60 s against 2.9 s; three lines 14.5 s against 15.4 s; the psych intro 11.7 s
+      against about 13 s, where the old estimate gave 18.1 s). Nothing was tuned. Either
+      add a fixed pause per line (a fitted number again) or capture single lines first;
+      the captures so far cannot tell a per-line gap from a per-response one.
+    - (b) Voice lengths are on by default in `fnvtool script run` and `dialogue talk`
+      (the four `L5.intro.*` scenarios pass either way); `--no-voice-lengths` restores
+      the estimate.
+    - (c) Unattended `--play` runs now play voice through the speakers; `--no-voice`
+      keeps them silent. Agents were told to run silent while you are at the desk.
+    - (d) Open hypotheses (voice.md §11): which of `.ogg` and `.wav` the game plays for
+      the 40 lines that have both; what a response's sound form does (228 responses;
+      reported, not played); the voice of actors templated on a levelled list; whether
+      a line with no file shows its subtitle for some fixed time.
+    - ~~(e) Voices play flat (no 3D placement).~~ *(stale 2026-10-19: superseded by "Playtest fixes: Sunny, dialogue and voices by distance" (volume by distance, panned left/right); status.md:100.)*
+34. **Pausing in conversations: "living pause" now, a live world later (your request,
+    2026-10-10).** You said the original pauses during a conversation but that you would
+    prefer no pause if scripts and outside NPCs can be kept from causing trouble.
+    - **Built now (dialogue screen, `claude/dialogue-screen`):** only what scripts can
+      see is frozen (script time, quest timers, the game clock, NPC decisions, damage,
+      needs). What you see and hear keeps running (idle animation, wind, water, weather,
+      sky, the speaker's voice), with free look. `--dialogue-pause living|original`,
+      default `living`. Quest behaviour is the original's.
+    - **Proposed for when AI packages exist:** NPCs on ordinary schedules keep moving;
+      events that happen meanwhile (a trigger entered, a package finished) are queued
+      and delivered to scripts when the conversation ends; the speaker's schedule is
+      held and hostiles cannot start a fight with the pair; NPCs under script control
+      hold their place.
+    - **Not proposed as default:** scripts running live during dialogue (as in Skyrim).
+      The base game's scripts react to a line's result on the next frame (moving the
+      speaker, opening a box, starting another conversation), which would land in the
+      middle of the line. Could be an experimental option after listing the scripts at
+      risk from the decoded scripts.
+    - **Your call:** (1) should walking away end a conversation where the line would let
+      you leave; (2) should the game clock keep moving while you talk (frozen for now);
+      (3) should being attacked break the conversation, or is the pair untouchable
+      (proposed: untouchable, because a broken line could skip a quest result).
+    - **Captured 2026-10-19 [observed]:** the original stops the game clock during a
+      conversation (GameHour steady for six samples), and an attack does not end it: a
+      gecko set on the player, and Ringo himself, read in combat with no target and did
+      not move while the menu stayed open. Both are what NVForever already does, so (2)
+      and (3) are only your choice now (spec-notes/owner-decision-captures.md §7).
+35. **Lip sync started at your request (2026-10-10, `claude/dialogue-lip`).** Goal: the
+    `.lip` file of a spoken line moves the speaker's mouth and face in `--play`. The
+    format has no official documentation, so the work uses public documentation and
+    observation of the files only; if that is not enough to animate honestly, it stops
+    at the notes and the reader. It touches the NPC side's files
+    (`engine/nvforever/src/actors.rs`, `facegen.rs`) as little as the feature needs.
+36. **Dialogue screen in `--play` (#122, 2026-10-10): please play it by hand.**
+    `nvforever --data <Data> --play --cell Goodsprings`, then E on Easy Pete (or anyone
+    with a greeting); `--play --new-game` for Doc Mitchell's psych test. Keys and the
+    test aid are in `docs/design/dialogue-play.md`. Unattended runs passed (the intro
+    ends at VCG01 200 with both of Doc's conversations real; Easy Pete offers 4, 6, 5
+    choices and says goodbye), but free look while an NPC speaks and clicking choices
+    with the mouse could only be tried by hand. Decisions for you:
+    - (a) **Shift+Tab breaks a conversation off at any point** (the line is cut, no end
+      script). It is ours, a way out of a conversation the data gives no end to; it can
+      skip a quest result. Keep it, hide it behind a debug switch, or remove it?
+      **Decided 2026-10-10 ("hide the shift tab cut line to a debug switch this should
+      not be in the release version"):** done on `claude/menu-pause`: off unless
+      `NVF_PLAY_DEBUG_TALK_BREAK=1` is set, no on-screen hint; debug switches and test
+      aids are to be compiled out of packaged releases once packaging exists.
+    - (b) **Tab says goodbye only where a Goodbye choice is offered** (so the psych
+      test cannot be left). How the original's Tab behaves is not captured.
+    - (c) **Skipping a line** (Space, Enter, E or a click) still runs its end script
+      [hypothesis].
+    - (d) **Cursor in `living` mode:** free look while the actor speaks, cursor released
+      while choosing (the view holds then). The alternative is keys-only choosing with
+      free look throughout. **Decided 2026-10-10 ("go with the first option"):** as
+      built; recorded in docs/design/dialogue.md §8.
+    - (e) **`--dialogue-pause original` is stricter than today's menus**, which never
+      stopped animations. Should the inventory, container and message boxes follow the
+      same switch, or stay as they are? **Decided 2026-10-10 ("add the pause switch to
+      all menus except the actual ESC pause menu"):** done on `claude/menu-pause`:
+      `--menu-pause living|original` (default `living`, `--dialogue-pause` still works)
+      covers every menu; the Esc pause menu always holds everything, picture and voice
+      included.
+    - (f) **A question asked once disappears from the list** when its line is Say Once
+      and has no choices (all of Easy Pete's did). Whether the original hides or dims
+      it needs a capture; nothing was ever shown dimmed in the runs.
+    - (g) Known rough edges: no dialogue camera and the actor does not turn to the
+      player; the panel shows neither the player's own line nor the actor's last line
+      while choosing; AI packages, when they exist, must honour the hold on travellers.
+
+    **#126 (merged) applies your decisions (a), (d), (e).** Please try by hand:
+    `--menu-pause original`, open the inventory (Tab), then talk to Easy Pete (the world
+    should freeze under both); and without the flag, Esc while he is speaking (voice and
+    mouth should stop and pick up on Resume). Found and fixed on the way: lines NPCs say
+    outside conversations (Doc Mitchell in the intro) used to talk on underneath a menu
+    or message box while their timer stood still; the sound now holds with the timer.
+    Not verified unattended: a hand pressing Shift+Tab, that the sound is really silent
+    while held, and that the mouth stands still while held. Rough edge: under `original`
+    the picture moves a frame or two between message boxes shown back to back.
+37. **Lip sync (#125, 2026-10-10): you compared it and found it identical to the base
+    game** (Doc Mitchell's lines, with sound). Recorded in `docs/spec-notes/lipsync.md`
+    §6 as your observation. The `.lip` format had no public documentation; all 60,702
+    files decode and re-encode byte for byte. `--no-lip` turns it off. Left open:
+    - ~~(a) **Head and eye movement while talking is not shown.** The files carry look and
+      head pitch/roll/yaw channels whose unit could not be established. A frame-by-frame
+      video of one line in the original game would show how far the head turns.~~ *(stale 2026-10-19: superseded by "Faces in conversation: head nods, eyes, emotions, blinks" (heads nod from the `.lip` files, eyes move with them; the unit is a capture still queued).)*
+    - (b) **Channel names by position.** The vowel shapes and the brow, look and squint
+      names follow the order of the game's `MFG` console lists and are not confirmed one
+      by one. In the original, `MFG phoneme <n> 100` and `MFG modifier <n> 100` on an
+      NPC with a screenshot each would confirm them; an export of the GECK wiki page
+      "ModifyFaceGen" would help too (it could not be fetched directly).
+    - ~~(c) **Emotions.** A response's emotion type and value and the heads' expression
+      morphs are not applied; how the game blends them with speech is unknown. Is a
+      plain design acceptable (the emotion morph at its value while the response is
+      said), or do you want a capture first?~~ *(stale 2026-10-19: superseded by "Faces in conversation…" (the emotion morph at value ÷ 100 × 0.6).)*
+    - (d) **Speakers without a human head** (robots, Mr. House, creatures) have `.lip`
+      files but nothing moves for them.
+    - (e) Child and ghoul heads were not looked at on screen (their morph files parse
+      and fit their models). Blinking outside speech and head tracking are not done.
+    - (f) A private dump of all `.lip` and `.tri` files (about 345 MB) is in
+      `C:\Users\Loot\coord-bin\dlg-lip\priv\`, outside the repo. Delete it when you like.
+    - (g) Correction to `docs/spec-notes/actors.md` §4: `headhuman.nif` is not
+      vertex-identical to its `.tri` (same order, up to 0.53 units apart). Nothing
+      changes on screen.
+
+38. **Conversation partners look at each other (your request, 2026-10-10): built, PR #133
+    (`claude/dialogue-facing`), waiting for the coordinator's check and merge.** In a
+    back-and-forth conversation (the dialogue screen is open) the NPC turns its head to
+    you, a standing NPC also turns its body on the spot, and your view eases onto the
+    NPC's face. Lines an NPC just says out loud turn nobody: in the unattended intro Doc
+    Mitchell's 23 spoken lines turned no one and his two conversations did. Details and
+    what the screenshots show: `docs/design/dialogue-play.md` §8. Try it:
+    `nvforever --data <Data> --play --cell Goodsprings`, walk up to Easy Pete from the
+    side or from behind and press E.
+    - **Free look against facing: decided 2026-10-10** ("never come back i just want
+      the initial look at npc to happen then allow the player to free look the rest of
+      the time they are in dialogue with them"). Your view turns to the NPC when the
+      conversation starts (0.4 s) and is yours after that; it no longer comes back when
+      the choices appear. The mouse always wins: moving it during the opening turn stops
+      the turn. `--dialogue-recentre` brings the old coming-back behaviour back. Still
+      as you chose earlier: while the choices are shown the cursor is released for
+      clicking, so the view holds until you pick; say if you want free look there too
+      (choosing would then be keys only).
+    - **How far and how fast are our own choices, not the original's.** The head turns
+      at most 60° to a side (that number is the game's own: "Tracking Max Angle" of the
+      head in `DefaultBodyPartData`) and 30° up or down; it takes 0.45 s to turn and
+      0.6 s to ease back. A body more than 30° off turns at about 150° a second and
+      **keeps facing you after the conversation**. Say if any of it looks wrong (too
+      fast, too stiff, should turn back afterwards).
+    - ~~**Sitting NPCs.** A sitting or lying NPC is meant to turn its head only. Nothing
+      in the engine seats anyone yet (every NPC is drawn standing, Doc Mitchell during
+      the psych test included, so he turned on the spot standing by his bed), so today
+      only the hook exists (`BodyHeld`); the furniture work has to set it.~~ *(stale 2026-10-19: superseded by "Furniture: sitting" (NPCs sit) and "NPCs turn to whom they talk to" (sitting NPCs turn their heads only).)*
+    - ~~**Seen and left as it is:** NPCs are still drawn where the plugins place them, so
+      a conversation a script starts from afar turns your view to where the NPC stands,
+      even through a wall (Doc Mitchell's farewell, which in the original he walks over
+      for). This goes away when AI packages move NPCs.~~ *(stale 2026-10-19: superseded by "AI packages" (NPCs live by their packages in `nvforever`, step 4c).)*
+    - **Not included:** the eyes do not move in the head (at 60° the face is turned to
+      you but the eyes look straight out of it); no zoom or dialogue camera (the wiki
+      export does not describe the original's; tell us what it does, or we capture it);
+      creatures, robots and talking activators do not turn; the turn animation is asked
+      for but its pace is not matched to the turn and it was not checked in a picture.
+    - `--no-dialogue-look` turns the whole thing off. With `--menu-pause original` the
+      two are facing each other at once in the frozen picture.
+    - **Please play it by hand**: the turns were checked in screenshots a few frames
+      apart, not in motion, and the mouse during a turn only through a test aid.
+
+## NPC coordinator on the owner's desktop (2026-10-09)
+
+A second coordinating session ("NPC implementation coordination", Claude Desktop on the
+owner's PC) ran at the same time as the one above. The owner asked it to get every local
+session's work tested, PR'd and merged, with working NPCs as the goal. The two
+coordinators could not message each other, so this section is how they share state.
+
+1. **#44, #47 and #48 were merged by this coordinator**, not by unknown sessions (item 2
+   above). Before merging, each one passed the CLAUDE.md checks on a tree that combined
+   it with the latest `main`: workspace tests and clippy, engine clippy, and both Python
+   suites for #48. #44's own session ran the moving-camera smoke test (exit 0, 33 actors
+   drawn, 258 FaceGen shapes morphed), and so did #47's session.
+2. **#49 (Hor+ field of view)**: merged by this coordinator after engine clippy and tests
+   passed on `main` + #49.
+3. **#51 (Layer 5A script reader)**: this coordinator ran every check on `main` (#49) +
+   #51 and all passed. The other coordinator merged it; the merged tree differs only in
+   `docs/`.
+4. **#50 and #54 merged by this coordinator.**
+   - **#50** (distant-LOD fade, no pop-in) was rebased by its session onto `main`
+     (resolving the conflicts with #44's actors). Engine clippy and tests pass on
+     `main` + #50. Its smoke run: exit 0, 208 cells, 33 actors drawn.
+   - **#54** (workstream 5 part E: KF idle animation on actors) was brought up to date
+     with `main` twice by its session. On the final tree, every CLAUDE.md check
+     passes. The lab is at 329/365 with 0 regressions; the errors are only goldens not
+     on this machine. Smoke runs in both poses: exit 0, 33 actors animated, none
+     missing a clip.
+5. **Two smoke-test locks exist.** Sessions on this machine were told to take
+   `.claude\smoke.lock` (mkdir/rmdir in the repo root) before running the game. The
+   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. Since item 13
+   above, the Layer 5 coordinator takes both, so runs no longer overlap. Merging the two
+   into one lock is still worth doing when you're back.
+6. **Cross-session messages between Desktop sessions are held** when their permission
+   modes differ. This coordinator runs with bypass permissions and the workers do not, so
+   it used the app's session-messaging path instead. Every worker session refused to run
+   `gh pr merge` on another session's request (correctly: only you can authorise that),
+   so this coordinator did the merges itself under your direct instruction.
+7. **NPCs now play their idle animation by default (decision for you to confirm).** PR
+   "actor pose: idle by default" changes `nvforever`'s default from `--actor-pose bind`
+   (the frozen bind pose, your decision of 2026-10-08) to `--actor-pose idle`. The
+   reason is your instruction of 2026-10-09: "I need working NPCs". #54's session
+   rightly would not take that change on a relayed request, so this coordinator made
+   it. `--actor-pose bind` still gives the frozen pose.
+   - **Effects:** no parity-lab scenario depends on the default. `L3.frame.*` renders
+     now show animated NPCs wherever NPCs are in view, which is closer to the game's
+     reference frames.
+   - **Smoke run with the new default:** exit 0, 34 actors drawn and 34 animated, 0
+     clips missing, 27.1 fps.
+   - **To undo:** in `engine/nvforever/src/main.rs`, set `default_value_t` back to
+     `ActorPose::Bind` and move `#[default]` in `actors.rs`. Two doc lines also need
+     changing back.
+8. **Still open for NPCs:**
+   - ~~Creatures (part D) are not started.~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" (creatures drawn with their idle animation); status.md:50.)*
+   - ~~Clips are not chosen by situation (walk, sit, talk); that is Layer 6.~~ *(stale 2026-10-19: superseded by status.md:51 (locomotion, furniture, talking gestures, weapon stances) and "Furniture: sitting", "Talking gestures" .)*
+   - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
+   - ~~The body skin `.egt` and race FaceGen data are unused.~~ *(stale 2026-10-19: superseded by "Skin tone by race" and "Sunny Smiles' face shape…" (race FaceGen values added); "The player's unclothed body" (skin tint on the body).)*
+
+## Layers 1–4 close-out (coordinator "Layers 1–4 and housekeeping", 2026-10-09 afternoon)
+
+The owner asked for Layers 1–4 to be worked through and the repository tidied, using the
+in-game comparison tools. Eight workstreams ran in parallel worktrees; their PRs were
+checked and merged by this coordinator (owner approved merging when green): #91, #93,
+#95, #97, #98, #99, #100, #101, #102. Lab on `main` after the merges: **376/402 pass, 0 regressions** (L1 111/115, L2 51/56, L3 99/109, L4 87/90, L5 28/32; the 8 errors are holdouts whose goldens are not on this machine; the 18 fails are the 4 xEdit rows of item 3, 7 exterior frames below `min_ssim` 0.6, the 3 accepted physics residuals and the 4 known Layer 5 rows).
+
+1. **⚠️ Your autosave was rewritten again.** A Layer 4 capture (`pc_drop_fall`) walked
+   out of Doc Mitchell's house through the front door, and the game wrote `autosave.fos`.
+   `capture_run.py` backed up the previous `autosave.fos`, `.bak` and `.nvse` first, to
+   `C:\fnv-private\capture\saves-backup\1791556049`. Copy them back into
+   `Documents\My Games\FalloutNV\Saves` yourself if you want them (the tools never write
+   there). The older movement jobs (layer4-captures.md §5) leave the house the same way,
+   so treat any job that passes a door as one that may autosave.
+2. **Accepted physics residuals (your decision today):** `L4.phys.drops.b11_goodsprings`
+   17/20, `L4.phys.walk.portal_wall` 5/6 and `L4.phys.drops.swim_h2o_fresh` 8/9 stay
+   failing as the honest record; nobody tunes them further (layer4.md §4).
+3. **Layer 1 (#93).** The four failing xEdit scenarios are xEdit normalising the file,
+   not our reader: three missing required EDID/FULL subrecords that xEdit exports as `""`,
+   and GRA's out-of-range master index, which xEdit folds into the plugin's own. Our
+   reader and the independent oracle agree on all four. Decide:
+   - (a) add a "documented differences" list to the scenario format (proposal in
+     layer1.md §5.1), or (b) leave the four failing.
+   - The game does what xEdit does with the out-of-range index (the reference is placed
+     as GRA's own, captured). Following it needs an `oracle_world.py` change and two
+     regenerated L3 interior goldens — your call (golden regeneration).
+   - Record layouts now cover 70 of 107 types, with nothing left undecoded at the end
+     of a record in any master. FalloutNV.esm's SHA-256 is unchanged; a Steam "verify"
+     is still yours if you want the checksum question closed. The licence is still yours.
+4. **Layer 2 (#101).** Archive precedence is settled in game: `Update.bsa` and the DLC
+   `<Plugin> - Main.bsa` archives override the base archives, whatever the file dates.
+   Loose files on top stay a hypothesis (Data has no loose meshes or textures; put one
+   there by hand if you want it confirmed). Five fixed-camera frames were captured for a
+   mesh-by-mesh comparison; no asset bug was found. Their `L2.frame.*` scenarios are not
+   generated yet, and their threshold (provisional `min_ssim` 0.6) needs you.
+5. **Layer 3 (#95, #98, #99, #100).**
+   - **Creatures** are drawn with their idle animation; disabled NPCs, creatures and
+     lights are now spawned hidden, so a script's Enable shows them (item 19 above);
+     "Random Anim Start" objects no longer animate in step. Whether the game adds the
+     race's FaceGen data to an NPC's is open: say if you want the capture (several NPCs
+     of one race).
+   - **Distant land:** terrain LOD levels 4–32, object blocks out to 125,000 units, distant
+     tree billboards to 40,000, distances from your INI; the interior-start bug is fixed;
+     smoke test 47.6 → 54.0 fps. **Question:** the game's view of the hill east of
+     Goodsprings matched ours only at `--radius 4`, not at your `uGridsToLoad=5`
+     (`--radius 2`). Raise the default load radius?
+   - **Interiors:** a placed light's radius is its base radius plus `XRDS` (settled with
+     seven new interior reference frames; SSIM up on all seven, e.g. Doc's living room
+     0.42 → 0.68).
+   - **Sky (docs only):** the new captures settled that the noon darkening is not eye
+     adaptation, that clouds move with seconds since the save loaded (not the game hour),
+     and that sunlight is about 0.6–0.66× too strong while shaded faces should be lit
+     nearly neutral, not blue. Nothing in the renderer changed yet. **Questions:** record
+     seconds-since-load in the frame scenarios so clouds can be matched? And the lab
+     renders frames with sun shadows on (your default) while the game draws none — should
+     the frame scenarios pass `--shadow-distance 0`?
+   - The plugin's screenshot step fails ("BitBlt failed") in Vault 21, REPCONN and Big MT;
+     the three saloon frames crash inside the lab (0xC0000142) but render fine outside it.
+6. **Layer 4 (#97, #102).**
+   - **Played by hand** (M4's last open item) with real OS keyboard and mouse input
+     (layer4.md §4). The five problems found — free-fly help text in play mode, Esc
+     quitting at once, message-box buttons not clickable, a raw FormID in a menu error,
+     "level 0" lock prompts — are fixed: Esc now opens a Resume / Quit pause menu.
+   - **Captured and modelled:** dropped items fall (and face the player's heading); the
+     player is about 130 units tall; pushing matches the game; `coc` and a fall into
+     nothing land on the cell's marker; physics-moved clutter is written back; Caps Lock,
+     Ctrl (sneak) and Q (auto-move) work; `iHoursToRespawnCell` is 72 and a cell resets 72
+     hours after the player leaves it; placed frag mines are live; the Pip-Boy and its
+     glove are worn from the start.
+   - **Still open:** crouched and eye height; player disarming of mines; Chet's restock
+     rule (Ringo's days are not global, but the simulation still applies them to every
+     merchant); ~~armour on the ground should be drawn with MOD2 (male), which the engine
+     does not do yet~~ (done 2026-10-10, "Dropped items use their world model" below);
+     Layer 5's `coc_destination` should follow the marker rule.
+7. **Housekeeping.**
+   - The README now describes the project as it is (status table, `--play`, the comparison
+     tools, every crate).
+   - Build folders of 33 merged worktrees were deleted (C: free space 75 → 195 GB); the
+     worktrees themselves were kept. Merged remote branches (78) are untouched; deleting
+     them is still your call. `frosty-nash`'s one useful doc line was taken in; the other
+     unmerged branches add nothing to `main` except `layer5-play-2` (Layer 5, left alone).
+   - **Lock incident:** when all agents stopped at the usage limit, a leftover lock loop
+     of one agent took both game locks and held them with nothing running (about
+     14:22–14:54), which blocked the Layer 5 session's windowed checks; they never ran and
+     need re-running there. All game runs since go through a wrapper that releases both
+     locks in a trap. Keep it that way for loops that wait for the locks.
+
+## Navmesh and travelling NPCs (2026-10-09, session "navmesh")
+
+Owner request: navmesh building for worldspaces and AI, tested with an NPC navigating
+the world, able to tell it can reach its package's target through interiors and
+worldspaces. Design: `docs/design/navmesh.md`; facts: `docs/spec-notes/navmesh.md`.
+
+1. **New crate `fnv-nav`** (reader, nav graph, hierarchical paths with door routes and
+   locks, path following), **`fnvtool nav`** (survey, graph, near, path, walk) and
+   **`nvforever --npc-travel / --follow-npc / --show-navmesh`**. Headless physics walks
+   all arrive, including Doc Mitchell's house to the Strip through 7 doors and 8 spaces.
+2. **Decisions taken (design §7), each reversible:** NPC walking speed 86.8 units/s;
+   ledge links unused by default; locked doors closed to actors without the key; in the
+   walk test, other actors and hinged doors are left out of the collision world.
+3. **Animated in-cell doors** (your request, with NPCs waiting for the Open animation):
+   designed in §6.1 and queued as a separate task; not part of this change.
+4. **I ran the engine before reading the smoke-lock note above** (item 5 of the NPC
+   coordinator's section): the first `nvforever` runs of this session took neither
+   lock. Later smoke runs take both.
+5. **A useful reference if you can capture it:** the GECK's "Test Pathfinding" tool
+   (your Menus export) shows the path an actor would take between two triangles. A few
+   captured paths would let the lab compare our routes with the original's.
+
+## Doors that open in place (2026-10-09, session "doors")
+
+Owner requests: doors that are not cell transitions animate so they can be opened, and
+an NPC waits until the open animation has finished. Design: `docs/design/navmesh.md`
+§6.1; facts: `docs/spec-notes/doors.md`.
+
+1. **Done:** such doors (263 of 474 DOOR models have Open/Close; 1,844 placed references
+   without XTEL) are drawn with their animation, collide as they move, open and close
+   with E (locks and keys as before), and log their sound keys (there is no sound
+   playback yet). Followers stop in front of a door on their path, open it, wait for
+   the Open sequence to end, then walk through: in `fnvtool nav walk` (all six trips in
+   §5 arrive; Doc Mitchell to the Strip waits 1.68 s at the sewer door) and for
+   `--npc-travel` travellers (Trudy through a saloon door: waits 1.02 s).
+2. **Decisions taken (design §7.5), each reversible:** the actor stops in line with the
+   middle of the opening, the opening's width plus its clearance in front (so a hinged
+   leaf cannot swing into it, whichever way it opens), and walks straight through; doors
+   stay open; a door told to close while opening turns back. A door flagged Open by
+   Default now starts open in the simulation too [hypothesis].
+3. **Open questions for captures:** do doors close by themselves behind NPCs; from how
+   far does an NPC open a door; does the original wait for the animation; what does the
+   "Sliding Door" flag change (hinged-looking doors carry it).
+4. **Fixed on the way:** a traveller inside the interior being drawn never started
+   (`--npc-travel` from an interior with `--cell` that interior); the interior now counts
+   as streamed in once its cell is loaded.
+5. **I ran `nvforever` without the smoke locks** (`.claude\smoke.lock`,
+   `C:\fnv-private\capture\run.lock`) about fifteen times (13:50–15:10, 20–120 s
+   each) before reading item 5 of the NPC coordinator's section; another session held
+   `run.lock` during some of them. Any windowed check that overlapped them may need
+   re-running. The final smoke runs (15:29–15:33) took `.claude\smoke.lock`;
+   `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
+   nvforever process running (stale-looking); removed at your request (15:45).
+
+## AI packages (2026-10-10, steps 1 to 4b of the plan)
+
+Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken:
+`docs/design/actor-behaviour.md` (§6). Branch `claude/ai-packages`.
+
+1. **Done:** every AI package record of the six masters decodes (step 1), and the game
+   data now holds each package as typed data: type, flags, where, what it targets, when,
+   its conditions and the per-type extras (step 2; `fnv_game::package`). Nothing uses
+   the new fields for choosing a package yet: that is step 3.
+2. **Checked against your observer captures** (eleven Goodsprings runs, 354,983 actor
+   samples; `fnvtool ai observed`): the game reported the expected package type for
+   every one of the 30 packages seen (10 of the 15 types), the record's target whenever
+   it named a reference, and 39 of 42 actor/package pairs came from the actor's list
+   (the other three are packages scripts add).
+3. **A documented rule the game narrows:** the wiki says a patrol is skipped when the
+   actor has no linked reference. Victor has none and patrols all day: his patrol names
+   a marker and follows the markers linked from it. Only patrols located "near linked
+   reference" (the default patrols) need the actor's own link.
+4. **Corrected from step 1:** "location 2" was counted twice (each record stores it in
+   two identical copies): 236 packages have one, not 472.
+5. **Would help if captured:** an actor running Find, Follow, Escort, Wander, Use Item
+   At or Use Weapon packages (their in-game type codes are paired by name only; set
+   aside at your request), and the sandbox settings (`GetGameSetting`), as noted for
+   step 1.
+6. **Step 3, done:** actors now choose their package as the game does: by the hour
+   (a package runs from its starting hour for its duration), top to bottom, skipping
+   packages that need a linked reference the actor lacks, with Once Per Day, Must
+   Complete and Continue If PC Near. `fnvtool ai day --actor EasyPeteRef` prints an
+   actor's day. Replayed over your captures, the choice matches wherever quest state
+   does not decide (186,563 samples the same; 51 differ, all in the seconds a switch
+   takes).
+7. **Taken from your captures, not from the documentation:** an actor with no valid
+   package keeps the one it has (a Goodsprings settler sandboxes all night because its
+   sleep package's conditions fail). And a rule the documentation states that the
+   captures contradict, left as it was: a script package without Must Complete is said
+   to end at the next evaluation, but Ringo's ran for 887 samples.
+8. **Captures that would settle open points:** the evaluation interval at a timescale
+   other than 30, and an actor under a Once Per Day or Must Complete package.
+9. **Step 4, done headless:** an actor now goes where its package sends it, over the
+   navmesh and through doors, and the game is told when it arrives (new crate `fnv-ai`).
+   `fnvtool ai run --actor EasyPeteRef --start-hour 6` shows his day: chair, bed, chair,
+   the saloon at noon, chair, bed, each walk with its doors and length. Started from
+   your captures, the simulated actors are in the same cell as in the game 91–100% of
+   the time (Chet, Ringo, two settlers, Easy Pete, Cheyenne).
+10. **Can every actor get where its packages send it?** `fnvtool ai reach` answers for
+    the whole game in 16 seconds: of the 9,938 destinations it can judge, 9,434 are
+    reachable (up to eight doors away) and 504 are not.
+11. **Notes to look into** (the full list of twenty: `docs/design/actor-behaviour.md`
+    §7). The ones that matter most:
+    - 200 destinations have no chain of doors (Primm deputies, Nellis tower guards, Yes
+      Man walking to his terminal): ladders, lifts, quest-enabled navmeshes or doors?
+    - 112 are behind doors a quest unlocks; game-side lock changes do not reach the nav
+      graph yet.
+    - 186 actors are placed with no navmesh within 512 units.
+    - ~~Patrols do not wait at their points (Victor matches his capture only a third of
+      the time); sandboxing is "go there and stay" (no wandering, sitting, sleeping in
+      beds).~~ *(stale 2026-10-19: superseded by item 18 of the same section (sandboxing walks, sits, sleeps; "Patrols now wait at their points").)*
+    - What the game does when a package cannot be carried out is unknown; we set it
+      aside for an hour and take the next one.
+    - ~~Not carried out yet: Follow, Accompany, Escort, Find, Use Item At, Use Weapon,
+      Dialogue, Ambush and Flee packages (1,107 actor/package pairs).~~ *(stale 2026-10-19: superseded by status.md:78 ("every package type carried out: Escort, Find, Use Item At, Ambush and Flee Not Combat since 2026-10-17"); "Scripted weapon use".)*
+12. **Step 4b, done: NPCs live by their packages in `nvforever`.** Try
+    `nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef --hour 11.8
+    --follow-npc`: at noon Easy Pete gets up from his chair and walks into the saloon to
+    eat; with `--hour 21.9` and `EasyPeteRef,GSChetRef,GoodspringsSettler04Ref` the town
+    goes to bed. Limits: only the actors you name; their package choice runs in a game
+    state of its own, so in `--play` quests do not affect it yet; they walk on the
+    navmesh without physics (design §5.4).
+13. **Your question about Doc Mitchell's route** (he leaves his room through the living
+    room instead of the doorway beside him): it is the game's navmesh, not the test or
+    our pathfinder. The house's navmesh has no triangles in that doorway (a gap of about
+    50 units, read straight from FalloutNV.esm), though the doorway is physically open.
+    I could not confirm what the original game's NPCs do there: the captures only have
+    Doc standing still. Watching an NPC walk through that house in the game, or the
+    cell's navmesh in the GECK, would settle it (design §7, note 21).
+
+14. **Step 4c, done:** `--npc-packages all` hands every actor of the loaded cells to the
+    package layer; with `--play` the choice uses the game's own state (quests, deaths,
+    menus pausing it); and near the player actors are moved by the character controller
+    (they go round furniture and follow the floor), falling back to the navmesh surface
+    when stuck and for the last steps to a chair or bed.
+15. **A change you will see in `--play`: the sky now follows the game's clock.** Time
+    passes at the game's TimeScale (one game hour in two minutes), starting at `--hour`.
+    `--still-sky` gives the old fixed sky back. Say if you would rather have it off by
+    default.
+16. **Your rewrite of `main`'s history** (commits re-authored with the GitHub noreply
+    address) left `claude/ai-packages` on the old history. This work is now one commit
+    on the new history, on **`claude/ai-packages-v2`** (same files; authored with the
+    noreply address). I did not touch the old remote branch `claude/ai-packages`: it
+    still holds the old commits with the old address, so you will want to delete it.
+    Other old-history branches on the remote are in the same position.
+17. **Furniture with the package routines (your request, 2026-10-10):** residents now use
+    the furniture from main. Easy Pete sits in his porch chair, gets up at noon, sits at
+    his booth in the saloon, and at night lies down on his bed; the walk to the next
+    place waits until he is up. The rule for chairs comes from your captures (the game
+    reported him sitting under those packages); beds for Sleep packages and seats for
+    Eat packages follow the documentation. Not done: sandboxing actors picking
+    furniture on their own, and actors that arrive unseen are seated only once drawn.
+18. **Sandboxing (your request, 2026-10-10):** actors under Sandbox and Wander packages
+    now do things in their area: walk about, sit on seats, stand at idle markers, go to
+    bed at night and take meals, as the package's flags allow. The six behaviour flags
+    are read and five are acted on. **Conversation is read but not carried out** (no
+    NPC-to-NPC talk yet), and so are Random Conversations, Idle Chatter, No Idle Anims
+    and the package's own idles: nothing plays idle animations yet. The sleep and meal
+    hours are the documented ones; how long an actor sits or stands, and how it scores
+    what is around it, are my numbers until a capture shows the game's (design §5.5).
+    Patrols now wait at their points for the point's idle time.
+
+## Loading screens (2026-10-10, session "loading screen")
+
+Your request: pause and show a loading screen when changing cell, everything on hold
+until loading is done, the picture taken from the game's loading-screen textures as the
+plugins list them. Design: docs/design/loading-screen.md; records:
+docs/spec-notes/loading-screens.md; branch `claude/loading-screen`.
+
+1. **Yes, the plugins say which pictures are loading screens.** FalloutNV.esm has 208
+   loading screen records (LSCR); each names a picture and a text. They use 35 of the 52
+   textures in `textures\interface\loading`; the other 17 are parts of the original's
+   screen (roulette wheel, glare, text bar), the start-up screens (legal, publisher
+   logos) and three pictures no record names. The game picks from the records, so those
+   17 never appear.
+2. **Decisions taken, each reversible:**
+   - 12 records belong to places (the Strip's casinos, Primm, Vault 11, Goodsprings,
+     Boulder City, ...). Going to such a place, its own screen is taken every other
+     time, a general one otherwise. The original's odds are not known.
+   - A place given as a map square (Goodsprings, Primm, Boulder City, Vault 11) counts
+     for arrivals within 2 squares of it. The original's reach is not known.
+   - The picture fills the window without being stretched (its sides are cropped); the
+     record's text is shown in a band along the bottom. The original's layout, roulette
+     wheel and level progress are not copied.
+   - Scripts, the game clock, animations, NPCs and the test aids all stand still under
+     the screen; a voice line already playing goes on, as under the pause menu.
+3. **Not done, your call:** a loading screen at the start of a run (the world still
+   streams in view there), and for travel without `--play` (`--follow-npc`).
+4. **Shared code touched** (other sessions: note when merging): `PlayState` gained
+   `Loading`; activation and scripts now send `nvf_play::loading::TravelRequest`, and
+   `Travel` goes out two frames later; `run_scripts` returns under a loading screen.
+
+## Ragdolls (2026-10-10, session "ragdoll")
+
+Owner request: dead NPCs and creatures drop to the floor with real physics. Facts,
+design and what was checked: `docs/spec-notes/ragdoll.md`.
+
+1. **Done:** an actor that dies becomes a ragdoll built from its skeleton's own Havok
+   bodies and constraints (73 skeletons have them: people 18 bodies, a deathclaw 32, a
+   raven 3), simulated in the physics world and driving the bones. The body lies where
+   it falls, can be searched, is shoved by further shots and thrown by explosions, and
+   is put back as it lay when you leave and return. New: `fnvtool collide ragdoll`
+   (survey of the joint data), test aid `aimcorpse`.
+2. **Decisions taken, each reversible (ragdoll.md §4):**
+   - the ragdoll starts at once on death (no death clip first); the death pose is only
+     shown for bodies whose ground is not loaded yet;
+   - the player walks through corpses (no pushing them with your feet yet);
+   - a body at rest is held still until it is shot or caught in a blast (a barrel
+     rolling onto it will not move it);
+   - shove speeds (140 units per second for a shot, 220 for a melee blow) and joint
+     damping are guesses to tune when you play; shots move a lying body only a little;
+   - corpse poses are remembered for the run only (there are no saves yet).
+3. **Open questions (ragdoll.md §7):** the sign of two joint limits rests on anatomy,
+   not on a capture; the unit of the constraints' friction value is unknown. A capture
+   of how corpses lie in the original would settle the first.
+4. **Not built:** knockdown of living actors
+   (`PushActorAway`, explosion knockdown), weapons dropping from dead hands, severed
+   limbs, dragging bodies.
+5. **I ran `nvforever` without the smoke locks** nine times (10:37–10:57, 14–39 s each,
+   unattended test-aid runs with a window) before reading item 5 of the NPC
+   coordinator's section. Another session took both locks at 10:50:52 and still held
+   them at 10:57; my last four runs (10:46–10:57) overlapped it. Any windowed check or
+   capture of that session in that window may need re-running. The two runs
+   after that (11:05 and 11:07, on the tree merged with main) took both locks.
+
+## The player's unclothed body (2026-10-10, session "naked body texture")
+
+Your report: the unclothed body was one orange-tan colour, the T-shirt visible only as
+shading. Facts and rules: `docs/spec-notes/actors.md` §3.1 and §4.1.
+
+1. **Fixed:** the body model holds two shapes, the skin and the underwear (its own
+   texture: grey T-shirt, dark shorts). The engine put the race's skin texture on both.
+   Now only the skin shape takes it, for the player and for NPCs, men and women.
+2. **Also changed, so the body is one colour:** hands are tinted like the body (they
+   were left the light colour of the texture beside darker arms), the skin showing in
+   gloves likewise (the Pip-Boy glove's fingers and wrist), and the first-person arms
+   and hands take the same tint as the third-person body (they had none).
+3. **For you to judge: the skin tone.** Your picture is described as showing light skin.
+   Ours is now a clear brown on arms, legs, hands and face alike. That comes from the
+   face values stored in the player's record, which shift the skin colour darker than
+   nine in ten Caucasian NPCs; the shirt and shorts are not affected. The rule that
+   applies the shift is a hypothesis (it fits the files well, see §4.1) and I could not
+   see your picture. If the skin is still too dark against the original, please put the
+   picture where sessions can read it; `--no-facegen` shows the body without the shift.
+4. ~~**Found, not changed:** African American NPCs (about 280) are probably drawn too
+   light: their own face values barely darken the shared skin texture, while their
+   race's values would. The game most likely adds the two (actors.md §4.2). Joe Cobb in
+   Goodsprings is the nearest case to compare with the original.~~ *(stale 2026-10-19: superseded by "Skin tone by race" (an NPC's tint is now its own values plus its race's).)*
+5. **Fixed in the next session ("worn skin", below):** ghoul and raider-race NPCs showed
+   human skin where an outfit leaves skin bare.
+
+## Skin inside outfits follows the wearer's race (2026-10-10, session "worn skin")
+
+Builds on the section above. Facts and the rule:
+`docs/spec-notes/actors.md` §3.1, "Worn models".
+
+1. **Fixed:** outfits and gloves hold their own pieces of bare skin (arms, chest, legs,
+   fingers), and each piece names a fixed texture, nearly always the adult human one.
+   The engine drew that texture, untinted unless it happened to be the wearer's own. So
+   ghouls had pale human arms under a ghoul head and hands, and the raider races
+   (Fiends and Great Khans among them; 350 placed NPCs in outfits with bare
+   skin) had light arms and legs under darker faces. Now that skin takes the wearer's
+   race texture (body or hand) and the same tint as the face. Children in outfits (30)
+   and 48 women whose outfit names the child's skin texture by mistake are put right by
+   the same rule, and so are 11 men in combat armour, one of whose skin pieces names the head
+   texture.
+2. **How it was checked:** before and after pictures of one ghoul (Gomorrah, in a vest
+   and shorts) and three Great Khans at Quarry Junction; in both the bare skin now
+   matches head and hands. The pictures are in `C:\fnv-private\frames\worn-skin\`. The
+   rule itself is a hypothesis: the game's files fit it, but I compared no picture from
+   the original. A ghoul with bare arms in the original (any ghoul in Gomorrah, or
+   Beatrix Russell) would confirm it.
+3. **For you to judge:** the Great Khan woman in the picture (Melissa) is now very dark
+   on arms and legs, because her face values are dark and the body follows the face
+   (item 3 above is the same question for the player).
+4. **Fixed in the next session ("skin normal maps", 2026-10-10; actors.md §3.1, "Normal
+   maps"):** the fine surface relief of the skin (the normal map) was the adult man's on
+   everyone, on the body itself as well as inside outfits: each kind of skin has its own
+   relief file beside its colour file and the engine did not switch to it. Now skin
+   takes the relief file that lies beside the colour texture it is given.
+   - **What you will see:** ghouls have the ghoul surface (sunken nose, bared jaw,
+     sinews on the neck, rough arms and legs) instead of ghoul colours on a smooth human
+     one. Women had the men's face relief (heavy brow and jaw shading) and now have
+     their own: 489 placed adult women, so this is the change you will meet most often.
+     Old people get the wrinkles of their own files (131), children theirs (29). The
+     raider races (384) change least: their files differ little from the human ones.
+     Young adult men of the ordinary human races are untouched.
+   - **How it was checked:** one before and after pair each of the Gomorrah ghoul, the
+     three Great Khans and a Goodsprings settler, in
+     `C:\fnv-private\frames\skin-normal-maps\` (`cmp_ghoul_gom.png` and `cmp_khans.png`
+     are enlarged side-by-side views). The ghoul changes on his own pixels only; of the
+     Khans mostly the woman's face; the settler's two pictures are the same file byte
+     for byte. The rule is a hypothesis: the game's files fit it (most of these relief
+     files are named by no model, so the game can only find them by name), but I
+     compared no picture from the original. A close view of a ghoul's or a woman's face
+     in the original would confirm it.
+   - **Not changed, for you to decide:** hair. 216 placed NPCs (the African American
+     hair and the balding hair on the base hair model) have a hair texture with its own
+     relief file that differs from the one their hair model names. The files do not show
+     which one the game uses, so they keep the model's. Eyes, mouths and teeth have no
+     real relief files of their own and stay as they were.
+   - **To tell you:** I ran `fnvtool nif textures` once, which walks every archive of
+     the install, the add-ons included (one of them is a lab holdout). It lists texture
+     paths that meshes name and that do not exist; I read its summary counts and the
+     first rows (base-game architecture meshes), found it was not what I needed, and
+     deleted the output. The survey behind the rule used `Fallout - Textures.bsa`,
+     `Fallout - Textures2.bsa`, `Fallout - Meshes.bsa` and `FalloutNV.esm` only.
+
+   Still open from the session before: hands drawn as part of a fist weapon (boxing
+   tape, knuckles) keep human skin.
+5. **To tell you:** I also ran the skin survey over the add-on archives, among them
+   `HonestHearts - Main.bsa`, before noticing that the lab treats that archive as a
+   holdout. It printed counts of skin shapes by texture name, nothing else. The rule was
+   settled on the base game's files, and nothing from the add-ons is in the notes or the
+   code.
+
+## Furniture: sitting (2026-10-10, session "furniture")
+
+Owner request: furniture usable by the player and by NPCs, animated: sit down, stay,
+stand up on moving. Facts, model and what was checked: `docs/spec-notes/furniture.md`.
+Branch `claude/furniture` (worktree `NVForever-furniture`).
+
+1. **Done:** chairs, benches, booths and stools work for NPCs and the player, with the
+   game's own clips (which clip is read from the game's idle records per furniture
+   marker, so left, right and front entries, stools and women's variants come out of the
+   data). You sit by activating the furniture and get up with a movement key or by
+   activating it again. NPCs can also use beds. `GetSitting` and the four related script
+   functions now answer for whoever is seated. New: `--npc-sit ACTOR=FURNITURE[:SECONDS]`
+   and `fnvtool actor furniture`.
+2. **Decisions taken, each reversible (furniture.md §5, §7):**
+   - you are put at the furniture's entry point when you activate it (no walking up);
+   - getting up: any movement key, or Activate on the same furniture;
+   - in first person you see through the seated body's eyes and the body is not drawn;
+   - sitting puts your weapon away;
+   - an actor takes the nearest enabled, free entry point; a chair holds one user, a
+     bench or a table of stools one per seat;
+   - the prompt still says "Activate" (I believe the game says "Sit" but have no source).
+3. **Not built:** you cannot use beds (that needs the sleep menu); NPCs do not pick
+   furniture by themselves yet (that needs AI packages, in progress on
+   `claude/ai-packages`; its session can give an actor a `SitOn` to seat it); work spots
+   such as the bar and workbenches; eating, talking and fidgeting while seated; the fast
+   stand-up when attacked.
+4. **A capture would settle** which side an NPC enters a chair from and when
+   `GetSitting` is 1 (furniture.md §5); not needed for what is built.
+5. Game runs took both locks. The repository move orphaned this session's first
+   worktree mid-way; its two unpushed commits were rebuilt from the files on disk.
+
+## Pip-Boy on the arm (2026-10-10, session "pip-boy")
+
+Your report: the Pip-Boy on the player's arm looks off, and its glow belongs to the
+Pip-Boy light. Facts: docs/spec-notes/actors.md §1.2; design: docs/design/player-body.md
+§4 and §5.
+
+1. **Fixed, position:** the Pip-Boy model hangs from the forearm bone and was being
+   turned the way hats and hair have to be turned on the head bone, which threw it onto
+   the back of the upper arm. It is now a cuff on the left forearm, down to the glove,
+   in third person, and it is drawn in first person too (it was missing there).
+2. **Fixed, glow:** the bright green square was the model's light-glow shape, always
+   drawn. It is hidden until a Pip-Boy light exists (not built; say if you want it).
+3. **Also changed, a guess from the shape names:** outfits carry two left sleeves,
+   `PipBoyOn` and `PipBoyOff`; both were drawn on everyone. Now an actor wearing a
+   Pip-Boy shows the first and everyone else the second (170 outfits).
+4. **Your answers (2026-10-10), applied:** the three orange button lights are always
+   lit (they are drawn); with a Pip-Boy on, the outfit's `PipBoyOn` sleeve is drawn, in
+   first person too (it was missing there, leaving bare wrist in a jumpsuit). Item 3 is
+   therefore your rule for the Pip-Boy wearer; that everyone else shows `PipBoyOff` is
+   still my reading of the name. Still open: is the screen dark with the light off?
+5. **Seen on the way, not touched:** the Vault 21 jumpsuit shows a "101" (armour
+   texture swaps are not read yet, actors.md §1.1). The black patches I saw on the bare
+   body are the subject of the section "The player's unclothed body" above.
+
+## Skin tone by race (2026-10-10, session "race facegen")
+
+Follows item 4 of "The player's unclothed body" above. Numbers and reasons:
+`docs/spec-notes/actors.md` §4.2.
+
+1. **Changed:** an NPC's skin tint (face, body, hands) now comes from its own face
+   texture values plus its race's. Before, only its own were used, and African American
+   NPCs (357 NPC records) were drawn with light skin, lighter than Caucasian NPCs: their
+   own values hold none of the race's colour, the race's values hold all of it. The
+   other races barely change (their race values are small), nor does the player's body.
+2. **For you to judge, with the original game beside it:** Joe Cobb and Easy Pete. Our
+   pictures with and without the change are in `C:\fnv-private\references\race_facegen\`
+   (`sheet.png`: Joe Cobb, Sunny Smiles, Easy Pete; top row before, bottom row after).
+   - Joe Cobb: pale before, dark brown now.
+   - Easy Pete: his record's race is African American (old aged). He was pale grey-white
+     before and is a dark red-brown now, darker than Joe Cobb. If the original shows him
+     clearly lighter than that, the rule is too strong for him and I need to know.
+   - Sunny Smiles: no visible change (her record's race is Hispanic).
+
+   `--no-race-facegen` shows the old look for comparison.
+3. ~~**Not changed: the face shape.** The data suggests the race's shape values are meant
+   to be added the same way, but I have nothing to check a face shape against. An
+   in-game picture of Joe Cobb's face from the front and from the side would settle it.~~ *(stale 2026-10-19: superseded by "Sunny Smiles' face shape and shiny hair" ("answers its item 3": race shape values now added).)*
+4. **Added, off by default:** `--show-disabled-actors` draws the actors a script has not
+   enabled yet. Joe Cobb is one of them (hidden in the saloon until the story shows
+   him), so the pictures needed it.
+
+## Dog eyes (2026-10-10, session "dog-eyes")
+
+Your report: on dogs, the eyes are not showing correctly. Facts and measurements:
+docs/spec-notes/actors.md §10.2 and §10.5.
+
+1. **Fixed, cause:** a dog's eyes are a separate model that hangs from the head bone.
+   It was being turned the way hats and hair have to be turned on a person's head, which
+   put both eyeballs on one side of the dog's head, one above the other, and left the
+   sockets empty. Creature parts now hang from their bone as the files give them. Checked
+   on Cheyenne against the dog's own eyelids: the eyes now sit just behind them.
+2. **Fixed by the same change (135 placed creatures):** every dog with an eye model
+   (Cheyenne, Rex, NCR and wild dogs, cyberdogs), the cyberdogs' skull caps including
+   Rex's, the dome on every Protectron's head, and Primm Slim's hat (it was on edge
+   beside his head). Coyotes and Legion mongrels have their eyes in the body model and
+   were not affected.
+3. **Not compared with the game:** I had no base-game screenshot of a dog's face. The
+   placement is settled by the data, but the look of the eye (colour, shine) is drawn
+   from the plain texture and is my render only. A close game screenshot of Cheyenne's
+   face would confirm it.
+4. **Seen on the way, not touched:** Rex's glass skull cap is drawn solid black, so the
+   brain under it cannot be seen (a material problem, not a placement one; notes in
+   §10.5). Fixed since: see "Rex's glass skull cap" below.
+
+## Sunny Smiles' face shape and shiny hair (2026-10-10, session "face shape")
+
+Your report: next to the game, our Sunny Smiles has a strange, almost masculine face,
+and her hair shines in light. Branch `claude/facegen-race` (#142); it builds on "Skin tone by
+race" (#141) above and answers its item 3. Facts:
+`docs/spec-notes/actors.md` §4.3 and `docs/spec-notes/nif.md` §6 "Hair". Pictures:
+`C:\fnv-private\references\face_shape\` (`sunny_compare.png`: the game, ours before,
+ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
+`hair_shine_before_after.png`).
+
+1. **Fixed, face shape:** every race carries its own face-shape values, and an NPC's
+   values are meant to sit on top of them. We used the NPC's alone. For women the
+   race's values are large, so their faces came out long with a heavy jaw. With both
+   added, Sunny has the game's shorter face, tapered jaw and larger eyes. Every NPC's
+   face changes somewhat; women's the most.
+2. **Fixed, hair fit:** most hair models keep their face-fitting data under a file
+   name we did not look for (67 of them), so hair never followed the head's shape. It
+   does now.
+3. **Changed, hair shine:** hair, brows and beards are now matte. The data that made
+   them glint is real, but the game clearly does not use it as an ordinary shine, and
+   I do not know what it does with it. If the game shows a soft highlight on hair in
+   strong light that you miss, a side-on picture of it would let me rebuild it.
+4. **Still different on Sunny, for you to judge:** in your picture her eyes are more
+   open and her lips fuller. She is in her idle pose there, looking up at you; ours is
+   a still pose. I cannot tell yet whether that is the whole difference.
+5. **Not compared with the game:** Trudy, Joe Cobb and the others — only Sunny had a
+   picture. `--no-race-facegen` shows the old faces for comparison.
+6. Your other request, the dogs' eyes, was done separately: the "Dog eyes" section
+   above (#145).
+
+## Rex's glass skull cap (2026-10-10, session "skull cap")
+
+Facts and the survey: docs/spec-notes/nif.md §6 "Multiply blend", actors.md §10.5.
+
+1. **Fixed, cause:** the cap is the game's one lit shape that *multiplies* what is behind
+   it by its own colour (584 shapes use that blend in the base meshes; the other 583 are
+   unlit stains, shades and interface parts). Its colour comes almost entirely from a
+   strong glow setting on a flat blue texture. We were adding that glow as light and then
+   fogging and tonemapping the result, which left a factor so dark that the cap came out
+   black in the King's School. The cap's colour is now worked out as a factor: Rex's
+   leaves about 44% of the red, 78% of the green and all of the blue of what is behind
+   it, so the brain shows through a light blue glass.
+2. **Please check against the game:** I had no base-game screenshot of Rex's head, so
+   the tint's colour is from the data but its strength rests on my reading of how the
+   game combines the glow with the texture. A close screenshot of Rex's head in the
+   King's School (or outside in daylight) would settle it. If the glass looks darker or
+   clearer in the game, that one rule changes; the placement and the blend do not.
+3. **Not built:** the cap and the brain pulse in the game's data (a four-second glow
+   loop) and the cap carries a chrome reflection map. Neither is drawn yet, so the cap
+   is steady and has no reflections.
+4. **Applies to the cyberdogs too, not looked at:** by the same rule the police
+   cyberdog's cap is a red glass and the military one a yellow glass. Both are Old World
+   Blues models; I decoded those two files by name and did not open them in the engine.
+5. **Seen on the way, and wrong (corrected 2026-10-10, see "Decals" below):** I wrote
+   here that the unlit stain overlays in interior kit pieces (for example the rust under
+   the pipes of the utility halls) flicker against the wall they lie on. They do not.
+
+## See-through corn (2026-10-10, session "skull cap", your screenshot at Goodsprings)
+
+Facts: docs/spec-notes/nif.md §6 "Alpha" (last paragraph), world.md "Texture layers".
+
+1. **Fixed, cause:** the ground's texture layers are drawn as see-through sheets over
+   the base ground. The corn *rows* (the merged models, not the single plants) are also
+   drawn see-through, with soft leaf edges, and such models leave no depth behind. So
+   whenever the ground piece behind a row counted as nearer than the row, its layers
+   were painted on top of the corn. That made the near row faint and hid the row behind
+   it completely. Ground layers are now always drawn before any other see-through
+   model. Checked from your position: both rows are solid, and the ground is unchanged.
+2. **Wider than corn:** the same fault could fade any see-through model seen against
+   the ground (dirty glass, some signs). They get the fix too. I did not go looking for
+   other cases.
+3. **Left as it is:** the rows stay soft-edged (blended) while the single plants are
+   hard-edged (cut out), because the merged models store a cut-off of 0 where the single
+   plant stores 124. If the rows look different from the single plants in the game in a
+   way that matters, say so and I will draw the rows cut out as well.
+
+## Decals: stains, dirt and markings on walls and roads (2026-10-10, session "decals")
+
+Facts and the survey: docs/spec-notes/nif.md §6 "Decal flags".
+
+1. **The reported fault was not one.** The task was "stain overlays lie in the plane of
+   the wall and flicker against it". The survey says otherwise: of 2,130 shapes marked
+   as decals in the base meshes, almost all are modelled a little in front of their
+   surface (the rust stain in the utility hall by exactly 0.1 units, most others by 0.2
+   to 0.3), and our depth buffer tells that apart without help. The dark jagged streaks
+   in the viewer's picture of that hall piece are something else: thin pipe and cable
+   cards standing 1.3 units off the wall, seen edge-on from the viewer's default camera.
+2. **Changed anyway, small:** shapes marked as decals are now drawn a hair nearer to the
+   camera than their geometry says, so they always win against the surface under them.
+   This matters for the few decals that really are in the plane of their surface. Seen
+   in the viewer on two of them: the ground layer on a red rock slope and the road
+   surface on a highway overpass each had a ragged or partly missing edge, and are whole
+   now. The hall piece is unchanged (8 pixels of the picture differ).
+3. **A guess, not a finding:** that the game itself offsets marked decals is my reading
+   of what the mark is for. The data shows which shapes carry the mark and where they
+   lie, not what the game does with it. The offset is far smaller than the distance the
+   decals are lifted by, so it cannot make one show through something in front of it.
+4. **Not looked at:** about a thousand see-through shapes that are *not* marked as
+   decals also coincide with another shape (glows and glass over the same triangles,
+   most likely). Whether any of them draws wrongly is unknown.
+5. **For you, if you care:** the cable cards in the hall piece look broken from outside
+   the hall and at a steep angle. From inside, facing the wall, they should read as
+   pipes and cables. If they look jagged in play, that is a separate texture-filtering
+   question.
+
+## Grass (2026-10-10, session "grass")
+
+Your request: grass that is not placed as objects but grows on certain ground textures,
+as in the base game. Branch `claude/grass`. Facts and open questions:
+`docs/spec-notes/grass.md`. Pictures: `C:\fnv-private\references\grass\`
+(`game_0800.jpg`, `game_1200.jpg`: your two screenshots; `sign_0800.png`,
+`sign_1200.png`: ours from the same spot and hours; `compare_game_left_ours_right.png`:
+the grass field cut out of all four).
+
+1. **Built:** each ground texture names up to three grass types, and the game data says
+   how dense each is, on what slopes and how near water it grows, and how much plants
+   vary in size and shade. The engine grows them on every loaded cell, moves them in the
+   wind and stops drawing them beyond the grass distance of your INI (7,000 units).
+   `--no-grass` turns it off; `--grass-density 0.5` halves it.
+2. **A rule I made up, for you to judge:** nothing public says how the game decides
+   where each plant stands, so the rule is mine. It uses your INI's values (spacing 80,
+   two types per texture) and puts the tall straw grass and the low sage in the same
+   places as your screenshots. Ours looks somewhat thicker than the game's; single
+   plants will not match the game's one for one. `--grass-density` is there if you want
+   it thinner, and I can change the default once you say how it looks to you.
+3. **Which two of three types:** most textures name three grass types and the game
+   grows two. I grow the first two listed; the game may pick differently.
+4. **Pixelated strands (your question about anti-aliasing): fixed.** Your game runs
+   with 8x anti-aliasing and transparency multisampling, which softens the cut-out edges
+   of each strand. Ours cut every strand with a hard test per pixel, which also ate the
+   thin strands at a distance, so plants looked half the size. Strands now end softly
+   and the plants are as full as the game's.
+5. **Too bright: fixed at noon.** Your first comparison was our noon against the game's
+   morning, which was most of it. With your hour-12 screenshot to measure against, our
+   grass was still 10 % too bright and too orange, because it was lit exactly like the
+   ground. The game's grass takes more of the bluish sky light and less of the warm sun.
+   Ours now does the same and matches the game's colour at noon to within a few percent.
+6. **Still different at hour 8:** our whole scene is about 15 % brighter than the game's
+   there, ground and grass alike, and we draw sun shadows the game does not. That is the
+   scene's morning light, which this branch does not touch.
+7. **Not matched:** the low sage plants are browner and darker than the game's
+   grey-green ones. I do not know why yet.
+8. **Ground textures (your other request):** found and fixed by a separate task, pull
+   request #150 (branch `claude/terrain-quality`): the ground textures were stretched to
+   2.7 times their size in the game and had no surface relief (normal maps). The game's
+   ground still shows stronger relief than ours after the fix; that remainder is lighting
+   or shine on the terrain and is not done.
+
+## Smooth cut-out edges and anti-aliasing (2026-10-10, session "grass")
+
+Your question after the grass work: does the rest of the game need transparency
+multisampling and anti-aliasing. Branch `claude/soft-edges`. Facts:
+`docs/spec-notes/nif.md` §6 "Alpha" (soft edges). Pictures:
+`C:\fnv-private\references\soft_edges\` (`before_after.png`: plants at the Goodsprings
+sign, before on top; `msaa_1_4_8.png`: the same yucca with 1, 4 and 8 samples).
+
+1. **Done:** everything that is cut out of a texture (plants, fences, grates, hair, tree
+   leaves and the distant tree cards) now has smooth edges, as grass already had. Your
+   game does this with "transparency multisampling"; ours had hard steps.
+2. **Ordinary anti-aliasing** was already on at 4 samples; your game runs 8.
+   `--msaa 8` gives you the same (also 1, 2, 4). I left the default at 4 because 8 costs
+   frame rate everywhere and I have not measured by how much on your machine.
+3. **Left hard on purpose:** the distant building blocks. Their textures are black
+   where they are cut out, and a soft edge would draw a thin black line round every
+   cut-out.
+4. **For you to judge:** outlines grow by up to one pixel. I checked plants and trees at
+   the Goodsprings sign and one interior; hair and fences close up I have not looked at
+   beside the game.
+5. **Seen on the way:** grass shows a faint dotted pattern where it overlaps something
+   dark, visible when a frame is enlarged. It comes from having only four samples;
+   `--msaa 8` reduces it.
+
+## Pale blue frames inside the ruined house in Primm (2026-10-10, session "white trim")
+
+Your screenshot from inside the house at the NCR camp (cell -16,-14). Branch
+`claude/white-trim`. Facts and the surveys: `docs/spec-notes/nif.md` §6 "Alpha" (vertex
+alpha and the test) and "View-angle falloff". Picture:
+`C:\fnv-private\references\shadow_strips\before_after.png` (before on top).
+
+1. **What they were:** not a missing texture. The house has black, see-through shadow
+   strips along its inner edges (ceiling, skirting, door and window openings), which fade
+   out across their width. We hid the faded part of each strip but still let the whole
+   strip block the wall behind it, so the empty background colour showed through the
+   wall. Fixed: the frames are gone (59,183 background-coloured pixels in that view
+   before, none after).
+2. **Where else:** seven building pieces carry such strips, all ruined Old Town houses
+   (two house bodies, three upper floors, two corner pieces). One part of the giant rat
+   and one terminal screen are built in a way that was open to the same fault; I did not
+   look at those two in the engine.
+3. **A guess, for you to check in the game:** how much of each strip the game shows. The
+   files say "blend, and drop everything fainter than half". Read that way, only the
+   darkest edge of each strip survives: a dark line a pixel or two wide in the corners.
+   We now follow that reading, and from where you stood we draw no shadow at all (see
+   item 4 for why not even the line). If the game shows soft dark shading a hand wide
+   along those edges, the "drop" setting is not applied to these strips and ours are
+   wrong. One game screenshot from inside that house would settle it; the rule is one
+   function (`blend_cut` in `engine/nvf-assets/src/nif_spawn.rs`).
+4. **Found on the way, not changed:** we fade every unlit see-through shape (signs,
+   glows, stains, these strips) as it turns edge-on to the camera. The data suggests the
+   game does that only for shapes that carry a certain mark: 84% of the shapes with a
+   hand-set fade carry it, 2% of the rest, and the Saloon lamp beam carries it. If so,
+   about 4,400 shapes are drawn too faint at an angle, and these strips lose their thin
+   line for the same reason. That is a change to the look of the whole game, so I left
+   it for a task of its own.
+5. **Not changed:** see-through glow shapes with the same "drop" setting (force fields,
+   stasis pod fields) still ignore it, as before.
+
+## Dropped items use their world model (2026-10-10, session "world model")
+
+Your request: a dropped item should use the world model its record names, normally a
+`_GO.nif`. Branch `claude/dropped-world-model`. Facts: `docs/spec-notes/simulation.md` §3
+"Item models". Pictures: `C:\fnv-private\references\world_models\`.
+
+1. **What the records say** (`FalloutNV.esm`): only armour and weapons name a separate
+   world model. Armour: `MOD2` (345 of 389, nearly all `GO.NIF`). Weapons: `MOD4` (57 of
+   261); a weapon's `MOD2` is its shell casing and `MOD3` its scope overlay, so those are
+   not used. Every other item type has one model.
+2. **Done:** armour and weapons dropped, and those placed in the world by the game's
+   level design, are drawn with that model and collide by it. Leather Armor now lies as
+   the folded bundle instead of a body-shaped suit. Brass knuckles and the other fist
+   weapons that have a world model and no other (8 records) were invisible when dropped
+   and are drawn now.
+3. **Not captured in the game:** that weapons on the ground show `MOD4` rests on the
+   field's name in xEdit ("World Model") and on the file names, not on a picture from
+   your game. Armour was captured on 2026-10-09.
+4. **Still open:** a female player may see the female world model (`MOD4` of armour,
+   28 hats and outfits differ); a dropped weapon with mods attached may show a different
+   model. Both draw the plain world model for now.
+
+## Sign lights, glows and shadow overlays no longer fade at an angle (2026-10-10, session "falloff flag")
+
+Follows item 4 of "Pale blue frames inside the ruined house in Primm" above. Branch
+`claude/falloff-flag`. Facts and the survey:
+`docs/spec-notes/nif.md` §6 "View-angle falloff". Pictures (before left, after right):
+`C:\fnv-private\references\falloff_flag\`.
+
+1. **What changed:** unlit see-through shapes (sign lights, glows, screens, painted-on
+   shadows) store a setting that fades them as they turn edge-on to the camera. It is
+   meant for light beams, smoke and dust. We applied it to every such shape; now only
+   to shapes that carry the mark that switches it on. About 3,470 shapes are drawn at
+   full strength from every angle now. (The earlier note said 4,400; 930 of those are
+   not see-through and were never faded.) The 1,100 shapes with the mark fade as before.
+2. **Why I think the mark is the switch (a guess, not checked in the game):**
+   - 85% of the shapes with a hand-set fade carry it, 2% of the others.
+   - The public format notes call this mark "empty" for New Vegas, but for Skyrim and
+     Fallout 4 they call the same mark "use falloff", and many other marks kept their
+     meaning between the games.
+   - Without it we were fading things nobody would fade: the shadows under the cards
+     and coins on the Caravan table, neon tubes, lit sign letters.
+3. **What it looks like in ours:**
+   - `lamp_beam_front.png`, `lamp_beam_side.png`: the lamp beam on the Prospector
+     Saloon porch is unchanged (it carries the mark): not one pixel of it differs.
+   - `saloon_neon_tubes.png`: the red neon tubes on the letters S-A-L of the Saloon's
+     sign, seen from the side along the wall at night. Before they were nearly out;
+     now they glow red.
+   - `bison_steve_sign.png`: the Bison Steve sign in Primm at night, seen nearly
+     edge-on from below. Before its letters were dull; now they are lit red.
+   - `shadow_strips.png`: the ruined house at the NCR camp in Primm, from where you
+     stood. The shadow strips of that entry now show as thin dark lines along the
+     ceiling edges, down the room corners and along the skirting.
+4. **Please check in the game: one screenshot of any of these at an angle.** The
+   easiest is the Bison Steve sign: at night (`set gamehour to 21`), stand a few
+   steps south of the foot of the sign's pole and look up at the sign so that you see
+   it nearly edge-on. If its red letters are lit, the change is right; if they are
+   dull or gone, the game fades these shapes after all and I should put it back.
+   Ours for comparison:
+   `nvforever --cell=-13,-13 --pos=-52473,-53735,5990 --heading 12 --pitch 32 --hour 21`.
+   A screenshot from inside the ruined house (the one that entry asks for)
+   would answer this as well: thin dark lines in the corners mean both guesses hold.
+5. **Not sure about:** 140 see-through shapes have a hand-set fade but not the mark:
+   force field panels, the glowing tubes of stasis and brain pods, some weapon beams.
+   Most are Fallout 3 leftovers in the archive. They are now drawn without the
+   fade. If the game fades them, the rule is "the mark, or hand-set values". I know of
+   no place in the base game to check one.
+
+## A greeting marked Goodbye is just said at you (2026-10-10, session "greeting goodbye")
+
+You said: when the GREETING line an actor picks is marked Goodbye in the data, the game
+does not pull the player into a dialogue; the line is spoken at the player and the
+player is not locked in.
+
+1. **What was wrong:** we opened a full conversation for that one line. The game
+   paused, the dialogue screen came up and you could not move until the line was over.
+2. **Done:** such a greeting is now said like any line an actor calls out. You hear it
+   and see its subtitle, the game keeps running, you can walk away, and scripts no
+   longer see a dialogue menu. Greetings without the mark open the conversation as
+   before.
+3. **How common it is:** 3,023 of the 5,579 GREETING lines in the ten masters carry the
+   mark, so this is what most actors with nothing particular to say do.
+4. **Checked:** in `--play` in Goodsprings a scripted press of E on settler 04
+   (`GoodspringsSettler04Ref`) made her say her line with no conversation and the run
+   went on; ten seconds later the same press on Easy Pete opened his conversation as
+   before and it ended by his goodbye. I did not watch it by eye (the run was
+   unattended and silent). To see it: `nvforever --data <Data> --cell Goodsprings
+   --play`, walk up to a settler and press E.
+5. **My guesses, please correct any that are wrong:**
+   - The actor still counts as "has talked to the player" afterwards.
+   - Topics the line adds are still added when it ends.
+   - Pressing E again while the actor is still speaking cuts the line and starts the
+     greeting again.
+   - The rule is only for GREETING. A script that starts a conversation with another
+     topic whose first line is marked Goodbye still opens the dialogue screen for that
+     line.
+
+## Shooting Sunny's bottles (2026-10-10, session "object hits")
+
+Your report: in "Back in the Saddle" the shots at the three bottles did not count, and
+the bottles did not move when hit. Branch `claude/object-hits`. Facts:
+`docs/spec-notes/combat-rules.md` §14.
+
+1. **Why the shots did not count:** each bottle counts a hit in its own script, and
+   three things were missing.
+   - Shots only told actors' scripts they were hit, never an object's.
+   - The script asks whether your weapon is drawn. That question always answered no.
+   - It asks what kind of weapon you hold. That question always answered 0.
+2. **Why the bottles did not move:** three more.
+   - Bullets gave loose objects no push at all.
+   - A resting object that was pushed could stay frozen (a fault in how we use the
+     physics library). Explosions had the same fault.
+   - Objects that a script switches on during play, like these bottles, were never
+     redrawn where physics moved them.
+3. **Done:** all six. Checked in a run: three shots with the Varmint Rifle, Sunny
+   reacts to each, the objective completes on the third, and the bottles fly off the
+   fence.
+4. **A guess, for you to check:** the numbers the game gives for "what kind of weapon".
+   - The wiki page (GetWeaponAnimType) has the table, but your export does not include
+     it and the site blocks me.
+   - I worked the numbers out from the game's own scripts. The tutorial counts rifles
+     and pistols whichever way the one unsure part falls.
+   - If you can paste the table from that page, I will check ours against it.
+5. **Push strength is my choice:** a rifle shot sends a bottle off at about 3 metres per
+   second. Say if it should be harder or softer (`OBJECT_PUSH` in
+   `engine/nvf-play/src/combat.rs`).
+6. **Not done:** melee hits on objects (they only strike actors so far), bullet impact
+   effects and sounds.
+
+## Both hands stay on a rifle when you look up or down (2026-10-10, session "two-hand aim")
+
+Your report: in third person with a two-handed weapon, the hands drift off the weapon
+the further up or down you look, from the hip and down the sights. Branch
+`claude/two-hand-aim`. Facts: `docs/spec-notes/animation.md` §9.4 and §9.6. Pictures
+(yours and ours, before and after): `C:\fnv-private\references\two_hand_aim\`.
+
+1. **Cause:** the game has three poses for holding a weapon out: level, fully up and
+   fully down, and mixes them by how far you look up or down. For rifles the up and
+   down poses only bend the back; the arms are in the level pose alone. Our mixing
+   turned the level pose down as you looked up, and the arms went with it, towards the
+   arms-at-the-sides idle pose. One-handed melee and two-handed melee weapons had the
+   same fault; pistols did not (their up and down poses include the arms).
+2. **Fix:** a bone that only one pose moves now stays with that pose in full. The back
+   still bends by how far you look.
+3. **Also fixed, same cause:** firing while looking up or down straightened the body
+   for the length of the shot. Each firing animation has its own up and down poses;
+   they are mixed in now.
+4. **Checked in ours** (varmint rifle, seen from the side): 45° and 80° up and down,
+   down the sights at 60° up and down, firing at 60° up and 45° down. Both hands stay
+   on the rifle and the rifle points where you look (`after_*.png`). Your game
+   screenshot shows the same pose as `after_up80.png`.
+5. **Not fixed, needs your eyes in the game:** while walking or running with a rifle
+   out, our body does not bend at all when you look up or down; the rifle stays level
+   (`after_walk_up60.png`, `after_run_up60.png`). The walking and running animations
+   take over the back, and they have no up or down poses, so I cannot tell from the
+   files what the game does. Reloading straightens the body in the same way. Please
+   look in the game, third person, rifle out:
+   - run forward while looking steeply up: does the rifle point up, or stay level?
+   - reload while looking steeply up: does the body stay bent back?
+   A screenshot of each from the side would be enough. If the game bends the body
+   while moving, I will make the up and down poses apply over movement.
+6. **A guess I kept:** that fully up and fully down mean 90°, and that the mix is even
+   in between (half way at 45°). The rifle files support 90° (the back bends three
+   times 30°). A game screenshot looking about 45° up, from the side, would check the
+   in-between.
+
+## Minigun: left hand on the handle when not firing (2026-10-10, session "two-hand aim")
+
+Your report: with the minigun, firing looks right at any angle, but when just holding it
+the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
+`docs/spec-notes/animation.md` §9.7. Pictures: `C:\fnv-private\references\two_hand_aim\`
+(`minigun_*.png`, `pistol_after.png`).
+
+1. **Cause:** the arms were right all along: the holding pose and the firing pose have
+   the same arms. The difference was the gun. The animations for drawing, firing and
+   reloading the minigun say where the gun sits in the right hand; the holding and
+   walking animations do not. When none said, we put the gun back at a default spot in
+   the hand, which turned it away from the left hand.
+2. **Fix:** while a weapon is out, it stays where its draw animation left it unless
+   an animation says otherwise. This also applies to the flamer and gatling laser (same
+   animations) and to pistols, whose holding animation is silent in the same way.
+3. **Checked in ours:** minigun held level and looking 50° up and down, firing, after
+   firing stops, and running: the left hand stays on the top handle and nothing jumps
+   when firing stops. The 9mm pistol looks as before.
+4. **The holstered minigun (your question, then your two game screenshots), built on
+   branch `claude/weapon-parts`:** the game's files switch the gun part of the minigun,
+   flamer and gatling laser off while holstered and on again half a second into the
+   draw, and the minigun's backpack is a separate part meant for the upper back. Ours
+   now reads both. Checked with the minigun (`minigun_parts_sheet.png`): holstered,
+   only the backpack shows, on the back, as in your screenshot; the gun appears half
+   way through the draw and goes half way through putting it away; drawn, the gun is in
+   the hands and the backpack stays on the back.
+5. ~~**Not done:** the flamer and gatling laser were not looked at in ours (same
+   animations, so the gun part should behave the same; whether their models have a
+   back part like the minigun's I did not check). NPCs carrying these weapons still
+   draw them the old way. In first person the backpack is not drawn at all.~~ *(stale 2026-10-19: superseded by "NPCs' holstered flamer: tank on the back, no gun" and "Cook-Cook's flamer…" (NPCs' heavy weapons drawn and holstered as the player's).)*
+
+## Weapons' moving parts: slides, magazines, the minigun's barrel (2026-10-10, session "weapon parts")
+
+Your report: no weapon's moving parts are animated (the 10mm's magazine on reload, its
+slide on firing, the minigun's barrel). Branch `claude/weapon-moving-parts`. Facts:
+`docs/spec-notes/animation.md` §9.8. Pictures: `C:\fnv-private\references\weapon_parts\`
+(`10mm-sheet.png`: holding, firing, two moments of the reload).
+
+1. **Cause:** nothing was missing from what we read out of the files. The body
+   animations (fire, reload, hold) also carry the movements of the weapon's parts, each
+   addressed by the part's name inside the weapon model (`##Slide`, `##Clip`,
+   `##MinigunBarrel`). We drew the weapon as loose pieces with those names thrown away,
+   so the movements had nothing to act on and were dropped.
+2. **Fix:** the weapon in your hands keeps its parts as named pieces, and the animations
+   move them the same way they move bones. First and third person.
+3. **Checked in ours:** 10mm pistol in first person: the slide snaps back at the shot;
+   on reload the magazine comes out in the left hand and goes back in. Minigun: the
+   barrel turns for as long as the trigger is held. The log also names moving parts for
+   the varmint rifle (bolt), 9mm pistol, cowboy repeater (lever), assault carbine
+   (charging handle, magazine) and laser rifle (cell on reload). I did not compare
+   any of it with the game frame by frame.
+4. **Decision taken, the minigun's firing animation:** measured from the file, the
+   barrel spins up for about a second, turns at full speed for two thirds of a second
+   between two markers (`Fire` and `Loop`), then spins down. Before, every shot
+   restarted the animation, so it never got going. Now it plays the spin-up once,
+   repeats the full-speed part while you hold the trigger, and spins down when you let
+   go. That the game repeats exactly that part is my reading of the markers, not
+   something I saw in the game; if it does it differently, say so.
+5. **The spin-up delay (you asked for it, 2026-10-10):** built. The minigun now waits
+   for the animation's `Fire` marker before the first shot, then fires at its normal
+   rate while you hold the trigger. Letting go before the first shot fires nothing
+   (the barrel still spins and winds down); every new press spins up again, and so
+   does firing on after a reload. Those last two rules are my choice.
+   **A correction to what I told you:** I quoted about a second of spin-up. That is
+   the file in the base game archive. Your install uses a different version of that
+   animation from a later archive (1.7 s long, `Fire` marker 0.2 s in), so the delay
+   you will see is 0.2 s. I did not look up which archive it comes from. If 0.2 s
+   feels too short, say so and say what you want instead; a fixed time would be our
+   own number rather than the file's.
+6. **Not done:** NPCs' weapons (they do not fire or reload with animations yet, so
+   there is nothing to move); shell casings and muzzle flashes; the glow on the gatling
+   laser and the screens on a few energy weapons, which are other kinds of animation.
+
+## Screen effects in the opening: white screen, blurred wake-up (2026-10-10, session "image space modifiers")
+
+Your request: the opening quest's screen effects (fade to black, white screen, blurred
+vision) should play in our engine. Branch `claude/imagespace-modifiers`. Facts:
+`docs/spec-notes/image-modifiers.md`. Pictures:
+`C:\fnv-private\references\image_modifiers\`.
+
+1. **What plays now:** a new game starts on a white screen. When the opening quest hands
+   over to Doc Mitchell's, the room comes out of the white over 5 seconds, blurred and
+   slightly doubled, and is sharp after 7. After Doc's first line there is a dark blink
+   and a bright, blurred flash that settles over 10 seconds (`newgame_1` to `newgame_5`).
+   Message boxes, subtitles and the HUD stay sharp on top.
+2. **It is not only the opening:** the three script commands behind this now work
+   everywhere, so the other scripts that use them get their effect too: 266 uses in the
+   base game, most of them fades to black and back. I only watched the opening.
+3. **Built:** fade to a colour, blur, double vision, blur around the edges of the screen,
+   and changes to brightness, contrast, saturation and tint. An effect with a set length
+   ends by itself; one without stays until a script removes it.
+4. **Not built:** depth of field (6 effects use it) and motion blur (7). Blood on the
+   screen, effects from explosions and weapons, and a script changing a room's whole
+   look are separate things and still do nothing.
+5. **Guesses, please check against the game:** the files say how strong each effect is
+   as a number, not what that number looks like. How wide a blur of "5" is, how far apart
+   the two images of double vision sit, and how they sway are my guesses. To compare,
+   this shows one effect frozen at a chosen second, in ours:
+   `nvforever --data <Data> --cell GSDocMitchellHouse --imod VCG01FadeInFromBlackISFX@3.5`
+   (`wakeup_held_3.5s.png` is that frame). A game screenshot from the same spot with the
+   console's `imod VCG01FadeInFromBlackISFX`, taken about 3 to 4 seconds in, would let me
+   set the blur. Leave `@3.5` off to watch it loop.
+6. **Two more guesses:**
+   - While a message box is open the wake-up effect waits (in ours the add-on pack boxes
+     pop up during it, so it takes longer than 7 seconds on the clock). If the game keeps
+     fading behind a box, say so.
+   - A script starting an effect that is already playing restarts it. The game might
+     layer a second copy instead.
+7. **Odd thing in the files:** the wake-up effect is named "fade in from black" but its
+   colour in the file is white, and a capture of your new-game save shows a white
+   screen at that point, so white it is.
+8. ~~**Still wrong in the opening, not touched here:** you can walk and look around while
+   Doc is talking. The scripts ask for the controls to be locked; we do not obey that
+   yet. Before the opening's scripts have loaded (3 to 6 seconds) I hold the screen
+   white so the room does not show early.~~ *(stale 2026-10-19: superseded by "Waiting and sleeping", "The HUD" and "Playtest fixes: controls…" (the opening's DisablePlayerControls is obeyed; engine/nvf-play/src/control.rs:247-250). (Not the EnablePlayerControls left-out-number question.))*
+
+## Body in first person: a switch (2026-10-10, session "first-person body")
+
+Your request: an option to toggle the body rendering in first person. Branch
+`claude/first-person-body`. Design: `docs/design/player-body.md` §1.5.
+
+1. **The switch:** "Body in first person" on the Esc menu's settings page (under
+   Picture), or start with `--first-person-body`. It is off by default, because the
+   original only draws the arms.
+2. **On:** looking down you see your chest, legs and feet in what you are wearing. With
+   the weapon away your arms hang at your sides; with it out, the usual first-person
+   arms and weapon are drawn and the body's own arms are hidden. Your view does not
+   move: the body is placed under the camera.
+3. **Sitting (your report, with the screenshot of the view inside the jumpsuit):** with
+   the switch on, a seated view now turns at most 80° to either side and 75° down, like
+   a head on a neck, and the eyes swing round the neck as the head turns, so you see
+   your shoulder and arm at the limit and never the inside of the body. If you sit down
+   looking the other way, the view comes round by itself. While you sit down and get up
+   the view now turns with the body (your second report: the camera stayed put while the
+   body turned); you said that looked a lot better.
+4. **For you to decide:**
+   - With the switch off, the seated view is as before: free to turn all the way round,
+     and not turned by the body as it sits down (no body is drawn, so nothing looks
+     wrong). Should the neck limit and the turning apply there too?
+   - 80° and 75° are my guesses at a comfortable limit. Say if it feels too tight.
+5. ~~**Not done:** your shadow. With the switch on it is a body without a head (and
+   without its own arms while the weapon is out). Fixing that means letting hidden
+   parts still cast shadows; it is a separate piece of work.~~ *(stale 2026-10-19: superseded by "Your shadow in first person" ("This replaces point 5 of 'Body in first person: a switch' above").)*
+
+## Actors can be pushed (2026-10-10, session "actor push")
+
+Your request: the player or an NPC that is moving should be able to push another actor
+that is standing still, with a capture from the game to say how far. Branch
+`claude/actor-push`. Facts: `docs/spec-notes/physics.md` §6.8,
+`docs/design/actor-behaviour.md` §5.7.
+
+1. **I need the capture, and it is ready to run.** About 4 minutes, nobody at the
+   controls, save `nvfdoc`, stays inside Doc Mitchell's house (no door, so no autosave):
+   ```
+   python tools/capture/capture_run.py --game "<FNV folder>" --save nvfdoc --kill-on-timeout -o C:/fnv-private/capture/run_pc_actor_push.json tools/capture/jobs/pc_actor_push.steps.json
+   ```
+   I did not start the game myself: you asked to be told, and other sessions were
+   building on the machine at the time, which would have slowed the game.
+2. **What the capture does.** The player runs and walks into Doc Mitchell and into a
+   settler the job creates:
+   - straight on, and from a little to the side;
+   - with the key held for several seconds, up to the wall;
+   - with the NPC told not to move (restrained);
+   - placed on the very spot the NPC stands on;
+   - standing in the way of the NPC while it walks.
+3. **What works in ours now**, with my own numbers until the capture gives the game's:
+   - You walk into a standing NPC: it moves ahead of you at half your speed. Aim off
+     its middle and it goes aside while you pass. Checked in a run: a Goodsprings
+     settler pushed 117 units in under a second of running at him.
+   - A walking NPC meets you while you stand still: it pushes you, the same way.
+     Checked in a run: Easy Pete on his noon walk pushed you ahead of him for three
+     seconds, then went on into the saloon.
+   - A walking NPC meets a standing NPC: the same rule. It did not happen in any of my
+     runs, so I have not seen it in the game.
+   - A pushed NPC stops at walls and furniture. It never leaves the floor NPCs can
+     walk on.
+   - Two seconds after you leave it alone, an NPC pushed out of its place walks back.
+   - NPCs that sit, sleep or are on their way somewhere are not pushed. They block as
+     before.
+4. **The guesses the capture replaces:** the half speed, the two seconds, and whether
+   the game's NPC walks back at all.
+5. **Not done:**
+   - A pushed NPC slides; it plays no stepping animation.
+   - Two actors that are both walking still do not push each other.
+   - NPCs far from you (moved without collision) neither push nor are stopped.
+   - Size and weight make no difference: a deathclaw is pushed like a settler.
+6. **Two faults found on the way and fixed:**
+   - An NPC walking close past you carried you along with it at its own speed, like a
+     moving platform. Easy Pete took you 163 units to the saloon door this way. This
+     was in our engine before my change.
+   - After being left untouched for a few seconds and then moved by a door or a
+     teleport, a character's solid body could stay behind where it arrived while the
+     character walked on. Hard to meet in play, but it was there.
+
+## Shots leave the barrel (2026-10-10, session "muzzle")
+
+Your report: a shot looks as if it comes from the camera, not from the gun's barrel,
+and you thought something in the weapon model controls it. Both were right. Branch
+`claude/muzzle-origin` (on top of `claude/weapon-moving-parts`). Facts:
+`docs/spec-notes/animation.md` §9.9; design: `docs/design/combat.md` §5.1. Pictures:
+`C:\fnv-private\references\muzzle\`.
+
+1. **Cause:** ours started every shot, tracer and all, at the eye. That was chosen on
+   purpose for aiming (the shot goes where the crosshair is), and the plan said the
+   barrel would be used for what you see. That second half was never built.
+2. **What the model has:** guns carry an empty marker called `ProjectileNode` at the
+   end of the barrel: 198 of the 362 weapon models in the base game, none of the melee
+   weapons, grenades or mines. A silencer moves it out by the silencer's length. That
+   it marks where the shot starts is my reading of its name and place; I did not
+   check it against the game.
+3. **Fix:** the tracer and the flash now start at that marker on the gun you see, in
+   first and third person, and run to the point the crosshair is on. What gets hit is
+   decided exactly as before.
+4. **Checked in ours:** 10mm pistol in first and third person and the minigun in third
+   person. Seen from the side, the minigun's tracers fan out from the end of the
+   barrel. The log gives the barrel's position for every shot.
+5. **Added, third person only:** if something stands right in front of the barrel
+   (within about 2 metres) between it and the point you aim at (you look over a low
+   wall, the gun is behind it), the shot now hits that thing instead of passing
+   through it. This was in the plan. It is covered by a test; I did not try it at a
+   wall in a run.
+6. **For you to decide, the hit rule:** the original fires along the gun's barrel, so
+   the shot can land off the crosshair. Ours keeps the crosshair true (your earlier
+   choice for combat). If you meant the shot itself should follow the barrel, say so.
+7. **For you to decide, third person:** the view ray starts at the character's head,
+   but the camera sits over the right shoulder, so shots should land about 40 units
+   (roughly 60 cm) to the left of the crosshair dot at every distance. That figure is
+   the camera's offset in the code; I did not measure it in a run. It was like this
+   before. The fix
+   would be to aim from the camera's own line in third person; that changes where
+   shots land, so I left it.
+8. ~~**Not done:** shell casings (the models have a marker for those too) and NPCs'
+   shots (they do not shoot yet). Weapons without the marker still draw from the eye.~~ *(stale 2026-10-19: superseded by "Added 2026-10-11…" (shell casings) and "NPCs aim, fire and bite visibly" (NPC shots leave their ProjectileNode).)*
+
+### Added the same day: bullets you can see, and muzzle flashes
+
+Your request, passed on by the weapon parts session: "actual bullet projectiles that
+arent invisible along with the muzzle flash effects". Same branch. Facts:
+`docs/spec-notes/combat-rules.md` §15. Pictures in the same folder
+(`minigun-flash-side.png`, `minigun-tracer-in-flight.png`, `laser-rifle-beam.png`).
+
+1. **Muzzle flash:** each projectile record names a flash model, how long it shows and
+   a light. Ours now shows that model at the end of the barrel, pointing along it,
+   with the light, for the record's time (0.04 seconds for bullets).
+2. **Your note that the minigun's flash stayed too long:** two causes, both mine. The
+   picture was taken with a test switch that held every flash for 3 seconds, and in
+   normal play I had padded the time to at least 0.05 seconds, so at the minigun's
+   rate one flash ran into the next. Both are gone: the flash lasts the record's time
+   and is off the moment you stop firing.
+3. **Projectiles:** every shot now draws the game's own projectile model in flight,
+   starting at the barrel: tracer rounds, laser beams, missiles, plasma bolts,
+   grenades. Checked in a run: the minigun and the laser rifle. The others use the
+   same code but I did not look at them.
+4. **Decision taken, every shot is drawn:** the game draws only a share of bullets
+   (the minigun's record says 30%, the 10mm's 0%). You asked for bullets that are not
+   invisible, so ours draws all of them. Say if you want the game's shares back.
+5. **Decision taken, how fast a drawn bullet flies:** the game works out a bullet's
+   hit at once; how it then draws the bullet I do not know. Ours flies the model from
+   the barrel to the hit at the record's speed. For a pistol that is very fast (about
+   390 metres a second) and the model is a bullet the size of a real one, so you will
+   see it for a frame or two at most. To keep the shot visible I also draw a thin line
+   along it for a moment. The minigun's rounds are slower and carry their own glowing
+   streak, which shows well.
+6. **Your note that the laser beam looked too low:** it was. The beam was drawn from
+   where the barrel was at the instant of the shot, and the firing animation lifts the
+   gun about 15 cm on the very next frame, so the beam hung under the barrel. A beam
+   now stays attached to the barrel for as long as it shows.
+7. **For you to decide:** if pistol and rifle bullets should be easier to see, the
+   choices are to slow the drawn bullet down (it would arrive after the hit lands) or
+   to give every bullet a streak like the minigun's. Both are our invention, so I
+   left them.
+8. ~~**Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
+   the files), impact effects, sounds. The flamer shows its flash but no flame, because
+   its flame is made only of that kind of effect.~~ *(stale 2026-10-19: superseded by "Added 2026-10-11: sounds, smoke and sparks, impact effects, shell casings" (the request "build the 'not built' list").)*
+
+### Added 2026-10-11: sounds, smoke and sparks, impact effects, shell casings
+
+Your request: build the "not built" list (smoke, sparks and the missile's trail; the
+flamer's flame; impact effects, sounds, shell casings and NPCs' shots). Branch
+`claude/shot-effects`. Facts: `docs/spec-notes/particles.md` and
+`docs/spec-notes/combat-rules.md` §16. Pictures: `C:\fnv-private\references\muzzle\`
+(`minigun-smoke-dust-casings.png`, `missile-trail.png`, `flamer.png`).
+
+1. **Sounds:** your gun now plays the game's own sounds: firing, the click when empty,
+   drawing and putting away. Bullets make the impact sound of what they hit (earth,
+   concrete, wood, metal, flesh and so on), and explosions make theirs. I cannot hear,
+   so what I checked is that each file is found, decoded and sent to the speakers. You
+   are the first to listen: tell me if anything is too loud, too quiet or wrong.
+   `--no-sound` turns them off.
+2. **Smoke, sparks and trails:** the game stores these as particle effects attached to
+   the flash, the projectile and the impact. Ours now plays them: sparks and a wisp of
+   smoke at the muzzle, a smoke trail behind a missile, dust and debris where a bullet
+   lands.
+3. **Impact effects:** a bullet that lands shows the game's effect for that surface.
+4. **Shell casings:** each shot throws the weapon's casing out of the ejection port; it
+   falls, bounces and lies on the ground for the game's own time.
+5. **The flamer is only half there:** flame is drawn, but as a thin run of puffs that
+   burns about 6 metres out, not the solid jet you know. I think I know why (ours keeps
+   each puff's source alive for too short a time) but not what the game does instead.
+   A recording of the game's flamer from the side would settle it.
+6. **How particles behave is my reading of the files:** the files give numbers with
+   names (speed, gravity, grow time, colours over life) and I worked out what each
+   does from the name and from how the effect should look. Nothing was compared with
+   the game. If an effect looks wrong to you (too big, too fast, wrong colour), say
+   which and I will look at that one.
+7. ~~**NPCs' shots: not done, and it needs something else first.** NPCs do not attack
+   yet. That is the combat-AI work (detection, combat behaviour), which is its own
+   project. Everything built here (flash, projectile, casing, sounds, impacts) is
+   written so NPC shots can use it when they exist. Say if you want NPC combat started.~~ *(stale 2026-10-19: superseded by "NPCs in Combat attack" and "NPCs aim, fire and bite visibly".)*
+8. **The minigun may sound thin:** its record names no firing sound at all, only a
+   looping "spin" sound, which ours now plays while you fire. I think the gunfire
+   itself is triggered from the firing animation, which is a kind of sound cue not
+   built yet. Tell me what you hear.
+9. **Not done:** sound coming
+   from the left or right; reload sounds (they are tied to the animations); bullet
+   holes; the fireball of an explosion (you get its sound and the dust); the flash and
+   impact pictures do not yet grow and fade as the files animate them.
+
+## Idle animations: scripts, packages, dialogue, and the wake-up at Doc Mitchell's (2026-10-10, session "idles")
+
+Your request: idles from scripts (PlayIdle), from the package tabs (Idles, and
+Begin/End/Change), and on dialogue responses, with the opening at Doc Mitchell's as the
+test. Branch `claude/idles`. Facts and sources: `docs/spec-notes/idles.md`.
+
+1. **What works now.** In a new game you wake up looking at the ceiling fan, sit up, sit
+   on the edge of the bed, and later stand up, all from the game's own package data.
+   Doc Mitchell plays the gestures named on his lines, the scripted "give mirror"
+   animation, and his own way of getting up from the chair. NPCs elsewhere play the idles
+   of their packages and of idle markers.
+2. **Your three reports, and what they were:**
+   - *Doc should help the player up.* The game has a special "Doc gets up from his
+     chair" animation that is picked only while the opening quest is between stages 10
+     and 50. Ours could not read that kind of rule, so he got up the plain way. Fixed.
+     (A second record, `LooseNVDocHelpPlayerUp`, names an animation file that is not in
+     the game's archives, and nothing uses it.)
+   - *The seated view was off to the right.* A bug of mine turned the view 11° when the
+     sit-up handed over to the sitting loop. Fixed.
+   - *Collision moves the player before the scene.* Yes: the start marker is inside the
+     bed, and the player was pushed about 10 units off it. The scene now plays at the
+     marker and the player is held there until it is over. With both fixes the seated
+     view lines up with your capture (Doc and the Vigor Tester within a few pixels at
+     1280 × 720).
+3. **Also fixed on the way:** Doc Mitchell was smoking. His packages list the smoking
+   idle, but that idle has conditions he does not meet. Idles from a package's list are
+   now played only when their own conditions pass. And a second `AddScriptPackage` now
+   replaces the first, as the wiki says; before, removing the stand-up package brought
+   the sit-up back.
+4. **Guesses I made (please say if you know better):**
+   - ~~Loop count 255 means "loop until something else replaces it"~~ **answered by
+     you (2026-10-10):** the editor's Loop Forever box sets minimum and maximum both to
+     255; with the box clear any numbers can be entered. Ours now loops for ever only
+     when both are 255. Still a guess: 0 / 0 means once.
+   - A looping idle repeats between its `StartLoop` and `EndLoop` markers.
+   - `PlayIdle`, package begin/end/change idles and dialogue idles ignore the idle's
+     conditions; idles from a package's or marker's list respect them.
+   - A package's list plays whenever the actor stands with nothing else to do. The wiki
+     gives a rule per package type; I used one rule for all.
+   - While an idle moves the first-person view you can still look round (the opening
+     leaves looking enabled); the body does not turn with the view.
+5. **Needs your eyes in the game:** when does Doc get up from his chair? In ours he
+   starts about 3 seconds before you start to stand, because his packages are checked
+   again shortly after stage 40. The script itself only tells him to re-check at the end
+   of the line he says while you stand. If in the game he stays seated until then, tell
+   me and I will hold an actor's package while it is speaking.
+6. **Not done:** the sounds stored in the idle animations (bed creak, eyes opening);
+   the blur and fade effects of the opening (another branch); idles the game picks by
+   itself with nobody asking (fidgets, talking gestures); Doc does not look at you
+   during his scripted lines (head tracking does not cover those lines yet); in third
+   person the wake-up moves only the first-person body.
+7. **A slip to report (lab rule):** early on I ran `fnvtool actor anims` on the whole
+   Data folder, which also opens the add-on archives, one of which is a lab holdout. My
+   next step failed before reading the output; I deleted the file unread and used
+   base-game archives by name from then on.
+
+
+## Lying down on beds (2026-10-10, session "player beds")
+
+Your request: sitting in chairs should also work for beds, so you can lie down the same
+as a sleeping NPC; and, while I was testing, "sideways the camera when laying". Branch
+`claude/player-beds`. Facts: `docs/spec-notes/furniture.md` §5 item 10 and §7. Pictures:
+`C:\fnv-private\references\player_beds\` (`v1-third-sheet.png`, `v2-first-off-sheet.png`,
+`v2-first-on-sheet.png`; the `base-*` ones are before the camera was changed).
+
+1. **What works now:** look at a bed and press E. You sit on the edge, swing your legs
+   up and lie down, with the same animations a sleeping NPC uses on that bed. Any
+   movement key or E gets you up, and you stand beside the bed. As with chairs: you
+   cannot move while on it, your weapon is put away, and quest scripts that ask "is
+   the player sleeping" get a yes.
+2. **Why it did not work before:** I had blocked beds for the player on purpose, with
+   the message "Sleeping is not available yet", because the original opens a sleep
+   menu instead of lying you down. That block is gone.
+3. **The sleeping pose is on its side**, not on the back: that is what the game's own
+   sleep animation is, the same one NPCs get.
+4. **The camera, first person (my choices; the original has nothing to copy here):**
+   - Your view now lies down with your body: the picture leans over as you lie down
+     and ends on its side, the way a head on a pillow sees the room. It straightens up
+     again as you get up. This is the same whether "Body in first person" is on or off.
+   - Lying, the mouse turns your head on the pillow: up to the ceiling, along the bed
+     to your feet, and a little to the side. It stops before the view goes into the
+     pillow or the mattress, and with the body drawn, before it goes into your own
+     body (you see your shoulder and arm there).
+   - Before this change the lying view was broken in both modes: the picture was the
+     inside of the mattress or of your own body.
+5. **The camera, third person:** it circled into the bed, so the picture was the inside
+   of the mattress. It now sits higher above you while you lie.
+6. **E with nothing under the crosshair gets you up** from any furniture. Lying down
+   you are usually looking at the ceiling, so "press E on the bed again" would not
+   have worked. With a chair you could already do it with a movement key.
+7. **For you to decide:**
+   - The sideways picture is strong. If it is too much, a milder version keeps the
+     horizon level and only looks up from the pillow. Say which you prefer after
+     trying it.
+   - I checked one bed in Goodsprings (Easy Pete's). Bedrolls and mattresses on the
+     floor use other animations from the same family; they should work the same way
+     but I did not look at them.
+8. ~~**Not done:** actually sleeping. No sleep menu, no time passes, no healing, no
+   "well rested". You only lie down. A bed someone else owns can be used freely, and a
+   bed an NPC is already lying on says it is in use. Tell me if you want the sleep
+   menu next.~~ *(stale 2026-10-19: superseded by "Waiting and sleeping: the T menu" and "Sleeping, refusals…" (sleep menu, Well Rested); status.md:87.)*
+
+## Your shadow in first person (2026-10-11, session "player shadow")
+
+Your report: in first person your sun shadow was wrong. Arms only: a shadow of floating
+arms and no body. With "Body in first person": a body without a head, and without its
+own arms while the weapon is out. Branch `claude/player-shadow`. Design: `docs/design/player-body.md` §1.6. Pictures, before
+and after side by side: `C:\fnv-private\references\player_shadow\`. This replaces
+point 5 of "Body in first person: a switch" above.
+
+1. **Fixed:** in first person, with the switch on or off, your shadow is now your whole
+   body: head, arms, and the weapon in your hands or in its holster. The floating arms'
+   shadow is gone. Third person is unchanged.
+2. **What you see of yourself is unchanged.** No head or extra arms appear in the view.
+   I compared the arms and weapon before and after facing east, north and west at
+   17:00: they match to within a few dozen pixels.
+3. **One thing I had to solve that you did not ask about:** the body that casts the
+   shadow is invisible but stands exactly where your first-person arms are, so at first
+   it shaded them: the Pip-Boy, left hand and rifle went dark whichever way I faced. The
+   arms now ignore that invisible body's shadow and still take everyone else's: I stood
+   in the shade of the truck by the Goodsprings road and inside its cab, and the arms
+   went dark there as they did before. They also still shade themselves (the rifle on
+   the forearm) as before.
+4. **Cost, not measured properly:** this needs the sun's nearest shadows drawn a second
+   time while you are in first person. Two 18-second runs each way gave 44.5 and 26.2
+   frames per second before and 38.9 and 38.6 after; your machine was busy with other
+   sessions, so those numbers overlap and prove nothing. If first person feels slower
+   outdoors with shadows on, tell me.
+5. **Checked as well:** sitting on the saloon porch chair (both settings), switching to
+   third person and back, and the water and reflections at the Lake Mead pier: all as
+   before.
+6. **Not done, for you to decide:**
+   - With "Body in first person" on and the weapon out, the shadow's arms are the
+     body's own, which always aim level, while the arms you see follow where you look.
+     Looking steeply up or down, the shadow's rifle does not tilt with yours. With the
+     switch off the shadow's body bends with your view, as in third person.
+   - In water, your reflection in first person is still the floating arms, not your
+     body (it was like that before). The same method would fix it; say if you want it.
+   - Indoor lamps cast no shadows at all in ours, so you have no shadow from them.
+
+## Waiting and sleeping: the T menu (2026-10-11, session "wait menu")
+
+Your request: "a wait function that the player can use by pressing T", up to 24 hours,
+time ticking by one hour at a time, and a sleep instead of a wait when you are in a bed.
+Branch `claude/wait-menu`. Facts and sources: `docs/spec-notes/wait-menu.md`. Pictures:
+`C:\fnv-private\references\wait_menu\` (`compare-wait.png` is your screenshot above
+NVForever's; `nvf-sleep.png` is the bed version).
+
+1. **What works now:** press T while playing. The picture blurs and the box from your
+   screenshot comes up: the title, the slider with its 24 marks and the triangle, the
+   hours line with the time you will end at, the date line, and Wait and Cancel at the
+   right.
+   - Pick the hours with the mouse (click or drag on the slider, or the wheel) or with
+     the keys (Left/Right or A/D one hour, Page Up/Down six, Home/End the ends).
+   - E, Enter or a click on Wait accepts. X, Esc, T or a click on Cancel closes it.
+   - After you accept, an hour passes every half second. The menu counts down: the
+     hours left, the triangle moving back along the slider, the date and time going up.
+     The sky and the light change behind it hour by hour.
+   - Cancel during the countdown stops it there. The hours already passed stay passed.
+   - A wait across midnight changes the weekday and the date; 24 hours ends at the same
+     time the next day.
+2. **In a bed it is a sleep.** Lie down on a bed (E on it), then press T: the same menu
+   says "How long would you like to sleep?" and the button says Sleep. Time passes the
+   same way. You are still lying there when it closes.
+   - **The screen fades out when you accept a sleep** (your request while I was
+     working). It goes to black over one second, and comes back over one second when
+     the sleep ends or you cancel it. The menu stays visible on the black so you can
+     watch the hours count down and still cancel. Waiting does not fade. Say if you
+     would rather the menu disappeared too, or want the fade slower.
+3. **It moves the one game clock**, the same one the sky, the townspeople's schedules
+   and quest scripts read. After a wait from 18:37 to 22:37 in Goodsprings, Easy Pete,
+   Chet and a settler all switched to their night routines within a few seconds and
+   went to bed.
+4. **Scripts can hold it shut.** While a quest has taken your controls away (the
+   opening at Doc Mitchell's, for one), T does nothing, the same as the inventory.
+5. **What I had to guess** (nothing I could read says how the original does it):
+   - **The pace:** half a second per hour, so a full day takes twelve seconds. Say if
+     the original feels faster or slower.
+   - **Stopping part-way:** the original's own notes say a sleep can be cancelled; for
+     a wait I assumed the same.
+   - **The keys for the slider.** The original's files only describe the gamepad and
+     the mouse. E and X are the hints on your screenshot.
+   - **The menu opens on 1 hour.** I do not know what the original opens on.
+   - **The sleep wording.** Your screenshot is of the wait menu. For sleep I used the
+     same sentence with "sleep" and a "Sleep" button. A screenshot of the original's
+     sleep menu would settle it.
+   - ~~**The day of the week.** Your screenshot says Saturday on 19.10.81. I count days so
+     that it comes out that way (the game's day counter starts on 13 October 2281, and
+     I took that day as a Sunday). One screenshot is all that backs it.~~ *(stale 2026-10-19: superseded by "Script function audit" (the original read Friday on 25 October 2281, consistent with the wait menu's count).)*
+6. **Where the words come from.** The original keeps this menu's text inside its
+   program, not in the data files, so NVForever cannot read it from your install. The
+   title, "Wait", "Cancel", "hours" and "Saturday" are typed in from your screenshot.
+   That is a handful of words, but they are the original's: say if you would rather
+   have NVForever's own wording there.
+7. ~~**Something this turned up, for you to decide.** Quest scripts and the townspeople's
+   weekday schedules ask "what day of the week is it" through another part of the game
+   code, which works it out the way a real-world calendar would. By that rule 19.10.81
+   is a Wednesday, and your screenshot says Saturday. So that older rule is probably
+   wrong by three days. I did not change it here, because it would move who does what
+   on which day and the earlier checks of the schedules were made with it. If you type
+   `GetDayOfWeek` in the original's console with the wait menu's date line in view, one
+   number settles it (0 is Sunday, 6 is Saturday).~~ *(stale 2026-10-19: superseded by "Script function audit" (GetDayOfWeek now counts from Sunday 13 October 2281, as the wait menu; package schedules follow).)*
+8. ~~**Not built** (the first five points were taken up later the same day: see the next
+   entry, "Sleeping, refusals and people during a wait"):~~
+   - ~~**The original's refusals.** Its message list names these: enemies nearby, in
+     combat, under water, an alarm sounding, a bed someone else owns, and places or
+     quests that forbid waiting. I found the names, not the rules, so NVForever lets
+     you wait anywhere.~~
+   - ~~**What sleep does besides passing time.** The data files show "Well Rested" (10%
+     more experience for a while, and full health and limbs) given by nine particular
+     safe beds, and a sleep need in hardcore mode. None of that happens yet. Plain
+     healing per hour of sleep is not in anything I could read.~~
+   - ~~**People moving during the wait.** They stand still while the menu is up and set
+     off for where they should be when it closes, so after a long wait you can watch
+     them walk there. The original may put them in place; I do not know.~~
+   - ~~**(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
+     directly. You asked for lying down first; T does the rest.~~
+   - ~~**Scripts asking "is the player asleep?" or opening this menu themselves.** The
+     Well Rested beds need the first.~~
+   - ~~**The game's own font, slider picture and menu sounds.** The menu is drawn with
+     NVForever's font and plain shapes, measured from your screenshot.~~ *(stale 2026-10-19: superseded by "Sleeping, refusals and people during a wait" (refusals, Well Rested, people moving, scripts asking "is the player asleep"), the owner's bed decision and "Pause, settings and main menus…" (the game's fonts and colour for the wait menu).)*
+
+## Message boxes drawn as the original's (2026-10-11, session "message box")
+
+You asked for the placeholder message boxes to be swapped for the game's own, like your
+"Vance's Gun" screenshot, with several buttons where a message has them.
+
+1. **What you get.** A message box is now laid out by the game's own menu file and
+   drawn with the game's own two fonts and line pictures, read from your install when
+   the game runs (nothing of them is in the repository): the title standing in the top
+   line, the text at the left, the buttons one under the other in the middle with a
+   frame around the chosen one, the bottom line, the short fading lines at the four
+   corners and the dark patch behind. Your screenshot's message comes out with the same
+   line breaks, and the box's measures match yours to within a pixel or two.
+2. **The pictures are not in `textures\interface\hud`.** That folder holds the compass,
+   crosshair and meters. The message box uses `textures\interface\shared` (the fading
+   lines and the black background) and `textures\fonts`. The font files had to be
+   worked out from their numbers; the note is `docs/spec-notes/fonts.md`.
+3. **How to answer a box.** Click a button; or Up and Down to move the frame and Enter
+   to press it. The pointer moves the frame to the button it is on. The number keys
+   still work as before (1 for the first button), but the numbers are no longer written
+   in front of the buttons. A box without buttons has OK, which Space also presses.
+4. **Guesses for you to judge** (details in `docs/spec-notes/message-menu.md` §3):
+   - **How dark the box is.** The game's file leaves that to the program. Your
+     screenshot is of a dark room, so it does not tell. I used the same darkness as the
+     Wait menu. A screenshot of a box outdoors in daylight would settle it.
+   - **The box's width for a short message.** Your screenshot is a full-width box. For
+     short texts I make the box as wide as the text needs, down to the file's minimum.
+   - **Which keys.** The menu file only describes the mouse and the gamepad.
+   - **A few spacings** (line spacing, where the first line sits) are fitted to your
+     one screenshot rather than read from a file.
+   - **The colour** is the amber of your screenshot. Your own HUD colour setting is not
+     read yet.
+5. **Not built:** the icon some boxes show beside the text, scrolling for a box with
+   more buttons than fit, the two menu sounds, the blur of the world behind the box.
+6. ~~**Other menus use the same fonts.** The Wait menu, dialogue and the rest are still
+   in NVForever's stand-in font. The font reader is there now for them.~~ *(stale 2026-10-19: superseded by "Dialogue menu as the original's", "Barter and container menus…", "Pause, settings and main menus…" (wait menu in the game's fonts).)*
+7. **To look at any message:** set `NVF_PLAY_TEST_SCRIPT=20:message:PrimmMuseumPlaqueMessage`
+   and `NVF_PLAY_TEST_SCRIPT_MENUS=off` before starting with `--play` (the name is the
+   message's Editor ID).
+
+## Messages at the top left, as the original's (2026-10-11, session "corner messages")
+
+Branch `claude/corner-messages` (it contains the message box branch). Rules and
+sources: `docs/spec-notes/corner-messages.md`.
+
+You asked for the messages that are not message boxes to be shown as the original
+shows them, with their icons, and then: one at a time, each for the time its record
+gives.
+
+1. **What you get.** A message without the Message Box flag now appears at the top
+   left: the bracket, the Vault Boy icon and the text beside it in the game's own HUD
+   font, all read from your install when the game runs. Next to your "You are now Well
+   Rested!" screenshot, at the same window size, the bracket, the face and the text
+   fall on the same pixels to within one.
+2. **One at a time, for the record's time.** Messages wait in line. Each is shown for
+   its own Display Time (Well Rested: 10 seconds), then the next. In the game's data
+   the times run from 1 to 15 seconds; 2 and 10 are the commonest.
+3. **Icons.** A message's icon is the Menu Icon record it names (the faction faces,
+   Wild Wasteland, Vault Boy in pain). Most messages name none and get the neutral
+   Vault Boy face, as the GECK wiki says and as your screenshot shows.
+4. **Something I found.** The bracket in your screenshot has a cut corner. The bracket's
+   own picture file has a square one. The game takes the bracket from its big shared
+   interface picture (the "atlas"), where it is drawn differently. NVForever now reads
+   that atlas too.
+5. **Guesses for you to judge:**
+   - **Messages without a time.** Nineteen old messages have no Display Time. They
+     stay 2 seconds.
+   - **Objectives, quests, items, "Gate is locked".** These lines used to be at the
+     bottom left. Nothing I could read says where the original shows them, so they now
+     go through the same top-left area, in the same line, with the neutral face, 2
+     seconds each. The wording ("Objective: ...", "... added") is still NVForever's.
+     After a new game's start about ten of them wait in line, so the last comes some
+     20 seconds late. Say if they should be shorter, grouped, or go elsewhere.
+   - **Fading.** A message fades in and out over a quarter of a second. Your one still
+     picture cannot show how the original does it.
+   - **The same message twice running** is shown once.
+   - **While a message box is open** the corner message is hidden and its time does not
+     run, so it is not used up behind the box.
+   - **Where long texts break.** Your screenshot only pins the line width between 228
+     and 336 units; I use 330. A screenshot of a longer message (three or more lines)
+     would settle it, and would show whether the bracket grows with the text.
+6. **Not built:** a sound when a message appears; the original's own messages that do
+   not come from scripts (experience, karma, picking things up by hand); the other HUD
+   text areas (quest added, location names). The bottom HUD is the other session's.
+7. ~~**The debug text gets in the way.** NVForever's own status text is also at the top
+   left and lies over the message. Start with `--no-overlay` to look.~~ *(stale 2026-10-19: superseded by "List 5 — claude/l5-ui-text-sounds" (item 68: the overlay is off by default in `--play`).)*
+8. **To look at any message:** set
+   `NVF_PLAY_TEST_SCRIPT=20:message:AbilityWellRestedStartMsg` before starting with
+   `--play --no-overlay` (the name is the message's Editor ID; `FactionReminderNCR` has
+   a faction face).
+
+## Weapon and armour condition (2026-10-11, session "item condition")
+
+Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.md §17.
+
+1. **Built, as you asked:**
+   - Each shot wears your weapon. The game file has a setting for this
+     (`fDamageToWeaponValue`, 0.2): the 10mm Pistol's record has 80 health, so it lasts
+     400 shots, 33 full magazines. Your figure was "about 395".
+   - A hit wears the armour it lands on: the head piece for a head hit, the body
+     armour for any other, both for an explosion. The amount is 35 % of the hit's
+     damage, also a setting in the game file (`fDamageToArmorPercentage`).
+   - A shot on a weapon someone is holding damages the weapon instead of them.
+   - Your weapon at zero is unequipped and stays in your inventory as "(broken)"; it
+     cannot be equipped again. Anyone else's falls to the ground and cannot be equipped
+     when picked up.
+   - The HUD shows your weapon's condition next to the ammo count, and the inventory
+     shows it after the item's name.
+2. **My guesses, for you to confirm or change:**
+   - Melee weapons wear only when the swing hits something, by the same 0.2.
+   - A weapon that is hit loses the full damage of the shot, and its holder takes
+     none. A 10mm shot takes about a tenth off a Varmint Rifle.
+   - Only a drawn weapon can be hit. Holstered, the shot hits the person.
+   - Worn armour protects less: full DT at 100 %, half at 0 %. Broken armour stays on.
+   - Weapon damage still falls to half at zero condition (the rule from before). The
+     game file has settings that look like the original's rule (66 % + 34 %); I did
+     not use them because nothing we can cite says how they combine.
+3. ~~**Not testable in play yet:** your own armour wearing and your weapon being hit,
+   because nobody attacks you yet. The code handles any actor and is tested without
+   the engine.~~ *(stale 2026-10-19: superseded by "NPCs in Combat attack" (their shots hit you, your armour counts).)*
+4. **To see it yourself:** NPC weapons are only drawn with `--actor-weapons drawn`.
+   Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
+5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
+   worn item selling for less.
+
+## The HUD: health, compass, action points, condition, ammo (2026-10-11, session "hud")
+
+You asked for the other things on the screen to look like the original's, after your
+~~labelled Goodsprings screenshot. **That screenshot did not reach this session as a
+file** (only a description of it in words), so the HUD is built from the game's own
+interface files and pictures, and everything those files leave open is my guess until
+I can measure your picture. Please attach it again, or drop it in
+`C:\fnv-private\references\hud\`.~~
+ *(stale 2026-10-19: superseded by "HUD: bars, enemy health, sneak word, dialogue" and spec-notes/hud.md:27-32 (the owner's list-5 HUD screenshots arrived and the bars, labels and condition bar were measured on them).)*
+1. **What you get.** In `--play`, at the bottom left: "HP", the health bar of small
+   upright ticks on the game's bracket, and under it the compass strip, which turns as
+   you turn. At the bottom right: the action points bar with "AP", and under it "CND"
+   with the weapon's condition bar and, right of the divider, the ammo as
+   loaded/carried. Brackets, ticks, compass strip and letters are the game's own
+   pictures and font, read from your install when the game runs (nothing of them is in
+   the repository). The old yellow "HP 100/100" and "13 / 37 9mm CND 60%" texts are
+   gone.
+2. **Where the numbers come from.** Health and action points are the player's real
+   values; the compass is the real heading; condition and ammo are the equipped
+   weapon's. Nothing spends action points yet (no V.A.T.S., no sprint), so that bar
+   stays full.
+3. **When it is shown.** While you walk around. It is off in every menu, in
+   conversations and behind loading screens (my choice: the game's file does not say),
+   and off while a script holds your movement, as the GECK wiki says of the original
+   (so not during the wake-up at Doc Mitchell's).
+4. **Guesses for you to judge** (all waiting for your screenshot):
+   - how far the two corners stand from the screen's edges (I took 40 and 30 of 960);
+   - the bars' length: the game's file says 300, but that runs over the label or past
+     the bracket, so I took 256 (32 ticks), ending at the bracket's small corner mark;
+   - where "HP", "AP", "CND" and the ammo stand;
+   - the compass's middle: I centred the heading in the window the file gives; the
+     bracket's small triangle is a little left of that;
+   - the action points bar emptying from the left, the health bar from the right;
+   - with bare hands: no "CND" and no ammo. With a melee weapon: "CND" but no ammo.
+     Your picture shows "0/0" - which weapon were you holding (or none)?
+   - everything at full brightness; the game may draw lines a little dimmer than text.
+5. **Not built:** markers on the compass (quests, places, people nearby) and its
+   faded ends; the original's crosshair, enemy health bar, sneak meter, the messages
+   and their icons at the top left, subtitles and the "E) Open" prompt in the game's
+   font, the XP and radiation meters, the crippled-limb picture (crippled limbs are
+   still a line of words), the ammo type's name, Hardcore mode's words, the HUD's
+   fading and glow.
+6. **To see it yourself:**
+   `nvforever --data <Data> --cell Goodsprings --play --size 1280x720 --no-overlay`,
+   press the view key for third person. Details and the test recipe:
+   `docs/spec-notes/hud.md`.
+## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
+
+7. **Pressing E on a bed.** **Decided by the owner 2026-10-18:** a get-into-bed animation, then the sleep menu (NVForever's own design, not a parity question). Earlier text: You lie down as before, and when you are lying the sleep
+   menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
+   movement key or E gets you up.
+   - **For you to decide.** The original most likely opens the menu the moment you
+     press E, with no lying down (its bed script only works that way). You asked for
+     lying down earlier, so I kept it and put the menu after it. Say if you would rather
+     have (a) this, (b) the menu at once and no lying down, or (c) lying down only, with
+     T for the menu as it was.
+   - **A bug this fixed:** nine kinds of bed (safehouse beds, your hotel and Novac room
+     beds) did nothing at all when you pressed E, because they carry a script. They
+     work now.
+8. **Well Rested works.** Sleep in one of those nine kinds of bed and when you wake the
+   game says "You are now Well Rested!", your health and limbs are restored, and you
+   have the perk until its time runs out. I did not write any of that by hand: the
+   game's own bed script does it, now that it can ask "is the player asleep".
+   - ~~The perk's actual bonus (10% more experience) is not applied yet. That belongs to
+     perks in general, which are not built.~~ *(stale 2026-10-19: superseded by status.md:89 (experience through the perks' Adjust Experience Points entry point: Swift Learner, Skilled, Well Rested, Lessons Learned).)*
+   - Quest scripts can now put you to sleep, wake you, and open the menu themselves.
+     Three quests use the first and one the second; I could not test them in a real
+     quest, only in small tests.
+9. **Healing in an ordinary bed: not built, on purpose.** Nothing I can read says an
+   ordinary bed heals you, or how much per hour. I would rather not make a number up.
+   If you sleep one hour in a plain bed in the original while hurt and tell me your
+   health before and after (and the same for eight hours), I can build it properly.
+10. ~~**Hardcore sleep need: not built.** The game files have the need itself, its five
+   stages and a rate number (50), but not what the rate is measured in or how much an
+   hour of sleep takes off. NVForever does not build up any of the hardcore needs yet
+   (food, water, sleep), so there is nothing for sleep to lower. My proposal: build the
+   three needs together in their own piece of work, from numbers captured in the
+   original.~~ *(stale 2026-10-19: superseded by "Aid leftovers: waiting, Hardcore needs…" (needs rise with time; an hour slept takes 100 off sleep deprivation).)*
+11. **When you cannot wait or sleep.** Instead of the menu you now get a line on the
+   screen in these cases:
+   - **Enemies nearby**, with the original's own sentence (it is in the game files).
+   - **Someone else's bed**: you can lie on it, but not sleep.
+   - **Swimming.**
+   - **A quest has forbidden waiting.**
+   What I had to guess, since only the names of the original's messages are known:
+   - **How near is "nearby":** about 2000 units outdoors and 1000 indoors (roughly 30
+     and 15 metres). The original keeps these two numbers inside its program. If you
+     type `GetGS fHostileActorExteriorDistance` and `GetGS
+     fHostileActorInteriorDistance` in its console, I can put the real ones in.
+   - **Who is an enemy:** anyone alive in view range whose records say they would
+     attack you on sight. Nobody actually fights on their own in NVForever yet, so it
+     cannot be "is attacking you".
+   - **Whose bed:** I look at the bed's own owner. A bed with no owner of its own in an
+     owned house still lets you sleep.
+   - **The wording** of all lines except the enemies one is mine.
+   - ~~**A weakness you will notice:** most wild animals do not count as enemies yet.
+     Standing next to two coyotes I could still wait; next to a Fiend I could not. The
+     reason is a gap elsewhere (animals get their faction from a template that
+     NVForever does not read yet). I have flagged it as its own task.~~ *(stale 2026-10-19: superseded by "Who is in which faction, and who is hostile to you" (template factions read; the refusal knows spawned animals' factions).)*
+   - **Not built:** "in combat" and "alarm sounding". Combat needs enemies that fight;
+     for the alarm I found no description of what it is.
+12. **People move on while you wait.** Before, everyone stood still during a wait and
+   walked to where they should be afterwards. Now, each hour that passes, everyone
+   picks what their schedule says for that hour and walks for as long as they would
+   have in an hour of normal play. After waiting from 18:41 to 22:41 in Goodsprings,
+   Easy Pete and a settler were already in their houses at their beds, and Chet at his.
+   - This is my design; I found nothing on what the original does.
+   - Behind the wait menu you can see people change place from one hour to the next.
+     During a sleep the screen is black, so you see nothing. Say if you want waiting to
+     hide it too.
+   - Nobody starts talking to you in the middle of a wait, and message boxes from
+     scripts hold until the menu closes.
+   - Someone who was sitting and has to be elsewhere is simply off the chair, without
+     the standing-up animation, since it happens behind the menu.
+   - People who were wandering about with nothing scheduled stay as they were until
+     the wait ends.
+13. ~~**Still open from before:** the day-of-the-week question (item 7 of "Waiting and
+   sleeping: the T menu") is untouched. I did not change that rule.~~ *(stale 2026-10-19: superseded by "Script function audit".)*
+
+## Who is in which faction, and who is hostile to you (2026-10-11, session "actor factions")
+
+From the sleep work: "enemies nearby" could not be told, because many actors had no
+factions at all. Details: docs/spec-notes/factions.md.
+
+1. **Fixed:** an actor marked "use the template's factions" now gets them. 3,037 of the
+   6,385 actors placed in the game had no factions before, for example the coyotes at
+   Goodsprings.
+2. **Checked, not a bug:** the Fiend Violet reads as "neutral" to you. The game file
+   says so: the Fiends and you do not list each other. She attacks because she is
+   "Very Aggressive", and the editor's documentation says those attack neutrals. Most
+   dangerous animals work this way too (cazadores, fire geckos, radscorpions,
+   deathclaws). The sleep and wait refusal ("enemies nearby") already uses aggression
+   together with the relation, so it was right about her; with item 1 it now also
+   knows the factions of spawned animals.
+3. **My choice, for you to confirm:** where the template is a leveled list ("one of
+   these raiders"), the actor takes the factions of the same entry that is drawn for
+   it. That pick is ours (level 1, repeatable per actor), not the game's roll by your
+   level. For 192 actor types the pick changes the factions.
+4. **One question a capture would settle:** 618 placed animals are "Aggressive" (not
+   "Very") and neutral to you: bighorners, giant rats, coyotes, worker ants, bloatflies,
+   mole rats. By the documented rule they leave you alone until attacked. If you
+   remember a coyote or giant rat attacking on sight, the rule has a gap. Console, with
+   the animal selected, while walking up to it: `GetFactionRelation player`,
+   `GetAV Aggression`, `IsInCombat`.
+5. **Not done:** AI packages through a leveled-list template; the game's own leveled
+   pick by your level and the encounter zone.
+## Music, sound markers and background loops (2026-10-11, session "music")
+
+Docs: docs/spec-notes/audio.md. Start `--play` in Goodsprings to hear it.
+
+1. **What you should hear:** the desert exploration music in and around Goodsprings,
+   the day version from 06:00 and the night version from about midnight; the air
+   conditioners humming near the saloon and store; the string lights creaking now and
+   then; the desert background (wind, insects) changing at dawn, in the day, at dusk and
+   at night.
+2. **Guesses I had to make, for you to check by ear against the game:**
+   - **Layers.** Each place's music is three files of the same length ("low", "mid",
+     "high"). I play the low one anywhere inside the place's radius and add the mid and
+     high ones as you come nearer its centre (for Goodsprings: within 8,400 and 2,800
+     units of the marker by the saloon). If the game instead swaps one for another, or
+     the music near the saloon sounds too thin or too busy next to the game's, tell me.
+   - **Fades.** A layer comes in or goes over 9 seconds; so does the change between
+     day and night music and walking out of a place.
+   - **Overlapping places.** Where two places' radii overlap I play the one you are
+     deeper inside.
+   - **Random placed sounds** (creaks, cave wind, debris): each rolls its record's
+     chance once a second. If they come too often or too rarely, tell me which.
+   - **Background loop hours:** dawn 5–9, day 9–17, dusk 17–21, night otherwise.
+3. **Not built yet:** battle music, dungeon music (explore, suspense, battle), the short
+   incidental pieces, music that depends on a faction liking or hating you (I always
+   play the neutral one), the music scripts ask for (stingers such as the one on leaving
+   Doc Mitchell's house), main menu and death music; reverb indoors, left-right panning
+   of placed sounds, and the region sounds (distant gunfire, coyotes, hawks).
+4. **Side effect:** sound effects whose file is stored as Ogg are now found. They were
+   silently skipped before.
+5. **Cost:** reading every marker at the start takes about half a second on the main
+   thread before the first frame.
+
+## Dialogue menu as the original's (2026-10-11, session "dialogue menu")
+
+Branch `claude/dialogue-menu`; note docs/spec-notes/dialogue-menu.md.
+
+1. **What you should see:** while someone speaks, their line on a dark band without a
+   frame and their name at the top right (as your Bruce Isaac picture); while you choose,
+   the choices between two brackets, the selected one framed, said-before ones dim, an
+   up and down arrow with a marker at the left when not all fit (as Trudy and Veronica).
+   No numbers before the choices and no key hint any more; the number keys still work.
+2. **Guesses I had to make, for you to check against the game:**
+   - **The red frame.** In the Trudy picture the selected "[Sneak 17/25]" line is
+     framed in red. I frame a selected check you fall short of in red, every other one
+     in amber. If the game turns red for some other reason, tell me.
+   - **How many choices show at once.** The list grows to 290 units (about five
+     one-line choices) and then scrolls; the game's file leaves this to its code.
+   - **The rows sit 7 units higher** inside the brackets than the file puts them, as
+     the Trudy picture shows.
+   - **The band's darkness** is measured from your pictures (about 0.87), not taken
+     from the file, whose number would make it nearly see-through.
+   - **The scroll marker** is 40 units long; your two pictures show about 30 and 43.
+3. **Not built yet:** the subtitles setting (lines always show), sounds on the list,
+   dragging the marker or clicking the arrows.
+
+## Who sees you: detection (2026-10-11, session "detection")
+
+Docs: docs/design/detection.md. Every NPC and creature near you now works out, four
+times a second, how well it perceives you and the other actors near it, with the
+editor documentation's formula (Perception, distance, light, sound of movement and
+shots, and your Sneak, level and armour while you sneak). Nothing acts on it yet: it is
+the groundwork for combat encounters. Scripts' GetDetected now answers from it.
+
+1. **See the numbers without playing:**
+   `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector SunnyRef`
+   lists, for 13 situations, the value at distances from 100 to 5,000 units and how far
+   out you are detected (above 0) and noticed (above −20). In the game the log shows each
+   change (`detection: GSSettlerAM 00104F0A → the player: hidden → noticed …`) and
+   your band as the sneak meter would show it (HIDDEN, CAUTION, DANGER).
+2. **Guesses for you to check against the game:**
+   - **Light.** The formula needs the light level at you (0–100) and no source says how
+     the game measures it. I take the ambient light plus sunlight by day (or the room's
+     light indoors) plus nearby lamps; at noon in Goodsprings that is 93. With it, Sunny
+     Smiles spots you sneaking in daylight out to about 1,840 units, and never sneaking
+     in the dark. If the game hides you much better in daylight, the light measure is
+     what to lower.
+   - **Field of view:** 95° either side of where the actor faces (the GetLineOfSight
+     notes say so for every NPC). Walls block sight; other people do not.
+   - **Sneak-running counts as running** (louder and more visible).
+   - **Lying on a bed counts as asleep** (−20 % perception).
+3. **Would help me tune:** a few `GetDetected` readings in the game with you standing,
+   walking, running and sneaking at set distances from one NPC, at noon and at
+   midnight, and the game's fSneak* settings (`GetNumericGameSetting`).
+4. ~~**Not built yet:** the alert, combat and lost states with their timers (so bands can
+   flicker as an actor turns its head), noise events from explosions and
+   CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.~~ *(stale 2026-10-19: superseded by "NPCs on alert: Normal, Alert, Combat, Lost", "HUD: bars…" (sneak word on the HUD), "List 5 — claude/l5-npc-ai" (NPCs sneak).)*
+
+## Reloading one round at a time (2026-10-11, session "looping reload")
+
+Docs: docs/spec-notes/combat-rules.md §4 ("Round by round"). Your rules (2026-10-11): a
+trigger pull closes the weapon first, then it fires; the close plays every time.
+
+1. **Which weapons:** none are listed in the code. A weapon loads round by round when
+   its reload animation has an opening clip in the game's files. That is true of the
+   .357 Magnum Revolver, Lucky, the Lever-Action Shotgun, the Hunting Shotgun, Dinner
+   Bell, the Cowboy Repeater, the Brush Gun, the Trail Carbine, and also the **Grenade
+   Launcher** (it shares the hunting shotgun's animation). If the grenade launcher
+   reloads all at once in the game, tell me.
+2. **How it runs:** the opening clip plays once (the .357's cylinder swings out:
+   1.07 s); each round is the reload clip from its start to its `Hit` key (0.63 s for
+   the .357, 0.47–0.5 s for the rifles and shotguns); after the last round the rest of
+   that clip closes the weapon (about 1.1 s). Please compare a full .357 reload
+   (2 missing: about 3.5 s) with the game.
+3. **Guesses I had to make:**
+   - The shot after a stopped reload follows by itself; you do not have to pull again.
+     A pull while it is closing also fires once it is closed.
+   - A pull while the weapon is still opening lets the first round go in, then closes.
+   - Each round's clip starts straight after the last without blending, so the hands
+     should not jump. If you see a jerk between rounds, tell me which weapon.
+4. **Try it:** equip the .357 (or another one above), fire two shots, press R, then
+   click partway through.
+5. **Not built:** NPCs reloading (they do not reload with animations yet), the Reload
+   Speed perks.
+
+## Quest added, quest completed and objectives at the left (2026-10-11, session "quest messages")
+
+Branch `claude/quest-messages`; note docs/spec-notes/quest-messages.md.
+
+1. **What you should see:** "Quest added" (or "Quest completed", "Quest failed") with
+   the quest's name under it in large capitals, at the left a little above the middle,
+   as your Come Fly With Me and Ring-a-Ding-Ding pictures; objectives listed in the same
+   place behind a small square, filled and with "COMPLETED: " for a completed one, as
+   your Sierra Madre and Sunny Smiles pictures. These lines no longer appear in the
+   messages at the top left.
+2. **Measured:** at 1280x720 the words and the name sit on the same pixel rows and start
+   at the same column as in your picture; the Sunny Smiles objectives break their lines
+   at the same words.
+3. **Guesses I had to make, for you to check against the game:**
+   - **How long they stay:** 4 seconds for "Quest added" and the name, 4 for a list of
+     objectives and 1.5 more for each further one; 0.25 s to come and go.
+   - **The name comes in letter by letter from the left** over 0.6 s. Your Come Fly
+     With Me picture shows "WITH ME" fainter than "COME FLY"; it might instead be the
+     name going out from the right.
+   - **One thing at a time:** "Quest added" first, then its objective; objectives that
+     arrive while something else is on screen are gathered into one list.
+   - **Sounds** by their record names: UIPopUpQuestNew for "Quest added",
+     UIPopUpQuestComplete for "Quest completed", UIQuestUpdate for objectives; none for
+     "Quest failed".
+   - **The words "Quest failed"**: I have not seen it in the game.
+   - **Where long objectives break:** at 570 units (your pictures put it between 557
+     and 590).
+4. **Please put your two objective screenshots** (the Sierra Madre and the Sunny Smiles
+   ones) in `C:\fnv-private\references\quest_messages\`: they only reached me as
+   pictures, so the objective list's place is read by eye (to about a pixel).
+5. **Not built:** "Location discovered", and the "Quest Added" that SetStage gives for a
+   stage added to the Pip-Boy.
+
+## Barter and container menus drawn as the original's (2026-10-11, session "barter menu")
+
+Docs: docs/spec-notes/barter-menu.md. Talk to Chet in the Goodsprings General Store and
+pick "Show me what you have for sale."; or open any container.
+
+1. **What you should see:** the layout of your screenshots, built from the game's own
+   menu files: your items at the left, the merchant's or container's at the right,
+   "Caps" (barter) or "Wg" (container) at the top right of a list, prices in the barter
+   lists, the item's picture with WG and VAL under the lists, "Accept A)" / "Exit X)"
+   or "Take All R)" / "Exit E)", and the caps arrow between the lists while a trade is
+   put together. Items you put up move to the other list, first, with an open square.
+2. **Prices** follow the GECK wiki formula with the settings in FalloutNV.esm; at Barter
+   100 they give exactly the prices on your screenshots (Gold Bar 9492, Hydra 50,
+   .308 AP 10 and so on). A Barter skill of 15, a new character's, makes buying dear and
+   selling cheap.
+3. **Guesses I had to make, for you to check against the game:**
+   - **Keys.** I used the letters on the screen: A accepts, X exits (barter); R takes
+     all, E exits (container); Esc and Tab also leave; `[` and `]` change a list's
+     category. A click acts on the row under the pointer at once (one unit),
+     Shift+click on the whole stack. The game asks "how many?" in a quantity box for a
+     stack; that box is not built.
+   - **Categories.** I only saw "ITEMS" and "MISC" as list titles; I added WEAPONS,
+     APPAREL, AID and AMMO in that order. What does the merchant's list title say when
+     it shows only weapons?
+   - **Not enough caps.** I refuse with "You don't have enough caps." (or "Chet doesn't
+     have enough caps.") under the menu. What does the game do and say?
+   - **After the barter menu closes** I go back to the conversation. In the game, does
+     the merchant say something then (the "BarterExit" lines)?
+   - **The merchant's own pockets:** I only offer what is in the merchant's vendor
+     chest, not what the merchant carries.
+   - **Quest items** are hidden from the barter lists.
+   - **The world behind** is darkened by about a third, as measured on your screenshot,
+     but not blurred.
+4. **Would help:** a screenshot of the barter menu with the cursor on a weapon (to see
+   the damage, condition and strength figures, which I have not drawn), and one of the
+   "how many?" box.
+
+## Light rays and lamp glows were far too strong (2026-10-11, session "light rays")
+
+Your screenshots of the Prospector Saloon at 8:00 (rays) and of a booth table (the ring
+round the lantern). Branch `claude/light-rays`. Facts and measurements:
+`docs/spec-notes/nif.md` §6 "Additive blend". Pictures: `C:\fnv-private\references\light_rays\`.
+
+1. **Why:** the game adds the light of rays, glows and flames to the colours on the
+   screen; we added it to linear light, which on a dark wall shows three to four times
+   brighter. The rays themselves are faint in the files (they add at most a tenth of
+   white); our way of adding turned them into solid shafts and a haze, and turned the
+   faint outer part of the lantern glow into a ring on the table.
+2. **Changed:** every additive shape now adds about what the game would. The rays are
+   faint streaks near the jukebox window; the lantern keeps a small halo on its glass and
+   no ring.
+3. **A compromise, for you to judge:** our renderer cannot add exactly as the game does
+   in one step, so the strength is fitted to the Saloon (`ADD_ALPHA_POWER`, 1.5). Over
+   dark walls it is still a little stronger than the game, over lit ones a little
+   weaker. If the streaks now look too faint or too strong beside the game, tell me
+   which; an exact version needs a render pass of its own, which I have not built.
+4. **Also changed by this, not compared with the game:** fire, muzzle flashes, sparks and
+   other additive particles use the same material and are fainter at their soft edges
+   now. A screenshot of a campfire or a gun firing in a dark place would show whether
+   they lost too much.
+5. **Seen on the way, not changed:** in your rays screenshot the frosted window panes are
+   a light grey-yellow in the game and nearly white in ours.
+
+## NPCs turn to whom they talk to (2026-10-11, session "SayTo facing")
+
+Your request: when an actor says something to an NPC or to you, it turns and faces the
+one it speaks to. Your decision: the speaker turns head and body. Branch
+`claude/sayto-facing`; details in `docs/design/dialogue-play.md` §9.
+
+1. **Built:** a line said to someone outside the dialogue screen (a script's SayTo, a
+   hello to you, a line of a conversation between two NPCs) turns the speaker's head and
+   body to the listener, and the listener's head to the speaker. In a conversation
+   between two NPCs both turn their bodies, as before. A line said to nobody (Say) turns
+   nobody.
+2. **From the game's own data, as you pointed out:** SayTo has a "no target look" flag.
+   When a script sets it, the listener is not made to look at the speaker (only the
+   speaker turns). StartConversation between two NPCs has a "head track" setting; 0
+   turns nobody for the whole conversation.
+3. **Our guesses:** whether the original turns the speaker's body at all (the wiki only
+   says the listener looks), and that a SayTo listener turns its head only. The speeds
+   are the dialogue screen's (§8): a body more than 30° off turns at about 150° a
+   second and keeps its new heading.
+4. **Sitting NPCs** turn their heads only (Doc Mitchell on his chair during the
+   opening).
+5. **Checked by the logged angles only, not in pictures:** Sunny Smiles in the saloon
+   turned about 160° to face the dog and 96° to face you, and finished each line facing
+   them. Please watch one by hand. Test aid:
+   `NVF_PLAY_TEST_SCRIPT=8:say_to:SunnyRef:player:GREETING` with
+   `--cell GSProspectorSaloonInterior --play`.
+
+
+## Flashlight (2026-10-11, session "flashlight")
+
+Your request: holding the inventory button for 1 to 2 seconds turns a flashlight on or
+off, a classic one that lights what is in front of the camera. Branch
+`claude/flashlight`; code in `engine/nvf-play/src/flashlight.rs` (the key) and
+`engine/nvforever/src/flashlight.rs` (the light).
+
+1. **Built:** Tab held for 1 second switches the light, at once, while the key is still
+   down; letting go after that opens nothing. A tap opens the inventory as before, but
+   on letting go of the key rather than on pressing it.
+2. **The light:** a warm white cone (30° from the middle to the edge, fully lit to 14°)
+   from just right of and under the eye, reaching about 40 m with the game's falloff.
+   It casts shadows, so walls stop it; your own arms, weapon and body cast none (in
+   third person nothing between the camera and a little past your head does).
+3. **Our choices, not the game's:** the original's hold of Tab works the Pip-Boy light,
+   a glow round the player; this is a flashlight as you asked. Scripts that lock the
+   Pip-Boy (the opening) do not lock the light. Detection ignores it for now; say if a
+   lit flashlight should make you easier to see.
+4. **Checked in pictures:** in the Goodsprings house at 23:00 the cone lights the bed and
+   wall with the bedpost's shadow on it; outside at 01:00 the house across the road
+   takes the warm light and the stop sign's shadow. Test aid:
+   `NVF_PLAY_TEST_CONTROL=2:flashlight` with `--play`.
+
+## Groups on NPCs, fading neon and a trap heard (2026-10-11, session "object anims more")
+
+Your request: the three items left from PR #211. Branch `claude/object-anims-more`;
+details in `docs/spec-notes/activators.md` §6–§8.
+
+1. **PlayGroup on NPCs and creatures** now plays the actor's own clip of that group (its
+   weapon's Equip, Aim or Unequip; its walk and turn clips; else the unarmed `h2h` clip of
+   its skeleton's folder) and blends back to its normal animation when the clip ends,
+   when a script plays `Idle`, or when the actor walks. In FalloutNV.esm only one script
+   does this to an actor (a dog's package ends with `PlayGroup Aim 1`), so it was tried
+   with a test aid on a Goodsprings settler and a big horner. **Our guesses:** that a
+   looping group (Aim) holds until the actor moves, and that `SpecialIdle` on an actor
+   plays nothing (its clips are many, picked by the idle manager).
+2. **Neon signs and lit windows fade**: the alpha tracks of their Left and Right now play,
+   and the visibility tracks (Gomorrah's lights). Primm's windows light when the clock
+   passes 20:00 (two screenshots measured). Not built: the particle, refraction and morph
+   tracks. **Question:** Goodsprings' house windows have alpha tracks but no alpha
+   blending in their model, so we draw them the same day and night. Do they change in
+   the game at 19:30 and 6:30?
+3. **The bear trap's sound** is heard when you disarm it. Two faults stopped or doubled
+   such sounds: keys in a group's first frame were missed (the tripwire's would never
+   sound), and a group played once passed its keys again as it ended (the trap clacked
+   twice).
+4. **Seen on the way:** by day the neon script asks for Right again every time Right ends,
+   so Right replays every 0.07 s. Nothing shows, but it hints that in the game a group
+   played once still counts as playing while its last frame is held. A capture would
+   settle it.
+5. **A slip:** one survey command (`fnvtool actor anims`, which takes the Data folder)
+   opened the add-on archives too, holdout included. Its output was deleted unread
+   (only one base-game line was printed), and the surveys were redone on the base
+   archives by name.
+
+
+## Melee combos and power attacks (2026-10-11, session "melee combo")
+
+Your request: chained attacks (two punches go right hand then left hand) and power
+attacks by holding Use, with their own clip for standing still, forward, back, left and
+right. Branch `claude/melee-combo`; code in `crates/fnv-combat/src/melee.rs`, the
+engine's `melee` in `engine/nvf-play/src/combat.rs`, notes in
+docs/spec-notes/combat-rules.md §10.
+
+1. **Built from the clips themselves:** every right-hand attack clip of the fists and
+   melee weapons ends with a key naming the left one as the next attack, and the left
+   ones name the right, with a time from which the next swing may cut in. A press during
+   a swing now starts the next one at that time, so quick presses go right, left,
+   right, left. Power attacks pick the clip by the movement keys held when they start.
+2. **Checked in a run** (Goodsprings, fists): four taps played `attackright_a`,
+   `attackleft_b`, `attackright_a`, `attackleft_b` (three chained); holds played
+   `h2hattackpower`, `…forwardpower`, `…backpower`, `…leftpower`, `…rightpower` in both
+   views. Test aid: `NVF_PLAY_TEST_CONTROL=3:weapon,16:fire,16.1:fire,16.4:fire,16.5:fire`
+   with `--play` (taps before about 13 s fall inside the pre-order message boxes).
+3. **Guesses, please check against the game:**
+   - The `_a` and `_b` forms of each swing are picked at random.
+   - A press after a swing has fully ended starts over with the right hand.
+   - Holding Use for 0.4 s makes a power attack (you described about a second; say if
+     it should be longer).
+   - Power attack damage now uses the game's settings named
+     `fDamagePowerAttack{Stand,Forward,Back,Side}Bonus`: 3× standing, 2× moving, where
+     it was 1.5× for all. That they multiply damage is read from their names only.
+   - A movement key counts once it is past 30 %; forward/back wins over a side.
+4. **Not built:** the lunge of a moving power attack (the clips' root motion does not
+   move the player), the perk-only custom power attacks (`attackcustom1power` …), and
+   the `Attack3`–`Attack7` punch chains beyond what a weapon's own attack names.
+
+## Character creation menus (2026-10-11, session "chargen")
+
+Your request: the trait menu, the tag-skill menu, the name menu and the Vigor Tester as
+the original's. Branch `claude/chargen-menus`; notes in `docs/spec-notes/chargen.md`
+(the Vigor Tester in `vigor-tester.md`).
+
+1. **Built:** the name, tag-skill and trait menus are drawn from the game's own menu
+   files with its fonts and pictures. Beside your screenshots, the rows, pictures,
+   texts, lines and buttons are within a few pixels. Done writes the name, the three
+   tags or the traits into the game. With your screenshot's S.P.E.C.I.A.L.
+   (5, 3, 7, 7, 5, 6, 7) every skill value in the tag menu matches yours.
+2. **The traits come from the load order:** sixteen with Old World Blues installed (ten
+   in the base game, six from the add-on), sorted by name as on your screenshots.
+3. **Words the game keeps inside the program** (not in its data files): "Reset", "Done",
+   "Ok", "Enter character name.", "R)", "A)", "TRAITS LEFT", "Req:", "Ranks:",
+   "Selected", "Tag 1 Skill". I took them from your screenshots. Our guesses, please
+   correct any you know: "1 TRAIT LEFT" with one left; "Tag 2 Skills" and "Tag 3 Skills".
+4. **Four Eyes' requirement:** the game data has two (Perception above 1 and below 10),
+   and your screenshot shows only "PER < 10". I leave out any "above 1" on a
+   S.P.E.C.I.A.L., but I don't know the original's rule.
+5. **Our guesses about behaviour:**
+   a. Reset goes back to what the menu opened with. It might clear everything instead.
+   b. A trait whose requirement you don't meet is drawn faint and can't be taken.
+   c. Keys: Up/Down choose, Enter or Space tags or takes, R resets, A is Done.
+   d. Names are at most 24 characters, no blank names, and no typing cursor is drawn.
+6. **Not built:** the blur of the world behind these menus, their sounds, and what each
+   trait does once taken (its perk effects). The race menu is still a placeholder.
+7. **The Vigor Tester** is drawn from the game's own model of the machine, the one the
+   in-world tester uses, with its own page-flip animations. Its camera is fitted to your
+   screenshots. Arrows raise and lower, the lever's buttons and the arrows are
+   clickable, and Done works only with every point given out. Details are in
+   `vigor-tester.md`. Questions:
+   a. Which PC keys does it use? Ours: Left/Right lower and raise, Up/Down choose the
+      review row, Tab and Page Up/Down turn pages, Enter or E is Done.
+   b. Does it open on the "Rate Your… TRY IT NOW!" page? The model rests there, so ours
+      does.
+   c. On the review page, is the → itself Done, or does another button replace it once
+      every point is given out?
+   d. Does a row's ◄ disappear at 1?
+   e. Ours is drawn without the game's lighting, so the cabinet is flatter and the bulbs
+      glow less. Should it get real lighting and the blurred room behind it?
+
+## NPCs on alert: Normal, Alert, Combat, Lost (2026-10-11, session "alert")
+
+Your request: NPCs go on alert when they sense a threat (hear a hostile move, glimpse an
+enemy far off) before they have confirmed it, as the start of NPC combat. Branch
+`claude/detection-states`, design `docs/design/alert.md`.
+
+1. **Built:** the four detection states from the editor documentation. A hostile that is
+   noticed but not detected puts the NPC on Alert: it draws its weapon, turns its head
+   to where it noticed something, says its NormalToAlert line, and (if it is run on its
+   packages) walks there to search, saying AlertIdle lines. Detected: Combat (it stops
+   and faces you; nothing attacks yet). Lost sight in combat: Lost, it searches where
+   you were. Bullet impacts are heard: shoot near a Fiend from hiding and it searches
+   the impact.
+2. **Continue During Combat** (your note): an NPC whose current package has the flag
+   keeps doing its package through Alert, Combat and Lost; it still draws its weapon and
+   barks. No source describes the flag, so this follows its name; 399 of the game's
+   4,163 packages set it. **No Combat Alert** is read the same way: such an NPC never
+   goes to Alert (it can still go to Combat). Tell me if you know either to work
+   differently.
+3. **My guesses, to tune when you can compare with the game:** an alarm lasts 20 s after
+   the threat was last noticed; a target hidden for 10 s is forgotten; 3 s without
+   seeing its target turns Combat into Lost; a search looks about for 4 s per spot and
+   moves within 256 (indoors) or 512 (outdoors) units. A bullet's impact is as loud as
+   the gun. Actors with a faction in common, or of the same kind, never turn on each
+   other.
+4. **Scripts see it** (partly captured 2026-10-18 [observed]: GetIsAlerted/SetAlert is
+   an animation state, with IsInCombat 0. The detection Alert is the campaign session
+   `alert_noise`, not settled: its Fiends were already dead in `nvfstrip`, so it needs a
+   rerun from `nvftest` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
+   and for
+   you while one hunts you (the documentation says so). This can change quest scripts
+   that test IsInCombat; nothing showed in the runs, but watch for it. **2026-10-19 [observed]:** no recording
+   holds an Alert without combat; IsInCombat is 1 while the combat package runs, also with the
+   target unseen (spec-notes/npc-behaviour-compare.md §11).
+   **Captured 2026-10-19 [observed]:** `alert_noise` ran twice from `nvftest`. Fiends in
+   combat with the player kept IsInCombat 1 while they lost sight of the player (Lost),
+   which matches ours. The detection Alert itself never occurred: the hidden player was
+   in combat with part of the camp on arrival, and the rest joined combat directly. The
+   Alert row stays the wiki's reading (spec-notes/owner-decision-captures.md §7;
+   npc-behaviour-compare.md §11 found no alert without combat in 480,000
+   samples).
+5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
+   body was in the way of the ray, and a small transparent fence hid you. Both changed
+   (`docs/design/alert.md` §7).
+6. **Would help:** in the game, `tdetect` off, stand in sight of a hostile at the edge
+   of its range and note how long it searches after you hide (GetDetected and IsInCombat
+   on it every second), to tune the timers.
+
+## NPCs in Combat attack (2026-10-11, session "alert", combat AI step CA1)
+
+Your request: NPCs in Combat attack. Branch `claude/combat-ai` (on top of the alert
+branch), design `docs/design/combat-ai.md`.
+
+1. **Built:** an NPC in Combat shoots with the gun drawn on it (its fire rate, magazine
+   and reloads, the same projectiles and damage as yours) or strikes with its melee
+   weapon or fists; a creature bites with its own damage and reach. It attacks only what
+   it sees. NPCs run on packages run up to where they can attack: a gun to 80 % of its
+   range, a dog until its body is just clear of yours (your note about the dogs pushing
+   you around is fixed: they stop at biting range and bite).
+2. **You can be hurt and die**: their shots hit you, your armour counts. At 0 health
+   every control stops and the screen says "You are dead."; no death camera or reload yet.
+   `NVF_PLAY_TEST_GOD=1` makes you take no damage for test runs.
+3. **StartCombat / StopCombat work now** (938 calls in the game's scripts): quest
+   fights start for real. A test aid uses it: `NVF_PLAY_TEST_SCRIPT=3:combat:<actor>:player`.
+4. **My choices, for you to tune:** reaction time 0.6 s; first shots 4° wider, settling
+   over 3 s; a blow every 1.2 s; NPCs do not use up ammunition; their shots leave from the
+   eyes, not the gun's muzzle. Violet's hunting rifle hit 12 of 15 at 1,600 units, which
+   may be too deadly; the spread is the documented one for her Guns skill.
+5. **Not yet:** attack animations (they shoot and bite without moving the gun or the
+   jaw), allies joining in (Violet's dogs stayed out of her fight: by their records they
+   are not hostile to you), cover, fleeing, grenades, weapon choice, combat styles.
+
+## NPCs aim, fire and bite visibly (2026-10-11, session "alert", combat AI step CA2)
+
+Your request: attack animations. Branch `claude/attack-anims` (on top of the combat AI
+branch), `docs/design/combat-ai.md` §9.
+
+1. **Built:** NPCs bend their aim up or down to their target, play their weapon's attack
+   clip with every shot (Violet: `2hrattack3`, the bolt worked between shots) and swing
+   with every blow; creatures play their own bites and swipes in turn. A bite's damage
+   lands at the clip's Hit key, so the dog's jaws close when you are hurt.
+2. **Your note on Violet's shots:** they came from her face. Now each NPC weapon has a
+   marker at its model's ProjectileNode (as yours does) and the bullets, the muzzle flash
+   and the shot sound start there. The shot still goes where her eyes aim: from the gun
+   itself she hit the metal sheet in front of her every time, because her rifle is held
+   at the hip behind it while her eyes see over it.
+3. **Please look at:** whether the hip-height hold of the rifle is how Fiends hold it in
+   the game when they shoot, and whether the dogs' bites read right at their speed.
+4. **Not yet:** NPC reloads are not animated, NPCs that are not run on their packages do
+   not turn their bodies to you (only their heads), and the body does not bend while
+   running and shooting.
+
+## The Pip-Boy (2026-10-11, session "pip-boy menu")
+
+Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measurements:
+`docs/spec-notes/pipboy.md`. Pictures: `C:\fnv-private\references\pipboy\`.
+
+1. **Built:** Tab raises the arm with the game's own clip and holds it before the eye;
+   the menus are drawn onto the model's screen, with STATS, ITEMS and DATA (the buttons
+   on the device, or F1–F3) and their five tabs each. The world stops and is blurred
+   behind it. ITEMS lists the inventory by tab; STATS and DATA show only their headings
+   so far.
+2. **The clip:** it both raises and lowers the Pip-Boy; the screen faces the eye at its
+   `Hit` key, so it is held there and played on when closing. Say if the original's
+   timing feels different.
+3. **Fitted to your ITEMS screenshot:** the size (the game's `fPipboy1stPersonFOV=47`),
+   the menu's place on the screen, the amber, and the scanlines' spacing. Ours now lines
+   up with it to a few pixels.
+4. **My choices, for you to judge:** the screen's glare is not drawn while the menus are
+   on (drawn, it was a pale haze yours does not have; yours shows only a faint lighter
+   patch, top right). Keys: F1–F3 pages, A/D or arrows tabs, X drop. The system's mouse
+   pointer, not the game's amber arrow.
+5. **Would help:** do you know the PC keys for switching pages and tabs in the original?
+   And a screenshot of the Pip-Boy being raised or put away mid-way would show whether
+   the clip is held where I hold it.
+
+## The Pip-Boy's STATS and DATA pages (2026-10-11, session "pip-boy menu")
+
+Built from the menu files and your screenshots; branch `claude/pipboy-menu` (PR #213).
+Details and what is guessed: `docs/spec-notes/pipboy.md` §5.1 (STATS) and §5.3 (DATA).
+
+1. **STATS:** Status (CND with the limb bars, RAD with the meter, EFF), S.P.E.C.I.A.L.,
+   Skills, Perks (picture and description from the records) and General (reputations;
+   the general statistics show "--": the game keeps no counters of its own yet).
+   Questions: should worn items' effects (Vault Jumpsuit: Speech +2) change the actor
+   values themselves, for scripts too? The page adds them for now. When does the box
+   round the selected row show in the original? Do the hints show "(0)", and when are
+   they bright? Which way round are "Dark Hero" and "Soft-Hearted Devil"?
+2. **DATA:** the place and date in the heading; Quests (running first, newest on top;
+   Enter makes one active), Misc (notes and their text), Radio (tuning from the list;
+   the wave is a still line, the original's is animated), World Map (markers you have
+   found, quest markers, drag and wheel), Local Map (doors and markers on an empty map:
+   the picture of the place from above is not drawn). Questions: how are quests ordered
+   and which is active by default? Which doors does the local map show (yours shows only
+   the gas station's, ours 17) and at what zoom? Where does the World Map open?
+3. **Would help:** screenshots of Perks and General, a crippled limb or rads on Status,
+   EFF with a chem taken, and the World Map right after opening it.
+4. **Not built yet:** using a Stimpak or RadAway from the hints, the hardcore buttons,
+   Place Marker, Challenges, the item picture and figures on ITEMS. The messages at the
+   top left (quest updates, corner messages) still draw over the Pip-Boy's edge.
+## Terminal hacking (2026-10-11, session "hacking")
+
+Your request: the hacking minigame, from your seven screenshots and rules. Branch
+`claude/hacking`; details in `docs/spec-notes/hacking.md`.
+
+1. **Built:** activating a locked terminal opens the hacking screen laid out from the
+   game's own `hacking_menu.xml` in its terminal font; the words come from the game's own
+   word list (`menus\falloutdict.txt`, every word of your screenshots is in it). Likeness,
+   four attempts, bracket pairs (dud removed or attempts back), the log at the right,
+   lockout for good after four wrong words, a new game with all attempts after leaving.
+   The right word opens the terminal's menu (from `computers_menu.xml`): items by their
+   conditions, result scripts (the default unlock terminals' "Disengage Lock" runs its
+   unlock), notes shown on the screen, sub menus.
+2. **Word count** follows the GECK wiki's formula from your Science and the lock level
+   (0/25/50/75/100, as you said): 20 words when Science equals the level, 5 at Science
+   100 on an Average terminal; Very Hard always about 12. Science below the level refuses.
+3. **Our guesses, please check:** word lengths per level (Very Easy 4–5, Easy 6–8,
+   Average 9–10, Hard 11–12, Very Hard 13–15; your Easy terminal had 7); how often a
+   bracket pair refills the attempts instead of removing a dud (one in five here); that a
+   removed dud turns into dots and logs "Dud removed."; that a lone symbol logs "Error"
+   and costs nothing; the last-attempt warning and the lockout screen's words; the refusal
+   line; the prompt word "Access"; that holding the password note skips hacking.
+   A screenshot of a dud being removed, of the last attempt, of a locked-out terminal and
+   of a refusal would settle most of these.
+4. **Looks:** drawn flat over a darkened world, with the colours measured on your
+   screenshots; the original shows it on a 3D monitor (`terminalinterface01.nif`). The
+   monitor, sounds, the typing-out of text and saving which terminals were hacked are not
+   built yet.
+5. **Try it:** any locked terminal with E, or the test aid
+   `NVF_PLAY_TEST_TERMINAL=30:science:25,31:open:000D74D5` with
+   `--cell BisonSteve01 --play` (an Easy terminal; keys: arrows/WASD and Enter, or the
+   mouse; Tab back, Esc out).
+
+## The crosshair and the prompt under it (2026-10-11, session "crosshair")
+
+Branch `claude/crosshair`; note docs/spec-notes/reticle.md.
+
+1. **What you should see:** the game's own crosshair, the two small arrows, and the
+   boxed `[> <]` one while something you can use is under it; under it "E) Take" (or
+   Talk, Open, ...) and the name on the next line, as on your four screenshots; for an
+   item, the line across with "WG" and the weight left of its stem and "VAL" and the
+   value right of it.
+2. **Measured:** at 1280x720 the crosshair, the letters of both lines, the line across
+   and the figures land on the same pixels as in your bottle cap and gun case pictures
+   (compared on a beer and the saloon's cash register).
+3. **Guesses I had to make, for you to check against the game:**
+   - **A door to another place** shows "E) Open" and the place's name under it.
+   - **Locked things** say "E) Locked (Average)" or "E) Unlock (key)": what does the
+     game write?
+   - **Weights** written as "2", "0.5", "0.25" (no trailing zeros); nothing as "--".
+   - **A stack** shows "Stimpak (3)" and the weight and value of one.
+4. **Not built:** the crosshair turning red on an enemy, the sneak words ("[HIDDEN]"),
+   extra lines such as a lock's level or "Steal" in red for owned things, weapon damage
+   and condition in the item row. Screenshots of a locked safe, an owned item, a load
+   door and a weapon on the floor would settle most of these.
+
+## Playtest fixes: controls, crosshair and menus (2026-10-11, session "pt-controls")
+
+Branch `claude/playtest-controls`. One commit per item.
+
+1. **No crosshair, containers would not open (regression).** The new crosshair
+   (`reticle.rs`, PR #224) was never added to the game, so nothing drew a crosshair.
+   Containers: E opened the container menu and the menu, reading the same press of E as
+   its "Exit E)", closed it in the same frame (since the barter/container menu PR made E
+   close it). Both fixed, each with a test that fails without the fix; a new test aid
+   `NVF_PLAY_TEST_KEYS=<s>:<key>` presses real keys and mouse buttons so the bindings
+   themselves are tested. **Check:** E on a container opens it and E closes it; the
+   crosshair shows and becomes the boxed one on usable things.
+2. **Ctrl crouch (regression).** The key worked; the opening's scripts turned sneaking off
+   and never gave it back. The trigger outside Doc Mitchell's door gives the controls back
+   with `EnablePlayerControls 1 1 1 1 1 1` (six numbers, the seventh, sneaking, left out),
+   and we read a left-out number as "leave it off". Now a left-out number of
+   `EnablePlayerControls` gives that control back, as the form with no numbers does.
+   **Guess:** that this is the game's rule (no other script gives sneaking back, so it
+   must be). **Supported in game 2026-10-18 [observed]:** after `EnablePlayerControls 1 1
+   1 1 1 1`, GetPlayerControlsDisabled reads 0 for sneaking. The crouch tap itself did
+   not register in the job, so IsSneaking was not shown (spec-notes/owner-decision-captures.md §4). **Check:** after leaving Doc's house, Ctrl crouches; inside his house before
+   that, it does not (as the scripts ask).
+3. **Wake-up camera.** While the opening's wake-up/sit-up/stand-up idles drive the view,
+   the mouse, the look test aid and movement keys are ignored; the camera is the
+   animation's. Released when the last idle ends. **Note:** the game's scripts leave
+   looking switched on during the wake-up, so the original may let you look round there;
+   this follows your wish. **Check:** the wake-up in a new game.
+4. **Dark sheet behind menus.** The barter, container, tag-skill and trait menus now have
+   a 0.75 black sheet behind them (`interface::MENU_BACKING`, your wish; the original's
+   is about 0.33–0.4 but it also blurs the world, which we do not). The name menu (0.85),
+   message boxes, dialogue and terminal screens were already darker and are unchanged.
+   The Vigor Tester's text sits on the machine itself and keeps its 0.45 sheet behind the
+   machine. **Check:** is 0.75 right, or should it be darker or lighter?
+5. **Pip-Boy mouse.** Clicks on the screen and on the STATS/ITEMS/DATA buttons did
+   nothing: the pointer was traced with a method that cannot see the arm's animation nor
+   meshes kept on the graphics card. Now the screen and the buttons are traced as the arm
+   holds them. Tabs and rows take clicks; the pointer on a row selects it, a click on the
+   selected row uses/equips it; the button under the pointer glows **[my choice]**.
+   **Check:** clicking tabs, rows and the three buttons; whether a button should glow
+   under the pointer in the original.
+6. **Walk while aiming.** Holding right mouse (Block) with a weapon out moves the player
+   at walking speed and the body walks; sneaking slows it further. NPCs: left for the
+   combat AI (noted in combat-ai.md §8). **Check:** the feel; should a melee block slow
+   the player too (it does now, since Block is the same control)?
+7. **Revolver reload grace.** The press that interrupts a round-by-round reload (.357,
+   lever-actions, hunting shotgun) now only closes the weapon, never fires. A press made
+   after that, while it is still closing, is kept for **0.25 s** (my pick): if the weapon
+   finishes closing within 0.25 s of that press, it fires; otherwise the press is
+   dropped and you press again. **Check:** whether 0.25 s feels right.
+
+## Playtest fixes: Sunny, dialogue and voices by distance (2026-10-11, session "pt-dialogue")
+
+Branch `claude/playtest-dialogue`; notes in docs/spec-notes/dialogue.md §5,
+dialogue-menu.md §4, voice.md §9, docs/design/dialogue-play.md §1 and §8.1,
+actor-behaviour.md §5.1–§5.2, alert.md §4 and §8.
+
+1. **Sunny's gecko line holds you.** "Hear that up on the ridge…" is a greeting with the
+   Goodbye flag, said by her Dialogue package. **Rule now:** when an actor starts the
+   conversation (StartConversation with the player, or its Dialogue package), a Goodbye
+   greeting is a conversation of one line: the dialogue screen holds you until it is
+   said, then ends. When **you** talk to an actor, a Goodbye greeting is still just
+   said at you (your rule of 2026-10-10). Please check in the game whether a
+   force-greet's Goodbye line zooms in like this for other NPCs too.
+2. **No `{…}` in lines.** Acting notes in braces are left out of the dialogue line, the
+   choices and the subtitles ("{questioning}" and the like; 5,634 lines carry one).
+   **Kept:** square brackets ("[SUCCEEDED]", "[FAILED]", "[You hear static.]"), because
+   the original shows those. Four lines close a note with ")" by mistake ("{KAI-zar)
+   Caesar awaits!"); the note ends there. Angle-bracket prompts ("<Log Off>", "<lie>")
+   are shown as written: tell me if the game hides those.
+3. **Facing in conversations.** The NPC now turns its whole body to you on the spot and
+   keeps facing you for the whole conversation, however it started, and still faces you
+   afterwards until its package moves it (before, the drawing put it back). Turn speed is
+   the standing turn rate (120° a second). Someone sitting turns only the head.
+4. **Sunny at the gas station.** Cause: a script's MoveTo (Ringo's "All right, I'm
+   ready." moves her to the gas station) did not reach the AI, which kept her where she
+   stood in the saloon. Now an actor put somewhere by a script goes on from there and
+   takes up its package anew. Checked in the gas station: she appears and says "Time to
+   look alive" with the conversation open. Please play it from Ringo's line once.
+5. **Cheyenne.** Her package is "accompany Sunny" (128 units); that package type was not
+   carried out, so she stayed behind. Follow and Accompany packages are carried out now:
+   she stands while Sunny is within 128 + 64 units, else walks after her (runs when Sunny
+   is more than 512 away), through doors too. Guessed: the 64-unit slack, the 512 run
+   distance, 256 units for packages that give no distance. Escort is still not carried
+   out.
+6. **Voices by distance.** NPC lines you are not in a conversation with are full volume
+   within 600 units, quieter beyond, silent from 2,000, and panned left/right; another
+   cell is silent. 600 and 2,000 are `fDialogMinDistance` / `fDialogMaxDistance` from
+   the game's `Fallout_default.ini` (the names fit; nothing documents them). **No
+   subtitle** while the speaker is 2,000 units or more away or in another cell. Your own
+   conversation stays full volume. Please listen to a hello at about 10 m and 25 m.
+7. **Fewer barks.** After one actor says a detection line (spotting you, losing you,
+   searching), nobody of its group within 4,096 units (one cell) says a line of the same
+   kind for 15 s. Group = same NPC type or a shared faction. "Same kind": the three
+   "starts fighting" topics count as one, the three "gives up" topics as one, the two
+   search idles as one. 15 s is the longest idle-bark wait in the ESM; 4,096 is my
+   choice. At Cook-Cook's camp: 12 lines in 45 s before, 4 after.
+
+Seen on the way, not fixed (not mine): in the Fiend check (alert.md §8) Violet becomes
+Alert but barely moves and never reaches Combat, on main as well; Cook-Cook's fiends switch
+Combat ↔ Lost every few seconds.
+
+## Playtest fixes: NPCs on furniture, turning and anim objects (2026-10-11, session "pt-npcs")
+
+Branch `claude/playtest-npcs`; notes in docs/spec-notes/furniture.md §7, actors.md §8.9
+and §9.4, idles.md §10.
+
+1. **The saloon settler standing in his stool after you come back** (and **Easy Pete
+   not sitting on the porch chair after coming out of the saloon**): one cause. When you
+   left the cell the actor's body was taken away while seated, but the stool stayed
+   booked to him, so on your return the stool refused him as "in use" (by himself). Now
+   the seat is freed when the body goes, and a resident that was seated is put straight
+   back on it when you return, already sitting (no walk-up and sit-down clip again).
+   *Decision:* coming back finds him seated, not sitting down again. *Check:* leave the
+   saloon and come back; with Pete, enter the saloon while he sits on the porch, wait
+   two hours inside, come out at 14:00.
+2. **Holstered weapons floating on seated NPCs**: the seat clips don't move the weapon,
+   so it fell back to its "in the hand" position while hung from the hip. Now only the
+   weapon's own holster track is kept over the seat clip (and over a death pose), so the
+   gun stays on the hip or back and follows it. *Check:* a seated settler's pistol at his
+   hip; the rifle on the back of a seated rifleman.
+3. **Turning speed** (guessed values, nothing in the data gives an NPC's turn speed;
+   the game has a setting `fCharacterDefaultTurningSpeed` whose value is built into the
+   game, and creatures have a "Turning Speed" field of 40–100 that we don't use yet):
+   - walking: at most **180°/s** (was 720°/s); standing turns stay **120°/s**;
+   - an actor slows while turning: it keeps 30% of its speed when its way is a quarter
+     turn or more off, full speed when facing it (a right-angle corner costs about half a
+     second);
+   - near you (where actors walk with physics) they walk an arc round corners and turn
+     on the spot before setting off, like elsewhere;
+   - arriving at an idle marker they now turn to its heading at 120°/s (it was instant);
+     walking the last steps to a chair they take as long as the turn needs; getting up
+     from a chair no longer snaps them half about in one frame.
+   *Measured:* the fastest turn between two frames in the residents test went from
+   720°/s (2 frames above 270°/s) to 180°/s (none). Turn-on-the-spot clips already
+   exist and play (`mtturnleft/right.kf`); weapon-stance and creature turn clips are not
+   used by NPCs yet. The conversation turn was left as it was (another session works on
+   dialogue facing). *Check:* do 180°/s and the slow-down feel right? Should creatures
+   use their own "Turning Speed" field?
+4. **Props in idles (Chet's broom)**: the game links a prop to an idle through an
+   "animated object" record that names the idle; the prop's model names the hand it goes
+   in. Now while an NPC plays such an idle the prop is drawn in that hand, and taken
+   away when the idle ends. Chet sweeps with his broom; a smoking idle gets a cigarette.
+   *Guess:* the prop shows for the whole idle (including its fade-out); the prop's own
+   small animation (the broom has one) isn't played. *Check:* Chet sweeping; anyone
+   smoking, drinking or eating at a table. New test aid `play_idle:<ref>:<idle>` in
+   `NVF_PLAY_TEST_SCRIPT`.
+
+## Playtest fixes: loose items, ravens, shadows and shine (2026-10-11, session "pt-world")
+
+Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_world\`.
+
+1. **Loose items in Chet's store** (physics.md §4.3.1). Fixed. A new test aid
+   (`NVF_PLAY_TEST_PHYS_TRACE`) logged every loose item after the store loaded: 53 of 67
+   moved. Three causes: (a) objects made of parts joined by hinges (the globe on its
+   stand, the bucket and handle, a hanging office lamp) flew apart and fell from the
+   ceiling, because we do not model those joints, and knocked their neighbours; (b) two
+   books inside the glass display case and a magazine have nothing under them in the
+   collision (the case's collision is only its outer shell), so they dropped; (c) piles of
+   produce in a crate overlap and were pushed apart. Now every placed loose item starts
+   at rest and stays exactly where it was placed until something touches it (you, an
+   NPC, a shot, an explosion, something falling on it, or an item under it being picked
+   up); jointed objects stay fixed where they are drawn. After: 0 items move in the
+   store, Sunny's house (GSHouseInterior03) and the saloon; shot bottles still fall.
+   - My choice: "stays put until disturbed" is my reading of the original (the books in
+     the display case would have fallen otherwise). Check: walk into a shelf and shoot
+     things: they should react as before.
+   - Not done: the hanging lamp, globe and bucket no longer move at all, even when shot
+     (their joints would need modelling).
+2. **Ravens outside Doc Mitchell's** (actor-behaviour.md §5.8). Fixed. They are
+   creatures with a "sandbox around where placed" AI package but no walking animations,
+   so our AI slid them around. Their fly-off is their own script: when you come within
+   512 units (or shoot one) it plays the fly-away animation and disappears about 4.5 s
+   later; that already worked. Now creatures with no walking animations stay where they
+   are, and perched birds (those plus the "Flies" flag) no longer block you.
+   - My choice: no-collision applies to "can't walk and flies" creatures only; anything
+     else that can't walk (e.g. turrets) still blocks. Check: walk out of Doc's door;
+     the two ravens should sit still, then fly off as you approach, and never block you.
+3. **Shadow flicker after leaving an interior** (player-body.md §1.6). Not reproduced.
+   I left the saloon by the front door in first person at 15:00 and took bursts of
+   frames on the porch, walking into the sun and standing with the .357 out: nothing
+   flickered, and the extra "arms shade" light and the arms/body visibility never
+   switched. I left debug log lines for it. Please tell me the time of day, which door,
+   whether "Body in first person" was on, and what flickered (the arms, the ground, your
+   own shadow); a short video would settle it.
+4. **Flashlight shadows from light rays and lanterns** (nif.md §6). Fixed. Anything
+   drawn see-through (glass, light rays, glows, smoke) now casts no shadow from any
+   light, the sun and the flashlight included. Before/after:
+   `flashlight_rays_before_after.png` (saloon, flashlight on, facing the east windows:
+   the rays' dark wedges on the wall are gone). Cut-out textures (fences, leaves) still
+   cast. Check: glass bottles and windows no longer throw a sun shadow either; say if
+   you want the windows' frames-only shadow some other way.
+5. **Too shiny: Doc's bed, the gas station's Sunset Sarsaparilla machine and door**
+   (nif.md §6 "Specular"). Fixed in the material path for all objects of this kind. All
+   three use a normal map without an alpha channel (DXT1, 425 of the game's 3,428 normal
+   maps); we read the missing alpha as "full shine", seven times the shine of a typical
+   surface, which looked like wet paint and turned mirror-like at shallow angles. Now
+   such objects get the typical (median) shine of the other normal maps.
+   - Before/after: `shine_gas_station_before_after.png`, `shine_doc_bed_before_after.png`.
+   - Guessed constant: the median mask, 35 of 255. Check: the bed when you wake up and
+     the vending machine and door at noon. A game screenshot of the vending machine in
+     sun from the side would tell whether the original gives these objects any shine.
+
+## Smoke tests reworked (2026-10-11, session "pt-smoke")
+
+Your request (todo 3): stop wasting time and usage on redundant smoke testing. The ~40 prose
+smoke tests of CLAUDE.md are now data (`tools/smoke/scenarios.toml`, 49 scenarios) run by
+`python tools/smoke run`: it picks the scenarios whose files a branch changed, shares a game
+launch where that was checked to be safe, keeps the logs in `target/smoke/` and prints one
+line per scenario. CLAUDE.md now says how to run it and that new smoke tests go into the file.
+
+What I decided where the prose was unclear:
+1. **"About N"** is N ± 25 % (rounded outwards); "a dozen" is 9–15; "3 s later" 2.25–3.75 s.
+2. **The AI tool checks** (`fnvtool ai packages`, `ai reach`, `ai observed`, `ai run`) run over
+   the ten masters: CLAUDE.md gave no plugins, and the doc's figures (791 Sandbox, 32 Wander)
+   are those of the masters.
+3. **"Compare with the doc and explain any change"** is now checked: the figures of
+   actor-values.md §3.1/§7, detection.md §4, factions.md §2–§5, audio.md §1–§5 and
+   actor-behaviour.md §5.3 are JSON expectations on the tools' output. **Check:** the ai
+   reach figures of actor-behaviour.md §5.3 (2026-10-10) no longer match main: 16,935 pairs
+   (doc 15,603), 10,258 reachable (9,488), 1,602 staying (1,571), 3,185 never chosen (2,810),
+   182 at the player (177). They are marked known-failing, and main's 2026-10-11 figures are
+   checked too, so any later change shows. Someone who knows why they changed should update the doc.
+4. **The navmesh walk table** (navmesh.md §5) is a dated record; only "all six arrive" is
+   checked, as CLAUDE.md asked.
+5. **`ai observed` / `ai run --samples`** need the observer captures (`obs_*.jsonl`), which I
+   could not find on this machine; the scenario is skipped unless `NVF_OBSERVER_SAMPLES` names
+   them. **Check:** where are they?
+6. **Test aids the prose left out**: the actors' groups and bear trap runs got only the
+   `NVF_PLAY_TEST_SCRIPT` given (the bear trap fails with the plant run's
+   `SCRIPT_MENUS=1`: the add-on packs' message boxes still queue at 15 s); the dogs keep the
+   Violet run's `GOD` and `SCRIPT_MENUS` ("added"); the Fiend alert check got
+   `NVF_PLAY_TEST_SCRIPT_MENUS=1`, without which the run is attended and the first add-on
+   message box stays open all run (Violet never fights).
+7. **Shared launches** (checked by running both ways): Violet's alert and combat checks;
+   the saloon jukebox, its on/off look and Sunny's speech-look lines; the corner messages and
+   the house items. Undone after the run: the quest lines with the house items (the
+   objective line was never shown on its own) and the Vigor Tester after the name/tag/trait
+   menus (moved 18 s later it took no steps). Game launches for the full set: 39 as
+   CLAUDE.md had them (41 with the two added on main today), 38 now with 42 game scenarios.
+   The bigger saving is the selection: a branch runs only the scenarios its files call for.
+8. **Push checks**: engine clippy also when `crates/` changed (the engine workspace builds
+   the crates), root tests and clippy when `crates/`, the root Cargo files or `schemas/`
+   changed, a Python suite when its folder changed.
+9. **Locks**: both locks per launch, given back between launches; a lock with the runner's
+   owner file whose process is gone is cleared; another session's mkdir lock older than
+   15 min while no nvforever/FalloutNV runs is reported loudly, never removed.
+
+Failing on main (2026-10-12), kept and marked known-failing: house items drop the BB Gun
+(`ITMPistolDown`) where `UIItemsClothingDown` is expected; the menus' sounds run finds the
+given stimpaks not carried at 58 s (23 sounds, not 24). Flaky: the barter from Chet's
+dialogue once had the player carry nothing (the add-on packs' items not given yet) and
+got "You don't have enough caps."
+
+## Smoke tests: the last prose tests converted (2026-10-12, coordinator session)
+
+The three smoke tests PR #226 added to CLAUDE.md as prose are now scenarios
+(`sunny-wells`, `sunny-gas-station`, `cook-cook-camp`), and CLAUDE.md no longer lists any
+prose test. Two checks #229 suggested were added: the `turn summary` in the residents
+scenario (fastest turn at most 180°/s, no frame above 270°/s) and `chet-broom` (Chet holds
+`aobroom.nif` in his left hand in the general store). All five passed on main at 3a886bb2
+on this machine (11.4 min).
+
+1. *Decision:* "voice … out of hearing for lines from 2,000 units or more" is checked as
+   every out-of-hearing line being 2,000 units or more away (3 such lines, 2,110–2,635).
+2. *Decision:* "held back by the group cooldown above 0" is a number ≥ 1 (27 in the run).
+3. *Decision:* Chet's broom runs at noon (`--hour 12`): the note gave no hour, and at noon
+   his package sweeps. *Check:* the hour you saw him sweep at.
+4. ~~*Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
+   16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.~~ *(stale 2026-10-19: superseded by "Playtest fixes: combat rules" ("After: no Combat → Lost at all in the same 45 s"; smoke `cook-cook-camp` forbids it).)*
+
+## Playtest fixes: lockpicking (2026-10-12, session "lockpick")
+
+Item 31 of the playtest list. Locked doors and containers whose key the player does not
+carry now open the lockpicking menu (`nvf-play` `lockpick`, rules in `fnv-game`
+`lockpick`, the lock drawn by `nvforever` `lockpick_view.rs`; docs/spec-notes/lockpicking.md).
+The mouse turns the bobby pin over the half circle, W/A/S/D (the movement keys, as the
+game's help message says) put torque on the lock, F forces it, E leaves. Your reference
+screenshots (`C:\fnv-private\references\Lockpicking`) were not on this machine; what the
+first session noted from them is kept (lockpicking.md §1).
+
+1. *Decision:* the menu's layout is the game's `lockpick_menu.xml` (information box bottom
+   left with Lockpick, Bobby Pins and Lock Level; Force Lock and Exit at the right; a status
+   line). *Guess:* the words "Lockpick" and "Bobby Pins" (the game's own are executable
+   settings, not in the plugins). *Check:* the box and buttons against your screenshot.
+2. *Decision:* the lock is the game's own model (`lockinterface01.nif`, `bobbypin01.nif`)
+   drawn by a camera of its own; the plate and screwdriver fly in with the model's
+   `Forward` sequence. *Guess:* the camera (45 units in front, 55° view), the lights, the
+   turning axis (the files' +Y) and the direction (clockwise). *Check:* the picture against
+   your screenshot (`C:\fnv-private\scratch\lockpick\menu.png` is ours), and that the lock,
+   screwdriver and pin turn about the keyhole.
+3. *Guess (all tuning, `fnv_game::lockpick::Settings`):* sweet spot widths 30/20/12/8/5°
+   (Very Easy to Very Hard), +1 % per skill point above the lock's need; a 45° ring
+   around it where the lock turns part way; 120°/s turning; a pin lasts 1 s of strain
+   (+0.02 s a skill point over); a new pin 1 s after a break; mouse 0.3° per unit.
+   *Check:* whether the spot feels as small as in the game, and how fast pins break.
+4. *Decision:* the skill needed is 0/25/50/75/100; key-only (255) and broken locks refuse;
+   no bobby pins refuses. The refusal lines are NVForever's words. *Check:* the wording.
+5. *Guess:* Force Lock's chance is 3 % per Lockpick point over the lock's need, at most 95 %
+   (fits the one value seen, 15 % at 30 on an Easy lock); a failure breaks the lock for
+   good (only its key opens it: `GetLocked` 2, `GetIsLockBroken` 1) and uses up the pin.
+   A forced lock gives no XP, a picked one `iXPRewardPickLock…` (20–60). *Check:* the
+   chance at other skills/levels if you can read them in the game.
+6. *Decision:* when the lock turns all the way it stays unlocked, the menu closes 1.5 s
+   later and the door or container is **not** opened by itself: activate it again.
+   *Check:* whether the game opens the container straight away.
+7. *Decision:* where the sweet spot lies is new each time the menu opens. *Check:* whether
+   in the game it stays put for a lock between tries.
+8. *Decision:* sounds by the records' names: enter, pin movement (every 8°), cylinder
+   turn, cylinder stop, pin tension (a loop while strained), pin break, unlock, force fail;
+   `DRSLocked` when the menu refuses. The two cylinder squeak records are not used.
+9. *Crime hook:* picking or forcing a lock sends `LockOpened { reference, owner, forced }`
+   and logs "lockpick: crime hook: …" with the owner (the reference's, else the cell's as
+   a script set it; a cell's own XOWN is not read yet). No crime rules.
+10. ~~*Not built:* the help message the first time, the debug meter, hiding the pointer over
+   the lock, the lock's `Backward` and the pin's `Backward`/`Left` sequences, saving broken
+   locks.~~ *(stale 2026-10-19: superseded by "Lockpicking leftovers" (help message, debug meter, pointer, Backward/Left sequences, broken locks in the snapshot).)*
+
+## Playtest fixes: far world (crash log, distant actors, floating troopers, dead on spawn) (2026-10-12, session "far")
+
+List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
+
+1. **Crash logging (item 26).** NVForever did not log crashes. Now every run writes a run
+   log, `%LOCALAPPDATA%\NVForever\logs\nvforever-<UTC time>-<pid>.log` (or under
+   `NVFOREVER_HOME`; never the game folder or `Documents\My Games\FalloutNV`, checked by
+   `fnv_install::guard_write`): the console's lines without colours, written line by line
+   so a crash keeps everything before it; the last 10 are kept. A panic on any thread
+   writes `crash-<UTC time>-<pid>.txt` beside it (thread, message, file and line, where
+   the camera was: worldspace, cell and its name, position; the command line; the
+   backtrace; the run log's name) and logs the same in one ERROR line. A run that ends
+   normally logs "run log: the game exited normally"; at the start the previous log is
+   checked and, if it has neither that line nor a crash report, a WARN names it (a native
+   crash: driver access violation, stack overflow, or the process killed). Code
+   `engine/nvforever/src/crash.rs`; test aid `NVF_PLAY_TEST_PANIC=<s>`; scenario
+   `crash-report`.
+   *Decision:* the engine's release profile keeps no debug info, so backtraces name
+   functions from the PDB's public symbols only (some frames are mislabelled, no line
+   numbers). `debug = "line-tables-only"` under `[profile.release]` in `engine/Cargo.toml`
+   would give file:line for every frame at the cost of one full rebuild for everybody and a
+   larger PDB; not done here, your call. *Decision:* native crashes (no Rust panic) get no
+   report of their own, only the "did not end normally" warning; a Windows exception filter
+   would need unsafe FFI. *Check:* after a crash, send the newest `crash-*.txt` and
+   `nvforever-*.log` from `%LOCALAPPDATA%\NVForever\logs`.
+   **The crash outside Crimson Caravan was not reproduced**: `--play --cell
+   CrimsonCaravan` for 150 s walking (10 fps under load), and a free-camera flight with
+   every actor from Crimson Caravan towards Camp McCarran and the South Vegas ruins (196
+   cells streamed, 195 residents) ran clean. *Check:* reproduce it once more on this
+   build; the run log and crash report will say where and on which thread.
+
+2. **Actors processed far away (item 27).** Cause: with `--npc-packages all` (the default of
+   `--play`) every actor of every cell ever loaded, and every actor a script moved, kept
+   its full AI for the rest of the run wherever it was: packages, sandboxes, searches,
+   Dialogue packages, hellos and random conversations (whose lines the game then said, so
+   Fiends far off talked). Drawing, detection, combat and object scripts were already
+   limited to the loaded cells. Now AI process levels (`fnv_ai::process`;
+   docs/design/actor-behaviour.md §5.9): actors in the loaded 5 × 5 cells (or the
+   interior) are in the high process, as before; the others get one update every 18 s
+   (the GECK wiki's figure for the original's "Mid-High" level) in which they only take up
+   their package and walk on over the navmesh: no conversations, hellos, searches,
+   sandbox choices or Dialogue packages. Leaving the loaded area ends a random
+   conversation and a search. Actors whose base has "No Low Level Processing" are not
+   updated at all out of the loaded area (documented flag meaning). A "process summary"
+   line at exit; scenario `far-actors`; tests in `crates/fnv-ai/tests/carry.rs`. In the
+   Crimson Caravan flight: 140 of 195 residents out of the loaded area at the end, 137
+   low-process updates, no conversation started out there.
+   *Decision/Guess:* every actor the AI has is treated as the original's Mid-High (18 s),
+   never Mid-Low or Low (120 s): all of them were handed over because their cell had been
+   loaded, which is what Mid-High means. *Decision:* the high area is the drawn cells,
+   including cells still fading out. *Check:* stand outside Crimson Caravan: no Fiend
+   talk; walk back to Goodsprings after a while: the residents are where their packages
+   would have taken them.
+
+3. ~~**NCR troopers floating outside Camp McCarran (item 24): not reproduced.** Checked in
+   the masters [observed]: the troopers there are placed on what is under them (rays and
+   probes with `fnvtool phys cell`): the gate patrols on the road (4,336-4,345, road
+   statics), the sentry at the gate on a sidewalk static (4,352), the four
+   NCRTrooperMcCarranCM on the runway transition static (4,336), the tower troopers on
+   the wall towers' tops (5,095-5,185, NVMcCarranWall03/04, with navmesh 0x00160C65 up
+   there), McCarranTowerTrooper1 following its patrol markers on its tower top. In game
+   (`--play`, noon, screenshots at the gate, the south wall and the north-east tower,
+   over 2 minutes each, and the patrol along the road): all stood and walked on the
+   ground or the tower tops. Not changed. *Check:* where exactly (which side of McCarran,
+   tower or ground, near or far, after what) and, if you can, a screenshot with the
+   overlay's `pos` line; one candidate left untested is the McCarran wall imposters
+   (`McCarranWallTowerImposter`, drawn by region at any distance) standing in for the
+   towers while the troopers on them are drawn.~~ *(stale 2026-10-19: superseded by "Floating NCR troopers" (found at Camp Golf and fixed: the Holster clips' accumulation root). McCarran itself was not re-run .)*
+
+4. **Tribal village corpses (item 28).** You were right: "If Base Health is set to 0 the
+   actor will spawn as a corpse" [documented: GECK wiki Stats Tab - NPC and Category:NPC].
+   `TCFiend01DEAD` has Base Health 0 in its own stats (its template supplies other tabs,
+   not Stats); the placed references carry no flag for it. Now a new game marks every
+   placed actor whose stats actor has Base Health 0 (NPC) or Health 0 (creature) dead,
+   without a killer, an OnDeath or a dead count: 889 in the ten masters. Drawn, they
+   show the end of a death pose and drop as ragdolls (17 ragdolls came to the ground around the village in the
+   test run), the AI leaves them alone, and E searches them. Spec note
+   `docs/spec-notes/dead-on-spawn.md`; tests `crates/fnv-game/tests/dead_on_spawn.rs`;
+   scenario `dead-on-spawn`.
+   *Guess:* creatures with Health 0 start dead too (DeadMoleRat, DeadBrahmin,
+   ~~NightkinMeleeDEAD; the wiki speaks of NPCs only). *Not done:* the "Respawn" flag
+   (TCFiend01DEAD has it) bringing them back alive after three days, and the references'
+   `XRGD` "Ragdoll Bones" (probably the pose the designer's Havok Sim left) which would lay
+   each body exactly as authored; ours fall where they stand. *Check:* the village's bodies~~ *(stale 2026-10-19: superseded by "Far-world leftovers: corpses respawning, their stored poses…" (Respawn flag and XRGD poses built).)*
+   lie on the ground, can be searched, and do not get up.
+
+## Playtest fixes: combat rules from the GECK wiki (2026-10-12, session "pt-combat")
+
+Branch `claude/playtest-combat`; design in docs/design/combat-ai.md §10 and §11 (the gap
+table against the wiki's combat pages, and §11.1, what is left for the list-2 combat AI
+workstream), alert.md §5 and §8. List 1 items 20, 30, 32, 33 and 34.
+
+1. **Machete can't hit a gecko (item 20).** The swing was a fan of rays at eye height,
+   75 units long for the machete (fCombatDistance 150 × Reach 0.5): a gecko at your feet
+   was under it. Now the swing also strikes any actor whose centre is within the reach
+   across the ground (plus 24 units of body), inside the swing's arc, from 32 units below
+   your feet to 48 above your eyes, if nothing stands between. *Guess:* the 24, 32 and 48
+   units. *Check:* swing a machete at a gecko standing still at your feet, and at one a
+   step too far (it should miss).
+2. **Hitting a neutral NPC (item 30).** It turns on you at once, says its Assault line
+   ("What was that for?") and fights until it goes back to Normal, StopCombat, or a yield
+   it accepts. Friends and allies follow the wiki's friendly-fire counts (a friend
+   turns at once out of combat, after more than 4 hits within 10 s in combat; an ally
+   never in combat, after more than 3 hits out of it). **Your exception:** a neutral
+   already fighting someone else, hit while you are fighting too, does not turn.
+   *Decision:* "you are fighting" = someone in a combat state has you on its target list.
+   *Decision:* an enemy not aggressive enough to attack on sight is treated as a neutral.
+   *Guess:* your teammates count as allies.
+3. **Yielding (item 30).** Putting your weapon away is a yield. Actors fighting you only
+   because you hit them (or because they help someone you hit) accept it if their fight
+   began at most 10 s before (fCombatYieldTime): they stop and say AcceptYield. One that
+   forgave you within 600 s (fCombatYieldRetryTime) and was hit again ignores the next
+   yield. *Decision:* the wiki's 600 s timer is the player's, for everyone; I made it each
+   actor's, to match your words "if they have already recently forgiven". Actors hostile
+   by their records (raiders, fiends) and StartCombat fights never accept a yield.
+   *Check:* shoot Chet once, holster within a few seconds (he stops: "accepts the yield"),
+   shoot him again and holster (he keeps fighting).
+4. **Allies help allies (item 34).** An actor that sees or hears an ally (or a friend,
+   with Assistance "Helps Friends and Allies") in a fight takes it up against everyone
+   that ally fights, never against one of its own allies or friends. *Decision:* actors
+   sharing a faction, or placed from the same NPC, count as allies (the rule already
+   keeping them from fighting each other). Goodsprings' settlers and Violet's dogs help
+   each other this way. *Check:* shoot a Goodsprings settler where others can see:
+   they should join; Violet's dogs join her fight.
+5. **Combat styles and confidence (item 34).** The CSTY records are read: Melee Only has
+   a gun-holder fight with its fists; the range multiplier scales the distance it fights
+   from; semi-automatic guns wait the style's firing delay; melee fighters attack or hold
+   by the style's chances (a dog now bites a little less often). Confidence decides when
+   a hurt fighter would flee, but fleeing itself is not built: the log says "would flee".
+   *Guess:* how the per-fight confidence modifier applies (threshold × (1 − modifier));
+   damage per second for the threat ratio (the wiki does not say); an actor's style from
+   the template that supplies its AI data, else DefaultCombatstyle.
+6. **NPCs aim down the sights (items 32–33).** An NPC with a gun that has sights aims
+   down them when its target is more than 20 m away and walks while aiming; within 20 m
+   it fires from the hip and runs. Aimed shots lose the unaimed spread penalty, and the
+   iron-sights aim and attack clips play. *Decision:* 20 m = 1,400 units (70 units a
+   metre, the figure gravity fits); once up, the sights stay up to 1,350 units so it
+   does not switch at the edge; the sights come up only while it can fire (sees you,
+   weapon drawn). *Decision:* the record's Sight Usage (the wiki: "percentage of
+   fCombatIronSightsDistance") is not used: your 20 m rule stands in, and that setting is
+   neither in FalloutNV.esm nor on the wiki. *Check:* Violet from 50 m: she raises her
+   rifle to her eye and walks towards you; walk up to 15 m: she lowers it and fires from
+   the hip.
+7. **Fiends flickering Combat ↔ Lost at Cook-Cook's camp.** They ran at you, dropped
+   behind a rise, and the moment they could not see you the combat AI let go of them:
+   they stood where they could not see, went Lost after 3 s, searched, saw you, and went
+   back to Combat (17 times each way in 45 s). Now a fighter stays a fighter while in
+   Combat and keeps closing in on where it last saw you until it sees you again.
+   After: no Combat → Lost at all in the same 45 s. *Decision:* while it cannot see you
+   it closes in halving the gap each time it plans its way. *Check:* stand south of the
+   camp: the fiends should come at you without stopping and starting.
+
+8. **Two older smoke expectations changed by these rules** (marked known failing, not
+   changed; please confirm and they can be rewritten): `combat-violet` expected the hip
+   attack clip `2hrattack3.kf`, but Violet now fires from 1,600 units, beyond 20 m, so
+   every shot is aimed down the sights (`2hrattack3is.kf`); `combat-dogs` expected about
+   20 bites in 30 s, now 11–12 (main: 17), because the combat style's melee decision has
+   a dog attack at 55 % each time it may and wait out its Hold Timer otherwise.
+   *Decision:* keep the wiki's rule. *Check:* do Violet's dogs bite often enough?
+   Also seen: `detection-game` (the sneaking check of detection.md §5) fails on main
+   980f0c35 the same way; marked known failing, not looked into (not combat).
+
+Tests: fnv-ai, fnv-game, fnv-combat unit tests (new: three provocation/yield/assistance
+tests on a synthetic plugin, the blind close-in test, the sights rule); smoke scenarios
+`combat-sights` and `provoked-yield` added, `cook-cook-camp` now also forbids the flicker
+(at most 2 Combat → Lost lines). Not done (list 2): fleeing, cover, combat groups and
+their searches, NPC-against-NPC grudges, blocking, dodging, combat barks (combat-ai.md §11.1).
+## Aid items: chems, food and meds (2026-10-12, workstream I "aid")
+
+Using an aid item now changes the actor values its record says (Stimpak, RadAway, Rad-X,
+Buffout, Jet, Mentats, food and drink …): the effects' Value Modifier archetype applied to
+the three pools of the GECK wiki's ActorValue page, the Medicine and Food potency, the usage
+monitor, the addiction roll and withdrawal. Spec note `docs/spec-notes/aid-items.md`; code
+`crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`; tool `fnvtool actor aid`; smoke
+scenarios `aid-survey` and `aid-items`.
+
+1. **Recover vs no Recover.** A Value Modifier with Recover (Buffout's +2 Strength) is a
+   temporary modifier while the effect lasts; without Recover it restores or damages.
+   *Decision/Guess:* without Recover and with a duration it acts magnitude **per second**
+   (the Hardcore Stimpak's 5 a second for 6 s equals the normal Stimpak's 30 at once).
+   *Check:* a Hardcore Stimpak heals 30 (39 at Medicine 15) over 6 s.
+2. **Potency.** Medicine-flagged items (Stimpak, RadAway, Rad-X, Doctor's Bag …) and
+   Food-flagged ones scale their beneficial magnitudes by `1 + 2 × skill / 100` (GECK wiki
+   Ingestible Settings). *Decision:* the user's own skill (the wiki says the player's);
+   both flags multiply; durations are not scaled. *Check:* a new character's Stimpak heals
+   39, not 30; the Pip-Boy STATS EFF list shows the scaled amounts.
+3. **Values that grow.** *Guess:* rads, dehydration, hunger and sleep deprivation go up with
+   "Damage …" effects and down with "Restore …" (RadAway "Restore Rads", Nuka-Cola "Damage
+   Rads"), never below 0. *Check:* RadAway lowers the RAD meter; Nuka-Cola adds 3 rads. In
+   Hardcore, Beer and Nuka-Cola carry "Damage Dehydration" — under this reading they make
+   you thirstier; please check H2O after a Nuka-Cola.
+4. **Value And Parts / Limb Condition.** *Guess:* the normal Stimpak ("Restore Health &
+   Conditions") restores every limb by the same amount as health; Doctor's Bag and Hydra
+   ("NVRestoreLimbs", no actor value) restore every limb. *Check:* a crippled leg after a
+   Stimpak in normal mode.
+5. **Usage monitor.** The chems' effect 0x0000014F has no record in any master; *Guess:*
+   it is the wiki's UMON (magnitude 30 = the GetSpellUsageNum example's "multiplied by
+   30"). Each use while it lasts (30 hours of play for most chems) adds 30; from 70 the
+   addiction chance is (usage − 70) / 100. *Decision:* the usage after this use counts, so
+   the third Buffout within 30 hours has 20 %, the sixth 100 %. *Check:* how many doses it
+   takes to get addicted.
+6. **Withdrawal.** *Guess:* an addiction's penalties are held back while that chem's effect
+   is active and apply when it ends; addictions do not wear off with time (Fixer's script
+   removes them). *Check:* Strength while addicted to Buffout, with and without a dose.
+7. **Not done:** waiting/sleeping does not advance effect timers (the original may);
+   Hardcore needs do not rise with time; Chameleon (Stealth Boy); perk entry points
+   (Chem Resistant, Chemist); Buffout's Strength does not raise carry weight (the
+   carry rule reads the world's S.P.E.C.I.A.L.); NPCs using stimpaks in combat (left for
+   the combat workstream: it needs the combat AI to choose to heal).
+8. **Test aid added:** `NVF_PLAY_TEST_SCRIPT=<t>:damage:<ref>:<actor value>:<amount>`.
+9. **Survival follows Endurance here** (actor-values.md §3.1 hypothesis), and formulas read
+   current values, so a Buffout taken before food raises the food's potency (Purified
+   Water 1.42 instead of 1.3 after Buffout's +3 Endurance). *Check:* whether chems change
+   food healing in the original.
+10. **Test aid fixes found on the way.** The inventory drop/use aid (`NVF_PLAY_TEST_DROP`)
+    now turns the Pip-Boy's ITEMS page to the item's tab (the list shows one tab, so aid
+    items were "not carried": the ui-sounds scenario's known failure on main), waits while
+    a script's message box is up, and waits for the scripts to be ready; items used before
+    the scripts were ready (or under a loading screen) are kept and applied when they run
+    (they were dropped). *Decision:* the ui-sounds stimpak expectation's known-failing mark
+    is removed (it passes); "24 played" stays known-failing at 23 with the stimpak's sound
+    now among them — one other sound is short, not found which.
+11. **quest-messages failed 3 of 3 runs on this branch, from load, not this change:** the
+    scripts were ready only after 14–17 s (four agents building on the machine), so its
+    test aids at 3, 9 and 9.1 s ran in one frame and the objective was completed before
+    it was shown. Nothing of the quest lines changed here. *Check:* it passes on a quiet
+    machine.
+
+## Graphics: engine-level improvements (2026-10-12, session "gfx")
+
+Your list 2 item "ENGINE LEVEL GRAPHIC IMPROVEMENTS". Design, survey and the reasons for each
+choice: docs/design/graphics-enhanced.md. No asset is changed or added; every value below is an
+engineering choice by eye, not a fact about the original game.
+
+1. *Decision:* a new switch `--graphics vanilla|enhanced`. `enhanced` turns on five
+   improvements, each also a switch on the pause menu's settings page under "Enhanced
+   graphics" (the page now has two columns when it is long), and `--graphics-only <keys>`
+   turns on single ones for comparing:
+   - **Ambient occlusion** (`ambient-occlusion`): creases, corners and the ground under things
+     darken. Our own screen-space pass from the depth (Bevy's needs multisampling off, which
+     the plants' soft edges depend on). *Guess:* radius 64 units, strength 0.55, fading out
+     4,000-7,000 units away. *Check:* the crates by the house doors in Goodsprings, the bench
+     and air conditioner at night, interiors' corners; that the water does not show dark
+     patches from the lake bed under it.
+   - **Finer, longer sun shadows** (`fine-shadows`): shadow maps 4096 instead of 2048 and
+     reaching 1.5 × `--shadow-distance` (24,000). *Check:* shadow edges of roofs and fences
+     look sharper; shadows on far hills; frame rate.
+   - **Bloom** (`bloom`): light brighter than a threshold glows (the sun, bright sky, lamps).
+     Done on the picture before the game's own grade, which still applies on top; it does
+     not use the image spaces' HDR/bloom values (not decoded yet). *Guess:* threshold 0.82,
+     intensity 0.9, about 136 pixels wide. *Check:* lamps and lit windows at night and in
+     the saloon; that the noon sand does not glow.
+   - **Sharpening** (`sharpen`): contrast-adaptive, against the four neighbours. *Guess:*
+     strength 0.5. *Check:* brick and roof textures crisper, no bright or dark rims on edges.
+   - **Anisotropic filtering 16x** (`anisotropic`; 8x before): roads and ground at a slant.
+     The switch applies to textures loaded after it changes.
+2. *Decision (tried and dropped):* Bevy's contact shadows (speckled dark bands on near
+   surfaces without TAA: `C:\fnv-private\scratch\gfx\pair-cs2.png`), sun in-scattering in the
+   fog (invisible in the clear weather, a shadow lookup per pixel), Bevy's bloom (needs an HDR
+   view, double the memory traffic), Bevy's CAS sharpening (garbled the picture), TAA, SSR,
+   volumetric fog. Why each: graphics-enhanced.md §2, §4.
+3. *Frame rate* (GTX 1050, 1280 × 720, Goodsprings noon, 60 s runs, machine shared with
+   other sessions, so noisy): vanilla 14.5 fps, enhanced right after 10.0 fps; fine shadows
+   alone 19.6, the other four together 10.6, vanilla again at the end 7.2. *Decision:* enhanced
+   costs about a third of the frame rate here, so **normal play defaults to vanilla**
+   (`graphics::PLAY_DEFAULT`, one line to change on a faster GPU). Test runs (`--screenshot`,
+   `--timelapse`, `--frame-json`, `--run-seconds`) always default to vanilla, so no golden,
+   picture check or smoke expectation changed. *Check:* play with `--graphics enhanced` and
+   say whether the frame rate is acceptable to you; if so, flip the default.
+4. *Pictures* (in `C:\fnv-private\scratch\gfx\`, 1280 × 720): Goodsprings noon before
+   `gs-day-vanilla2.png`, one feature each `gs-day-ambient-occlusion.png`,
+   `gs-day-fine-shadows.png`, `gs-day-bloom.png`, `gs-day-sharpen.png`; crops side by side
+   (left vanilla) `pair-ao.png`, `pair-fs.png`, `pair-sh.png`; night `night-vanilla.png` /
+   `night-enhanced.png`. (No anisotropic pair: the difference is in the far ground at a
+   slant. The saloon pair caught the DLC message box and is not useful.)
+5. *Observed, not mine:* one of the vanilla noon frames (`gs-day-van.png`) came out much
+   warmer and brighter than the others of the same spot, hour and build, and than main's
+   build (`gs-day-mainexe.png`): the grade seems to differ from run to run at start.
+   *Check:* whether you see the noon colour change between launches.
+6. *Smoke:* new scenario `graphics-enhanced` (starts enhanced, switches four settings while
+   the game runs, checks the "graphics: …" log line after each).
+
+## Script stubs audited (2026-10-12, session "stubs")
+
+Your list 2 item: go through the placeholder script functions against what the engine has
+now. The audit is `docs/design/script-stubs.md` (every stub with its use in the ten
+masters' scripts, the system it needs and its status); `fnvtool script stubs` re-counts it
+and the smoke scenario `script-stubs` checks the counts.
+
+1. **The count.** 123 stubs before; 22 implemented here (1,807 of the 4,185 uses in the
+   shipped scripts that reached a stub), 4 made deliberate no-ops, 3 implemented by the
+   combat merge (#235); 94 left: 23 assigned to other workstreams (16 E2 combat AI, 6 J
+   karma and crime, 1 H followers), 10 implementable later, 61 waiting for a system not
+   built yet (VATS, effect shaders, see-through actors,
+   saving, Caravan and the casino, repair and crafting menus, talking activators …).
+   *Check:* the table in script-stubs.md §4 for anything you want sooner.
+
+2. **ResetAI (711 calls) and the AI codes.** ResetAI drops the script package, forgets the
+   goal and unreachable packages, lets go of a Look and chooses packages again; it does not
+   stop combat (that is the combat workstream's). GetCurrentAIPackage and
+   GetCurrentAIProcedure answer with the GECK wiki's codes from the package type, the
+   detection state and the furniture.
+   *Guess:* Find packages are 0 EXPLORE; a Dialogue package is 34; in combat 5/13, searching
+   29/36, talking to the player 6/4; a package whose goal was met reads procedure 17 DONE
+   (eight package end scripts in FalloutNV.esm wait for four actors' 17). *Check:* scripted scenes
+   that wait for an actor to finish, and scripts that check an actor sleeps (code 4).
+   **Captured 2026-10-19 [observed]:** Ringo's travel script package read 17 at its end;
+   ResetAI removed a script package at once, and got a seated actor up (procedure 21);
+   his sleep package read 4. **Runtime changed:** a script package whose goal was met
+   now goes at the next package choice, as the original let Ringo's go with no ResetAI.
+   Whether ResetAI wakes a sleeper is not settled: Ringo never lay down
+   (spec-notes/owner-decision-captures.md §7).
+
+3. **Look / StopLook (401 calls).** A script's Look now turns the actor's head over every
+   other look (conversation, alert); a marker as the target is looked at at eye height.
+   ~~*Not done:* Look's "rotate the whole body" flag. *Check:* scenes where an NPC is told to~~ *(stale 2026-10-19: superseded by "Look turning the whole body" (built, rate measured in the original).)*
+   look at someone or something (159 Look calls in 30 scripts).
+
+4. **Movement, sneaking, sight, camera.** IsSneaking, IsMoving, IsRunning, GetLineOfSight and
+   IsPC1stPerson read what the engine measures (detection every 0.25 s, the player's
+   controls every frame). *Guess:* a moving actor reads IsMoving 1 (forward): the
+   ~~direction is not told apart yet; NPCs never sneak yet; GetLineOfSight from the player
+   reads 0 (the player is not measured as a detector).~~ *(stale 2026-10-19: superseded by "List 5 — claude/l5-npc-ai" (NPCs sneak), status.md:80 (the player measures actors: player.GetDetected / GetLineOfSight), "Animation state told to the rules" (IsMoving's direction).)*
+
+5. **The weather (SetWeather, ForceWeather, ReleaseWeatherOverride, IsRaining,
+   GetIsCurrentWeather).** The sky takes a script's weather (a fade, or at once) and holds
+   it against the climate when the script says so. *Guess:* a weather set without the hold
+   stays until the climate's own choice changes. *Check:* Hoover Dam's battle weather and
+   the Honest Hearts rain if you get there.
+
+6. **Menus and challenges.** ForceActiveQuest marks the quest in the Pip-Boy; a terminal
+   item's ForceTerminalBack goes back a level (or closes the terminal);
+   AddSPECIALPoints / SetSPECIALPoints / AddTagSkills open the Vigor Tester's and the
+   tag-skill menus with their rules (no lowering below the old values, old tags locked);
+   IncrementScriptedChallenge counts to the challenge's threshold.
+   *Guess:* AddSPECIALPoints uses the Vigor Tester's menu (New Vegas has no other
+   S.P.E.C.I.A.L. page); a Start Disabled challenge counts nothing until unlocked.
+   *Not done:* the challenge's XP and its "completed" message.
+
+7. **Deliberate no-ops:** SetRumble, PurgeCellBuffers, PreloadMagicEffect,
+   SetSceneIsComplex now do nothing on purpose (no trace). **Not registered** and left so:
+   IsDLCInstalled (no documentation to go on), AddItemToLeveledList, GetIsAlignment,
+   GetXPForNextLevel, GetIsObjectType (§6).
+
+8. **New test aid:** `NVF_PLAY_TEST_SCRIPT` takes `call:<ref or ->:<Function>[:<arg>…]`,
+   any function by name as a script would call it; scenario `script-stubs-play` uses it.
+
+*Decision:* other workstreams' functions (combat, crime, followers, aid) were not touched;
+`crates/fnv-game/src/functions/stubs.rs` lists who owns which, and a test fails when one
+of them is implemented without being taken off the list.
+
+## Graphics follow-ups: TAA, sun shafts, water reflections (2026-10-12, session "graphics-2")
+
+Follow-ups to PR #236 (list 2, "ENGINE LEVEL GRAPHIC IMPROVEMENTS"; handoff §4 item 8). Reasons
+and figures: docs/design/graphics-enhanced.md §3.6-§3.8, §4, §5.1. Every value below is an
+engineering choice by eye, not a fact about the original game. The vanilla look is unchanged and
+is still the default of every test run, smoke scenario and lab frame.
+
+1. **Temporal anti-aliasing** (`taa`, settings page "Temporal anti-aliasing"). Our own pass:
+   Bevy's needs motion vectors from every material, which our custom shaders do not write.
+   *Decision:* it is the **other choice to multisampling, not stacked**: on, the view is drawn
+   without MSAA and smoothed over the frames; off, `--msaa` comes back (switchable while
+   playing). *Decision:* **not part of `--graphics enhanced`**: standing still it is as smooth
+   as MSAA 4x (plants' cut-outs smoother), but textures are softer, clearly so while the view
+   moves, and you play with 8x MSAA. It is cheaper than MSAA 4x (GPU 0.05 ms for the pass,
+   about 0.4 ms saved in the main pass and prepass on the RTX 4070 here). *Guesses:* blend 10 %
+   still / 50 % moving fast, mip bias -0.5, points nearer than 48 units move with the camera
+   (the arms and weapon), a jump over 400 units in a frame starts the history over. *Check:*
+   turn it on in the settings and walk and turn in Goodsprings: softness, ghosts behind walking
+   NPCs and swaying grass, the arms while turning; say if you want it in `enhanced`.
+2. **Sun shafts** (`light-shafts`, in `enhanced`): light streaming past what stands in front of
+   the sun, from the game's own sky and sun as drawn, as strong as the weather's fog makes the
+   air hazy. *Guesses:* strength 0.6 + 0.9 x haze, haze = 20,000 / fog far (clear weather 0.1),
+   source within 0.3 of the screen height of the sun. *Check:* Goodsprings at 19:00 facing the
+   sunset (`--pos=-69000,3500,8900 --heading 260 --pitch 2 --hour 19 --graphics enhanced`);
+   a dusty or cloudy weather (stronger there by design); that noon looking away from the sun is
+   unchanged.
+3. **Screen-space water reflections** (`water-reflections`, in `enhanced`): only where the
+   existing mirrored reflection does not reach (water at a second height in view, e.g. Lake Las
+   Vegas next to Lake Mead's cells); interiors have no WATR planes in this engine, so nothing
+   changes there. *Decision:* kept although its value is small: checked only by forcing it in
+   place of the mirrored reflection at Lake Las Vegas (no artefacts, small difference). *Check:*
+   if you know a spot with two water levels in view, whether the lower one now shows the shore.
+4. *Decision (tried and dropped):* **Bevy's volumetric fog**: on our non-HDR picture it turned
+   Goodsprings at dusk dark brown with a visible box edge across the mountains
+   (`C:\fnv-private\scratch\graphics-2\vol-dusk.png`) and would replace the weather's fog look;
+   the sun shafts give the light shafts it was meant for. Contact shadows and CAS (#236) were
+   not retried.
+5. *Found:* switching multisampling while the game runs (now possible through TAA) ended the run
+   with a validation error in the ambient occlusion pass; the passes that read the depth now go
+   by the depth texture's own sample count. The `graphics-enhanced` smoke scenario switches TAA
+   on, walks and turns, and off again, and forbids rendering errors.
+6. *Test aids for measuring:* `--log-frame-times <s>` (frame time and GPU time per pass) and
+   `--graphics-cycle "vanilla;taa;..."` (switches between sets in one run). On this machine
+   the picture stayed at 60 Hz whatever was asked, so the per-pass GPU times are the figures;
+   the GTX 1050 was not measured. *Check:* your frame rate with `--graphics enhanced` and with
+   TAA on instead of MSAA.
+7. ~~*Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
+   --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
+   possibly your floating-troopers item 24.~~ *(stale 2026-10-19: superseded by "Floating NCR troopers" (reproduced at Camp Golf from this sighting and fixed).)*
+
+## Aid leftovers: waiting, Hardcore needs, Stealth Boy, perks, carry weight (2026-10-12, session "aid-2")
+
+The five leftovers of the aid items (§4 item 6 of the handoff). Spec note
+`docs/spec-notes/aid-items.md` §2, §6, §10–§12; code `crates/fnv-game/src/needs.rs`,
+`crates/fnv-game/src/perks.rs`, `crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`,
+`engine/nvf-play/src/wait.rs`, `engine/nvforever/src/stealth_field.rs`; tool `fnvtool actor
+aid --perks --perk P --set AV:v --wait H [--sleep]`; smoke scenarios `aid-perks-needs-survey`,
+`aid-wait-perks`, `aid-hardcore`, `aid-stealth-boy`.
+
+1. **Effect timers during wait and sleep.** *Decision/Guess:* each hour waited or slept
+   counts as the seconds of play in which an hour passes at the TimeScale: 3600 / 30 =
+   120 s. Buffout (240 s) therefore wears off in the second hour waited, Chemist's 480 s
+   in the fourth; a usage monitor (108,000 s = 900 waited hours) practically never. The
+   other reading would be 3,600 s an hour (every chem gone after one hour, the usage
+   monitor after 30). *Check:* Buffout, then wait 1 hour and 2 hours: is Strength back?
+2. **Hardcore needs rising.** The masters have `fHCStarvationRate` 25 and
+   `fHCSleepDeprivationRate` 50 and no dehydration rate; the game's help message says
+   dehydration rises fastest, starvation slower, sleep deprivation slowest.
+   *Decision/Guess:* the setting is the seconds of play per point (larger = slower):
+   Hunger 4.8 an hour (Minor Starvation after about 42 hours), Sleep Deprivation 2.4 an
+   hour (Minor after about 83 hours). *Guess:* dehydration 12.5 s a point (9.6 an hour,
+   Minor after about 21 hours). *Guess:* an hour slept takes 100 off sleep deprivation;
+   hunger and thirst rise while sleeping as while waiting. *Check:* GetAV Dehydration,
+   Hunger, SleepDeprivation after 1, 6 and 24 hours waited and after 8 hours slept (spec
+   §9 item 7). These guesses decide how hard Hardcore feels; please say if they feel
+   wrong in play.
+3. **Need stages.** The RADS/DEHY/HUNG/SLPD records give each stage's threshold (200 …
+   1000) and its spell. *Decision:* the player has the spell of the highest stage reached
+   and loses it when the value drops below (so water at Minor Dehydration takes the
+   penalty away at once); rads' stages hold in every mode, the needs' only in Hardcore
+   (they go when Hardcore is turned off). *Not done:* the HUD's H2O/FOD/SLP codes, the
+   "Your dehydration level has increased" messages (the log says the stage), refusing a
+   wait or sleep that would kill (the help message says the original refuses it).
+4. **DamageActorValue / RestoreActorValue on rads and needs** now move them the way the
+   aid effects do (Damage raises, Restore lowers, never below 0): the Cannibal perk's
+   script restores Hunger 50 with the health it gives. Before, a Restore on Hunger did
+   nothing and a Damage on Rads lowered them. *Check:* RadAway-like scripts and eating
+   a corpse with Cannibal in Hardcore.
+5. **Stealth Boy.** Its "Stealth Field" (archetype Chameleon) now puts Chameleon 75 (and
+   Sneak +100) in the temporary pool for 120 s; detection already read Chameleon: in the
+   Goodsprings check the settler went from detected to hidden at 1,671 units in sight,
+   visual term 0. *Decision (look):* no refraction shader exists, so the player's body
+   and first-person arms are drawn see-through: blended at 30 % opacity, tinted blue
+   (`stealth_field.rs`; the shot shows a faint ghost). *Check:* whether you want the
+   original's shimmer instead (a shader of its own).
+6. **Perk entry points.** Read from the PERK records (109 perks of FalloutNV.esm have
+   entry point effects). The codes were identified by the only perks that use them: 23
+   Modify Addiction Chance (Chem Resistant × 0.5), 25 Modify Positive Chem Duration
+   (Chemist × 2, the chem challenge perk × 1.33), 44 Modify Radiation Consumed (Lead Belly
+   × 0.5); functions 1/2/3 read as Set/Add/Multiply. *Decisions:* only the player's
+   perks; a ranked perk applies its highest owned rank's entries only; entries in
+   ascending priority; entries with conditions on a tab other than the perk owner's are
+   skipped (none of the aid ones has any). *Decision:* Chemist lengthens beneficial
+   effects of items whose equip type is Chems, not the usage monitor; the Stealth Boy is
+   a Chems item, so Chemist doubles it too. *Check:* Stealth Boy duration with Chemist;
+   Buffout with Chemist lasts 8 minutes. *Not done:* the other entry points (combat's
+   still go through `PerkHooks` defaults), perks' ability effects (type 1, e.g. Life
+   Giver), "Modify Addiction Duration" (no master perk uses it).
+7. **Buffout and carry weight.** *Decision:* the capacity uses the current Strength
+   (temporary modifiers included, within 1–10) plus Carry Weight's own modifiers; the
+   menus' Wg line follows it (Buffout at Strength 5: 200 → 220, back to 200 when it
+   ends). *Check:* the Wg line in the Pip-Boy after Buffout.
+8. **Test aids added:** `NVF_PLAY_TEST_SCRIPT=<t>:hardcore:<0|1>`, `<t>:perk:<PERK>`,
+   `<t>:set_av:<ref>:<actor value>:<value>`. The wait now logs `wait: hour <n> passed for
+   the player (120 s of effects): …` each hour, and `needs: <value> <level>: <stage>` on
+   each stage change.
+9. **A lock mishap (process, not code):** during a picture run a shell line of mine
+   removed the two game locks (`run.lock`, `smoke.lock`) that another session held, for
+   a moment, after my own `mkdir` had failed; both existed again when checked right after
+   (taken again by their owner). If another session's run of 2026-10-12 about 18:03
+   overlapped a launch, that may be why. Later runs used a wrapper that only removes
+   locks it made.
+
+## Lockpicking leftovers (2026-10-12, session "lockpick-2")
+
+Item 4 of the handoff list (leftovers of #232). Your ten screenshots in
+`C:\fnv-private\references\Lockpicking` were on this machine and were compared with ours
+(docs/spec-notes/lockpicking.md §1, §2, §2.0, §2.1, §7.1).
+
+1. **Help message the first time.** *Decision:* the game's own message `HelpLockpicking`
+   (FalloutNV.esm 0x0000017C, title "Lockpicking", its text unchanged) comes up over the
+   menu the first time it opens, in the tutorial box laid out by `tutorial_menu.xml`
+   (VDSG symbol, "VDSG MANUAL", "Close E)"); E (also Enter, Esc, Tab) or a click on Close
+   shuts it; nothing is picked while it is up; the lock behind is drawn at about half
+   brightness. The key names in its text are the keys bound now ("WSAD", "F").
+   *Guess:* once per game (kept in the game state, see 5); the Next/Previous column width
+   (120) and VDSG symbol width (128) fitted so the text wraps and the words sit as on your
+   screenshot; Close's brightness. *Check:* that the game shows it only once, and whether
+   Esc/Enter should close it.
+2. **Debug meter.** *Decision:* behind the off-by-default debug switch
+   `NVF_PLAY_DEBUG_LOCKPICK=1` only: the menu file's meter bar with the sweet spot (bright)
+   and the ring around it (dim), the arrow over the pin's angle, "Pin health …% Lock …° of
+   90°", and the Sweet Spot / Concentric values (shown, not adjustable). *Guess:* the
+   colours and words (the file leaves them to the code).
+3. **Pointer over the lock.** *Decision:* hidden inside the menu file's detect area
+   (taken literally: from 60 units in to the right edge, from the top down to two thirds
+   of the screen), shown elsewhere and over the help box, as on your screenshot (pointer
+   at the left edge). *Check:* that the pointer never shows over the lock and comes back
+   at the left edge and over the buttons.
+4. **Exit animations.** *Decision:* the model files' sequences are now used:
+   - a broken pin plays the pin's `Backward` (it twists) then `Left` (the long piece flies
+     off); the short piece stays in the keyhole until the next pin, as on your screenshot
+     after a break; the next pin now comes 1.45 s after a break (was 1 s) so the break
+     plays out;
+   - once the lock is in, it is posed by the lock model's `Backward` sequence at the time
+     its turn has reached: the cylinder turns and the screwdriver follows with a twist of
+     the wrist. This matches your 40° and fully-turned screenshots (screwdriver nearly
+     level at 40°, pointing down when open), where turning everything rigidly did not;
+   - the pin no longer turns with the lock (your screenshots: it stays where you put it);
+   - leaving (E) pulls the pin out (its `Forward` backwards, 0.5 s) while the menu fades;
+     after opening, breaking or running out of pins the menu holds 1.5 s, then fades out in
+     0.5 s over the world (your screenshot of an opened lock shows the HUD coming back over
+     the lock still drawn).
+   *Guess:* the 0.5 s fade and pull-out. *Check:* the break and the leaving in game.
+5. **Broken locks saved.** *Decision:* broken locks (and whether the help was shown) are
+   part of the game state's snapshot (`GameSnapshot.locks`, written only when not empty).
+   ~~NVForever has no save files yet, so today a broken lock stays broken for the session
+   and in any snapshot; it will be saved when saving is built.~~ *(stale 2026-10-19: superseded by status.md:64 (save files built) and design/save-load.md:91 (broken locks saved: "have").)*
+6. **Ringo's floor safe.** *Finding:* not a collision fault: the safe's collision is
+   whole and the crosshair finds it (standing on it 123 units straight down, or from the
+   mattress's edge looking 65° down at 145). The safe lies half under the edge of the
+   floor mattress, and the floor beside it is narrower than the player, so the player
+   stands on the mattress or on the safe; from the mattress the safe's door is 131 below
+   the eye and only a narrow cone is within the 150 reach. The test aid
+   `NVF_PLAY_TEST_NEAR` had chosen a spot 147.7 away assuming a 112-unit eye, while the
+   first-person body puts the eye at about 121, so the view ray needed 154 and missed.
+   *Fix:* the aid now chooses with the body's eye and 5 units to spare, and tries closer
+   spots aimed at points of the target; the new smoke scenario `lockpick-floor-safe` uses
+   the safe. *Check (in game):* can you target this safe from the mattress? If the
+   original lets the crosshair pass the mattress or reaches further downwards, tell us
+   which (physics.md §6 has the pick-sphere question).
+7. **Compared with your screenshots and changed:** "Lockpick Skill" (was "Lockpick");
+   the lock's size and place (camera 70 units away with a 17° view, the cylinder about
+   0.72 of the screen's height, a little above the middle; was 45 units / 55°, the lock
+   less than half that size); the pin not turning with the lock; the screwdriver's
+   motion (4); the help box (1). *Left as it is:* the room dim behind the lock on your
+   screenshots: our lock stays on black, because a see-through shade let quest and
+   corner messages show through the menu; the pin's and screwdriver's colours (ours
+   coppery and red, yours brass and brown: lighting). *Check:* the look against your
+   screenshots.
+8. *Smoke:* `lockpick` now closes the help and checks the help line and the leaving lines;
+   new `lockpick-floor-safe` (help once, leaving with the pin pulled out, a failed Force
+   Lock breaking the safe, the next activation refused).
+
+## Karma and crime (workstream J, branch claude/karma-crime, 2026-10-12)
+
+Your list 2 items "FACTION KARMA" and "CRIME". Facts and tags:
+docs/spec-notes/crime-karma.md. The game's own help messages (`HelpCrime`, `HelpKarma` in
+FalloutNV.esm) gave the crime rules: minor crimes (theft; opening an owned lock, which the
+help calls trespass) turn only the victim who sees it; major crimes (assault, murder) the
+victim and its friends.
+
+1. **Karma for kills.** Killing an Evil or Very Evil NPC gives +100
+   (`fKarmaModKillingEvilActor`, the only kill setting in FalloutNV.esm); a Good or Very
+   Good NPC costs 100; murdering a Neutral NPC costs 25. *Decision/Guess:* the setting is
+   the amount (it is not documented how it is used); the good-side and neutral amounts
+   are mine (no setting for them is in the plugins, the executable is encrypted);
+   creatures give no karma (a dead radroach is "Evil" in the data); alignment by the
+   globals KarmaVeryEvil −750, KarmaEvil −250, KarmaGood 250, KarmaVeryGood 750.
+   *Check:* kill a Fiend (Violet is −500, Evil): "You've gained Karma!" with the good
+   icon; kill Sunny (900, Very Good): "You've lost Karma!" with the evil icon.
+2. **Karma for stealing and breaking in.** Each owned item or stack taken, and each
+   owned lock picked or forced, costs 5 (`fKarmaModStealing`), seen or not; nothing when
+   the owner is an Evil faction, a faction that does not track crime, or an Evil NPC.
+   *Decision:* per take, not per item value; the lock cost is mine (you asked for
+   breaking in to cost karma). *Check:* take Chet's cigarettes: −5 and the corner message.
+3. **Ownership.** A reference's own owner (XOWN, with the faction rank XRNK), else its
+   cell's (the CELL's XOWN/XRNK, or SetCellOwnership). You own what your base or a faction
+   you have the rank in owns. *Decision:* items' own owners inside containers (COED) are
+   not read: a container's items are the container's owner's; a corpse's inventory is
+   nobody's; items you dropped are yours.
+4. **Theft.** The owner (or a member of the owning crime-tracking faction) who has you
+   *detected* when you take something turns on you and says its Steal line; others who
+   see it do nothing. *Decision:* the game's owner first tries to take the item back;
+   that is not built, the owner fights straight away. A crime enemy attacks whatever its
+   aggression, and a crime is not yieldable (holstering does not end it); StopCombat
+   from a script does. *Check:* in Chet's store, take something behind the counter
+   while he looks: he says his Steal line and fights; take something while he looks
+   away: only the karma.
+5. **Picked locks** of owned doors and containers: the owner who sees it attacks at once
+   (the help's rule). Hacking an owned terminal is the same crime in the help: not
+   hooked yet.
+6. **Trespassing.** In an owned cell without the Public place flag that you do not own
+   (23 interiors in FalloutNV.esm: Primm's and North Vegas's houses, Novac's motel rooms;
+   all of Goodsprings' interiors are public), the owner who sees you warns you
+   (GuardTrespass) every 5 s, twice (`iGuardWarnings` 2), then attacks. *Guess:* the Guard
+   package's warning rule applies to owned cells too; the Off Limits flag (one cell) and
+   the doors' No Alarm flag are not used. *Check:* walk into a Primm house with its
+   owner in.
+7. **Murder.** Killing a non-Evil NPC that did not attack you of its own accord. Every
+   witness who cares about the victim (its ally or friend, same faction or same base)
+   turns on you and says its Murder line, and when such a witness saw it, you become an
+   enemy of the victim's crime-tracking factions (all members attack on sight until a
+   script clears it). IsPCAMurderer becomes 1. *Decision:* only seen murders set the
+   faction flag. *Check:* kill Easy Pete in front of another settler: Goodsprings turns.
+8. **Assault** (already on main as provocation) now also counts as a major crime
+   (GetMajorCrimeCount). *Decision:* an assault does **not** make you an enemy of the
+   victim's whole faction (the wiki's enemy flag is for any major crime): one punch would
+   turn every NCR trooper in the Mojave. Allies who see it still help (assistance).
+   Please decide.
+   **Captured 2026-10-19 [observed]:** two lead-pipe hits on a trooper with no witnesses
+   made him fight back and counted two major crimes, but GetActorFactionPlayerEnemy stayed
+   0 and a Primm trooper that saw the player afterwards did not fight. The original
+   agrees with the decision (spec-notes/owner-decision-captures.md §7).
+9. **The prompt.** Over an owned item, container or lock the crosshair and its prompt are
+   drawn in the crime colour, and an item reads "E) Steal". *Guess:* the colour is the
+   HUD's "alt" colour from Fallout_default.ini (255, 67, 42); the word "Steal".
+   *Check:* in Chet's store the shelves' items should be red.
+10. **No bounties.** New Vegas has none (the wiki: crime gold is unused in Fallout);
+    reputation (REPU) is changed by scripts only, crimes do not change it here.
+11. **Script functions** built: RewardKarma (with the corner message), GetIsAlignment,
+    IsPCAMurderer, Get Minor/Major CrimeCount, GetActorCrimePlayerEnemy, GetAlarmed,
+    IsActorAVictim, IsCellOwner, IsInMyOwnedCell, IsTrespassing, GetTrespassWarningLevel,
+    SendTrespassAlarm, SendAssaultAlarm (93 calls in the scripts; it now really turns the
+    victim on you). SetPCEnemyOfFaction now has an effect: that faction's members attack
+    you on sight. *Check:* quests that call SendAssaultAlarm or SetPCEnemyOfFaction.
+
+Shared files touched (the combat AI agent works nearby): `fnv-game` `combat.rs` (one call
+in `kill`), `awareness.rs` (crime enemies in `would_attack`, forgiving in `stop_combat`),
+`provocation.rs` (one call when an assault grudge starts), `functions/mod.rs` (the crime
+entries only), `game.rs` (state fields), `data.rs` (cells, faction flags, ranks); engine
+`activate.rs`, `reticle.rs`, `menu.rs`, `menu/model.rs`, `lockpick.rs` (log text).
+
+Tests: fnv-game unit and synthetic-plugin tests (`tests/crime.rs`, 7), root and engine
+clippy; smoke: `karma-survey`, `crime-steal`, `karma-fiend` (new; the fiend is killed by
+a new `kill:<actor>` script test aid, shooting her was not repeatable under load) and the
+changed-file set pass (alert-fiend, provoked-yield, barter, container-e-key, speech-look,
+lockpick, cook-cook-camp, dead-on-spawn), except `house-items` and `ui-sounds`: in each run
+their container or inventory step fell while an add-on's start-up message box was open
+("menu request ignored: a menu is already open"), a different step each run; not caused by
+these changes (they only add a message after a container command).
+
+## Far-world leftovers: corpses respawning, their stored poses, the Low process level (2026-10-12, session "far-world-2")
+
+Handoff item 5 (docs/handoff/playtest-2026-10-12.md §4), the leftovers of PR #233.
+
+1. **Corpses' Respawn flag.** Built as a cell reset (`fnv_game::respawn`,
+   docs/spec-notes/dead-on-spawn.md §4): when a cell comes back into the loaded cells
+   after `iHoursToRespawnCell` (72 h) away, its dead actors whose base has Respawn are
+   recreated alive at their authored place. The village's seven Fiends and the burned
+   bodies around it have the flag and come back. Scenario `corpse-respawn`.
+   *Decision:* "recreated" read as starting again as authored: actor values, damage,
+   killer, script-set factions and packages dropped; inventory rolled again.
+   *Decision:* the wiki says such a corpse "will respawn alive after 3 days with 0 HP";
+   they come back with full health (alive at 0 health means nothing here).
+   *Decision:* the visit is the game's loaded cells (the player's cell and the 5 × 5 around
+   it); the clock starts when a cell leaves them. *Decision:* respawning containers in a
+   reset cell refill too (the `fnv_sim` code for it existed and was never called).
+   *Guess:* killed leveled-spawn creatures with the flag come back too (cazadors at the
+   village did in the test run). *Not done:* encounter zones' "Never Resets", removing the
+   bodies of killed non-respawning actors at a reset, ResetInterior.
+   *Check:* kill the village Fiends' neighbours or leave the corpses, go far away (more
+   than two cells), wait or sleep three days, come back: the Fiends stand again; a corpse
+   without the flag (e.g. `DeadGhoul2`) stays dead.
+
+2. **The poses the designers left the bodies in.** Found: placed corpses carry `XRGD`
+   "Ragdoll Bones", the pose the GECK's Havok Sim left (dead-on-spawn.md §5 says how each
+   entry maps to a bone and which rotation convention fits, all observed on the 278 human
+   corpses of FalloutNV.esm). A corpse laid out by a new game is now put in that pose at
+   rest instead of falling from its death pose; in the village 16 bodies lay in their
+   stored pose, flat on the ground next to their blood decals. *Guess:* the root entry's
+   rotation is relative to the reference's (the reading under which most bodies fell
+   backwards; the alternatives put heads every way or all to one side). *Not checked:* no
+   capture of the original's bodies was taken (the owner is away); creature corpses use
+   the same rule untested beyond the entry count; clutter skeletons' `XRGD` (REFR) are not
+   posed. *Check:* the tribal village and other placed corpses (Forlorn Hope's dead
+   troopers, the dead brahmin): do they lie as in the original?
+
+3. **The 120 s Low process level.** The AI now has three levels (`fnv_ai::process`,
+   actor-behaviour.md §5.9): the loaded area (every frame), the **cell buffer** (every
+   18 s) and beyond it (every 120 s). *Guess:* the buffer is the 36 exterior cells drawn
+   most recently (the 25 drawn now among them) and the 3 interiors visited last, from your
+   Fallout_default.ini (`uExterior Cell Buffer=36`, `uInterior Cell Buffer=3`); how the
+   original fills and empties it is not documented. *Decision:* the original's Mid-Low
+   (interiors behind the doors of the drawn exterior cells: Chet's store, the saloon seen
+   from Goodsprings) has an "unknown" rate; here they get the Mid-High 18 s.
+   *Decision:* an actor walking out of the loaded area (or on into another cell) takes
+   that cell into the buffer, and a follower is kept at Mid-High while its leader is at
+   Mid-High or above: without this Sunny, running to the wells through cells never drawn,
+   fell to 120 s updates at once and Cheyenne was left 1,066 units behind (`sunny-wells`). Scenarios `far-actors` (now flying at 400 units/s: at 1500 the cells leave
+   the buffer within seconds) and `far-actors-low`. *Check:* nothing visible should change;
+   after a long trip, residents of far places are where their packages would have them.
+## Smoke failures on main explained (2026-10-12, workstream "fixes")
+
+All four were timing on a loaded machine (3-4 agents building, the game at 5-15 frames a
+second), not a feature broken by the merges #225-#236. Runs: `C:\fnv-private\scratch\fixes\`.
+
+1. **detection-game** (detection.md §5). *Cause [observed]:* not a regression: the build of
+   dfb60896 (the merge that added detection) fails the same way here, as do 3570ebfc and
+   main ec6aaaf0. The settler GSSettlerAM 00104F0A turns into sight at about 12:04-12:05 game
+   time; the shot is at 22 s on the test aids' clock. Two things held the game clock back
+   against that clock: the add-on packs' twelve start-up message boxes (with
+   `NVF_PLAY_TEST_SCRIPT_MENUS=1` each holds the game about 1 s) and, below 7.5 frames a
+   second, two frame caps: physics ran at most 8 steps of 1/60 s a frame and the residents'
+   AI capped its frame at 0.1 s, so actors walked and turned slower than the game clock
+   passed. The shot then fell at about 12:02-12:03 and the settler noticed only after it.
+   *Fixed:* play now runs physics steps for a whole frame of the virtual clock (0.25 s,
+   `nvf_play::phys::play_params`) and the residents use the frame time up to the same 0.25 s
+   (engine bug since 2026-10-10); the scenario passes `--no-messages` (#241), so the
+   start-up boxes close on the frame they open. Passes now; mark removed.
+   *Decision:* furniture.rs, idles.rs and nav.rs (travellers) still cap at 0.1 s; left as
+   they are (animation and the headless travel walk). *Check:* NPCs walk at their speed
+   when the frame rate is low.
+2. **quest-messages.** *Cause [observed]:* the scripts were ready 10-20 s after launch, so
+   the steps at 3, 9 and 9.1 s all ran in the scripts' first frame; the objective was
+   completed while still waiting to be shown (shown once, completed: quest-messages.md §5,
+   by design, not a queue bug). *Fixed:* when the scripts first run after the first timed
+   `NVF_PLAY_TEST_SCRIPT` step, every timed step comes that much later, keeping their
+   distances (`script_events::delay_late_aids`, unit-tested); steps gated on a quest stage
+   are left alone, nothing moves when the scripts are ready in time. Passes; marks removed.
+3. **ui-sounds "24 played".** *Cause [observed]:* the 24 of 2026-10-11 (rebuilt b5ff0244 and
+   ran it: 24) include the `NVF_PLAY_TEST_MENU` aid's inventory pass (open, a row selected:
+   UIPipBoyScroll, a jumpsuit put on, close). On a loaded machine that pass ran into the
+   start-up boxes ("menu request ignored: a menu is already open") and its four sounds were
+   lost (20 played). *Fixed:* the menu aid's steps that open a menu wait while a script's
+   box is up or the scripts load, and ask for the inventory again if it did not open; the
+   scenario passes `--no-messages`. Now 23 with every step done: one UIPipBoyScroll short,
+   because since the Pip-Boy ITEMS page (#213) the pass sees the Weapons tab, whose first row
+   (the weapon it puts on) is already selected, so no selection move is heard.
+   *Decision:* kept known-failing with that reason (not changed to 23). *Check:* whether the
+   expectation should become 23.
+4. **house-items** (from the coordinator, same family): the container step met an add-on
+   box. Now `--no-messages` and its own launch (corner-messages keeps the boxes). Its older
+   known failure (the BB Gun dropped, not clothing) is unchanged.
+5. **Grading varies between launches:** *Observed:* the "warm" frame `gs-day-van.png` was
+   taken with the overlay text on; below the text (rows 120-720) its mean colour equals the
+   other two frames' to 0.1 (92.6, 83.7, 64.9) and a difference picture shows only clouds,
+   grass and a bird moving. No nondeterminism found in the weather choice (highest chance,
+   ties to the first). No further runs made (owner asked to cut usage).
+6. **ai-packages / ai-reach figures:** not done. *Hypothesis:* most of the +1,332 pairs come
+   from c830f7ee (#190, package lists through leveled actor lists: its own message counts
+   +837 pairs on FalloutNV.esm alone); not measured.
+
+Tests: nvf-play unit tests (261), engine clippy; smoke (one pass, final build):
+detection-game PASS, quest-messages PASS, house-items KNOWN, ui-sounds KNOWN; an earlier pass
+on this branch: residents, sleep-novac, wait-residents, held-player, corner-messages,
+sunny-wells, sunny-gas-station, aid-items, push, npc-travel all PASS.
+## Combat AI: fleeing, cover, groups and searching (2026-10-12, session "e2")
+
+List 2's combat item ("fight, flee, take cover, assist allies … fights between NPCs at
+scale … work together … spreading out to find the enemy, alerting their friends").
+Details and sources: docs/design/combat-ai.md §12. The GECK wiki's points come first; what
+is our own design is said so.
+
+1. **Fleeing** (wiki: Confidence, Combat Flee). A hurt fighter checks now and then
+   whether its side is outmatched (its group's health × damage per second against the
+   foes', and its own when its combat style says "personal survival"), against its
+   confidence. Failing, it says its Flee line and runs: through a door near it, to cover
+   away from the attacker, or straight away. At the spot it waits; hurt again or cornered
+   (an enemy within 512 units) its confidence goes up a level and it fights or flees on.
+   Frenzied actors never flee. *Guess:* after fCombatFleeWaitTime (30 s) at the spot it
+   checks again (the wiki lists the setting without saying what it does); the choice among
+   several doors or covers is nearest first; armour is not counted in the strengths yet.
+   *Check:* shoot a Goodsprings bighorner once: it runs off behind cover and stays there;
+   walk up to it: it should turn on you or run on.
+2. **Cover** (wiki: Combat Style cover chance and timers). Every 10 s a gunman rolls its
+   style's Take Cover Chance; using cover, it finds a spot behind something its target is
+   beyond (navmesh cover edges, checked with a sight ray), hides for the style's Wait
+   Timer, steps out to a peek point, fires for the Fire Timer, and ducks back.
+   *Decision:* never more than 1,024 units from where it stands (the styles' radii had
+   troopers run 2,000 units mid-fight). *Guess:* what the navmesh's cover field means
+   (we use the cover triangles' outer edges and confirm with a ray; the cover height is not
+   read, and NPCs do not crouch). *Check:* in the NCR–Fiend fight below, troopers should
+   run behind rocks and pop out to shoot; tell me if they look silly (too far, wrong side).
+3. **Groups working together** (our design on the wiki's combat groups). Gunmen of one side
+   fighting one target spread round it (flank places 35° apart), and nobody fires while a
+   comrade stands in the line of fire: it steps aside. *Decision:* bystanders (brahmin)
+   do not stop a shot, only comrades and the player. *Check:* the troopers should fan out,
+   not queue in a line.
+4. **Alerting friends** (wiki: Confidence, Alarms; our design on top). An actor that starts
+   fighting calls its comrades within 2,048 units, unless its side clearly outmatches the
+   foe (the wiki's alarm confidence; its multiplier 3 is the wiki's example, no game
+   setting names it). *Decision:* an actor that only notices a hostile also calls them (your
+   "alerting their friends when they sense an enemy presence"); an alarm passed on is not
+   passed on again; the 2,048 units are my choice. *Check:* at Cook-Cook's camp, once one
+   Fiend notices you the whole camp goes on alert.
+5. **Searching together** (wiki: Combat Search). A hostile only glimpsed is searched for
+   midway between the searcher and it (the wiki's rule; before it was at the hostile).
+   Comrades searching for the same thing split the circle round it into sectors, three
+   search points each; after two complete searches (FalloutNV.esm's
+   iCombatTargetLostRemoveSearchCount) they give up unless they still glimpse you.
+   *Decision:* sectors stand in for the wiki's split of the navmesh by what each cannot
+   see. *Check:* sneak and fire near the camp: the Fiends should fan out, not walk to one
+   spot together.
+6. **NPC against NPC.** A hit by another actor now makes the victim fight back as your hits
+   do, except stray hits between comrades and between two actors both fighting someone
+   else (your exception from list 1, for everyone).
+   **Changed rule, please confirm:** actors sharing a faction never fight each other (an
+   earlier engineering choice). The NCR and the Fiends both sit in GeneralIdleFaction, so
+   they were at peace; their own factions do not name each other at all (neutral both
+   ways in FalloutNV.esm), and the Fiends are Very Aggressive, so the game has them attack
+   NCR on sight. *Decision:* a shared faction no longer counts when either side's
+   factions name the other an enemy, and a shared faction that names no reactions (a
+   utility faction such as GeneralIdleFaction) only counts when one of the two has no
+   faction that does. *Check:* NCR patrols near Fiend ground should fight them; no new
+   fights among townsfolk and their animals. **Captured 2026-10-18 [observed]:** NCR
+   troopers and Fiends spawned together with nobody provoking them fought each other
+   when within about 500 units; two spawns about 3,000 units off never did. This supports
+   the changed rule (spec-notes/owner-decision-captures.md §4).
+7. **Watching fights at scale.** Test aids: `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<ref>:player:x:y:z`
+   moves any actor next to you; `NVF_PLAY_TEST_UNSEEN=1` makes you invisible to everyone.
+   Every fight logs `battle: X killed by Y`, `battle over after … s` and a `battle summary`
+   (sides, hits, kills, flights, cover, flanks, alarms, searches, time). Smoke scenarios
+   `battle-ncr-fiends`, `combat-cover`, `allies-alerted` (one run: six NCR troopers moved
+   by Cook-Cook's camp), `combat-flee`, `group-search`. One run: 11 actors on 2 sides,
+   the Fiends won (3 of 5 standing, all six troopers dead), 61 and 33 hits, resolved in
+   62.5 s.
+8. **Hook for the crime workstream:** `Game::attacked_by` (provocation.rs) now hands hits
+   by actors other than the player to `Game::attacked_by_actor` (combat_group.rs), and
+   `reaction_to` uses the new `Game::kin`. Nothing else in provocation.rs changed.
+
+Not done (combat-ai.md §12.10): grenades and avoiding threats, NPC blocking, dodging and
+power attacks, combat barks other than Flee, Combat Radius and targeting FOV, healing in
+combat, cover on a Continue During Combat walk, armour in the threat ratio.
+
+## Floating NCR troopers (2026-10-12, session "floating-troopers")
+
+1. **Playtest list 1 item 24, NCR troopers floating: found and fixed.** Reproduced at Camp
+   Golf (the graphics-2 sighting: 2CPoindexter above his shadow in the free camera; with
+   `--play` the tower trooper CampGolfNCRTrooperTower1A and 2CMags had their feet 73 units
+   above their roots). The ground was right (collision, navmesh and drawn landscape agree);
+   the body was lifted. Cause: the `Holster` clips of the two-handed automatic and heavy
+   stances (`2haholster.kf`, `2hhholster.kf` and the power-armour/sneak copies) hold `Bip01`
+   67 units up and have no `Bip01 NonAccum` track; NPC posing used that height on top of the
+   idle's pelvis height. Now the accumulation root's height counts from where its track
+   starts (only these four clips of 2,149 start elsewhere). Details:
+   `docs/spec-notes/floating-actors.md`.
+   - *Decision:* only the height is taken relative to the start; the x/y start of furniture
+     clips is left as it was (the sitting code measures it).
+   - *Not checked:* Camp McCarran was not run again; I expect its troopers to be the same
+     case. *Check:* the troopers outside McCarran and on its towers stand on the ground,
+     including right after they put a weapon away.
+   - *Seen, not changed:* in the free camera (no `--play`) actors stand at their placed
+     height, e.g. Poindexter 28 units above the ground; with `--play`, residents that never
+     walk keep it too.
+   - New test aid `NVF_TEST_ACTOR_FEET=<s>[:<range>]` logs each nearby actor's root, lowest
+     foot bone and the landscape under it; smoke scenario `floating-troopers`.
+
+## Script stubs, second round (2026-10-12, session "stubs-2")
+
+Playtest §4 item 7 (docs/design/script-stubs.md §3.2). Implemented: SetPackDuration,
+SetActorsAI, Rotate, ShowAllMapMarkers, SetGlobalTimeMultiplier, IsTurning,
+IsPlayerMovingIntoNewSpace; registered AddItemToLeveledList, IsDLCInstalled,
+GetXPForNextLevel. Left: PushActorAway, SetForceSneak (both need a system now),
+AutoDisplayObjectives, GetIsObjectType.
+
+Decisions where the sources were unclear:
+- **SetPackDuration** counts from the call, not the package's start; when the time is up
+  the package counts as done (end script, OnPackageDone) and the actor chooses again,
+  which may pick the same package and start it afresh. Check: the Hidden Valley bunker
+  Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
+  minutes rather than staying all day. **Note 2026-10-18:** those packages belong to
+  the bunker's initiates and knights, not the paladins [observed: `fnvtool ai show`]. The
+  observer sessions for them crashed from the save `nvfstrip`. **Captured from `nvftest`
+  2026-10-18 [observed]:** over 12 game hours the initiates switched activity often, and
+  the paladins every few hours, so the check's direction holds. The knights on L2 needed
+  `SetAlly` with the player's faction to be watched (spec-notes/owner-decision-captures.md §4).
+  **Package events 2026-10-19 [observed]:** two L2 knights whose two Sandbox packages
+  both run `SetPackDuration 60` in their begin scripts changed package 41 times in 12 h,
+  10 to 70 game minutes apart (most 10 to 20), not every 60 game minutes as our reading
+  of the unit gives. What the 60 counts is open (spec-notes/owner-decision-captures.md §7).
+- **Rotate** turns a reference for one frame per call (the shipped callers call it
+  every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
+  their linked references) spin steadily.
+- **SetActorsAI 0** stops package choice, walking and detection, not animation or
+  collision: the actor stands in its idle. Check the ambusher of `SCPT 0x000F9D8F/90`.
+  **Captured 2026-10-19 [observed]:** in the original a settler switched off mid-walk kept
+  walking straight on his heading (about 1,100 units, past his goal), with his package,
+  procedure and heading frozen. Ours stops him. Not changed yet: it needs the engine's
+  movement to carry the last velocity (spec-notes/owner-decision-captures.md §7).
+- **SetGlobalTimeMultiplier** slows the whole virtual clock (animations, physics, NPCs,
+  scripts' frame time, the game clock); its sound is never slowed or pitched. The
+  engine's own slow motion (VATS mode, the death camera) does slow sound since
+  2026-10-18 (owner): longer and lower, at the square root of the clock's speed, no
+  lower than 0.4; music, radio and `UI…` sounds keep their speed. Check by ear that
+  the amount and what stays at speed sound like the base game's kill camera.
+- **ShowAllMapMarkers 0** forgets ShowMap's markers but leaves found and Visible ones.
+  The Explorer perk (`1 0 0`) shows the hidden-flagged markers too, as the wiki reads.
+  Smoke run: 183 of the 188 Mojave markers on the world map (5 are disabled).
+- **IsTurning** threshold 0.5 rad/s (about 30°/s), guessed.
+- **IsDLCInstalled** matches a load-order plugin by name, spaces/case/extension ignored
+  ("tribal pack" = TribalPack.esm); no page documents the function.
+- **GetXPForNextLevel** returns what is left to the next level (not the total), from the
+  Here and Now perk. Levelling up is not built, so the level stays at SetLevel's.
+- **AddItemToLeveledList** ignores the health argument (leveled entries carry no
+  condition here); an entry added twice counts twice.
+
+## Followers (2026-10-12, session "followers")
+
+Owner's list 2, H: "FOLLOWER AI … follow the player and assist with combat, transition
+through cells, ignore friendly fire etc." Design: docs/design/followers.md. Tested with Boone
+in Novac (smoke scenario `follower-boone`, passed: hired by his own recruit line, ignored two
+shots by the player, came along through his room's door, ran after the player, killed a feral
+ghoul with his rifle, then took his Wait package when his `Waiting` variable was set).
+
+Decisions where the sources were unclear:
+- **No hire system of ours**: the companions' recruit lines' result scripts do it all
+  (SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired …); the Follow and
+  Wait packages are the ESM's, chosen by their conditions. Nothing to decide, but check in
+  game that recruiting Boone after "One for My Baby" (or Veronica at the 188) makes them
+  follow without any test aid.
+- **Bringing teammates through doors**: the wiki says "Changing cells will teleport the
+  teammate to the player". Only teammates whose current package follows the player come
+  (not those told to wait) [hypothesis], put **64 units to the player's right** (a second
+  one to the left, then further out) facing the player's way [guess]. Check: go through a
+  door with a companion; does the original put them behind you, beside you, or at the door?
+  **Captured 2026-10-18 [observed]:** going out of his Novac room, Boone (following)
+  arrived about 168 units to the player's **left** and 12 ahead, and settled about 153 left
+  and 13 ahead. The player arrives on the door's teleport marker. Boone told to wait
+  stayed behind. The way back in is still to be captured (spec-notes/owner-decision-captures.md §4).
+  **Second run 2026-10-19 [observed]:** the door out gave the same place again (about 171
+  left, 30 ahead), so **teammates now arrive 160 units to the player's left**. Brought back
+  in by MoveTo, Boone (on his own PATROL package, not following) came along and stood on
+  the player's spot; with `Waiting` 1 on the same package he stayed behind. So "only
+  those following come" is not the original's rule; whether `Waiting` or the door made
+  the difference is open (spec-notes/owner-decision-captures.md §7).
+  **Round-3 `followers` campaign 2026-10-19 [observed]:** back in through the door, Boone
+  on PATROL came along onto the player's spot too, so it was not the door. **Runtime
+  changed:** every teammate comes now unless it was told to wait (a Guard package, the
+  companions' Wait packages) [hypothesis for that last part].
+- **Teammates in combat** ("as if in the player faction"): anyone attacks a teammate exactly
+  when it would attack the player; a teammate attacks whoever would attack the player and
+  also whomever its own records have it attack (so Boone keeps his Legion enmity) [design].
+  A teammate that sees the player gets an alarm at everyone fighting the player, without
+  the Assistance check [design]. Aggressive/passive (FollowerSwitchAggressive) is not built:
+  every companion behaves as aggressive. Check: does a passive companion in the original
+  hold fire until the player is attacked?
+- **Friendly fire**: teammates count as the player's allies (already a hypothesis of the
+  combat workstream) and the hire scripts' SetIgnoreFriendlyHits makes them ignore every
+  hit. Check: shoot a companion out of combat four times; in the original does it turn?
+- **Teammate cleared on death** after OnDeath runs [guess at the order].
+- **OpenTeammateContainer** opens the container menu on the companion once the
+  conversation has ended (the barter menu opens over it) [design].
+- **Companion wheel: not built** (not cheap): its buttons set the companion's script
+  variables, but which button sets what and the menu's look are not in the sources at hand.
+  Needs the original's menu files and a screenshot of the wheel. Until then nothing in play
+  sets `Waiting` except the game's own wait trigger volumes (and the test aid).
+- Wait/StopWaiting/IsWaiting are not built: no script of the masters uses them.
+
+## Shadows and the sun (2026-10-12, session "shadows-sun")
+
+Branch `claude/shadows-sun`, playtest list 4 items 5-7. Pictures:
+`C:\fnv-private\references\shadows_sun\`.
+
+5. **First-person shadow flicker outside Doc Mitchell's house: not reproduced, cause not
+   found.** Three runs, each leaving the house by its door (0x00103E61) and standing where
+   your screenshots were taken (−69698, 2246), turning round in 30° steps with two frames
+   0.3 s apart at each: a `--cell GSDocMitchellHouse` start at 14:00 (twice) and a full
+   `--new-game` opening (wake-up, Doc, chargen, Vigor Tester, about 95 s) then out of the door.
+   No shadow appeared or went between the two frames of any pair, and no shadow lay where
+   nothing casts one. What I found:
+   - In your screenshots the sun is about 72° high (13:56-14:40 in our sun path), so nothing
+     standing on the ground can throw shadows 20-30 m long; the wedge in `shadowbug3` is wide
+     at your feet and narrows far ahead, as the shadow of something stretched from your
+     position high into the air would. My best guess [hypothesis]: a stretched skinned shape
+     (vertices bound to a bone that is far away) on the third-person body, which in first
+     person is drawn only into the sun's shadow map (so you would see the shadow but not
+     the shape), or on a nearby animated actor.
+   - Your HUD shows a much larger scene than mine at the same spot: refs drawn 31,848
+     (980 animated), shapes 62,552, lights 247, SpeedTree 5,137, 462 cell loads; mine 2,800
+     refs (108 animated), 5,200 shapes, 33 lights after 30 loads. Whatever filled your scene
+     (a long session, another grid setting, other plugins?) is the likely way to reproduce.
+   - Please check: does it happen in third person too, and do you then see a long thin
+     streak of geometry? Does `--shadow-distance 0` (or Sun shadows off on the settings page)
+     make it go? Which plugins were loaded? A log of that run would let the next session
+     look for an actor or body part near you.
+6. **Shadow cost: limited** (docs/design/graphics-enhanced.md §5.3, measured with new cycle
+   keys of `--graphics-cycle`). At your screenshots' spot the sun's shadows took the frame
+   from 7.6 ms (off) to 19.7 ms (16,000 units in 4 cascades); the GPU's time hardly moved,
+   it is the CPU's work per cascade. Now 12.7 ms:
+   - The arms' shade light (the second light that lets your arms be shaded by walls but
+     not by your own unseen body) took a whole cascade of 190 casters; it now covers only
+     256 units round the camera, about 30 casters (−2.5 ms). Guessed constant:
+     `ARMS_SHADE_REACH` 256. Check: arms still go dark under a roof or in a building's shadow.
+   - The sun's shadows default to **8,000 units in 3 cascades** instead of 16,000 in 4
+     (−4.5 ms more). Visible change: no sun shadows beyond about 114 m; near shadows a little
+     finer (first cascade 667 units instead of 1,333). At noon the road view is unchanged
+     (`shadow_limits_before_after.png`); at dusk the long shadows of far rocks and buildings
+     end nearer. `--shadow-distance 16000` brings the old reach back (in 3 cascades).
+     Decide: whether 8,000 is close enough at dusk, or you'd rather trade more frame rate
+     (8,000 in 2 cascades measured 13.2 ms against 14.4 ms for 3, before the shade-light trim).
+   - Not changed: while water is in view its reflection camera gets the sun's cascades too
+     (Bevy builds them for every active camera).
+7. **Sun disc missing: fixed.** Cause: the sky dome is shrunk to nothing in interiors and
+   nothing gave it its size back outdoors. Since the sun and its glare were moved onto the
+   dome (2026-10-09), every game that started in or went through an interior (a new game
+   starts in Doc Mitchell's house) showed neither the sun nor the dome's sky colours, only
+   the clear colour and the clouds; a run started outdoors still had them, which is why it
+   seemed to come and go. Now the dome gets its size back outdoors, with a log line ("sky:
+   outdoors again, the sky dome (with the sun disc and glare) shown"). Before/after:
+   `sun_disc_before_after.png` (the two views differ a little: 230°/35° before, 240°/50°
+   after; the sun stands at 239°, 72°). Note the sky colours after an interior are now the
+   weather's again (a warmer, hazier blue than the plain clear colour you may have got used to).
+
+Checks: smoke scenario `shadows-sun` (new); engine clippy.
+
+**Owner's answers (2026-10-13), on the first-person flicker:** it happens only in first person,
+and only with sun shadows on (never in third person). Plugins: the main game and all the DLC
+(the ten masters, as every test run loads). So the scene size gap is not plugins: the owner's
+run had played longer (462 cell loads). Next lead [hypothesis]: something drawn or posed only
+in first person (the first-person body or arms rig, #172/#178) casts into the sun's shadow map.
+Follow-up queued as L5 in docs/handoff/playtest-list-4.md.
+## Playtest list 4: dialogue and message boxes (2026-10-13, workstream "d1")
+
+**Item 1, Doc Mitchell's opening lines not voiced.** The files were found and played
+(`voice: playing …maleuniquedocmitchell\vcg01_vcg01intro_00104bee_1.ogg`), but every one was
+flagged "out of hearing, in another cell", so it played at volume 0 with no subtitle. Cause
+[observed]: the simulation creates a reference's state on first use, and nothing had touched
+Doc Mitchell yet when he said the opening, so the hearing test found no cell for him. Fix: a
+speaker not yet created is heard from where it is placed (`voice.rs` `speaker_place`); the
+same test also decides the subtitles, so his opening subtitles come back too.
+*Decision/Guess:* none. *Check:* the opening, Doc's first lines heard and subtitled.
+
+**Item 4, message box buttons ignore their conditions.** MESG records keep a CTDA list
+after each button (ITXT) [observed: GSChemistrySetMsg, GSBrokenSMGMsg: GetActorValue
+Science / Repair ≥ 25 on PlayerRef]. They were not read. Now they are checked when
+ShowMessage shows the box; buttons whose conditions fail are not drawn, and the ones left
+keep their record indices for GetButtonPressed [documented: GECK wiki GetButtonPressed, "the
+button indices … remain the same even if certain buttons are hidden with conditions"]. The
+log line `script: message …` gives `(hidden by their conditions: [..])`.
+*Guess:* the conditions run with the player as subject and the reference whose script shows
+the box as target (both boxes here name PlayerRef, so only Subject/Target conditions depend
+on this). The conditions are checked once, when the box is shown, not while it is open.
+*Check:* with Science and Repair under 25, the chemistry set and broken SMG offer only
+"Leave it alone."; at 25 or more the other buttons are back and do their work.
+
+**Item 22, Johnson Nash has no Goodbye.** His topic list (headless `fnvtool dialogue talk`):
+Who are you? / I have some questions about Primm. / Want to play a hand of Caravan?. The
+Caravan offer line has the Goodbye flag (it ends the conversation to start the game), and
+our rule "add the generic GOODBYE only when no listed line says goodbye" [documented: Quest
+and Dialogue Tutorial] treated it as his goodbye.
+*Guess:* a listed Goodbye line with an end (result) script does not count as the player's
+way to leave, because it ends the conversation to do something else (Caravan, hiring a
+follower, a quest action). His list now ends with GOODBYE ("See you later." in the headless
+run). This can add a generic Goodbye to other lists whose only Goodbye entries have end
+scripts (some quest topics do; 100+ top-level Goodbye lines of FalloutNV.esm have one).
+*Check:* Johnson Nash, Ringo and another Caravan player each show one Goodbye; check an NPC
+whose quest Goodbye topic runs a script, to see whether the original also adds a generic
+Goodbye there.
+**Captured 2026-10-19 [observed], not settled:** the original's lists for Nash and Ringo
+show the same first three entries as ours, with a scroll arrow below; the capture plugin
+could not scroll, so whether the fourth is a Goodbye needs a look by hand
+(spec-notes/owner-decision-captures.md §7).
+
+Smoke scenarios added: `voice-opening`, `message-button-conditions`, `goodbye-after-caravan`
+(its actions file is `tools/smoke/actions/nash-goodbye.actions.json`). The trace event
+`message_shown` gains a `hidden` field (written only when a button is hidden), which the lab's
+script traces may show for boxes with conditions (no lab run in this workstream).
+
+## Falling, loading and walks (playtest list 4 items 8, 9, 10, 2-3) (2026-10-13, session "falling-loading")
+
+8. **Falling on the steep road: fixed in the physics.** At your spot (-64168, -8679)
+   running straight south never left the ground; at 150° and 210° it did, for 0.4 s and
+   more. One step missed the ground (the first thing under the capsule was a face steeper
+   than the 45° slope limit: a mesh's edge, a rock), and from then the character fell
+   freely until its arc met the slope again, then the landing slowed it to 81 units/s:
+   the switching between falling and running (physics.md §6.4.2). Now a character that
+   walked off the ground lands on walkable ground as soon as it is within the step height
+   (24) of where it left; the landing slow-down needs a drop of more than 24 from the top
+   of the jump; and the jump loop needs the ground more than 24 below the feet.
+   Guesses: all three 24s (the controller's step height; the original's rules are not in
+   the ESM's settings or the wiki); the 45° slope limit for the player (still untouched:
+   running across the 56° rock face at 210° still slides). Check: run down that road in
+   several directions, and onto and off rocks; jump and fall off a roof (the jump loop
+   and landing must still play).
+9-10. **Loading screen and ground fading in at the gas station: fixed.** Two causes.
+   (a) In the frame of the door the renderer still had the camera where it was inside,
+   so it loaded the (empty) cells around that point at once and counted them as the
+   destination; the screen came down while the gas station's own cells still loaded one
+   a frame, fading in. It now loads around the arrival point until all are in.
+   (b) The player placed by the door counted as in the air until the first physics
+   step, which waits behind the loading screen: the body played the jump loop behind
+   the screen and a landing when it came down (the "drop from a height"). A placed
+   player on support now counts as standing. Not done: the screen does not wait for
+   distant LOD generation (it can take long on a first visit); the 0.25 s settling time
+   for meshes and textures is unchanged. Check: leave the gas station and Doc Mitchell's
+   house; the ground should be there when the screen goes.
+2-3. **Victor's and Sunny's stop-and-go: partly.** Not the falls: `fnvtool nav walk` on an
+   NPC path from Victor's patrol start found 7 steps in the air before the fix (1 after)
+   and none at running speed. What did stop them: an actor near the player moves in the
+   physics steps (60 a second), but was drawn at the position of the last step and its
+   animation took the distance moved since the last frame: a frame with no physics step
+   (any frame rate above 60, or uneven frame times) drew it standing and played the idle.
+   Actors with a character are now drawn between their last two steps, as the player is.
+   In my runs at about 55 frames a second the frames with no step were rare, so I could
+   not reproduce the stop-and-go on screen: Goodsprings with every resident, 40 s, 1,311
+   frames of residents walking, 251 drawn standing, but only 1 stop of 1-3 frames; the
+   rest were 4 long stops (198 frames of actors whose character did not move: held,
+   blocked or waiting) and 48 frames of turning on the spot. The smoke scenario
+   `falling-loading` logs this ("walk summary") and wants at most 5 short stops. Victor stood at his
+   VCG00 idle in a new game (his patrol starts later in the quest), so I did not watch his
+   patrol, nor Sunny's run to the geckos. Check: those two walks at your usual frame rate;
+   if they still stop and start, note whether it happens at path corners (turning on the
+   spot is by design: `spot_turn_start`) or on open ground.
+   (2026-10-19) The summary counted the start of every walk as a stop too: a walk near the
+   player begins with a new character drawn where it was put down until its first physics
+   step, so each walk set off without a spot turn read as a 1-3 frame stop (5 to 8 per
+   run, as the sandbox rolls fell). A stop is now standing between two frames walking, as
+   the summary says; the walks that set off after standing are counted on their own.
+
+## Playtest list 4: third-person crosshair
+
+Branch `claude/third-person-aim` (desktop queue D2), items 11 and 12.
+
+**Cause (both items).** The third-person camera sits over the right shoulder (the shoulder
+offset 40 right, 10 down from the pivot; `fOverShoulderPosX/Z`) and looks the same way as
+the player, so the crosshair in the middle of the view lies on a line about 40 units right
+of the eye's. The activate prompt (`activate::find_target`) and the player's shots
+(`combat::fire`) both used the eye's view ray, as in first person: the prompt showed only
+when the eye's ray (left of the crosshair) met the object, and shots landed left of the
+crosshair.
+
+**Fix.** `place_camera` now records the third-person camera's line (`control::Crosshair`,
+in `PlayerControl::crosshair`) each frame. Item 11: the target ray starts on that line where
+it is level with the eye (so nothing between the camera and the player is picked and the
+reach stays measured from about the player) and runs along the view. Item 12: the aim point
+is what that ray meets first within the weapon's range (its end when nothing); the shot's
+ray goes from the eye to that point, then the muzzle and cover rules of combat.md §5.1 apply
+as before. First person is unchanged. The `aim…` test aids now put the point under the
+crosshair (third person: turned so the camera's line passes through it).
+
+*Decision:* while the camera circles the player (Toggle POV held, or swinging back), the
+eye's view is used, since the camera then does not look where the player does.
+*Decision:* the shot leaves from the eye (then muzzle), not from the camera, so cover
+between the player and the target still blocks it; a target the camera sees round a corner
+the player cannot may be hit on the corner instead (as in the original [hypothesis]).
+*Guess:* the original converges the shot on the crosshair point the same way; we have not
+observed how it treats an aim point very close to the player. Here, an aim point less than
+1 unit away or not ahead of the eye uses the view direction.
+*Check:* in third person, the E) prompt shows when the crosshair is on an NPC, door or
+item (not to its right); shots with a scoped/no-spread weapon land on the crosshair at near
+(Sunny's bottles) and far range; shooting past a doorframe near the right shoulder.
+
+Smoke scenarios added: `third-person-shots` (Sunny's bottles shot from third person, glass 3)
+and `third-person-activate` (one of Sunny's bottles, targeted in first person, not targeted
+once the view goes to third person with it left of the crosshair, then targeted again with
+it under the crosshair). Chet behind the general store's counter was tried first and is not
+a clean test: even in first person he is found only by his render bounds there, and along
+the camera's line not at all [observed: smoke run 2026-10-13]; worth a look if the prompt
+is hard to get on shopkeepers behind counters. New
+log line: `crosshair: the third-person camera's line (shoulder [..])` / `crosshair: the
+eye's view` when the crosshair's line changes.
+
+## First-person shadow flicker, second look (2026-10-13, session "fp-shadow-flicker")
+
+Branch `claude/fp-shadow-flicker`, playtest list 4 item 5 (follow-up of "Shadows and the
+sun" above). **Not reproduced; cause not found; no fix.** What was added is a debug probe,
+off by default: `NVF_PLAY_DEBUG_SHADOWS=1` (`engine/nvforever/src/shadow_probe.rs`, smoke
+scenario `shadow-probe`).
+
+- **What the probe checks** (every 10 frames, log lines `shadow probe: …`, a summary every
+  5 s): skinned shapes whose joints lie more than 1,500 units apart; skinned casters in the
+  sun's two near cascades with bounds wider than that; skins with a joint gone or standing
+  at the world's origin; in the render world, instances whose skin slot on the GPU is not
+  their skin's, and instances drawn from where their mesh's vertices or indices were
+  before the mesh was placed anew; and the widest joint spread of the hidden third-person
+  body (the one that casts your shadow in first person).
+- **Four runs, all clean** [observed]: Goodsprings at 14:00 in first person, after 11
+  jumps of 30,000-100,000 units (about 275 cell loads), with the 9mm pistol drawn and
+  holstered every 3 s while turning in 37° steps; a run leaving Doc Mitchell's house by
+  its door; and one at 1920x1080 with frames every half second looking east. Nothing was
+  flagged in any of them; the hidden body's joints stayed within 69-71 units; the frames
+  show only the normal body shadow.
+- **A clue for next time** [observed in your screenshots, hypothesis on its meaning]: all
+  three `shadowbug` screenshots look east (compass E), and the wedge narrows eastwards.
+  East of Goodsprings, 70,000 units away, is the world's origin (game 0, 0, 0). A skinned
+  shape whose vertices are drawn at the origin (Bevy writes a missing joint as the
+  identity; a skin read from a wrong place gives zeros) stretches from where it stands to
+  there, and its shadow would be exactly such a wedge. The probe now looks for this from
+  the main world (joints gone or at the origin) and the render world (skin slots, moved
+  meshes); a GPU-side cause it cannot see (a joint buffer read past what was written)
+  remains possible.
+- **Please, if you see it again:** run with `NVF_PLAY_DEBUG_SHADOWS=1` set (e.g.
+  `$env:NVF_PLAY_DEBUG_SHADOWS=1` before `play-new-game.ps1`; the script clears only
+  `NVF_PLAY_TEST_*`), and keep that run's log from `%LOCALAPPDATA%\NVForever\logs`. Note
+  which way you face, and whether turning to look west makes the wedge go. Any
+  `shadow probe:` warning names the shape and its owner.
+- *Decisions/guesses:* the probe's thresholds (1,500 units; body spread 30-300 in the
+  smoke test) are mine. No game behaviour changed.
+## Playtest list 4: combat (workstream D3, branch `claude/combat-list-4`, 2026-10-13)
+
+### Item 13: Ringo did not come out of the gas station to the fight
+
+**Cause.** Once the player had left GSGasStation, Ringo was out of the loaded area at the
+Mid-High level (the interior is in the cell buffer, actor-behaviour.md §5.9): one update
+every 18 s, each walking the time owed in one go, and none of the high process (combat,
+assistance). RingoTravelPackage (given by the result script of INFO 0x00105D09) sends him
+to RingoPositionMarker (exterior, -70390, 3462) [observed: `fnvtool script decompile`,
+`esm decode`], so he came out in jumps, late.
+
+**Fix.** A new process level `fnv_ai::ProcessLevel::Coming`: an actor out of the loaded area
+whose rest of path (from the leg it is on) has a corner in a drawn cell is updated every
+frame in the low process (navmesh steps, doors as if open). It comes through the door when
+it would have walking in sight, and is then in the loaded area (high process: drawn, joins
+the fight). Log line `… on its way into the loaded area (moved every frame)`; the process
+summary counts `set off into the loaded area from out of it`.
+
+A low update in which a new package starts a walk now stops there and keeps the rest of
+the time owed (the first run walked Ringo's whole 5,247-unit trip in the one update that
+gave him the package); an actor going Coming catches up no time owed: it walks in real time
+from where it is [design].
+
+*Decision:* any actor whose remaining path passes through the loaded area counts, not only
+one sent towards the player (the original's rule for actors heading to the player's area is
+not documented; JIP's process-level pages name only the four levels) [design].
+*Guess:* that the path's corners are a good enough test (a long straight leg crossing the
+loaded area between two corners outside it is missed).
+*Check:* give Ringo the "let's go" line in the gas station, leave first and go to the
+fight: he should come out of the door a few seconds after you and join the fight. Smoke
+`ringo-comes-out`: out of the loaded area, on its way (moved every frame), back in the
+loaded area in WastelandNV within the same game minute.
+
+### Item 15: a looted corpse still drawn wearing its armour and weapon
+
+**Cause.** An NPC's drawn outfit and weapon were decided once at spawn
+(`fnv_actor::resolve`) and never looked at again; taking them changed only the simulation's
+inventory.
+
+**Fix.** `engine/nvforever/src/outfits.rs`: each drawn NPC carries what it is drawn wearing
+and holding (`Dressed`). When an item leaves its inventory, the armour's model comes off and
+the parts it covered (race body, hands, head, the hair's no-hat shape) are spawned on the
+same skeleton nodes (`nvf_assets::actor::spawn_parts`, split out of `spawn_actor`), so a
+ragdoll keeps its pose; the weapon model, its muzzle and the weapon clips go as for a broken
+weapon. Log lines `outfit: actor …`, `outfit summary: …`.
+
+*Decision:* the drawn choice and the simulation's roll of leveled lists are separate and
+agree only for actors with no random leveled choice (GSPG01Ref: "random": false; the dead
+tribal Fiends: random) [observed: `fnvtool actor appearance`]. What stands for a drawn item
+is looked at once, when the simulation first holds the inventory: the item itself if
+carried, else the carried armour sharing a body slot with it (or, for the weapon, every
+carried weapon); the drawn item comes off when all of that is gone, and stays when nothing
+stood for it [design]. Making the two rolls the same is left for later.
+*Check:* kill a Powder Ganger, take only his armour (the body shows skin), then his weapon
+(the holster/hand empties); also a Fiend with a leveled outfit. Smoke `corpse-undressed`
+(a dead tribal Fiend, take all): weapon and two armour pieces off, upper body and hair put
+on. No frame was captured (the screenshot aid did not reach the smoke runner's launches):
+please look at the body once.
+
+### Item 21: attacks during a crippled stagger
+
+**Cause.** The hit reaction (`deaths.rs`, `Flinch`) only played a clip; the combat code
+(`npc_combat.rs`) and the walks did not know about it.
+
+**Fix.** While a hit reaction is playing an actor neither fires, nor starts a blow, and a
+blow it was swinging is cut short; it also stands (held like an actor on furniture,
+`residents.rs`) until the clip ends. Log `npc combat: … holds its attacks while it
+staggers`; the npc combat summary counts the staggers and blows cut short.
+
+*Decision:* a blow already swung but not landed is cut short [design: the original
+interrupts an attack with a stagger, hypothesis]; the gun's cycle (reload, refire timers)
+just pauses.
+*Check:* cripple a gecko's or Powder Ganger's leg: no bite or shot until the stagger ends.
+Smoke `stagger-holds-attack` (Chet shot in the legs).
+
+## Smoke effects and grass pixels (playtest list 4 items 16, 17) (2026-10-13, session "smoke-grass-fx")
+
+- **16, smoke not animated and far too visible.** The camp fire smoke south of Goodsprings
+  is `DLCPittFXGroundSmoke01` and the Bison Steve smoke `FXSmokeWisps01`: meshes whose
+  texture scrolls by a `NiTextureTransformController` attached straight to the texturing
+  property, with no sequence. We only played controllers inside sequences, so they stood
+  still. They now play on their own cycles (13.3 s for the ground smoke, 36.7 s and 44.1 s
+  for the wisps' two directions). Too visible: these unlit shapes are tinted grey by their
+  vertex colours (0.57 for the ground smoke), which we read as linear values, drawing them
+  as a near-white plume. Unlit shapes now take vertex colours as display values, as the
+  landscape and grass already do. The additive alpha^1.5 from #201 is not involved: both
+  smokes use normal alpha blending. Checked with one frame before and frames after (the
+  pattern moves between frames 12 s apart and the smoke is a faint haze).
+  - *Please check:* the camp fire south of Goodsprings and the Bison Steve smoke against
+    the game: speed and direction of the drift (I assumed the texture moves by +offset,
+    which makes the pattern rise), and strength.
+  - *Side effect to look at:* every unlit shape with grey vertex colours is now darker
+    (glows, signs and shade overlays drawn by BSShaderNoLightingProperty). By the same
+    reasoning this should be closer to the game, but I did not look at those.
+  - *Not done:* smoke built from particle systems inside ordinary models is still not drawn
+    (`fxlightsmoke`, the Primm dark smoke `dlc03fxdarksmoke`, tyre smoke, ashtray smoke,
+    HELIOS steam; about 66 placements). It needs the add-on particle code to emit from
+    ordinary models; a workstream of its own. Transform, visibility and colour controllers
+    outside sequences (e.g. the dust tube) are not played either.
+- **17, floating grass pixels.** The grass models share one texture atlas, and some blade
+  tips reach a little past its edge (V −0.1 to −0.01, U up to 1.23). With repeating
+  sampling, those tips picked up the dense blade feet at the opposite edge of the atlas
+  and drew them as small opaque triangles above the plants. Grass textures are now
+  sampled clamped at their edges, so the soft edges stay as they were. The triangles are
+  gone in the owner's view (before and after frames at the same spot, 17:06).
+  - *Guess:* the game clamps the grass texture; the shader property stores no clamp mode.
+
+## Playtest list 4: creature data
+
+Workstream L4 (`claude/creature-data`, 2026-10-13): items 14, 18, 19, 20 of
+`docs/handoff/playtest-list-4.md` §4, and the VATS hint's key token. Design notes:
+docs/design/combat-ai.md §13.
+
+### Item 20: names (and every group) from the template
+
+**Cause.** The prompt named an actor by its placed base's FULL, else its Editor ID. The
+dead gecko's base VSpawnTier2GeckoMed (0x00156777) has no FULL: it takes its Base Data
+from its template, the leveled list VEncTier2GeckoMed, whose entry VCrTier2GeckoMed is
+named "Gecko" [observed: `fnvtool esm decode`]. Other groups were read from the placed
+base too: traits (race, sex, voice, class), Essential, No Low Level Processing,
+Invulnerable, the carried items (a placed leveled list carried nothing) and the script.
+
+**Fix.** `GameData::display_base` (the "Base Data" source) names actors in the prompt,
+the loot/barter menu title, the conversation and hit messages. Traits, Base Data flags,
+Inventory (`fnv_sim::World::set_inventory_sources`) and Script now follow their template
+flags (combat-ai.md §13.4 has the table). The drawn model already did.
+
+*Decision/Guess:* the name is Base Data [observed: the template actor has no FULL when the
+flag is set; the owner's game shows "Gecko"]; GetIsCreatureType follows Stats (the type
+sits in CREA DATA with the stats) [hypothesis]; Karma stays the base's (unknown group).
+Carried items now come from the template: actors placed from a template or a leveled
+list (Powder Gangers, Fiends, much wildlife) now carry their template's items where they
+carried nothing before.
+*Check:* kill a gecko south of Goodsprings and look at it: "Search / Gecko". Loot a
+templated NPC (e.g. a leveled Powder Ganger): it carries items. Smoke `creature-names`.
+
+### Item 18: geckos that attack a player who comes close
+
+**Cause.** The AIDT aggro radius was not read. The owner's geckos are
+VSpawnSpecialTier1GeckoSmallGS02Hunter (0x0016518B, 0x0016518C): Unaggressive, neutral to
+the player, Aggro Radius Behavior on, radius 650 [observed].
+
+**Fix.** `fnv_game::aggro`: inside its radius, an actor that would not attack the player
+on sight warns (GuardTrespass) twice 5 s apart (iGuardWarnings, fAITrespassWarningTimer),
+then attacks; only while its package allows "Aggro Radius Behavior".
+
+*Decision/Guess:* warnings then attack, as the guard package (the wiki names aggro radius
+among the GuardTrespass warnings; how many warnings it gives is a guess: the guard's 2);
+the player only; leaving the radius resets the count. This also makes the Aggressive,
+Neutral wildlife that "left the player alone" (giant rats, coyotes, bighorners, ants,
+bloatflies, bark scorpions, mole rats; factions.md §5) attack inside their radius, and
+14 NPCs (Primm ambush gangers 768; Hoover Dam NCR snipers 25,000).
+**Not fixed for the owner's two geckos:** their first package, VCrGeckoFindFood (Once Per
+Day, 2 hours, Skip Fallout Behavior without the aggro flag), forbids it, and NVForever
+keeps a running Once Per Day package all day (a Find package never completes here), so
+they stay on it. In the game they would move on to their patrol/sandbox packages after it,
+which allow aggro. Ending a Once Per Day package after its duration is an AI package
+change left for the owner's call (it touches every such package).
+*Check:* walk up to a coyote or giant rat near Goodsprings: two warnings, then it attacks.
+Smoke `aggro-radius` (coyote VERGSCoyote6REF).
+
+### Item 19: no Talk on creatures and hostile actors
+
+**Fix.** A hostile actor (would attack the player, or fighting the player) shows only its
+name; a creature shows Talk only when it has a GREETING line it can say now; other NPCs
+keep Talk. E on a name-only target does nothing.
+
+*Decision/Guess:* "has a sayable GREETING line" stands for the game's rule [hypothesis: Rex
+and ED-E have dialogue, animals none]; an NPC without a line keeps Talk; the name alone is
+drawn on the name line (no "E)").
+*Check:* look at a bighorner in Goodsprings (name only), Rex (Talk), a Powder Ganger in a
+fight (name only). Smokes `creature-no-talk`, `creature-names`.
+
+### Item 14: the Goodsprings bighorners joined the fight
+
+**Cause.** Assistance (Helps Allies) and alarms took any ally into a fight. The bighorners
+(GSBigHorner) are Unaggressive, Cowardly, Helps Allies, in GoodspringsAnimalFaction
+[observed].
+
+**Fix.** A Cowardly actor never takes up another's fight (assistance or alarm); it still
+defends itself and flees when hurt (Cowardly threshold).
+
+*Decision/Guess:* Cowardly is the override ("I will always flee from combat", GECK wiki
+Confidence); Unaggressive alone does not keep a helper out (the wiki's aggression levels
+are about attacking on sight). The bighorners do not run away from the fight (avoiding
+threats out of combat is not built).
+*Check:* the Powder Ganger fight in Goodsprings: the bighorners stay out.
+
+### Extra: the VATS hint's `&sUActnVats;`
+
+**Fix.** Corner messages and message boxes now replace `&sUActn<control>;` (with or without
+the leading `-`) by the bound key, as the lockpick help did: "&sUActnVats;" reads "V".
+*Decision/Guess:* any control by its INI name without spaces [hypothesis; only Vats seen].
+
+## Package durations (2026-10-13, session "package-duration")
+
+Workstream L6 (`claude/package-duration`): playtest list 4 item 18, the follow-up of #264
+(the owner's two non-hostile geckos at cell -17,-6 never attacked). Design:
+docs/design/actor-behaviour.md §3 "How long a package runs".
+
+**Cause.** VCrGeckoFindFood (Find, Once Per Day, schedule "any time" with a 2-hour duration,
+Skip Fallout Behavior without the aggro flag) is the first package of their list, and a
+duration without a starting hour was ignored: the package ran all day, so the next one,
+which allows aggro, never came.
+
+**Contradicted by captures (2026-10-18 [observed]):** the rule below does not hold as
+written.
+- **First run.** Both geckos held the patrol package (3 h duration, no start hour, Once
+  Per Day) for 4.7 game hours.
+- **Rerun, with the player two cells away.**
+  - Both geckos held the patrol for about 8 h, from 17:04 to 01:01.
+  - Then both took FindFood, the **first** package of their list, not FindFood02, the
+    next one.
+  - One gecko's find reached DONE at 02:01 and it went back to the patrol at 03:01,
+    exactly 2 h after FindFood began. The other's find never completed, and it ran over
+    4 h on its 2 h duration.
+- **Reading [hypothesis].** A duration ends a package only once its goal is met (DONE).
+  When a package ends, the choice starts again from the top of the list.
+- **What it bears on.** The "restart every duration" behaviour of about 358 packages
+  (outstanding.md §3).
+- **Status.** The runtime is unchanged until the owner rules (spec-notes/owner-decision-captures.md §4).
+- **Third session, 2026-10-19 [observed]:** both geckos held FindFood (2 h, no start
+  hour) from 17:02 for 10 and 13 game hours, wandering and acquiring, never DONE.
+- **Runtime changed 2026-10-19.** With three sessions agreeing, a schedule duration now
+  ends a package only once its goal was met. Until then it runs on, and once the goal is
+  met after its time it ends at once (`Game::end_timed_packages`; test
+  `a_schedule_duration_ends_the_package_and_the_next_one_takes_over`). So the about 358
+  packages no longer restart every duration whatever they do. Still a hypothesis: that
+  the next choice starts from the top of the list (it does by our package choice
+  already) (spec-notes/owner-decision-captures.md §7).
+
+**Fix.** A list package with a duration and no starting hour now ends that many game
+hours after the actor chose it, the same way a SetPackDuration time ends (#250's
+`end_timed_packages`: end script and OnPackageDone, then the actor chooses again). Once
+Per Day keeps it from being chosen again that day, so the next valid package takes
+over. The geckos' list is built for this [observed]: find food 2 h, patrol 3 h, find food
+2 h, patrol 3 h, then a sandbox at their spot with no duration, which allows aggro.
+
+*Sources:* GECK wiki SetPackDuration ("sets the duration of the actor's current package";
+the Schedule tab gives durations in hours), Category:Packages (Continue If PC Near holds
+a package "even if the package should have expired"; Once Per Day exists so a package is
+"not immediately selected again after being completed"; Must Complete "will not
+terminate" before its goal) [documented]. The export has no Find package page.
+
+*Decisions/guesses:*
+- The duration counts from the moment the actor chose the package [hypothesis: nothing
+  else gives a start when there is no starting hour].
+- A package that is held (Must Complete / Must Reach Location before its goal, Continue
+  If PC Near with the player in the cell) does not end by its duration [documented flags;
+  SetPackDuration's own timer is unchanged and still ends at once].
+- A package without Once Per Day may be chosen again right away and starts afresh (its
+  begin script runs again) [hypothesis]. About 358 master packages have a duration and no
+  starting hour; the ones without Once Per Day now restart every `duration` hours.
+- With no other valid package, the ended package goes on [hypothesis, as the keep rule].
+- Packages with a starting hour still end with their window; script packages
+  (AddScriptPackage) are not ended by a duration [our choice].
+- A Find package is not ended early by finding food: Find is not carried out yet, and no
+  source read says what "found" ends.
+- **Find with Allow Killing, captured 2026-10-18 [observed]:** a gecko on VCrGeckoFindFood
+  (Find, target Food, Allow Killing) attacked a radroach placed 256 units away, for about
+  a game minute, and then went back to its find. The control gecko fought nothing.
+  - **Reading [hypothesis].** Allow Killing makes the actor kill a creature within reach,
+    then resume the find.
+  - **How ours differs.** Our Find attacks a living actor only if its inventory holds the
+    food, and the radroach's meat is only its death item, so ours would not attack it.
+  - **Status.** The runtime is unchanged (spec-notes/owner-decision-captures.md §4).
+- Hours passed in the Wait menu: packages are chosen once per waited hour, so each step of
+  a chain can start up to an hour late during a wait.
+
+~~*Not fixed:* in the smoke run the geckos come back on their sandbox and warn the player
+twice, but the count starts afresh whenever the gecko stops detecting the player
+(`aggro.rs` needs Detected within the last second), and the wandering gecko lost sight of
+the player before the attack in each run (at 06:00–07:00 game time). Marked known in the
+scenario. Whether a warning count should survive a short loss of sight is the owner's call.~~
+*(stale 2026-10-19: superseded by "Aggro warnings that outlast a short loss of sight" below.)*
+
+*Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
+17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
+after about 10, then warn when the player is within 650 units. (The observer session
+`geckos_package_chain` from `nvftest`, 2026-10-18, and its rerun: the patrol ran 4.7 h
+and then 8 h on its 3 h duration; see "Contradicted" above.) Smoke
+`package-duration-geckos`.
+
+## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)
+
+Follow-up to "Package durations" (L6, #266) and #264's aggro radius. The owner's geckos at cell
+-17,-6 warned twice but never attacked: right after the second warning the wandering gecko
+walked past the player facing away (detection Detected → Noticed at 49 units), and the count
+started afresh at once. Decisions (crates/fnv-game/src/aggro.rs):
+- The warning count now clears only after two warning timers (10 s) without the player inside
+  the radius, not on the first tick the actor stops seeing them.
+- An actor that has started warning keeps counting while the player is in its alert band
+  (Noticed), not only Detected.
+Check in game: the geckos south-west of Goodsprings warn and then attack; a creature you walk
+away from (out of its radius) forgets its warnings after about 10 s.
+
+
+## Link From between actors and on the radio (2026-10-13, session "link-from")
+Port of the rescued 2026-10-11 commit 035c21ae onto main (dialogue.md §3.5, radio.md §5).
+- Link From now adds links in conversations between actors and on the radio, as it did
+  for player dialogue. A topic reached only through Link From is said with one of its lines
+  that names the topic just said (e.g. a child's "Hi." / "What?" answering another actor's
+  hello) [hypothesis; capture question 10].
+- Kept from main where the two met: conversations between actors still use only
+  Conversation lines (your 2026-10-11 ruling), Link From replies included; player dialogue
+  takes Link From only from player lines (type Topic) of Topic topics, as before.
+- Radio: a line's fixed speaker no longer stops a station saying it; Black Mountain Radio
+  now plays its segments (Segment12 too) with Tabitha's and Raul's voices.
+Check in game: Black Mountain Radio (segments between songs, Tabitha's voice); two
+NPCs greeting each other (and a child answering an NPC's hello where children talk); Michael Angelo's 031/032/034 choices.
+
+## Licence settled: GPL-3.0-or-later (2026-10-15, owner)
+The owner decided NVForever stays GPL-3.0-or-later. GPL dependencies are allowed
+(`deny.toml`), and the intro film (`Video\FNVIntro.bik` before a new game, decoded by the
+GPL `infinitier_bik_decoder`) is now in the default build (cargo feature `intro-video`, on
+by default). Earlier notes that leave the licence open no longer apply.
+
+## Item stacks: placed ammo counts, "How many?" (2026-10-15, session "item-stacks")
+Your report: the two 9mm stacks in the Goodsprings gas station showed 1 round each. Their
+references have no count of their own; the AMMO record's Clip Rounds (20 for 9mm) is what
+a placed ammo reference holds (GECK wiki Ammo). Now read: both show 20 (`prid 0010ABA6` in
+the console prints "count 20 (as placed)"). Taking a stack takes all of it, a dropped stack
+was already one world object holding its count, and the crosshair says "9mm Round (20)".
+New: "How many?" from quantity_menu.xml, for stacks of more than 5: take, store, buy, sell,
+take back, drop. My choices, to confirm:
+- It asks above 5 (your words); the original's own threshold is not in the ESM. Does it ask
+  at exactly 5 too?
+- It opens at the whole stack (your first screenshot, 6 of 6) and never goes under 1.
+- Keys: Left/Right and the wheel ±1, Page Up/Down ±10, Home/End, A/Enter Ok, E/Esc Cancel;
+  Shift+Enter/click and Shift+X still move or drop the whole stack without asking.
+- Over the Pip-Boy it is drawn centred on the window, not on the Pip-Boy's screen.
+Check in game: the gas station's 9mm (can you get the crosshair on them? From the floor in
+front of and behind the checkout counter my test aids found no spot where the crosshair
+reaches them, so they are on a shelf inside the counter's collision); drop part of a stack
+from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
+caps in a container.
+
+
+## Combat fixes of playtest list 5 (2026-10-16, session "l5-combat")
+Items 9, 16, 20–25, 49 and 61. My choices and guesses, to confirm:
+- **9 Jamming.** A shot from a weapon that uses ammo (not thrown) may jam it below 75 %
+  condition: the chance grows from 0 at 75 % to 4 % a shot at 0 % along a curve (power
+  1.5), so at 50 % it is under 1 % a shot (0.77 %). All four numbers are in one place,
+  `CombatTuning::jam_condition`, `jam_chance_max`, `jam_curve`, `jam_fallback`
+  (crates/fnv-combat/src/tuning.rs). The shot that jams still leaves; then the weapon's
+  jam clip plays (`1hpjama.kf` for reload animation `ReloadA`: the clips sit beside the
+  reload clips, `JamX`…`JamZ` too; the letter pairing is my guess from the names) and
+  nothing fires or reloads until the clip's length has passed (1.5 s if no clip is found).
+  NPCs do not jam yet. Check: a gun below 75 % (console or `condition=` test aid) jams now
+  and then, the clip looks right in first and third person.
+- **16 Hits on creatures.** Two causes. (1) Shots and swings were stopped by the capsule
+  that walks an NPC (its character controller), which is not its body: that was the
+  "dust and no damage, like a wall". They now pass it and meet the body part capsules.
+  (2) A part's chain covered only the bones leading to other parts: long side branches
+  (a bloatfly's legs, a radscorpion's head) had nothing. Each part now also covers up to 8
+  of its own side branches reaching 12 units or more (fingers and twist bones stay out).
+  Unit tests: a bloatfly-shaped skeleton (`limbs.rs`), side-branch capsules (`hitvol.rs`),
+  shots past an NPC's character (`combat.rs`). Check: shoot bloatflies and geckos.
+- **20 Enemy shot lines.** An enemy's beam or shot line followed the player's own muzzle
+  (the follow was meant for the player's shots only). Fixed.
+- **21 Encumbrance.** Over the limit the player walks (the game does, from our captures:
+  walking at 201 lb with 200 capacity). In god mode the limit is lifted (I believe tgm
+  does that in the original; say if not).
+- **22 Convict karma.** I could not find the convicts' records (NPC records are compressed
+  in the ESM), so two likely causes are fixed: an NPC made from a template read its own
+  karma (0, Neutral, so a kill counted as murder, −25) instead of its template's: Karma now
+  comes through the template when the NPC takes its Traits from it (which flag carries
+  Karma is not documented; with Stats only it stays the NPC's own, as before); and one fighting the player of its own accord (no
+  grudge) now counts as the aggressor, so killing it is never murder. Check: the convicts
+  outside the NHP station give "+" karma; tell me the karma line if not.
+- **23 Camera pan.** Letting go of F / mouse 3 after circling now goes straight back to
+  first person when you were in it (before it swung back round in third person for about
+  a second first). In third person it still swings back behind. Your sentence could also
+  mean "stay in third person"; say so if that was meant.
+- **24 Melee impacts.** Every blow that lands shows the impact the weapon's impact data set
+  names for the material, with its sounds, as shots do: blood on actors, dust/sparks on the
+  world for a swing that meets a wall or the ground within reach. NPC blows too.
+- **25 Radscorpions.** Melee: the swing aimed its ray at the centre of the creature's
+  bounds, which for a radscorpion with its tail up is in the air above its back; it now
+  aims at its body part capsules first (unit test with a radscorpion-like target). Speed:
+  every creature ran at the people's running speed (344 units/s). A creature in combat now
+  runs at its own pace: its run clip's speed × its scale × its Speed Mult (a small
+  radscorpion: 315 × 0.5 × 150 % = 236 units/s), never faster than before and not under
+  a quarter of it. Check: radscorpions and geckos chasing you.
+- **49 tgm.** In god mode the magazine stays full, nothing is taken from the inventory
+  (thrown weapons too) and Reload does nothing.
+- **61 Two-handed run.** Running with any two-handed weapon drawn (rifles, launchers,
+  heavy weapons, two-handed melee) is slower by `fMove2HBigPenalty` (0.1 in
+  FalloutNV.esm: 90 % of the speed), for the player and NPCs in combat. The setting's role
+  is my guess from its name; 10 % may feel too small: it is one number to change.
+## Render effects of playtest list 5 (2026-10-16, session "l5-render-fx", D5)
+
+Items 1, 48, 10, 6, 18, 70, 66–67, 26 and 38 (`docs/handoff/playtest-list-5.md` §4).
+Frames are kept privately; each was one run with test aids.
+
+- **1 Dust storm "tornado"**: the column by the saloon and on the street is the dust
+  vortex `effects\nv\sanddust\sanddust02.nif` (FXDust02, two placed in Goodsprings): two
+  curved sheets fading in and out for about 5 s of every 45 s. Their vertex alpha (0 at
+  the sheets' edges) was dropped because their shader sets flag bit 19 "Dynamic_Alpha",
+  not bit 3 "Vertex_Alpha"; we drew a dense grey sheet with hard vertical edges. Unlit
+  shapes with bit 19 now keep their vertex alpha. **Guess**: that rule; **check**: the
+  column is now soft-edged and thinner, still grey rather than the game's brown (the
+  texture is drawn as stored). The other "tornadoes" (`fxdustwhirlwind01.nif`,
+  FXDustWhirlWind01) are particle systems on a moving mesh emitter and are still not drawn
+  at all (particle systems of placed models are not built).
+- **48 Bullet smoke**: particle colours (impact dust, metal smoke) are now taken as
+  display values like unlit shapes' vertex colours, so the 0.27–0.43 greys are darker and
+  less of a pale cloud. **Check**: this applies to every particle system, blood too
+  (MPSBloodSplat): tell me if blood got too dark.
+- **10 Explosions**: an EXPL now shows its model (`effects\explosiongrenadefrag.nif`: a
+  flash, sparks, smoke and shrapnel burst from its sequence), its light (LIGH, fading
+  over 0.6 s: **guess**, the LIGH has no duration) and the impact of its data set on the
+  ground under it (`ImpactExplosionDirt.nif`: thrown debris). The grenade in flight
+  (`grenlaunchprojectile.nif`) is drawn. **Not done**: the dirt impact's rising dust
+  meshes (`FastMesh01–03`) are moved by transform controllers that our impact models do
+  not play, so the brown column of your second frame is missing; the smoke fades after
+  15 % of its life as its data says, which looks short; the debris flakes are large
+  (radius 5, read as half the square's side).
+- **6 Lantern light**: `LamplightWarm` stores a black colour; its warm colour is in its
+  model's `NiPointLight` (0.78, 0.58, 0.16). Lights with a black record colour now take
+  the model light's colour. **Not done**: the flicker (its colour controller).
+- **18 Weapon quality**: the first-person model is the same file (`1stPerson9mm` names
+  `9mm.nif`); the difference was the view: the game draws the arms and weapon through
+  `fDefault1stPersonFOV=55`, we drew them through the world's 75, so the gun was smaller
+  with coarser mips. Now magnified as through 55 (the Pip-Boy's 47 eases in as before).
+  **Check**: size and place of the held weapons; iron sights while aiming.
+- **70 White cave water**: the cave's pools are placeable water (PWAT `WaterBlood`, five
+  `waterp512x512.nif` squares) drawn as a plain model, untextured: white. PWAT shapes are
+  now drawn with their water type's material (WaterTypeBlood: dark).
+- **66–67 Flashlight**: the light now sits on the body, 14 units ahead of the eye and 6
+  below (**guess**), facing where the player looks, so it lights ahead of the body in
+  third person and its shadows fall behind what casts them. **Check** the ghost shadow.
+- **26 Beards**: beards (head parts with the hair shader) now take the hair colour like
+  the hair. **Check** Sgt Kilborn and Joe Cobb.
+- **38 SwapTexture**: implemented: `ref.SwapTexture "shape" "texture"` puts
+  `textures\<texture>.dds` on that shape of the reference's model (the Rorschach cards in
+  Doc Mitchell's test, the end slides, the Euclid's C-Finder screen); `##` before a
+  name is dropped (**guess**: meaning unknown). Not kept in saves. Not seen in a run.
+  **Fixed 2026-10-16 (claude/rorschach-cards)** after your report that the cards behind
+  Doc Mitchell never changed: the calls are `SwapTexture <ref> "shape" "texture"` (the
+  card `TempRorschachTest01REF` is the first parameter, no calling reference), so every
+  call had failed. Now seen in a run: card 1 when the test starts, then each inkblot
+  (`C:\fnv-private\frames\rorschach\card1-then-inkblot1.png`); smoke `rorschach-cards`.
+  The Euclid's C-Finder screen and the end slides use the same form and are fixed with it
+  (not looked at).
+## Pause, settings and main menus, pointer, wait menu (2026-10-16, session "l5-menus")
+List 5 items 8, 46, 19 and 51. Frames before and after: `C:\fnv-private\frames\l5-menus`.
+- **Pause menu (8)** now has the original's look, from `start_menu.xml` and your
+  screenshots: the column at the right (Continue, Save, Load, Settings, Quit), the
+  highlight box round the chosen entry, the other pages dimming the column but for their
+  own entry, Back (and Defaults) at the bottom right. My choices:
+  - **Help is left out** (NVForever has no help pages). Say if you want it, e.g. listing the keys.
+  - **The pause screen**: the original shows a model (`pausescreen01.nif`) we do not draw;
+    I lay its texture over the held world, the left half and its mirror at the right, at
+    0.82 strength over the world darkened by 0.35. Its glare texture came out as a dark slab
+    drawn over the picture, so it is left out. Compare `after_pause_main.png` with yours.
+  - **Settings**: our switch groups are the categories, renamed short like the original's:
+    Gameplay (was "Dialogue and menus"), World, Display (was "Picture"), Graphics (was
+    "Enhanced graphics"), Debug (was "Developer"), plus Saving. The switch list is wider
+    than the original's (820 instead of 520, the value column at 700) because our labels are
+    longer, and starts left of the middle so it clears the categories; each switch's note
+    is under the list in font 3. Up/Down move within a category, Tab/Page Down go to the
+    next category (Page Up back), a click on a category shows it. **Defaults** puts every
+    switch back as it was when the page was first shown in this run (the command line's
+    state), since nothing is saved between runs.
+  - **Quit** asks first, with the original's words: Main Menu (NVForever starts again with
+    `--menu`), Exit Game, Cancel. Q opens the question.
+  - The **load page** is restyled the same way (thumbnail and details over the rows, left
+    of the column, eight rows).
+- **Main menu (46)**: the same look: every entry that can be taken at full amber, the
+  greyed ones at half, the highlight box round the chosen one; moving the choice plays
+  UIMenuFocus, taking one UIMenuOK (the original's list sounds). Its labels stay "New
+  Game" and "Load Game" (the original says "New" and "Load"); say if you want them short.
+  While Settings or Load Game is up the logo is hidden and the column is drawn dimmed but
+  for that entry, as in the pause menu.
+- **Pointer (19)**: the pointer is now `cursor.dds` (the light arrow with the dark edge),
+  coloured amber, the pointer your screenshots show; before it was `glow_cursor.dds`. It
+  replaces the system pointer everywhere the pointer is shown.
+- **Wait/sleep menu (51)**: the HUD's amber (255, 182, 66) instead of the dimmer colour
+  measured off the screenshot, and the game's fonts the menu file names (font 1 for the
+  question, 6 for the hours, 2 for the time; the buttons in font 2 is my guess). The
+  buttons stay half bright until the pointer is on them, as the menu file says.
+Check in game: Esc in the world (the pause screen's strength, the box), Settings
+(categories, the wide list, Defaults), Quit (Main Menu restarts to the main menu), the main
+menu's box and hover sound, the pointer in any menu, T for the wait menu next to the HP bar.
+
+## Crafting menus (2026-10-16, session "l5-menus")
+List 5 item 72. The workbench, the campfire and the reloading bench now open one recipe
+menu, the way the benches' own scripts ask for it (`ShowRecipeMenu`). The recipes,
+categories, skills, ingredients and outputs come from the RCPE and RCCT records (notes in
+docs/spec-notes/crafting.md). The campfire's list starts exactly as in your screenshot.
+Frame: `C:\fnv-private\frames\l5-menus\after_recipe_menu.png`. My choices:
+- **Arrows beside RECIPES**: they filter the list by subcategory (all, then Aid, Chems,
+  Food, … that the list holds), with the title showing the subcategory. That is my
+  reading of the original's filter arrows. Is it what they do?
+- **Recipes that cannot be made yet** are a shade dimmer (brightness 190 of 255) than
+  ones that can. Your screenshots only show recipes that could not be made. Accept is
+  dim and refuses them, with UIMenuCancel.
+- **Making**: Accept makes the recipe once. The ingredients leave the inventory, the
+  outputs arrive, and an "X (n) added" line shows in the corner, with the menu's click
+  sound (UIMenuOK). I found no crafting sound named in the files. There is no "how many
+  times" choice yet.
+- **The backing** is the darkened sheet of our other menus (0.75 black). The original
+  blurs the world behind the menu.
+- **Not drawn yet**: the output's icon and the EFFECTS line under WG/VAL.
+- The keys: A or Enter to accept; X, Esc or Tab to exit; Up/Down and the wheel to move;
+  Left/Right for the filter.
+Check in game: a workbench, a campfire (the Goodsprings ones) and a reloading bench.
+Check the list, the skill line (e.g. "Survival (32/40)"), the ingredient counts, and that
+making something takes the ingredients and gives the items.
+## HUD: bars, enemy health, sneak word, dialogue (2026-10-16, session "l5-hud", list 5 D1)
+
+Playtest list 5, items 73, 32, 7 and 74 (`docs/spec-notes/hud.md` §4, §8–§10). Measured on
+your screenshots (`Target healthbar` at 1920 x 1080, the four `Sneak detection` frames);
+what they could not settle is a guess:
+
+- **73, bars.** Each bar is now 37 ticks from just inside the upright to the corner mark,
+  with "HP"/"AP" above it near the uprights; ticks are set on whole pixels so they are
+  all the same width (the old unevenness was 4.5-pixel ticks rounded at 720 lines). The
+  ticks use the game's tick picture, whose opacity fades towards the top, as the
+  original's do. Guess: a tick is lit for any part of its share (37 ticks, so a bar shows
+  one tick until the value is 0). Check: same width ticks at your usual resolution; the
+  labels' places against the original's.
+- **73, condition.** The bar now ends 15 units before the divider, its bottom on the line
+  "CND" stands on. The two black arrows are the game's own `repair_meter_pips.dds`
+  (named by the HUD file as `CNDArrows`), drawn as tall as the bar at 75 % of it (your
+  number; on your screenshot they sit at about 75–79 %). Check: whether the arrows are
+  as big as the original's.
+- **32, enemy health.** The game's enemy bracket picture in the HUD's red (255, 67, 42),
+  31 ticks between its corner marks, the name centred under the line; it empties from
+  both ends to the middle. **Guesses (the rule is not documented):** shown for a living
+  actor under the crosshair (up to 8192 units) that is hostile to you or fighting you,
+  or that you hit in the last 5 seconds; and for 5 seconds after you hit any actor,
+  aimed at or not. A friendly actor you only look at gets no bar. The old developer
+  text (`Name [|||...] hp/max` above the crosshair) is removed. Check: when the bar
+  appears and goes in the original, and whether a non-hostile actor you aim at shows it.
+- **7, sneak word.** `[HIDDEN]`, `[DETECTED]` in amber, `[CAUTION]`, `[DANGER]` in red,
+  centred at the top while you sneak, as on your screenshots (your list says "Cautious";
+  the screenshot says CAUTION, which is used). **Guess (not documented):** DANGER while
+  an actor fights you; CAUTION while a hostile actor searches for you (Alert/Lost state);
+  DETECTED while any actor detects you; else HIDDEN. Check: walk past a friendly settler
+  sneaking (should say DETECTED when seen), and provoke a Fiend camp.
+- **74, dialogue.** In a conversation every HUD element is gone. Other actors' lines
+  (Joe Cobb to Trudy) and radio lines are not drawn as subtitles while you talk. **Guess:**
+  corner messages and quest messages ("COMPLETED: Go and meet Trudy…") wait during the
+  conversation and come up after it, rather than over the dialogue screen; your
+  screenshot showed the quest message during the conversation, and I hid it because you
+  asked for every HUD element to go. Check: whether the original shows quest updates
+  during a conversation.
+## Pip-Boy: list 5 items 2, 11, 14, 30, 52, 54–56 (2026-10-16, session "l5-pipboy")
+
+- **2 (flash on Tab):** what flashed was the Pip-Boy's flat fallback image, drawn in the
+  middle of the window for the frame(s) before the arm model takes the screen (longer from
+  third person). It now shows only once the Pip-Boy is all the way up and no model screen
+  took it. Check: Tab from first and third person, nothing flashes.
+- **11 (karma title):** the titles are in the game data as `sKarmicTitle<Good|Neutral|Evil>
+  <level>` settings, but FalloutNV.esm holds only 50 of the 90 (the rest live in the exe);
+  those 50 win, your table fills the other 40. Two differ from your table: the ESM spells
+  "Demon Spawn" (yours "Demon's Spawn") and "Vegas Crimelord"/"Vegas Councillor". Choices:
+  Very Good and Good use the good column, Very Evil and Evil the evil one; levels over 30
+  use 30's. Shown on STATS > General in the statistics mode (R switches from reputations)
+  under the karma picture, the karma number a line below. The reputation list stays as
+  the hook for the reputation workstream (D7).
+- **14 (ITEMS):** the hovered row is the selected row (it already sounded
+  `UIPipBoyScroll`, whose file is ui_menu_focus.wav). New: the item's picture and figure
+  cards at the right, laid out from the menu files. Guesses: DAM is the weapon's base
+  damage (not condition- or perk-scaled); WG and VAL are the whole stack's (VAL matches
+  your Stimpak 9 × 75 = 675; WG is a guess); the ammo card reads "<short name>
+  (clip/carried)" with clip = what a clip holds of what you carry; armour shows its class
+  ~~word (Light/Medium/Heavy) beside CND; EFFECTS uses the STATS EFF wording. Not built: DPS,
+  the small ammo badge, the Maintain/Mod/Repair hints. Sub-tab hover: the hovered tab gets~~ *(stale 2026-10-19: superseded by "Pip-Boy ITEMS extras and a clickable repair list" (DPS, ammo badge, Mod hint) and status.md:99 (Repair/Maintain hint).)*
+  an unfilled box and `UIMenuFocus`; switching tabs plays `UIPipBoyTab`. Check the box
+  look against the game.
+- **30 (scroll bar):** at the list's left only when rows are hidden, arrows at both ends
+  and a line for the part shown (as the DATA lists). Check the line's look.
+- **52 (maps):** drag never worked because the map was redrawn under the pointer each move,
+  which cancelled Bevy's drag; the map now follows the held left button itself. The local
+  map has an outline made from the collision (rays down through the physics world):
+  outdoors slope-shaded ground with bright edges at buildings and cliffs, indoors a floor
+  plan (walls bright). Indoors the map is drawn 3.5× closer (8 units a pixel instead of
+  28), my choice so rooms are not specks. Only what the physics world has loaded shows.
+  Check Goodsprings outside and Doc Mitchell's house.
+- **54–56 (sounds):** static crackles (`UIPipBoyStatic`, random file of the folder) 0.5–2 s
+  after the Pip-Boy is up, then every 4–10 s: the interval is my guess, say if it should
+  be denser or a single one. Mode buttons/F1–F3 play `UIPipBoyMode`; the flashlight plays
+  `UIPipBoyLightOn`/`Off`.
+
+## World: steps, cave skeletons, bobby pin (2026-10-16, session "l5-world", list 5 D6)
+
+Items 17, 71 and 63 of list 5. Items 59, 65, 64 and 4 of D6's queue are the laptop's L3.
+
+- **17 (ledged steps).** The camper at the Powder Ganger camp (your `physics ledged steps`
+  screenshot) has a 10-unit step with a 24-unit top, then a 20-unit step onto its floor.
+  The cause was not the step height: the player's cone-shaped bottom meets a step's edge
+  with a steep face, and the physics library's step-up refuses any steep contact, so every
+  step with a shallow top needed a jump. The controller now makes its own step up when a
+  wall stops it on the ground: up by the headroom (at most 24), across, down, kept only if
+  it lands higher on a walkable top. *Guesses:* the step height stays 24 (the original's
+  is not measured: if you find ledges you run up in the game that still need a jump,
+  tell me their place); a steep slope is still not climbed this way. *Check:* run up the
+  camper's steps into it; Doc Mitchell's porch steps, the saloon's and Goodsprings'
+  wooden walkways; also that you do not now climb things you should not (crates of about
+  knee height, fences, rocks: anything above 24 units still needs a jump).
+- **71 (cave skeletons).** The cave's three skeletons are clutter (not dead NPCs) whose
+  references store the pose the designers left them in (`XRGD`); it was read for corpses
+  only. They are now drawn in it, lying on the floor. *Guess:* how the entries of a body
+  part hanging directly under the model's root are read (under the reference, which lays
+  all three flat; the other reading put bones under the floor). *Not done:* their
+  collision stays upright as before (shots and pushes meet an invisible standing
+  skeleton); other skeleton clutter with the same data elsewhere is posed too. *Check:*
+  the cave's skeletons against the original (your `tposeskeletons` screenshot) and a
+  few others (the Mojave has many).
+- **63 (bobby pin).** The pin's model ends 1.47 units above the lock's centre as the two
+  files place it, so turned about the lock its tip swung round the keyhole into the
+  cylinder. It is now moved so its tip sits on the keyhole's middle and turns about it,
+  as on your `basegame` screenshot. Strain wobble: while you hold torque against a lock
+  that stopped, the pin shakes by 0.5° when new up to 4.5° just before it breaks, quickly
+  (23 and 37 Hz). *Guesses:* the shake's size and speed (the original's not measured);
+  none while the lock turns freely. *Check:* the pin's tip against `basegame.jpg` at a few
+  angles, and whether the shake reads well or should be bigger or slower.
+## Compass marks, discovery, crosshair, reputation (2026-10-16, session "l5-compass", list 5 D7)
+
+- **57 (actor marks):** living NPCs and creatures of the loaded cells within Perception ×
+  300 units (Perception 5: about 21 m) show as the HUD file's tick over the compass at
+  their bearing; red when fighting you or ready to attack you (the enemy bar's rule),
+  amber otherwise. The range is my guess (no setting in the masters): say if they should
+  appear further out. Tick size and height are fitted to your screenshot; dead actors and
+  disabled ones have none.
+- **12 (map markers, discovery):** markers of the worldspace within Perception × 2048
+  units (Perception 5: about 146 m), outdoors only, hollow until you have been within the
+  marker's radius, filled after (the game's two triangle pictures, size fitted to your
+  screenshot). The range is a guess; check against how early the game shows Goodsprings
+  Cave. A new place shows "You have discovered" over the name where "Quest added" stands
+  (same fonts and place as your screenshot) with `UIPopUpMapMarkerAdded` (guessed by its
+  name) and gives `iXPRewardDiscoverMapMarker` (10) XP. Saves now keep the places found
+  ~~(they were forgotten on load before). Not built: the "+10 XP" bar at the right and the
+  "Locations Discovered" statistic; interiors show no markers.~~ *(stale 2026-10-19: superseded by "Pip-Boy ITEMS extras…" (both "were already built"; XP meter and misc statistics).)*
+- **15 (dynamic crosshair):** with a gun, energy weapon, launcher or thrown weapon drawn
+  the two arrows part so each tip sits on the edge of the cone a shot would leave in now
+  (the combat model's spread with bloom: wider running, after shots, with crippled arms,
+  narrower aimed or crouched), easing there at the HUD file's `_SpreadChangeSpeed` 0.125
+  (my reading: a share of the way per 60th of a second). Capped at 240 units from the
+  middle. Check how wide it looks against the game's for the varmint rifle and the
+  9mm pistol, hip and aimed. The filled crosshair (something to use) does not open.
+- **58 (red crosshair):** red (the crime colour) while the crosshair's ray meets a living
+  actor that is hostile by the same rule as the compass.
+- **13 (reputation):** the scripts' fame and infamy were already kept; added:
+  - crimes: a theft someone saw adds 2 infamy and any kill while someone (the victim too)
+    sees you adds 30, with every reputation the victim's factions name (FACT WMI1), up to
+    the reputation's scale (the wiki's numbers). Killing hostile Powder Gangers counts, as
+    your Vilified box shows. Lockpicking, trespass and assault change nothing. Not built:
+    the hidden-silent-one-shot exception beyond "nobody detects you", disguises, resets.
+  - the box: when a title changes, the game's message box (stops the game, queued with
+    other boxes) titled with the reputation's name, the title and its description, a Vault
+    Boy face at the left (very happy with more fame, sad with more infamy as on your two
+    screenshots; the neutral face for mixed titles is my guess) and "Ok". Descriptions are
+    the wiki's unless a plugin has the `sRepTitlePos<n>Neg<m>Desc` setting (FalloutNV.esm
+    overrides one). Sounds `UIRepGood` when fame rose a level, else `UIRepBad` (guess).
+  - fixed: Dark Hero and Soft-Hearted Devil were swapped in the Pip-Boy's list
+    (FalloutNV.esm's `sRepTitlePosTwoNegThreeDesc` is the Soft-Hearted Devil's text).
+  - Pip-Boy Stats > General, reputation mode: under the picture the title, then the
+    reputation's name (was "Fame x, Infamy y"), as on your screenshot.
+  - Check: shoot a Powder Ganger in view of others, see the box; GetReputation in the
+    console.
+## List 5 — claude/l5-npc-ai
+NPC AI items of playtest list 5 (§4 numbers). Each: what changed, my decision or guess,
+what to check in game.
+- **3 Doors.** An NPC that goes through a load door fades out at it (its body walks on into
+  the door for 0.75 s while it dithers away) and fades in at the other side over the same
+  time; the door's open sound (DOOR SNAM, as for your own load doors) plays at the door it
+  went in by and at the one it came out of, wherever you are drawn. *Guess:* 0.75 s, and
+  the dither of the cell fades (meshes with other materials, if any, pop). *Check:* stand
+  outside the gas station when Ringo comes out (talk to him, leave); an NPC going into the
+  saloon.
+- **28 Random conversations** now start only with you within 300 units (the hello
+  distance) of one of the two; a due conversation waits for you instead of being skipped.
+  *Guess:* 300 for "right next to them". *Check:* Goodsprings NPCs chatting only when you
+  stand by them.
+- **29 Ranger Ghost** has no packages at all [observed: vMORangerGhost has no PKID and its
+  template does not give packages]. In a quiet 45 s run she stays on her sandbagged post
+  (11,320 up). What would have left her by the fence: an actor without packages that
+  searched, fought or was pushed stayed wherever that left it. Now it walks back to where
+  it was placed (from up to 4,096 units). *Guess:* that the game keeps such actors at their
+  editor location; that a search or a fight is what brought her down. *Check:* she is on
+  the roof by the chain-link gate idle after you arrive, and after a fight at the outpost.
+- **31 Friendly alert range:** an actor that starts fighting or notices a hostile alarms its
+  allies within 4,096 units (was 2,048). *Guess:* the number. *Check:* Goodsprings
+  settlers joining from across the town.
+- **33 Facing:** gunmen the AI moves fire only with the target within 30° of straight ahead
+  (they turn first); blows and bites are not held back, and actors without
+  `--npc-packages` fire as before. People in Combat on the move (closing in, to cover, to
+  a flank) are now drawn facing their target and step sideways or backwards with the
+  locomotion clips for those directions, so they can fire as they go. *Guesses:* 30°;
+  the turn to the target at twice the walking turn rate. *Check:* NCR troopers against
+  Cook-Cook's Fiends: nobody firing while looking away, and how the sideways steps look.
+  Fighters also turn to their target at twice the standing turn rate (240°/s), so a
+  new target holds their fire for at most about 0.75 s. *Guess:* that rate. (Without it,
+  `combat-cover` found no cover taken in 2 of 6 runs: the troopers lost the Cook-Cook
+  fight too fast; with it, 4 of 4 runs passed.)
+- **34 Package flags.** Done: Weapon Drawn (drawn during the package: Sunny runs to the
+  wells with her rifle out), Weapons Unequipped (holstered and hidden unless fighting),
+  HeadTracking Off (no head tracking unless a conversation or script look forces it),
+  Defensive Combat (no attacking NPCs or creatures on sight; being attacked or an ally's
+  call still counts), Always Sneak (36–37), the six door flags (lock/unlock all doors of
+  the actor's cell at start, at end, and kept while it runs; only doors that have a lock,
+  at their own level; the "at location" ones re-applied at each 10 s package choice).
+  Already honoured before: Must Complete, Must Reach Location, Continue If PC Near, Once
+  Per Day, Skip Fallout Behavior, Always Run, Continue During Combat, No Combat Alert, No
+  Idle Anims, Offers Services. Not built: Pretend In Combat, Allow Swimming, Allow Falls,
+  No Warn/Attack Behavior. *Guesses:* doors without a lock are left alone; an ended or
+  replaced package both count as "end".
+- **35 Sunny helps:** an actor that detects an attacker fighting someone, where the attacker
+  would attack it too, now joins against it at once (the VCG02 geckos are Very Aggressive,
+  so Sunny and Cheyenne join when they go for you). Not cowards, not Defensive Combat
+  packages. *Decision:* it covers fights against you and against the onlooker itself, for
+  everyone (settlers join against geckos that attack you nearby, too); fights between
+  other actors are left to the existing assistance and alarms (with the rule there too,
+  every NCR trooper took on Cook-Cook by itself and they stopped alarming each other).
+  *Check:* VCG02 at the wells.
+- **36–37 Sneaking:** an NPC sneaks while its package has Always Sneak or a script's
+  SetForceSneak holds (now implemented): it crouches with its skeleton's `sneakmt…`
+  locomotion clips, walks at fMoveSneakMult (0.57) of its pace, and detection and
+  IsSneaking count it as sneaking. Sunny crouches on VCG02SunnySneakCloserToWell and
+  stands up at "OK, you're on". Not built: sneaking with the Follow leader; the weapon's
+  sneak clips (with a weapon drawn the arms hold the standing aim over the crouched legs).
+  *Check:* how Sunny looks sneaking with her rifle out.
+- **40 Doc Mitchell's chair:** his exit clip (SpecialIdle_NVDocChairFrontExit, the one the
+  game's IDLE tree names for the front marker during VCG01 10–50) starts its Bip01 52 units
+  beside the seat, so he jumped about 75 units to the side before walking off. Exits now play
+  from where the body sits (no change for the plain exits, which start there anyway).
+  *Guess:* that the game aligns every exit so; what the clip's own travel then does (35
+  units sideways, 14 forward) is the clip's. *Check:* after "the stuff that mattered", which
+  side he steps off to; if still the wrong side, say so and I will mirror that clip's
+  sideways travel.
+
+
+## List 5 — claude/l5-ui-text-sounds
+
+Workstream L2 (laptop): the placeholder white text, menu sounds, Take All, the Goodbye
+hint, the text overlay, radio subtitles and the Fallout 3 music question.
+
+- **43, 50, 53 — no white text.** The white line under the crosshair is gone: nothing
+  draws `activate::HudMessage` any more; its lines ("Stimpak added", "Gate opened",
+  "… killed (+XP)", "… crippled", "You are dead.", "F5: not available yet", the
+  jukebox's "its script would run (scripts are not implemented yet)", "You cannot use
+  this (…)") are only logged. *Decision:* none of them became a corner message: they are
+  NVForever's placeholders, not the game's lines; items a script adds still show their
+  corner message as before. *Check:* pick up a stimpak, open the Goodsprings gate, press
+  F5, use the saloon jukebox, kill a gecko: no white text anywhere.
+- **44, 45 — refusals as corner messages.** The Wait/Sleep menu's refusals ("You cannot
+  sleep when enemies are nearby.", game text), the lockpick refusals ("You need a
+  Lockpick skill of 50 to pick this lock.", NVForever's wording, the game has none in its
+  plugins) and the terminal refusals ("You need a Science skill of N to hack this
+  terminal.") go to the top-left corner messages with the default icon for 2 s.
+  *Guess:* the default icon and time (the records give none). *Check:* the corner
+  message beside D1's reworked HUD; sleep with a gecko near; a lock above your skill.
+- **39 — Vigor Tester sounds.** Its menu file and models name no sounds, so it plays
+  Fallout 3's S.P.E.C.I.A.L. book records, which FalloutNV.esm keeps with two added for
+  New Vegas: page turn `OBJBookSpecialPageTurn`, raise `OBJBookSpecialNumber`, lower
+  `OBJBookSpecialNumberDown`, review row chosen `OBJBookSpecialFocus`, Done
+  `OBJBookSpecialNumberFinished`, refused `UIMenuCancel`. *Guess:* that these are the
+  Vigor Tester's sounds (by their names). *Check:* do they sound like the original's?
+- **41, 42 — tag-skill and trait menus.** Row moved (keys, wheel, pointer) and pointer
+  onto Reset/Done `UIMenuFocus`; a row taken or given back `UIMenuPrevNext`; refused
+  `UIMenuCancel`; Reset `UIMenuCancel`; Done `UIMenuOK`. The game's files silence the
+  rows (`&nosound;`); Done's `UIMenuOK` and the boxes' `UIMenuFocus` are the files'.
+  *Guess:* the row click `UIMenuPrevNext` (the trait file's perk rows) and Reset's
+  `UIMenuCancel`. *Check:* whether Reset should click `UIMenuOK` or `UIMenuPrevNext`.
+- **47 — hacking sounds.** Cursor or menu selection moved `UIHackingCharScroll`, a word
+  or row entered `UIHackingCharEnter`, password right `UIHackingPassGood`, wrong (and
+  the lockout) `UIHackingPassBad`. *Guess:* which record is which event (by name);
+  `UIHackingCharSingle`/`…Multiple` (presumably the text typing out, not built) and the
+  fan hum loop are not played. *Check:* hack the Easy terminal at Bison Steve.
+- **60 — Take All closes the menu** (when it took something). The container menu test
+  aid opens the container again to store one item back, so `house-items` now expects
+  the container opened and closed twice. *Check:* Take All on Doc Mitchell's fridge.
+- **62 — "TAB) Goodbye".** While a Goodbye choice is offered the hint stands left of the
+  dialogue band, level with the bottom bracket, on a dark box of the band's shade, in
+  the dialogue font; on a 4:3 screen (too narrow) it sits at the safe zone's left edge
+  over the band. *Guess:* the place, the wording's case and the box. *Check:* talk to
+  Trudy on a 16:9 screen; say if it belongs inside the band instead.
+- **68 — text overlay off by default** in the game (`--play`); `--overlay` turns it on,
+  and the settings page's Developer group still toggles it. The free-camera viewer mode
+  (no `--play`) keeps it on. *Check:* start the game: no position/key help text.
+- **27 — no radio subtitles.** A station's talk lines (Radio New Vegas, the NCR
+  Emergency Radio) are heard and never subtitled; `radio-pipboy` now expects none.
+- **69 — Fallout 3 music: no change made.** No missing condition found: FalloutNV.esm's
+  own controllers list 11 Fallout 3 location sets beside New Vegas, Fallout 1 and 2 sets
+  (18 controllers, 171 of the 572 audio markers, 64 out in the Mojave, e.g. the generic
+  Peaceful, Mystical, Dangerous and Military controllers, Novac, Boulder City, the Tops,
+  Gomorrah, the crashed B-29); the sets are built exactly like New Vegas's single-piece
+  sets. Only the controllers' `NAM1` (looping option, "Faction Not Found") is not
+  decoded: if the original plays a list in order rather than at random, the Fallout 3
+  pieces would come up in turn, not by chance (audio.md §13.5). *Check:* where did you
+  hear it? Round Goodsprings the nearest such marker is a generic "Mystical" one
+  (radius 3000) about 15,300 units from the town's marker; inside the town's radius the
+  Goodsprings set plays. If you heard it inside Goodsprings or Doc Mitchell's house,
+  that is a bug to chase with the `music:` log lines.
+
+
+## List 5 — claude/l5-world-objects (2026-10-16, laptop L3: items 59, 65, 64, 4)
+
+- **59 (motorcycles outside the saloon):** the three are STAT references
+  (`Motorcycle01Static`), but their model `vehicles\motorcycle01.nif` has one dynamic
+  Havok body (Props layer, 600 kg), the same model as the moveable static `Motorcycle01`.
+  So the NIF cannot be what keeps them still in the game; the record type is.
+  *Decision:* a placed STAT or SCOL never moves: its dynamic bodies are made fixed
+  (physics.md §4.3.2). This also fixes the 1,131 other STAT references with dynamic models
+  (mostly the `1stPerson…` weapon statics). MSTT, items, containers and activators move as
+  before. `fnvtool phys cell` (the parity lab's rule) is unchanged. *Check:* walk into the
+  saloon's motorcycles (they should not move), and push a tumbleweed and a Sarsaparilla
+  crate (they should still move).
+- **65 (animated containers):** containers whose model has Open and Close sequences
+  (school lockers, footlockers, safes, toolboxes, ammo boxes) are now drawn with their
+  moving parts and timed like doors that open in place. Opening one plays Open (0.13–0.5 s)
+  and the container menu opens when it ends; closing the menu plays Close. Their sounds are
+  the sequences' `Sound:` keys (`DRSLocker01Open`, `DRSSafeOpen`, …): these CONT records
+  have no open or close sound of their own. *Guess:* the menu waits for the whole Open
+  sequence (at most 2 s). A container with both its own SNAM/QNAM sound and sound keys
+  would play both; none of the ones checked has both. *Check:* the school house's lockers,
+  footlocker and toolbox and Ringo's floor safe: does the door or lid open before the menu
+  and close after, and are the sounds right?
+- **64 (open after lockpick or hack):** when a lock is picked or forced open, the lockpick
+  menu closes and the door or container is then activated as if you had pressed E on it
+  (a door opens or takes you through, a container's menu opens, after its Open
+  animation). Terminals already went on to their menu after the right password; that is
+  unchanged. *Check:* pick a locked door and a locked container.
+- **4 (weapon animations in the viewer):** `nvf-viewer --weapon-review 2hr` (or `1hp`,
+  `2ha`, `2hh`, `2hl`, `1hm`, `2hm`, `h2h`, `1gt`, …) shows a male NPC with a weapon of that
+  type drawn. A / Shift+A step through the cases: standing, walking and running in all four
+  directions, every attack of the type standing and while walking each way, each from the
+  hip and aimed down the sights where the type has sights clips. The screen and the log
+  name each case and every clip it plays (`weapon review: [n] … : 2hrleft.kf + 2hraimis.kf
+  + 2hrattackleftis.kf`), so broken ones can be listed by case number or clip name.
+  Options: `--weapon-mesh <path>` for another weapon model (default: Varmint Rifle, 10mm
+  Pistol, Assault Rifle, Minigun, Missile Launcher, Machete, Sledgehammer, Frag Grenade;
+  the fists have none), `--sneak` for the crouched forms, `--case N` to start at a case.
+  The clips are picked and blended the way the game's actors do it (idle or movement,
+  then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
+  jams, equip and holster. *Check:* run it for each type and list the broken cases.
+
+## Fire and poison: hit effects and the burning look (2026-10-16, branch claude/fire-poison-effects)
+
+What a hit now applies besides its damage (docs/spec-notes/hit-effects.md): the flamer's
+and the Shishkebab's "Burning" (2 health a second for 5 s), the incinerator's and the
+incendiary grenade's (through their explosions: 4/s for 8 s, 6/s for 15 s), a cazador's
+poison (on the player 5/s for 30 s and −25 AP, the record's own condition; on NPCs 18/s
+for 8 s) and the radscorpions' (3/s for 5 s, 8/s for 10 s). Fire resistance and poison
+resistance cut them. A burning actor shows the game's `Flames01` shader: an orange glow on
+its outline and flame particles rising off its body (and `Smoke01` smoke from the
+flamer's script). Guesses to check:
+
+- **A second hit refreshes, it does not stack.** A flamer hit on someone already burning
+  starts the 5 s again; the burns do not add up. The same for poisons: a second cazador
+  sting restarts the 30 s rather than adding a second 5/s. *Check:* in the game, does a
+  cazador's second sting double the poison (two "Poison" entries), and does a burn last
+  5 s after the last flamer hit?
+- **Radscorpions poison with every blow.** Their record ties the poison to the
+  "AttackForwardPower" attack; NVForever's creatures do not play their forward power
+  attacks yet, so every blow poisons. *Check:* does a radscorpion poison only with its
+  lunging sting?
+- **Corpses burn on.** The burn's records say it is not dispelled by death (and the
+  flamer's script lights up a corpse), so a target killed by the flamer keeps burning for
+  the rest of its 5 s; a poison ends at death. *Check:* do killed actors burn on?
+- **How many flames.** The record's birth ratio (30, then 15) has no documented unit; it
+  is read as 6 particles a second per unit (90 a second while it burns). The flames start
+  at the body's bones, 10 units out. *Check:* screenshots `player_burning.png` and
+  `npc_burning.png` of the smoke runs `flamer-burns-player` / `flamer-burns-npc` against
+  a burning actor in the game: more or fewer flames, bigger or smaller?
+- **Fire resistance like poison resistance.** The GECK wiki says only that poison resist
+  is "the percentage of poison damage that is ignored"; fire resistance is read the same.
+- **God mode** (tgm, `NVF_PLAY_TEST_GOD`) keeps all hit effects off the player, not only
+  the damage.
+- **Resistances show in the numbers.** The player's Poison Resistance (20 % at
+  Endurance 5) makes a cazador sting 4 a second and a large radscorpion's 6.4.
+- **Creatures a script places now fight** (your report). PlaceAtMe of a creature or NPC
+  (or a leveled list of them) makes a real actor from the next frame: drawn with its
+  skeleton, walked by the AI, sensing and sensed, attacking enemies as placed actors do
+  (smoke `placeatme-fights`: a cazador placed at the player in Goodsprings attacks and
+  poisons). Before, it was drawn as a frozen model and nothing ever noticed it. *Check:*
+  scripted spawns in the game (ambushes) come at you.
+- Not built: the weapons' critical effects (the flamer's "Burning Explosion"), the
+  flames' add-on fire-ball models, the poison's screen effect.
+## Creature speeds, cazador flight, turning (2026-10-16, branch `claude/cazador-movement`)
+
+Your report: cazadors move far too slowly and their movement stops and starts like
+Victor's used to. Details and numbers: docs/spec-notes/actors.md §8.10.
+
+- **Speed, measured in the original game.** Every creature walked at the people's 87 and
+  ran at 344 units/s. I watched cazadors in the original with the AI observer (your tip:
+  the calm ones at the Tribal Village with `tdetect`, and spawned ones charging in god
+  mode). They move at their clip's own speed × size × Speed Mult × 0.70: young cazadors
+  walk 228 and charge at up to 576 units/s, the full-size ones 380 and up to 974. Every
+  creature now moves by that rule, so small ones (your half-size radscorpion) are slower
+  than the big ones of their kind. *Guess:* the 0.70 holds for all creatures; I only
+  measured cazadors.
+- **Flying when alert.** As you said: cazadors move on their ground clips while calm and
+  on their flying clips (`h2hforward`, `h2hfastforward`) when Alert, in Combat or
+  searching. Dogs and the mirelurk king have such clips too and switch the same way.
+  *Guess:* the switch is immediate (no blend between the two sets).
+- **Stop-and-start.** Three causes, all fixed: (1) a cazador's run speed of 344 sat right
+  on the point between its walk and run clips, so small slow-downs swapped them; (2) a
+  one-frame jump in a creature's drawn speed started a fade to the run clip and back (the
+  hitch); the walk/run choice now follows a speed smoothed over 0.2 s with a margin;
+  (3) creatures stopped to turn on the spot at the people's 120°/s before every short
+  walk. In the original cazadors turn at about 300°/s (full size) and 137°/s (young),
+  mostly while moving; creatures now turn at 300°/s × their size, and stop to turn only
+  when they face more than 60° away. *Guesses:* the size rule and the 60°.
+- **Deathclaws had no walk:** their walk clip is spelt `mtfoward.kf` in the game data; it
+  is found now.
+- **Deathclaws' and ghouls' alert look** (claws and hands raised) came in with #326
+  (`creature_stance.rs`, actors.md §9).
+- *Check:* the cazadors at the Tribal Village (calm, then shoot one); a deathclaw walking;
+  a small radscorpion.
+## Scripted weapon use: UseWeapon and Use Weapon packages (2026-10-16, session "use-weapon")
+Built (docs/design/use-weapon.md): an actor told to use a weapon walks to where it is to
+stand, draws, turns to its target and fires its shots. My choices and guesses, to confirm:
+- **A script's use beats the fight.** The shipped scripts call StartCombat right next to
+  UseWeapon (e.g. a trigger that has an actor fire four shots at someone, then fight you),
+  so the use runs first and the combat AI takes over after the last shot. A *package's*
+  use waits while the actor is in combat, like other package doings.
+- **Shots.** The function's count is one volley at the weapon's own rate (semi-automatics
+  wait their record's semi-auto delay between shots). For packages: Number of Bursts =
+  that many volleys, each a random size between Shots Per Volley min and max; Volley Fire
+  waits a random pause between volleys, Auto Fire does not; Repeat Fire goes on until the
+  package changes.
+- **Always Hit** = no spread at all, straight at the chest (cover can still stop it).
+  **Do No Damage** = the shot flies, hits, shows its impact and makes its sound, but no
+  damage, no OnHit, no explosion.
+- **Hold Fire When Blocked** only looks at people in the line of fire, not walls.
+  **Target should be here**: the target must be within 256 units of that reference.
+- **Crouch To Reload** crouches the actor while its weapon reloads (ammo is unlimited, as
+  for the combat AI, so it only reloads when its magazine is empty).
+- **Not built:** melee weapon use (the use ends at once), swapping the model in the hand
+  when the use names another weapon (that weapon's shots come out of the gun drawn),
+  grabbing a weapon the actor does not carry, the 9 packages' location 2.
+- **Check:** `python tools/smoke run --only use-weapon` (Violet fires three harmless,
+  always-hit shots at you). In the game: Archimedes II's targeting sequence and the
+  Cachino/Big Sal killing in the Gomorrah quest use it.
+## Combat lines and effort sounds (2026-10-16, session "combat dialogue", branch claude/combat-dialogue)
+
+The Combat tab's topics are now said in fights (docs/spec-notes/combat-dialogue.md). From the
+GECK wiki's Combat Tab page: Hit when a hit takes more than `fCombatSpeakHitThreshold` (1 %) of
+the actor's health or by `fCombatSpeakHitChance`; Attack and PowerAttack at most once per
+5–30 s per actor (`fCombatDialogueAttack…ElapsedTime`); Death always. The player's lines are the
+`GenericPlayer` quest's (PlayerVoiceMale grunts for Hit, PowerAttack and Death). Creatures and
+robots say Hit and Death lines whose response is a sound (`NPCBrahminInjured`,
+`FXExplosionRobotBuzz`, …): it plays where they stand instead of a voice.
+
+*Guesses:* "health" for the Hit threshold and for HealthHalf/HealthQuarter is the actor's
+base health; `fCombatSpeakAttackChance` (0.01) is not used, the timer alone decides (a 1 %
+chance per attack would make Attack lines rare); FireExplosive shares Attack's timer;
+Crippled, HealthHalf and HealthQuarter replace that hit's Hit line when the actor has one;
+a Death line goes on after its speaker died; the nearest living member of the dead actor's
+group within 1,536 units says DeathResponse after the Death line; combat lines get no group
+cooldown (unlike the Detection lines), so every dog of a pack yelps when hit; no combat line
+is said by an actor already saying a line.
+*Check:* fight the Goodsprings dogs or Fiends with sound on: do you hear your own grunts when
+hit and on a held (power) melee swing, the dogs' injured yelps, NPCs' battle cries no more
+often than every few seconds, and a death line when someone dies? Is anything too frequent?
+*Not built:* NPC power attacks and grenades (so their PowerAttack and FireExplosive lines),
+AvoidThreat, Yield, KnockedBack, OnFire, Poisoned, Wake and the Response topics other than
+DeathResponse.
+
+## Cook-Cook's flamer: steady fire and hands on the gun (2026-10-16)
+
+Your report: firing, Cook-Cook jittered as if the flamer had recoil (his shoulders moved
+a lot), and his hands did not line up on the flamer, as with the minigun before. Branch
+`claude/npc-heavy-weapon-pose`. Facts: `docs/spec-notes/animation.md` §9.7 and §9.8.
+
+1. **Jitter:** every flame shot started the firing animation again from its start, many
+   times a second. Now the animation keeps running through the burst, going round its
+   steady middle part, as yours does with the minigun, and plays out when he stops.
+2. **Hands:** the minigun fix (the gun stays where the draw animation put it) was only
+   on your character. NPCs have it now too: the flamer is held forward, right hand on
+   the rear grip, left hand on the top handle. It also applies to NPCs' miniguns, gatling
+   lasers and pistols.
+3. **My guess, for you to check:** NPCs start the firing animation at its steady part
+   (no spin-up), since their shots leave at once. A game look at Cook-Cook firing,
+   from the side, would confirm the arms.
+
+## Controller support (2026-10-16, branch claude/controller, stacked on claude/key-rebinding)
+
+Design: docs/design/controller.md; facts: docs/spec-notes/controls.md §2.1. Settings page
+→ Controls → first row **Input Device** (Keyboard and Mouse / Controller), also `Input
+Device=` in `[Controls]` of NVForever.ini; the buttons are in `[Controller]`.
+
+To check with a controller in the original, my guesses:
+
+1. The game's controller byte read as buttons: Grab on a press of the right stick and
+   Toggle POV on LB are guesses (A/B/X/Y, LT/RT, RB = V.A.T.S., Back = Wait, left stick
+   press = Sneak follow the published console layout). Ammo Swap's code `01` is not
+   placed; I put Hotkey1, Ammo Swap, Hotkey3, Hotkey4 on the D-pad (up, right, down, left).
+2. Right stick look speed: the game's `fXenonHorizLookSpeed=1500` / `Vert…=1200` read as
+   1.5 / 1.2 radians a second at full push, the push squared. Too fast or slow?
+3. The left stick walks under 0.6 of a full push (Always Run on), runs beyond.
+4. With Controller chosen the keyboard and mouse no longer work the controls (Esc and
+   the console still do). Should both work at once instead?
+5. ~~The prompt under the crosshair shows "A)" as text; the original shows the A button's
+   picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.~~ *(stale 2026-10-19: superseded by status.md:62 ("button pictures, each menu's own buttons and hints that follow the device (#345)").)*
+6. **Rumble** (branch claude/controller-rumble; docs/design/controller.md §4): `Rumble=1`
+   in `[Controller]`, a Rumble row at the end of the Controls tab with Controller chosen.
+   All my guesses, to feel with a pad against the original:
+   - firing: by weapon weight, a 2 lb pistol a short buzz (weak 0.38, 0.08 s), 20 lb and
+     up the most (strong 0.7, weak 0.7, 0.2 s); melee swings do not rumble;
+   - taking damage: strong 0.35 to 1 by the share of health lost (a quarter or more the
+     most), 0.15 to 0.45 s;
+   - a hard landing from 600 units/s (a drop of about 260 units), the most at 1200;
+   - explosions: full within the blast radius, none 1400 units beyond it, up to 0.6 s.
+   Does the original rumble on other things (being hit by melee only, low health, V.A.T.S.,
+   the Pip-Boy)?
+
+
+## Draw-distance sliders (2026-10-16, branch claude/render-distance-sliders)
+
+Settings → Display has five sliders, drawn like the "How many?" meter (ticks, an arrow
+at each end, the value as a percentage): Object, Actor, Item, Shadow and Grass distance.
+Each is a part of a full distance, 10% to 100% in 5% steps; Left/Right, the arrows or a
+press/drag on the meter move it; it is kept in `NVForever.ini` [Settings] (`object-distance=0.50`).
+Choices I made, each easy to change:
+- **Full distance for objects, actors and items**: nothing culled them before but their
+  cells, so 100% is the farthest a loaded cell reaches, `(--radius + 1)` cells along both
+  axes (17,377 units with the default radius 2), and 100% draws exactly as before. 50%
+  draws what is within 8,689 units of the camera.
+- **Fade**: past its distance a mesh dithers out over a further 10% of it (the cell fades'
+  dither), then is culled, shadow included.
+- **What counts as what**: actors are NPCs and creatures with everything they wear and
+  hold; items are references whose base is an item you can take (WEAP, ARMO, AMMO, MISC,
+  ALCH, BOOK, NOTE, KEYM, IMOD, CHIP, CCRD, CMNY) and items dropped in the game; objects
+  are every other placed model in a loaded cell. Distant LOD, imposters, terrain, water and
+  trees are not touched.
+- **Shadows** are a part of `--shadow-distance` (8,000) and **grass** of `--grass-distance`
+  plus its fade range (7,000 + 1,000).
+## NPCs crouch, block and close in by context (2026-10-16, branch claude/npc-crouch-block)
+
+Your request: NPCs crouch to fire at a distance or block with a melee weapon, by context,
+not predictably, people only. Spec and rules: docs/design/combat-ai.md §14. Every number
+below is my choice; tell me any you want changed.
+
+- **Crouching**: a gunman that sees its target, has stood still 0.5 s, with the target
+  beyond 600 units and no close-combat enemy within 1,500, rolls every 1.5–4 s to crouch.
+  The chance is 25–90 % by a per-fight temperament, lower nearer than 1,400 units.
+  Crouched, it now and then stands and shifts 128–320 units sideways. A crouched NPC
+  drops the spread's standing term, as the player does, and is drawn with the game's
+  `sneak…aim` and `sneak…attack` clips. Its eyes for shooting are at 0.65 of the standing
+  height (not measured).
+- **Cover first**: a person whose style's take-cover roll fails gets a second chance of
+  up to 40 % by temperament, so even styles with 0 (CSRaider) sometimes look for cover. Behind **low
+  cover** (hides the crouched eyes only) it hides crouched and stands to fire.
+- **Blocking**: only people with fists or a melee weapon, only against a close-combat
+  opponent, never against a gunman. The chance is the wiki's documented melee decision
+  (block first); FalloutNV.esm's default styles give 80 % while the opponent swings and
+  40 % otherwise. It also reacts to a swing after 0.12–0.35 s, facing the attacker. A
+  blocked blow loses 60 % (the existing `CombatTuning::block`) and the NPC attacker
+  recoils for 1 s. **Your own block (Block held with a melee weapon) now reduces NPC
+  blows too**: the rule existed but was never applied.
+- **Closing in**: a melee person against a gunman that can see it and is more than 1,000
+  units off bounds from cover to cover (back of a navmesh cover edge, 250+ units nearer,
+  within 50° of the line, hidden from the gunman), pausing 0.4–1.6 s at each. With no
+  such cover it charges. About half (by temperament) stay by a gunman of their group
+  until the target is within 900 units of either, the target fights in close combat, or
+  10–25 s pass.
+- Not built: the player recoiling when an NPC blocks; switching a guard to whoever
+  rushes the gunman it guards (it fights its own combat target).
+## NPCs chain melee combos (2026-10-16, branch claude/npc-melee-combo)
+
+Your request: melee enemies chain attacks into combos with different clips. Rules:
+docs/design/combat-ai.md §15. My choices, tell me any you want changed:
+
+- An NPC decides again at the clip's `a:` key (the same key the player's combos use);
+  if it attacks then, the next swing is the group the key names (right, left, right…).
+  It goes on by its combat style's attack chance (55 % for the default style), so combos
+  are mostly two or three blows; a hold, block or recoil ends one.
+- The next clip cuts the last one at the `a:` key, as the player's does.
+- No NPC power attacks yet.
+
+## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
+
+Your request: an unequipped flamer should show the flame tank on the back and no weapon,
+as your minigun does. Branch `claude/npc-heavy-holster`. Facts: `docs/spec-notes/animation.md` §9.7.
+
+1. **Built:** NPCs now read the same two things from the game files as your character:
+   the flamer's tank (and the minigun's backpack) hangs from the upper back, and the gun
+   part is switched off while holstered and on half way through the draw, by the
+   animations' own show/hide tracks. Checked on Cook-Cook: holstered, the tank on his
+   back and empty hands; drawn, the flamer in both hands with the tank still on the back.
+2. **Also:** NPCs' miniguns and gatling lasers get the same. Under a package that keeps
+   weapons put away, the tank is hidden with the rest of the weapon; it is not counted as
+   part of the gun when hits on the weapon are worked out.
+3. **Your character's flamer** already worked this way (it uses the same rule as the
+   minigun); I did not take a new look at it.
+
+## Key names in tutorial messages (2026-10-16, session "key-tokens")
+
+Branch `claude/key-tokens`: the sneak tutorial read "To sneak or crouch, &sUActnCrouch;."
+(owner's screenshot).
+
+**Fix.** The game's texts use 16 control strings (every `&…;` in FalloutNV.esm); five are
+not the INI's names: Sldleft and Sldright (mapped before), and now Crouch (Crouch/Sneak),
+Rdyitem (Ready Item) and ToggleRun. A control bound only to a mouse button names the
+button ("Left Mouse: Attack"). The keys are read when the message appears, so a key
+rebound on the Controls page shows in the next message.
+*Guesses for you to check:*
+1. ToggleRun ("To toggle between run and walk, …") is the Always Run key (Caps Lock).
+2. The original's words for keys are not known: modifiers read "Left Ctrl", "Left Shift",
+   mouse buttons "Left Mouse", and `&sDeviceMouse;` ("… Look around") reads "Mouse".
+   A screenshot of the sneak tutorial or the controls help in the game would settle them.
+
+## Talking gestures (2026-10-16, branch claude/talk-gestures-bc034f)
+
+Your report: lips move but heads and bodies stand still while NPCs talk. NPCs in the
+dialogue screen, and both actors of a conversation between NPCs, now play the IDLE
+tree's talking and listening clips (spec: docs/spec-notes/idles.md §12). The tree picks
+mood, sitting or standing, power armour and arms crossed by itself. My guesses, each
+worth a look in the original:
+
+- **When a new clip starts**: at each new response, when the NPC stops talking (it
+  listens while you choose), and whenever a clip ends while it is still talking. Talk
+  clips are 3–7 s, so a long response gets several. A new response cross-fades the clip
+  at once rather than letting it finish.
+- **Random rolls**: each `GetRandomPercent` condition is a fresh roll. The mood groups'
+  rising thresholds (11, 22, … 88) look written for one shared roll, which would split
+  the clips evenly; with fresh rolls the later clips in a list come up more often.
+- **Arms crossed sticks**: once an NPC crosses its arms (5 %, at most once per 240 s)
+  the tree keeps them crossed for the rest of the conversation (`IsLastIdlePlayed`, a
+  function the GECK docs do not describe; I read it as "the last idle played was X").
+- **NPC-to-NPC conversations** count as the dialogue procedure for the tree
+  (`GetCurrentAIProcedure` 4, `GetCurrentAIPackage` 6), else their branch could never
+  be reached.
+- **The listener's mood** is Neutral (`GetDialogueEmotion` is read from the actor's own
+  line).
+- **SayTo lines, hellos and barks** get no gestures: the tree's dialogue root wants the
+  dialogue screen or a conversation. Doc Mitchell's SayTo lines in the opening therefore
+  still use only their own speaker idles.
+- **Replay delays** are read as seconds (as for the weapon fidgets).
+- ~~Not done: the `.lip` files' head and look channels.~~ *(stale 2026-10-19: superseded by "Faces in conversation: head nods, eyes, emotions, blinks".)*
+## Script function audit (2026-10-16, branch claude/serene-chaplygin-ee2772)
+
+Every registered script function checked for "the engine knows it, the rules never hear it"
+and for constant answers (docs/design/script-function-audit.md: the table, the three
+captures, what is left). Fixed 35, matching 283, 25 gaps left, 18 open.
+
+*Decisions for you to check:*
+1. **NPCs dress the first time their cell loads**, by the engine's wearing rule (armour by
+   DT, then DR; a slot taken stays taken) and the highest-damage weapon it can draw. In the
+   original Sunny Smiles read GetEquipped 0 for her armour and rifle before her cell ever
+   loaded and 1 after (and kept it). The weapon rule is still the engine's guess.
+2. **GetDayOfWeek** now counts from Sunday 13 October 2281 on a 365-day calendar, as the
+   wait menu already did: the original read Friday (5) on 25 October 2281, and your
+   screenshot shows 19 October as a Saturday. Package schedules by weekday follow, so some
+   NPCs keep a different day than before. Leap days are not checked.
+3. **GetOpenState** reads 3 for every closed object (doors, containers, even activators) and
+   0 for actors, as nine objects and Ringo did in the original.
+4. **SetPos / SetAngle / MoveTo** now move what is drawn at once (actors teleport, objects
+   redraw, the player travels); before, the stored value was overwritten.
+5. ~~**Unconscious actors no longer walk** (a guess); they still stand, as lying down is not
+   built.~~ *(stale 2026-10-19: superseded by status.md:52 (knocked-out actors drop as ragdolls and get up with the get-up clips, 2026-10-17) and "Knockdowns".)*
+6. **IsWeaponOut** of an NPC the engine is not drawing follows the draw rule (alerted, Weapon
+   Drawn package, a weapon use), so it reads 1 at once where a drawn NPC reads 1 only once
+   the draw animation ends (the original: 0 three frames after SetAlert 1, 1 by 180 frames).
+
+*Open, for the next capture batch (§4 of the audit):* GetDisposition read 35 for Sunny and
+Trudy (our stub returns 0; 15 dialogue conditions test it); GetCurrentAIPackage read 34
+for Sunny while unloaded and 6 once loaded; GetCauseofDeath of a live unloaded coyote
+read 0 where the wiki lists −1 for none; NPC door use and OnActivate; far NPC fights.
+
+~~*Follow-up proposed:* make the engine dress and arm NPCs from the items the rules have
+equipped, so scripted EquipItem/UnequipItem show and the two leveled rolls agree.~~ *(stale 2026-10-19: superseded by "NPCs drawn as the rules equip them".)*
+
+## Blackjack at the casino tables (2026-10-17, branch claude/blackjack)
+
+Built from the game's own files: the casinos' records (decks, shuffle point, 3:2 payout,
+the soft-17 rule, max winnings, the chip), the tables' scripts (ShowBlackJackMenuParams),
+`black_jack_menu.xml`, the table/card/chip models with their deal, reveal and discard
+sequences, the `GAMEBlackJack…` sounds and the `HelpBlackjack` message
+(docs/spec-notes/blackjack.md). Smoke `blackjack`; screenshots in `target/smoke/blackjack_*.png`
+of a run. Guesses a screenshot or a few hands at a real table would settle:
+
+- The words on the deal-phase buttons (Deal, Increase Bet, Decrease Bet, Max Bet, Exit Game,
+  taken from the menu file's comments), the result line ("Blackjack. Dealer has 16. +37") and
+  the refusals ("You need Gomorrah Chips to play here.", "You have been banned from gambling at …").
+- Choices that do not apply are hidden, not dimmed; the bet starts at the table's minimum and
+  steps 1 / 5 / 25.
+- The dealer does not peek for a natural; split aces play on normally; one split only;
+  surrender gives half back rounded up.
+- Winnings levels 1–3 (the floor manager's comps) at a quarter, half and three quarters of
+  the casino's max winnings; at the max the round ends, the menu closes and a corner line
+  says the player is banned.
+- The camera, the lights and where the bet's chips stand are fitted by eye to the one
+  screenshot.
+
+## NPCs drawn as the rules equip them (2026-10-17, branch claude/npc-equip-drawn)
+
+The engine now dresses and arms every NPC by what the rules have equipped
+(`fnv_sim::World::equipment`), and redraws it when a script's EquipItem/UnequipItem or a
+taken item changes that (engine/nvforever/src/outfits.rs; smoke `npc-equip-drawn`:
+Sunny Smiles put into Trudy's outfit, her varmint rifle taken off and put back). Combat's
+worn armour reads the same items. Creatures are unchanged. What to look at:
+
+- **NPCs with a fixed outfit look as before** (Sunny, Trudy, Joe Cobb, Easy Pete: the two
+  rolls already agreed). Sunny's screenshots before and after EquipItem are in
+  `target/smoke/play-*.png` of an `npc-equip-drawn` run.
+- **NPCs whose outfit is a random leveled pick now wear the rules' roll instead of the
+  engine's own.** One run each: of the 9 Fiends at the camp west of Violet, 5 wear other
+  armour pieces and 2 hold other weapons (e.g. 000FF561 a 9mm pistol in place of a 10mm
+  pistol); at the tribal village 12 of the dead Fiends and nearby actors wear another
+  piece (e.g. 001578F9 other leather/headgear). Which pieces is still a roll, so it is no
+  closer to or further from your game, only consistent with what looting the body gives.
+- **An NPC whose cell the rules never loaded** keeps the engine's own pick until the rules
+  hold its inventory, then changes to the rules' pick at once (it may change in view at the
+  edge of the streamed area) [design].
+- **A weapon put on by EquipItem goes to the holster**, not the hand; the NPC draws it as
+  usual (combat, package flags). A corpse given a weapon is not armed.
+- Seen while testing, not changed here: Sunny's rifle is hidden while her
+  SunnyMeetPlayerDialoguePackage (Weapons Unequipped) runs (alert.rs), so it does not show
+  in her conversation screenshots.
+
+## Crippled-limb picture on the HUD (2026-10-17, branch claude/crippled-limb-hud)
+
+A crippled limb shows the Vault Boy at the top right for 5 s (docs/spec-notes/hud.md §12;
+smoke `hud-crippled-limbs`, screenshots `limbs_leg.png`, `limbs_arm.png`,
+`limbs_hidden.png` in `target/smoke/`). Size and place are fitted to your screenshot. My
+guesses to check against the game:
+
+- **The face by health**: 00 above 80 %, 01 above 60 %, 02 above 15 %, 03 above 0, 04 at
+  0. Only "02 at about 15 %" is from your screenshot; the other steps are guesses, and
+  `face_10` (tongue out) is unused. A screenshot of the picture at a few health levels
+  would settle the steps.
+- **The flash**: the HUD's red pulsing between full and a third of it every 0.6 s. Your
+  screenshot caught a dim red; how fast the original flashes, and whether it fades in or
+  out at the end, I could not see.
+- **A second crippling while it shows** starts the 5 s again and only the new limb
+  flashes; healing a limb shows nothing.
+
+## Animation state told to the rules (2026-10-18, branch claude/blockers-anim-state-d26319)
+
+The engine now tells the rules what each body does every frame (docs/spec-notes/anim-state.md;
+smoke `anim-state`). The codes are the wiki's New Vegas table, checked against the AI
+observer's gunfight and melee runs. My choices, to check against the game:
+
+- **Where a shot's 2, 3 and 4 change**: 2 on the shot's first frame, 3 the frame after, 4
+  for the rest of the clip. The observer saw 2 for 2–4 frames on semi-automatic guns, and
+  the bolt-action rifles (varmint, hunting rifle) held 3 for about 0.45 s, through the
+  bolt; NVForever holds 3 one frame for every gun.
+- **A blow's 2 to 4** at the clip's Hit key (the observer saw 2 then 4, no 3, for the
+  baseball bat and creatures; where it changes is my guess).
+- **17**, seen on the .357 revolvers for about two seconds before most of their reloads'
+  9, is not in the wiki's table; NVForever never answers it. A capture of a .357 reload
+  with GetAnimAction every frame and the clip playing would say what it is.
+- **13** for PlayIdle idles, a package's begin/end/change idles, cowering, PlayGroup
+  groups on actors, crippled-limb staggers and the player's jams; not for fidgets,
+  idle-marker idles or talking gestures (the observer's sitters and talkers read −1).
+- **IsMoving** of the player is the movement keys even against a wall ("requesting to
+  move"); a diagonal reads the larger axis, forward and back on a tie.
+- **IsAnimPlaying** on an actor reads its movement group (Idle, Forward, FastLeft …)
+  after any PlayGroup group; walking and running counting like Idle is my guess. An actor turning
+  in place reads Idle, not TurnLeft or TurnRight (also a guess).
+- **IsIdlePlaying** reads 1 on beds as on seats (only a seat was observed).
+- **IsPlayerActionActive**: only 9 (iron sights) is answered, as the wiki names only it
+  (and 8, standing on a table or chair, which NVForever's player never does); the
+  others read 0. The wiki export lacks the ActionIndex list; a capture of indices 1–10
+  while firing, sneaking and aiming would give it.
+## Saves from scripts and PlaceAtReticle (2026-10-18, branch claude/blockers-save-reticle-d710e4)
+
+SystemSave, ForceSave and PlaceAtReticle are built (docs/spec-notes/script-saves-and-reticle.md;
+smoke `script-saves-reticle`). The wiki leaves these open; my choices:
+
+- **SystemSave waits** for a moment saving is allowed (after a conversation, a menu or a
+  loading screen), as an autosave does, rather than being dropped: the one base-game use
+  is the save before the battle for Hoover Dam. It writes the slot `systemsave` (load page
+  kind "system"); the previous one is kept as `.bak`.
+- **ForceSave fails** when saving is not allowed at that moment, as a save by hand does
+  (the wiki: it fails while a message box shows). It names the save `Save <n>` as the
+  pause menu's Save button does.
+- Both follow the **"Save when a script asks"** switch (formerly "Autosave when a script
+  asks"; INI key unchanged).
+- **PlaceAtReticle**: the crosshair's ray out to 50000 units; left out, maxDistance is
+  50000; nothing hit within it places nothing and returns 0; the new reference goes in the
+  player's cell, turned to the player's heading, exactly at the hit (not lifted off the
+  surface). A game check of where `player.placeatreticle Stimpak 1` lands, and what it
+  returns while looking at the sky, would settle these.
+
+## Angry faces in combat (2026-10-18, branch claude/compassionate-mendel-e1faec)
+
+An actor in Combat shows its heads' `CombatAnger` morph, fading in over 1 s and back out
+over 1 s when the fight ends (docs/spec-notes/combat-face.md; smoke `combat-face`). The
+weight is handed to lips.rs, which draws faces (lipsync.md §5.4); frames
+`combat_face_1..3.png` (smoke `combat-face-frames`) in `target/smoke/` show Violet
+during the fight, `combat_face_0.png` before it. No game animation
+carries the combat face (none of 2,450 character `.kf` files names it), so everything
+about when and how strongly it shows is my guess:
+
+- **When**: only in the Combat state, not while Alert or searching (Lost).
+- **Strength**: the whole morph (MFG 100).
+- **Timing**: 1 s in and 1 s out, linear (the GECK wiki says MFG faces "take a second or
+  two" to come on; the way out is not described).
+- **Who**: every human and ghoul with a head, children too; the player's own face is not
+  changed; a corpse's face eases back to rest.
+- **With dialogue emotions**: a response with an emotion (Anger, Fear …) takes over from
+  combat anger while it is said ("one expression at a time", GECK wiki); a Neutral bark
+  keeps the angry face and the mouth moves on top of it.
+
+A short video of a Fiend turning hostile, from about the dialogue camera's distance,
+would settle when the face changes and how fast.
+## Faces in conversation: head nods, eyes, emotions, blinks (2026-10-18, branch claude/youthful-nash-9421f5)
+
+Speakers' heads now nod from their `.lip` files, their eyes move with them, a line's
+emotion shows on the face, and faces near the camera blink and move their eyes between
+lines (docs/spec-notes/lipsync.md §3.3, §5.1–§5.3; smoke `lip-head-turn`, `lip-emotion`,
+`face-idle`, `lip-eye-turns`). My guesses to check against the game:
+
+- **How far a head nods.** The files give the head turns in a unit nothing documents. I
+  took **one unit = one radian**: a typical swing is 2–4°, the largest about 10°. The
+  other reading the files allow would make the nods about a fifth of that (1°, hardly
+  visible). A capture job is queued to settle it with the console's `mfg` command:
+  `tools/capture/jobs/lip_head_units.steps.json` (save `nvfdoc`, about 2 minutes,
+  pictures of Doc Mitchell in profile and from the front with HeadPitch, HeadRoll,
+  HeadYaw, LookDown, LookLeft and Anger at 100). Not run yet; it also checks that `mfg`
+  works the way I wrote it.
+- **Which way.** Positive pitch nods down, positive yaw turns to the actor's right,
+  positive roll tips the head to the right. Pitch and yaw follow from the eyes, which
+  the files turn the opposite way; roll is a coin toss.
+- **Emotions**: the head morph of the emotion's name (Anger, Disgust, Fear, Sad, Happy,
+  Surprise, Pained) at the response's value ÷ 100 × 0.6 (so the usual 50 shows at 0.3),
+  coming in over 0.3 s and added on top of the mouth shapes. The 0.6 is mine: at full
+  weight the expressions pull the mouth so far that the phonemes look wrong. Whether
+  the game shows emotions this strongly, at all for value 50, or uses the mood morphs
+  instead, I could not find out.
+- **Blinks and eyes between lines** are my design: a 0.2 s blink every 1.5–5 s (the
+  length and the mean spacing of the blinks in the `.lip` files), small glances every
+  0.6–2.5 s, and the eyes making up what head tracking's turn stops short of (up to about
+  13° to the side), for NPCs within about 10 m of the camera. Actors with head
+  tracking switched off (asleep, scenes) keep a still face. `--no-face-idle` switches it off.
+
+## Miscellaneous statistics and SetScale (2026-10-18, branch claude/blockers-miscstat-scale-d2c0d2)
+
+Playthrough blocker row 16 (docs/spec-notes/misc-stats.md). What I decided:
+
+- **The codes of the 43 statistics** are the order your Pip-Boy screenshot of 2026-10-14
+  shows (Quests Completed, Locations Discovered, People Killed, …). The first eleven, and
+  a few later ones, are backed by your screenshot, the five codes in the shipped scripts
+  and the counters in your saves (Total Things Killed = People + Creatures Killed in
+  Save 22). From Health From Stimpaks (16) on, the order is a guess. A screenshot of the
+  whole General list (scrolled to the bottom) would settle it.
+- **The Pip-Boy's General list** now shows the 43 in that order with their numbers, in
+  place of an alphabetical list with "--".
+- **What counts** (guesses where marked in the note): every completed quest, hidden ones
+  too; kills by the player only (not by companions); locks picked, not forced; Rad-X and
+  RadAway not also counted as chems; a doctor's bag is an item that only restores limbs;
+  Water Consumed is one per drink that lowers dehydration; Times Slept counts when a
+  sleep starts; Items Crafted is one per recipe made; Items Repaired only the Pip-Boy's
+  own repairs (not a vendor's); **Barter Amount Traded is the caps that changed hands**
+  (it may be the goods' value in the original); a challenge counts each time it
+  completes.
+- **Not counted** (no system yet): pickpocketing, dismemberment, disintegrations,
+  Caravan, slot machines, skill books, New Vegas speech-check successes and failures,
+  weapon mods, Pants Exploded, Paralyzing Punches, Mysterious Stranger, Miss Fortunate.
+  Sandman Kills, Robots Disabled and Corpses Eaten are counted by the game's own scripts.
+- **SetScale** draws placed objects and actors at the new scale and rebuilds an object's
+  collision; an actor's collision capsule stays as it was. `SetScale 0` (the game uses it
+  to hide an artillery piece) draws the object at 0.001 with no collision. The player is
+  not resized (the game only ever sets the player to 1).
+- **To check in game**: the General list against the original's, after a short session
+  of killing, picking a lock, using a stimpak and sleeping; `prid DocMitchellREF` then
+  `setscale 1.5` at the console (Doc should be half again as tall).
+
+## Look turning the whole body (2026-10-18, branch claude/blockers-look-body-33d444)
+
+A script's `Look target 1` now turns the actor's whole body to the target until StopLook
+(docs/design/script-stubs.md §3; smoke `script-look-body`: Sunny turns to the player in
+the Prospector Saloon). The wiki says only that the actor "will rotate his entire body";
+the observer's captures hold no Look call, so these are my guesses to check in the game:
+
+- **The rate.** An actor the AI runs turns at its walker's turn rate (as when it turns to
+  someone saying a line); a standing actor nobody runs turns on the spot like an actor
+  you talk to (about 150°/s, 0.5 to 1.4 s, and only when the target is more than 30° off
+  its front; the head covers the rest).
+- **A moving target.** The body turns again whenever the target gets 30° off its front,
+  until StopLook.
+- **After StopLook** the body keeps the heading it has; nothing turns it back.
+- **Walking actors** (a package walking them, a traveller) keep their route's heading;
+  only their head turns. A Look on Sunny or Easy Pete followed by a capture of their
+  heading (the observer) would settle the rate and whether the original stops a walker.
+- **Settled by capture (2026-10-19, AI observer `knockdown_look`) [observed]:** Ringo's
+  body turned at 140–145°/s (`LOOK_TURN_RATE` 145°/s), stayed within 1° of the player at
+  any angle (no 30° step), walked on to his chair with his body turned to the player, and
+  sat down only after StopLook; nothing turned him back. NVForever does the same now
+  (docs/design/script-stubs.md §3).
+
+## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
+
+Row 1 of docs/outstanding.md §1 (docs/spec-notes/unconscious.md §5; smoke
+`knockdown-push`). PushActorAway now lays the target down as a ragdoll thrown away from the
+source, and it gets up with the get-up clip; explosions' knockdown rolls now lay the actor
+down too (GetKnockedState 2). Guesses to check against the game:
+
+- **Time down**: 3 s of game time for a knockdown, then the get-up clip. No setting names
+  it. *Check:* `player.PushActorAway <NPC> 10` at the console; time how long it lies.
+- **Force scale**: 30 units a second per point of force, a quarter of it upwards (force 10
+  throws a body at 300 units/s, about 4 m/s). The wiki's "Havok force" is not converted.
+  *Check:* the same push; how far does the body slide?
+- **Settled by capture (2026-10-19, AI observer `knockdown_look`) [observed]:** RingoRef
+  pushed by the player lay 2.38 s from the push to his get-up in four of five pushes
+  (`KNOCKDOWN_DOWN` 3 → 2.4 s, the player's own 2.4 s), got up in 2.4–2.5 s (`GETUP_MAX`
+  3 → 2.5 s), flew about 30 units/s per point of force (`PUSH_SPEED` kept) and rose
+  220–240 units/s whatever the force (`PUSH_RISE` 220 replaces the quarter of the speed);
+  docs/spec-notes/unconscious.md §5.5.
+- **SetUnconscious alone does not lay anyone down.** Read from the scripts: robots standing
+  in pods and scheduled sleepers use it, and the thugs that fake death push their actor
+  down as well. It now also keeps a lying actor down until it is cleared (those thugs get
+  up only after being hit).
+- ~~**The player is never knocked down** (six scripts push the player); building the
+  player's own knockdown is a separate job.~~ *(stale 2026-10-19: superseded by "Navmesh switches, AI procedure codes, the player knocked down"; status.md:52.)*
+- **No KOed/Wake line and no corner message** for a knockdown (it is no unconsciousness).
+- **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
+  the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
+  only pushes].
+
+## Gun reach: no shots out of range, a distance per weapon (2026-10-18, branch claude/gun-reach)
+
+Owner request 2026-10-18 (Cook-Cook firing his flamer from cover as soon as the player is
+in sight; shotguns closer than sniper rifles, launchers clear of their blast). Rules in
+docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reach`,
+`combat-sniper-reach`. What is decided and what to check:
+
+- **No shot beyond the weapon's reach** is the GECK wiki's rule for Max Range
+  [documented]. The reach is the WEAP Max Range times the combat style's Ranged Weapon Max
+  Range Mult, cut to the projectile's Range (the flamer: 650 cut to its flame's 640).
+  *Check:* Cook-Cook's camp from the south ridge (about 1,700 units): he should only run
+  at you, not fire, until about 6 m away.
+- **Where each weapon stops** is unchanged in shape (80 % of its reach, 400 to 2,500
+  units), with guesses: it never stops beyond 90 % of its reach (`GUN_REACH_EDGE`); a
+  gun with an explosive projectile stops at least its blast radius + 64 units away
+  (`BLAST_MARGIN`); a flamer stops at half its reach, 320 (`FLAME_RANGE_SHARE`), as the
+  original's flamer trooper fought from 164–320; an area weapon (blast at least a quarter
+  of its reach, `AREA_BLAST_SHARE`) stops just clear of its blast: missile launcher 1,064,
+  grenade rifle 814, Fat Man 1,764. A sniper rifle still stops at 2,500 (the original's
+  backed off to 2,150). *Check:* are shotgunners (480) and flamers (320) close enough?
+- **No shot into its own blast** (a launcher with the target nearer than its explosion's
+  radius) and **a step back from it** (from the radius + 64 instead of 256 units): my
+  design; it does not switch weapons (weapon choice is not built). A missile trooper you
+  rush will back away and not fire. The original's missile trooper fought from 450–550
+  units, inside its own 1,000 blast [observed 2026-10-18]: you asked for them to keep
+  clear, so that stays. *Check:* whether you'd rather they fire anyway when cornered.
+- **Leaving cover**: a gunman at its cover whose target is beyond its reach leaves the
+  cover and closes in, and does not take that cover again; cover is now looked for within
+  its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
+  shoots at you from cover while you are far off.
+- **Min Range** stays unused (it is not a back-off distance; §12.6).
+- **A rifleman's stop stays at 80 % of its reach** (Violet's hunting rifle: 1,600). Before
+  this change she walked on past 1,400, firing all the way in from out of reach; now she
+  stops at 1,600 and fires from the hip only when you come within 1,400 (smoke
+  `combat-sights` moves you to her at 38 s). *Check:* whether riflemen should close nearer.
+- **Setting off again at 90 % of its reach** (`GUN_REACH_EDGE`): a gunman standing at its
+  stop sets off again once you are beyond 90 % of its reach, while it can still fire, so
+  it walks in aiming rather than standing until you are out of reach (hunting rifle:
+  stops at 1,600, sets off beyond 1,800, reach 2,000) [design].
+- **Out of reach, a gunman runs straight in**: no flank place and no step aside for a
+  friend in its line of fire while its target is beyond its reach (it has no shot to
+  line up), so Cook-Cook runs at you instead of circling to a flank first [design].
+- **Violet no longer aims while walking in from afar.** Seen from about 2,700 units,
+  beyond her hunting rifle's reach (2,000), she holds fire and runs in with her sights
+  down; within reach she stops at 1,600, takes cover or aims. The original's flamer
+  trooper likewise held fire from 1,283 units [observed 2026-10-18, gun_reach]. Smoke
+  `combat-sights` now starts you within her reach (about 1,900 units), so it still tests
+  walking while aiming; `combat-sights-beyond-reach` tests the new case. *Check:* that a
+  rifleman running in and then aiming from cover looks right to you.
+- Not done: other ammo's projectiles (an NPC's reach is its default ammo's); on a cliff
+  the shot's distance can be beyond reach while the flat distance is not, so a gunman can
+  stand silent there.
+- **Capture** (first run 2026-10-18, readings in combat-ai.md §16: the flamer trooper held
+  fire from 1,283 units and first attacked at 726, about 13 % beyond its max range of
+  650; we keep 640, where the flame ends): observer campaign `tools/capture/observe/gun_reach.campaign.json`
+  (an NCR trooper with a flamer from 1,600 units, a shotgun from 1,600, a sniper rifle from
+  2,400, a missile launcher from 600; the save nvftest) shows the original's first-shot
+  distance and stopping distance for each, to compare with these numbers. The campaign's
+  `place` items now take `ammo` (500 rounds), since a gunman without ammunition does not
+  fire in the original, and `offset` (PlaceAtMe's distance put three of the four 300–460
+  units away; a second run with the offsets is ready).
+## Script packages and disabled references: the 2026-10-18 captures (branch claude/gifted-nightingale-0cc6ae)
+
+Capture jobs `od_08_script_packages` and `od_09a_disabled_ref_script` (readings in
+docs/spec-notes/owner-decision-captures.md) answer two lines of item 25, "Runtime differs
+from the wiki". **Both rules were already in the runtime**; item 25's text was written
+before they changed, so it was out of date, not the runtime:
+
+- **A second AddScriptPackage replaces the first** (since 2026-10-10, the opening's
+  wake-up fix): one RemoveScriptPackage returns the actor to its own list, and
+  EvaluatePackage keeps a script package on. That is what Ringo did in the original.
+  The `fnvtool ai run` option that forces packages now replaces too.
+- **Disabled references run GameMode** (since 2026-10-09, `Game::active_refs`): the
+  skull's timer fell at the same rate while disabled, as it does in ours.
+
+What was done: the rules are written into actor-behaviour.md and script-language.md with
+the capture names; two new unit tests call AddScriptPackage/RemoveScriptPackage and tick
+a disabled scripted reference. No smoke scenario: the game shows neither in a log line
+without a new test aid, and the unit tests cover the rule.
+
+Kept as they were (not captured): OnLoad at a cell load still needs the reference
+enabled; Enable still queues one OnLoad; OnActivate, OnHit and the other event blocks run
+as before; MenuMode runs for disabled references along with GameMode [hypothesis].
+
+**What relies on it, and the risk.** Of the 14,907 decompiled script units of the masters,
+the GameMode blocks of 45 read their own GetDisabled, 12 enable themselves and 87 disable
+themselves:
+
+- **Needs the rule** (they could never come back without it): time-of-day lights that
+  enable and disable themselves (`daynightenable`, `FreesideLightsScript`,
+  `FireBarrelSwitchingScript`), the Prospector spawns (`VProspectorScript15/30/50`), the
+  B29 ballast (`B29BallastScript`) and Lonesome Road's tunnelers that wait disabled and
+  appear (`NVDLC04Tunneler*SCRIPT`).
+- **Guarded**: most Lonesome Road code holders and triggers check GetDisabled before
+  acting, so running while disabled does nothing for them.
+- **Risk**: an object script whose GameMode does not check GetDisabled now runs while its
+  reference is waiting disabled (an Initially Disabled actor, or an enable child of a
+  quest marker). The original does the same, but our functions may act on a disabled
+  reference where the original ignores it (for example a disabled actor's MoveTo,
+  StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
+  2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
+  world, this is the first place to look.
+
+## Films, cell image spaces and screen blood (2026-10-18, branch claude/screen-video)
+
+Rows 17 and 18 of docs/outstanding.md §1 (docs/spec-notes/bink-films.md,
+docs/spec-notes/screen-splatter.md). What the shipped scripts ask for is small: all four
+PlayBink calls and every splatter call are the opening's (VCG00), and of the four films
+only `FNVIntro.bik` is in your `Data\Video`; the splatter stages belong to an in-engine
+version of the cemetery scene a new game skips. My choices to check:
+
+- **The intro film once.** The main menu's New Game plays it, and the opening's stage 0
+  asks for it again: the second request is not played. Started straight into a new game
+  (no main menu), the opening's call plays it, as the original does.
+- **A film that is not there** (fnvlogo1.bik, fnvlogo2.bik, vb01.bik) is skipped at once.
+- **A film holds the game** like the pause menu (the wiki: it "appears to stop game
+  time"); the world's sounds stop with it even when the call asks to keep them
+  (`muteAudio 0`, not built). A non-letterboxed film is stretched over the window.
+- **SetCellImageSpace waits for the cell to load again**, as the wiki says the original
+  does: in Old World Blues the Think Tank turns red only after you leave and come back
+  (or load a save made there), not while you stand in it when stage 50 is set. If you
+  would rather see it at once (as JohnnyGuitar NVSE makes it), it is one line.
+- **Screen splatter, fitted to the original's pictures** (capture fx_screen_splatter_look,
+  screen-splatter.md §5): a call puts its count of splats on the screen with no cap of
+  25, each a cell of the game's 2x2 gore atlases (dark soft blob, red core) at a random
+  place, unrotated, 0.12-0.18 of the screen **width** across x the size factor, opacity
+  from the game settings x the opacity factor with no cap at 1, fading from its start
+  to nothing at its duration, under the HUD. Still guesses: the second opacity range
+  and its chance, uniform placement, and what iBloodSplatterMaxCount and
+  fBloodSplatterFadeStart are for (neither fits the pictures as a cap or a fade start).
+  The flare (perhaps the bright glints at the cores) is not drawn. Compare smoke
+  `screen-splatter`'s splatter_t0_5 ... t15_5.png with the original's s100_20_2_2_t*.png.
+- **SetScreenSplatterFade's real effect cannot be seen**: the call quits the original
+  (below). Its values (fade from that share of the time, switch on/off) stay a
+  hypothesis; nothing shipped reaches it in a playthrough.
+- **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
+  blood on the screen when the player takes damage; `player.DamageActorValue Health 40`
+  put none there in the capture. A weapon's hit is not captured; not built.
+- **SetScreenSplatterFade quit the original** three times (from a capture job, with and
+  without splats on the screen), with nothing logged. Here the call only records
+  its values. No player meets it in the original: the opening stages that call it are
+  skipped. Details in screen-splatter.md §5.
+## Race, sex and level changes, power armour, Cannibal and Mister Sandman, talking activators (2026-10-18, branch claude/actor-changes)
+
+Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Every shipped call
+of AgeRace, SexChange and SetLevel is on the player (the opening's VCG00, VCG01 and Doc
+Mitchell's revision activator); the NPC cases are built for mods and the console. My
+guesses, each with a probe in `tools/capture/probes/actor_changes.toml` (ac1–ac6) where
+the original can answer it:
+
+- **SexChange's reset** (VCG01's "male or female?" box): the player gets the character
+  creator's first starting face for the race and the new sex, with its hair and eyes.
+  The wiki says "the default preset for that race and gender".
+- **AgeRace and SexChange on an NPC**: the new race's head and body with the NPC's own
+  face values; a hair the new race or sex may not have becomes the race's default hair.
+  The player keeps the hair.
+- **SetLevel on an NPC**: settled by capture ac1 — the original keeps the inventory (three
+  Stimpaks given to Easy Pete stayed), against the wiki's "regenerates"; so NVForever only
+  sets the level. The offset and bounds matched.
+- **Power armour**: off at the start; only the player is held back; armour with the BMDT
+  "Power Armor" flag (NCR salvaged power armour lacks it and is worn freely). On refusal
+  the game's "You lack the specialized training…" box, after the Pip-Boy closes; a
+  script's EquipItem is refused the same way (probe ac3 asks the original).
+- **The perks' choice list** (Cannibal, Ghastly Scavenger, Dine and Dash, Mister
+  Sandman): E on the target opens a box with the choices (Devour, Murder…) then the
+  default action (Search or Talk). The wiki only says "presents a choice list". *Please
+  look in the original*: sneaking at a corpse with Cannibal, does E show a list, and does
+  it include Search? Does the crosshair prompt change?
+- **The acts**: GetCannibal and GetSandman hold for their clips' length (7.7 s and 6 s);
+  the corpse counts as eaten (HasBeenEaten) only when the act is over (capture ac4: still
+  0 while GetCannibal was 1); StartCannibal adds no health or karma of its own (ac4
+  confirmed it). Mister Sandman, settled by capture ac5c on Ringo asleep in his bed: the victim dies
+  when the act ends (alive at 3 s, dead at 7 s; NVForever uses the clip's 6 s). On an
+  awake NPC (ac5) or one made unconscious (ac5b) the original crashed; NVForever refuses
+  there and nothing happens;
+  a witnessed cannibalism turns every witness hostile as an assault ("a crime against
+  nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
+  bed or floor marker, with the two perk sounds.
+- **Talking activators**: activating one talks to it; its talking actor's lines and voice
+  come through it (the actor need not be near); IsActorTalkingThroughActivator holds
+  then. Capture ac6 showed the wiki's "false when set by script" wrong:
+  IsTalkingActivatorActor reads 1 after a script sets the actor, as in NVForever. The
+  dialogue menu names the actor, the view turns to the activator.
+- **To check in game**: smoke `perk-cannibal-devour` (Easy Pete eaten in Goodsprings),
+  `talking-activator-intercom` (Hidden Valley's bunker intercom: Ramos's "[You hear
+  nothing.]"), `sexchange-player-reset`.
+## Navmesh switches, AI procedure codes, the player knocked down (2026-10-18, branch claude/nav-knockdown-9a8df4)
+
+Playthrough blockers row 1's leftover and row 18 (docs/outstanding.md §1). What is mine:
+
+- **The player's knockdown view and timing**: now from the capture `kd_player_knockdown`
+  (unconscious.md §5.4, second run) [observed]: the camera stays where it was while the
+  body flies and lies (at the eye in first person, so the view leaves first person), the
+  player lies about 2.4 s (`PLAYER_KNOCKDOWN_DOWN`), gets up seen from the third-person
+  camera, and a first-person view comes back once standing. Still mine: NPCs keep 3 s down,
+  controls are held throughout, enemies may keep attacking a downed player, and the
+  player sitting or talking is not knocked down; the push's distance is not fitted.
+- **Navmesh switches**: an actor walking a way over a navmesh a script disables plans
+  again from where it stands (its package taken up afresh), and sets the package aside
+  when there is no way round. The wiki says the original's EnableNavMesh/DisableNavmesh
+  skip the load order's FormID fix-up (so a DLC's call may miss its own navmesh in the
+  original); ours fixes them up like any reference, so the Lonesome Road elevator's
+  navmeshes really go while it rides.
+- **setAllReachable** (two Hoover Dam battle calls, one only on a PS3): kept and saved, no
+  effect; I take it to be an optimisation switch (skip the reachability test), which a
+  planner that always plans in full does not need.
+- **GetCurrentAIProcedure**: now from the AI observer's samples of the original
+  (packages.md §4, procedure codes): a sandboxer reads what it does (7 at or walking to a
+  spot, 0 between things or walking to an object, 46 at an idle marker, 48 seated, 10
+  eating, 8 asleep, 21 for a while after getting up), 45 only out of the high process; a
+  Travel package 0 on the way, 17 there (seated too). The split of a sandboxer's walking
+  between 7 (to a spot) and 0 (to an object) is my reading; the samples do not record
+  where an actor walks to. Find, Escort, Ambush and Use Weapon read 17 once their goal is
+  met (no sample reached one).
+## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
+
+docs/design/script-stubs.md §3.15, docs/spec-notes/tutorial-menu.md. Smoke
+`menu-hooks-pipboy-codes`, `menu-hooks-tutorial`, `menu-hooks-exit-game`; capture job
+`tools/capture/probes/menu_hooks.toml` (batches `mh1_tutorial`, `mh2_reset_objectives`,
+save nvfstrip). Guesses, each waiting for you or the capture:
+
+- **The tutorial menu's code is 1059: confirmed** by capture mh1_tutorial (nvfstrip,
+  2026-10-18): MenuMode 1059 was 1, 1001 and 1060 were 0, so it is not a message box. A
+  second ShowTutorialMenu left one 1059 menu, and one CloseAllMenus closed it and the menu
+  that had been open before it (MenuMode 0); NVForever's CloseAllMenus now does the same.
+  Not settled by the capture: whether the second message is a second page (NVForever) or
+  replaces the first. Capture mh2_reset_objectives: ResetPipboyManager and
+  AutoDisplayObjectives open no menu (MenuMode 0), as in NVForever; it could not show the
+  objectives (VCG01 not running in nvfstrip), so that guess stays.
+- **The tutorial menu opens over the Pip-Boy** (CGTutorial shows it from its MenuMode 1
+  block) and the Pip-Boy is back when it closes. A second ShowTutorialMenu while it is
+  open adds a page (Next / Previous, "1/2" at the top right). *Check:* cripple a limb with
+  the Pip-Boy open; the "Healing Limbs" page should come over it.
+- **Its look**: the file's layout, but as dark as the other menus (the file's fill alpha
+  of 32/255 was hard to read over the Pip-Boy); the words "Next", "Previous", "Close",
+  "A) S) E)" and "VDSG Manual" (the game settings are not in the masters); the text in
+  font 1. A frame is saved at 15 s and 20 s of `menu-hooks-tutorial` in target/smoke.
+- **MenuMode 1007 under loading screens**: the 1007 blocks run (and only they) in the two
+  frames after travel and after a save is loaded; the DLC scripts use them to put their
+  hologram shaders back. The pause menu's 1013 is not reported: scripts still do not run
+  under NVForever's pause menu.
+- **VATS 1056**: NVForever's VATS is no menu, so `Begin MenuMode 1056` blocks run beside
+  GameMode while it marks (CGTutorial's VATS tutorial message comes from one).
+- **Blackjack's menu code moved from 1035 to 1102**: 1035 is the Pip-Boy's repair list in
+  the wiki; neither is asked for by a shipped script.
+- **ResetPipboyManager** turns the flashlight off (the wiki says the reset turns the
+  Pip-Boy light off; the flashlight is NVForever's Pip-Boy light) and puts the pages back
+  to ITEMS / first tabs. The wiki's "without a reset the Pip-Boy acts as an NPC's" is not
+  built: the Pip-Boy opens without a reset (test runs open the inventory without one).
+- **AutoDisplayObjectives 1** keeps the objective list on the HUD (no fading) until
+  another quest line comes; VCG01 turns it on at stage 55 (before the player has the
+  Pip-Boy) and off at 200. *Check:* in the opening, after Doc Mitchell's first lines, the
+  "Ain't That a Kick in the Head" objectives should stay at the left.
+- **ExitGame** goes back to the main menu as Quit to the main menu does; the end credits
+  are not built. A run a test aid drives quits instead (so a smoke log ends there).
+## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
+
+What each crippled limb does, for the player and for NPCs, is in
+docs/spec-notes/crippled-limbs.md. It draws on the ESM (the game's own help text
+`HelpCrippling` and `HelpHealingLimbs`, the `HeadCrippleEffect` ability, the leg-speed
+settings) and your wiki notes. Smoke: `crippled-head-perception`, `crippled-torso-arms`,
+`crippled-sleep-heals`, and new checks in `crippled-limp`. My choices to check against
+the game:
+
+- **Melee with a crippled arm.** The two sources differ. The game's formula with its own
+  settings takes 40 % of the weapon's damage at a fully crippled arm condition and 20 %
+  at half. Your notes say −10 % (one-handed, right arm) and −5 % per arm (two-handed,
+  unarmed). *Decision:* the formula's numbers, with your notes' rule for which arm
+  counts. *Check:* a knife's damage with a crippled right arm; if it is only 10 % lower,
+  I switch to your numbers.
+- **The player's limbs take half the limb damage** (`fCombatPlayerLimbDamageMult` 0.5).
+  *Guess:* it scales the damage the player's limbs take, not the damage the player does
+  to others' limbs. *Check:* how many 10mm hits to the leg cripple the player, and an NPC.
+- **Legs**: 0.85 of the speed with one crippled leg, 0.75 with both, for everyone (the
+  game's two settings; it was 0.7 and 0.5 for the player before). A creature with a
+  crippled leg makes no forward power attack (the deathclaw's leap). With both legs
+  crippled the player's power attack is always the standing one.
+- **Torso**: any hit staggers an NPC (after the 3 s cooldown) while its torso is
+  crippled. This extends your rule of "only the crippling hit and later hits on the
+  crippled part". The player flinches by the same rule: the view jumps by up to 4°, a
+  swing is broken off, and no attack starts for 0.6 s (my numbers). It also happens in
+  god mode. *Check:* does the original stagger on every hit or only some?
+- **Arms**: an NPC drops its weapon when a hit cripples either arm. The help text says
+  "enemies", so the player keeps theirs. While aiming with a crippled arm the player's
+  view sways in a slow figure of eight, 1.5° (one arm) or 3° (both) every 2.5 s (my
+  numbers). VATS mode shots keep the crippled arms' spread.
+- **Head**: Perception −4 for every actor, plus 0.2 spread (my number for "lower
+  accuracy"). The player's −4 is the game's own `PlayerConcussed`, which a master
+  script keeps on the player. Until now it never lifted after the first head crippling
+  (fixed: effect conditions are checked again every second). *Check:* Perception after
+  a crippled head is healed. The "concussion effect" the help text names is not built.
+- **Sleeping heals crippled limbs** outside Hardcore, on the first hour slept. In
+  Hardcore it does not: the game's help text says only Doctor's Bags and doctors heal
+  limbs there, while your notes say an owned bed does. I followed the help text.
+- **Not built**: a Stimpak on one limb from the Pip-Boy (using items from the CND page
+  is not built), frenzy from crippled antennae, hit explosives going off, and the
+  concussion screen effect.
+
+## Doc Mitchell's mirror (2026-10-18, branch claude/doc-mirror)
+
+Your report: the mirror Doc hands you before "How'd I do?" was not shown, and the
+hand-over played twice.
+
+- **Not shown.** The mirror (`animobjects\NVPropReflectron.NIF`, record
+  `VAODocGiveReflectron`) hangs from his right hand, but the part that is the mirror is
+  stored about 2 m away and is brought into the hand by a track of its own in the
+  hand-over clip. We drew the model as it is stored and never played that track, so the
+  mirror floated out of sight. Now the parts of a held object that the idle's clip has
+  tracks for follow those tracks (idles.md §10). This affects any held prop whose clip
+  moves it; the broom and the cigarette have no such tracks and are unchanged.
+- **Twice.** The game's data asks Doc for the hand-over twice, 3 s apart: the quest's
+  stage 30 plays it, then the line "How'd I do?" names the same animation. We started it
+  over the second time. Now an animation asked for by a script or a line while that same
+  animation still shows is not started over: Doc keeps holding the mirror out through
+  "How'd I do?" (idles.md §3).
+- **Guess.** That the game carries on instead of starting over, and that he holds the
+  pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
+  Doc keep the mirror held out until the face screen opens, or lower his arm?
+
+## Swimming: wading in, and NPCs swimming (2026-10-18, branch claude/swimming)
+
+Your report: the player walks along the bottom of a lake instead of swimming.
+
+- **Why.** Our rule came from captures of the game (`sw_trial`, 2026-10-08) in which the
+  scripted player walked down the Boulder Beach bed to 355 units under the surface and
+  never swam. That run had god mode on, so I ran it again with god mode off (`sw_walkin`):
+  the player still walked the bed, to 308 under, and drowned (Health falling 40 a second
+  after 10 s). The scripted player never swims when walking in, which contradicts what you
+  see in the game. The scripts' IsSwimming also reads 0 even while that player is plainly
+  floating, so I suspect the scripted setup never enters the game's real swimming state.
+- **What changed.** I followed your report. A character standing in water with its feet
+  115 units or more under the surface now starts swimming where it is (the swim speeds,
+  diving along the view and the float height are the ones measured before). A swimmer
+  that reaches the ground walks out where the ground is shallower than that and swims on
+  against a deeper bed. The 115 is my guess: deeper than every floating height measured,
+  so swimmers still walk out up the banks as in the captures, with the eyes just above the
+  water.
+- **Animations.** The player already swam on `swimmt*.kf`. NPCs and creatures had no
+  swimming clips at all: they now play their folder's `swimmt*` or `swim*` clips while
+  they swim (people, mirelurks, giant rats, spinebreakers, dogs), unarmed, and their
+  standing clips where they have none.
+- *Check:* in the original, walk into Lake Mead from Boulder Beach and note how deep the
+  water is (chest? neck?) when swimming starts; and whether a swimmer diving to the bed
+  stays swimming there or stands up.
+
+## GetAnimAction's leftovers (2026-10-18, branch claude/anim-action-leftovers, stacked on #433)
+
+What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), and the
+guesses in it:
+
+- **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
+  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. 6 lasts about 0.6 s [observed: the
+  anim_actions campaign, troopers throwing dynamite]. NPCs throw nothing yet in NVForever, so only
+  the player reads them.
+- **10–11**: never answered. The wiki calls them probable left-overs, and none of the
+  observer's samples showed them. **12**: the original's player read it for about 0.8 s
+  after a jump's time in the air [observed: capture player_actions_anim]; NVForever
+  answers it while the player's landing clip plays (*guess*: that 12 is the landing).
+- **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
+  it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
+  answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
+  The campaign confirmed where it falls: between the last shot and the reload's 9 on
+  the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
+  not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
+- **IsPlayerActionActive**: the capture answered part of the missing list [observed]:
+  9 while aiming, 2 for about 2.6 s from a grenade throw; firing, sneaking, jumping and
+  swinging lit no index, though the wiki says firing stays active about two game
+  minutes. Ours answers 9 and 2.
+
+Captures that settle these (nvfstrip): AI observer campaign
+`tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
+dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
+player's own codes and IsPlayerActionActive 1–10 every frame).
+
+## Caravan (2026-10-19, branch claude/caravan)
+
+Built from your screenshots, the fandom page you pasted, the game's four help messages
+and your rulings (docs/spec-notes/caravan.md). A dialogue line's ShowCaravanMenu opens
+the bet, then the deck builder, the game and the results, over the game's own table and
+card textures, drawn flat (the original's table is 3D models).
+
+- **The opponent is NVForever's own.** Its skill comes from the share of face cards in
+  its deck, as you asked: Ringo's starter deck 0.27, Erwin and Mayes 0.30, Lacey 0.33,
+  Isaac 0.56, Barton and Crocker 0.60, Jules 0.64, Little Buster 0.88, Johnson Nash and
+  No-bark Noonan 1.0. It scores every legal move and takes the best; a low skill adds
+  noise and makes it slower to attack your caravans. The scripts' difficulty (0 or 1) is
+  not used. *Check:* do Ringo and Nash feel about right?
+- **The bet.** The opponent bids its caps (and its merchant container's) times the
+  script's share: Ringo's 54 in your screenshot fits a quarter of about 216. Raise adds a
+  tenth of the bid, up to one and a half times the bid (the fandom page's "about 50 %").
+  Only caps are bet; NCR dollars and Legion coins are not counted yet.
+- **Rules I had to choose.** Queens only on a caravan's last card. Discarding is allowed
+  in the opening (your screenshot had Discard Card lit then, and the help allows it; the
+  fandom page says no). The opponent goes first (your screenshots). Leaving at the bet or
+  the deck builder costs nothing; Cancel during the game asks to be pressed twice and
+  forfeits.
+- **Words of mine:** the refusal with fewer than 30 cards, "That card cannot be played
+  now.", the forfeit prompt, the game-over line, "… is thinking…".
+- **Not built:** the Caravan challenges, bets in other currencies, the 3D table and its
+  dealing animations; the deck builder's rows scroll with Left/Right or the wheel instead
+  of following the pointer.
+- *Check:* play a game with Ringo (the smoke `caravan` gives the player his deck's 30
+  cards): the layout against your screenshots, the keys, the payout.
+## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
+
+Every parameter docs/design/script-function-params.md §3 listed as ignored is now read
+(the table there says what each does now). The GECK wiki pages settle most of them; these
+are my guesses, each with what would settle it:
+
+- **Fade length and shape** (Enable/Disable, 544 shipped calls). Settled in part
+  [observed: captures 2026-10-18]: a plain Disable reads GetDisabled 1 at once and Enable
+  0 at once; after `Disable 1`, facing the object, the original kept it enabled for about
+  2 s and then disabled it. Ours now fades out over 2 s, keeping the reference enabled
+  (collision on) meanwhile, then disables it. *Guesses*: the fade's shape (a straight line
+  of alpha) and the fade in's length (2 s too); all screenshots failed, so a rerun with
+  the window in front is needed to see them. *Not explained*: one earlier `Disable 1`,
+  from the cell's arrival spot, stayed enabled for all 3.5 s sampled. Perhaps the
+  original fades only what it draws.
+- **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
+  unequipped" (my wording; the original's message is not known). Companions ignore
+  NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
+- **Say's ForceSubtitles** (18 calls, all 1; SayTo's flag, 207 calls over the masters): read as "show the subtitle even out of
+  hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
+  not read; nothing documents them, and Old World Blues' 103 calls name the speaker itself.
+- **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
+  play at the multiplier (music and radio do not), as with the engine's own slow motion.
+  The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
+- **StartConversation allowMovement**: left out, the two actors stand while they talk, as
+  before; only an explicit 1 lets them walk.
+- **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
+  2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
+  Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.
+
+## The AI observer at full capacity (2026-10-19, branches claude/observer-v9, claude/observer-full)
+
+The observer was extended (plugin version 9: game events, timed scene actions, screenshots
+on a condition, more fields; ai-observer.md §12) and nine campaigns settled guesses
+against the original. Decisions and what is still mine:
+
+- **The plugin DLL was copied into the game's `Data\NVSE\Plugins`** by the session (the
+  old version 6 DLL is kept in `C:\fnv-private\capture\plugin-backup`); before, the owner
+  copied it by hand. Say if you want that kept as an owner step.
+- **Settled and changed** [observed]: PushActorAway's 2.4 s down, 2.5 s get-up, speed and
+  rise (unconscious.md §5.5); an essential's 10 s down and GetKnockedState 0 while getting
+  up (§2.10); Look's body turn (145°/s, walkers walk on facing the target, no seat until
+  StopLook; script-stubs.md §3); IsPlayerActionActive 4 for a laid mine and 3.0 s for both
+  throws (anim-state.md §4); a creature on Find with Allow Killing attacks the actors of
+  its area (owner-decision-captures.md §6); killing an Evil NPC gives no karma
+  (crime-karma.md §4.1).
+- **List 5 item 22 (convict karma)**: the original gave **no** karma for shooting the Evil
+  NCRCF convict dead, not good karma as the item expected. NVForever now does the same.
+  Killing a Very Evil NPC keeps +100 and a Good one −100 (not observed). *Check:* if you
+  remember the original giving "+" for convicts, say where.
+- **Find with Allow Killing for people** keeps the old rule (attacks only one carrying
+  what it looks for): only creatures were observed; 17 shipped Find packages carry the
+  flag, among them prospectors looting containers and Freeside thugs.
+- **The bunker intercom** (row 8): in the original (saves nvftest and nvfstrip) the
+  dialogue camera turns to the intercom but no line is said and the conversation ends by
+  itself; NVForever says Ramos's "[You hear nothing.]" and waits. Left as is: why the
+  original chose no line is not readable (talking-activators.md §3). *Check:* use the
+  intercom outside Hidden Valley's bunker in your game and say what Ramos says.
+- **NPCs opening scripted doors** run the door's OnActivate in the original (xNVSE's
+  OnActivate named NPCs opening HVLevel1To2Door and vCCHQDoor); NVForever opens the door
+  without its script. Not changed (a door script that does not pass NPCs would hold them).
+- **Melee hold-off**: god mode is not the cause (attackers closed in alike with and
+  without it, indoors). The outdoor hold-off of 2026-10-17 stays unexplained.
+- **NCR against Fiends**: the original's MoveTo reaches only four of the six troopers;
+  with four, ours ends in 47 s with Cook-Cook dead, the original's Cook-Cook kills all
+  four (89–99 s). The engine now logs each target's hits and damage (`npc hits
+  summary`): hit rates are alike, but our hits between NPCs do two to fifteen times the
+  original's damage (Cook-Cook: median 6.2 a hit against 2.0; a Fiend's shot on a trooper
+  22–30 against under 2). Not fixed in this round: the damage formula between NPCs
+  (threshold, resistance) needs its own look (npc-behaviour-compare.md §9).
+- **The Strip**: our AI chose the same packages as the original for 97–100 % of the
+  samples once the comparison had the quest variable and the enabled crowd; the
+  travellers' walking back and forth and the troopers' scene come from scripts the
+  headless comparison does not run (npc-behaviour-compare.md §10).
+- **GetLastPlayerAction** read 4 while a mine's action lasted, 0 otherwise; no shipped
+  script or condition asks it, so it is not built.
+- **Screenshots in dialogue** came out black at 3,840 × 2,160 full screen; in the 1,280 ×
+  720 window you set they work. Keep the window for captures with pictures.
+
+## NPC hit damage (2026-10-19, branch claude/npc-hit-damage)
+
+Hits between NPCs did two to fifteen times the original's damage. A new observer
+campaign (`fight_stats_round`) read every fighter's level, Health, Guns, DT and item
+health in the original's NCR–Fiend fight and settled it (npc-behaviour-compare.md §9):
+
+- **NPC weapons and armour start worn** in the original: the masters' CondNV… leveled
+  lists give each entry a condition (a trooper's Service Rifle 30–60 %). We read the lists
+  but dropped that condition, so our NPCs fought with new guns. Fixed.
+- **Condition's effect is now the engine's documented hard-coded rule**: full damage
+  from 75 % condition, `1 − (0.75 − c) × 0.67` below (the troopers' rifles matched to
+  three places); armour full from 50 %, `1 − (0.5 − c)` below. Before it was a guessed
+  line. This also changes the player's worn weapons and armour: a weapon above 75 % now
+  does full damage, one at 50 % does 83 % (was 75 %); armour above half condition now
+  gives all its DT. The repair menus show the same numbers.
+- **NPC armour no longer wears from hits** (the original's stayed at the same health
+  through 60 hits). The player's still does. *Check:* if you remember NPC armour coming
+  off a fight damaged in the original, say so.
+- **NPC Health** is Base Health + (Endurance − 1) × 5, plus (level − 1) × 5 only for
+  auto-calculated NPCs; fifteen NPCs fit it. Most NPCs have 10 less Health than before
+  (Sunny 90, troopers 50), hand-set high-level ones much less (Cook-Cook 215, was 290).
+  The `actor-values` smoke check now expects Sunny's 90.
+- Result: Cook-Cook takes a median 1.9 a hit (original 2.0) and wins, as in the original.
+  The last trooper still dies about 40 s sooner than the original's.
+- Not done: NPC weapons wear from firing in the original (2.19 health a shot for the
+  Incinerator) but not in ours.
+
+## Cover from the gunman firing at the fighter (2026-10-19, branch claude/cover-from-shooter)
+
+docs/design/combat-ai.md §12.6.1. All [design]; the original's cover search is not described.
+- **Whom it hides from**: the enemy gunmen firing at it, nearest first, then its own
+  target. A gunman "fires at it" once it has opened fire on it as its target; the player
+  counts only as the fighter's target.
+- **It still fires at its own target**: the peek point must see its own target, not the
+  gunman it hides from. *Check:* say if a fighter in the original turns to the gunman
+  that pins it down instead.
+- **When that gunman stops firing at it**, the cover is kept against its own target if
+  the edge faces it, else given up.
+
+## Pip-Boy ITEMS extras and a clickable repair list (2026-10-19, branch claude/pipboy-items-extras)
+
+docs/spec-notes/pipboy.md §5, repair.md §5.
+- **DPS over DAM**: the menu file puts its DPS and DAM cards at the same place and picks
+  one in code. Your screenshots show DAM there, so DAM stays and DPS sits above it (as
+  STR sits above VAL). *Check:* say where DPS shows in your game, and whether DAM shows
+  at all.
+- **The DPS figure** is a guess: damage a shot at the item's condition times shots a
+  second (an automatic's fire rate, else its attack shots a second, else one). Melee
+  weapons get their damage once a second.
+- **The badge** at the picture's lower left is the ammunition's own inventory picture.
+- **"Mod X)"** shows for weapons with mod slots, bright when you carry a mod that fits,
+  dim otherwise. There is no mod menu yet and X still drops an item, so the hint does
+  nothing.
+- **The repair list** takes the pointer as the ITEMS list does: hovering chooses a row,
+  a click on a row chooses it, a click on the chosen part uses it.
+- **The "+10 XP" line and Locations Discovered** were already built (the HUD's XP meter shows any
+  rise of experience; the misc statistics, 2026-10-18): this branch only adds the smoke
+  scenario `pipboy-general-locations` and takes them off the outstanding list.
+
+## Crafting: the output's picture, its effects, several at once (2026-10-19, branch claude/crafting-icon-effects-batch)
+
+docs/spec-notes/crafting.md §3.
+- **How many?** Accept asks "How many?" (the barter prompt) only when the ingredients
+  allow more than one making; it starts at 1. *Check:* whether your game asks at all,
+  and whether it starts at 1 or at the most.
+- **The effects line** stands under the WG and VAL cards as "EFFECTS" and the text; the
+  menu file only says there is an effects card. *Check:* where your game shows it.
+- **Items Crafted** goes up by the number of makings (four Antivenom from two makings
+  count 2).
+
+## Caravan bets in NCR dollars and Legion coins (2026-10-19, branch claude/caravan-currency)
+
+docs/spec-notes/caravan.md §3.1. The game's own help says any currency may be bet; how it
+is counted and paid is NVForever's design:
+- **Worth**: notes and coins count at their records' value in caps.
+- **Paying**: caps first, then the least valued notes and coins; the overpay of the last
+  one comes back as caps. *Check:* whether your game takes notes before caps, or gives
+  them back after a win.
+- **The pot is paid in caps**, whatever the ante was paid in.
+
+## Saves deleted from the menu and several console statements (2026-10-19, branch claude/save-delete-console-lines)
+
+docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
+- **Delete** on the load page asks "Delete this save?" (Yes Y) / No N)) right of the
+  thumbnail, then removes the file and its `.bak`. The original shows its Delete hint only
+  with a controller. *Check:* the key you want for it.
+- **`;` separates console statements**; the original's console may not allow several.
+
+## The companion wheel (2026-10-19, branch claude/upbeat-jepsen-2629fd)
+
+docs/spec-notes/companion-wheel.md. Built from the game's menu file, your two screenshots
+and the VNPCFollowers command lines. Guesses to check:
+- **The menu code** is 1075 (the wiki's MenuMode list as remembered; no script asks for it).
+  *Check:* `MenuMode 1075` with the wheel open, if a capture is cheap.
+- **The wheel stays open after a command** and the companion's reply plays and shows in
+  it; only Talk and Open Inventory close it. *Check:* whether your game closes the wheel
+  after Wait or a toggle.
+- **The commands make the companion say its own command line** (FollowersWait,
+  FollowersTacticsCombatPassive …), whose scripts set Waiting, FollowerSwitchAggressive,
+  IsFollowingLong, the combat style. *Check:* that the companion answers aloud when you
+  pick a command, and with the same line the dialogue's "Wait here" would give.
+- **The words** under the title are the action ("Wait" while following, "Follow" while
+  waiting, "Aggressive" while passive, "Far" while near, "Melee" while ranged); the icon is
+  the state. Your screenshots confirm the icon and "Use Stimpak" only. *Check:* the words
+  on the other buttons.
+- **The bottom lines**: "HP 94/285" / "Stimpak 84" (yours) for Use Stimpak and
+  "WG 95/100" for Open Inventory (your figures; the "WG" is mine). *Check:* the word
+  before the weight, and whether other buttons show anything there.
+- **Passive** companions fight only who fights you or another companion (or hits them);
+  aggressive ones attack your enemies on sight. Boone is passive after hiring (his hire
+  line sets it). *Check:* how a passive companion behaves when a Fiend is in sight but has
+  not noticed you.
+- **Use Stimpak** works only while the companion is hurt, takes a plain Stimpak before a
+  Super Stimpak, and heals by the companion's own Medicine. *Check:* whether your game
+  lets you use it at full health, and which stimpak it takes.
+- **Back Up** walks the companion 192 units straight away from you. *Check:* how far it
+  goes.
+- **Sneaking**: a following companion crouches when you do and says its "going quiet"
+  line as it starts. *Check:* whether the line comes every time.
+- **Look**: the lit slice at 0.3 of the amber, the matte darkening the world to 0.8 inside
+  the wheel (fitted by eye to your screenshots); the arrow from the hub towards the picked
+  slice and the blur behind the wheel are not drawn.
+## Crafting and repair-services menus: no dark box (2026-10-19, branch claude/menu-sheet-fill)
+
+docs/spec-notes/crafting.md §3, repair.md §3. Both menus drew a 0.75 black sheet far past
+their frames; they now use the files' own fill, 32 of 255 black, over the same rectangle,
+which shows no edge, as in your screenshots.
+- **The blur is not built**: the world behind stays sharp. *Check:* whether the faint
+  sheet reads well enough over a bright world until the blur exists, or whether you want a
+  light full-screen dim meanwhile.
+- **Whether the original darkens the world as well as blurring it** could not be measured
+  (the screenshots show no unblurred world to compare). [hypothesis] it only blurs.
+## Script function audit, second round (2026-10-19, branch claude/script-param-audit)
+
+docs/design/script-function-audit-2026-10-19.md. Each was fixed from the GECK wiki; these
+parts are guesses. Captures asked of the observer session are in its §3.
+- **RemoveMe to a container** shows no "added" line either. *Check:* a `RemoveMe player`.
+- **SetDestroyed** also switches off terminals and talking activators (the wiki names doors
+  and activators). NPCs still walk through destroyed doors on their way.
+- **SetGhost**: melee blows pass through a ghost as shots do; enemies ignore a ghosted
+  player too (they can still hurt them, as the wiki says).
+- **MoveToMarkerWithFade** fades out over 2 s, as `Disable 1`; the player moves at once.
+- **SetCriticalStage GooEnd/DisintegrateEnd** hides the body but leaves it enabled.
+- **SetFactionRank** below −1 reads −1; **EnableFastTravel**: any kept ban ignores a later
+  ban without keep (the wiki shows only `0 0 1` then `0 0 0`).
+- **SetUnconscious 1 on a corpse** brings it back lying unconscious.
+## Securitron screens, self-running controllers, light flicker (2026-10-19, branch claude/effects-animation-audit)
+
+docs/spec-notes/effects-animation-audit.md. The Securitron's own idle clip drives its screen
+(the face wavers in brightness, now and then squashes and rolls over like a TV losing
+vertical hold, and a white-noise layer drifts over it all the time); NVForever now plays
+it, and also plays the controllers that run by themselves in placed models (blinking
+console lights, Mr. House's screens, the circling vultures, light-ray fans) and makes
+flagged lights flicker and pulse. Frames: smoke `securitron-screen` (28 frames over one
+idle cycle), `light-flicker`. Guesses:
+- **Screen brightness** [hypothesis]: an unlit shape's glow is taken as its colour (texture
+  × glow value × 30 here: about the texture's own brightness in the idle, a white flash
+  when the face changes). *Check:* a frame of a Securitron in the original next to ours at
+  the same hour; whether the face change flashes white.
+- **Texture squash and roll** [hypothesis]: scaled and turned about the screen's centre.
+  *Check:* a short recording of a Securitron's face in the original (a glitch comes about
+  every 13 s).
+- **When the idle stops** (the Securitron rolls along) the screen goes back to its still
+  look [hypothesis]; the original may keep the last glitch frame.
+- **Light flicker and pulse** [hypothesis, every number]: flicker = random steps between
+  55 % and full brightness, 12 a second (slow: 3); pulse = a smooth swell between half and
+  full over 1.5 s (slow: 4 s). *Check:* a few seconds of a fire barrel at night and of
+  Vault 19's pulsing lights in the original.
+- **Items on the ground** keep still: guns and hats have parts that move by themselves in
+  their files (slides, magazines), which only the holder's clips should move [design].
+
+## Explosions play their own files (2026-10-19, branch claude/confident-shamir-392515)
+
+docs/spec-notes/explosion-effects.md. Explosions, impacts and muzzle flashes now play the
+animation inside their own models (`SpecialIdle_AreaEffect` in the explosion files, the
+loose controllers in the impact files), and an explosion's image space modifier plays on
+the screen when you are within its IS radius. Nothing is authored by us. My guesses, to
+check against the game:
+- **Impact controllers start when the impact appears**, though none is marked active in
+  the files (the dirt impact's splash meshes store alpha 0 and are only seen through
+  them), and their time runs from 0 so the dirt impact's third splash comes 0.13 s after
+  the first two. *Check:* the brown dirt splash under a grenade.
+- **The screen effect is all or nothing**: full strength anywhere inside the IS radius
+  (frag grenade 1800 units, missile 2000), none outside; no fall-off with distance.
+  GrenadeFragISFX (the grenade's and the missile's) whites the screen and blurs it for
+  about 1.4 s. *Check:* is the original's flash as strong from 1500 units as from 200?
+- **"Ignore Image Space Swap"** (130 explosions) is not used; the wiki calls the swap a
+  close-range optimisation that removes the blinding flash. Tell me if close explosions
+  in the original do not flash.
+- **The explosion model stays as long as its sequence** (frag 5.03 s, missile 4.5 s,
+  nukes 12.33 s).
+- **The frag smoke fade at 15 %** (your note on playtest list 5 item 10) is the file's
+  data read as before: across all 406 colour modifiers in the effects the fade-out value
+  is the point the fade starts, so I left it.
+- **Not done**: scorch decals (impact decals are not built at all; a step of its own),
+  heat haze, the particle systems that emit from meshes (7 files: the nukes', the
+  plasma's; their meshes play, those particles are not drawn), the bomb
+  modifier that throws dirt outwards.
+
+## NPC weapons wearing from firing (2026-10-20, branch claude/q8-npc-weapon-wear)
+
+combat-rules.md §17–18; queue item 8.
+- **One rule for every actor.** An NPC's shots and landed blows now wear its weapon as the
+  player's do: `fDamageToWeaponValue` (0.2) a shot, or the weapon record's Damage to
+  Weapon Mult *in its place* when the record overrides it [documented: GECK wiki
+  SetWeaponDegradationMult]. That NPCs follow the player's rule is my guess
+  [hypothesis]; the documentation names no actor. A broken NPC weapon falls, as one shot
+  to nothing already did.
+- **The override replaces, it no longer multiplies.** Ours took 0.2 × 0.005 a shot for
+  the Flamer and Incinerator; now 0.005, as the ppNVSE page says. The player's Flamer,
+  Incinerators, chainsaw, Rippers, grenade machineguns and Thermic Lance wear five times
+  faster than before (still very slowly: 40,000 shots for a new Flamer).
+  *Check:* does a Flamer or Incinerator in the original wear visibly in one long fight?
+  If yes, the override is a multiplier of something larger, and I have it wrong.
+- **The original's 2.19 a burst is not explained.** A "shot" in that figure is a whole
+  burst (about four globs), so some 0.55 a glob: 110 times the override. 2.19 is, to two
+  places, the troopers' rifle hit on Cook-Cook (2.1875), so the falls may come from the
+  hits he took rather than from his firing [hypothesis]. The capture's raw output is not
+  on the desktop. `tools/capture/fight_stats.py` now splits weapon-health falls into
+  firing, hits and other; a rerun of campaign fight_stats_round settles it.
+- Not changed: a scripted FireWeapon wears nothing [design]; hits on the holder do not
+  wear his weapon (only hits on the weapon's own volume do, your rule).
+
+## Weapon sway and bob in first person (2026-10-20, branch claude/viewmodel-sway)
+
+Design: docs/design/player-body.md §1.4a. The arms and weapon now lag behind a turn and
+bob as you walk and run; "Weapon sway" on the settings page (or `--no-weapon-sway`)
+turns it off. The game's own files have no bob for the arms, so it is all ours and
+every number is a guess to tune by eye:
+- **Turn lag** 0.11 s to catch up, at most 5° sideways and 3.5° up/down. *Check:* does a
+  quick flick in the original leave the gun further behind, or for longer?
+- **Bob** 0.9 units down at each footfall and 0.6 across a stride at a run, less walking,
+  60 % sneaking, 20 % down the sights. *Check:* walking and running with a rifle, side by
+  side with the original.
+- **Strafe lean** 1.5° and **start/stop lag** at most 1.2 units. *Check:* too much?
+- The game's settings `fFirstPersonHandFollowMult` and `fFirstPersonHandChaseSeconds`
+  are named in the executable but their values are not in any file. A capture reading
+  `GetNumericGameSetting fFirstPersonHandChaseSeconds` (and the other two) in the
+  original would give the turn lag's time.
+
+## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
+
+docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
+attack now has the actor swing at its target instead of ending at once. My choices, to
+check in the original:
+- **It walks up to its target.** After going to where it is to stand, a script's melee use
+  runs at the target and stops within its weapon's reach (the combat AI's spacing), then
+  swings; if the target backs off it follows. *Check:* does the original's actor walk up,
+  or stand at its spot and swing at the air?
+- **Each "shot" is one blow**, combos included (a blow begun at the last clip's `a:` key
+  goes on with the group it names). No block or attack-chance roll.
+- **A use naming a knife swings the knife** even when the actor holds a gun; its drawn
+  model is still the one it was spawned with (models are not swapped live), so the knife's
+  clips play with the rifle in hand.
+- **Always Hit**: the blow lands even if the target stepped out of reach by the time the
+  clip's hit key comes. **Do No Damage**: the swing plays but nothing is struck, so no
+  hit sound or impact either.
+- **Use Weapon packages** with a melee weapon swing from where the package stands the
+  actor, only when the target is within reach; they do not walk up.
+- No power attacks in a use (people's power attacks are PR #503).
+
+## The last trooper's time: Cook-Cook's weapon (2026-10-20, session "q9-trooper-time")
+
+npc-behaviour-compare.md §9.1, actors.md §9.3. Queue item 9: our NCR troopers died far
+sooner than the original's in the Cook-Cook fight. What I found and chose:
+- **Cook-Cook drew the wrong weapon.** He carries an Incinerator and a Flamer; the
+  original's held the Incinerator in all three recorded fights and lobbed globs from
+  1,100–2,000 units, ours drew the Flamer (higher base damage) and charged. **My rule**: the
+  weapon choice ranks a weapon by its base damage plus the damage of the explosion its
+  projectile sets off (Incinerator 1 + 20 against the Flamer's 16); thrown weapons and
+  mines keep their base damage. Fitted to that one actor; "first weapon in the record" or
+  "longest range" would fit him too. *Check:* in game, which weapon do Boomers, Fiends
+  with a grenade rifle, Nellis's Jack and Raquel, Mags and Oscar Velasco hold? 40 NPCs
+  now draw a Grenade Rifle, Grenade Launcher or Grenade Machinegun they carry instead of
+  a melee weapon or a lesser gun (they used to swing a sledgehammer or a lead pipe).
+- **Three smoke scenarios built on Cook-Cook's Flamer** (`cook-cook-flamer`,
+  `combat-flamer-reach`, `npc-flamer-holstered`) now give him the Flamer with EquipItem at
+  2 s; their checks are unchanged (`npc-flamer-holstered` gained `--play` and god mode,
+  which the test aid needs).
+- **Left, not built: the burn.** The Incinerator's burn drains 4 Health a second in ours
+  (the record's magnitude); the original's drained NPCs 1 or 2 a second for 16–30 s. No
+  documented rule explains it, so I did not guess one; the troopers still die 16–31 s in
+  against the original's 30–132 s. *Needs:* one burn captured frame by frame.
+## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
+
+docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style
+page says a Melee Only combatant "will always use melee/hand-to-hand as their primary weapon"
+and a Ranged Only one ranged weapons. Before this, a companion switched to Melee on the wheel
+kept its gun and fought with its fists. Now any NPC in a fight that holds a weapon its style
+rules out takes up the carried weapon its style allows. My choices, to check in game:
+- **Which weapon**: the allowed one with the highest base damage, the first carried on ties
+  (the same rule as the outfitting's own choice). *Check:* give Boone a knife and a machete,
+  set him to Melee: does he take the machete?
+- **When**: only while fighting, every frame of the fight, so a wheel switch mid-fight swaps
+  at once; out of combat he keeps what he holds. *Check:* in the original, does a companion
+  switched to Melee out of combat draw the melee weapon before the next fight?
+- **Ranged Only** works the same way: a companion switched back to Ranged takes its gun up
+  again when it next fights. With no weapon its style allows, it keeps what it holds (a
+  Melee Only one with only guns still fights with its fists).
+- **Melee and ranged by animation type**: Hand to Hand, Melee 1H/2H are melee; pistols,
+  rifles, Handle, Launcher are ranged; grenades, mines and thrown weapons are never taken up
+  as the main weapon.
+- **Empty hands**: an NPC that fights with no weapon equipped takes up its best allowed
+  weapon (from the wiki's note that companions re-equip the best equipment even after
+  UnequipItem's NoEquip flag), for every NPC, not only companions. A weapon a script locked
+  off with UnequipItem's NoEquip flag is still respected here, and broken ones are not taken.
+  *Check:* take Boone's rifle in his inventory and give him a knife: does he fight with it?
+
+## Perks that change skill points (2026-10-20, session "q7", branch claude/q7-skill-point-perks)
+
+docs/spec-notes/levelup.md §9. Educated now adds 2 to the level-up menu's points, Logan's
+Loophole sets them to 0 past level 30, and every perk's and trait's ability (the record's
+Ability effect) is on you while you hold the perk: Good Natured's +5/−5 skills, the
+implants' S.P.E.C.I.A.L., Strong Back's carry weight, Action Boy's AP and the rest. Before
+this none of those abilities applied. My choices, to check in game:
+- **Abilities of a ranked perk**: only the highest rank's spell applies (Action Boy rank 2
+  is its 30 AP spell alone, not 15 + 30). *Check:* AP with Action Boy at rank 2.
+- **Educated's points are whole and never below 0**, and Logan's Loophole's condition is
+  read at the new level (no points from level 31 on).
+- **A perk's ability goes with the perk** (RemovePerk, a trait given back); while the perk is held a
+  RemoveSpell of it is undone the next frame (Dispel still suspends it as any ability).
+- **Not done**: reading skill books (so Comprehension does nothing yet), Hacking Science
+  Bonus, companions' perks.
+
+## An escort joining its charge's fights (2026-10-20, session "q11", branch claude/q11-escort-fights)
+
+docs/spec-notes/packages.md §3.1. The wiki says only that an Escort (like Follow and
+Accompany) "will join into the combat" when its target is attacked, even with Defensive
+Combat. Now an actor running an Escort package takes up the fight against whoever attacks
+the one it escorts, as an assisting ally would, whatever its Assistance. My choices, to
+check in game:
+- **It must at least notice its charge** (noticed or detected, as it walks ahead with its
+  back to it), no other range. *Check:* does an escort
+  far ahead of the player still turn back when the player is attacked?
+- **Fights the charge starts**: the escort joins only once the other side fights back. A
+  charge that provoked the attacker (the player shooting a neutral who answers) is still
+  helped. *Check:* the player shoots a neutral passer-by while escorted.
+- **Its own allies and friends** are never fought, and a Cowardly escort stays out.
+- **For the whole package**, also once at the destination; a companion (teammate) escort
+  keeps the teammate rule.
+- **Not done**: Follow and Accompany packages, which the wiki gives the same exception.
+- No placed actor runs an Escort package without a quest step (Raquel at Nellis, Gomez's
+  two), so the smoke test gives a Goodsprings settler GomezEscortToAtrium and sets Victor
+  on the player.
+## Find's Allow Buying (2026-10-20, session "q10", branch claude/q10-find-allow-buying)
+
+docs/spec-notes/packages.md §3.1. An actor on a Find package with Allow Buying now buys
+what it looks for from a vendor. The wiki gives only the checkbox's name and no Find
+package of the game has the flag (Eat packages have it), so every rule is my choice:
+- **Who is a vendor**: a living actor of the search area whose reference names a merchant
+  container (the stock the barter menu sells from). Its own inventory is not sold from.
+- **Which vendor**: the nearest object it looks for, vendor or loose item alike.
+- **What it buys**: one at a time, the cheapest wanted item it can pay for; each purchase
+  counts one of the package's count, and it buys again from the same vendor while the
+  count is not reached.
+- **Price**: what the player would pay at the actor's own Barter skill (value x
+  (1.55 - 0.45 x Barter / 100), never under the value, condition ignored), whole caps.
+  The caps go into the vendor's merchant container.
+- **How it gets there**: it walks up to the vendor as to any actor it looks for; no
+  dialogue, no barter menu, no idle.
+- **Killing and buying both allowed**: a living vendor is bought from, not attacked.
+*Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
+smoke test turns the flag on for FFER24FindFood with a test aid.
+
+## The Strip's crowd against the original (2026-10-20, session "q13", branch claude/q13-strip-crowd)
+
+npc-behaviour-compare.md §10.1. The original's `strip_evening` capture (from `nvfstrip`)
+against our engine with its scripts, over the first two game hours. Choices made:
+- **How the scene is set up**: the player comes through the Freeside gate door (with the
+  gate key), as the save evidently did, because that door's script is what starts the
+  Strip's crowd and the troopers' scene; then the player is put on the save's spot, which
+  walks into Victor's messenger trigger. Placing the player on the Strip directly leaves
+  the whole crowd without packages.
+- **Timed script packages** (the one engine change): a package given by AddScriptPackage
+  that has a schedule duration and no starting hour now stays after the actor reaches its
+  place until that duration has run out, counted from when it was given. In the original
+  the drunk trooper stayed at the wall 0.7 h on such a package; ours went back to his own
+  list at once. That the duration is the reason is my reading.
+- **Left as it is**: in the original MP A gave up her escort walk half-way, at the same
+  moment three troopers left theirs; nothing in the scripts explains it, so ours still
+  walks the whole route (about 0.5 h longer).
+*Check:* walk in through the Strip's north gate for the first time at night: the four
+troopers walk in, two lean on the wall and stay there until they go on towards the
+embassy; Victor's securitron comes up to talk.
+
+## True iron sights (2026-10-20, branch claude/true-iron-sights)
+
+docs/spec-notes/camera.md §4.1. Aiming a gun now lines up its sights with the eye: each
+weapon model's `##SightingNode` (behind the gun, at sight height) is put on the camera,
+with the barrel along the view, eased in with the zoom. My choices:
+- **Which weapons**: as you said, the model decides: a weapon whose model has a sighting
+  node (`##SightingNode`, or `SightingNode` on 18 guns) gets them. The laser rifle,
+  laser pistol and minigun have none; the plasma rifle has one, so it does get them.
+  *Check:* the plasma rifle down its sights.
+- **Crosshair**: hidden from the moment the sights start coming up until they are down
+  again; the prompt under it ("E) Take") goes with it.
+- **Switch**: on by default, "True iron sights" on the settings page's Gameplay tab
+  (`--no-true-iron-sights`) gives the original aim and crosshair.
+- **What moves**: the arms and gun together (`Bip01 Translate`), turned and moved; the
+  camera stays where the clip puts it. Sway is laid on top.
+- **Eye on the node exactly**: the gun's rear end ends up as close to the eye as the node
+  says (12.5 units behind the varmint rifle's origin, 25.8 behind the 10mm's).
+  *Check:* compare against your three screenshots of each weapon.
+- **Scoped weapons** get the same treatment; their scope overlay is still not built.
+
+## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
+
+docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
+when his AI went off (owner-decision-captures.md §7). Ours now does the same, moved by the
+character controller so it collides and follows the ground. The capture did not show the
+rest, so these are my choices:
+- **At a wall or another actor** it keeps walking into it and goes nowhere. It does not
+  steer round, jump or turn.
+- **Its clip**: drawn walking while it moves, standing while it is blocked.
+- **Away from the player** (no collision loaded there), headless, or in hours passed in the
+  Wait menu, it stops and stays stopped until the AI is back on.
+- **Doors** are walls to it.
+- **AI back on**: it steers back to its path's next corner, so one that went past turns
+  round. The original's short run-time FOLLOW package after SetActorsAI 1 is not
+  reproduced.
+*Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
+him into a wall and see whether the original's actor also stops dead there.
+
+## Blood on the screen when the player is hurt, and the splatter's flare (2026-10-20, queue item 16, branch claude/q16-hurt-splatter)
+
+Nothing documents when or how much blood the original puts on the screen after a hit (the
+wiki has only ClearScreenBlood's one line), and no capture has an NPC shoot the player.
+Everything below is my choice, tagged [hypothesis] in screen-splatter.md §4:
+
+- **When**: every hit that takes Health from the player (weapons, blows, explosions). Not
+  DamageActorValue (the capture showed none), not falls, nothing in god mode.
+- **How much**: `ceil(lost / max Health x iBloodSplatterMaxCount)` splats, at least one:
+  a tenth of the health is 3 splats, a near-kill most of 25. Plain splats (size and
+  opacity factors 1), 20 s (`fBloodSplatterDuration`), fading from the start as the
+  scripts' splats do.
+- **Cap**: hurt blood stops adding once 25 splats (`iBloodSplatterMaxCount`) are on the
+  screen; script calls stay uncapped (the capture showed 100 > 25).
+- **The flare**: a small red glow (`screenblooddot02.dds`) near each splat's core,
+  0.065 of the screen width x the size factor, offset up to 0.45 of the half-side, as
+  strong as the splat's opacity beyond 0.95. So hurt blood (factor 1) shows no glints and
+  the scripts' factor-2 calls do, as in the original's pictures; the glints are red, not
+  the original's red-white.
+- ClearScreenBlood / TriggerScreenBlood are not added: no opcode is known.
+
+*Check:* take a few hits from a Goodsprings gecko or a shot in the original and compare
+the amount of blood, how long it stays, and whether small hits leave any; smoke
+`screen-splatter-hurt`'s hurt_splatter.png and hurt_flares.png show ours.
+## Depth of field (2026-10-20, session "q14", branch claude/q14-depth-of-field)
+
+docs/spec-notes/image-modifiers.md §8. The GECK wiki describes the three values in a few
+words and nothing says how the engine draws them, so these are my choices:
+- **The ramp**: the blur goes from none at Distance to full at Range (game units from the
+  eye), in a straight line. Distance above Range turns it round (blurred foreground, clear
+  background, as the wiki says). Distance equal to Range blurs everything beyond it.
+- **Use Target**: the same ramp measured from the target's distance. Mode - Front blurs
+  only what is nearer than the target, Mode - Back only what is beyond it, neither does
+  both sides. A modifier with Use Target and no engine target focuses on what is under
+  the screen's centre.
+- **Strength**: how far each point is mixed from sharp towards a blur of fixed radius 3
+  (the modifiers' blur units). It is not clamped, so FlashBangISfx's 2 goes past the blur
+  into a harsh, contrast-like look (the wiki says strengths above 1 do that).
+- **VATS**: focused on the mark (the last one marked, or the one being shot), strength
+  `fVATSDOFStrengthCap` 0.6, range `fVATSDOFRange` 500, only what is beyond the mark is
+  blurred (so the player's own gun stays sharp), faded with VATS's amber look. With no
+  mark nothing is blurred. The records VATScamDOFCloseBlur and VATScamDOF50 are not
+  referenced anywhere in the masters, so I did not use them.
+- **Down the sights**: by `fIronSightsDOFDistance` 275 / `fIronSightsDOFRange` 650, but the
+  game's `fIronSightsDOFStrengthCap` is 0, so there is none in the shipped game.
+- **Not used**: PipBackgroundFX and PauseBackgroundFX (nothing in the masters plays them; the
+  Pip-Boy keeps its own blur); kill-camera modifiers (CAMS) are not played at all yet.
+*Check:* in the game, enter VATS with a dog in front of the trailers (the smoke test's
+spot in Goodsprings): is the background blurred, by about as much as smoke
+`vats-mode-dof`'s vats_dof_marked.png, and is the near ground blurred too (then the mode
+is both sides, not Back)? Throw a flash-bang (or `player.placeatme FlashBangExplosion`) and
+compare the first seconds.
+
+## Motion blur (2026-10-20, session "q15", branch claude/q15-motion-blur)
+
+docs/spec-notes/image-modifiers.md §9. The GECK wiki says only "how much to blur the
+screen while moving", 0 none to 10 the most; these are my choices:
+- **What moves**: each point is smeared along its own motion on the screen, found from its
+  depth and the last frame's camera. Turning smears everything, walking smears the near
+  ground more than the hills, a still view stays sharp. Other actors' own motion is not
+  counted (the renderer has no motion vectors).
+- **How much**: the smear covers the last strength × 1/30 s of motion, at most 8 % of the
+  screen height, 12 samples along the line. With VATScamNoDOF's 0.15 a brisk turn
+  already smears plainly in our frame.
+- **The player's own body** (nearer than 40 units: arms, weapon) is never smeared.
+  `fIronSightsGunMotionBlur` is 0 in the game anyway.
+- **Sources**: the largest among the modifiers on the screen; down the sights
+  `fIronSightsMotionBlur` × the zoom's blend (0 in the game, so none).
+- **Cuts**: a camera that jumps over 300 units or turns over 45° in one frame is not smeared.
+- **Not played**: the VATS kill cameras (most of the game's motion-blur records are theirs);
+  NightScopeISFX (motion blur 0.2), which nothing in the data plays, so maybe the engine
+  plays it for night-vision scopes.
+*Check:* in the game, `imod VATScamNoDOF` from the console and turn the view quickly: is
+there a visible smear, by about as much as smoke `imagespace-motion-blur`'s
+motion_turning.png? Does walking forward smear the ground? Does the gun stay sharp?
+`rimod VATScamNoDOF` afterwards.
+
+## Effect shaders' holes and add-on models (2026-10-21, session "q19", branch claude/q19-efsh-holes)
+
+docs/spec-notes/effect-shaders.md §7-§8. The GECK wiki's EffectShader page says nothing of
+either, so the meanings come from xEdit's field names and the records; my choices:
+- **Holes only with a holes texture.** Most other records carry holes numbers (0, 10, 255, 0) but no
+  texture; only the 8 with one dissolve.
+- **Direction**: where the holes texture's alpha is at or above the value there is a hole;
+  the value moves linearly from the start value (until the start time) to the end value
+  (by the end time). The death shaders go 255 to 0, so the body is whole at first and gone
+  at the end (GooShader01 over 0.2-1.75 s; the gooification script hides the body at 1.4 s).
+- **Edge band**: the "edge width" alpha units next to the holes are drawn unlit in the holes'
+  edge colour (orange for the laser, cyan for the alien blaster, red for the nuke).
+- **Texture coordinates**: the holes texture is read at each mesh's own UVs.
+- **After the play** the meshes get their own materials back.
+- **Add-on models**: one model of the DEBR (by its percentages) on each of up to 8 bones of
+  the actor, spread over its skeleton; an object gets one. Played as effect models
+  (billboards face the camera).
+- **Add-on timing**: grow from "scale start" to full size over "scale in time" and fade in
+  over "fade in time" from the start; after the end shrink to "scale end" over "scale out
+  time" and fade out over "fade out time". GlowingOneFXShader's short record has no timing:
+  full size at once, gone at once.
+- `HaroldLiniment` (0 to 127) would start with the body a hole under these rules; no script
+  plays it.
+*Check:* in the game, kill an NPC with a plasma critical (or `player.pms GooShader01` on a
+target): does the body break up in patches from the inside out with a thin light rim, as
+smoke `effect-shader-holes-addons`'s effect_holes.png shows? Set an NPC on fire with a
+flamer: how many fireballs ride on the body, and where (hands, head, chest)? Do they shrink
+and fade over about 2 s after the burning stops? A Legion explorer (GlowingOneFXShader): are
+glow meshes visible on the body?
+## Vertex morphs (2026-10-20, session "q17", branch claude/q17-vertex-morphs)
+
+docs/spec-notes/vertex-morphs.md. nif.xml gives the blocks' fields only; my choices:
+- **Formula**: the shape is morph 0 (always equal to the stored vertices) plus each later
+  morph times its weight. Normals stay as stored (no base-game file asks to update them).
+- **Clamped flags loop**: the NCR, Nevada and Followers flags' controllers are clamped
+  (-2 s to 22.8 / 34.7 s) but every weight ends where it started, so they are played
+  looping. Other clamped morphs (tripwire, dart gun band, the vault chamber shock) are not
+  played on world objects.
+- **In step**: every placed copy of a model shares its mesh, so all copies of a flag wave
+  together (The Fort's 27 Legion flags move as one).
+- **Wires**: the morphing wire poles (`utilitypole…nv.nif`) are not placed in the Mojave;
+  the placed poles' models have no morphs, so wires still do not swing.
+- **Sequence morphs**: only the model's Idle (else SpecialIdle) sequence feeds them.
+*Check:* in the game, stand in Goodsprings near the Nevada flag (smoke `vertex-morphs`'s
+spot) and at The Fort: do the flags ripple as in vertex_morphs_0/1.png, and do The Fort's
+flags move in step with each other?
+
+## Ash piles (2026-10-21, session "q20", branch claude/q20-ash-piles)
+
+docs/spec-notes/ash-piles.md. The wiki gives the Crit Effect / On Death rule and
+AttachAshPile's two pile types; the shipped effect scripts do the rest. My choices:
+- **Critical effects in general**: every weapon's Crit Effect is now applied on its critical
+  hits (On Death ones only on a killing critical), not only the energy weapons': the
+  flamer's FlamerCritEffect02 and the Fat Man's NukeCritEffect now play too.
+- **Not on the player**: an NPC's critical kill does not disintegrate the player (our death
+  camera has no culled body to show). The original probably does.
+- **The pile**: at the actor reference's position (where it stood when it died; the
+  ragdoll's drift in the second before is not followed), upright, with the actor's heading.
+  Any type other than 2 gives the ash pile; a second AttachAshPile on the same actor adds
+  nothing; ResurrectActor removes the pile.
+- **Looting**: the pile says Search and opens the dead actor's own inventory (items are not
+  moved into the pile); the culled body can no longer be targeted.
+- **Disintegrations** (Pip-Boy statistic) counts a pile from an actor the player killed.
+- **Not built**: the ragdoll changes of GooStart/DisintegrateStart, the pile's looping sound,
+  the effect shaders' holes (PR #540).
+*Check:* in the game, kill someone with a laser critical (`player.AddPerk` Better Criticals
+helps) and compare with smoke `ash-pile-chet`'s ash_pile_burning.png / ash_pile_after.png:
+does the pile lie where the body fell, facing the same way? Does Search on it show the
+body's items?
+## Refraction: fire refraction and the Stealth Boy's shimmer (2026-10-21, queue item 18, branch claude/q18-refraction)
+
+Spec: [refraction](spec-notes/refraction.md). Shapes with the Refraction flag were already
+drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
+1. *Decision:* **Fire Refraction** (66 of the 75 refracting models in the base archives)
+   scrolls the normal map up its texture once every `fire period × 0.1` s and adds that
+   tilt to the bend; a negative period scrolls down, 0 stays still. The unit (tenths of
+   a second) and the direction are guessed.
+2. *Decision:* the **Stealth Boy** draws the player's body and arms refracting (strength
+   0.03, normal map scrolling every 2 s) instead of the faint blue copy at 30 %. The
+   Stealth Field's record names no shader, so the look is the engine's; strength and
+   period are guesses near the game's own effects (Mister Handy's jet 0.04). Hair and
+   other blended parts are cut at alpha 0.5.
+3. Not built: Nightkin and other actors under Chameleon still draw normally;
+   `SetActorRefraction` (console only, no script uses it, opcode unknown);
+   `BSRefractionFirePeriodController` (only the Novac windows have it, and they lack the
+   Refraction flag so they never refract).
+*Check:* in the game, use a Stealth Boy in third person by a wall with detail: how strong
+is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
+stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
+upwards, about once a second?
+## Environment radiation (2026-10-21, queue item 26, branch claude/q26-env-radiation)
+
+Spec: [radiation](spec-notes/radiation.md). Radiation markers (the 119 `RadiationMarker`
+references with XRAD/XRDS) and irradiated water now give the player rads by the second,
+cut by Rad Resistance; GetRadiationLevel answers; the Geiger counter clicks; the HUD shows
+a radiation meter. Radiation sickness was already built (the Rads stages).
+1. *Decision:* a marker's whole level holds inside its radius and nothing outside; where
+   markers overlap the strongest counts (they do not add). Read from the masters' habit of
+   stacking markers of rising level and falling radius on one spot.
+2. *Decision:* rads taken = level × fRadiationAccumulationRate (1.0) × (1 − Rad
+   Resistance %), resistance capped at 85 % (the cap is a guess, as Damage Resistance's).
+3. *Decision:* water: no water has a WATR damage value, so swimming gives the water's
+   drink effect's rads × fSwimRadiationDamageMult (0.1), wading × fWadeRadiationDamageMult
+   (0.1): 1 rad a second in the river and lake waters (WaterHeal4Bad), 2 in
+   RadioactiveWater. The water type is the cell's.
+4. *Decision:* Geiger counter: one of the one-second bursts every second, A under 5 rads a
+   second, B under 10, C from 10. The bands are guesses.
+5. *Decision:* the meter shows "+n RADS" (rads a second taken) in the HUD's red just over
+   the health piece; the file gives no place and no text. The pointer picture is not drawn.
+6. Not built: NPCs taking rads, Glowing Ones' aura (area effects), fRadiationDecayRate and
+   fRadiationResistanceAvoidLevel (meaning unknown).
+*Check:* in the game, stand in the nuclear test site's shack (or by the Camp Searchlight
+crater) and compare with smoke `environment-radiation`: is the gain steady inside a
+marker's radius, or does it rise as you walk in? How many rads a second does the meter
+show, and where is it? Does the counter click faster with stronger radiation? Swim in
+Lake Mead for ten seconds: how many rads?
+
+## Grab: picking up and carrying objects (2026-10-21, queue item 24, branch claude/q24-grab)
+
+Spec: [grab](spec-notes/grab.md). No capture of the original's grab was made; the
+settings it uses (`fGrabMaxWeight*`, `fZKey*`) are named in the executable but are not
+records of the shipped plugins, so their values are not known.
+1. *Decision:* **Grab (Z) held** picks up what is under the crosshair and holds it until
+   Z comes up; **E held 0.4 s** does too (until E comes up), a shorter press of E
+   activates as before, when E comes up. Only presses of E on things that can be held
+   wait for the key to come up; everything else still activates on the press.
+2. *Decision:* what can be held: loose objects (one dynamic Havok body: placed clutter,
+   dropped items) and corpses (the ragdoll body nearest the crosshair). Not living
+   actors.
+3. *Guesses:* held at the distance it was picked up from (at least 50 units), hanging
+   from the point the crosshair touched; follows at up to 700 units/s; spin damped;
+   dropped when it lags more than 90 units behind (caught on something).
+4. *Decision:* **Use while holding throws** it along the view (2500 kg·units/s over its
+   mass, at most 600 units/s) and does not fire the weapon.
+5. *Guesses:* not picked up above 100 kg (`fGrabMaxWeightWalking`), the player walks
+   while holding more than 25 kg (`fGrabMaxWeightRunning`); for a corpse the held body's
+   mass counts, not the whole body's.
+6. Not built: arms reaching for the object (`bGrabIK`), rotating a held object,
+   GetPlayerGrabbedRef (no New Vegas opcode).
+*Check:* in the game, in Doc Mitchell's house: does a tap of E on the brahmin skull do
+nothing and holding E pick it up? Does Z pick it up? How far in front is it held, does
+it swing or keep its turn, how fast does it follow a quick turn, and does attacking
+throw it? Can you drag a corpse, and does carrying something heavy slow you to a walk?
+
+## Placed particle smokes (2026-10-21, queue item 21, branch claude/q21-particle-smokes)
+
+Spec: [particles](spec-notes/particles.md) §7. The survey of the base archives found 1,920
+placed references (106 model files) with particle systems or add-on nodes; since
+2026-10-20 they all had emitters, but most drew little.
+1. *Decision:* a placed model's own particle systems are **each reference's own** (they
+   were one pool per file: Gomorrah's 43 sconces shared 14 flames). Shot-effect models keep
+   one pool per file.
+2. *Decision:* an add-on master system (barrel fires: 10 emitters at once) serves the
+   emitters **nearest the camera** first; which ones the game serves is not known.
+3. *Decision:* spherical colliders keep particles on the side they started (the snow
+   globes' flakes stay in the globe), bouncing or dying as the planar ones do.
+4. References a script enables now emit too (11 of the 16 tyre-smoke columns start
+   disabled).
+5. Left as they were: placed dynamite's fuse sparks lying in the world, the 89 small
+   boulders' rock-slide dust emitting from the start, the Lucky 38 reactor's
+   reset-on-loop controller.
+*Check:* in the game, stand in Gomorrah's casino floor (smoke `placed-particle-smokes`'s
+spot): does every wall sconce burn, as in placed_particles.png? In the Old Vegas sewers
+with many barrel fires in view, do all of them burn at once? Does a stick of dynamite on a
+shelf show fuse sparks?
+
+## Loading a save into another load order (2026-10-21, queue item 29, branch claude/q29-save-load-order)
+
+Spec: [save-load](design/save-load.md) §4.1. A save made with other plugins (added before
+the save's own, removed or reordered) no longer refuses to load: every FormID's mod index
+moves to its plugin's place now (matched by file name), and what came from plugins no
+longer loaded is dropped. Decisions where the original is not documented:
+
+1. **Load with a notice, do not ask.** When plugins are missing the save loads and a corner
+   message says "This save relies on content that is no longer present: <plugins>. What
+   came from it was removed." (also in the console). The wording is ours; the original's
+   message (if any) is in its encrypted executable, not in the GECK wiki or the ESM.
+2. **What is dropped**: map entries keyed by a missing plugin's form (its references'
+   changes, inventory items, quest state, globals), list entries and remembered pairs
+   holding one, created references of its bases or in its cells, script instances and
+   magic effects on its forms, the radio station and weather shown if its. Other fields
+   that name one of its forms (an actor's last attacker, a package) keep an ID in the
+   unused `FE` slot that names nothing.
+3. **Standing in a missing plugin's cell or worldspace**: the load is refused (nowhere to
+   start the player). A fallback place (the last base-game marker) could be added.
+4. **255 plugins**: a save with missing plugins is refused then, since `FE` is a real
+   plugin slot in such a load order.
+
+*Check:* load a save made with an add-on, after turning that add-on off in NVForever's
+plugin list: the corner message, and the Mojave as it was without the add-on's things.
+## Slot machines (2026-10-21, queue item 22, branch claude/q22-slot-machines)
+
+Spec: [slots](spec-notes/slots.md). The casinos' slot machines now open a slot machine
+menu (ShowSlotMachineMenuParams), as roulette's and blackjack's tables do.
+1. *Found in the data:* every casino's record gives each of the 7 symbols 2 of a reel's
+   14 stops; the 7th ("W") is the cherries. The machine model's payout screen lists three
+   bells 10, BARs 20, sevens 30, lemons 40, grapes 80, oranges 160, and one, two, three
+   cherries 2, 5, 10, each as "= BET x N".
+2. *Decision:* "= BET x N" is the chips handed back for the bet (a win of x2 on 5 gives
+   10, 5 more than staked); cherries count from the left reel on (a cherry on the middle
+   reel alone pays nothing); only the middle row is a payline. With the shipped stops
+   that pays back about 1.35 a chip, so the max winnings and the ban come quickly.
+3. *Decision:* the stops lie round a reel in turn (bell, BAR, seven, lemon, grapes,
+   orange, cherries, then again); every stop as likely; the three reels alike.
+4. *Decision:* Bet Max only sets the bet to the most allowed (does not spin); the bet
+   starts at the minimum; reels stop at 1.4, 2.0 and 2.6 s; the result shows 2 s.
+5. *Decision:* MenuMode 1103 (the original's code is not in the menu files or the wiki
+   export). The words ("Spin", "Payout List", "Bet Max", the info rows, "Three oranges:
+   you win 800 chips.") are NVForever's.
+6. *Not built:* the machine's 3D model (cabinet, arm pull, coin fall, payout screen
+   sliding in); the menu is drawn flat from the symbol pictures, as Caravan's. The slots
+   challenge and the Atomic Wrangler's jackpot message.
+*Check:* in the game, play a slot machine at The Tops: what do the menu's buttons and
+rows say, how does the payout list look, does one cherry on the left reel pay, does a
+cherry on another reel pay, and does a win of "x 2" leave you 1 or 2 bets up? A screenshot
+of the menu, of a win and of the payout list would settle most of these.
+
+## Ragdolls' rest rule (2026-10-21, session "q30-death-cam-rest", queue item 30)
+
+- **Cause of `death-cam-first`'s flaky rest check**: the rest rule read the ragdoll bodies'
+  velocities, and a light body (forearm, hand, upper arm, neck) pressed between the ground
+  and a joint limit shivers with velocities flipping step to step at up to 8 rad/s while
+  going nowhere. About a quarter of drops of the human ragdoll never came to rest that way
+  (ragdoll.md §4 "Rest").
+- **Decided**: calm is now judged from each bone's net motion over 0.25 s windows (the same
+  12 units/s, 0.6 rad/s and 1.5 s as before). The window length is a guess [design]; the
+  thresholds are unchanged.
+- **To check in game**: a corpse should still lie still once it looks still, and a corpse
+  sliding slowly down a slope should not freeze mid-slide (a net slide under 12 units/s, as
+  before, is still taken as calm).
+## A film's `muteAudio 0` (2026-10-21, session "q28 film mute audio")
+
+Queue item 28; spec in docs/spec-notes/bink-films.md §2.
+
+- **What keeps sounding.** Under a `PlayBink … 0` film (muteAudio 0) the game stays held
+  (the page says game time stops either way) but the placed and background loops, random
+  sounds and the world's radios are not paused [hypothesis: which sounds the original
+  counts as "world sounds" is not documented]. Random sounds keep being rolled by the
+  wall clock while the world stands still [hypothesis].
+- **Lines being said stay held** under every film, since their timers stand still with
+  the scripts; otherwise a line's sound would run on while its timer did not [hypothesis].
+- The shipped game never shows this here: the only shipped calls with muteAudio 0 (the
+  opening's logo films, `vb01.bik`) name files not in the install.
+*Check:* none needed in game; if a mod plays a film with muteAudio 0, the world's ambience
+should be heard under it.
+
+## Exterior lighting and clouds (2026-10-21, queue item 31, branch claude/q31-exterior-lighting)
+
+Findings and the one change in docs/spec-notes/world.md §6 ("Fog colour by day", "What
+holds the exterior frames under the threshold", "Cloud texture placement") and
+docs/design/layer3.md §5 item 5.
+
+1. *Decision:* distant fog takes on half of the sunlight colour's hue in full daylight
+   (`FOG_SUN` 0.5) [hypothesis, fitted]. The game's distant haze is warm where the
+   weather's fog colour is light blue; full hue fitted the colours best but tipped
+   black_mountain_north just under the threshold, so half.
+2. *Not changed:* the sky's horizon colour (also too blue-white): the same treatment made
+   the colours worse. The FNAM fog powers stay unused (not needed by these frames).
+3. *Found:* the frames fail on the clouds, not on the light's strength: with the game's sky
+   pasted in, all eight exterior frames pass. Matching the clouds needs two things from you:
+   - each reference frame's seconds since the save was loaded in `frames/manifest.json`
+     (known: noon 22 s, dusk 41 s, hill_lod 59 s, lake 79 s), passed on by the scenarios
+     (parity-lab/AGENT.md keeps scenario edits with you);
+   - a still-sky capture: one camera twice a known number of seconds apart, and one
+     looking straight up, so the game's cloud texture mapping can be read (the renderer's
+     does not match by any shift of its texture coordinates).
+*Check:* in the game at noon, looking at the far hills: is the haze warm (yellow-tan) as in
+the reference frames, and does nvforever's now look closer?
+## Reverb (2026-10-21, queue item 27, branch claude/q27-reverb)
+
+Spec: [audio](spec-notes/audio.md) §14.6. New Vegas has no REVB records: an acoustic
+space (ASPC) names one of DirectSound's 30 reverb presets, whose parameters come from
+DirectSound's own header. As shipped, the original plays **no** reverb on PC (its INI
+switch `bEnableEnviroEffectsOnPC` is 0), so this is closer to the original with that
+switch turned on.
+1. *Decision:* reverb is **on** by default (you asked for reverb indoors); the settings
+   page's Sound tab has a **Reverb** switch, kept in the INI, and `--no-reverb`.
+2. *Decision:* the environment is the acoustic space of the cell you are in, taken when
+   a sound starts. Inside, as stored. **Outside, only open-air presets** (Mountains,
+   City, Plain …) play: 12 of the 14 outdoor spaces, the open desert included, store
+   "Medium Room", which I took for a value left unset, so the Mojave plays dry; the Strip
+   and the slums (Mountains) get a faint distant echo.
+3. *Decision:* what goes through it: sound effects (shots, impacts, footsteps, doors,
+   creatures, the random placed sounds) and placed loops. Not: interface sounds, sounds
+   flagged Environment Ignored or Menu Sound, the room's background loop, music, voices,
+   radios, and a weapon's held firing loop.
+4. *Guesses:* how DirectSound turned the preset's numbers into sound is not documented;
+   I built a Freeverb-style reverb driven by them (decay time, HF damping, early
+   reflection and late levels and delays, density, diffusion); each sound rings on for
+   its preset's decay after its file ends (at most 6 s). The record's "Reverb
+   Attenuation Control" (SOUN `GNAM`) is not used: its unit is unknown.
+*Check:* fire a gun in the Goodsprings cave (Cave), in Vault 19 (Stone Corridor) and in
+the Prospector Saloon (Small Room): does each sound like the place, is any too wet or
+too long? Outside in Goodsprings, is the dry sound what you want, or should the desert
+have some echo? Is the reverb on footsteps welcome or distracting?
+
+## Traps: trigger boxes and activate parents (2026-10-21, queue item 25, branch claude/q25-traps)
+
+Spec: [traps](spec-notes/traps.md). Disarming, XP and damage are the trap scripts' own
+and already ran; what was missing was what sets the traps off.
+1. *Decision:* a scripted trap without a placed trigger box uses the **Trigger-layer box in
+   its model** (bear trap, tripwire, pressure plate: 32 × 32 × 8 units half extents for the
+   bear trap). The box shape's bounds are taken as the volume.
+2. *Decision:* a parent sets off its **activate children** only on its **default
+   activation** (the tripwire's `activate self`, the plate's `activate`, a hand on a
+   parent without OnActivate), not when its OnActivate block runs (otherwise looking at a
+   tripwire would fire its shotgun). The children are activated with the **parent as the
+   action reference** (the rigged shotgun fires only for a non-player action reference),
+   after their XAPR delay in game seconds. Pending children are not saved.
+3. *Decision:* "Parent Activate Only" (XAPD) refuses the player's hand. No shipped
+   reference sets it.
+4. Not built: the **swinging traps** (log, I-beams, engine block, brahmin corpses;
+   `trapUpdate`): their chains of constrained bodies are not simulated, so they are
+   activated but do not swing or hit. Where a rigged shotgun's pellets leave (the game may
+   use a `ProjectileNode`) is open: in the smoke run they struck the world, not the player.
+*Check:* in the game, walk into a tripwire guarding a rigged shotgun (Nipton's paranoid
+man's house): does the shotgun fire the moment the wire springs, and does looking at the
+tripwire (without disarming) leave the shotgun quiet? Step on a bear trap south of
+Goodsprings: does it close when the foot is about a third of a metre from its centre?
+
+## Perks in combat: entry points with tabs (2026-10-21, ESM gap audit row 2, branch claude/e2-perk-combat-entry-points)
+
+Spec: [perk-entry-points](spec-notes/perk-entry-points.md). The player's perks now change
+the player's hits (weapon damage, critical chance and damage, DT ignored), the hits the
+player takes (the enemy's critical chance, the player's DT), the player's gun spread,
+VATS mode's AP cost and the player's weapon wear.
+1. *Decision:* each condition tab runs on its own form (owner: the player, with the other
+   actor as Target; the weapon's base form; the target or attacker reference), and every
+   tab must pass; an entry whose tab has no form here (a shot on an object) is skipped.
+2. *Decision:* the **functions other than Set/Add/Multiply** (Add Range To Value, the
+   actor value functions, Absolute Value) are numbered by the GECK's Function list order
+   (4–7, 12–14). No record of the masters or add-ons uses them, so their codes and
+   parameter layouts are unchecked guesses.
+3. *Decision:* the **attacker's DT entry** (Shotgun Surgeon, Piercing Strike) is the DT
+   taken off the target's, applied after the target's own DT perks, never below 0.
+4. *Changed:* **GetVATSValue's query codes** were the wiki page's order; the masters'
+   data shows Targeted Part is code 5 (Center of Mass, Sniper) and Weapon Type Is is last
+   (15). Camera path conditions now read with the new codes.
+5. Not wired yet: To Hit Chance (VATS mode never misses), reload / equip / attack speed
+   (the body's clips play at their own speed; changing only the timing would desync),
+   knockdown (Super Slam), Strength requirement, Run 'n Gun, throwing velocity, explosion
+   radius.
+*Check:* with Bloody Mess, does a 10mm shot on a raider take about 5 % more? With
+Toughness, do raiders' shots take 3 less? With Math Wrath, does VATS mode's AP a shot
+drop by a tenth? Center of Mass applies only to VATS mode's shots at the torso.
+## Encounter zones (2026-10-21, ESM gap audit item 1, branch claude/e1-encounter-zones)
+
+Leveled actors, and the carried items of placed actors and containers, are now read at each
+reference's level instead of a fixed level 1: its encounter zone's level (set the first time
+the zone's cell loads: the player's level raised to the zone's minimum), or the player's level
+outside zones, changed by the reference's level modifier. Spec:
+[encounter-zones](spec-notes/encounter-zones.md). Decisions and guesses:
+
+- *Guess:* "entering" a zone is its cell coming into the game's loaded cells (the 5 × 5
+  outdoors), so a zone next door is set when you are near it, not only when you step in.
+- *Guess:* a reference's level is fixed when its cell first loads and kept until its cell is
+  reset; a wasteland actor seen at level 3 stays that actor after you reach level 10.
+- *Guess:* the modifiers' percentages (Easy 50, Medium 75, Hard 125, Boss 200, from the GECK
+  wiki) are rounded down, never below 1; Easy picks from every entry at or under its level,
+  the others keep the list's own "Calculate from all levels" flag.
+- *Guess:* "Match PC Below Minimum Level" gives a lower player the zone at their own level
+  (no zone in the masters sets it).
+- *Guess:* the carried items of an actor are read at its reference's (modified) level, not at
+  the actor's own level (the wiki says the actor's level for actors).
+- *Decision:* "Never Resets" stops the 72-hour cell reset in that zone's cells: Respawn actors
+  stay dead, respawning containers keep their contents.
+- *Not built:* leveled locks (the GECK calls the checkbox deprecated and gives no rule).
+- *Check:* start a new character at level 1 and go into Vault 3 (minimum 12): the Fiends
+  should be the zone's tier, not the weakest. Compare with the original if you have a
+  level-1 save near Vault 3 or Vault 11 (minimum 6, giant rats).
+
+## Weather variation (2026-10-21, ESM gap audit item 8, branch claude/e8-weather-roll)
+
+The weather is now chosen by rolls: a weighted draw from the climate's list, replaced by an
+overriding region's list while you stand in that region, with scripts' weathers on top.
+Spec: [world](spec-notes/world.md) §6 "Choosing a weather". In the unmodded Mojave this
+changes the weather only in the place regions (around Vegas NVUrbanRegion rolls NVUrbanClear
+85 % / NVWastelandClear 15 %; Searchlight, Jacobstown, Black Mountain, the Legate's camp,
+Hoover Dam and the Fort show their own weathers); Goodsprings and the open desert keep the
+clear day and night weathers. Decisions and guesses:
+
+- *Guess:* the region weather block's flag bit 0 is "Override": only regions with it replace
+  the climate (the Goodsprings test region GSWeatherRegion, NVBorderRegion and
+  NVColoradoRiverRegion do not). Among several, the highest priority wins, ties by FormID.
+- *Guess:* entries whose global is set and non-zero win over the ungated ones (VNight's clear
+  night weather at night, NVHooverFinalBattle once the battle global is set), instead of a
+  coin flip between them.
+- *Guess:* volatility is the chance per game hour (volatility / 255) of a new roll. Every
+  shipped climate stores 0, so without regions the weather never changes by itself.
+- *Guess:* a non-held SetWeather/ForceWeather lasts until the next roll.
+- *Guess:* the change still fades over half a game hour (WTHR "trans delta" unit unknown).
+- *Guess:* indoors the list followed stays as it was outside.
+- *Decision:* the rolls are seeded (`--weather-seed`, a fixed default) so every run rolls
+  alike; a save keeps the random state. A loaded game keeps its saved weather (no longer pins
+  it as `--weather` did). `--weather` still pins one weather (the lab's frames use it).
+- *Check:* walk from Goodsprings towards Freeside's outskirts (north-west of the Strip, e.g.
+  the Fiends' area): does the original change to a greyer urban weather there, and back when
+  you leave? At Hoover Dam during the final battle, is it the battle weather?
+## Challenges (2026-10-21, ESM gap audit item 3, branch claude/e3-challenges)
+
+Every challenge type the masters use now counts from the player's own deeds: kills (by
+victim list, victim, creature type, weapon), hits (damage, criticals, crippled limbs,
+knockdowns, by body part and weapon), damage dealt, discovered map markers, items used,
+items acquired, recipes made and the miscellaneous statistics. At the threshold the
+challenge completes, counts in Challenges Completed and runs its reward script (the XP and
+the challenge perks: Animal Control, Bug Stomper, Lord Death …). The Pip-Boy's Notes tab
+shows the challenges on R ("Challenges"). Spec: [challenges](spec-notes/challenges.md).
+Decisions and guesses:
+
+- *Read off the records (no document):* value3 is the weapon's animation type + 1, value2 the
+  weapon's skill (kills, damage), the creature type + 1 ("kill any in a category") or the hit
+  kind (0 damage, 1 critical, 2 knockdown, 3 cripple); value1 the body part or the statistic.
+  The body parts 3, 5 and 6 (left arm, left leg, right leg) are a guess; no master uses them.
+- *Guess:* every kill counts, not only enemies'; a kill's weapon is the one you last hit the
+  victim with, else the one in your hands; no weapon counts as Unarmed (fists).
+- *Guess:* damage counts as dealt to health (after DT); fractions carry over.
+- *Guess:* acquiring counts everything that reaches your inventory, bought and looted too
+  (the Sierra Madre chip challenges).
+- *Guess:* the messages: "Challenge completed: <name>" with the challenge picture
+  (perk_challenge.dds), and "<name> 10/50" at each interval. What do the original's say,
+  and does a completion play a sound?
+- *Guess:* the Pip-Boy list shows unlocked challenges with progress (and those flagged Show
+  Zero Progress at 0), running first, completed ones faint, each by name; the right side
+  the description and "10/50" or "Completed"; R toggles back to the notes ("Notes").
+  The original's headline of the challenge type is not built.
+- *Guess:* Find Vault 34 (threshold 0) completes at 1, as its sibling vaults.
+- *Check:* kill a few geckos with a pistol and open the Pip-Boy's Notes, R: Animal Control
+  and A Fistful of Hollars (unarmed only) should match what the original shows for the same
+  kills; pick a lock and see Low Tech move.
+
+## Skill books (2026-10-21, ESM gap audit item 4, branch claude/e4-skill-books)
+
+The 14 skill books can now be read: use one in the inventory or Pip-Boy and it is used up,
+its skill rises, Books Read counts one and a corner line says so. Spec:
+[skill-books](spec-notes/skill-books.md). Decisions and guesses:
+
+- *Guess:* a book is worth 3 points, the masters' only book setting `fBookPerkBonus`
+  (3.0), with Comprehension's entry point (Add 1) making 4. The setting's name speaks of a
+  perk bonus; if the original reads it differently, the points change.
+- *Guess:* the points go into the skill's permanent pool (the GECK wiki names skill books
+  for it), whole points, never past 100; a book read at 100 is still used up and gives
+  nothing.
+- *Guess:* a skill book lying in the world is picked up into the inventory like any item,
+  and read from there (quests hand skill books over, vendors sell them). If the original
+  reads it on the spot when you pick it up, say so.
+- *Guess:* the books stay on the MISC tab.
+- *Guess:* the corner line is "Guns increased to 18" with the skill's Pip-Boy icon; the
+  original's wording is not in the game files.
+- *Decision:* "Can't be Taken" (the wiki calls it unused) is honoured: such a placed book
+  shows no prompt and stays; only You're SPECIAL! (BabyBookStatic) and the MS03 manuscript
+  carry it, no skill book.
+- *Not built:* books that teach nothing (their OnEquip scripts), NPCs reading.
+- *Check:* read Guns and Bullets with Guns at 15 in the original: is it 18, what line shows,
+  and does Books Read in the Pip-Boy's General stats rise? With Comprehension, 4?
+
+## Weather sound, precipitation and lightning (2026-10-21, ESM gap audit item 9, branch claude/e9-weather-sound-precip)
+
+A weather's own sounds now loop outdoors, its precipitation model falls about the camera,
+and a rainy weather flashes with lightning and thunder. Spec:
+[world](spec-notes/world.md) §6 "Weather sound, precipitation and lightning". What the
+masters hold: no weather has a precipitation model, and no weather a world uses has a
+looping sound; only Honest Hearts' two Zion rain weathers do anything here (lightning,
+frequency 138, white, one distant thunder sound). Zion's rain and Hidden Valley's dust
+storm are drawn by their own scripts and placed references, as before. Decisions and
+guesses:
+
+- *Guess:* lightning frequency 255 means a flash every 4 s on average, 1 every 40 s, so
+  Zion's 138 flashes about every 22 s (each wait drawn between half and one and a half of
+  that). The byte's scale is not documented.
+- *Guess:* only Rainy weathers or weathers with a thunder sound flash (the clear weathers
+  store frequency 255 and would otherwise flash all the time).
+- *Guess:* a flash lights the scene and the sky in the lightning colour for 0.35 s, a
+  bright stroke and a weaker second one; thunder comes 1 to 4 s later.
+- *Guess:* the fade bytes (precipitation and lightning "begin fade in" / "end fade out")
+  are shares of 255 of the weather change: the rain starts once the change to the weather
+  is that far along and stops on a change away once it passes the other.
+- *Decision:* Default and Wind sounds loop while the weather is shown, Precipitation
+  sounds while its rain falls; all play at the listener with the effects volume, and none
+  indoors (the Zion rain script plays its own indoor rain sound).
+- *Not built:* the Snow class, sun damage and glare, wind moving anything,
+  GetWeatherTraitNumeric and the JIP weather setters.
+- *Check:* in Zion Canyon during rain in the original: how often does lightning flash,
+  how bright and long is a flash, and how long until the thunder?
+## Death items (2026-10-21, ESM gap audit item 5, branch claude/e5-death-items)
+
+An actor's death item (NPC_/CREA INAM, a leveled item list: hides, meat, glands, dog tags)
+now goes into the body when it dies, so it can be looted. Spec:
+[death-items](spec-notes/death-items.md). Decisions and guesses:
+
+- *Guess:* the list is rolled as the actor dies (not when it spawns), before its OnDeath
+  scripts run, and without OnAdd.
+- *Guess:* it is read at the same level as the actor's carried items (its encounter zone's
+  level, else the player's).
+- *Decision:* it comes from the actor that supplies the Traits (xEdit hides INAM with the
+  Traits flag); in the 14 creatures whose own INAM differs from their template's, the
+  template's wins (e.g. the Vault 19 fire gecko: DeathItemGeckoFire100, not its own DeathItemGeckoFire50).
+- *Guess:* a resurrected actor that dies again gets a second roll; a reload adds nothing.
+- *Guess:* corpses placed dead (the tribal village's Fiends) hold their death item too,
+  rolled when their inventory is first looked at.
+- *Built too:* the perk entry point "Add Leveled List On Death" (player kills only; no
+  FalloutNV.esm perk uses it, Them's Good Eating and Certified Tech in the add-ons do).
+- *Check:* kill a radroach and search it: Radroach Meat. Kill a few geckos: hides, meat and
+  sometimes an egg, not every time. Search a raider: sometimes extra items (DeathItemRaider15).
+
+## Vendor services (2026-10-21, ESM gap audit item 6, branch claude/e6-vendor-services)
+
+Vendors now sell only the item categories their AI data's "Buys/Sells" flags name (Weapons,
+Armor, Alcohol, Books, Food, Chems, Stimpaks, Miscellaneous), and GetOffersServicesNow
+answers from the current package's "Offers Services" flag. Spec:
+[vendor-services](spec-notes/vendor-services.md). Decisions and guesses:
+
+- *Decision (documented):* vendors still buy anything from the player; the GECK wiki's
+  Class page says the "buys" half is unused in FNV. Only the vendor's own stock is limited.
+- *Guess:* drinks and drugs go by their equip type (Food, Alcohol, Chems, Stimpak), not by the
+  wiki's food/medicine flags: with the flags, Trudy could not sell Nuka-Cola or Sarsaparilla
+  (they are "unmarked", so chems), and the High Times dealer's Alcohol flag would do nothing.
+- *Guess:* ammunition and weapon mods count as Weapons (Mick has only Weapons and Armor yet
+  stocks loose ammunition); keys, notes, chips, Caravan cards and the like as Miscellaneous.
+- *Guess:* "Autocalc Service" on an NPC takes its class's flags instead of its own (28 NPCs,
+  mostly the travelling merchants, whose own flags are the same).
+- *Decision:* the barter menu opens whatever the vendor's package says: Chet's and Mick's
+  packages have no "Offers Services" flag, and no dialogue of the masters asks
+  GetOffersServicesNow. The barter log says whether the vendor offers services now.
+- *Guess:* GetOffersServicesNow is 0 while the vendor walks to its package's place (the wiki's
+  note), while it talks with another NPC, in combat and dead; talking to the player keeps it.
+- *Guess:* an item the player sells to a vendor that does not deal in it cannot be bought back
+  after the trade is accepted.
+- *Guess:* Find's Allow Buying buys only what the vendor's services sell.
+- *Check:* barter with Trudy (once she is at the bar) or a doctor such as Julie Farkas: their
+  menus should show only drinks and food, or chems, stimpaks, food and books; selling them a
+  gun should still work. Does the original let you buy back a gun you just sold to a doctor?
+
+## Silenced shot sounds (2026-10-21, ESM gap audit item 12, branch claude/e12-silencer-sounds)
+
+A weapon with a Silence or Suppressor mod on now shoots with the weapon's mod sounds (WEAP
+WMS1 3D, WMS2 2D), for the player and for NPCs; another actor's shot heard farther off than
+its 3D sound reaches plays the weapon's distant sound (Shoot Dist). Spec:
+[weapon-mods](spec-notes/weapon-mods.md) §7. Decisions and guesses:
+
+- *Documented:* the switch happens only for the Silence and Suppressor effects (GECK wiki
+  Weapons). The grenade rifles carry mod sounds but no such mod, so they never switch.
+- *Observed:* the silenced .22 pistol and .22 SMG carry their quiet sounds as their plain
+  sounds; they needed nothing.
+- *Guess:* a silenced shot has no distant sound (no master gives WMS1 a second entry), so
+  far off a silenced shot is simply not heard rather than booming like the plain gun.
+- *Guess:* a missing mod 2D sound falls back to the mod 3D and the reverse; a silenced weapon
+  whose record has no mod sounds keeps its plain ones; the looping sound is not switched (no
+  mod loop field exists).
+- *Guess:* an NPC's weapon counts as silenced by the mods of the unit it has equipped (or
+  would take), as for the player; its other figures stay plain.
+- *Check:* put the silencer on the 10mm pistol and fire: the quiet .22-style pop, not the
+  10mm crack. Have an NPC with a plain rifle fire from far away: the distant report.
+## Weapon scopes (2026-10-21, ESM gap audit item 10, branch claude/e10-weapon-scopes)
+
+Aiming a scoped weapon (sniper rifle, anti-materiel rifle, hunting revolver, a hunting rifle
+or Varmint Rifle with its scope mod, and the rest) now shows the weapon's scope picture (WEAP
+MOD3, `interface\HUD\*.nif`) once the zoom has reached the weapon's Sight FOV. Spec:
+[weapon-scopes](spec-notes/weapon-scopes.md). Decisions and guesses:
+
+- *Guess:* the scope picture appears when the zoom is complete (0.25 s after Block) and goes
+  the moment Block is let go; the original's timing is not measured.
+- *Guess:* the picture's size: the model's black mask rectangle (1480 × 920 units) is taken as
+  the screen at 16:10, so the scope's circle is about 0.75 of the screen's height; wider
+  screens get black at the sides.
+- *Decision:* no scope picture in third person; the view only zooms there, as before.
+- *Guess:* the first-person arms and weapon and the crosshair are hidden while the scope is up.
+- *Guess:* night vision is the record NightScopeISFX (a green tint, brightness ×2.5, a slight
+  radial and motion blur), held while a night-vision scope is up indoors or between the end of
+  sunset and the start of sunrise. Nothing in the data plays that record, so this is a guess
+  from its name.
+- *Guess:* the sway plays `scopewobble.nif`'s 5 s loop (X up and down, Z sideways), scaled so
+  its widest point is half of the player's spread × 5.955° (the wiki's measured circle), × 0.5
+  unless the player fired in the last 0.5 s. A new character with the sniper rifle sways about
+  1°. The shots follow the swaying view and NVForever's spread cone still applies on top.
+- *Decision (documented):* EFSD (the scope's effect shader) is not used: the GECK wiki says the
+  original ignores it.
+- *Check:* aim the sniper rifle at noon, then Ratslayer at night (or indoors): the reticle,
+  the circle's size against the screen, how fast the scope comes up, the green night vision
+  and how much the view sways compared with the original. Does the original show the scope in
+  third person?
+
+## Magic effect archetypes (2026-10-21, ESM gap audit item 15, branch claude/e15-mgef-archetypes)
+
+Base effects of the archetypes Paralysis, Cure Paralysis, Cure Poison, Dispel, Concussion and
+Turbo now act. Spec: [magic-archetypes](spec-notes/magic-archetypes.md). What the data says:
+the masters have Paralysis effects (Paralyzing Palm, Miss Fortune, the Compliance Regulator,
+the Antenna Club), one Cure Paralysis and one Concussion (the player's `PlayerConcussed`), but
+no Dispel, Cure Poison or Turbo archetype at all: the Turbo chem raises the actor value Turbo
+(a Value Modifier) and Antivenom is a script that dispels the eight animal poisons by name.
+Decisions and guesses:
+
+- *Guess:* Turbo slows the world to **0.5** of its speed (no setting names a number). The
+  player's walking, running, swimming and body clips run at full speed; jumps and falls, the
+  rate of fire and reloads stay on the slowed clock, as do sounds (as the death camera's slow
+  motion slows them).
+- *Decision:* a paralysed actor drops as a ragdoll (as a knockout) and lies until its
+  Paralysis effects are over, then gets up with the knockdown get-up clip. GetKnockedState
+  reads 1 (documented). The Paralysis actor value holds the effect's magnitude while it lasts.
+- *Guess:* the player is paralysed too, as it is knocked down (camera outside, controls held).
+- *Guess:* "No Knockdowns" and Immobile actors are paralysed all the same.
+- *Guess:* Cure Poison ends effects from spells of type Poison; Dispel ends every effect that
+  is not an ability, a worn enchantment or an addiction; Cure Paralysis ends Paralysis effects.
+- *Guess:* Concussion: with the Concussion effect active (the player always has it), a newly
+  crippled head concusses for `fConcussionTimer` (40 s): GetConcussed reads 1 and the
+  `ImageSpaceConcussion` modifier (11 s) plays on the player.
+- *Guess:* the Paralyzing Palm: a player hit with fists or an Unarmed weapon while VATS plays
+  back, with the perk's entry point, paralyses with chance `fVATSParalyzePalmChance` (0.3)
+  and counts a Paralyzing Punch. VATS here marks gun shots only, so it rarely applies yet.
+- *Check:* take Turbo in Goodsprings and watch NPCs walk and a bottle fall: how slow, and
+  is the player's own speed and gun the original's? Get the head crippled: blur and ringing?
+  Hit someone with the Paralyzing Palm perk in VATS: do they go limp or freeze standing?
+## Spent cases and drained cells (2026-10-21, ESM gap audit item 13, branch claude/e13-spent-casings)
+
+Each of the player's shots that spends ammo may now put the ammo's spent item into the
+inventory (a 10mm case at 20 %, a 12 gauge hull at 40 %, a drained small energy cell at 40 %
+…: AMMO DAT2 Consumed Ammo and Consumed Percentage). Spec:
+[spent-ammo-items](spec-notes/spent-ammo-items.md). Decisions and guesses:
+
+- *Decision (documented):* per shot fired, not per round reloaded (GECK wiki Ammo: "every time
+  the weapon is fired").
+- *Guess:* not tied to Hardcore mode (the wiki names no condition).
+- *Guess:* one roll per shot even for a weapon that spends several rounds a shot.
+- *Guess:* only the player; NPCs carry no inventory ammo here, so they get nothing.
+- *Guess:* given silently, no corner message.
+- *Guess:* Hand Loader and Vigilant Recycler (entry point 57, × 2 on Guns / Energy Weapons)
+  multiply the percentage itself, so a 10mm case becomes 40 %.
+- *Check:* fire a 10mm pistol 20 times with and without Hand Loader (and in Hardcore) and count
+  the cases; does a message appear when one is picked up?
+
+## Difficulty (2026-10-21, ESM gap audit item 16, branch claude/e16-difficulty-damage)
+
+The settings page's Gameplay group has a Difficulty row (Very Easy … Very Hard, Normal by
+default, kept in NVForever.ini); the console takes `SetGameDifficulty 0-4` and
+`GetGameDifficulty`. Spec: [difficulty](spec-notes/difficulty.md). Decisions and guesses:
+
+- *Observed:* no master carries `fDiffMultHPByPC*` or `fDiffMultHPToPC*`, and the GECK wiki
+  export has no page for them; `fDiffMultXPVE/E/H/VH` are 1.0 in FalloutNV.esm (no XPN), so
+  kill XP does not change with the level (the wiki says the same).
+- *Guess:* the HP settings' values: dealt by the player 2, 1.5, 1, 0.75, 0.5 and taken 0.5,
+  0.75, 1, 1.5, 2 (Very Easy to Very Hard), the commonly reported figures. A capture can
+  settle them: `GetNumericGameSetting fDiffMultHPByPCVH` (and the other nine) in the original.
+- *Guess:* ByPC scales every hit by the player on another actor, ToPC every hit on the player
+  whatever its source (explosions without an owner, the player's own grenade); limb damage
+  and burn/poison effect damage scale the same way.
+- *Guess:* companions are not scaled, neither their hits nor the hits on them.
+- *Decision:* a setting of NVForever, not of the save (where the original keeps it is not
+  documented here).
+- *Check:* on Very Hard and Very Easy, shoot a Gecko with the same weapon and let it bite you;
+  compare its health bar and yours with the original at the same levels.
+
+
+## Holotapes (2026-10-21, ESM gap audit item 14, branch claude/e14-holotapes)
+
+Voice notes (holotapes, audio logs) in the Pip-Boy's DATA > Misc (Notes) list now play when
+used: a click or Enter on the row. Spec: [holotapes](spec-notes/holotapes.md). Decisions and
+guesses:
+
+- *Guess:* which line a holotape plays: the first line of its topic that names the note's
+  speaker (fixed speaker, or `GetIsID <speaker>`), else the first that names nobody, else the
+  first. Every master's holotape fits (nine topics of one line; Jacobstown's log names
+  GREETING and its line is the one with `GetIsID JacobstownSurvivor`). The line's other
+  conditions and the note's quest (the wiki says it must match) are not tested.
+- *Guess:* one holotape at a time; using another stops the one playing, using the one playing
+  stops it. It keeps playing with the Pip-Boy put away, is held by the pause menu, at full
+  volume in the Voice category (voice volume and the "Dialogue voice" switch apply). The
+  Pip-Boy radio keeps playing under it: does the original mute the radio?
+- *Design:* the right side shows the Radio tab's wave panel, a still wave while the tape
+  plays, a flat line otherwise. The original's audio-note panel is not measured.
+- *Guess:* a Sound note plays its SOUN once and cannot be stopped; no master note has a sound.
+- Not built: subtitles of the responses (does the original show them?), the read flag.
+- *Check:* AddNote VMQ01BeagleJournalNote (or pick up Beagle's journal at Primm), open the
+  Pip-Boy, DATA > Misc, click "Deputy Beagle's Journal": the deputy reads six
+  responses. Compare: does the original start it on selection or on a click, does picking it
+  again stop it, does it go on with the Pip-Boy closed, and what the right side shows.
+
+
+## Model texture swaps (2026-10-21, ESM gap audit item 18, branch claude/e18-texture-swaps)
+
+Records' alternate textures (MODS, MO2S, MO3S, MO4S) now put a texture set's files on the
+model shapes they name: billboards, rusted terminals, re-skinned outfits, grey beards, the
+dirty first-person weapons. Spec: [texture-swaps](spec-notes/texture-swaps.md). Decisions
+and guesses:
+
+- *Guess:* which shape an entry means. The 3D Index is the shape's depth-first position
+  among the model's shapes in 1,679 of FalloutNV.esm's 1,838 entries; 70 name a shape that
+  sits elsewhere (the dynamite, a vault gear door) and 89 a shape the model lacks. NVForever
+  goes by the name, uses the index only among shapes of that name, and changes nothing for
+  a missing name (never the index alone).
+- *Guess:* a texture-set slot with no file keeps the shape's own texture. `NullTextureSet`
+  (no files) on 29 doors therefore changes nothing; the alternative would be untextured or
+  hidden shapes.
+- *Guess:* the TXST "No Specular Map" flag is not applied.
+- *Decision:* armour worn by a female who falls back to the male model uses the male
+  list; a modded weapon's own model takes no list.
+- *Check:* the Atomic Wrangler billboard on the Strip's north side (BillboardAtomicWranglerNV)
+  and a hotel corridor in Bison Steve (BisonSteve01, floor of `htlrmcorout01`): the swapped
+  texture against the original; Ranger Battle Armor (MS18RangerBattlearmor) whose `Arms1`
+  entry names no shape: does the original retexture the arms anyway?
+
+## Quest target conditions (2026-10-21, ESM gap audit item 17, branch claude/e17-quest-target-conditions)
+
+An objective's targets are now marked on the Pip-Boy's world and local maps (and listed by the
+console's `sqt`, travelled to by `movetoqt`) only while their own conditions pass, so a quest
+with alternative targets shows the one that applies. Spec:
+[quests-dialogue](spec-notes/quests-dialogue.md) §2, "Target conditions". Decisions and guesses:
+
+- *Documented, chosen over another page:* the conditions run on the target reference as
+  subject. The Quest Objectives Tab says so; Category:Conditions says the player. The masters'
+  1,229 target conditions fit the first (VMS39 asks `GetDead == 0` and `GetDisabled == 0` with
+  no reference); the rest name their reference, so the choice only matters for those.
+- *Guess:* the one condition run on Target (VMQHouse objective 20, `GetItemCount`; the wiki
+  calls Run on Target invalid there) reads with no reference, so 0.
+- *Guess:* the active quest's targets are evaluated four times a second; the original's rate is
+  not documented.
+- *Guess:* "Compass Marker Ignores Locks": a target indoors is marked at a door into its
+  interior that is not locked, unless the target ignores locks or every door is locked. The
+  original routes through load doors; NVForever picks one door.
+- Not built: quest markers on the compass (the compass draws actors and map markers only).
+- *Check:* start "By a Campfire on the Trail" (VCG03) and open the world map: the Broc Flower and
+  the Xander Root are both marked; pick up a Broc Flower and its marker should go, the Xander
+  Root's stay. Does the original drop the marker at once?
+
+## AI and packages from the ESM data (2026-10-21, ESM gap audit medium group "AI and packages", branch claude/em1-ai-packages)
+
+Spec: [packages](spec-notes/packages.md) §7. Built where the GECK wiki says what the data
+means; the rest is listed there (§7.7) with the reason. Decisions and guesses:
+
+- *Guess:* a creature flagged "Can't Open Doors" (563 master creatures: brahmin, geckos,
+  night stalkers, cazadores, feral trooper ghouls…) uses no load door: a place only a load
+  door leads to is unreachable to it, as behind a locked door without the key. Hinged
+  doors and gates are left as before (the Novac pack brahmin follows its merchant through
+  the motel gate, smoke `novac-brahmin-gate`). The flag comes from the template that
+  supplies the creature's base data.
+- *Check:* does a brahmin or gecko in the original push through a shut hinged door, wait
+  at it, or go round?
+- *Check:* `fnvtool ai reach` now lists 26 actor/package pairs in FalloutNV.esm as "only
+  through a door the creature cannot open": the Camp Searchlight feral trooper ghouls
+  (`CampSearchlightFeralTrooperGhoul`, flag set) on the Travel package `FollowEdwards`. Do
+  they follow Edwards through a door in the original?
+- *Guess:* a package's Begin/End/Change topic is said (as `Say`, to nobody) after the
+  result script and before the idle; the wiki only says both follow the script. Example:
+  the Vault 21 tour packages `VVault21SarahTourTo00`–`05`.
+- *Guess:* a package's combat style (CNAM) wins over SetCombatStyle's while the package
+  runs (14 master packages name one, e.g. the Goodsprings gunfight packages).
+- *Guess:* on arriving at a patrol point the actor runs the point's result script, then says
+  its topic, then waits out the idle time (107 master patrol points have a script, 14 a
+  topic).
+- *Decision:* a condition run on "Combat Target" reads the subject's combat target (as
+  GetCombatTarget); the player's aim target, which the wiki also allows, is not handed to
+  conditions.
+- *Decision:* a hit from an ally or friend of the victim (its faction combat reaction) is
+  friendly fire; with "Skip Fallout Behavior" and no "Friendly Fire Comments" the victim
+  says no Hit line for it (Crippled and the health lines stay).
+## Explosion radiation and damaging water (2026-10-21, ESM gap audit item 7, branch claude/e7-explosion-water-radiation)
+
+Explosions with a radiation level (the Fat Man's, and 23 more in FalloutNV.esm: nuclear cars and
+buses, the Big Kid, the glowing ones' bursts) now leave a radiation zone that gives the player rads and fades away; a water type
+with "Causes Damage" takes its damage a second; IsInDangerousWater answers; waiting and
+sleeping are refused while the world irradiates the player. Spec:
+[radiation](spec-notes/radiation.md) §2.1, §3.1, §4. Decisions and guesses:
+
+- *Guess:* the zone's level falls linearly from the EXPL's level to nothing over its
+  dissipation time, counted in seconds of play (Fat Man: 10 rads/s within 616 units, over
+  12 s); hours waited count at the TimeScale (an hour = 120 s), so a wait ends every zone.
+  The other reading, a flat level that stops at the end, is as possible.
+- *Guess:* a zone counts whole within its radius, and the strongest of markers and zones
+  counts (they do not add), as for markers.
+- *Decided:* NPCs and creatures still take no rads: nothing about an NPC changes with them
+  (no sickness stages, GetRadiationLevel 0 on them per the wiki), and feral ghouls' healing
+  in radiation is not documented.
+- *Guess:* damaging water hits once a second, the first a second after going in, swimming or
+  wading; no shake or hurt sound. No vanilla water uses it, so only plugins see it.
+- Not built: zones in saves (a save drops them).
+- *Check:* fire a Fat Man at the ground nearby (tgm on): does the Geiger counter click near
+  the blast, how strong (10 rads/s before Rad Resistance here), how far out (616 units here),
+  and how long until it stops (12 s here)? Does the level fade or stop at once?
+
+## Actor flags and actor data (2026-10-22, ESM gap audit medium group 3, branch claude/em4-actor-flags)
+
+No VATS Melee (the ceiling turrets), No Blood Spray / Decal (tumbleweeds, the explosive
+Nellis ants), Allow PC Dialogue, NAM6 Height, chance none on leveled actor lists, Special
+Combat factions and voice types without Allow Default Dialog now act as their records say.
+Spec: [actor-flags](spec-notes/actor-flags.md). Decisions and guesses:
+
+- *Decision:* CREA bit 28 ("Is Ghost" in xEdit) is not applied: 124 creatures have it,
+  among them wild dogs, giant rats and big horners that the player kills, so it cannot
+  mean SetGhost's ghost. What does it do in the original?
+- *Guess:* a creature is offered for talk only with Allow PC Dialogue and a greeting
+  (before: the greeting alone).
+- *Guess:* NAM6 Height multiplies the drawn scale with the race's height (0 counts as 1;
+  values 0.85–1.1).
+- *Guess:* voice types without Allow Default Dialog: a line also passes when its INFO
+  names its speaker; a VTYP without DNAM is not restricted. This now keeps the unique
+  voices (Benny, Boone, Veronica, Caesar …), super mutants and robots from generic lines
+  without a GetIsVoiceType / GetIsID / GetInFaction / GetIsClass / GetIsRace / IsInList
+  condition.
+- *Guess:* leveled actor lists' chance none works as the item lists' (none in the masters).
+- *Check:* with a machete, can you mark a ceiling turret in VATS? Does Benny ever say a
+  generic greeting? Does a tumbleweed show bullet puffs?
+## Weapon and ammo fields: NPC weapon choice, damage type, mods (2026-10-21, ESM gap audit medium group 2, branch claude/em3-npc-weapon-choice)
+
+NPCs no longer choose Player Only or Not Used In Normal Combat weapons (the Van Graff
+rifles, the MS22 camera); weapons with a damage type (59 in FalloutNV.esm: lasers and
+plasma, flamers, pulse weapons, poison) are cut by the target's resistance of that kind;
+the flamers' Range - Fixed drops the combat style's range multiplier; Aim Arc sets the
+firing angle; projectile speed and ammo regeneration mods work. Spec:
+[weapon-data-fields](spec-notes/weapon-data-fields.md). Decisions and guesses:
+
+- *Guess:* a damage type other than None / Damage Resistance replaces DR by that
+  resistance (as a percent, capped at 85 like DR); DT still comes first. The wiki says
+  only that the setting "determines the Damage Type". Poison Resistance comes from
+  Endurance ((END − 1) × 5), so poison weapons now hit most actors 20–45 % softer;
+  Energy, Fire, EMP and Electric are 0 unless something raises them.
+- *Guess:* scripts (EquipItem, UseWeapon) may still arm an NPC with a Player Only weapon;
+  only the NPC's own choice skips it.
+- *Guess:* Aim Arc 0 (every master weapon) keeps the engine's 30° firing angle.
+- *Guess:* Regenerate Ammo (seconds) changes only a weapon that already recharges.
+- *Decision:* the WEAP flag Ignores Normal Weapon Resistance keeps ignoring DT and DR (the
+  Rippers, Chainsaw, Thermic Lance, Deathclaw Gauntlet), although the wiki says it did not
+  work in the original without JIP LN NVSE. Say if the original's (broken) behaviour is
+  wanted instead.
+- Not built: Kill Impulse / Impulse Dist (the wiki only guesses their meaning), Decrease
+  Equip Time (no master mod).
+- *Check:* does a laser pistol hit on a target with Energy Resistance 50
+  (`setav EnergyResist 50`) do about half damage in the original? Does a Van Graff
+  rifle given to a settler stay unused?
+## The combat style's other fields (2026-10-21, ESM gap audit medium group 1, branch claude/em2-combat-style)
+
+Melee fighters now dodge (left, right, back, forward) or idle by their combat style's
+maneuver decision, roll for rushing attacks, and power-attack a little more when rested;
+fighters stop pursuing beyond their Combat Radius, take up no new target outside their Max
+Targeting FOV, hold explosive shots that would catch themselves, a comrade or a bystander
+(unless the Ignore Damaging flags say otherwise), and run out of a live grenade's blast
+saying their AvoidThreat line (unless Ignore Threats). Spec:
+[combat-ai](design/combat-ai.md) §17. Decisions and guesses:
+
+- *Guess:* the maneuver decision is made each time the melee decision holds (neither
+  block nor attack); the wiki gives no moment. With DefaultCombatstyle a rested person
+  dodges about half the time it holds when its opponent swings (51.8 %), 39 % otherwise.
+- *Guess:* the dodge's way: back, forward and sideways weighed by the back multiplier, the
+  forward multiplier and 1; sideways then rolls Left/Right % (else it idles). The wiki
+  names the multipliers without saying how they combine.
+- *Guess:* a dodge walks for its timer at the actor's walking speed (a 1 s dodge is about
+  87 units for a person); creatures turn to the way they dodge (people keep facing).
+- *Guess:* "encumbered speed" is the AI's alert walking speed (86.8 units/s for people),
+  so the masters' −110 base takes about 23 points off every person's dodge chance. The
+  wiki's "around 110" is Oblivion's GetWalkSpeed.
+- *Guess:* the rushing attack (named, never described): rolled once as the target comes
+  within reach × (1 + Distance Mult); a rush's first melee decision on arrival is an
+  attack, no hold or block.
+- *Guess:* the combat radius is measured from where the fighter stood when its fight began,
+  moved to where it stands each time it loses health; 0 is no limit. (2026-10-23: it
+  limits how far the fighter itself goes out from there, not where its target may stand:
+  it pursues up to the radius, then holds. VCG02's geckos stand 3,600–3,950 units from
+  Sunny's sneak marker with a 3000 radius, so the old reading kept them from ever coming
+  at the player who shoots from there. *Check:* shot from Sunny's marker, do the first
+  well's geckos run all the way to the player, or stop about 3000 units out?)
+- *Guess:* Max Targeting FOV 0 is no limit (83 of 84 styles); only a new target is held
+  back, and the fighter still turns to it, so the limit delays a fight.
+- *Guess:* iAvoidHurtingNonTargetsResponsibility (in no master) is 30: a fighter with less
+  Responsibility fires its explosives into bystanders.
+- *Guess:* what counts as a threat is a live grenade (a lobbed projectile with an
+  explosion), in flight or at rest, within its radius + 64 units; the fighter runs 64
+  units beyond the radius. Mines, exploding cars and threats out of combat are not built.
+- *Decision:* Melee Alert OK changes nothing ("an old field for Oblivion"; our fighters
+  already wait when they cannot reach their target); Cannot Use Stealthboy is set on every
+  style and no NPC uses one.
+- *Check:* in a fist fight (Goodsprings, the NCR troopers and Fiends), how often do the
+  fighters step aside or back between blows, and how far? Do NPCs run from a frag grenade
+  landing near them, and say "Grenade!" or the like?
+
+## Cells and references (2026-10-22, ESM gap audit medium group 4, branch claude/em5-cells-refs)
+
+The Wait menu refuses in cells flagged Can't Wait (Gomorrah, Hoover Dam, the Atomic
+Wrangler's upstairs and six more); doors flagged Inaccessible show "Inaccessible" and do
+nothing; references' and activators' Activation Prompts replace the crosshair's action word
+("Enter Goodsprings Cave", "Play Slots", "Pick Banana Yucca"). Spec:
+[cells-refs](spec-notes/cells-refs.md). Decisions and guesses:
+
+- *Guess:* the Can't Wait refusal uses the "You cannot wait here" line of a script's ban.
+- *Guess:* an inaccessible door's action reads "Inaccessible" and E does nothing at all
+  (no script); scripts can still activate it.
+- *Guess:* an Activation Prompt replaces only the action line; the name (or a door's
+  destination) stays below it, and a lock's line is not replaced.
+- *Decision:* Off Limits (only the Ultra-Luxe penthouse), Behave Like Exterior and XCCM
+  (unused), Leveled Lock (unused) and TERM Leveled (no rule) change nothing.
+- *Check:* what does the crosshair show on the Goodsprings Cave door outside (two lines?),
+  and on the Prospector Saloon's back door? What does the Wait menu say in Gomorrah?
+
+## Sounds the records name (2026-10-22, ESM gap audit medium group 5, branch claude/em6-sound)
+
+Placed moveable statics, statics, lights and terminals now sound their own sounds (flies,
+creaking stairs, the fire barrels' crackle, terminals' hum), as activators and containers
+already did; fire add-on nodes crackle; water near the listener laps; missiles loop and
+bullets whiz by; weapons sound their Block and Idle sounds; magic effects play their Hit
+sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
+
+- *Guess:* MSTT/STAT/LIGH/TERM sounds behave as ACTI/CONT ones (Loop goes round, Play At
+  Random rolls once a second, neither flag: not played).
+- *Guess:* a projectile sound with neither flag (the bullet whiz) is a fly-by played once
+  when the shot first comes within the sound's maximum distance; the player's own shots
+  never whiz.
+- *Guess:* the Block sound is the blocker's weapon's; the Idle sound goes round while the
+  weapon is out, even where the sound lacks the Loop flag (12 of 16).
+- *Guess:* water sounds at the nearest point of each water type's surface; a placed water
+  volume sounds from its middle unless the listener is over it.
+- *Guess:* 2D sounds are not panned but still fall with distance; Mute When Submerged
+  silences while the player's eye is under water.
+- *Decision:* not built: BRUS bush sounds, the attenuation curve, loop points, walla, ALOC
+  delays, Modulates Voice and the voice filter (audio.md §15.3 gives the reasons).
+- *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
+  bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
+
+## Detection: the records' sound levels and the sun's shade (2026-10-23, ESM audit medium group 6, branch claude/em7-detection)
+
+Impacts, projectiles in flight and explosions now raise detection events at their own
+records' sound levels (IPCT, PROJ VNAM, EXPL); creatures move as loud as their NAM5
+level; outdoors the sunlight counts in the light at a target only where nothing shades it
+from the sun (the owner asked for light level in detection: it was measured already, the
+shade was the missing part). Spec: [detection](design/detection.md) §8. Decisions and
+guesses:
+
+- *Guess:* an impact sounds at its IPCT's level, not the weapon's (85 weapons are Silent
+  while their projectiles are Normal, so PROJ VNAM is taken as the projectile's noise in
+  flight, raised each 0.25 s where it is).
+- *Guess:* an explosion is heard at its EXPL's level and belongs to whoever set it off;
+  one without a known cause raises no event.
+- *Fix:* every explosion's dirt impact was a detection event owned by the player, NPCs'
+  explosions too; it is now the cause's.
+- *Guess:* NAM5 scales a moving creature's footstep sound: Loud × 2, Normal × 1 (1,554 of
+  1,578 creatures), Silent × 0.2 (24).
+- *Guess:* shade is a ray from the target's chest towards the sun within 8,192 units;
+  out of the loaded collision the sun counts.
+- *Check:* does a missed shot passing a sleeping or idle NPC alert it in the original?
+  Does standing under the Prospector Saloon's porch at noon hide the player better than
+  the open street?
+## Visuals: drinking fountains, weather transitions, glare, interior clip (2026-10-23, ESM audit medium group 7, branch claude/em8-visuals)
+
+The audit's "ACTI water activators" turned out to be the drinkable fixtures (31 toilets,
+sinks, fountains and pumps): the crosshair now offers Drink and drinking applies the
+water's effect. Weather changes fade over the weather's Trans Delta (30 s for every New
+Vegas sky, was a placeholder half game hour); the sun glare follows the weather's Sun
+Glare; indoors the camera clips at the cell's fog clip distance. Specs: activators.md §9,
+world.md §6. Decisions and guesses:
+
+- *Guess:* the prompt word is "Drink"; drinking applies the WATR's XNAM effect to the
+  player; no sound.
+- *Guess:* transition time 30 × Trans Delta ÷ 255 real seconds (more is slower); 0 at
+  once.
+- *Guess:* the glare scales with Sun Glare ÷ 54 (New Vegas skies unchanged).
+- *Decision:* nothing to build for projectile lights, EXPL placed objects, negative and
+  spot lights: no master record uses them. Not built: destruction debris, the falloff
+  exponent, fog power, HDR, the IDLE body section (reasons in the audit row).
+- *Check:* does a weather change in the original take about 30 s? In WinsResidence and
+  Vault 11, do far parts of the rooms vanish at 1,800 or 2,000 units as they now do?
+  What does the crosshair say on a sink?
+
+## Frame rate: mantis egg and REPCONN (2026-10-23, list 7 W8)
+
+Measurements, causes and what is left: [frame-rate-audit](design/frame-rate-audit.md).
+
+**Item 4, the Goodsprings schoolhouse's mantis egg.** Breaking it places 24 nymphs (12 at
+each of its two destruction stages), all at the egg's centre against the lockers; their
+characters started inside the egg and each other and the character controller ran out
+its iterations every step: about one frame a second.
+- *Decision:* an actor a script creates (PlaceAtMe) first stands on the nearest free floor
+  spot near where it was put: not on the object that made it, at most 24 units above it,
+  with room for a person (else a 12 × 40 capsule), in sight of it, 32 units from other
+  actors; rings out to 384 units. The game's own rule is only "it lands near the caller".
+  All guessed: 24, 32, 384, 12 × 40.
+- *Decision:* at most 64 one-shot sound effects at once and 8 of one sound; more are not
+  started (24 nymphs started 130 footsteps a second and the mixer fell behind). Both
+  numbers guessed; interface sounds are not limited.
+- *Decision:* a corpse still tumbling 3 s after it fell (or after a hit or blast moved it)
+  is held still where it lies. The nymphs die at the player's feet (their script kills one
+  within 50 units: stepped on) and their 23 corpses made a heap that never settled and
+  cost 0.2–0.45 s a frame. 3 s is a guess.
+- *Check:* break the egg (shoot it): do the nymphs come out round it rather than in a heap
+  on it, and does any appear somewhere odd (behind a locker, across the room)? With many
+  creatures walking, do footsteps sound too thin (the voice limit)? Does any corpse
+  anywhere freeze in mid-fall (a long tumble down stairs or off a ledge, a body thrown by
+  an explosion)?
+
+**Item 47, REPCONN test site.** The facility floor (`RocketLabMid`) holds about 4,200
+meshes with one material each; the render thread's work drawing them one by one is
+about 15 ms a frame, the GPU's 3–7 ms. Awake ghouls add 5–12 ms.
+- *Decision:* interiors now draw only the rooms seen through portals, as the original's
+  renderer does (room markers and portals, documented in level-design.md §3.1). Every
+  mesh touching a room (grown by 32 units, guessed) belongs to it; with the camera
+  outside every room everything is drawn; actors, dropped items, lights and effects are
+  never culled. Pictures with and without it were the same at two places; it hides a
+  third to two thirds of the meshes there, but the frame time did not measurably change
+  on the busy machine. `--no-room-culling` turns it off.
+- *Not done:* sharing materials between models (or bindless materials) so meshes can be
+  drawn instanced: the likely real gain, a renderer change of its own.
+- *Check:* walk the REPCONN facility and other interiors (Vault 3, the Lucky 38): does
+  anything vanish or pop in at doorways or corners (a room or portal read wrong)? If so,
+  note where; `--no-room-culling` shows whether the culling is to blame. Is the facility
+  smoother than before for you?
+## Combat AI: playtest list 7 items 12, 13, 36, 39, 40, 43, 45 (2026-10-23, list 7 W4)
+
+Branch `claude/l7-combat-ai`; details in docs/design/combat-ai.md §18.
+
+- **12 Trudy unarmed.** Her record has no weapon; the quest's stage 70 adds a shotgun list
+  by AddItem. Built the GECK wiki's AddItem rule: an NPC (or creature) given anything
+  re-equips its best weapon and armour (same "best" as the outfitting: highest damage,
+  armour by DT). Decision: applies to every actor but the player, on every AddItem (caps
+  too), as the wiki says; a scripted EquipItem of a weaker weapon can be undone by a later
+  AddItem. Check in game: Trudy has her shotgun drawn in the gunfight.
+- **13 staggers.** Creatures now play their own hit-reaction clips (they never staggered
+  before) and stand meanwhile; the player cannot walk or jump during a flinch (0.6 s,
+  the existing `flinch_time`). Guess: which creature clip plays for which body part.
+- **36 ghouls.** Guessed constant: feral ghouls ×1.25 on the creature pace (269 → 336
+  units/s, about the player's run), your number, not measured in the original. Creatures
+  now begin blows on the run (from up to 200 units beyond their reach, by their run speed × the clip's
+  time to its hit) and lunge with their forward power attack where they have the clip
+  (ghouls, radscorpions, geckos, deathclaws). Guessed: the 100 units/s minimum closing
+  speed and the 200-unit cap. Check: ghouls and radscorpions should hit a retreating
+  player and leap in.
+- **39 nightkin club.** Super mutants and nightkin are creatures and creatures were
+  never given their weapons. They now draw and use them where their skeleton has the
+  stance (two-handed melee, rifles, miniguns, launchers, grenades; their skeleton has no
+  one-handed pistol or melee stance, so such a weapon still leaves the mutant on its own
+  attack). Check: mutants with hunting rifles now shoot; weapons are not dropped when a
+  mutant dies (not built).
+- **40 firing distance.** Ordinary firearms now fire at any distance their bullet reaches
+  (10,000 units in the masters); flamers/incinerators and anything explosive keep their
+  reach as a firing limit. Where gunmen stand is unchanged (pistols still close to about
+  600 units, firing on the way). Two smokes were rewritten to the new rule.
+- **43 strafing into cover.** Fighters now face their target while going to cover (only
+  fleeing fighters turn to their way). Check: Violet backs or side-steps into cover.
+- **45 recorded fight.** Found and fixed: fighters stopping and starting 3 times a second
+  when sight of the target flickered (now 1.5 s grace before closing in blind). Left for
+  later: many shots held for a comrade in the line of fire (172 held vs 267 fired), melee
+  Fiends charging gunmen over 2,000 units of open ground and changing target mid-charge.
+## Armour gloves, bloatfly wings, Lucky's texture, creature sounds (2026-10-23, list 7 W7)
+
+Branch claude/l7-visuals-sound. Specs: [actors](spec-notes/actors.md) §2.3, §8.3, §9.3;
+[audio](spec-notes/audio.md) §16 (the creature sound audit).
+
+- **Item 3, the Lightweight Leather Armor's floating right hand.** The armour (CaravanPack
+  `PreordArmorLeather`) names, as the base leather armour does, a "Biped Model List"
+  (BIPL) of gloves (`LeatherArmorGloveR`/`L`), which NVForever never read: the bare race
+  hand was drawn instead, and this armour's right sleeve ends about 3 units short of the
+  base armour's, so the wrist showed a gap. Now every worn item's BIPL addons are worn
+  with it (142 armours name one: outfit gloves, power armour gauntlets, backpacks and
+  decals, the Chinese stealth armour's helmet).
+  - *Guess:* the addons are worn as parts of the item, covering their biped slots (the
+    hands under them are hidden).
+  - *Check:* the Lightweight Leather Armor's right wrist in third and first person;
+    whether power armour now shows the right gauntlets (it showed none, or bare hands,
+    before); the Tesla armour's `ArmorTeslaPowerFX`, which its list names as well.
+- **Item 17, bloatfly wings.** The bloatfly's walk and run clips have no wing tracks; only
+  its idle animates the wings. A creature's idle now plays under its other clips wherever
+  those leave a bone alone, so the wings (and head) keep moving in flight.
+  - *Decision:* creatures only; people keep the bind pose for the bones their walk clips
+    leave (pauldrons, twist bones).
+  - *Check:* the bloatfly's wings flapping while it flies at you; other creatures'
+    movement (anything stiff or doubled that was not before).
+- **Item 28, Lucky's texture in third person.** Lucky's MODL is the plain long-barrel .357
+  model; its "World Model" (MOD4) is the same gun with the engraved texture. NVForever now
+  holds MOD4 in third person when it differs from MODL and is not a ground object
+  (`…GO.nif`, `…WorldObject.nif`): in the base game only Lucky.
+  - *Guess:* the game holds that model (the owner's report says so; not captured).
+  - *Check:* Lucky in third person, the player's and an NPC's.
+- **Item 46, feral ghouls silent; creature sound audit.** The placed ghouls' base
+  (`LvlFeralGhoul`) is a template-only creature: its sounds were read from it (none)
+  instead of from the creature its model comes from. Fixed for all 468 template-only
+  creatures (283 now always sound, 159 depending on the leveled pick). Creatures now also
+  play their Aware sound when they become aware of something (Normal to Alert or Combat).
+  - *Guess:* the sounds come with the Model/Animation template group.
+  - *Guess:* Aware plays on becoming aware (once per change); the Aware lists of the
+    radscorpion, mirelurk and lakelurk king are keyed by no clip.
+  - *Decision:* Attack is still played only by the clips' keys: the ghoul's attack clips
+    already play its attack voice through Auxiliary keys, and an engine-played Attack
+    would double it.
+  - *Left (audio.md §16):* super mutants' and robots' combat voices (dialogue topics, not
+    creature sounds), the Idle type where no clip keys it, 26 creatures whose templates
+    give no sounds (ceiling turrets, trogs, a few quest creatures).
+  - *Check:* a feral ghoul fight: footsteps, attack and chase voices, hit and death; a
+    radscorpion's call when it notices you; whether anything now sounds twice.
+## Physics: steps, deaths, small creatures, cars (2026-10-23, list 7 W5)
+
+Branch claude/l7-physics; docs/spec-notes/physics.md §6.8.1, §6.10, §6.11.
+
+**Item 9, smooth height over steps and bumps.**
+- *Decision:* the body and the view are drawn with a "lift" that takes up what the feet
+  rose or fell in one physics step beyond walking a slope, and goes back to 0 as a
+  critically damped spring; the collision capsule, the feet, the reference position and
+  every ray stay exact. Players and walked actors both; actors standing still (no
+  character) are not smoothed.
+- *Guesses:* a step is 95 % climbed after about 0.19 s (ω = 25/s); changes up to 0.35 ×
+  the distance walked (about 19°), or up to the slope walked over the last 0.25 s, pass
+  at once; at most 24 units of lag; more than 48 in one step is a teleport (no smoothing).
+- *Check:* run along the Goodsprings road and up the camper steps south of town, first
+  and third person: is the climb smooth but not floaty? Does the body sink into or float
+  over a steep hill for a moment when the climb starts or ends?
+
+**Item 14, corpses gliding and the invisible push.**
+- *Cause found:* the AI stops moving a dead actor, but its physics character was kept
+  (it was only dropped when the actor stopped "travelling") and went on at its last
+  walking speed; the body is drawn at that character and its person-sized block pushed
+  the player. Now the character is taken away the frame after the death (also for
+  restrained and unconscious actors).
+- *Check:* kill charging geckos: the corpse should drop where it died, and nothing should
+  push you after the kill.
+
+**Item 35, the mantis nymphs in the Nevada Highway Patrol Station.**
+- *Cause found:* every walked actor had the player's capsule (22 wide, 129 tall), so a
+  nymph drawn 30 tall stood in the way as a person, and once its script killed it (within
+  50 units of the player) that person-sized character stayed behind (the item 14 bug).
+- *Decision:* actors drawn under 75 % of the player's height get a character of their own
+  size (as tall as drawn, at least 20; as wide as 0.17 × height, 10 to 22). Bigger
+  creatures keep the player's capsule (a bigger one would get stuck in doors).
+- *Not done:* the player does not climb *onto* a living small creature; it stops 32 units
+  from a nymph's middle, inside the 50 at which the nymph's script kills it, so in the
+  station it dies first. Say if you want small living creatures to be walked through.
+- *Check:* walk into the nymphs in the station: they die and you walk on over the spot.
+
+**Item 37, cars.**
+- *Cause found:* the cars are moveable statics (MSTT Car01–Car03) with one dynamic body of
+  600–1000 mass, so the list-5 fix for the motorcycles (STAT records are fixed) did not
+  cover them; the character pushed them by impulses and by solver contacts.
+- *Guess:* a character pushes no body heavier than 250 (the cars, the motorcycle body, a
+  500 car-hulk trunk); hulk doors, hoods and grills (25–175) and all clutter still give
+  way. Explosions, shots and grabbing still move the cars.
+- *Check:* run into the car south of Primm (Car02 0015206B): it should not move; does an
+  explosion next to one still rock it as the original does?
+## AI in the world: greets, captives, sleepers (2026-10-23, list 7 W6)
+
+Branch claude/l7-ai-world. Design notes: docs/design/actor-behaviour.md §5.6 (the
+paragraphs dated 2026-10-23).
+
+- **24 Johnson Nash under the loading screen.** *Cause:* the residents' AI ran under the
+  loading screen (only scripts were held), and Nash's Dialogue package
+  (PrimmNashDialogueGreeting, activate distance 1024, trigger box by the door) greeted at
+  once. *Fix:* the loading screen now holds `Game::loading`, which stops packages, force
+  greets, hellos and combat starts until it is down. *Check:* go into the Vikki and Vance
+  casino: Nash should greet only after the screen is gone.
+- **41/42 Davison and Harland through doors and walls.** *Records:* both are Dialogue
+  packages "case 2" (trigger location, wait location of radius 0), which talk as soon as
+  the player is within the activate distance: Davison 600, Harland 1200 units, measured
+  straight through walls. *Decision:* a force greet now also needs a clear line from the
+  actor to the player (walls and closed doors block it; the actor's facing does not
+  matter). The distances stay the records' (I did not shorten them). *Guess:* that the
+  original asks for the line and not for the actor's field of view. The greet settings
+  you named (fAIMinGreetingDistance etc.) are for hellos, not these packages. *Check:*
+  Davison should greet only once his door is open, Harland only once you can see him.
+  If the original also wants him to *see* you (facing), tell me.
+- **30 Deputy Beagle's captive marker.** *Cause:* his OnLoad block restrains him
+  (SetRestrained 1), and NVForever's AI ignored restrained actors entirely, so his Travel
+  package to FFCaptiveMarker ("Restrained Sit", 84 units from where he is placed) never
+  began. *Fix:* a restrained actor still picks its package (as the GECK wiki says) and
+  uses the furniture of a package whose place is within 256 units (my number), without
+  walking there. *Check:* Beagle sits tied on his marker; once freed he follows you.
+- **30 Gomorrah courtesans.** *Records:* their template's DefaultPatrolCasual patrols to
+  their linked DanceMarker03 references, which carry 800 s of patrol idle time.
+  *Decision:* a patrol point that is furniture is used for its idle time. *Guess:* that the
+  original uses it (the dance idles are conditioned on that furniture). *Check:* they
+  dance or lean on their markers in Gomorrah. (The courtesans *outside* Gomorrah were
+  handled before: their packages go straight to the marker.)
+- **31 Beagle's weapon while following.** *Confirmed from the records:* his follow
+  package PrimmBeagleFollow has only Defensive Combat and Continue During Combat, no
+  Weapon Drawn flag; the package that has him leave the hotel (PrimmDeputyLeaveBison) has
+  Always Run, Always Sneak and Pretend In Combat. So his weapon going out only when he
+  left the hotel matches the data; he should draw it when he fights. Nothing changed.
+- **32 Convicts at the Nevada Highway Patrol station.** *Records:* the two convicts the
+  ambush script enables there (VSpawnSpecialGangerPrimmAmbush01/02, script
+  VERT1PrimmJackalAmbushScript) are Aggressive, in VGSBanditFaction only (enemy of the
+  Mojave traveller merchants; no relation to the player), with a Weapon Drawn patrol to
+  the station, where the Jackals (Very Aggressive) are. By the records they attack their
+  enemies, not the player: no missed flag found, nothing changed. The Escaped Convicts
+  nearer Primm (PrimmPowderGangerOutside) are Very Aggressive and do attack the player.
+  *Check:* in the original, do the station convicts shoot at you unprovoked? If yes, tell
+  me what you did before (a reputation or a quest stage may be involved).
+- **34 Crucified Powder Gangers.** *Cause:* their Travel package goes to "Near linked
+  reference" (the cross, NVCrucifixFurniture) and the AI gave furniture only for packages
+  naming the reference directly, so they never got on the cross, were never restrained
+  by their script (which restrains them at GetSitting 3) and walked off. And the
+  crucifix's marker ID is 10, which NVForever counted as a bed (the catalogue says 1–10
+  are beds), so no getting-on clip was found. *Fix:* the linked reference counts, and
+  marker 10 is sat on (the crucifix's own idle group asks GetSitting 2/3/4; beds are 1–9
+  now). *Check:* they hang on their crosses in Nipton, scream and fidget, and stay.
+- **38 Talking to a sleeper.** *Decision:* activating an actor asleep in bed wakes it: it
+  gets off the bed, then the conversation starts (at most 8 s later); it stays up for 30
+  s of game time after (conversation time not counted), then goes back to bed. *Both
+  times are mine.* *Check:* talk to Easy Pete at night: does the original's sleeper also
+  go straight back to bed, and how soon?
+## Explosions, falls, throws, traps, gore (2026-10-23, list 7 W3)
+
+Branch claude/l7-explosives. Items 19, 21, 22, 23, 26, 27, 29 of playtest list 7.
+
+- **19 / 29: mines and the NPC Incinerator now hurt the player.** Blasts only ever reached
+  actors with hit volumes, and the player has none, so no explosion touched the player. The
+  Incinerator's damage is its explosion's (`NVIncineratorFireBurst`, 20 within 212; the
+  weapon itself does 1). The player now counts in every blast at the middle of its capsule,
+  with the same falloff, armour and knockdown rules as anyone.
+  - *Decision:* your own grenades, mines and missiles hurt you too (the original's way, as
+    far as I know; check).
+  - *Check:* step on a frag mine with god mode off at full health: how much is lost? Stand
+    in front of Cook-Cook while he fires the Incinerator.
+- **21: fall damage.** damage = mult × (h − 600)^1.65 for a fall of h units onto land, none
+  into water (physics.md §6.12). 600 and 1.65 are the ESM's settings; the multiplier 0.0252
+  is fitted to the capture's three falls (the exe's own `fJumpFallHeightMult` cannot be
+  read). So 700 units ≈ 50 health, 1,000 ≈ 500, 1,500 ≈ 1,860.
+  - *Guesses:* h from the top of the fall (a jump's apex counts); armour does not reduce it;
+    no leg damage; NPCs whose characters the physics walks use the same rule;
+    `fJumpFallVelocityMin` (2785) unused.
+  - *Check:* jump off a roof in Goodsprings (about 700–800 units): does the original cripple
+    legs or only take health? Compare the health lost.
+- **22: thrown weapons.** The attack clip used to start when the projectile left (the end of
+  the wind-up), so dynamite waited with nothing playing, flew, and was then lit and thrown in
+  the clip. Now the clip starts at the press and the projectile leaves at the clip's `Hit` key
+  (dynamite, grenades, spears, knives, every thrown weapon, and any gun whose attack clip has
+  a `Hit` key after its start).
+  - *Check:* the release moment for dynamite, the frag grenade and the throwing spear, in
+    first and third person. Holding the button to cook a grenade is not built.
+- **23: XP for disarming.** Both come from the data: a mine gives `iMineDisarmExperience`
+  (5), and each trap's own script gives `TrapXPReward*` by its Repair requirement's band (2
+  for the tripwires, plates and bear traps at 22–23, 5 for the rigged shotguns and grenade
+  bouquets at 30–45). The traps' XP already worked; a mine disarmed by hand gave none,
+  because the engine's hand activation path skipped the XP and the Mines Disarmed statistic
+  that the game's default activation gives. Fixed; smoke checks both.
+  - *Decision:* kept the data's 2 XP for the low traps rather than the 5 of your note (the
+    note asked for 5 only where the data has none).
+- **26: exploded head stayed on.** The head was hidden, then put back: the moving face
+  (blinking, lip sync) hands the head, eyes and hair their own meshes back when it lets a face
+  go at death. A shape given its mesh back is now drawn without its gone parts again.
+  - *Check:* a head shot with the sniper rifle on Chet or a Powder Ganger: is the head, hair
+    and hat gone, with the neck cap showing?
+- **27: blood decals.** They were placed on the hit capsules, not on the drawn body. Now the
+  shot's line is cast against the posed body and the decal goes where it meets the skin,
+  facing the skin. Toned down: at most 3 on one actor, one each 0.3 s, at most 16 units wide.
+  - *Guesses:* all three numbers; a shot that meets the capsule but misses the drawn body
+    leaves none.
+  - *Check:* shoot a Powder Ganger several times with a pistol and a shotgun: do the marks
+    sit on the body, the right way round, and is the number right?
+## Menus, character revision, barter figures and currency (2026-10-23, list 7 W1)
+
+Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
+
+- **1 Character revision** (chargen.md §9, `fnv_game::revision`). *Decision:* the original's
+  VCG04ActivatorScript resets level, XP, traits and early perks, S.P.E.C.I.A.L. and skills
+  and gives the XP back so you level up again; as you asked, ours keeps level, XP,
+  non-trait perks and the skill points spent at level-ups: from that script only, SetLevel,
+  ResetXP, the closing RewardXP and SetActorValue of skills on the player do nothing, and
+  RemovePerk takes traits only (the trait menu offers them again). Skills re-derive from
+  the new S.P.E.C.I.A.L. and the new tags; the tag menu starts with the old three tagged.
+  The bug was SetActorValue overriding each skill to 0. *Guess:* traits the script does
+  not name (Skilled, the add-ons' traits) stay, so the trait menu could add two more.
+  *Check:* revise at the Goodsprings edge after a level-up: same level, perks and spent
+  points; change Intelligence and a tag and see the skills follow.
+- **2 Menus on top, darker**. *Decision:* the tag-skill, trait, name, level-up, recipe
+  and repair-services menus stack at 107 (over messages, HUD, dialogue, Pip-Boy and
+  terminals; under message boxes, tutorial, pause menu, console, loading screen) and
+  darken the whole screen to 0.93 black (the barter menu's darkness), so a corner message
+  beside them is covered too. The recipe and repair sheets were the files' faint 32/255
+  box before, the character menus' 0.75 picture box. *Check:* is 0.93 too dark (the world
+  is barely seen); should corner messages wait until the menu closes instead?
+- **7 Currency value**. The NCR notes and Legion coins in the world are CMNY records whose
+  DATA "Absolute Value" (2, 8, 40, 4, 100; mangled 2) matches the MISC records' Value;
+  they now count at it in barter, the Pip-Boy, the crosshair and the inventory value,
+  and caravan bets accept them. The `fnvtool sim items` report keeps CMNY value null (it
+  reports the record's Value field). *Check:* sale price of $5 NCR at your Barter.
+- **10 Check tags** show the AVIF's name ("[Speech 40]") and a perk's name. Not checked in
+  game (Trudy's check needs the Ringo quest state); the dialogue log now prints
+  `(check [Speech 40])` on offered choices. *Check:* Trudy's line.
+- **11 Pointer and scrolling**: the pointer selects without scrolling the barter and
+  container lists (the half-shown row at the foot used to scroll in); only wheel and keys
+  scroll.
+- **16 Repair list stays open** after a repair until the item is full, no parts are left,
+  or Cancel. *Guess:* the chosen row stays at the same place (clamped to the list).
+- **25 Barter and container figures** are the Pip-Boy's (DAM/DT, DPS, STR, CND, ammunition
+  or armour class, effects) with WG and VAL of one unit as before. *Guess:* the
+  ammunition count beside a weapon is the player's carried ammunition even for the
+  merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
+  All/Exit in the container menu on your screen?
+
+## Default objects, region sounds, camera and ragdoll records (2026-10-23, ESM audit medium group 8, branch claude/em9-records)
+
+DOBJ, CAMS, CPTH, RGDL and REGN's region sounds are in the schema. The default objects
+are read: the player's death plays the DOBJ's Death Music when its file is there (the
+shipped `special\death.mp3` is not, so `MUSDeath` plays as before), and a chem wearing
+off plays the DOBJ's Drug Wears Off image space (`Addiction01ISFX`). Outdoors the regions'
+sounds (wind, rumbles, rattles) play now and then by weather. Spec:
+[default-objects](spec-notes/default-objects.md). Decisions and guesses:
+
+- *Guess:* region sounds are tried every 10 s, one at a time, each at its stored chance
+  (40% is 40% a try); 2D ones at the listener, others about it.
+- *Guess:* the wear-off image space plays when the last effect of a chem (equip type
+  Chems) ends on the player.
+- *Decision:* CAMS/CPTH are decoded only (no kill camera), RGDL too (no ragdoll feedback
+  or pose matching); the level-up's DOBJ music names no shipped file and the level-up
+  keeps `UILevelUp`.
+- *Check:* how often does the desert wind or a rumble play in the original's Goodsprings?
+  Does the screen do anything when Med-X or Jet wears off?
+
+## Gap audit: script functions, NIF data, compass, teammate perks (2026-10-23, list 7 W9)
+
+Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10-23.md.
+
+- **Teammate perks** (`player.AddPerk perk 1`: Companion Suite, the companions' quest
+  rewards) now apply to the player's teammates: their damage and DT entry points, and
+  their abilities while the actor is a teammate. *Guesses:* a teammate holds them at rank 1
+  and only while it is a teammate; an ability of a teammate perk the player loses stays
+  (no shipped script does that). Calm Heart's ability has no condition of its own, so every
+  teammate gets its +50 health, not only Cass, unless the spell's effect carries one.
+  *Not built:* Old Vaquero's and Causeless Rebel's attack-speed entries. *Check:* Cass's
+  health after "Hand of Vengeance"/"Calm Heart", and whether Companion Suite's lower damage
+  and higher DR show on companions from the start (its description: "Mult Weap DAM 0.75,
+  Mult Target DT 0.75, Decrease Carry Weight 75, Increase DR 33%").
+- **Quest markers on the compass**: the active quest's marked targets, at any distance,
+  drawn in the map marker's box over the other marks. A target in another cell is marked at
+  one door towards it (outdoors the door into its interior; indoors a door to its cell or
+  its worldspace). *Guesses:* the box (the HUD file gives the picture the map marker's
+  40 x 50 at y 5, our map-marker box is fitted to your screenshots), no distance limit,
+  one door step, a mark behind the player is not shown at the compass's edge. *Check:*
+  where the marker sits on the compass in the original, and whether it clings to the edge
+  when the target is behind you.
+- **Smoke setups fixed, not the engine**: traps-tripwire and vats-mode-melee acted while
+  the add-ons' start-up message boxes were still coming (the button answered an add-on's
+  box; a box ended VATS mode), now later; furniture-fidgets-tree uses Chet, since Easy
+  Pete's fresh-game package is an eating one (procedure 10) and he rightly eats.
+  anim-sounds' "5 door sounds" is marked known failing: 10 doors are drawn and opened now.
+- **NiBoolTimelineInterpolator** in clips is read as the plain bool interpolator it
+  extends (show/hide tracks of a few effect and vehicle clips).
+## Pip-Boy items, Misc folders, Caravan cards (2026-10-23, list 7 W2)
+
+- **5 Aid effect lines**. The EFFECTS card now lists only the effects whose conditions
+  pass for you, one line per value, with the item's Medicine/Survival potency
+  (aid-items.md §14). Programmer's Digest: Science +10 (+20 with Comprehension); the
+  Blood Pack: HP +1 (with Hematophage the 4 a second for 5 s are added: HP +21); the
+  Stimpak one HP line (30 x potency outside Hardcore). *Guesses:* an effect over time is
+  shown as its total (HP +20, not "+4/s for 5 s"), and the potency is applied (your
+  original screenshot shows Stimpak HP +40 against a record value of 30). The barter and
+  container figures read the same. *Check:* a Stimpak and a Blood Pack in Hardcore, and a
+  magazine with Comprehension.
+- **6 Keyring and card deck**. Misc starts with a "Keyring (n)" row and a "Caravan Cards
+  (n)" row (only when you have some). Using one lists its keys/cards under a "Back" row;
+  Back, Backspace or another tab returns to Misc. Cards can't be used or dropped there.
+  *Decisions:* the names "Keyring"/"Caravan Cards" and their place at the top are mine;
+  the real "Caravan Deck" item Ringo gives stays a normal Misc row (it was easy to confuse
+  with the folder; say if it should be the folder instead). *Check:* the look of the rows.
+- **8 Caravan cards 0**. Cause: Ringo's Caravan Deck item moves the 54 cards into your
+  inventory with RemoveAllItems, and each card's own script (OnAdd) registers it; our
+  RemoveAllItems never ran OnAdd, so no card was registered. Now it does, once per stack.
+  *Check:* get the deck from Ringo and play him.
+- **15 Last inventory item**. The list assumed nine rows always fit; a two-line name
+  (e.g. Mercenary's Grenade Rifle) pushed the last row out of reach. The list now moves on
+  to keep the selection drawn. *Check:* a long weapons list, scroll to the end with the
+  wheel and the keys.
+- **20 HP and DT**. HP is the STATS page's health; DT is worn armour at its condition plus
+  the DT actor value (what combat uses), one decimal. *Guess:* the original may show
+  armour DT before condition. *Check:* with worn, damaged armour.
+- **33 Skill books on Aid**. Books that teach a skill are listed on the Aid tab (barter
+  categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
+  (*guess*).
+
+## Logic: the low-impact fields (2026-10-23, ESM audit low-impact list "Logic", branch claude/em12-logic)
+
+Bean bag shells now take 250 fatigue a hit (their ammo effect's Fatigue Mod), which can
+knock the target out; a script whose "Enabled" flag is clear does not run (one master
+script, on an unplaced gun-rack upgrade). Spec: [logic-fields](spec-notes/logic-fields.md).
+Decisions and guesses:
+
+- *Decision:* globals keep fractions whatever their type: GameHour, TimeScale and the
+  date globals are typed Short.
+- *Guess:* the fatigue is taken once a hit, from 0.
+- *Decision:* not built: repeated topics (the player's dialogue never removes a said
+  topic), Low/High Intelligence, the speech challenge roll, info order, log entries, MESG
+  Auto Display, the MGEF/SPEL/ENCH flags (reasons in the spec).
+- *Check:* does a bean bag knock a Powder Ganger down in one or two hits in the original?
+## Actors: the low-impact fields (2026-10-23, ESM audit low-impact list "Actors", branch claude/em11-actors)
+
+Creatures flagged Not Pushable are not pushed aside; an actor flagged No Rotating To
+Head-track does not turn its head to look; a creature flagged No Head or No Arm never
+loses that part; a creature's own bite or claw shows its CREA CNAM impact (bite, claw,
+ghoul) instead of the player's fists'. Spec: [actor-fields](spec-notes/actor-fields.md).
+Decisions and guesses:
+
+- *Settled 2026-10-24:* CREA bit 27 is Not Pushable; Allow Pickpocket is bit 28 (GECK wiki
+  ActorHasBaseFlag; actor-flags.md §3).
+- *Guess:* No Rotating To Head-track acts as a package's HeadTracking Off.
+- *Decision:* nothing to build for RACE skill boosts, HAIR Fixed, LVLI owners and No
+  Shadow (no master record uses them); the rest left with reasons in the spec.
+- *Check:* does a dog's bite on an NPC show a bite impact in the original?
+## Items: the low-impact fields (2026-10-23, ESM audit low-impact list "Items", branch claude/em10-items)
+
+The first shot after a reload of a weapon flagged No Jam After Reload cannot jam; a jam
+without a jam clip lasts the weapon's Jam Time; a shot rumbles the pad by the weapon's own
+rumble fields (128 weapons) instead of its weight; the one MISC with a looping sound plays
+it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
+
+- *Guess:* "No Jam After Reload" spares the first shot after a reload.
+- *Guess:* the left rumble motor is the strong (low) one.
+- *Decision:* not built: burst lengths, the iron-sights animation flags, Hide Backpack,
+  the ammo abbreviation, ARMO's female ground model and BNAM, CSNO's deck backs and chips
+  (item-fields.md gives each reason).
+- *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
+
+## Objects: the low-impact fields (2026-10-23, ESM audit low-impact list "Objects", branch claude/em14-objects)
+
+A placed explosive is disarmable only when its projectile has "Can Be Disabled"; every
+master mine has it, so nothing in the master changes (a mod's explosive without it shows
+no Disarm prompt). The audit's "ARMA not drawn" and "EXPL knockdown unused" were already
+built. Spec: [object-fields](spec-notes/object-fields.md).
+
+- *Decision:* "Can Be Picked Up" is not used: a disarmed mine is a loose item.
+- *Decision:* the rest (door, water, header, tree, explosion and impact flags) left with
+  reasons in the spec.
+## World: the low-impact fields (2026-10-23, ESM audit low-impact list "World", branch claude/em13-world)
+
+The three placed weapons that name their ammo (REFR XAMT/XAMC: the varmint rifle in
+Primm's sheriff station, a BB gun at Nellis, a 9mm at Bison Steve) come with it when taken
+by hand. Every other field of the sub-list is used by at most a few records or has no
+documented effect; the spec lists each. Spec: [world-fields](spec-notes/world-fields.md).
+
+- *Guess:* the ammo comes the first time the weapon is taken by hand.
+- *Check:* does picking up Primm's varmint rifle give 10 5.56mm rounds in the original?
+
+
+## REPCONN catwalk stairs (2026-10-23, owner's playtest, branch claude/repconn-steps)
+
+The stairs up to Chris Haversam's and Jason Bright's intercom in the REPCONN Facility climb
+without a jump, walking or running. They are 24-unit steps; the player's cone-shaped bottom
+came to rest on a step's edge, and the step-up refused the few tenths of a unit it gained
+there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/physics.md).
+
+- *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
+  the feet (was 0.5 above the feet themselves).
+- *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+## Actors and logic: ESM full audit gaps (2026-10-24, branch claude/esm-actors-bec8d0)
+
+The creature flag bits 28–31 were named one bit off in the schema: Mr. House, Yes Man,
+Festus, ARCHIMEDES and the Dead Money holograms are now invulnerable, and the tumbleweeds
+and CG02Andy no longer are. Creatures flagged Is Ghost (the tumbleweeds, Festus, the Gun
+Runners' protectron, the Dead Money holograms) let shots pass and take no damage. NPCs
+move at their Speed Mult (Legion raiders 130–150, Lanius 180). Sneaking, E on an NPC (or a
+creature flagged Allow Pickpocket) shows Steal and opens its pocket; each take or
+placement rolls the wiki's chance; a live grenade placed in a pocket goes off after 2 s.
+A completed quest's Next Quest becomes the active quest. An NPC that dies holding its
+weapon drops it (iDeathDropWeaponChance 100). Flee packages without a distance read
+fFleeDistanceExterior/Interior; leveled actors read fLeveledActorMult*; Dead Money's West
+Town spares NPCs fall damage. Specs: [actor-flags §3](spec-notes/actor-flags.md),
+[pickpocket](spec-notes/pickpocket.md).
+
+- *Guess:* SetGhost 0 clears a base Is Ghost flag for that reference.
+- *Guess:* NPC clips play faster with their Speed Mult so the feet keep up (the wiki says
+  the original's do not: "the animations only sync up with a speed of 100%"). Say if
+  you would rather have the original's sliding feet.
+- *Against the rule* (2026-10-25, creature/NPC pace session): in an AI observer capture
+  Cook-Cook (Speed Mult 110) ran 255 units/s in metal armour with the Incinerator drawn,
+  which is the people's run × the armour and two-handed penalties without his Speed Mult
+  (258; with it 284). One actor only; NVForever keeps the wiki's rule. Say if people
+  should ignore Speed Mult (docs/spec-notes/actors.md §8.10, People).
+- *Guess:* the pickpocket prompt reads "Steal"; the menu's line shows the chance for one
+  unit of the selected row; a stack's value counts all the units moved.
+- *Guess:* a take or placement is one roll each; Take All is refused while stealing; a
+  stack with one equipped unit is hidden whole.
+- *Guess:* caught: the victim says Pickpocket and attacks as a seen thief's victim does;
+  no karma for the failed try; an unseen take costs karma as theft does.
+- *Guess:* companions and unconscious actors cannot be pickpocketed.
+- *Guess:* the planted explosive's blast is the player's and hurts others nearby.
+- *Guess:* iDeathDropWeaponChance is the chance a dying actor drops its weapon; corpses
+  laid out dead keep theirs.
+- *Guess:* fFleeDistanceExterior (5000) / Interior (3000) are the Flee package's
+  distances (before: 2048).
+- *Guess:* WRLD "Don't Allow NPC Fall Damage" spares NPCs only; the player still falls.
+- *Decision:* iLevelUpSkillPointsBase / Interval are not read: the wiki's Skill Rate page
+  says both are unused in New Vegas (the audit's §3 item was wrong).
+- *Check:* sneak up to someone in the original: does the prompt say "Steal"? Does a caught
+  attempt make them attack, or only talk?
+- *Check:* do the Gun Runners' protectron and Festus let bullets through in the original?
+## Cloud scroll, emittance weather, default objects (2026-10-24, ESM full audit §3/§7, branch claude/esm-world)
+
+The clouds scroll by each weather's own per-layer speeds (WTHR ONAM), and a weather fade
+blends the two weathers' layers each moving at its own rate. Glowing beams and lights that
+name a region (REFR XEMI) now follow the weather on screen when that region lists it.
+The companion wheel's stimpak and Paralyzing Palm's spell come from the default-object
+list (DOBJ places 0 and 5; the same forms as before with the shipped data). Specs:
+[world §6 "Cloud scroll", §8 "External emittance"](spec-notes/world.md),
+[default-objects](spec-notes/default-objects.md).
+
+- *Guess:* cloud speed scale. No source gives ONAM's unit; one speed unit is 1/25,600 of
+  a texture width per second (the old placeholder, kept), so NVWastelandClear's top layer
+  (speed 65) drifts one texture width in about 6.6 minutes.
+- *Guess:* a region the camera is not in shows its highest-chance weather for emittance.
+- *Check:* two screenshots of the same sky in the original, 30 s apart in clear weather:
+  how far do the clouds move? That fixes the scale.
+
+## VATS kill cameras (2026-10-24, ESM full audit gap 10, branch claude/esm-world)
+
+When the last mark of a VATS-mode run kills its actor, the game's own camera paths (CPTH)
+pick camera shots (CAMS), and each shot's camera model plays around the kill in slow
+motion with its screen effect. Earlier kills in the run get no camera. Spec:
+[vats-mode §19](design/vats-mode.md).
+
+- *Guess:* how the path tree is walked: the first passing path in order, then its first
+  passing child, else its own shots.
+- *Guess:* what the eight VATS area functions measure: free room beside the player, and
+  how far from the target a camera still sees it, on each side.
+- *Guess:* where a shot's camera stands: the model's camera about the actor the shot is
+  held by, facing along the line from the player to the target.
+- *Guess:* each shot plays for its Max Time in real seconds.
+- *Design:* a kill camera plays on every such kill, with no chance roll and no setting
+  to turn it off. The HUD stays up and movement keys still work while it plays.
+- *Decision for you:* the masters' death cameras are loaded but not played, because your
+  own death camera plays instead. Should the game's death camera replace yours?
+- *Check:* kill the last marked actor, a dog or a raider. Does the camera frame the kill
+  from the front or side, and not from inside a wall?
+
+## World items from the ESM audit (2026-10-24, ESM full audit gaps 16, 22, 24, 25, 26, 30, branch claude/esm-world)
+
+The world map's markers show their reputation; the local map leaves out doors marked
+hidden and doors that are switched off; the STATS hints read the default-object list;
+leveled locks get harder with level; the main menu shows only the flagged loading screens;
+sandbags, force fields and similar objects block NPC paths while they are switched on;
+the "No Alarm" doors excuse trespassing. Specs: [pipboy §5.3](spec-notes/pipboy.md),
+[simulation §5](spec-notes/simulation.md), [loading-screens §5](spec-notes/loading-screens.md),
+[navmesh §4c](spec-notes/navmesh.md), [crime-karma §3.3](spec-notes/crime-karma.md).
+
+- *Guess:* a marker's reputation shows on a second line under the name, as
+  "Goodsprings: Neutral" (the reputation's name, then your standing's title). The wiki only
+  says the reputation "is shown" on hover.
+- *Guess:* a door whose base is flagged Hidden is not drawn on the local map. The three such
+  doors in the base game are secret doors (CG04SecretDoor, a Lucky 38 wall door, a sewer
+  lid), and none leads elsewhere, so nothing on screen changes with the shipped data.
+- *Guess:* leveled locks get one step harder (Very Easy → Easy → …) for every 10 levels
+  past level 1, up to Very Hard, never needing a key. The level is fixed the first time the
+  lock is met, from the area's level (else yours). Only the add-ons use them (Dead Money 22,
+  Old World Blues 3, Honest Hearts 1), so at level 21 a Dead Money "Easy" locker shows Hard.
+- *Guess:* only obstacles that can be switched on and off (Initially Disabled or with an
+  enable parent: 149 in the base game) cut the navmesh, by their bounding box. The other
+  59,000 (rocks, cliffs) are already holes in the navmesh.
+- *Guess:* coming through a "No Alarm" door, you are not trespassing in the room you arrive
+  in until you leave it (5 doors: Dead Money 2, Lonesome Road 3).
+- *Design:* if no loading screen is flagged for the main menu (a mod's load order), the
+  menu falls back to the screens with no location.
+- *Check:* hover Goodsprings on the world map in the original: what does the text under
+  the name say? And does a Dead Money locker show a harder lock at level 30 than at 20?
+
+## Sound, projectiles and weapons from the ESM audit (2026-10-24, branch claude/esm-sound-weapons-6c6657)
+
+Placed sounds now follow their SOUN attenuation curve and reverb send; bullets whiz from
+the nearest point of their path; thrown knives, hatchets, spears and tomahawks land and
+can be picked up; power armour helmets and intercoms filter the voice; weapons play their
+hand grip (third person), power attack override and Hide Backpack; creatures' built-in
+guns shoot from their gun node. Specs: [audio §15.5](spec-notes/audio.md),
+[combat-rules §11b](spec-notes/combat-rules.md), [weapon-data-fields §7](spec-notes/weapon-data-fields.md).
+
+- *Guess:* the curve's three middle points stand evenly between the inner and outer
+  radius, with straight lines between them; the percentages are of the amplitude.
+  *Check:* walk away from a loud placed sound (a campfire, a generator): does it fade like
+  the original?
+- *Guess:* the reverb send is linear (control 80 sends a fifth). Most sounds now reverb
+  much less than before. *Check:* gunshots in the Goodsprings cave: too dry, too wet?
+- *Guess:* projectiles that are not supersonic (plasma, pulse, sonic) loop their sound
+  while they fly. *Check:* does a plasma bolt hum on its way in the original?
+- *Guess:* a thrown weapon that strikes an actor goes into its inventory; one that
+  strikes the ground lies there. The GECK wiki says "Can be Picked Up" "doesn't appear to
+  work with Missile type projectiles", and the masters' thrown weapons are Missiles.
+  *Check:* in the original, after throwing a knife at a wall or a gecko, is it there to
+  pick up (on the ground, on the body)?
+- *Guess:* the voice filter's sound (a radio band, a mild saturation, a short ring), and
+  that every talking activator without "No Voice Filter" is filtered (85 of 87, intercoms
+  and speakers). *Check:* a Brotherhood paladin in a helmet, and an intercom (Lucky 38,
+  the Sierra Madre): too thin, or filtered twice where the file is already filtered?
+- *Guess:* the power attack override replaces only the standing power attack.
+  *Check:* a standing power attack with the Machete Gladius or Chance's knife: a
+  different swing from a plain machete's?
+- *Guess:* the hand grip plays in third person only (the wiki says so; the first-person
+  files exist). *Check:* the plasma rifle and the throwing spear in third person: does the
+  left hand sit right?
+- *Guess:* a creature fires its built-in gun (sentry bot, eyebot) only when its skeleton
+  has the gun's node; before, embedded guns were never fired at all. *Check:* a sentry bot
+  at REPCONN or Nellis: does it shoot from its gun arms now, and do creatures whose gun
+  node is in a body part (protectrons, fire geckos) still only strike?
+- *Question:* VATS special attacks (the Machete's "Back Slash", AP and damage multiplier
+  per weapon) need a choice per mark, which NVForever's VATS mode does not have. Wanted,
+  and how would you pick one (a key cycling the mark's attack)?
+## Area effects, screen-effect HDR and sounds, explosions' orientation, water edges (2026-10-24, ESM audit gaps 3, 8, 9, 27, 28, branch claude/esm-effects-5fb7c5)
+
+Spells and weapon effects with an area now reach the actors around where they land (the
+Legion explorers' aura, the EvaluatePackage pulses at Hoover Dam, the disguise pulse,
+Lanius's and Meanie's knockdowns, the Glowing One's attack burst). Scripted screen effects
+play their HDR keys (the poison stings' brightening, the camera flash's glow) and their
+intro and outro sounds (the poison sting, the stealth suit's on and off, Battle Brew's
+heartbeat, the cave wind). Explosions without "Always Uses World Orientation" turn to the
+ground under them. Water fades in at the shore over its depth falloff. Specs:
+[area effects](spec-notes/area-effects.md), [image modifiers §10-11](spec-notes/image-modifiers.md),
+[explosion effects §10](spec-notes/explosion-effects.md), [world §6 water](spec-notes/world.md).
+
+- *Settled by a capture:* an area is in feet (21.3 units each; the explorer's aura reached
+  Doc Mitchell at 899 units and not Chet at 1,170), and the caster gets the spell too.
+- *Guess:* a pair the detection never measured counts as in sight (the disguise pulse
+  needs sight).
+- *Guess:* a modifier that doubles Target LUM makes the picture one EV brighter; a lower
+  Bright Clamp makes the light glow stronger (the camera flash reaches full glow).
+- *Guess:* Eye Adapt Speed is a speed (higher is faster), 3 EV a second at the usual 0.9;
+  interiors with 0.3 adapt three times slower than before, those with 5 or 8 at once.
+- *Guess:* the intro sound plays when a screen effect starts, the outro when it ends;
+  weather adapters' sounds (thunder, birds) are not played.
+- *Guess:* an explosion without the world-orientation flag lines up with the ground under
+  it (a grenade against a wall still uses the floor).
+- *Guess:* a water type's depth falloff is a fraction of its above-water fog far distance
+  (Lake Mead: the surface fades in over the first 9 units of water).
+- *Check:* at Boulder Beach, is the shoreline's reflection edge soft over a few units in
+  the game, or hard? A frame at noon from a few metres up would show it.
+- *Check:* a Bark Scorpion sting at noon: does the picture brighten for a moment?
+- *Open:* the "Actor Effect" spells in actors' lists (Tunnelers' DT, Ruthless, spore
+  carriers' regeneration) are still not applied; two captures could not ask the game
+  about placed actors (area-effects.md §3-4).
 # Owner review: open gameplay decisions
 
 Only decisions that change how the game plays and that need **you**: design choices,

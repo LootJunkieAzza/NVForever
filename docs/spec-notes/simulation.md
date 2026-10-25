@@ -486,8 +486,22 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   [hypothesis; a level-255 trunk with a key refused scripted activation without the key
   and showed no lockpick menu, see "Locks in game" below]. A reference with XLOC starts
   locked [observed for three containers: `GetLocked` 1 on arrival].
+- **Leveled locks** (XLOC flag bit 2): none in FalloutNV.esm; 26 in the add-ons, Dead
+  Money 22, Old World Blues 3, Honest Hearts 1, on containers, gates and doors of levels
+  0, 25 and 50 [observed 2026-10-24, private survey script]. Such a lock "will start at
+  the base level specified and become harder as the player levels" [documented: GECK
+  wiki Reference, Lock tab; GetLockLevel: "If the terminal is leveled, the value you get
+  will be the leveled value (same as locks)"]; by how much is not documented. As built
+  (`fnv_sim::refs::Lock::level_at`, `World::lock_of`): one step of 25 for every 10
+  levels past the first, up to Very Hard (100), never Requires Key [hypothesis,
+  owner-review.md], from the reference's level (its encounter zone's, else the
+  player's) when its state is first made, as leveled lists are (encounter-zones.md);
+  GetLockLevel, the crosshair's lock line and the lockpick game then read that level.
+  The nav graph's door locks keep the authored level (it only asks locked or not).
 - **XTEL** (door FormID, position, rotation, flag) makes a door a teleport [documented:
-  xEdit]. 1,378 references have XTEL; 1,376 pairs are reciprocal (the destination door's
+  xEdit]. The flag is "No Alarm": "No trespass alarm will be sent when the player uses
+  the door" [documented: GECK wiki Reference, Teleport]; 5 doors, Dead Money 2 and
+  Lonesome Road 3 [observed]; what it does here: crime-karma.md §3.3. 1,378 references have XTEL; 1,376 pairs are reciprocal (the destination door's
   XTEL points back); 0x00087A6B → 0x000827BA and 0x000CAEB5 → 0x000CAFA5 point at doors
   that teleport elsewhere [observed]. Every destination exists and is a DOOR reference
   [observed]. By where they lead (`fnvtool sim doors`, §7; the destination cell as

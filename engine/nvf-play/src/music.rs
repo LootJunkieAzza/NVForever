@@ -270,7 +270,9 @@ const LOCATION_LAYERS: [&str; 3] = ["outer", "middle", "inner"];
 const ONE_LAYER: [&str; 3] = ["loop", "-", "-"];
 /// Seconds between two looks at the actors near the player [design].
 const CUE_INTERVAL: f32 = 0.25;
-/// The sound the player's death plays (see the module notes).
+/// The sound the player's death plays (see the module notes) when the DOBJ's Death Music
+/// (place 11, a MUSC) has no file to play. Found by Editor ID on purpose: no DOBJ place
+/// names a death SOUN (default-objects.md §1), so there is no default object to read here.
 const DEATH_SOUND: &str = "MUSDeath";
 /// The game settings battle music reads, with the values FalloutNV.esm stores
 /// [observed], used when a setting is missing.

@@ -589,6 +589,18 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
   fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
   Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Cloud scroll** (2026-10-24): ONAM is one byte of speed per cloud layer [documented:
+  xEdit wbWeatherCloudSpeed; GECK wiki GetWeatherTraitNumeric, traits 0-3 "Layer N Cloud
+  Speed"]; neither source gives a unit. Each layer's texture scrolls along u by
+  speed × 1/25,600 texture repeats per real second (`fnv_world::sky::CLOUD_SCROLL_PER_UNIT`,
+  `Weather::cloud_scroll`) [hypothesis: linear, 0 still; the scale is the first sky pass's
+  placeholder, so NVWastelandClear's top layer (65) drifts one texture width in about 6.6
+  minutes; to be measured from two game screenshots of the same view some seconds apart].
+  During a weather fade the outgoing weather's layers keep their own speeds and the
+  incoming weather's theirs, each faded by the transition (the two cloud sets of
+  `nvforever::sky::update_clouds`). The renderer logs `clouds: <weather> layer speeds
+  [..] (ONAM), scrolling .. texture repeats/s` when a weather first shows (smoke
+  `cloud-scroll-onam`).
 - **Fog colour by day** [observed 2026-10-21, the eight exterior reference frames against
   renders of the same cameras, mean colour per 30-pixel row]: distant land fades into a
   warm haze in the game and into a light blue-grey in the renderer. At
@@ -938,6 +950,20 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   shows only within Snell's window (refractive index 1.33) and the surface reflects the
   water body outside it. The under fog "amount" is unused like the above one. Unknown: the roles of ANAM
   opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
+- **Depth falloff** (2026-10-24, ESM audit gap 27): DNAM "Depth Falloff Start" and
+  "End", "where the alpha fadeoff begins (used for edges of the water, to blend it
+  smoothly with the land)" and "where the alpha fadeoff ends" [documented: GECK wiki
+  WaterType; xEdit files them under the noise normals]. The masters store fractions: start
+  0 in all but WaterTypeOasisClean (0.029), end 0.0109 for NVCleanWater and its copies,
+  0.0797 for the Potomac types, 0.1268 for NVCleanWater02, 0.3152 for WaterTypeBlood, up
+  to 0.8 [observed: the ten masters' 74 WATR]. Taken as fractions of the above fog's far
+  distance [hypothesis: that gives an edge of a few units to a few tens, NVCleanWater
+  0 to 9 units, the Potomac's 0 to 37, the Goodsprings blood pools' 0 to 5; as game units
+  they would be hundredths of a unit]: seen from above, the whole surface, reflection
+  included, fades in from the start to the end of that ramp of water crossed by the view
+  ray, so the reflecting surface meets the shore without a seam
+  (`fnv_world::sky::Water::edge_falloff`, water.wgsl). The refraction's 200-unit ramp is
+  another thing and stays; distortion, light radius and brightness are still unused.
 - **Ripples** [hypothesis, the renderer's model]: DNAM's "rain" and "displacement"
   groups (starting size, force, velocity, falloff, dampner; NVCleanWater: rain 0.05 /
   0.1 / 0.6 / 0.985 / 2.0, displacement 0.01 / 0.4 / 0.6 / 0.985 / 10.0) are read as two
@@ -1278,7 +1304,13 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     day and black at night; their shader sets bit 29 too. In game they are warm yellow
     by day.
 
-  The renderer resolves XEMI to the region's highest-chance weather or the light's
+  The renderer resolves XEMI to a region's weather or the light's colour times its fade.
+  The region's weather is the one on screen when the region lists it, else the region's
+  highest-chance weather (the only one before 2026-10-24); while the sky fades between
+  weathers, the colour fades from the outgoing weather's pick to the incoming one's
+  [hypothesis: a region's weather is rolled only where the camera stands, so a region the
+  camera is not in shows its likeliest; `fnv_world::lighting::RegionEmittance::shown`;
+  headless callers without a sky get the highest-chance weather]. The light's
   colour times its fade (the GECK tutorials: emittance takes the light's colour and
   brightness, level-design.md section 2) and scales by its sunlight colour at the current
   hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,

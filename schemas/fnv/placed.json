@@ -185,6 +185,13 @@
   "MSTT": {
    "name": "Moveable Static",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "25": "Obstacle"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(MSTT) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Only the bit NVForever reads is listed. Obstacle: 'the object will dynamically cut the navmesh in game preventing actors from walking into it' [GECK wiki Activator, Flags; owner export 2026-10-07]."
+   },
    "subrecords": {
     "DATA": {
      "name": "On Local Map",

@@ -517,7 +517,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x118D, "GetCauseofDeath", Impl(fighting::get_cause_of_death)),
         (0x1259, "GetForceHitReaction", Stub("combat (hit reactions forced by power attacks: the uppercut and two custom power attacks; no shipped use)")),
         (0x1051, "GetArmorRating", Impl(fighting::get_armor_rating)),
-        (0x11AC, "GetPlantedExplosive", Stub("combat (live explosives planted on an actor by reverse pickpocketing; no shipped use)")),
+        (0x11AC, "GetPlantedExplosive", Impl(actor::get_planted_explosive)),
         (0x124D, "DetonatePlacedExplosives", Impl(actor::detonate_placed_explosives)),
         (0x11EB, "SetVatsTarget", Stub("combat (VATS)")),
         (0x10EB, "GetVATSTargetHeight", Stub("combat (VATS)")),

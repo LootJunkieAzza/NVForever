@@ -1270,11 +1270,14 @@ stopped and started, as Victor's walk had before #258). Code:
     (309.2, 309.9), × (1 − 0.15 − 0.1) = 258 (255); 85.3 × 0.925 = 78.9 (77–79), × 0.85 =
     72.5 (68–72: the paladins walk 4–6% below it). `fMoveBaseSpeed` (77) is not the walk:
     the merchant's 77–78 was with its weapon drawn. The player's 86.8 is 1.7% above the
-    people's median and kept for the player. Speed Mult does not scale a person's speed
-    as it does a creature's [observed, one actor: Cook-Cook has Speed Mult 110 and ran
-    255, the 258 above; with it, 284].
-  - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds; a drawn
-    person's both are scaled by its body armour's share (`person_pace`), the armour
+    people's median and kept for the player. Speed Mult: people move at it ("a
+    multiplier times a standard movement speed" [documented: GECK wiki Stats Tab - NPC],
+    `creature_pace::npc_speeds`, from the ESM actor audit); against it [observed, one
+    actor]: Cook-Cook has Speed Mult 110 and ran 255, the 258 above without it, 284 with
+    it (asked in docs/owner-review.md); every other person measured had Speed Mult 100.
+  - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds, times its
+    Speed Mult (`npc_speeds`); a drawn person's both are also scaled by its body armour's
+    share (`person_pace`), the armour
     being what it wears by the rules in the simulation's world (`World::equipment`, which
     the engine dresses it by: before its outfitting the pieces that will be put on),
     looked at again every second so that changes of armour count (`person pace:` log
