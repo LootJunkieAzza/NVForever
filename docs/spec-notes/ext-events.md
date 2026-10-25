@@ -6,8 +6,9 @@ of one's own, and the handler priority queries.
 Filled for task G4 of the extender plan ([extender-core-tasks.md](../handoff/extender-core-tasks.md))
 from the GECK wiki export, as input to E1–E3. Everything the pages state is tagged
 `[documented: <page>]`; what they leave out is **open (to observe)**. Not in the
-export: GetCurrentEventName and DispatchEventAlt. (User-Defined Event, Event Handler
-Priority System and New xNVSE Event Filtering System arrived on 2026-10-25, `NVSE.xml`.)
+export: none now. (User-Defined Event, Event Handler Priority System and New xNVSE Event
+Filtering System arrived on 2026-10-25 in `NVSE.xml`; GetCurrentEventName and
+DispatchEventAlt were pasted by the owner from geckwiki.com, 2026-10-25.)
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -157,6 +158,19 @@ default `"eventName"` (the name) and `"eventSender"` (the dispatching mod's file
 [documented: DispatchEvent]. Whether a replaced map still gets `eventName`: open (the
 page's example reads both from a custom map, which suggests both are added
 [hypothesis]). Whether handlers run at once, inside the dispatching line: open.
+
+**DispatchEventAlt** `[ref.]DispatchEventAlt "Name" [arg1 … arg15]` (xNVSE 6.2.8):
+calls every handler registered for that user-defined event whose filters match the
+arguments, like Call for many functions at once. Up to 15 arguments of any type (number,
+form, string, array), and an optional calling reference the handlers run on. Returns a
+success flag. A handler may take **fewer** parameters than the event sends, so an event
+can add arguments later without breaking older handlers. SetEventHandlerAlt suits it
+best, since it can filter each argument by index [documented: DispatchEventAlt, pasted by the owner from geckwiki.com, 2026-10-25].
+Whether a handler may take more parameters than are sent: open.
+
+**GetCurrentEventName** (returns a string): inside a SetEventHandler-style handler, the
+name of the event being handled, so one function can serve several events
+[documented: GetCurrentEventName, pasted by the owner from geckwiki.com, 2026-10-25]. Called outside a handler: open.
 
 ## 6. Inspecting handlers (xNVSE 6.2.9)
 

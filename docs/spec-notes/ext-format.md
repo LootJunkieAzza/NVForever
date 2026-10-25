@@ -44,7 +44,7 @@ from a cited document or from compiling our own test scripts with xNVSE,
 | `%.3e` | scientific form with 3 decimals (123000 → `1.23E+005`) |
 | `%%` | a percent sign |
 | Player Character String Codes | the player's name, race, sex or pronouns (that page is not exported) |
-| `&sUActn…` | the key bound to a control (sUActn page, not exported) |
+| `sUActn…` | the key bound to a control, in messages, terminals, dialogue and notes; `&-` before it adds " button", `p&-` adds "Press … button" (`p&-sUActnForward` → "Press W button") [documented: sUActn, pasted by the owner from geckwiki.com, 2026-10-25] |
 
 Switches, in any order straight after the `%`: `+` (a plus sign on positive numbers),
 a space (a space in front of positive numbers), `-` (left-aligned), `0` (pad with zeros).
@@ -89,3 +89,14 @@ form types; `%{` without `%}`, and nested ones; what an unknown code writes; mor
 fewer values than codes in extender functions (the page says they must match, not what
 happens when they do not). A PrintC capture of each code with a known form, string, int
 and float settles them (the G3 probe pattern, tools/capture/ext-probes/).
+
+## Appendix: sUActn control names
+
+[documented: sUActn, pasted by the owner from geckwiki.com, 2026-10-25]: sUActnForward (forward), sUActnBack (back), sUActnSldleft
+and sUActnSldright (slide left / right), sUActnUse (attack), sUActnActivate,
+sUActnBlock, sUActnCast, sUActnRdyitem (ready weapon), sUActnCrouch (sneak), sUActnRun,
+sUActnTogglerun (always run), sUActnAutomove, sUActnJump, sUActnTogglepov (change view),
+sUActnMenumode (Pip-Boy), sUActnRestmenu (wait), sUActnQuickmenu, sUActnVats,
+sUActnGrab, sUActnQuicksave, sUActnQuickload, sUActnQuick1 … sUActnQuick8 (the
+hotkeys). These are base-game text codes (game settings of the same names), not
+extender format codes.
