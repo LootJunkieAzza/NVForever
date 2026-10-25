@@ -88,6 +88,29 @@ fn arm_on_block(kind: JointKind, seconds: f32) -> fnv_collide::ragdoll::JointAng
 }
 
 #[test]
+fn non_finite_joints_and_damping_are_left_out() {
+    let mut w = ground();
+    let mut arm = body("arm", Shape::Capsule { a: [0.0, 4.0, 0.0], b: [0.0, 30.0, 0.0], radius: 3.0 }, 1.0, [0.0, 25.0, 39.0]);
+    arm.linear_damping = f32::NAN;
+    arm.angular_damping = f32::INFINITY;
+    let rag = Arc::new(Ragdoll {
+        bodies: vec![arm, body("block", Shape::Box { half_extents: [20.0, 20.0, 20.0] }, 2000.0, [0.0, 0.0, 24.0])],
+        joints: vec![
+            joint(0, 1, [f32::NAN; 3], [0.0, 25.0, 15.0], JointKind::Ball),
+            joint(0, 1, [0.0; 3], [0.0, 25.0, 15.0], JointKind::Spring { length: f32::NAN }),
+        ],
+        problems: vec![],
+    });
+    let rest: Vec<Iso> = rag.bodies.iter().map(|b| b.rest()).collect();
+    let r = w.add_ragdoll(&RagdollStart { velocity: [f32::NAN; 3], ..start(7, &rag, &rest) });
+    assert_eq!((r.bodies, r.joints, r.errors.len()), (2, 0, 2));
+    for _ in 0..60 {
+        w.step();
+    }
+    assert!(nodes(&w, 7).iter().all(|n| n.translation.iter().all(|v| v.is_finite())));
+}
+
+#[test]
 fn a_hinge_stops_at_the_limit_on_its_side() {
     let hinge = |limits| JointKind::Hinge { axis_a: X, perp_a: Y, axis_b: X, perp_b: Y, limits: Some(limits) };
     // Falling is a negative turn about x (y towards −z).

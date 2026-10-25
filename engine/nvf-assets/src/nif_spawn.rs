@@ -877,11 +877,12 @@ impl SpawnCtx<'_, '_> {
                 Visibility::default(),
             ))
             .id();
+        // A panic while building is this file's failure, not the game's (guard.rs).
         let skel = match skeleton {
-            Some(sp) => Some(self.spawn_into(sp, root, None)?),
+            Some(sp) => Some(crate::guard::guarded(|| self.spawn_into(sp, root, None))?),
             None => None,
         };
-        let mut report = self.spawn_into(path, root, skel.as_ref().map(|s| &s.nodes))?;
+        let mut report = crate::guard::guarded(|| self.spawn_into(path, root, skel.as_ref().map(|s| &s.nodes)))?;
         if let Some(sk) = skel {
             // Animation targets: skeleton bones take precedence over the mesh's flat copies.
             for (k, v) in sk.nodes {

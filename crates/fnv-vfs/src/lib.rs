@@ -109,6 +109,10 @@ pub struct Vfs {
     index: HashMap<String, Location>,
     /// Lower-cased loose path → real relative path (for case-sensitive file systems).
     loose: HashMap<String, PathBuf>,
+    /// Archives and folders that could not be read, with why: skipped, not fatal (a
+    /// broken mod must not stop the game). Kept so a caller whose log is not up yet can
+    /// report them later.
+    skipped: Vec<(String, String)>,
 }
 
 impl Vfs {
@@ -155,9 +159,19 @@ impl Vfs {
 
     /// Open the archives (lowest precedence first) and index loose files under `data_dir`.
     pub fn open(data_dir: &Path, archives: &[String]) -> Result<Vfs, VfsError> {
-        let mut vfs = Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new() };
-        for (ai, name) in archives.iter().enumerate() {
-            let a = Archive::open(data_dir.join(name)).map_err(|e| VfsError::Bsa(name.clone(), e))?;
+        let mut vfs =
+            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), skipped: Vec::new() };
+        for name in archives {
+            // A bad or wrong-version archive is skipped; the others still load.
+            let a = match Archive::open(data_dir.join(name)) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!(archive = %name, error = %e, "archive skipped: cannot be read");
+                    vfs.skipped.push((name.clone(), e.to_string()));
+                    continue;
+                }
+            };
+            let ai = vfs.archives.len();
             for e in a.entries() {
                 vfs.index.insert(
                     normalize(&e.path()),
@@ -167,7 +181,7 @@ impl Vfs {
             vfs.archives.push((name.clone(), Mutex::new(a)));
         }
         let mut files = Vec::new();
-        walk(data_dir, data_dir, &mut files).map_err(|e| VfsError::Io(data_dir.to_path_buf(), e))?;
+        walk(data_dir, data_dir, &mut files, &mut vfs.skipped);
         for rel in files {
             let key = normalize(&rel.to_string_lossy());
             // Plugins and archives at the top level are not part of the asset namespace.
@@ -207,6 +221,11 @@ impl Vfs {
 
     pub fn archives(&self) -> impl Iterator<Item = &str> {
         self.archives.iter().map(|(n, _)| n.as_str())
+    }
+
+    /// Archives and loose folders skipped because they could not be read: (name, why).
+    pub fn skipped(&self) -> &[(String, String)] {
+        &self.skipped
     }
 
     pub fn exists(&self, path: &str) -> bool {
@@ -252,17 +271,40 @@ impl Vfs {
     }
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    for e in std::fs::read_dir(dir)? {
-        let e = e?;
+/// Every loose file under `dir`. A folder or entry that cannot be read is skipped (and
+/// noted in `skipped`); the rest of the walk goes on.
+fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, skipped: &mut Vec<(String, String)>) {
+    let mut skip = |p: &Path, e: std::io::Error| {
+        tracing::warn!(path = %p.display(), error = %e, "loose files skipped: cannot be read");
+        skipped.push((p.display().to_string(), e.to_string()));
+    };
+    let rd = match std::fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(e) => return skip(dir, e),
+    };
+    let mut subdirs = Vec::new();
+    for e in rd {
+        let e = match e {
+            Ok(e) => e,
+            Err(err) => {
+                skip(dir, err);
+                continue;
+            }
+        };
         let p = e.path();
-        if e.file_type()?.is_dir() {
-            walk(root, &p, out)?;
-        } else if let Ok(rel) = p.strip_prefix(root) {
-            out.push(rel.to_path_buf());
+        match e.file_type() {
+            Ok(t) if t.is_dir() => subdirs.push(p),
+            Ok(_) => {
+                if let Ok(rel) = p.strip_prefix(root) {
+                    out.push(rel.to_path_buf());
+                }
+            }
+            Err(err) => skip(&p, err),
         }
     }
-    Ok(())
+    for p in subdirs {
+        walk(root, &p, out, skipped);
+    }
 }
 
 #[cfg(test)]
@@ -324,6 +366,20 @@ mod tests {
         assert_eq!(vfs.source_of("MESHES\\SUB\\A.nif"), Some("loose"));
         assert_eq!(vfs.read("meshes\\sub\\a.nif").unwrap().unwrap(), b"loose");
         assert!(!vfs.exists("fallout - meshes.bsa"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A broken archive (here an empty file) is skipped, not fatal; loose files still load.
+    #[test]
+    fn a_bad_archive_is_skipped() {
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-bad-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Meshes")).unwrap();
+        std::fs::write(dir.join("Meshes/A.nif"), b"loose").unwrap();
+        std::fs::write(dir.join("Broken.bsa"), b"").unwrap();
+        let vfs = Vfs::open(&dir, &["Broken.bsa".to_string(), "Missing.bsa".to_string()]).unwrap();
+        assert_eq!(vfs.archives().count(), 0);
+        assert_eq!(vfs.skipped().len(), 2);
+        assert!(vfs.exists("meshes/a.nif"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

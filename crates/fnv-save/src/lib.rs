@@ -236,13 +236,31 @@ pub fn read(path: &Path) -> Result<SaveFile, SaveError> {
 pub fn read_header(path: &Path) -> Result<SaveFile, SaveError> {
     let io = |e| SaveError::Io(path.to_path_buf(), e);
     let mut f = fs::File::open(path).map_err(io)?;
+    let len = f.metadata().map_err(io)?.len();
     let mut head = [0u8; 16];
-    f.read_exact(&mut head).map_err(io)?;
-    let hlen = u32::from_le_bytes(head[12..16].try_into().expect("4 bytes")) as usize;
+    // A file too short, not a save or of another version is refused before any size in
+    // it is trusted; a size past the end of the file is a truncated save (nothing is
+    // allocated from it).
+    if len < 16 || f.read_exact(&mut head).is_err() || &head[..8] != MAGIC {
+        return Err(SaveError::NotASave(path.to_path_buf()));
+    }
+    let version = u32::from_le_bytes(head[8..12].try_into().expect("4 bytes"));
+    if version != CONTAINER_VERSION {
+        return Err(SaveError::Version(path.to_path_buf(), version));
+    }
+    let trunc = || SaveError::Truncated(path.to_path_buf());
+    let hlen = u32::from_le_bytes(head[12..16].try_into().expect("4 bytes")) as u64;
+    if 16 + hlen + 4 > len {
+        return Err(trunc());
+    }
+    let hlen = hlen as usize;
     let mut rest = vec![0u8; hlen + 4];
     f.read_exact(&mut rest).map_err(io)?;
-    let slen = u32::from_le_bytes(rest[hlen..hlen + 4].try_into().expect("4 bytes")) as usize;
-    let mut shot = vec![0u8; slen];
+    let slen = u32::from_le_bytes(rest[hlen..hlen + 4].try_into().expect("4 bytes")) as u64;
+    if 16 + hlen as u64 + 4 + slen > len {
+        return Err(trunc());
+    }
+    let mut shot = vec![0u8; slen as usize];
     f.read_exact(&mut shot).map_err(io)?;
     let mut b = head.to_vec();
     b.extend_from_slice(&rest);
@@ -561,6 +579,32 @@ mod tests {
         assert_eq!(h.header, header());
         assert!(h.body.is_empty());
         assert_eq!(list(&d).len(), 1);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// A header whose sizes run past the end of the file, or a file that is not a save,
+    /// is refused before anything is allocated from those sizes.
+    #[test]
+    fn read_header_trusts_no_size_past_the_file() {
+        let d = dir("sizes");
+        fs::create_dir_all(&d).unwrap();
+        let p = d.join("bad.nvfsave");
+        let mut b = MAGIC.to_vec();
+        b.extend_from_slice(&CONTAINER_VERSION.to_le_bytes());
+        b.extend_from_slice(&u32::MAX.to_le_bytes());
+        fs::write(&p, &b).unwrap();
+        assert!(matches!(read_header(&p), Err(SaveError::Truncated(_))));
+        let mut b = MAGIC.to_vec();
+        b.extend_from_slice(&CONTAINER_VERSION.to_le_bytes());
+        b.extend_from_slice(&2u32.to_le_bytes());
+        b.extend_from_slice(b"{}");
+        b.extend_from_slice(&u32::MAX.to_le_bytes());
+        fs::write(&p, &b).unwrap();
+        assert!(matches!(read_header(&p), Err(SaveError::Truncated(_))));
+        fs::write(&p, b"not a save at all, but long enough").unwrap();
+        assert!(matches!(read_header(&p), Err(SaveError::NotASave(_))));
+        fs::write(&p, b"short").unwrap();
+        assert!(matches!(read_header(&p), Err(SaveError::NotASave(_))));
         let _ = fs::remove_dir_all(&d);
     }
 

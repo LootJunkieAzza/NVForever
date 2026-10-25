@@ -473,7 +473,8 @@ fn binary(op: Op, a: Value, b: Value) -> Value {
         Op::Div => Value::Num(if y == 0.0 { 0.0 } else { x / y }),
         Op::Mod => {
             let (p, q) = (x.trunc() as i64, y.trunc() as i64);
-            Value::Num(if q == 0 { 0.0 } else { (p % q) as f64 })
+            // checked_rem: also 0 for i64::MIN % -1, which overflows (a huge operand).
+            Value::Num(p.checked_rem(q).unwrap_or(0) as f64)
         }
         Op::Neg => Value::Num(-y),
     }
@@ -483,4 +484,17 @@ fn binary(op: Op, a: Value, b: Value) -> Value {
 /// e.g. `OnDeath` and `OnDeath player`).
 pub fn blocks(p: &Program, event: u16) -> impl Iterator<Item = &Block> {
     p.blocks.iter().filter(move |b| b.event == event)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `%` of a huge operand by -1 (i64::MIN % -1 overflows) gives 0, not a panic.
+    #[test]
+    fn remainder_never_overflows() {
+        assert_eq!(binary(Op::Mod, Value::Num(-1e300), Value::Num(-1.0)), Value::Num(0.0));
+        assert_eq!(binary(Op::Mod, Value::Num(7.0), Value::Num(0.0)), Value::Num(0.0));
+        assert_eq!(binary(Op::Mod, Value::Num(7.5), Value::Num(2.0)), Value::Num(1.0));
+    }
 }

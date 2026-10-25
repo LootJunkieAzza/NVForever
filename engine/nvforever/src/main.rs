@@ -692,8 +692,15 @@ fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen:
 
 /// Which archives the game reads, lowest precedence first (mods' archives follow their
 /// plugins; loose files override them all).
-fn report_archives(data: Res<GameData>) {
+fn report_archives(data: Res<GameData>, world: Res<WorldData>) {
     info!("archives: {}", data.vfs.archives().collect::<Vec<_>>().join(", "));
+    // Read before the log was up: said now. A broken mod's files are skipped, not fatal.
+    for (name, why) in data.vfs.skipped() {
+        warn!("skipped {name}: cannot be read: {why}");
+    }
+    for d in &world.dropped_plugins {
+        warn!("{d}");
+    }
 }
 
 /// Arguments that choose a world or a mode. A command line with none of them is the game
@@ -788,6 +795,10 @@ fn main() -> AppExit {
         crash::early_exit(&e);
         AppExit::error()
     };
+    // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
+    // a warning, and the rest of the start uses the list without it (world.rs).
+    let opened = world::open_plugins(args.data(), &args.plugins);
+    args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save).
     let loaded = match args.load.as_deref() {
@@ -835,7 +846,7 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     let t0 = std::time::Instant::now();
-    let world = match WorldData::open(args.data(), &args.esm_schema, &args.plugins, &args.world) {
+    let world = match WorldData::open(&args.esm_schema, opened, &args.world) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
@@ -908,9 +919,18 @@ fn main() -> AppExit {
         }
     };
     let seed = args.weather_seed.unwrap_or(sky::DEFAULT_WEATHER_SEED);
+    // A start worldspace without a usable climate (a broken mod) takes another's sky
+    // (sky.rs `fallback`); travel keeps the previous sky instead (worldspace.rs).
     let mut sky_state = match sky::SkyState::new(&world, args.weather.as_deref(), args.start_weather.as_deref(), args.hour, seed) {
         Ok(s) => s,
-        Err(e) => return fail(e),
+        Err(e) => match sky::SkyState::fallback(&world, args.weather.as_deref(), args.start_weather.as_deref(), args.hour, seed) {
+            Ok(s) => {
+                // The log is not up yet: straight to the output.
+                eprintln!("warning: sky of the start worldspace: {e}; another worldspace's climate instead");
+                s
+            }
+            Err(_) => return fail(e),
+        },
     };
     sky_state.shadows = args.sun_shadows && args.shadow_distance > 0.0;
     if args.shadow_distance > 0.0 {
@@ -1850,8 +1870,8 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
-            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}, with named sequences {}, posed {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
-            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_group_rigs, s.refs_posed, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
+            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}, with named sequences {}, posed {}), disabled {}, not drawn {} {:?}, no model {} (error markers {}), shapes {}",
+            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_group_rigs, s.refs_posed, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.refs_error_marker, s.shapes
         );
     }
     let Some(r) = *ready_at else { return };

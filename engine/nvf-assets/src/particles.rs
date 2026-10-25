@@ -22,6 +22,11 @@ use std::sync::Arc;
 /// A float a controller keys over time (`NiPSysEmitterSpeedCtlr`,
 /// `NiPSysGravityStrengthCtlr`, a keyed birth rate…): the controller's own keys on its own
 /// cycle, or a sequence's keys on the sequence's time and cycle (particles.md §6.6).
+/// The most particles one system keeps alive, whatever its file asks for: a broken
+/// file's huge `bs_max_vertices` must not fill memory [hypothesis: vanilla systems ask
+/// for far fewer; particles.md quotes 12 and 14].
+pub const MAX_PARTICLES: usize = 8192;
+
 #[derive(Debug, Clone)]
 pub struct FloatKeys {
     pub channel: Channel<1>,
@@ -548,7 +553,9 @@ pub struct ParticleSystemDef {
 impl ParticleSystemDef {
     /// Its birth rate `t` seconds after the emitter appeared.
     pub fn rate_at(&self, t: f32) -> f32 {
-        self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate).max(0.0)
+        let r = self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate);
+        // A broken file's infinite or NaN rate births nothing.
+        if r.is_finite() { r.max(0.0) } else { 0.0 }
     }
 
     /// A particle's colour (before the emitter's) at `t`, the share of its life lived.
@@ -808,10 +815,10 @@ impl ModelCtx<'_> {
         if let Some(p) = self.cache.particles.get(&key) {
             return p.clone();
         }
-        let p = match self.prepare_particles(&key) {
+        let p = match crate::guard::guarded(|| self.prepare_particles(&key)) {
             Ok(p) => Some(Arc::new(p)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "particles", format!("{key}: {e}"));
                 None
             }
         };
@@ -864,7 +871,7 @@ impl ModelCtx<'_> {
             let data = ps.block_ref("data").and_then(|r| dec.get(r));
             let mut def = ParticleSystemDef {
                 name: ps.text("name").unwrap_or_default().to_string(),
-                max: data.and_then(|d| d.int("bs_max_vertices")).unwrap_or(0).max(0) as usize,
+                max: (data.and_then(|d| d.int("bs_max_vertices")).unwrap_or(0).max(0) as usize).min(MAX_PARTICLES),
                 material,
                 emitter: Emitter::blank(),
                 rate: 0.0,

@@ -173,6 +173,25 @@ fn limit(j: &mut GenericJoint, axis: JointAxis, mask: JointAxesMask, lo: f32, hi
     }
 }
 
+/// A damping coefficient kept to `[0, 10]`; a non-finite one (a broken file) is 0.
+fn damping(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.0, 10.0)
+    } else {
+        0.0
+    }
+}
+
+/// Whether a stored constraint's pivots (and a spring's length) are finite once scaled
+/// by `s`: a NaN pivot in a joint would poison every body of the ragdoll.
+pub fn joint_is_finite(j: &RagdollJoint, s: f32) -> bool {
+    let spring = match j.kind {
+        JointKind::Spring { length } => (length * s).is_finite(),
+        _ => true,
+    };
+    spring && (vec3(j.pivot_a) * s).is_finite() && (vec3(j.pivot_b) * s).is_finite()
+}
+
 /// The rapier joint for a stored constraint: body 1 is the constraint's `b` (the body
 /// attached to), body 2 its `a`. `s` scales the pivots (actor scale × metres per unit).
 pub fn joint(j: &RagdollJoint, s: f32) -> GenericJoint {
@@ -239,6 +258,7 @@ impl PhysWorld {
         let k = self.k;
         let f = scale.max(1e-3);
         let mut report = RagdollReport::default();
+        let start_velocity = Some(vec3(velocity) * k).filter(|v| v.is_finite()).unwrap_or_default();
         let n = data.bodies.len();
         let joints = vec![None; data.joints.len()];
         let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut };
@@ -262,13 +282,15 @@ impl PhysWorld {
             } else {
                 RigidBodyBuilder::dynamic()
                     .pose(pose)
-                    .linvel(vec3(velocity) * k)
-                    .linear_damping(b.linear_damping.clamp(0.0, 10.0))
-                    .angular_damping(b.angular_damping.clamp(0.0, 10.0))
+                    .linvel(start_velocity)
+                    .linear_damping(damping(b.linear_damping))
+                    .angular_damping(damping(b.angular_damping))
                     .ccd_enabled(true)
                     .user_data(owner)
             };
             let body = self.insert_body(builder);
+            // Known at once, so `remove_ragdoll` finds it even when the build stops part way.
+            self.ragdoll_of.insert(body, (form_id, i as u16));
             let friction = if o.friction.is_finite() { o.friction.clamp(0.0, MAX_FRICTION) } else { 0.5 };
             for leaf in leaves {
                 let c = ColliderBuilder::new(leaf.shape)
@@ -282,7 +304,6 @@ impl PhysWorld {
             if !at_rest {
                 self.set_mass(body, o.mass);
             }
-            self.ragdoll_of.insert(body, (form_id, i as u16));
             rag.bodies[i] = Some(body);
             report.bodies += 1;
         }
@@ -296,6 +317,11 @@ impl PhysWorld {
                 continue;
             }
             let (Some(Some(a)), Some(Some(b))) = (rag.bodies.get(j.a), rag.bodies.get(j.b)) else { continue };
+            if !joint_is_finite(j, f * k) {
+                // Left out and reported: the two bodies fall apart instead.
+                report.errors.push(ConvertError::BadDimension);
+                continue;
+            }
             rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, joint(j, f * k)));
             report.joints += 1;
         }
@@ -396,7 +422,16 @@ impl PhysWorld {
 
     /// Remove an actor's ragdoll.
     pub fn remove_ragdoll(&mut self, form_id: u32) -> bool {
-        let Some(r) = self.ragdolls.remove(&form_id) else { return false };
+        let Some(r) = self.ragdolls.remove(&form_id) else {
+            // Bodies of a build that stopped part way (a panic its caller caught) are
+            // known only by `ragdoll_of`.
+            let orphans: Vec<RigidBodyHandle> = self.ragdoll_of.iter().filter(|(_, o)| o.0 == form_id).map(|(&b, _)| b).collect();
+            for b in orphans {
+                self.ragdoll_of.remove(&b);
+                self.remove_body(b);
+            }
+            return false;
+        };
         for b in r.bodies.into_iter().flatten() {
             self.ragdoll_of.remove(&b);
             self.remove_body(b);
