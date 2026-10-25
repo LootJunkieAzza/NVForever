@@ -3810,4 +3810,9 @@ impl Host for Exec<'_, '_> {
     fn take_return(&mut self) -> bool {
         std::mem::take(&mut self.game.stop_run)
     }
+
+    fn print(&mut self, text: &str) {
+        let unit = self.unit.key();
+        self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
+    }
 }

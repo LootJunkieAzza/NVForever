@@ -68,8 +68,12 @@ pub enum EventKind {
     CallFailed { opcode: String, name: String, unit: String, error: String },
     /// A script stopped early (budget, malformed expression, nesting depth).
     ScriptError { unit: String, error: String },
-    /// Something the VM skipped (an unknown opcode in a lenient run).
+    /// Something the VM skipped (an unknown opcode in a lenient run, an extended
+    /// statement's run-time error).
     Skipped { unit: String, what: String },
+    /// A line a script printed to the console (Ar_Dump and the extender's printing
+    /// functions).
+    ScriptPrint { unit: String, text: String },
     /// A variable index the target script does not declare (docs/spec-notes/scripts.md
     /// §2.5): read as 0, written as given.
     UndeclaredVariable { owner: String, index: u16, unit: String },

@@ -426,7 +426,7 @@ impl<'a> Gen<'a> {
         let f = self.table.get(opcode)?;
         let params = match f.param_count {
             Some(n) => Some(n),
-            None if f.params.iter().any(|p| p.name == "...") => None,
+            None if f.params.iter().any(|p| p.name.starts_with("...")) => None,
             None => Some(f.params.len().max(f.encodings.len())),
         };
         let block = f.block.unwrap_or(params != Some(0) || !f.trailer.is_empty());

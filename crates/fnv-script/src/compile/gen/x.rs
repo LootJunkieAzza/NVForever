@@ -267,7 +267,7 @@ impl Gen<'_> {
             let f = self.table.get(op)?;
             let params = match f.param_count {
                 Some(n) => Some(n),
-                None if f.params.iter().any(|p| p.name == "...") => None,
+                None if f.params.iter().any(|p| p.name.starts_with("...")) => None,
                 None => Some(f.params.len().max(f.encodings.len())),
             };
             return Some(XFn { func: FuncId::Opcode(op), params, opcode: Some(op), aware: false });
@@ -278,7 +278,7 @@ impl Gen<'_> {
         let named = u.params.iter().filter(|p| !p.name.is_empty()).count();
         let params = if u.name.eq_ignore_ascii_case("call") {
             Some(16)
-        } else if u.params.iter().any(|p| p.name == "...") {
+        } else if u.params.iter().any(|p| p.name.starts_with("...")) {
             None
         } else {
             Some(named)

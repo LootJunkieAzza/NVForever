@@ -174,6 +174,8 @@ pub trait Host {
     fn form_text(&mut self, _form: u32) -> Option<String> {
         None
     }
+    /// A line for the console (Ar_Dump and the extender's printing functions).
+    fn print(&mut self, _text: &str) {}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -377,7 +379,11 @@ impl<'t, 'h> Vm<'t, 'h> {
                         Flow::Normal | Flow::Leave | Flow::Continue => {}
                     }
                 },
-                Stmt::ForEach { .. } => return Err(VmError::NotBuilt("foreach (B3, B4)".into())),
+                Stmt::ForEach { head, body } => {
+                    if self.foreach(head, body)? == Flow::Return {
+                        return Ok(Flow::Return);
+                    }
+                }
                 Stmt::Break => return Ok(Flow::Break),
                 Stmt::Continue => return Ok(Flow::Continue),
                 Stmt::Unmatched { marker: Marker::EndIf, .. } => {}
@@ -412,6 +418,9 @@ impl<'t, 'h> Vm<'t, 'h> {
             }
             if self.host.take_return() {
                 return Ok(Flow::Return);
+            }
+            if let Some(x) = self.host.ext() {
+                x.sweep();
             }
             i += 1;
         }
@@ -519,7 +528,7 @@ impl<'t, 'h> Vm<'t, 'h> {
 /// A value of the extender's expressions (docs/spec-notes/ext-values.md §1): a number or a
 /// form as in vanilla, a string (its text; a `string_var` holds the id of its own copy in
 /// the [`ExtStore`]), or an array by id (B3).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum XVal {
     Num(f64),
     Ref(u32),
@@ -584,7 +593,11 @@ pub enum VarKind {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtStore {
     pub strings: BTreeMap<u32, String>,
+    pub arrays: BTreeMap<u32, XArray>,
     next: u32,
+    /// Arrays made since the last [`ExtStore::sweep`].
+    #[serde(skip)]
+    fresh: Vec<u32>,
 }
 
 /// The longest string the extender keeps [documented: String Variable, 16,384
@@ -614,6 +627,199 @@ fn clip(mut s: String) -> String {
         s = s.chars().take(MAX_STRING).collect();
     }
     s
+}
+
+// ---------------------------------------------------------------------------- arrays (B3)
+
+/// An array's key: a number (lists, maps) or a string (string maps) [documented: Ar Map].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum XKey {
+    Num(f64),
+    Str(String),
+}
+
+impl XKey {
+    /// Key order: numbers by value; strings alphabetically without regard to case
+    /// [documented: maps keep their keys sorted ascending, Ar First; case: hypothesis, as
+    /// for string comparisons].
+    fn cmp(&self, o: &XKey) -> std::cmp::Ordering {
+        match (self, o) {
+            (XKey::Num(a), XKey::Num(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+            (XKey::Str(a), XKey::Str(b)) => a.to_lowercase().cmp(&b.to_lowercase()),
+            (XKey::Num(_), XKey::Str(_)) => std::cmp::Ordering::Less,
+            (XKey::Str(_), XKey::Num(_)) => std::cmp::Ordering::Greater,
+        }
+    }
+    pub fn value(&self) -> XVal {
+        match self {
+            XKey::Num(x) => XVal::Num(*x),
+            XKey::Str(s) => XVal::Str(s.clone()),
+        }
+    }
+}
+
+/// The three kinds of array [documented: Ar Construct; Ar Map].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ArrayKind {
+    /// Keys 0, 1, 2 … without gaps [documented: Ar Erase; Ar Insert].
+    List,
+    Map,
+    StringMap,
+}
+
+/// An array: its entries in key order, and how many variables and elements hold it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XArray {
+    pub kind: ArrayKind,
+    pub entries: Vec<(XKey, XVal)>,
+    pub refs: u32,
+}
+
+impl XArray {
+    fn find(&self, k: &XKey) -> Result<usize, usize> {
+        self.entries.binary_search_by(|(e, _)| e.cmp(k))
+    }
+    pub fn get(&self, k: &XKey) -> Option<&XVal> {
+        self.find(k).ok().map(|i| &self.entries[i].1)
+    }
+    fn renumber(&mut self) {
+        if self.kind == ArrayKind::List {
+            for (i, e) in self.entries.iter_mut().enumerate() {
+                e.0 = XKey::Num(i as f64);
+            }
+        }
+    }
+    /// The bad index of this array's key type [documented: Ar BadNumericIndex;
+    /// Ar BadStringIndex].
+    pub fn bad_index(&self) -> XVal {
+        match self.kind {
+            ArrayKind::StringMap => XVal::Str(String::new()),
+            _ => XVal::Num(BAD_NUMERIC_INDEX),
+        }
+    }
+}
+
+/// Ar_BadNumericIndex [documented].
+pub const BAD_NUMERIC_INDEX: f64 = -99999.0;
+
+impl ExtStore {
+    /// A new array no variable holds yet; it is freed at the end of the statement unless
+    /// something keeps it ([`ExtStore::sweep`]).
+    pub fn new_array(&mut self, kind: ArrayKind, entries: Vec<(XKey, XVal)>) -> u32 {
+        self.next += 1;
+        let id = self.next;
+        for (_, v) in &entries {
+            if let XVal::Array(c) = v {
+                if let Some(a) = self.arrays.get_mut(c) {
+                    a.refs += 1;
+                }
+            }
+        }
+        let mut a = XArray { kind, entries, refs: 0 };
+        if kind != ArrayKind::List {
+            a.entries.sort_by(|x, y| x.0.cmp(&y.0));
+            a.entries.dedup_by(|x, y| x.0.cmp(&y.0) == std::cmp::Ordering::Equal);
+        }
+        a.renumber();
+        self.arrays.insert(id, a);
+        self.fresh.push(id);
+        id
+    }
+    pub fn array(&self, id: u32) -> Option<&XArray> {
+        self.arrays.get(&id)
+    }
+    pub fn array_mut(&mut self, id: u32) -> Option<&mut XArray> {
+        self.arrays.get_mut(&id)
+    }
+    /// One more holder of the value (an array's count; anything else nothing).
+    pub fn retain(&mut self, v: &XVal) {
+        if let XVal::Array(id) = v {
+            if let Some(a) = self.arrays.get_mut(id) {
+                a.refs += 1;
+            }
+        }
+    }
+    /// One holder fewer; an array nothing holds any more is freed with what it held
+    /// [documented: xNVSE 6 frees arrays by reference counting, ext-save.md].
+    pub fn release(&mut self, v: &XVal) {
+        let XVal::Array(id) = v else { return };
+        let mut stack = vec![*id];
+        while let Some(id) = stack.pop() {
+            let Some(a) = self.arrays.get_mut(&id) else { continue };
+            a.refs = a.refs.saturating_sub(1);
+            if a.refs == 0 {
+                if let Some(a) = self.arrays.remove(&id) {
+                    stack.extend(a.entries.iter().filter_map(|(_, v)| if let XVal::Array(c) = v { Some(*c) } else { None }));
+                }
+            }
+        }
+    }
+    /// Free the arrays made since the last sweep that nothing holds (the temporaries of a
+    /// statement), with what only they held.
+    pub fn sweep(&mut self) {
+        for id in std::mem::take(&mut self.fresh) {
+            if let Some(a) = self.arrays.get_mut(&id).filter(|a| a.refs == 0) {
+                a.refs = 1;
+                self.release(&XVal::Array(id));
+            }
+        }
+    }
+}
+
+/// A key as text.
+fn key_text(k: &XKey) -> String {
+    match k {
+        XKey::Num(x) => number_text(*x),
+        XKey::Str(s) => format!("{s:?}"),
+    }
+}
+
+/// Two values the same, as Ar_Find and Ar_Unique judge it [hypothesis: as `==`, strings
+/// without regard to case; ext-arrays.md leaves it open].
+fn same(a: &XVal, b: &XVal) -> bool {
+    match (a, b) {
+        (XVal::Str(x), XVal::Str(y)) => x.to_lowercase() == y.to_lowercase(),
+        (XVal::Ref(x), XVal::Ref(y)) => x == y,
+        (XVal::Array(x), XVal::Array(y)) => x == y,
+        (XVal::Num(x), XVal::Num(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// A copy of an array; nested arrays shared (Ar_Copy) or copied all the way down
+/// (Ar_DeepCopy) [documented: Ar Copy; Ar DeepCopy].
+fn copy_array(store: &mut ExtStore, id: u32, deep: bool) -> u32 {
+    let Some(a) = store.array(id).cloned() else { return 0 };
+    let mut es = Vec::with_capacity(a.entries.len());
+    for (k, v) in a.entries {
+        let v = match v {
+            XVal::Array(c) if deep => {
+                let n = copy_array(store, c, true);
+                XVal::Array(n)
+            }
+            other => other,
+        };
+        es.push((k, v));
+    }
+    store.new_array(a.kind, es)
+}
+
+/// Same key-element pairs in the same order, nested arrays included; two nulls are equal
+/// [documented: Ar DeepEquals].
+fn deep_equal(store: &ExtStore, a: &XVal, b: &XVal) -> bool {
+    match (a, b) {
+        (XVal::Array(x), XVal::Array(y)) => match (store.array(*x), store.array(*y)) {
+            (None, None) => true,
+            (Some(p), Some(q)) => {
+                p.kind == q.kind
+                    && p.entries.len() == q.entries.len()
+                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal(store, &e.1, &f.1))
+            }
+            _ => false,
+        },
+        (XVal::Num(0.0), XVal::Array(y)) | (XVal::Array(y), XVal::Num(0.0)) => store.array(*y).is_none(),
+        _ => a == b,
+    }
 }
 
 /// A number as `$` and ToString write it: whole numbers without decimals, others with up
@@ -669,11 +875,23 @@ impl Vm<'_, '_> {
                 let v = v.value()?;
                 self.host.set_var(var, v).map_err(VmError::Host)
             }
-            VarKind::Array => match v {
-                XVal::Array(id) => self.host.set_var(var, Value::Num(id as f64)).map_err(VmError::Host),
-                XVal::Num(0.0) => self.host.set_var(var, Value::ZERO).map_err(VmError::Host),
-                _ => Err(VmError::Type("an array variable takes an array".into())),
-            },
+            // Assigning an array shares it [documented: NVSE Expressions]; Ar_Null (0) lets
+            // go of the variable's array [documented: Ar Null].
+            VarKind::Array => {
+                let new = match v {
+                    XVal::Array(id) => id,
+                    XVal::Num(0.0) => 0,
+                    _ => return Err(VmError::Type("an array variable takes an array".into())),
+                };
+                let old = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
+                if new != old {
+                    let store = self.store()?;
+                    store.retain(&XVal::Array(new));
+                    store.release(&XVal::Array(old));
+                    self.host.set_var(var, Value::Num(new as f64)).map_err(VmError::Host)?;
+                }
+                Ok(())
+            }
             // Assigning a string copies it into the variable's own string [documented: NVSE
             // Expressions].
             VarKind::String => {
@@ -705,7 +923,10 @@ impl Vm<'_, '_> {
             XExpr::Ref { r } => XVal::from_value(self.host.ref_value(*r).map_err(VmError::Host)?),
             XExpr::Enum { code } => XVal::Num(*code as f64),
             XExpr::Axis { .. } => return Err(VmError::Expression("an axis outside a parameter".into())),
-            XExpr::Member { .. } => return Err(VmError::NotBuilt("string maps (B3)".into())),
+            XExpr::Member { l, key } => {
+                let a = self.xeval(l)?;
+                self.element(&a, &XVal::Str(key.clone()))?
+            }
             XExpr::Lambda { .. } => return Err(VmError::NotBuilt("lambdas (B8)".into())),
             XExpr::Call { call } => self.xcall(call)?,
             XExpr::Unary { op, e } => {
@@ -718,7 +939,22 @@ impl Vm<'_, '_> {
                         XVal::Str(s) => XVal::Num(text_number(&s)),
                         other => XVal::Num(other.num()?),
                     },
-                    XUnary::Box | XUnary::Unbox => return Err(VmError::NotBuilt("arrays (B3)".into())),
+                    // `&x`: a one-element array; `*a`: a string map's "value", else the first
+                    // element [documented: NVSE Expressions].
+                    XUnary::Box => {
+                        let store = self.store()?;
+                        XVal::Array(store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), v)]))
+                    }
+                    XUnary::Unbox => {
+                        let XVal::Array(id) = v else { return Err(VmError::Type("* of something that is not an array".into())) };
+                        let store = self.store()?;
+                        let a = store.array(id).ok_or_else(|| VmError::Type("* of an empty array variable".into()))?;
+                        let got = match a.kind {
+                            ArrayKind::StringMap => a.get(&XKey::Str("value".into())).cloned(),
+                            _ => a.entries.first().map(|e| e.1.clone()),
+                        };
+                        got.ok_or_else(|| VmError::Type("* of an empty array".into()))?
+                    }
                 }
             }
             // `||` and `&&` return the deciding operand's value, a non-number as 1 or 0,
@@ -739,7 +975,15 @@ impl Vm<'_, '_> {
             }
             XExpr::Binary { op: XOp::Subscript, l, r } => {
                 let s = self.xeval(l)?;
-                let XVal::Str(s) = s else { return Err(VmError::NotBuilt("array elements (B3)".into())) };
+                if let XVal::Array(id) = s {
+                    if let XExpr::Binary { op: XOp::Slice, l: lo, r: hi } = r.as_ref() {
+                        let (a, b) = (self.xeval(lo)?, self.xeval(hi)?);
+                        return self.slice(id, &a, &b);
+                    }
+                    let k = self.xeval(r)?;
+                    return self.element(&XVal::Array(id), &k);
+                }
+                let XVal::Str(s) = s else { return Err(VmError::Type("[] of something that is neither a string nor an array".into())) };
                 let chars: Vec<char> = s.chars().collect();
                 // `s[a:b]`: the characters from a to b, both included [documented: NVSE
                 // Expressions, Slice]; `s[i]`: one character [documented: Subscript].
@@ -759,28 +1003,40 @@ impl Vm<'_, '_> {
             }
             XExpr::Binary { op, l, r } => {
                 let (a, b) = (self.xeval(l)?, self.xeval(r)?);
+                // Arrays compare by their top-level elements [documented: NVSE Expressions].
+                if let (XOp::Eq | XOp::Ne, XVal::Array(x), XVal::Array(y)) = (op, &a, &b) {
+                    let store = self.store()?;
+                    let same = x == y || store.array(*x).map(|a| &a.entries) == store.array(*y).map(|b| &b.entries);
+                    return Ok(XVal::Num(if same == (*op == XOp::Eq) { 1.0 } else { 0.0 }));
+                }
                 xbinary(*op, a, b)?
             }
-            XExpr::Assign { op, target, value } => {
-                let XExpr::Var { var } = target.as_ref() else {
-                    return Err(VmError::NotBuilt("assigning to an element (B3)".into()));
+            XExpr::Assign { op, target, value } if !matches!(target.as_ref(), XExpr::Var { .. }) => {
+                // `let a[k] := v`, `let m->key := v` [documented: Let; NVSE Expressions].
+                let (holder, key) = match target.as_ref() {
+                    XExpr::Binary { op: XOp::Subscript, l, r } => (self.xeval(l)?, self.xeval(r)?),
+                    XExpr::Member { l, key } => (self.xeval(l)?, XVal::Str(key.clone())),
+                    _ => return Err(VmError::Type("an assignment to something that is not a variable".into())),
                 };
                 let v = self.xeval(value)?;
                 let v = match op {
                     XAssign::Set => v,
-                    _ => {
+                    other => {
+                        let cur = self.element(&holder, &key)?;
+                        xbinary(assign_op(*other), cur, v)?
+                    }
+                };
+                self.set_element(&holder, &key, v.clone())?;
+                v
+            }
+            XExpr::Assign { op, target, value } => {
+                let XExpr::Var { var } = target.as_ref() else { unreachable!("guarded above") };
+                let v = self.xeval(value)?;
+                let v = match op {
+                    XAssign::Set => v,
+                    other => {
                         let cur = self.read_var(var)?;
-                        let bop = match op {
-                            XAssign::Add => XOp::Add,
-                            XAssign::Sub => XOp::Sub,
-                            XAssign::Mul => XOp::Mul,
-                            XAssign::Div => XOp::Div,
-                            XAssign::Pow => XOp::Pow,
-                            XAssign::BitOr => XOp::BitOr,
-                            XAssign::BitAnd => XOp::BitAnd,
-                            XAssign::Mod | XAssign::Set => XOp::Mod,
-                        };
-                        xbinary(bop, cur, v)?
+                        xbinary(assign_op(*other), cur, v)?
                     }
                 };
                 self.write_var(var, v.clone())?;
@@ -798,7 +1054,7 @@ impl Vm<'_, '_> {
             XVal::Num(x) => number_text(*x),
             XVal::Str(s) => s.clone(),
             XVal::Ref(f) => self.host.form_text(*f).unwrap_or_else(|| format!("{f:08X}")),
-            XVal::Array(_) => return Err(VmError::NotBuilt("arrays as text (B3)".into())),
+            XVal::Array(id) => self.dump(*id),
         })
     }
 
@@ -834,8 +1090,431 @@ impl Vm<'_, '_> {
         Ok(XVal::from_value(self.host.call(opcode, on, &args).map_err(VmError::Host)?))
     }
 
-    /// The extender's own functions, by catalogue name (task D). Only the conversions of
-    /// B1 so far.
+    /// The key `k` as array `id` takes it: a number for a list or a map, a string for a
+    /// string map [documented: Ar Map]; a list's key is a whole position.
+    fn key_for(&mut self, id: u32, k: &XVal) -> Result<XKey, VmError> {
+        let kind = self.store()?.array(id).map(|a| a.kind).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        Ok(match (kind, k) {
+            (ArrayKind::StringMap, XVal::Str(s)) => XKey::Str(s.clone()),
+            (ArrayKind::StringMap, _) => return Err(VmError::Type("a string map takes string keys".into())),
+            (_, XVal::Str(_)) => return Err(VmError::Type("a list or a map takes number keys".into())),
+            (ArrayKind::List, v) => XKey::Num(v.num()?.trunc()),
+            (ArrayKind::Map, v) => XKey::Num(v.num()?),
+        })
+    }
+
+    /// `a[k]`, `m->k`: a missing key is an error [documented: NVSE Error; TestExpr].
+    fn element(&mut self, holder: &XVal, k: &XVal) -> Result<XVal, VmError> {
+        let XVal::Array(id) = holder else { return Err(VmError::Type("[] of something that is not an array".into())) };
+        let key = self.key_for(*id, k)?;
+        let store = self.store()?;
+        let a = store.array(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        a.get(&key).cloned().ok_or_else(|| VmError::Type(format!("no element at key {}", key_text(&key))))
+    }
+
+    /// `let a[k] := v`: replaces the element, or adds it to a map; a list takes a key up to
+    /// its size (the size appends) and a key beyond it is an error [documented: NVSE Error
+    /// for beyond; appending at the size hypothesis].
+    fn set_element(&mut self, holder: &XVal, k: &XVal, v: XVal) -> Result<(), VmError> {
+        let XVal::Array(id) = holder else { return Err(VmError::Type("[] of something that is not an array".into())) };
+        let key = self.key_for(*id, k)?;
+        let store = self.store()?;
+        store.retain(&v);
+        let a = store.array_mut(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        let old = match (a.kind, &key) {
+            (ArrayKind::List, XKey::Num(x)) => {
+                let len = a.entries.len();
+                match *x {
+                    i if i >= 0.0 && (i as usize) < len => Some(std::mem::replace(&mut a.entries[i as usize].1, v)),
+                    i if i as usize == len && i >= 0.0 => {
+                        a.entries.push((XKey::Num(i), v));
+                        None
+                    }
+                    i => {
+                        store.release(&v);
+                        return Err(VmError::Type(format!("list key {i} is beyond the list's size {len}")));
+                    }
+                }
+            }
+            _ => match a.find(&key) {
+                Ok(i) => Some(std::mem::replace(&mut a.entries[i].1, v)),
+                Err(i) => {
+                    a.entries.insert(i, (key, v));
+                    None
+                }
+            },
+        };
+        if let Some(o) = old {
+            store.release(&o);
+        }
+        Ok(())
+    }
+
+    /// `a[i:j]`: a copy of the elements from key i to key j, both included [documented:
+    /// NVSE Expressions]; of the same kind [hypothesis].
+    fn slice(&mut self, id: u32, lo: &XVal, hi: &XVal) -> Result<XVal, VmError> {
+        let (lo, hi) = (self.key_for(id, lo)?, self.key_for(id, hi)?);
+        let store = self.store()?;
+        let a = store.array(id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        let kind = a.kind;
+        let entries: Vec<(XKey, XVal)> = a
+            .entries
+            .iter()
+            .filter(|(k, _)| k.cmp(&lo) != std::cmp::Ordering::Less && k.cmp(&hi) != std::cmp::Ordering::Greater)
+            .cloned()
+            .collect();
+        Ok(XVal::Array(store.new_array(kind, entries)))
+    }
+
+    /// An array as text, for Ar_Dump and `$` [decision: the original's print format is
+    /// open, ext-arrays.md]: `[k: v, …]`, a nested array by its id.
+    fn dump(&mut self, id: u32) -> String {
+        let Some(a) = self.host.ext().and_then(|x| x.array(id).cloned()) else { return "(no array)".into() };
+        let mut parts = Vec::new();
+        for (k, v) in &a.entries {
+            let t = match v {
+                XVal::Array(c) => format!("array #{c}"),
+                XVal::Str(s) => format!("{s:?}"),
+                other => self.text_of(other).unwrap_or_default(),
+            };
+            parts.push(format!("{}: {t}", key_text(k)));
+        }
+        let kind = match a.kind {
+            ArrayKind::List => "array",
+            ArrayKind::Map => "map",
+            ArrayKind::StringMap => "stringmap",
+        };
+        format!("{kind} #{id} [{}]", parts.join(", "))
+    }
+
+    /// `foreach <var> <- <source>` … `loop`. Over an array each entry is a string map with
+    /// its "key" and "value"; over a string each character [documented: ForEach]. The
+    /// source is read element by element as the loop goes, so erasing during it skips
+    /// elements, as documented [documented: Ar Erase]. Form lists and containers: B5.
+    fn foreach(&mut self, head: &XForEach, body: &[Stmt]) -> Result<Flow, VmError> {
+        let XExpr::Var { var } = &head.var else { return Err(VmError::Type("foreach needs a variable".into())) };
+        let src = self.xeval(&head.source)?;
+        match src {
+            XVal::Array(id) => {
+                self.store()?.retain(&src);
+                let mut i = 0;
+                let flow = loop {
+                    self.step()?;
+                    let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { break Flow::Normal };
+                    let store = self.store()?;
+                    let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
+                    self.write_var(var, XVal::Array(e))?;
+                    match self.list(body, false)? {
+                        Flow::Return => break Flow::Return,
+                        Flow::Break => break Flow::Normal,
+                        Flow::Normal | Flow::Leave | Flow::Continue => {}
+                    }
+                    i += 1;
+                };
+                self.store()?.release(&src);
+                Ok(flow)
+            }
+            XVal::Str(s) => {
+                for ch in s.chars() {
+                    self.step()?;
+                    self.write_var(var, XVal::Str(ch.to_string()))?;
+                    match self.list(body, false)? {
+                        Flow::Return => return Ok(Flow::Return),
+                        Flow::Break => break,
+                        Flow::Normal | Flow::Leave | Flow::Continue => {}
+                    }
+                }
+                Ok(Flow::Normal)
+            }
+            _ => Err(VmError::NotBuilt("foreach over form lists and containers (B5)".into())),
+        }
+    }
+
+    /// The `ar_*` functions and TypeOf [documented: each page; ext-arrays.md §5].
+    fn array_function(&mut self, n: &str, c: &XCall) -> Result<XVal, VmError> {
+        let nargs = c.args.len();
+        let val = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
+            match c.args.get(k) {
+                Some(a) => vm.xeval(a),
+                None => Err(VmError::Expression(format!("{n} without argument {}", k + 1))),
+            }
+        };
+        let array_of = |v: &XVal| -> Option<u32> { if let XVal::Array(id) = v { Some(*id).filter(|&i| i != 0) } else { None } };
+        let num = |x: f64| Ok(XVal::Num(x));
+        match n {
+            "ar_construct" => {
+                let kind = match val(self, 0)? {
+                    XVal::Str(s) if s.eq_ignore_ascii_case("array") => ArrayKind::List,
+                    XVal::Str(s) if s.eq_ignore_ascii_case("map") => ArrayKind::Map,
+                    XVal::Str(s) if s.eq_ignore_ascii_case("stringmap") => ArrayKind::StringMap,
+                    other => return Err(VmError::Type(format!("Ar_Construct of {other:?}"))),
+                };
+                Ok(XVal::Array(self.store()?.new_array(kind, Vec::new())))
+            }
+            "ar_list" => {
+                let mut es = Vec::new();
+                for k in 0..nargs {
+                    es.push((XKey::Num(k as f64), val(self, k)?));
+                }
+                Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
+            }
+            // Pairs `k::v`; the keys' type picks map or string map; form keys or both kinds
+            // fail [documented: Ar Map].
+            "ar_map" => {
+                let mut es = Vec::new();
+                let mut kind = None;
+                for a in &c.args {
+                    let XExpr::Binary { op: XOp::Pair, l, r } = a else { return Err(VmError::Type("Ar_Map takes key::value pairs".into())) };
+                    let (k, v) = (self.xeval(l)?, self.xeval(r)?);
+                    let (key, kk) = match k {
+                        XVal::Num(x) => (XKey::Num(x), ArrayKind::Map),
+                        XVal::Str(s) => (XKey::Str(s), ArrayKind::StringMap),
+                        _ => return Err(VmError::Type("Ar_Map keys are numbers or strings".into())),
+                    };
+                    if kind.is_some_and(|k| k != kk) {
+                        return Err(VmError::Type("Ar_Map keys mix numbers and strings".into()));
+                    }
+                    kind = Some(kk);
+                    es.push((key, v));
+                }
+                Ok(XVal::Array(self.store()?.new_array(kind.unwrap_or(ArrayKind::Map), es)))
+            }
+            "ar_null" => num(0.0),
+            "ar_badnumericindex" => num(BAD_NUMERIC_INDEX),
+            "ar_badstringindex" => Ok(XVal::Str(String::new())),
+            "ar_size" => {
+                let a = val(self, 0)?;
+                let size = array_of(&a).and_then(|id| self.host.ext().and_then(|x| x.array(id)).map(|a| a.entries.len() as f64));
+                num(size.unwrap_or(-1.0))
+            }
+            "ar_packed" => {
+                let a = val(self, 0)?;
+                let kind = array_of(&a).and_then(|id| self.host.ext().and_then(|x| x.array(id)).map(|a| a.kind));
+                num(if kind == Some(ArrayKind::List) { 1.0 } else { 0.0 })
+            }
+            "ar_haskey" => {
+                let (a, k) = (val(self, 0)?, val(self, 1)?);
+                let Some(id) = array_of(&a) else { return num(0.0) };
+                let key = self.key_for(id, &k)?;
+                num(if self.store()?.array(id).is_some_and(|a| a.get(&key).is_some()) { 1.0 } else { 0.0 })
+            }
+            "ar_keys" => {
+                let a = val(self, 0)?;
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Keys of an empty array variable".into()))?;
+                let store = self.store()?;
+                let keys: Vec<(XKey, XVal)> =
+                    store.array(id).map(|a| a.entries.iter().enumerate().map(|(i, (k, _))| (XKey::Num(i as f64), k.value())).collect()).unwrap_or_default();
+                Ok(XVal::Array(store.new_array(ArrayKind::List, keys)))
+            }
+            "ar_first" | "ar_last" | "ar_next" | "ar_prev" => {
+                let a = val(self, 0)?;
+                let id = array_of(&a).ok_or_else(|| VmError::Type(format!("{n} of an empty array variable")))?;
+                let from = if matches!(n, "ar_next" | "ar_prev") { Some(val(self, 1)?) } else { None };
+                let from = match from {
+                    Some(k) => Some(self.key_for(id, &k)?),
+                    None => None,
+                };
+                let store = self.store()?;
+                let arr = store.array(id).ok_or_else(|| VmError::Type(format!("{n} of an empty array")))?;
+                let got = match (n, from) {
+                    ("ar_first", _) => arr.entries.first().map(|e| e.0.clone()),
+                    ("ar_last", _) => arr.entries.last().map(|e| e.0.clone()),
+                    ("ar_next", Some(k)) => arr.entries.iter().find(|e| e.0.cmp(&k) == std::cmp::Ordering::Greater).map(|e| e.0.clone()),
+                    (_, Some(k)) => arr.entries.iter().rev().find(|e| e.0.cmp(&k) == std::cmp::Ordering::Less).map(|e| e.0.clone()),
+                    _ => None,
+                };
+                Ok(got.map(|k| k.value()).unwrap_or_else(|| arr.bad_index()))
+            }
+            "ar_append" => {
+                let (a, v) = (val(self, 0)?, val(self, 1)?);
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Append to an empty array variable".into()))?;
+                let len = self.store()?.array(id).filter(|a| a.kind == ArrayKind::List).map(|a| a.entries.len()).ok_or_else(|| VmError::Type("Ar_Append takes a list".into()))?;
+                self.set_element(&a, &XVal::Num(len as f64), v)?;
+                num(0.0)
+            }
+            "ar_insert" => {
+                let (a, i, v) = (val(self, 0)?, val(self, 1)?.num()?, val(self, 2)?);
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Insert into an empty array variable".into()))?;
+                let store = self.store()?;
+                let ok = match store.array(id) {
+                    Some(arr) if arr.kind == ArrayKind::List && i >= 0.0 && i as usize <= arr.entries.len() => true,
+                    Some(arr) if arr.kind != ArrayKind::List => return Err(VmError::Type("Ar_Insert takes a list".into())),
+                    _ => false,
+                };
+                if ok {
+                    store.retain(&v);
+                    if let Some(arr) = store.array_mut(id) {
+                        arr.entries.insert(i as usize, (XKey::Num(0.0), v));
+                        arr.renumber();
+                    }
+                }
+                num(if ok { 1.0 } else { 0.0 })
+            }
+            // [documented: Ar Erase] the key, a range `i:j`, or everything; a missing key
+            // erases nothing.
+            "ar_erase" => {
+                let a = val(self, 0)?;
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Erase of an empty array variable".into()))?;
+                let range = match c.args.get(1) {
+                    None => None,
+                    Some(XExpr::Binary { op: XOp::Slice, l, r }) => {
+                        let (lo, hi) = (self.xeval(l)?, self.xeval(r)?);
+                        Some((self.key_for(id, &lo)?, self.key_for(id, &hi)?))
+                    }
+                    Some(k) => {
+                        let k = self.xeval(k)?;
+                        let k = self.key_for(id, &k)?;
+                        Some((k.clone(), k))
+                    }
+                };
+                let store = self.store()?;
+                let Some(arr) = store.array_mut(id) else { return num(0.0) };
+                let mut gone = Vec::new();
+                arr.entries.retain(|(k, v)| {
+                    let hit = match &range {
+                        None => true,
+                        Some((lo, hi)) => k.cmp(lo) != std::cmp::Ordering::Less && k.cmp(hi) != std::cmp::Ordering::Greater,
+                    };
+                    if hit {
+                        gone.push(v.clone());
+                    }
+                    !hit
+                });
+                arr.renumber();
+                for v in &gone {
+                    store.release(v);
+                }
+                num(gone.len() as f64)
+            }
+            "ar_resize" => {
+                let (a, size) = (val(self, 0)?, val(self, 1)?.num()?);
+                let pad = if nargs > 2 { val(self, 2)? } else { XVal::Num(0.0) };
+                let Some(id) = array_of(&a) else { return num(0.0) };
+                let store = self.store()?;
+                let Some(arr) = store.array_mut(id).filter(|a| a.kind == ArrayKind::List && size >= 0.0) else { return num(0.0) };
+                let size = size as usize;
+                let cut: Vec<XVal> = if arr.entries.len() > size { arr.entries.split_off(size).into_iter().map(|e| e.1).collect() } else { Vec::new() };
+                let grow = size.saturating_sub(arr.entries.len());
+                for _ in 0..grow {
+                    arr.entries.push((XKey::Num(0.0), pad.clone()));
+                }
+                arr.renumber();
+                for _ in 0..grow {
+                    store.retain(&pad);
+                }
+                for v in &cut {
+                    store.release(v);
+                }
+                num(1.0)
+            }
+            "ar_copy" | "ar_deepcopy" => {
+                let a = val(self, 0)?;
+                let id = array_of(&a).ok_or_else(|| VmError::Type(format!("{n} of an empty array variable")))?;
+                Ok(XVal::Array(copy_array(self.store()?, id, n == "ar_deepcopy")))
+            }
+            "ar_find" => {
+                let (v, a) = (val(self, 0)?, val(self, 1)?);
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Find in an empty array variable".into()))?;
+                let store = self.store()?;
+                let arr = store.array(id).ok_or_else(|| VmError::Type("Ar_Find in an empty array".into()))?;
+                Ok(arr.entries.iter().find(|e| same(&e.1, &v)).map(|e| e.0.value()).unwrap_or_else(|| arr.bad_index()))
+            }
+            // [documented: Ar Sort] all of one type, else an empty array; strings without
+            // regard to case, numbers by value, forms by FormID; a list.
+            "ar_sort" | "ar_sortalpha" => {
+                let a = val(self, 0)?;
+                let desc = nargs > 1 && val(self, 1)?.truthy();
+                let id = array_of(&a).ok_or_else(|| VmError::Type(format!("{n} of an empty array variable")))?;
+                let vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
+                let mut keyed: Vec<(String, f64, XVal)> = Vec::new();
+                let alpha = n == "ar_sortalpha";
+                let same_kind = vals.windows(2).all(|w| std::mem::discriminant(&w[0]) == std::mem::discriminant(&w[1]));
+                if alpha || same_kind {
+                    for v in vals {
+                        let t = if alpha || matches!(v, XVal::Str(_)) { self.text_of(&v)?.to_lowercase() } else { String::new() };
+                        let x = if alpha { 0.0 } else { v.num().unwrap_or(0.0) };
+                        keyed.push((t, x, v));
+                    }
+                    keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.partial_cmp(&q.1).unwrap_or(std::cmp::Ordering::Equal)));
+                    if desc {
+                        keyed.reverse();
+                    }
+                }
+                let es = keyed.into_iter().enumerate().map(|(i, (_, _, v))| (XKey::Num(i as f64), v)).collect();
+                Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
+            }
+            // [documented: Ar Range] start to end, both included, `step` apart.
+            "ar_range" => {
+                let (a, b) = (val(self, 0)?.num()?.trunc(), val(self, 1)?.num()?.trunc());
+                let step = if nargs > 2 { val(self, 2)?.num()?.trunc() } else { 1.0 };
+                if step == 0.0 {
+                    return Err(VmError::Type("Ar_Range with a step of 0".into()));
+                }
+                let mut es = Vec::new();
+                let mut x = a;
+                while (step > 0.0 && x <= b) || (step < 0.0 && x >= b) {
+                    es.push((XKey::Num(es.len() as f64), XVal::Num(x)));
+                    x += step;
+                    if es.len() > 1_000_000 {
+                        break;
+                    }
+                }
+                Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
+            }
+            "ar_init" => {
+                let (count, v) = (val(self, 0)?.num()?.max(0.0) as usize, val(self, 1)?);
+                let es = (0..count.min(1_000_000)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
+                Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
+            }
+            // [documented: Ar Unique] the first of each value, in its place.
+            "ar_unique" => {
+                let a = val(self, 0)?;
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Unique of an empty array variable".into()))?;
+                let store = self.store()?;
+                let arr = store.array(id).cloned().ok_or_else(|| VmError::Type("Ar_Unique of an empty array".into()))?;
+                let mut kept: Vec<(XKey, XVal)> = Vec::new();
+                for e in arr.entries {
+                    if !kept.iter().any(|k| same(&k.1, &e.1)) {
+                        kept.push(e);
+                    }
+                }
+                Ok(XVal::Array(store.new_array(arr.kind, kept)))
+            }
+            "ar_deepequals" => {
+                let (a, b) = (val(self, 0)?, val(self, 1)?);
+                let store = self.store()?;
+                num(if deep_equal(store, &a, &b) { 1.0 } else { 0.0 })
+            }
+            "ar_dump" => {
+                let a = val(self, 0)?;
+                let text = match array_of(&a) {
+                    Some(id) => self.dump(id),
+                    None => "(no array)".into(),
+                };
+                self.host.print(&text);
+                num(0.0)
+            }
+            // [documented: TypeOf] "Number", "Form", "String", "Array", "Map", "StringMap".
+            "typeof" => {
+                let v = val(self, 0)?;
+                let t = match &v {
+                    XVal::Num(_) => "Number",
+                    XVal::Ref(_) => "Form",
+                    XVal::Str(_) => "String",
+                    XVal::Array(id) => match self.store()?.array(*id).map(|a| a.kind) {
+                        Some(ArrayKind::Map) => "Map",
+                        Some(ArrayKind::StringMap) => "StringMap",
+                        _ => "Array",
+                    },
+                };
+                Ok(XVal::Str(t.into()))
+            }
+            _ => Err(VmError::NotBuilt(format!("the extender function {n} (task D2: the functions taking a function wait for B7/B8)"))),
+        }
+    }
+
+    /// The extender's own functions, by catalogue name (task D): the conversions of B1 and
+    /// the arrays of D2 so far.
     fn ext_function(&mut self, name: &str, c: &XCall) -> Result<XVal, VmError> {
         let arg = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
             match c.args.get(k) {
@@ -854,8 +1533,23 @@ impl Vm<'_, '_> {
                 XVal::Str(s) => XVal::Num(text_number(&s)),
                 other => XVal::Num(other.num()?),
             }),
+            n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
             _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
         }
+    }
+}
+
+/// The binary operator of a compound assignment.
+fn assign_op(op: XAssign) -> XOp {
+    match op {
+        XAssign::Add => XOp::Add,
+        XAssign::Sub => XOp::Sub,
+        XAssign::Mul => XOp::Mul,
+        XAssign::Div => XOp::Div,
+        XAssign::Pow => XOp::Pow,
+        XAssign::BitOr => XOp::BitOr,
+        XAssign::BitAnd => XOp::BitAnd,
+        XAssign::Mod | XAssign::Set => XOp::Mod,
     }
 }
 

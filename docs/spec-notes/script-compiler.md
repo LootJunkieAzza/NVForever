@@ -305,7 +305,7 @@ The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scr
 §2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
 unit with one runs from source (§7).
 
-## 9. Values in the VM (task B1)
+## 9. Values in the VM (tasks B1, B3)
 
 `fnv_script::vm::XVal` is a value of the extended expressions: a number, a form, a string
 (its text) or an array (by id, B3). docs/spec-notes/ext-values.md has the documented
@@ -332,6 +332,35 @@ rules; what NVForever decides where they are open is tagged here.
   documented]. A failing `let` or expression statement reports its error and the script
   goes on with the next line [documented: Let; NVSE Error]; the trace records it as a
   skipped piece. Strict runs (tests) stop at it.
+
+- **Arrays** (B3; docs/spec-notes/ext-arrays.md has the documented rules). An
+  `array_var` slot holds an array id; the arrays live in the `ExtStore` with a count of
+  the variables and elements that hold each. Assigning an array shares it, and Ar_Null
+  (0) lets go of one [documented: NVSE Expressions; Ar Null]. An array nothing holds is
+  freed with what only it held [documented: xNVSE 6 counts references, ext-save.md], and
+  the temporaries of a statement are freed when the statement ends. Lists keep keys 0…n−1;
+  maps and string maps keep their keys sorted [documented: Ar First], string keys without
+  regard to case [hypothesis]. `a[k]` reads an element, and a missing key is an error
+  [documented: NVSE Error]. `let a[k] := v` and `let m->k := v` replace or add an element.
+  A list takes a key up to its size, where the size appends [hypothesis], and a key
+  beyond it is an error [documented]. `a[i:j]` is a copy of keys i to j of the same kind
+  [documented; kind hypothesis]. `&x` and `*a` box and unbox [documented]. `==` compares
+  top-level elements [documented]. `$` of an array is our own dump text, `kind #id [k: v,
+  …]` [decision: the original's format is open].
+- **foreach** over an array gives a string map {"key", "value"} per element; over a
+  string, one character each [documented: ForEach]. The source is read element by element
+  as the loop goes, so erasing during it skips elements, as documented. Form lists and
+  containers: B5.
+- **Array functions** (D2): Ar_Construct, Ar_List, Ar_Map (pairs `k::v`; keys mixing
+  kinds or forms are an error), Ar_Null, Ar_BadNumericIndex (−99999), Ar_BadStringIndex,
+  Ar_Size (−1 without an array), Ar_Packed, Ar_HasKey, Ar_Keys, Ar_First, Ar_Last,
+  Ar_Next, Ar_Prev, Ar_Append, Ar_Insert, Ar_Erase (key, range or all), Ar_Resize,
+  Ar_Copy, Ar_DeepCopy, Ar_Find, Ar_Sort, Ar_SortAlpha, Ar_Range, ar_Init, Ar_Unique,
+  Ar_DeepEquals, Ar_Dump (a `ScriptPrint` trace line), TypeOf; each as its page says
+  [documented: ext-arrays.md §5]. Ar_Find and Ar_Unique compare strings without regard to
+  case [hypothesis]. A parameter whose catalogue name starts with `...` (`...entry19`)
+  makes the list open-ended. The functions that take a function (Ar_Filter, Ar_MapTo,
+  Ar_ForEach, Ar_CustomSort, ar_Any, ar_All, Ar_Generate, Ar_FindWhere) wait for B7/B8.
 
 ## 10. Open
 

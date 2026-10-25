@@ -279,17 +279,27 @@ fn bad_extended_lines_are_errors() {
 }
 
 #[derive(Default)]
-struct Locals(std::collections::BTreeMap<u16, Value>, fnv_script::vm::ExtStore, std::collections::BTreeSet<u16>);
+struct Locals(
+    std::collections::BTreeMap<u16, Value>,
+    fnv_script::vm::ExtStore,
+    std::collections::BTreeSet<u16>,
+    std::collections::BTreeSet<u16>,
+    Vec<String>,
+);
 
 impl Host for Locals {
     fn var_kind(&mut self, var: &fnv_script::VarRef) -> fnv_script::vm::VarKind {
         match var.var {
             VarSlot::Local { index, .. } if self.2.contains(&index) => fnv_script::vm::VarKind::String,
+            VarSlot::Local { index, .. } if self.3.contains(&index) => fnv_script::vm::VarKind::Array,
             _ => fnv_script::vm::VarKind::Value,
         }
     }
     fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
         Some(&mut self.1)
+    }
+    fn print(&mut self, text: &str) {
+        self.4.push(text.to_string());
     }
     fn get_var(&mut self, var: &fnv_script::VarRef) -> Result<Value, String> {
         let VarSlot::Local { index, .. } = var.var else { return Err("global".into()) };
@@ -310,8 +320,8 @@ impl Host for Locals {
 
 /// A host whose string variables are the compiled unit's `string_var`s.
 fn host_for(c: &Compiled) -> Locals {
-    let strings = c.variables.iter().filter(|v| v.ty == VarType::Other("string_var".into())).map(|v| v.index as u16).collect();
-    Locals(Default::default(), Default::default(), strings)
+    let of = |t: &str| c.variables.iter().filter(|v| v.ty == VarType::Other(t.into())).map(|v| v.index as u16).collect();
+    Locals(Default::default(), Default::default(), of("string_var"), of("array_var"), Vec::new())
 }
 
 fn run(src: &str) -> Locals {
@@ -340,7 +350,7 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    let (_, p) = build("float a\nbegin GameMode\nlet a := &a\nend");
+    let (_, p) = build("float a\nbegin GameMode\nlet a := ({a} => a)\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
     assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
@@ -549,4 +559,57 @@ fn tostring_and_tonumber() {
     // ToNumber is NVSE-aware, so without the parentheses its argument would be "12" * 2.
     assert_eq!(h.text(1), "42");
     assert_eq!(h.0[&2], Value::Num(24.0));
+}
+
+// ---- arrays (task B3, the D2 functions) -------------------------------------------------
+
+impl Locals {
+    fn array_id(&self, index: u16) -> u32 {
+        self.0.get(&index).copied().unwrap_or_default().num() as u32
+    }
+}
+
+#[test]
+fn arrays_share_on_assignment_and_index() {
+    let h = run("array_var a\narray_var b\nfloat n\nfloat m\nbegin GameMode\nlet a := Ar_List 10, 20, 30\nlet b := a\nlet b[1] := 99\nlet n := a[1] + Ar_Size a\nlet a[3] := 5\nlet m := a[-0] + a[3]\nend");
+    assert_eq!(h.array_id(1), h.array_id(2), "assignment shares [documented: NVSE Expressions]");
+    assert_eq!(h.0[&3], Value::Num(102.0));
+    assert_eq!(h.0[&4], Value::Num(15.0), "setting the key equal to the size appends");
+}
+
+#[test]
+fn maps_keep_their_keys_sorted() {
+    let h = run("array_var m\narray_var k\nstring_var s\nfloat f\nbegin GameMode\nlet m := Ar_Map \"b\"::2, \"A\"::1, \"c\"::3\nlet k := Ar_Keys m\nlet s := k[0] + k[1] + k[2]\nlet f := m->b + m[\"c\"]\nend");
+    let text = { let id = h.0[&3].num() as u32; h.1.text(id).unwrap_or_default().to_string() };
+    assert_eq!(text, "Abc");
+    assert_eq!(h.0[&4], Value::Num(5.0));
+}
+
+#[test]
+fn foreach_walks_an_array_and_a_string() {
+    let h = run("array_var a\narray_var e\nfloat sum\nstring_var t\nstring_var c\nbegin GameMode\nlet a := Ar_Range 1, 5\nforeach e <- a\n  if eval *e == 4\n    break\n  endif\n  let sum += e[\"value\"] * 10 + e[\"key\"]\nloop\nforeach c <- \"abc\"\n  let t := c + t\nloop\nend");
+    // 1..3 counted: values 10+20+30, keys 0+1+2.
+    assert_eq!(h.0[&3], Value::Num(63.0));
+    let id = h.0[&4].num() as u32;
+    assert_eq!(h.1.text(id), Some("cba"));
+}
+
+#[test]
+fn array_functions() {
+    let h = run(
+        "array_var a\narray_var b\nfloat f\nfloat g\nfloat k\nstring_var t\nbegin GameMode\nlet a := Ar_List 3, 1, 2\nlet b := Ar_Sort a\nlet f := b[0] * 100 + b[2]\nAr_Append a, 7\nAr_Insert a, 0, 9\nlet g := Ar_Erase a, 1:2\nlet k := Ar_Find 7, a\nlet t := TypeOf (Ar_Construct \"stringmap\")\nAr_Dump a\nend",
+    );
+    assert_eq!(h.0[&3], Value::Num(103.0));
+    assert_eq!(h.0[&4], Value::Num(2.0), "two erased");
+    assert_eq!(h.0[&5], Value::Num(2.0), "[9, 2, 7]: 7 is at key 2");
+    let id = h.0[&6].num() as u32;
+    assert_eq!(h.1.text(id), Some("StringMap"));
+    assert_eq!(h.4, ["array #1 [0: 9, 1: 2, 2: 7]"]);
+}
+
+#[test]
+fn temporary_arrays_are_freed() {
+    let h = run("array_var a\nfloat n\nbegin GameMode\nlet n := Ar_Size (Ar_List 1, 2, 3)\nlet a := Ar_List (Ar_List 1), 2\nlet a := Ar_Null\nend");
+    assert_eq!(h.0[&2], Value::Num(3.0));
+    assert!(h.1.arrays.is_empty(), "nothing holds any array at the end: {:?}", h.1.arrays.keys().collect::<Vec<_>>());
 }

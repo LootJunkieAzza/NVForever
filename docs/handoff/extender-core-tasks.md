@@ -66,7 +66,10 @@ compile (running them is B7/B8). The compiler tasks are done except NVSEScript.
 
 **B1 (2026-10-25):** string values in the VM (`XVal`, the game's `ExtStore`), copy on
 assignment, `+`, comparisons, slices, `$`/`#`, ToString/ToNumber, errors that let the script
-go on (script-compiler.md §9). Next: B2 (string lifetimes), B3 (arrays).
+go on (script-compiler.md §9). **B3 and most of D2:** arrays with reference counts,
+`[]`, `->`, slices, box/unbox, foreach over arrays and strings, 27 ar_* functions and TypeOf
+(script-compiler.md §9). Next: B7 (UDF calls) and B8 (lambdas), which the remaining
+ar_* functions need; then F1 (the save section).
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any
