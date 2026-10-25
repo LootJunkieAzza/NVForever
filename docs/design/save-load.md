@@ -105,7 +105,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 |---|---|---|---|
 | NPC positions | written back into `RefState` through `Game::set_actor_place` | ACHR moved data | have |
 | Current package, goal met, chosen-at | `RefExtra.packages/current_package/...` | ACHR flags 18 etc. (not decoded) | have |
-| Agent progress: patrol index, sandbox schedule (energy, rolled sleep/meal times), wait, furniture in use | `Agent` (`crates/fnv-ai/src/carry.rs`, `sandbox.rs`) | ACHR records change with time on every actor (§7 of the spec) | optional: rebuild from packages on load; save the patrol index and sandbox times if continuity shows |
+| Agent progress: patrol index, sandbox schedule (energy, rolled sleep/meal times), wait, furniture in use | `Agent` (`crates/fnv-ai/src/carry.rs`, `sandbox.rs`) | ACHR records change with time on every actor (§7 of the spec) | **saved since 2026-10-25** (`fnv_ai::progress`, engine save part `ai_progress`): the patrol point walked to and the sandbox's day (its random numbers, the day's sleep and meal times, energy), put back when the actor takes up the same package again; the rest rebuilt from the packages |
 | Process levels, furniture occupancy | `Ai` | none | drop |
 
 ### 3.4 Engine (engine/nvf-play, engine/nvforever)
@@ -243,8 +243,11 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    original's autosaves off in its INI.
 3. **Random numbers**: a load re-seeds (a reload does not replay the same rolls); test aid
    `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1` keeps the saved positions.
-4. **AI continuity**: packages start again from where each actor stands; patrol and
-   sandbox progress is not saved. Revisit if a reload in a busy cell looks wrong.
+4. **AI continuity**: packages start again from where each actor stands. Since
+   2026-10-25 a patrol goes on to the point the save had it walk to (one that does not
+   repeat started again at its first point and walked back) and a sandbox keeps the
+   day's times and its random numbers (§3.3); a wait at a patrol point, walks under way,
+   furniture and errands start again.
 5. **Physics**: objects load at rest where they were.
 6. **Another load order**: forms are remapped by name, those of missing plugins dropped
    with a notice; built 2026-10-21 (§4.1).

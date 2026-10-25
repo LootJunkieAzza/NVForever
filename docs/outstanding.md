@@ -92,7 +92,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   stay-at places by object (undocumented), No AI Acquire (no actor picks things up), DOOR
   Minimal Use (undocumented), what such creatures do at a shut hinged door. Owner check: the Camp Searchlight feral trooper ghouls'
   FollowEdwards travel now needs a door they cannot open (`fnvtool ai reach`).
-- **Saves**: AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1; loading into another load order built 2026-10-21, save-load.md §4.1).
+- **Saves**: ~~AI progress~~ (patrol points and sandbox days kept since 2026-10-25, save-load.md §5 item 4; waits, walks and errands start again) (deleting saves from the load page built 2026-10-19, save-load.md §6.1; loading into another load order built 2026-10-21, save-load.md §4.1).
 - **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
   pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in
   game against the original.

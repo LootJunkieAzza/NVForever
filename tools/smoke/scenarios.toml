@@ -5080,6 +5080,31 @@ expect = [
 ]
 
 [[scenario]]
+name = "save-ai-write"
+source = "docs/design/save-load.md §3.3, §5 item 4: the residents' package progress (patrol points, sandbox days) goes into a save; save-ai-load reads it, so run them together"
+areas = ["save", "ai"]
+paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
+run_seconds = 28
+expect = [
+  { re = 'save: wrote .*smoke-ai\.nvfsave \(manual', label = "the save is written" },
+]
+
+[[scenario]]
+name = "save-ai-load"
+source = "docs/design/save-load.md §3.3, §5 item 4: loading save-ai-write's save puts the residents' package progress back; sandboxers go on with the day's times they had"
+areas = ["save", "ai"]
+paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--load", "smoke-ai", "--no-voice", "--npc-packages", "all"]
+run_seconds = 24
+expect = [
+  { re = 'load: package progress of (?P<n>\d+) residents kept', range = [1, 1000], label = "the save holds progress" },
+  { re = 'goes on with .*(from the save|its sandbox day as saved)', label = "a resident goes on where the save had it" },
+]
+
+[[scenario]]
 name = "save-load-order"
 source = "no-owner queue item 29 (2026-10-21; docs/design/save-load.md §4.1): a save made with one load order loads into another: FormIDs move to their plugin's place now, what came from plugins no longer loaded is dropped and the player told; run after save-write, whose save it loads"
 note = "save-write runs with the ten masters; this run loads its save with three of them, Gun Runners' Arsenal moved before Dead Money (index 05 -> 01, Dead Money 01 -> 02), the add-ons Honest Hearts, Old World Blues, Lonesome Road and the four packs gone. The base game's changes come back as in save-load"

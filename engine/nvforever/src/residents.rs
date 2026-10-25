@@ -1397,6 +1397,7 @@ impl Core {
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
                 | AiEvent::DoorRefused { .. }
+                | AiEvent::Resumed { .. }
                 | AiEvent::Approach { .. }
                 | AiEvent::Follow { .. }
                 | AiEvent::Talk { .. }
@@ -1486,6 +1487,36 @@ impl Core {
     }
 }
 
+/// The residents' package progress in saves (`fnv_ai::progress`; docs/design/save-load.md
+/// §3.3): patrol points and sandbox days, put back as each actor takes up its package
+/// again after the load.
+pub const SAVE_HOOK: nvf_play::save::SaveHook = nvf_play::save::SaveHook {
+    key: "ai_progress",
+    save: |w| serde_json::to_value(w.get_resource::<Residents>()?.core.ai.progress()).ok(),
+    load: |w, v| {
+        let Some(mut r) = w.get_resource_mut::<Residents>() else { return };
+        match serde_json::from_value::<Vec<fnv_ai::progress::Progress>>(v.clone()) {
+            Ok(p) => {
+                info!("load: package progress of {} residents kept", p.len());
+                r.core.ai.restore(p);
+            }
+            Err(e) => warn!("load: the residents' package progress could not be read: {e}"),
+        }
+    },
+    // Actors and packages by FormID (hex text): moved to the current load order, an entry
+    // naming a plugin no longer loaded dropped.
+    remap: Some(|v, r| {
+        let Some(a) = v.as_array_mut() else { return };
+        let map = |x: &serde_json::Value| x.as_str().and_then(|s| s.parse::<FormId>().ok()).and_then(|f| r.map(f.0)).map(|n| serde_json::Value::from(FormId(n).to_string()));
+        a.retain_mut(|e| {
+            let (Some(actor), Some(package)) = (e.get("actor").and_then(map), e.get("package").and_then(map)) else { return false };
+            e["actor"] = actor;
+            e["package"] = package;
+            true
+        });
+    }),
+};
+
 pub fn log_startup(mut res: ResMut<Residents>) {
     for (ok, line) in std::mem::take(&mut res.startup) {
         if ok {
@@ -1516,6 +1547,8 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::PushedBack { package, away } => format!("was pushed {away:.0} units from the place of {}: goes back", n(package)),
         AiEvent::Door { door, .. } => format!("used door {door}"),
         AiEvent::DoorRefused { door } => format!("was not let through door {door} by its script: plans again"),
+        AiEvent::Resumed { package, patrol_point: Some(p), .. } => format!("goes on with {} at patrol point {} (from the save)", n(package), n(p)),
+        AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
