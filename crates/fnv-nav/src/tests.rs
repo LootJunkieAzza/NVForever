@@ -214,6 +214,36 @@ fn unlinked_navmeshes_are_unreachable_and_ledges_are_opt_in() {
 }
 
 #[test]
+fn walkers_take_off_from_the_ledge_links_point() {
+    let a = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let b = grid(2, [200.0, 0.0], 2, 2, 100.0, &[], |_, _| -100.0);
+    let (mut a, b) = (a, b);
+    let (ea, eb) = (edges_at(&a, 200.0), edges_at(&b, 200.0));
+    for &(at, ae, ..) in &ea {
+        link(&mut a, at, ae, 2, eb[0].0, link_kind::LEDGE_DOWN);
+    }
+    let g = graph(&[(a, W), (b, W)]);
+    let ledges = PathParams { ledges: true, ..Default::default() };
+    let to = Place { space: W, pos: [350.0, 50.0, -100.0] };
+    let p = g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, to, &ledges).unwrap();
+    let off = p.legs[0].points[p.legs[0].hops[0].point];
+    // At any walking speed and frame step the flight leaves from the same point.
+    for (speed, dt) in [(85.3, 1.0 / 60.0), (86.8, 1.0 / 60.0), (85.3, 1.0 / 37.0), (344.0, 1.0 / 30.0)] {
+        let mut w = Walker::new(W, [50.0, 50.0, 0.0], 0.0, speed);
+        w.go_to(&g, to, &ledges).unwrap();
+        let mut from = None;
+        for _ in 0..2000 {
+            w.update(&g, dt);
+            if let Some(a) = w.air {
+                from = Some(a.flight.from);
+                break;
+            }
+        }
+        assert_eq!(from, Some(off), "speed {speed}, step {dt}");
+    }
+}
+
+#[test]
 fn low_ledges_are_jumped_up() {
     let a = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
     let b = grid(2, [200.0, 0.0], 2, 2, 100.0, &[], |_, _| 40.0);

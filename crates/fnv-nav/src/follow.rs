@@ -194,6 +194,14 @@ impl Follower {
         Some((h, *leg.points.get(self.next)?))
     }
 
+    /// The take-off point of the ledge link [`Follower::hop`] names: the path point
+    /// before its landing (`LedgeHop::point`).
+    pub fn take_off(&self) -> Option<[f32; 3]> {
+        let leg = self.path.legs.get(self.leg)?;
+        let h = leg.hops.iter().find(|h| h.point + 1 == self.next)?;
+        leg.points.get(h.point).copied()
+    }
+
     /// The path's destination.
     pub fn destination(&self) -> Option<Place> {
         let l = self.path.legs.last()?;
@@ -410,6 +418,10 @@ pub struct Walker {
     pub landings: u32,
 }
 
+/// How far from a ledge link's take-off point the feet may be for the flight to leave
+/// from that point, game units [design: about a frame's step at a run].
+pub const TAKE_OFF_SNAP: f32 = 16.0;
+
 /// A [`Walker`]'s flight over a ledge link.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Air {
@@ -607,6 +619,12 @@ impl Walker {
                             self.heading = heading_of(dir);
                         }
                         self.turning = false;
+                        // From the link's own take-off point when the feet are at it, so
+                        // where the actor leaves does not hang on its speed and the frame's
+                        // step (the feet stand within a step past it) [design].
+                        if let Some(t) = f.take_off().filter(|t| (t[0] - self.feet[0]).hypot(t[1] - self.feet[1]) <= TAKE_OFF_SNAP) {
+                            self.feet = t;
+                        }
                         self.air = Some(Air { flight: Flight::over_ledge(self.feet, landing, hop.up), t: 0.0 });
                         self.flights += 1;
                         let left = budget / self.moving_speed().max(1e-4);

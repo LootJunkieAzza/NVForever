@@ -28,14 +28,19 @@ const FALL_GAP: f32 = 24.0;
 /// choice: a jump leaves at 290.6].
 const RISING: f32 = 50.0;
 
-pub struct ActorJumpsPlugin;
+/// `physics`: actors have physics characters (`--play`), which say who is in the air;
+/// without it only `--npc-travel` walkers fly (`nav.rs` tells their locomotion), and the
+/// jump clips they play are counted all the same.
+pub struct ActorJumpsPlugin {
+    pub physics: bool,
+}
 
 impl Plugin for ActorJumpsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<JumpStats>()
-            .add_systems(Update, in_air.after(nvf_play::PlaySet::Scripts).after(crate::residents::drive).after(crate::nav::drive).before(crate::locomotion::walk_test))
-            .add_systems(Update, count.after(crate::locomotion::drive))
-            .add_systems(Last, report);
+        app.init_resource::<JumpStats>().add_systems(Update, count.after(crate::locomotion::drive)).add_systems(Last, report);
+        if self.physics {
+            app.add_systems(Update, in_air.after(nvf_play::PlaySet::Scripts).after(crate::residents::drive).after(crate::nav::drive).before(crate::locomotion::walk_test));
+        }
     }
 }
 

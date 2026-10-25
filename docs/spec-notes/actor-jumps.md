@@ -69,6 +69,11 @@ over FalloutNV.esm (2026-10-20). The player's own jump is physics.md §6.3 and �
   clearance radius from its outline ends, the next starts at the **landing**, the point of
   the linked triangle nearest to the take-off moved the radius towards its centre. The
   take-off is reached within 2 units (`TAKE_OFF_RADIUS`), so the actor goes to the edge.
+  A walker without physics (`fnv_nav::Walker`) leaves from the take-off point itself
+  when its feet are within 16 units of it (`TAKE_OFF_SNAP`): before 2026-10-25 it left
+  from wherever that frame's step put its feet, so the point moved with its walking speed
+  and the frame time (smoke `actor-jumps` saw −63043 for −63042 after people's walk went
+  from 86.8 to 85.3).
 - **Up**: a ledge-up link is taken only when it rises no more than a jump reaches, 61.6
   (`LEDGE_RISE_MAX`, the player's apex [observed: physics.md §6.3]), measured from the
   edge's middle to the linked triangle's centre as navmesh.md §3 does. The links found rise
