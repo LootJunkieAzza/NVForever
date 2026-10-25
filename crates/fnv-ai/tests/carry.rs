@@ -745,6 +745,44 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
     assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
 }
 
+/// A follower after a target that runs, stops and then walks on catches up and stands
+/// while the target stands, and sets off again when it goes on (smoke sunny-wells:
+/// Cheyenne after Sunny; she never counted as caught up on main 8ec4062d).
+#[test]
+fn a_follower_stands_when_its_running_target_stops() {
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.5, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 77.0, run_speed: 308.0, ..AiConfig::default() }), nav: nav() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    for r in [player, mate] {
+        let y = if r == player { 10250.0 } else { 10050.0 };
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [10100.0, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    let own = fnv_ai::Speeds { walk: 57.0, run: 333.0 };
+    s.ai.set_speeds(mate, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    s.run(1.0);
+    // The player runs at 300 units/s for 2 seconds, then stands for 10.
+    for _ in 0..4 {
+        s.game.world.get(player).unwrap().pos[1] += 150.0;
+        s.run(0.5);
+    }
+    s.run(10.0);
+    let ev = s.events(R_COMPANION);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::CaughtUp { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&mate].activity, Activity::There, "{ev:?}");
+    let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
+    // It walks on: the follower sets off after it again.
+    for _ in 0..8 {
+        s.game.world.get(player).unwrap().pos[1] += 40.0;
+        s.run(0.5);
+    }
+    let ev = s.events(R_COMPANION);
+    assert_eq!(ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows + 1, "{ev:?}");
+}
+
 /// A follower keeps step with a target that walks on, rather than catching up, stopping
 /// and setting off again every few steps, or swapping between its walk and its run (owner's
 /// playtest of 2026-10-24: the Novac pack brahmin after its merchant).
@@ -1624,6 +1662,23 @@ fn a_follower_is_processed_at_least_as_often_as_its_leader() {
     assert!(s.ai.set_level(&s.game, leader, fnv_ai::ProcessLevel::Low));
     assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
     assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::Low);
+}
+
+/// A follower of one in the loaded area (or coming into it) comes in frame by frame from
+/// beyond the cell buffer too (`Ai::follows_near_leader`; smoke sunny-wells: Cheyenne out
+/// of the saloon after Sunny Smiles); one whose leader is far does not.
+#[test]
+fn a_follower_of_a_near_leader_comes_in_frame_by_frame() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG]);
+    s.run(1.0);
+    let (leader, dog) = (FormId(R_TRAVEL), FormId(R_DOG));
+    assert!(s.ai.follows_near_leader(dog));
+    assert!(!s.ai.follows_near_leader(leader), "the leader follows nobody");
+    assert!(s.ai.set_level(&s.game, leader, fnv_ai::ProcessLevel::Coming));
+    assert!(s.ai.follows_near_leader(dog));
+    assert!(s.ai.set_level(&s.game, leader, fnv_ai::ProcessLevel::Low));
+    assert!(!s.ai.follows_near_leader(dog));
 }
 
 #[test]

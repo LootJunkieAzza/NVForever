@@ -1074,9 +1074,10 @@ impl Core {
             // it): moved every frame, so it comes through the door when it would (owner's
             // playtest list 4 item 13: Ringo out of the gas station). Only from the cell
             // buffer: from beyond, the original moves it in its hourly jumps up to the
-            // edge of the loaded area (Malcolm Holmes, `fnv_ai::process`).
+            // edge of the loaded area (Malcolm Holmes, `fnv_ai::process`), except one
+            // following a leader in the loaded area (Cheyenne after Sunny Smiles).
             let coming = !high
-                && streamer.buffer.holds(space, feet)
+                && (streamer.buffer.holds(space, feet) || self.ai.follows_near_leader(r.actor))
                 && a.activity == fnv_ai::Activity::Travelling
                 && a.walker.follower.as_ref().is_some_and(|f| f.path.legs.iter().skip(f.leg).any(|l| l.points.iter().any(|p| drawn(world, streamer, l.space, *p))));
             let level = match (high, coming, streamer.buffer.holds(space, feet)) {
