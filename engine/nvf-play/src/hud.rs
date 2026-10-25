@@ -152,11 +152,11 @@ const AP_LABEL_END: f32 = 355.0;
 const CND_BEFORE_DIVIDER: f32 = 10.0;
 const CND_RAISE: f32 = 2.0;
 const CND_LABEL_GAP: f32 = 11.0;
-/// The ammo type's abbreviation ends here, right-justified between the divider and the
-/// counter [documented: `AmmoTypeLabel`, font 7, right-justified, placed in code;
-/// observed: the owner's screenshot 2026-10-25 of the original marks its room at about
-/// x 1680-1765 of 1920 at 1080 lines, the divider at 1672: 214-290 units].
-const AMMO_LABEL_END: f32 = 290.0;
+/// The ammo type's abbreviation starts here, just right of the divider, whatever the
+/// counter's length [observed: the owner's screenshot 2026-10-25 of the original marks
+/// its room at about x 1680-1765 of 1920 at 1080 lines, the divider at 1672: 214-290
+/// units; owner 2026-10-25: anchored to the divider, not against the counter].
+const AMMO_LABEL_X: f32 = 214.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -322,12 +322,6 @@ pub fn ammo_text(ammo: Option<(u32, u32)>) -> String {
         Some((loaded, carried)) => format!("{loaded}/{carried}"),
         None => String::new(),
     }
-}
-
-/// Where the ammo type's abbreviation, `width` wide, ends: at its place, or `LABEL_GAP`
-/// before a counter that reaches further left, but never over the divider.
-pub fn ammo_label_right(width: f32, counter_left: f32) -> f32 {
-    AMMO_LABEL_END.min(counter_left - LABEL_GAP).max(DIVIDER + LABEL_GAP + width)
 }
 
 /// Where the pieces stand in their corner piece, from its top left corner.
@@ -823,11 +817,9 @@ fn texts(
             let places = Places::new(font);
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
                 if let Some(line) = font.lines(&text, None).into_iter().next() {
-                    let left = places.ammo_right - line.width;
-                    set_line(p, face_, &line, left, LOWER_BASE, amber(255.0));
+                    set_line(p, face_, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
                     if let Some(label) = font.lines(abbrev, None).into_iter().next().filter(|_| !abbrev.is_empty()) {
-                        let right = ammo_label_right(label.width, left);
-                        set_line(p, face_, &label, right - label.width, LOWER_BASE, amber(255.0));
+                        set_line(p, face_, &label, AMMO_LABEL_X, LOWER_BASE, amber(255.0));
                     }
                 }
             });
@@ -968,14 +960,8 @@ mod tests {
     }
 
     #[test]
-    fn the_ammo_label_keeps_clear_of_the_counter_and_the_divider() {
-        // A short counter leaves the label at its place.
-        assert_eq!(ammo_label_right(20.0, 318.0), AMMO_LABEL_END);
-        // A long one pushes it left, a gap before the counter.
-        assert_eq!(ammo_label_right(20.0, 280.0), 280.0 - LABEL_GAP);
-        // Never over the divider.
-        assert_eq!(ammo_label_right(40.0, 230.0), DIVIDER + LABEL_GAP + 40.0);
-        const { assert!(AMMO_LABEL_END > DIVIDER && AMMO_LABEL_END < RIGHT_UPRIGHT) };
+    fn the_ammo_label_stands_right_of_the_divider() {
+        const { assert!(AMMO_LABEL_X > DIVIDER && AMMO_LABEL_X < DIVIDER + 2.0 * LABEL_GAP) };
     }
 
     #[test]

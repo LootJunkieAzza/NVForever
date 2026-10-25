@@ -5683,7 +5683,7 @@ expect = [
   { re = 'ammo Ammo9mmHollowPoint, magazine', label = "the pistol takes the hollow points" },
   { re = 'hud: ammo label HP\s*$', label = "the HUD shows HP left of the counter" },
 ]
-manual = "hud_ammo_label.png: \"HP\" left of \"13/37\" at the bottom right, clear of the counter and the divider"
+manual = "hud_ammo_label.png: \"HP\" just right of the divider at the bottom right, \"13/37\" at the upright"
 
 [[scenario]]
 name = "hud-crippled-limbs"

@@ -169,11 +169,11 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   its place and text set in code [documented: hud_main_menu.xml]): the AMMO record's
   `QNAM` abbreviation ("HP", "JHP", "AP", "Slg", "Bag", "MAG", "CS"), nothing for
   standard rounds, which have no `QNAM` [observed: FalloutNV.esm, 48 of 92 AMMO records
-  have one; `Ammo9mm`, `Ammo10mm`, `Ammo12Ga` have none]. It ends at x 290 [observed:
-  the owner's screenshot 2026-10-25 of the original, a 12 gauge with "1/16", marks the
-  label's room at 1680-1765 of 1920 pixels, the divider at 1672: 214-290 units], or 6
-  before a counter long enough to reach past that, never left of the divider and 6
-  [design: "without overlapping anything", owner 2026-10-25]. A thrown weapon and a
+  have one; `Ammo9mm`, `Ammo10mm`, `Ammo12Ga` have none]. It starts at x 214, just
+  right of the divider, whatever the counter's length [observed: the owner's screenshot
+  2026-10-25 of the original, a 12 gauge with "1/16", marks the label's room at
+  1680-1765 of 1920 pixels, the divider at 1672: 214-290 units; owner 2026-10-25:
+  "anchor it to the left separator not against the ammo count"]. A thrown weapon and a
   weapon that uses no ammo show no label.
 - Over the condition bar, the jamming threshold: `CNDArrows`, the picture
   `interface\shared\arrow\repair_meter_pips.dds` [documented: hud_main_menu.xml, its
