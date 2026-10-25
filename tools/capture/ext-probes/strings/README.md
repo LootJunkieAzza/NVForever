@@ -23,6 +23,8 @@ A probe that fails raises an extender error. The script then continues with the 
 line [documented: Let], so one bad probe does not hide the others. Its line is missing
 from the output, and the error text appears in its place.
 
+Note (2026-10-25): the GECK cuts a line at `;` even inside quotes ("Mismatched quotes"), so no probe string contains `;`.
+
 ## Line format
 
 ```
