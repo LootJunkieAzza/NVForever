@@ -1488,8 +1488,8 @@ however deep [observed: walking in] (**superseded 2026-10-18**: a character on t
 starts swimming `wade_depth` below the surface, see *Walking in again* below). The swimming state survives `place_character`, as
 the game's does across `SetPos` [observed]. Walking speeds are the caller's: `nvf-play`
 swims at 348 (Always Run) and 100.8 (walk) in every direction, along the view
-(`SWIM_SPEEDS`, `swim_velocity`) [observed: fits 341–352; walking 100.8]. Not modelled:
-breath and drowning damage (no health in the controller), the hanging after the jump in
+(`SWIM_SPEEDS`, `swim_velocity`) [observed: fits 341–352; walking 100.8]. Breath and
+drowning are not the controller's: drowning.md. Not modelled: the hanging after the jump in
 `sw_trial`, swimming state reported to scripts (`IsSwimming` reads 0 in the game).
 
 `fnvtool phys walk` scripts take `swim_velocity` ([x, y, z], used instead of `velocity`
