@@ -283,6 +283,16 @@ pub struct By {
     pub vats: bool,
 }
 
+/// Debris a destroyed object throws (a destruction stage's DEBR and count) from `at`
+/// (docs/spec-notes/destruction-stages.md §4).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ObjectDebris {
+    pub reference: FormId,
+    pub at: V3,
+    pub debris: FormId,
+    pub count: i32,
+}
+
 /// Who set an explosion off: the actor whose shot (or thrown or placed explosive) it came
 /// from and that weapon. Its blast hits are that actor's hits with that weapon, as a
 /// bullet's are (OnHit's attacker, kill credit and XP, combat-rules.md §11); `None` for
@@ -891,6 +901,8 @@ pub struct Combat {
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
     /// who set each off.
     boom: Vec<(FormId, V3, Option<Cause>)>,
+    /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
+    pub debris: Vec<ObjectDebris>,
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
@@ -1682,6 +1694,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         melee: false,
         swings: Melee::default(),
         boom: Vec::new(),
+        debris: Vec::new(),
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
@@ -3351,11 +3364,10 @@ fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &Destruction
         if ch.disabled { ", disabled" } else { "" },
         if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
     );
-    if ch.model.is_some() || ch.damage_stage.is_some() {
-        debug!("combat: {r} model {:?} damage stage {:?}: not drawn yet", ch.model, ch.damage_stage);
-    }
     if let Some(at) = at {
         c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause)));
+        // Its stages' debris, thrown by the engine (nvforever `dismember.rs`).
+        c.debris.extend(ch.debris.iter().map(|&(d, n)| ObjectDebris { reference: r, at, debris: d, count: n }));
     }
 }
 

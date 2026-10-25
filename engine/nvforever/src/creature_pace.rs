@@ -50,21 +50,36 @@ use nvf_play::script::ScriptState;
 /// about 600 against 600 and 450 against 600 × 0.75; walks: radscorpions 67.0 against
 /// 67.4, feral ghouls 97 against 95.7, deathclaws 119–121 against 120, mole rats 42.4
 /// against 42.7, giant rats (1.1) 61.5 against 61.6, brahmin (1.25) 53.4 against 55.2;
-/// a fleeing brahmin up to 234 against 222 (accelerating, 1.8 s).
+/// a fleeing brahmin up to 234 against 222 (accelerating, 1.8 s). One per skeleton of the
+/// base game and add-ons the same way (campaign `creature_runs_all`, actors.md §8.10):
+/// within 6 % but for the protectron, among them every other flyer (eyebots, Mister
+/// Gutsy, bloatflies) and robots, ants, centaurs, nightstalkers, spore carriers and
+/// tunnelers, yao guai, roboscorpions, trogs, holograms and ghost people.
 pub const CREATURE_SPEED_FIT: f32 = 1.0;
 
 /// A skeleton's own share of its clips' pace, walking and running alike
-/// ([`CREATURE_SPEED_FIT`] for every other): cazadors (`nvcazadores`) 0.70 [observed: the
-/// AI observer in the original game, 2026-10-16: young ones at the Tribal Village walked
-/// 228 against a clip pace of 325, medium ones 380 against 542; charging, 576 and 974
-/// against 818 and 1364]. Why the cazadors keep less is open (no game setting gives 0.70;
-/// they are the only flying creatures measured). The shares fitted before the airport
+/// ([`CREATURE_SPEED_FIT`] for every other) [observed: the AI observer in the original
+/// game]:
+/// - cazadors (`nvcazadores`) 0.70 (2026-10-16: young ones at the Tribal Village walked
+///   228 against a clip pace of 325, medium ones 380 against 542; charging, 576 and 974
+///   against 818 and 1364). Why is open: no game setting gives 0.70, every other flyer
+///   keeps the whole pace, and on the airport runway (2026-10-25, `creature_runs_all`) a
+///   young cazador at Aggression 0 flew at 443 for 27 s, its `h2hforward` 298.15 × 0.5 ×
+///   3.0 = 447 whole;
+/// - protectrons 0.88 (2026-10-25, `creature_runs_all`: VCrTier0CrProtectron walked 22.2
+///   and 22.0 in two sessions against its `mtforward` 25.25; the run not measured, a
+///   hypothesis that it keeps the same share).
+///
+/// The shares fitted before the airport
 /// runs (brahmin 1.4, mole rats 0.80, giant rats 0.76, deathclaws and feral ghouls 0.70)
 /// came from a room without navmesh, a pack brahmin keeping step with its merchant and a
 /// mole rat charging uphill (actors.md §8.10).
 pub fn skeleton_share(skeleton: &str) -> f32 {
-    if fnv_vfs::normalize(skeleton).contains("creatures\\nvcazadores\\") {
+    let path = fnv_vfs::normalize(skeleton);
+    if path.contains("creatures\\nvcazadores\\") {
         0.70
+    } else if path.contains("creatures\\protectron\\") {
+        0.88
     } else {
         CREATURE_SPEED_FIT
     }
@@ -346,8 +361,11 @@ mod tests {
         let s = |p: &str| skeleton_share(p);
         assert_eq!(s("creatures\\nvcazadores\\skeleton.nif"), 0.70);
         assert_eq!(s("meshes/Creatures/NVCazadores/Skeleton.nif"), 0.70);
+        assert_eq!(s("Creatures\\Protectron\\skeleton.nif"), 0.88);
         for other in ["Creatures\\Brahmin\\Skeleton.nif", "Creatures\\MoleRat\\Skeleton.nif", "creatures\\NVgiantrat\\skeleton.nif",
-                      "Creatures\\Dog\\Skeleton.nif", "Creatures\\DeathClaw\\Skeleton.nif", "Creatures\\Ghoul\\Skeleton.nif"] {
+                      "Creatures\\Dog\\Skeleton.nif", "Creatures\\DeathClaw\\Skeleton.nif", "Creatures\\Ghoul\\Skeleton.nif",
+                      "Creatures\\MisterGutsy\\Skeleton.nif", "Creatures\\SentryBot\\Skeleton.nif",
+                      "NVDLC03\\Creatures\\Roboscorpion\\skeleton_RoboScopion.nif"] {
             assert_eq!(s(other), 1.0, "{other}");
         }
         // Measured in the original (campaign creature_runs): the dog (scale 0.8) charges on

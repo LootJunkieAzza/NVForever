@@ -1264,17 +1264,80 @@ stopped and started, as Victor's walk had before #258). Code:
   creatures never detected the player, and the one charge (mole rat 000BAC90, 324 =
   0.96) went uphill. The room's walks that fit 1 (dog 45.1, gecko 49.9 at 0.8 against
   62.5, giant mantis 44.8 against 44.9) agree with the runway.
+- **Every skeleton** [observed: AI observer in the original game, 2026-10-25, campaign
+  `creature_runs_all` (`tools/capture/observe/creature_runs_all.campaign.json`, save
+  `nvfairport`; outputs `C:\fnv-private\capture\out\obs_creature_runs_all_*`, not
+  committed)]: one creature per skeleton the base game's and add-ons' placed creatures
+  use (`fnvtool actor creatures --all` over FalloutNV, DeadMoney, HonestHearts,
+  OldWorldBlues, LonesomeRoad, GunRunnersArsenal), the same method as above: `run_*`
+  spawned 1,500 units up the runway and set on the player; `chase_*` (for creatures that
+  attacked before they could be moved off) spawned beside the player and, once engaged,
+  the player moved 1,500 units away; `walk_*` spawned 600 units off with Aggression 0
+  and the player in its factions, 48 s. Clips from `fnvtool actor locomotion` (which now
+  also reads clips kept beside the skeleton, as the blowfly's, Mister Gutsy's and the
+  ant queen's are). Steady medians; where a gait moves in pulses (centaurs, deathclaws)
+  the mean over the whole stretch:
+
+  | skeleton (base) | scale, Speed Mult | clip walk / run | walk (share) | run (share) |
+  |---|---|---|---|---|
+  | `nvgecko` VCrTier2GeckoMed | 0.8, 100 | 62.5 / 578.64 | 50.2 (1.00) | 461.5 (1.00) chase |
+  | `nvmantis` VCrTier2GiantMantisMed | 1.0, 100 | 44.89 / 279.79 | 45.1 (1.00) | leaps of up to 976: not measurable |
+  | `molerat` VCrTier1MoleRatMed | 1.0, 100 | 42.71 / 338.69 | 42.0 (0.98) | 338.6 (1.00) |
+  | `nvgiantrat` VCrTier1GiantRatMed | 1.1, 100 | 56.0 / 337.5 | 61.4 (1.00) | not engaged |
+  | `nvbighorner` VCrTier2BigHornerMed | 1.5, 100 | 75.0 / 314.15 | 112.1 (1.00) | 469 (1.00) |
+  | `nightstalker` VCrTier4NightStalkerMed | 1.0, 100 | 100.7 / 500.0 (`mtfoward`, `mtfastfoward`) | 100.6 (1.00) | 498.8 (1.00) chase |
+  | `nvcazadores` VCrTier3CazadorSmall | 0.5, 300 | mt 216.73 / 545.54, h2h 298.15 / 545.54 | 443 at Aggression 0, 27 s (h2h 1.00) | not taken |
+  | `nvsecuritron` VHDSecuritronBattleMk1East | 1.0, 100 | 120.19 / 314.72 | did not move | did not engage |
+  | `mistergutsy` VCrTier0CrMisterGutsy | 1.0, 100 | 78.89 / 300.0 | 79.0 (1.00) | kept its distance, walking |
+  | `protectron` VCrTier0CrProtectron | 1.0, 100 | 25.25 / 83.37 | 22.2 and 22.0 (0.88) | not taken |
+  | `sentrybot` CrSentryBotRHQ | 1.0, 100 | 96.0 / 384.0 | 96.2 and 94.5 (1.00) | kept its distance, walking |
+  | `robobrain` CrRobobrainRangerGBRM2kX | 0.33, 100 | 103.72 / 207.44 | 34.4 (1.00) | 68.4 (1.00) |
+  | `eyebot` CrEyebotCombat | 1.0, 100 | 168.86 / 337.72 | 169.0 (1.00) | 333.3 (0.99) |
+  | `giantant` VCrTier2AntSoldierMed | 0.3, 120 | 273.92 / 1050.57 | 88.5–93.3, 3 s (0.90–0.95) | 379.4 (1.00) chase |
+  | `queenant` VCrTier3GiantAntQueen | 1.0, 100 | 112.42 / – | 112.1 (1.00) | not taken |
+  | `smspinebreaker` CrNightkin | 1.0, 100 | 87.12 / 608.74 | not taken | 603 (0.99) |
+  | `nvsporecarrier` CrSporeCarrierFU3 | 1.1, 100 | 96.0 / 460.8 | 105.6 (1.00) | 506.2 (1.00) chase |
+  | `nvsporecarrier` NVDLC04Tunneler | 1.0, 150 | 96.0 / 460.8 | short, 78–93 | 690.9 (1.00) |
+  | `mirelurkking` NVCrLakelurk | 1.0, 100 | 30.16 / no run clip | 27.9–29.6 (0.93–0.98) | about 361, 0.8 s (chase) |
+  | `blowfly` VCrTier1BloatFlyMed | 1.0, 100 | 175.0 / 525.0 | 174.8 (1.00) | did not run |
+  | `radroach` VCrTier1RadroachMed | 1.0, 100 | 90.03 / 224.87 | 89.9 (1.00) | 226.3 (1.01) |
+  | `centaur` VCrTier2CentaurMed | 0.9, 150 | 39.15 / 79.95 | 53.8 (1.02) | 104 over 9.4 s (0.96) chase |
+  | `centaur\skeletonevolved` VCrTier3CentaurEvolvedMed | 1.3, 100 | 39.15 / 79.95 | 52.9–54.1 (1.04–1.06) | 106 over 9.5 s (1.02) chase |
+  | `dlc05\alien` CrAlien | 1.0, 100 | `forwardwalk` 89.89 / `fastforward` 419.9 | 86–87 (0.96) | kept its distance |
+  | `nvdlc01\ghosts` NVDLC01CrGhost | 1.25, 100 | 83.62 / – | 106.7 (1.02) | not taken |
+  | `nvdlc01\hologram` NVDLC01CrHologramVaultMale | 1.0, 120 | 85.26 / – | 104.2 (1.02) | – |
+  | `nvdlc02\yaoguai` NVDLC02CrYaoGuai | 1.25, 125 | 70.99 / 435.48 | 111.0 (1.00) | 678.5 (1.00) chase |
+  | `radscorpion\skeleton_roboscopion` NVDLC03CrRoboScorpionMelee01 | 0.4, 150 | 74.9 / 315.04 | 45.0 (1.00) | 187.5 (0.99) chase |
+  | `nvdlc03\roboscorpion` NVDLC03RoboScorpionGiant01 | 4.0, 25 | 74.9 / 315.04 | 70.4–74.5 (0.94–0.99) | kept its distance |
+  | `dog\skeleton_sonicbark` NVDLC03CrCyberDogMilitary01Ranged | 1.0, 100 | 57.36 / mt 333.07, h2h 454.75 | 57.5 (1.00) | 333.1 on the mt run (1.00) chase |
+  | `nvdlc03\hologram` NVDLC03HologramTemplate | 1.0, 100 | 85.26 / – | 87.3 (1.02) | – |
+  | `nvdlc04edeclone\skeleton_low` NVDLC04EyebotMedical50 | 1.0, 100 | 168.86 / 337.72 | 167.2 (0.99) | did not run |
+  | `dlcpitt\streettrog` DLC01CrTrog2 (in FalloutNV.esm, placed nowhere) | 1.0, 100 | 96.0 / 460.8 | 96.2 (1.00) | 459.4 (1.00) chase |
+
+  Not measured: the raven (`nvraven`, no movement clips; it did not stay in the scan);
+  turrets (`sentryturret`, `minisentryturret`), spore plants, Mr. House and his
+  computers, the Think Tank doctors (`brainbot`), the brain tanks and Festus do not move.
+  Ordinary super mutants and lobotomites are NPC records (people's speeds, below), not
+  creatures. The ranged robots and the alien stood off and shot, so their runs were not
+  seen. The cyberdog with the sonic bark charged on its `mt` run (333), not its folder's
+  `h2h` one, which NVForever's alert stance would pick for it (dog folder) [observed;
+  not changed here]. The lakelurk has no run clip: NVForever gives it the people's 344
+  (seen: about 361 over 0.8 s).
 - **Rule** (`creature_pace::skeleton_share`, `CREATURE_SPEED_FIT`) [observed fit]: a
   creature walks and runs at its clips' root-motion speed × scale × Speed Mult / 100,
   the whole of it: every creature measured on open ground above, walking and running,
-  is within 3 % of it. Cazadors are the one exception, 0.70 walking and running
-  (measured at the Tribal Village, above); why is open (no game setting gives 0.70; they
-  are the only flyers measured). The shares built from 2026-10-24 to 10-25 (brahmin 1.4,
+  is within 6 % of it, flyers (eyebots, Mister Gutsy, bloatflies) as much as walkers.
+  Two exceptions: cazadors 0.70 (the Tribal Village, above; why is open, and the
+  runway's young cazador flew at its whole `h2h` walk pace at Aggression 0, which the
+  one share does not cover), and protectrons 0.88 (walk measured twice; the run a
+  [hypothesis]). The shares built from 2026-10-24 to 10-25 (brahmin 1.4,
   mole rats 0.80/0.96, giant rats 0.76, deathclaws and feral ghouls 0.70) came from the
   spoilt rounds and the pack brahmin below and are gone, and with them the feral ghouls'
   ×1.25 (`type_pace`, the owner's guess of list 7 item 36 to make them as fast as a
   running player): at the whole clip pace a ghoul runs 384, as the original's do. For
-  creatures not measured the rule is a [hypothesis].
+  creatures not measured the rule is a [hypothesis]. The nightstalker's misspelt walk
+  and run (`mtfoward.kf`, `mtfastfoward.kf`) are found as the deathclaw's walk is
+  (`fnv_actor::locomotion::clip_candidates`); before, it ran at the people's 344.
 - **Brahmin following** [observed: the AI observer in the original game, 2026-10-24, the
   Novac caravan's pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its
   merchant on its route, 2,909 samples over 243 s]: it walked at a median 78 units/s over
