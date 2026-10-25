@@ -41,7 +41,14 @@
 //!   when a hit takes it to stage 1, never on an intact or indestructible (STAT) bike.
 //!   Log: `damage stage: <ref> add-on node <n> waits for model stages <lo>-<hi> (at <s>)`
 //!   when one is placed, then `… on at model stage <s>` / `… off at model stage <s>`.
-//! - Not built: turbulence, spawn-on-death.
+//! - **Sequences of drawn models** (particles.md §6.7): a placed model drawn with its own
+//!   nodes (a [`crate::object_anims::GroupRig`]) whose sequences drive a system's emitter
+//!   emits by the sequence playing on it, on that sequence's time, and not at all while it
+//!   plays none of them; and from its emitter object's node as the sequence moves it (the
+//!   REPCONN rockets' exhaust rides with the rockets). Modifiers switched on and off by
+//!   the sequences follow the one a particle was born under.
+//! - Not built: turbulence, spawn-on-death; a mesh emitter's meshes stay where the file
+//!   puts them; gravity strength keys from the first sequence only.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
@@ -49,6 +56,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
+use nvf_assets::anim_play::Playing;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::particles::{particle_mesh, InitialVelocity, ParticleSystemDef, PreparedParticles};
 use nvf_play::script::ScriptState;
@@ -143,17 +151,29 @@ pub struct ModelEmitter {
     /// The placed reference whose model it is: its systems are its own, not shared with
     /// the other references of the same model (particles.md §7.1).
     placed: Option<u32>,
+    /// The sequence its drawn model played last frame and how far into it (seconds of
+    /// the sequence's time): births between that and now (particles.md §6.7).
+    clock: Option<(String, f32)>,
 }
 
 impl ModelEmitter {
     pub fn new(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None }
     }
 
     /// The model of placed reference `r` (a dust cloud, a sconce's flame, a smoke column).
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r) }
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None }
     }
+}
+
+/// A model emitter drawn with its own nodes: the rig's entity, and the sequence playing
+/// on it with the span of its time this frame covers (`None`: none plays).
+struct Drive {
+    rig: Entity,
+    playing: Option<(String, f32, f32)>,
+    /// The sequence began this frame (logged).
+    began: bool,
 }
 
 /// Whose systems: an ADDN's (by node index) or a model file's own (by path).
@@ -189,6 +209,9 @@ struct Particle {
     /// Its emitter's time when it was born: the emitter's time now is this plus `age`
     /// (for modifiers switched on and off on the emitter's time).
     born_at: f32,
+    /// The sequence (index among the file's) whose time `born_at` is, when a drawn
+    /// model's sequence drove its emitter (particles.md §6.7).
+    sequence: Option<usize>,
     age: f32,
     life: f32,
     radius: f32,
@@ -310,12 +333,21 @@ fn systems_of<'a>(
         let live = prepared.filter(|pp| !pp.systems.is_empty()).map(|pp| {
             if p.described.insert(source.clone()) {
                 p.tally.insert(source.clone(), pp.systems.iter().map(|d| (d.name.clone(), 0)).collect());
+                // Systems a sequence of the model drives, and those sequences' names.
+                let driven = pp.systems.iter().filter(|d| !d.sequences.is_empty()).count();
+                let mut names: Vec<&str> = Vec::new();
+                for s in pp.systems.iter().flat_map(|d| &d.sequences) {
+                    if !names.contains(&s.sequence.as_str()) {
+                        names.push(&s.sequence);
+                    }
+                }
                 info!(
-                    "particles: {what} {}: {} system(s) [{}]{}",
+                    "particles: {what} {}: {} system(s) [{}]{}{}",
                     path.as_deref().unwrap_or("?"),
                     pp.systems.len(),
                     pp.systems.iter().map(ParticleSystemDef::describe).collect::<Vec<_>>().join("; "),
-                    if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) }
+                    if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) },
+                    if driven == 0 { String::new() } else { format!("; {driven} driven by the sequences [{}]", names.join(", ")) }
                 );
             }
             pp.systems
@@ -343,6 +375,19 @@ fn spread(rng: &mut SplitMix) -> f32 {
     rng.next_f32() * 2.0 - 1.0
 }
 
+/// A model emitter, its visibility, and the rig and sequence playing when it is drawn
+/// with its own nodes.
+type ModelEmitterItem = (
+    Entity,
+    &'static mut ModelEmitter,
+    Option<&'static InheritedVisibility>,
+    Option<&'static crate::object_anims::GroupRig>,
+    Option<&'static Playing>,
+);
+
+/// An emitter to serve this frame: its entity, systems, time, placed reference and drive.
+type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>);
+
 /// Births: each add-on node in the world emits into the systems of its ADDN, each
 /// model emitter into its file's own.
 #[allow(clippy::too_many_arguments)]
@@ -355,7 +400,8 @@ fn emit(
     root: Query<(Entity, &Transform), With<WorldRoot>>,
     camera: Query<&Transform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
     mut emitters: Query<(Entity, &mut AddonEmitter, Option<&InheritedVisibility>)>,
-    mut model_emitters: Query<(Entity, &mut ModelEmitter, Option<&InheritedVisibility>)>,
+    mut model_emitters: Query<ModelEmitterItem>,
+    rigs: Query<&crate::object_anims::GroupRig>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
 ) {
@@ -367,7 +413,7 @@ fn emit(
     for live in p.systems.values_mut().flatten().flatten() {
         live.served = 0;
     }
-    let mut sources: Vec<(Entity, Key, f32, Option<u32>)> = Vec::new();
+    let mut sources: Vec<EmitSource> = Vec::new();
     // Placed model instances whose emitter still exists (hidden or not).
     let mut present: HashSet<Entity> = HashSet::new();
     // A hidden emitter (a disabled placed fire, `world::spawn_emitters`) keeps its time
@@ -379,19 +425,39 @@ fn emit(
             p.placed_seen.insert(r);
         }
         if !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed));
+            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None));
         }
         em.age += dt;
     }
-    for (e, mut em, v) in &mut model_emitters {
+    for (e, mut em, v, rig, playing) in &mut model_emitters {
         // A placed model's systems are its own (particles.md §7.1).
         let instance = em.placed.map(|_| e);
         if let Some(r) = em.placed {
             p.placed_seen.insert(r);
             present.insert(e);
         }
+        // Drawn with its own nodes: the sequence playing on it and the span of its time
+        // since last frame; a sequence just begun counts from its start, unless it was
+        // shown already well into it (drawn at a group's held end).
+        let drive = rig.map(|_| {
+            let now = playing.map(|p| (p.name.clone(), (p.time - p.start).max(0.0)));
+            let last = em.clock.take();
+            let mut began = false;
+            let span = now.as_ref().map(|(name, t)| {
+                let from = match &last {
+                    Some((n, l)) if n == name && *l <= *t => *l,
+                    _ => {
+                        began = true;
+                        if *t <= 0.25 { 0.0 } else { (*t - dt).max(0.0) }
+                    }
+                };
+                (name.clone(), from, *t)
+            });
+            em.clock = now;
+            Drive { rig: e, playing: span, began }
+        });
         if !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed));
+            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive));
         }
         em.age += dt;
     }
@@ -404,26 +470,45 @@ fn emit(
         order.sort_by(|&a, &b| places[a].translation.distance_squared(eye).total_cmp(&places[b].translation.distance_squared(eye)));
     }
     for i in order {
-        let (_, key, age, placed) = &sources[i];
+        let (_, key, age, placed, drive) = &sources[i];
         let (age, placed) = (*age, *placed);
+        let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
         let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
         let node = places[i];
         let mut counts = vec![0u64; systems.len()];
         let mut born = 0;
+        if let Some((name, ..)) = drive.as_ref().filter(|d| d.began).and_then(|d| d.playing.as_ref()) {
+            let by = systems.iter().filter(|l| l.def.sequence(name).is_some()).count();
+            if by > 0 {
+                info!("particles: {:08X} {} emits as its {name} says: {by} of {} systems", placed.unwrap_or(0), key.source.label(), systems.len());
+            }
+        }
         for (k, live) in systems.iter_mut().enumerate() {
             let owed = &mut live.owed;
             let d = &live.def;
-            let on = d.on_time(age, age + dt);
+            // A drawn model's sequences drive it: by the one playing, on its time, else
+            // not at all (particles.md §6.7).
+            let by_sequence = drive.as_ref().filter(|_| !d.sequences.is_empty()).map(|dr| dr.playing.as_ref().and_then(|(name, from, to)| d.sequence(name).map(|s| (s, *from, *to))));
+            let (on, rate, t, sequence) = match by_sequence {
+                Some(None) => continue,
+                Some(Some((s, from, to))) => (s.on_time(from, to), s.rate_at((from + to) * 0.5), to, Some(s)),
+                // A keyed rate at the middle of the frame (particles.md §6.6).
+                None => (d.on_time(age, age + dt), d.rate_at(age + dt * 0.5), age, None),
+            };
             if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) {
                 continue;
             }
             live.served += 1;
-            // A keyed rate at the middle of the frame (particles.md §6.6).
-            *owed += d.rate_at(age + dt * 0.5) * on;
-            let frame = node * d.emitter.frame;
+            *owed += rate * on;
+            // From its emitter object's node as the drawn model's sequence moves it.
+            let moved = rig.filter(|_| d.emitter.mesh.is_none()).and_then(|r| r.node(d.emitter.object.as_deref()?)).map(|e| game_affine(e, &transforms, &parents, root));
+            let frame = moved.unwrap_or(node * d.emitter.frame);
             let (_, turn, origin) = frame.to_scale_rotation_translation();
-            let vals = d.emitter.values(age);
+            let vals = match sequence {
+                Some(s) => d.emitter.values_in(t, s),
+                None => d.emitter.values(age),
+            };
             while *owed >= 1.0 {
                 *owed -= 1.0;
                 if live.particles.len() >= d.max {
@@ -470,7 +555,8 @@ fn emit(
                     frame: node,
                     pos: start,
                     vel: axis * dir * speed,
-                    born_at: age,
+                    born_at: t,
+                    sequence: sequence.map(|s| s.index),
                     age: 0.0,
                     life: (vals.life + vals.life_variation * spread(&mut rng) * 0.5).max(0.02),
                     radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0),
@@ -525,14 +611,19 @@ fn simulate(time: Res<Time>, mut p: ResMut<Particles>) {
         for q in &mut live.particles {
             q.age += dt;
             let at = q.born_at + q.age;
-            for g in d.gravity.iter().filter(|g| g.active.on(at, d.period, d.loops)) {
+            // Born under a drawn model's sequence: that sequence's keys and length.
+            let (seq, period, loops) = match q.sequence.and_then(|i| d.sequences.iter().find(|s| s.index == i)) {
+                Some(s) => (Some(s.index), s.period, s.loops),
+                None => (None, d.period, d.loops),
+            };
+            for g in d.gravity.iter().filter(|g| g.active.on_in(seq, at, period, loops)) {
                 let pull = if g.spherical { (q.frame.transform_point3(g.origin) - q.pos).normalize_or_zero() } else { g.direction };
                 q.vel += pull * g.strength_at(at) * dt;
             }
-            for b in d.bombs.iter().filter(|b| b.active.on(at, d.period, d.loops)) {
+            for b in d.bombs.iter().filter(|b| b.active.on_in(seq, at, period, loops)) {
                 q.vel += b.push(&q.frame, q.pos) * dt;
             }
-            for drag in d.drag.iter().filter(|g| g.active.on(at, d.period, d.loops)) {
+            for drag in d.drag.iter().filter(|g| g.active.on_in(seq, at, period, loops)) {
                 // The share of the speed along the axis kept after `dt`.
                 let keep = (1.0 - drag.percentage.clamp(0.0, 1.0)).powf(dt * DRAG_STEPS_PER_SECOND);
                 let along = q.vel.dot(drag.axis);
