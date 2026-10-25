@@ -435,7 +435,7 @@ fn register_graphics(app: &mut App) {
     for s in choices {
         add_setting(app, s);
     }
-    let switches: [Switch; 8] = [
+    let switches: [Switch; 10] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -459,10 +459,24 @@ fn register_graphics(app: &mut App) {
         ),
         (
             "glow",
-            "Light glow",
-            "On: neon, lamps, glowing beams and fire glow softly into their surroundings, as the original's HDR glow does; how much follows the place's image space. Bloom, when on, replaces it. (--graphics-only no-glow turns it off)",
+            "Light glow (HDR)",
+            "On: neon, lamps, glowing beams and fire glow softly into their surroundings, as the original's HDR glow does; how much follows the place's image space (the Strip's neon at night most). Bloom, when on, adds to it. (--graphics-only no-glow turns it off)",
             |w| w.resource::<Graphics>().glow,
             |w, on| w.resource_mut::<Graphics>().glow = on,
+        ),
+        (
+            "eye-adaptation",
+            "Eye adaptation",
+            "On: dark views brighten after a moment, as the eye gets used to the dark, by the place's image space. Needs the light glow. (--graphics-only no-eye-adaptation turns it off)",
+            |w| w.resource::<Graphics>().eye_adaptation,
+            |w, on| w.resource_mut::<Graphics>().eye_adaptation = on,
+        ),
+        (
+            "neon-glow",
+            "Neon glow",
+            "On: where the place's image space asks for a strong glow (the Strip at night) neon tubes and signs burn with a wide halo, as in the original. Needs the light glow. (--graphics-only no-neon-glow turns it off)",
+            |w| w.resource::<Graphics>().neon_glow,
+            |w, on| w.resource_mut::<Graphics>().neon_glow = on,
         ),
         (
             "sharpen",

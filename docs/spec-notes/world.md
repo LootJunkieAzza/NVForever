@@ -749,7 +749,17 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   HDR block applies [hypothesis from the names]. What the original computes from them
   is not documented. The renderer's light glow (docs/design/graphics-enhanced.md §3.11)
   uses Bevy's bloom on an HDR view, its strength scaled by Bright Scale / 2
-  [engineering choice]; eye adaptation: next item.
+  [engineering choice]; eye adaptation: next item. Above the Mojave's Bright Scale 2 a
+  bright pass is added (2026-10-25, `post.rs` `BrightPass`): on the HDR picture before
+  the tonemapper, what is over 1.0 (each pixel held to 16) is taken at a quarter of the
+  size, blurred (a Gaussian about 8 quarter-size texels wide) and added back, 0.08 per
+  unit of Bright Scale over 2 (0.4 on the Strip at night, where NVTheStripNightIS sets 7
+  and Bright Clamp 0.5) [engineering choice, fitted to the owner's frames and
+  `fx_strip_b`]. Bevy's energy-conserving bloom made stronger spread every pixel's light
+  (sky 18 → 33), and the enhanced Bloom pass works after the tonemapper, where Gomorrah's
+  tube (36 short quads at white × 25) averages under its threshold: the original merges
+  them into one white-cored line with an orange halo. The enhanced Bloom now adds to the
+  light glow instead of replacing it (and with it the HDR view and eye adaptation).
 - **Eye adaptation** (2026-10-23). The HDR tab's Eye Adapt Speed "controls how quickly
   the adapted scene lum chases the actual lum", and Target LUM exists ("changing this
   just seems to break everything") [documented: GECK wiki ImageSpace, HDR tab]; what the
@@ -781,6 +791,17 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   60° up, 10 % / 50 % / 90 % levels (0, 0, 1) original, (10, 27, 131) ours): the dark
   object alone averages under the reference. The original's meter may be a plain
   average, which bright lights and the moon would hold up [hypothesis, unchecked].
+  The Strip at night (2026-10-25): its adapter NVTheStripNightIS sets Target LUM 4, so
+  the reference is −5.3 EV, and with Bevy's default meter (the 10-90 % of the histogram)
+  the frames of the owner's spot (also `fx_strip_b`) were lifted about 0.3 EV (sidewalk
+  81 against 75 without adaptation and 63 in the original). The meter now keeps the
+  brightest tenth (`eye_adapt.rs` `METER_FILTER`, 10-100 %), where the Strip's neon and
+  lamps lie, and that view is not lifted (sidewalk 74). Not rechecked against the 31
+  frames of the fit (their cameras are not kept); the Dead Money lantern spot
+  (`lantern-display-light`) keeps its brightness (mean 62.9 before and after, the
+  original's `dm_lamp_front` 61.4). Frames of the Strip at night must be taken
+  after its light show (script 0x00127E9E: the three street light groups switch on 0,
+  about 30 and 60 s after arriving, so a frame at 12 s has two groups dark).
 - **Emissive mult** (2026-10-23). "Emissive Mult: (non-imagespace) Multiplier applied to
   the emittance of an object" [documented: GECK wiki ImageSpace, HDR tab]. Values
   [observed]: NVDefaultExterior 1.5 (the Mojave's adapters leave it), interiors 1.0-1.3;
@@ -791,6 +812,9 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   adapted value over the worldspace base image space's own (the Mojave 1, the Villa
   3.5, Puesta del Sol 2); indoors 1. Carried to the NIF shader in the view's fog
   uniform (`nvforever/src/fog.rs`).
+  Not on additive shapes since 2026-10-25 (nif.md §6 "Additive blend"): the Strip's lamp
+  beams blew out under the Strip's night value 4. Dead Money's lantern glow card (additive)
+  lost its scaling with it: its halo is smaller than in #643's frames, the glass as bright.
 - **Sunlight dimmer** in Dead Money (2026-10-23): NVDLC01WestTownIS sets it ×0.4 + 0.1
   (1.1 → 0.54), about half the Mojave's day value (1.21), and Puesta del Sol's original
   frames are lit by its yellow ambient ((119, 81, 9)) with the blue channel at 0, where

@@ -40,13 +40,53 @@ fn bright(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     return vec4(c * (over / max(m, 1e-4)), 1.0);
 }
 
-// Nine bilinear taps, two texels apart: a Gaussian about 34 quarter-size texels wide.
+// The light glow's bright pass on the HDR picture (post.rs `BrightPass`): as `bright`,
+// with the threshold in HDR values, and each pixel held to `HDR_BRIGHT_MAX` first so a few
+// pixels far over white (neon at multiplier 25) do not show the blur's taps.
+const HDR_BRIGHT_MAX: f32 = 16.0;
+
+@fragment
+fn bright_hdr(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let texel = 1.0 / vec2<f32>(textureDimensions(source));
+    var c = vec3(0.0);
+    for (var i = 0; i < 4; i++) {
+        let o = vec2(f32(i & 1) * 2.0 - 1.0, f32(i >> 1u) * 2.0 - 1.0) * texel;
+        let s = textureSampleLevel(source, source_sampler, in.uv + o, 0.0).rgb;
+        c += s * min(1.0, HDR_BRIGHT_MAX / max(max(s.r, max(s.g, s.b)), 1e-4));
+    }
+    c *= 0.25;
+    let m = max(c.r, max(c.g, c.b));
+    let t = post.params.x;
+    let k = max(post.params.y, 1e-4);
+    let soft = clamp(m - t + k, 0.0, 2.0 * k);
+    let over = max(soft * soft / (4.0 * k), m - t);
+    return vec4(c * (over / max(m, 1e-4)), 1.0);
+}
+
+// Nine bilinear taps, `step` texels apart: a Gaussian about 17 × `step` quarter-size
+// texels wide (2 for the bloom; under 1, tighter and without gaps between the taps, for
+// the HDR bright pass).
 fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
+    return blur_step(uv, dir, 2.0);
+}
+
+// The HDR bright pass's blur: its step in `post.params.w` (post.rs `BrightPass`).
+@fragment
+fn blur_across_fine(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    return blur_step(in.uv, vec2(1.0, 0.0), post.params.w);
+}
+
+@fragment
+fn blur_down_fine(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    return blur_step(in.uv, vec2(0.0, 1.0), post.params.w);
+}
+
+fn blur_step(uv: vec2<f32>, dir: vec2<f32>, step: f32) -> vec4<f32> {
     let w = array<f32, 5>(0.1964, 0.1748, 0.1232, 0.0688, 0.0304);
     let texel = dir / vec2<f32>(textureDimensions(source));
     var c = textureSampleLevel(source, source_sampler, uv, 0.0).rgb * w[0];
     for (var i = 1; i < 5; i++) {
-        let o = texel * f32(i) * 2.0;
+        let o = texel * f32(i) * step;
         c += (textureSampleLevel(source, source_sampler, uv + o, 0.0).rgb + textureSampleLevel(source, source_sampler, uv - o, 0.0).rgb) * w[i];
     }
     return vec4(c / (w[0] + 2.0 * (w[1] + w[2] + w[3] + w[4])), 1.0);
