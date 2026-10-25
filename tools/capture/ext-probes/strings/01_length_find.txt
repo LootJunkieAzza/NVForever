@@ -1,11 +1,11 @@
 scn ExtProbeStrings01
 ; Sv_Length, Sv_Find, Sv_Count (tools/capture/ext-probes/strings/README.md)
-string_var s
-string_var t
-array_var a
-int i
-float f
-ref r
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
 int iDone
 Begin GameMode
     if iDone
@@ -13,28 +13,28 @@ Begin GameMode
     endif
     let iDone := 1
     Print "EXTPROBE|strings/01_length_find|begin"
-    let s := "Ringo"
-    Print "EXTPROBE|len.basic|" + $(Sv_Length s)
-    let s := ""
-    Print "EXTPROBE|len.empty|" + $(Sv_Length s)
-    let s := "x"
-    Sv_Destruct s
-    Print "EXTPROBE|len.destructed|" + $(Sv_Length s)
-    let s := "Hello there"
-    Print "EXTPROBE|find.first|" + $(Sv_Find "e", s)
-    let s := "Hello there"
-    Print "EXTPROBE|find.nocase|" + $(Sv_Find "hello", s)
-    let s := "Hello there"
-    Print "EXTPROBE|find.case_flag|" + $(Sv_Find "hello", s, 0, 11, 1)
-    let s := "Hello there"
-    Print "EXTPROBE|find.missing|" + $(Sv_Find "xyz", s)
-    let s := "Hello there"
-    Print "EXTPROBE|find.range|" + $(Sv_Find "e", s, 5, 6)
-    let s := "Hello there"
-    Print "EXTPROBE|count.basic|" + $(Sv_Count "l", s)
-    let s := "the theme"
-    Print "EXTPROBE|count.in_word|" + $(Sv_Count "the", s)
-    let s := "aaaa"
-    Print "EXTPROBE|count.overlap|" + $(Sv_Count "aa", s)
+    let sS := "Ringo"
+    Print "EXTPROBE|len.basic|" + $(Sv_Length sS)
+    let sS := ""
+    Print "EXTPROBE|len.empty|" + $(Sv_Length sS)
+    let sS := "x"
+    Sv_Destruct sS
+    Print "EXTPROBE|len.destructed|" + $(Sv_Length sS)
+    let sS := "Hello there"
+    Print "EXTPROBE|find.first|" + $(Sv_Find "e", sS)
+    let sS := "Hello there"
+    Print "EXTPROBE|find.nocase|" + $(Sv_Find "hello", sS)
+    let sS := "Hello there"
+    Print "EXTPROBE|find.case_flag|" + $(Sv_Find "hello", sS, 0, 11, 1)
+    let sS := "Hello there"
+    Print "EXTPROBE|find.missing|" + $(Sv_Find "xyz", sS)
+    let sS := "Hello there"
+    Print "EXTPROBE|find.range|" + $(Sv_Find "e", sS, 5, 6)
+    let sS := "Hello there"
+    Print "EXTPROBE|count.basic|" + $(Sv_Count "l", sS)
+    let sS := "the theme"
+    Print "EXTPROBE|count.in_word|" + $(Sv_Count "the", sS)
+    let sS := "aaaa"
+    Print "EXTPROBE|count.overlap|" + $(Sv_Count "aa", sS)
     Print "EXTPROBE|strings/01_length_find|end"
 End

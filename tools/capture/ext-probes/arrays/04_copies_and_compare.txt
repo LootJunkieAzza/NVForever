@@ -1,83 +1,83 @@
 scn ExtProbeArrays04
 ; sharing, Ar_Copy, Ar_DeepCopy, ==, Ar_DeepEquals, Ar_Unique, slices, box (tools/capture/ext-probes/arrays/README.md)
-array_var a
-array_var b
-array_var c
-array_var d
-array_var e
-string_var s
-string_var t
-int r
+array_var aA
+array_var aB
+array_var aC
+array_var aD
+array_var aE
+string_var sS
+string_var sT
+int iR
 int iDone
-array_var x
-array_var y
+array_var aX
+array_var aY
 Begin GameMode
     if iDone
         Return
     endif
     let iDone := 1
     Print "EXTPROBE|arrays/04_copies_and_compare|begin"
-    let a := Ar_Null
-    let a := Ar_List 1
-    let b := a
-    let b[0] := 9
-    Print "EXTPROBE|assign.shares|" + $(a[0])
-    let a := Ar_Null
-    let a := Ar_List 1
-    let b := Ar_Copy a
-    let b[0] := 9
-    Print "EXTPROBE|copy.separate|" + $(a[0])
-    let a := Ar_Null
-    let c := Ar_List 1
-    let a := Ar_List c
-    let b := Ar_Copy a
-    let c[0] := 9
-    let d := b[0]
-    Print "EXTPROBE|copy.shallow|" + $(d[0])
-    let a := Ar_Null
-    let c := Ar_List 1
-    let a := Ar_List c
-    let b := Ar_DeepCopy a
-    let c[0] := 9
-    let d := b[0]
-    Print "EXTPROBE|deepcopy|" + $(d[0])
-    let a := Ar_Null
-    let a := Ar_List 1, 2
-    let b := Ar_List 1, 2
-    Print "EXTPROBE|eq.contents|" + $(a == b)
-    let a := Ar_Null
-    let a := Ar_List (Ar_List 1)
-    let b := Ar_List (Ar_List 1)
-    Print "EXTPROBE|eq.nested_identity|" + $(a == b)
-    let a := Ar_Null
-    let a := Ar_List (Ar_List 1)
-    let b := Ar_List (Ar_List 1)
-    Print "EXTPROBE|deepequals.nested|" + $(Ar_DeepEquals a, b)
-    let a := Ar_Null
-    let a := Ar_Null
-    let b := Ar_Null
-    Print "EXTPROBE|deepequals.null|" + $(Ar_DeepEquals a, b)
-    let a := Ar_Null
-    let a := Ar_List 1, 2, 3, 2, 2, 3
-    let b := Ar_Unique a
-    Print "EXTPROBE|unique|" + $(Ar_Size b)
-    let a := Ar_Null
-    let a := Ar_List 1, 2, 3, 4
-    let b := a[1:2]
-    Print "EXTPROBE|slice.inclusive|" + $(Ar_Size b)
-    let a := Ar_Null
-    let a := Ar_List 1, 2, 3, 4
-    let b := a[1:2]
-    Print "EXTPROBE|slice.kind|" + $(b[0])
-    let a := Ar_Null
-    let a := &5
-    Print "EXTPROBE|box.unbox|" + $(*a)
-    let a := Ar_Null
-    let a := Ar_Map "value"::7, "key"::1
-    Print "EXTPROBE|unbox.smap_value|" + $(*a)
-    let a := Ar_Null
-    let a := Ar_List 1
-    let a := Ar_Null
-    Print "EXTPROBE|null.reads_zero|" + $(Ar_Size a)
+    let aA := Ar_Null
+    let aA := Ar_List 1
+    let aB := aA
+    let aB[0] := 9
+    Print "EXTPROBE|assign.shares|" + $(aA[0])
+    let aA := Ar_Null
+    let aA := Ar_List 1
+    let aB := Ar_Copy aA
+    let aB[0] := 9
+    Print "EXTPROBE|copy.separate|" + $(aA[0])
+    let aA := Ar_Null
+    let aC := Ar_List 1
+    let aA := Ar_List aC
+    let aB := Ar_Copy aA
+    let aC[0] := 9
+    let aD := aB[0]
+    Print "EXTPROBE|copy.shallow|" + $(aD[0])
+    let aA := Ar_Null
+    let aC := Ar_List 1
+    let aA := Ar_List aC
+    let aB := Ar_DeepCopy aA
+    let aC[0] := 9
+    let aD := aB[0]
+    Print "EXTPROBE|deepcopy|" + $(aD[0])
+    let aA := Ar_Null
+    let aA := Ar_List 1, 2
+    let aB := Ar_List 1, 2
+    Print "EXTPROBE|eq.contents|" + $(aA == aB)
+    let aA := Ar_Null
+    let aA := Ar_List (Ar_List 1)
+    let aB := Ar_List (Ar_List 1)
+    Print "EXTPROBE|eq.nested_identity|" + $(aA == aB)
+    let aA := Ar_Null
+    let aA := Ar_List (Ar_List 1)
+    let aB := Ar_List (Ar_List 1)
+    Print "EXTPROBE|deepequals.nested|" + $(Ar_DeepEquals aA, aB)
+    let aA := Ar_Null
+    let aA := Ar_Null
+    let aB := Ar_Null
+    Print "EXTPROBE|deepequals.null|" + $(Ar_DeepEquals aA, aB)
+    let aA := Ar_Null
+    let aA := Ar_List 1, 2, 3, 2, 2, 3
+    let aB := Ar_Unique aA
+    Print "EXTPROBE|unique|" + $(Ar_Size aB)
+    let aA := Ar_Null
+    let aA := Ar_List 1, 2, 3, 4
+    let aB := aA[1:2]
+    Print "EXTPROBE|slice.inclusive|" + $(Ar_Size aB)
+    let aA := Ar_Null
+    let aA := Ar_List 1, 2, 3, 4
+    let aB := aA[1:2]
+    Print "EXTPROBE|slice.kind|" + $(aB[0])
+    let aA := Ar_Null
+    let aA := &5
+    Print "EXTPROBE|box.unbox|" + $(*aA)
+    let aA := Ar_Null
+    let aA := Ar_Map "value"::7, "key"::1
+    Print "EXTPROBE|unbox.smap_value|" + $(*aA)
+    let aA := Ar_Null
+    let aA := Ar_List 1
+    let aA := Ar_Null
+    Print "EXTPROBE|null.reads_zero|" + $(Ar_Size aA)
     Print "EXTPROBE|arrays/04_copies_and_compare|end"
 End

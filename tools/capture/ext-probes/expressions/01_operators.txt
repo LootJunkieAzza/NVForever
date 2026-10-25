@@ -1,9 +1,9 @@
 scn ExtProbeExpr01
 ; operators, associativity, && and ||, unary, bitwise (tools/capture/ext-probes/expressions/README.md)
-int x
-int y
-int r
-float f
+int iX
+int iY
+int iR
+float fF
 int iDone
 Begin GameMode
     if iDone
@@ -15,34 +15,34 @@ Begin GameMode
     Print "EXTPROBE|assoc.sub|" + $(10 - 4 - 3)
     Print "EXTPROBE|assoc.div|" + $(64 / 4 / 2)
     Print "EXTPROBE|assoc.mod|" + $(17 % 5 % 3)
-    let x := 0
-    Print "EXTPROBE|assign.value|" + $((x := 4) + 1)
-    let x := 0
-    let y := 0
-    let x := y := 7
-    Print "EXTPROBE|assign.chain_a|" + $(x)
-    let x := 0
-    let y := 0
-    let x := y := 7
-    Print "EXTPROBE|assign.chain_b|" + $(y)
-    let r := 0 || 5
-    Print "EXTPROBE|or.value|" + $(r)
-    let r := 1 || 2
-    Print "EXTPROBE|or.left|" + $(r)
-    let r := 0 || 0
-    Print "EXTPROBE|or.zero|" + $(r)
-    let r := 3 && 4
-    Print "EXTPROBE|and.value|" + $(r)
-    let r := 3 && 0
-    Print "EXTPROBE|and.zero_right|" + $(r)
-    let r := 0 && 5
-    Print "EXTPROBE|and.zero_left|" + $(r)
-    let r := 1 && -5
-    Print "EXTPROBE|and.negative|" + $(r)
-    let r := 0 || 2 && 3
-    Print "EXTPROBE|andor.prec|" + $(r)
-    let r := 1 || 0 && 0
-    Print "EXTPROBE|andor.prec2|" + $(r)
+    let iX := 0
+    Print "EXTPROBE|assign.value|" + $((iX := 4) + 1)
+    let iX := 0
+    let iY := 0
+    let iX := iY := 7
+    Print "EXTPROBE|assign.chain_a|" + $(iX)
+    let iX := 0
+    let iY := 0
+    let iX := iY := 7
+    Print "EXTPROBE|assign.chain_b|" + $(iY)
+    let iR := 0 || 5
+    Print "EXTPROBE|or.value|" + $(iR)
+    let iR := 1 || 2
+    Print "EXTPROBE|or.left|" + $(iR)
+    let iR := 0 || 0
+    Print "EXTPROBE|or.zero|" + $(iR)
+    let iR := 3 && 4
+    Print "EXTPROBE|and.value|" + $(iR)
+    let iR := 3 && 0
+    Print "EXTPROBE|and.zero_right|" + $(iR)
+    let iR := 0 && 5
+    Print "EXTPROBE|and.zero_left|" + $(iR)
+    let iR := 1 && -5
+    Print "EXTPROBE|and.negative|" + $(iR)
+    let iR := 0 || 2 && 3
+    Print "EXTPROBE|andor.prec|" + $(iR)
+    let iR := 1 || 0 && 0
+    Print "EXTPROBE|andor.prec2|" + $(iR)
     Print "EXTPROBE|not.plus|" + $(!0 + 1)
     Print "EXTPROBE|neg.pow|" + $(-2 ^ 2)
     Print "EXTPROBE|not.neg|" + $(!-1)
@@ -54,7 +54,7 @@ Begin GameMode
     Print "EXTPROBE|bitand.fraction|" + $(5.9 & 7)
     Print "EXTPROBE|mod.fraction|" + $(7.5 % 2)
     Print "EXTPROBE|paren.fn|" + $((Sin 90) > 0.5)
-    let f := Rand 5, 5
-    Print "EXTPROBE|rand.comma|" + $(f)
+    let fF := Rand 5, 5
+    Print "EXTPROBE|rand.comma|" + $(fF)
     Print "EXTPROBE|expressions/ExtProbeExpr01|end"
 End

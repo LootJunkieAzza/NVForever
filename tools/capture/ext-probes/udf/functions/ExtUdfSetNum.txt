@@ -1,7 +1,7 @@
 scn ExtUdfSetNum
 ; function script for tools/capture/ext-probes/udf/README.md
-int x
-Begin Function {x}
-    let x := 99
-    SetFunctionValue x
+int iX
+Begin Function {iX}
+    let iX := 99
+    SetFunctionValue iX
 End

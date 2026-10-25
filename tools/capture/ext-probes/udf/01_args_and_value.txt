@@ -1,12 +1,12 @@
 scn ExtProbeUdf01
 ; argument passing and the return value (tools/capture/ext-probes/udf/README.md)
-int i
-int r
+int iI
+int iR
 int iP
 ref rL
 ref rRef
-string_var s
-array_var a
+string_var sS
+array_var aA
 int iDone
 Begin GameMode
     if iDone
@@ -15,20 +15,20 @@ Begin GameMode
     let iDone := 1
     Print "EXTPROBE|udf/ExtProbeUdf01|begin"
     Print "EXTPROBE|udf.add|" + $(Call ExtUdfAdd 2 3)
-    let i := 5
-    let r := Call ExtUdfSetNum i
-    Print "EXTPROBE|udf.num_by_value|" + $i
-    let s := "hi"
-    let r := Call ExtUdfSetStr s
-    Print "EXTPROBE|udf.str_after_call|[" + s + "]"
-    let a := Ar_List 1, 2
-    let r := Call ExtUdfSetArr a
-    Print "EXTPROBE|udf.arr_after_call|" + $(a[0])
+    let iI := 5
+    let iR := Call ExtUdfSetNum iI
+    Print "EXTPROBE|udf.num_by_value|" + $iI
+    let sS := "hi"
+    let iR := Call ExtUdfSetStr sS
+    Print "EXTPROBE|udf.str_after_call|[" + sS + "]"
+    let aA := Ar_List 1, 2
+    let iR := Call ExtUdfSetArr aA
+    Print "EXTPROBE|udf.arr_after_call|" + $(aA[0])
     Print "EXTPROBE|udf.twice|" + $(Call ExtUdfTwice)
-    let r := Call ExtUdfAfterValue
-    let r := 42
-    let r := Call ExtUdfNoValue
-    Print "EXTPROBE|udf.no_value|" + $r
+    let iR := Call ExtUdfAfterValue
+    let iR := 42
+    let iR := Call ExtUdfNoValue
+    Print "EXTPROBE|udf.no_value|" + $iR
     Print "EXTPROBE|udf.return_stops|" + $(Call ExtUdfReturnStops)
     Print "EXTPROBE|udf/ExtProbeUdf01|end"
 End

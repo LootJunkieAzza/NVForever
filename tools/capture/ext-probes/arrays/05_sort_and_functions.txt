@@ -1,90 +1,90 @@
 scn ExtProbeArrays05
 ; Ar_Sort, Ar_SortAlpha, Ar_CustomSort, Ar_Filter, Ar_MapTo, Ar_FindWhere, ar_Any/All, Ar_ForEach (tools/capture/ext-probes/arrays/README.md)
-array_var a
-array_var b
-array_var c
-array_var d
-array_var e
-string_var s
-string_var t
-int r
+array_var aA
+array_var aB
+array_var aC
+array_var aD
+array_var aE
+string_var sS
+string_var sT
+int iR
 int iDone
-array_var x
-array_var y
+array_var aX
+array_var aY
 Begin GameMode
     if iDone
         Return
     endif
     let iDone := 1
     Print "EXTPROBE|arrays/05_sort_and_functions|begin"
-    let a := Ar_Null
-    let a := Ar_List 3, 1, 2
-    let b := Ar_Sort a
-    Print "EXTPROBE|sort.asc|" + $(b[0])
-    let a := Ar_Null
-    let a := Ar_List 3, 1, 2
-    let b := Ar_Sort a, 1
-    Print "EXTPROBE|sort.desc|" + $(b[0])
-    let a := Ar_Null
-    let a := Ar_List 3, "x"
-    let b := Ar_Sort a
-    Print "EXTPROBE|sort.mixed_empty|" + $(Ar_Size b)
-    let a := Ar_Null
-    let a := Ar_List "b", "A", "c"
-    let b := Ar_Sort a
-    Print "EXTPROBE|sort.strings_nocase|[" + (b[0]) + "]"
-    let a := Ar_Null
-    let a := Ar_Map 1::30, 2::10
-    let b := Ar_Sort a
-    Print "EXTPROBE|sort.map_to_list|[" + (TypeOf b) + "]"
-    let a := Ar_Null
-    let a := Ar_List 10, 9
-    let b := Ar_SortAlpha a
-    Print "EXTPROBE|sortalpha.numbers_as_text|" + $(b[0])
-    let a := Ar_Null
-    let a := Ar_Map 1::"b", 2::"a"
-    let b := Ar_SortAlpha a
-    Print "EXTPROBE|sortalpha.map_kind|[" + (TypeOf b) + "]"
-    let a := Ar_Null
-    let a := Ar_List 1, 3, 2
-    let b := Ar_CustomSort a, ({x, y} => *x > *y)
-    Print "EXTPROBE|customsort.kind|" + $(b[0])
-    let a := Ar_Null
-    let a := Ar_List 1, 20, 3, 40
-    let b := Ar_Filter a, ({x} => *x > 10)
-    Print "EXTPROBE|filter.renumber|" + $(b[0])
-    let a := Ar_Null
-    let a := Ar_List 1, 20, 3, 40
-    let b := Ar_Filter a, ({x} => *x > 10)
-    Print "EXTPROBE|filter.size|" + $(Ar_Size b)
-    let a := Ar_Null
-    let a := Ar_List 1, 4
-    let b := Ar_MapTo a, ({x} => *x * 2)
-    Print "EXTPROBE|mapto|" + $(b[1])
-    let a := Ar_Null
-    let a := Ar_List 5, 12, 8
-    let r := Ar_FindWhere a, ({x} => *x > 10)
-    Print "EXTPROBE|findwhere|" + $(r)
-    let a := Ar_Null
-    let a := Ar_List 5, 8
-    let r := Ar_FindWhere a, ({x} => *x > 10)
-    Print "EXTPROBE|findwhere.none|" + $(r)
-    let a := Ar_Null
-    let a := Ar_List 1, 50
-    Print "EXTPROBE|any.yes|" + $(ar_Any a, ({x} => *x > 10))
-    let a := Ar_Null
-    let a := Ar_List 1, 50
-    Print "EXTPROBE|all.no|" + $(ar_All a, ({x} => *x > 10))
-    let a := Ar_Null
-    let a := Ar_Construct "array"
-    Print "EXTPROBE|any.empty|" + $(ar_Any a, ({x} => *x > 10))
-    let a := Ar_Null
-    let a := Ar_Construct "array"
-    Print "EXTPROBE|all.empty|" + $(ar_All a, ({x} => *x > 10))
-    let a := Ar_Null
-    let a := Ar_List 1, 2, 3
-    let r := 0
-    Ar_ForEach a, ({x} => r += *x)
-    Print "EXTPROBE|foreach.sum|" + $(r)
+    let aA := Ar_Null
+    let aA := Ar_List 3, 1, 2
+    let aB := Ar_Sort aA
+    Print "EXTPROBE|sort.asc|" + $(aB[0])
+    let aA := Ar_Null
+    let aA := Ar_List 3, 1, 2
+    let aB := Ar_Sort aA, 1
+    Print "EXTPROBE|sort.desc|" + $(aB[0])
+    let aA := Ar_Null
+    let aA := Ar_List 3, "x"
+    let aB := Ar_Sort aA
+    Print "EXTPROBE|sort.mixed_empty|" + $(Ar_Size aB)
+    let aA := Ar_Null
+    let aA := Ar_List "b", "A", "c"
+    let aB := Ar_Sort aA
+    Print "EXTPROBE|sort.strings_nocase|[" + (aB[0]) + "]"
+    let aA := Ar_Null
+    let aA := Ar_Map 1::30, 2::10
+    let aB := Ar_Sort aA
+    Print "EXTPROBE|sort.map_to_list|[" + (TypeOf aB) + "]"
+    let aA := Ar_Null
+    let aA := Ar_List 10, 9
+    let aB := Ar_SortAlpha aA
+    Print "EXTPROBE|sortalpha.numbers_as_text|" + $(aB[0])
+    let aA := Ar_Null
+    let aA := Ar_Map 1::"b", 2::"a"
+    let aB := Ar_SortAlpha aA
+    Print "EXTPROBE|sortalpha.map_kind|[" + (TypeOf aB) + "]"
+    let aA := Ar_Null
+    let aA := Ar_List 1, 3, 2
+    let aB := Ar_CustomSort aA, ({aX, aY} => *aX > *aY)
+    Print "EXTPROBE|customsort.kind|" + $(aB[0])
+    let aA := Ar_Null
+    let aA := Ar_List 1, 20, 3, 40
+    let aB := Ar_Filter aA, ({aX} => *aX > 10)
+    Print "EXTPROBE|filter.renumber|" + $(aB[0])
+    let aA := Ar_Null
+    let aA := Ar_List 1, 20, 3, 40
+    let aB := Ar_Filter aA, ({aX} => *aX > 10)
+    Print "EXTPROBE|filter.size|" + $(Ar_Size aB)
+    let aA := Ar_Null
+    let aA := Ar_List 1, 4
+    let aB := Ar_MapTo aA, ({aX} => *aX * 2)
+    Print "EXTPROBE|mapto|" + $(aB[1])
+    let aA := Ar_Null
+    let aA := Ar_List 5, 12, 8
+    let iR := Ar_FindWhere aA, ({aX} => *aX > 10)
+    Print "EXTPROBE|findwhere|" + $(iR)
+    let aA := Ar_Null
+    let aA := Ar_List 5, 8
+    let iR := Ar_FindWhere aA, ({aX} => *aX > 10)
+    Print "EXTPROBE|findwhere.none|" + $(iR)
+    let aA := Ar_Null
+    let aA := Ar_List 1, 50
+    Print "EXTPROBE|any.yes|" + $(ar_Any aA, ({aX} => *aX > 10))
+    let aA := Ar_Null
+    let aA := Ar_List 1, 50
+    Print "EXTPROBE|all.no|" + $(ar_All aA, ({aX} => *aX > 10))
+    let aA := Ar_Null
+    let aA := Ar_Construct "array"
+    Print "EXTPROBE|any.empty|" + $(ar_Any aA, ({aX} => *aX > 10))
+    let aA := Ar_Null
+    let aA := Ar_Construct "array"
+    Print "EXTPROBE|all.empty|" + $(ar_All aA, ({aX} => *aX > 10))
+    let aA := Ar_Null
+    let aA := Ar_List 1, 2, 3
+    let iR := 0
+    Ar_ForEach aA, ({aX} => iR += *aX)
+    Print "EXTPROBE|foreach.sum|" + $(iR)
     Print "EXTPROBE|arrays/05_sort_and_functions|end"
 End

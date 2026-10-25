@@ -1,25 +1,25 @@
 scn ExtProbeLoops09
 ; a loop whose condition never becomes false (observe with care) (tools/capture/ext-probes/loops/README.md)
-int i
-int j
-int r
-int n
+int iI
+int iJ
+int iR
+int iN
 int iFrame
 ref rItem
 ref rKeep
 ref rForm
-array_var a
-array_var e
-string_var s
-string_var c
+array_var aA
+array_var aE
+string_var sS
+string_var sC
 Begin GameMode
     let iFrame += 1
     if iFrame == 1
         Print "EXTPROBE|loops/ExtProbeLoops09|begin"
         Print "EXTPROBE|runaway.before|1"
-        let i := 1
-        while i > 0
-            let i := 1
+        let iI := 1
+        while iI > 0
+            let iI := 1
         loop
         Print "EXTPROBE|runaway.after|1"
         Print "EXTPROBE|loops/ExtProbeLoops09|end"

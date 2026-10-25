@@ -1,72 +1,72 @@
 scn ExtProbeLoops01
 ; while, break, continue, assignment in the condition, nested loops (tools/capture/ext-probes/loops/README.md)
-int i
-int j
-int r
-int n
+int iI
+int iJ
+int iR
+int iN
 int iFrame
 ref rItem
 ref rKeep
 ref rForm
-array_var a
-array_var e
-string_var s
-string_var c
+array_var aA
+array_var aE
+string_var sS
+string_var sC
 Begin GameMode
     let iFrame += 1
     if iFrame == 1
         Print "EXTPROBE|loops/ExtProbeLoops01|begin"
-        let i := 0
-        let r := 0
-        while i < 5
-            let i += 1
-            let r += i
+        let iI := 0
+        let iR := 0
+        while iI < 5
+            let iI += 1
+            let iR += iI
         loop
-        Print "EXTPROBE|while.sum|" + $r
-        let i := 0
-        let r := 0
-        while i < 5
-            let i += 1
-            if i == 2
+        Print "EXTPROBE|while.sum|" + $iR
+        let iI := 0
+        let iR := 0
+        while iI < 5
+            let iI += 1
+            if iI == 2
                 continue
-            elseif i == 4
+            elseif iI == 4
                 break
             endif
-            let r := r * 10 + i
+            let iR := iR * 10 + iI
         loop
-        Print "EXTPROBE|while.break_continue|" + $r
-        let i := 0
-        while 5 > (i += 1)
+        Print "EXTPROBE|while.break_continue|" + $iR
+        let iI := 0
+        while 5 > (iI += 1)
         loop
-        Print "EXTPROBE|while.cond_assign_final|" + $i
-        let i := 0
-        let n := 0
-        while i < 3
-            let i += 1
-            let j := 0
-            while j < 3
-                let j += 1
-                if j == 2
+        Print "EXTPROBE|while.cond_assign_final|" + $iI
+        let iI := 0
+        let iN := 0
+        while iI < 3
+            let iI += 1
+            let iJ := 0
+            while iJ < 3
+                let iJ += 1
+                if iJ == 2
                     break
                 endif
-                let n += 1
+                let iN += 1
             loop
         loop
-        Print "EXTPROBE|nested.inner_break|" + $n
-        let i := 0
-        let n := 0
-        while i < 3
-            let i += 1
-            let j := 0
-            while j < 3
-                let j += 1
-                if j == 1
+        Print "EXTPROBE|nested.inner_break|" + $iN
+        let iI := 0
+        let iN := 0
+        while iI < 3
+            let iI += 1
+            let iJ := 0
+            while iJ < 3
+                let iJ += 1
+                if iJ == 1
                     continue
                 endif
-                let n += 1
+                let iN += 1
             loop
         loop
-        Print "EXTPROBE|nested.inner_continue|" + $n
+        Print "EXTPROBE|nested.inner_continue|" + $iN
         Print "EXTPROBE|loops/ExtProbeLoops01|end"
     endif
 End

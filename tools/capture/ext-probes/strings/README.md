@@ -41,71 +41,71 @@ EXTPROBE|<id>|<value>
 
 | File | Id | Expression | Expected | Evidence |
 |---|---|---|---|---|
-| 01_length_find | `len.basic` | `Sv_Length s` | `5` | [documented: Sv Length] |
-| 01_length_find | `len.empty` | `Sv_Length s` | observe | — |
-| 01_length_find | `len.destructed` | `Sv_Length s` | observe (-1 for an invalid string is documented; is a destructed one invalid?) | Sv Length |
-| 01_length_find | `find.first` | `Sv_Find "e", s` | `1` | [documented: Sv Find] |
-| 01_length_find | `find.nocase` | `Sv_Find "hello", s` | `0` | [documented: Sv Find] |
-| 01_length_find | `find.case_flag` | `Sv_Find "hello", s, 0, 11, 1` | `-1` | [documented: Sv Find] |
-| 01_length_find | `find.missing` | `Sv_Find "xyz", s` | `-1` | [documented: Sv Find] |
-| 01_length_find | `find.range` | `Sv_Find "e", s, 5, 6` | observe (8 if counted from the string start, 3 from the range start) | — |
-| 01_length_find | `count.basic` | `Sv_Count "l", s` | `2` | [documented: Sv Count] |
-| 01_length_find | `count.in_word` | `Sv_Count "the", s` | `2` | [documented: Sv Count] |
-| 01_length_find | `count.overlap` | `Sv_Count "aa", s` | observe (2 or 3) | — |
-| 02_edit | `replace.count` | `Sv_Replace "-\|+", s` | `2` | [documented: Sv Replace] |
-| 02_edit | `replace.result` | `s` | `[a+b+c]` | [documented: Sv Replace] |
-| 02_edit | `replace.max1` | `s` | `[a+b-c]` | [documented: Sv Replace] |
-| 02_edit | `replace.nocase` | `s` | `[xx]` | [documented: Sv Replace] |
-| 02_edit | `replace.empty_old` | `s` | observe | — |
-| 02_edit | `insert.start` | `s` | `[Hello]` | [documented: Sv Insert] |
-| 02_edit | `insert.end` | `s` | observe (Hello expected by analogy) | — |
-| 02_edit | `insert.past_end` | `s` | observe | — |
-| 02_edit | `erase.count` | `s` | `[adef]` | [documented: Sv Erase] |
-| 02_edit | `erase.to_end` | `s` | `[ab]` | [documented: Sv Erase] |
-| 02_edit | `erase.past_end` | `s` | observe | — |
-| 02_edit | `substring` | `Sv_SubString s, 1, 3` | `[bcd]` | [documented: Sv SubString] |
-| 02_edit | `slice.inclusive` | `s[1:3]` | `[bcd]` | [documented: NVSE Expressions; Sv SubString] |
-| 02_edit | `slice.negative` | `s[-3:-1]` | `[def]` | [documented: NVSE Expressions; Sv SubString] |
-| 02_edit | `slice.out_of_range` | `s[4:10]` | observe | — |
-| 02_edit | `subscript` | `s[0]` | `[a]` | [documented: NVSE Expressions] |
-| 02_edit | `getchar` | `Sv_GetChar s, 0` | `65` | [documented: Sv GetChar] |
-| 02_edit | `getchar.out` | `Sv_GetChar s, 9` | observe | — |
-| 03_split_case_compare | `split.size` | `Ar_Size a` | `3` | [documented: Sv Split] |
-| 03_split_case_compare | `split.last` | `a[2]` | `[c]` | [documented: Sv Split] |
-| 03_split_case_compare | `split.keeps_spaces` | `a[1]` | `[ b]` | [documented: Sv Split] |
-| 03_split_case_compare | `split.double` | `Ar_Size a` | observe (2 or 3) | — |
-| 03_split_case_compare | `split.join` | `Ar_Size a` | `3` | [documented: Sv Split] |
-| 03_split_case_compare | `upper` | `sv_ToUpper s` | `[MIX 1!]` | [documented: Sv ToUpper] |
-| 03_split_case_compare | `lower` | `sv_ToLower s` | `[mix 1!]` | [documented: Sv ToLower] |
-| 03_split_case_compare | `upper.source_kept` | `s` | observe (Mix if the source is unchanged) | — |
-| 03_split_case_compare | `percentify` | `sv_Percentify s` | `[50%%]` | [documented: Sv Percentify] |
-| 03_split_case_compare | `compare.equal_nocase` | `Sv_Compare "abc", s` | `0` | [documented: Sv Compare] |
-| 03_split_case_compare | `compare.before` | `Sv_Compare "Beta", s` | `1` | [documented: Sv Compare] |
-| 03_split_case_compare | `compare.after` | `Sv_Compare "Beta", s` | `-1` | [documented: Sv Compare] |
-| 03_split_case_compare | `compare.case_flag` | `Sv_Compare "abc", s, 1` | observe (not 0) | Sv Compare |
-| 03_split_case_compare | `eq.case` | `s == "ABC"` | observe | — |
-| 03_split_case_compare | `lt.nocase` | `s < "Banana"` | `1` | [documented: NVSE Expressions] |
-| 03_split_case_compare | `concat` | `s + "c"` | `[abc]` | [documented: NVSE Expressions; Let] |
-| 04_convert | `tostring.int` | `$i` | observe (the text form of a whole number) | — |
-| 04_convert | `tostring.float` | `$f` | observe (decimals shown) | — |
-| 04_convert | `tostring.neg` | `$f` | observe | — |
-| 04_convert | `tostring.form` | `$r` | observe (the player's name in this save) | ToString |
-| 04_convert | `tostring.unset_ref` | `$r` | observe | — |
-| 04_convert | `tonumber.int` | `#s` | `1969` | [documented: ToNumber] |
-| 04_convert | `tonumber.float` | `#s` | `3.14` | [documented: ToNumber] |
-| 04_convert | `tonumber.hex_prefix` | `ToNumber s` | `31` | [documented: ToNumber] |
-| 04_convert | `tonumber.hex_flag` | `ToNumber s, 1` | `31` | [documented: ToNumber] |
-| 04_convert | `tonumber.bad` | `#s` | observe | — |
-| 04_convert | `tonumber.empty` | `#s` | observe | — |
-| 04_convert | `tonumber.trailing` | `#s` | observe | — |
-| 04_convert | `tonumeric.neg` | `Sv_ToNumeric s` | `-55` | [documented: Sv ToNumeric] |
-| 04_convert | `tonumeric.stops` | `Sv_ToNumeric s` | `12` | [documented: Sv ToNumeric] |
-| 04_convert | `tonumeric.exponent` | `Sv_ToNumeric s` | `1000` | [documented: Sv ToNumeric] |
-| 04_convert | `tonumeric.none` | `Sv_ToNumeric s` | observe | — |
+| 01_length_find | `len.basic` | `Sv_Length sS` | `5` | [documented: Sv Length] |
+| 01_length_find | `len.empty` | `Sv_Length sS` | observe | — |
+| 01_length_find | `len.destructed` | `Sv_Length sS` | observe (-1 for an invalid string is documented; is a destructed one invalid?) | Sv Length |
+| 01_length_find | `find.first` | `Sv_Find "e", sS` | `1` | [documented: Sv Find] |
+| 01_length_find | `find.nocase` | `Sv_Find "hello", sS` | `0` | [documented: Sv Find] |
+| 01_length_find | `find.case_flag` | `Sv_Find "hello", sS, 0, 11, 1` | `-1` | [documented: Sv Find] |
+| 01_length_find | `find.missing` | `Sv_Find "xyz", sS` | `-1` | [documented: Sv Find] |
+| 01_length_find | `find.range` | `Sv_Find "e", sS, 5, 6` | observe (8 if counted from the string start, 3 from the range start) | — |
+| 01_length_find | `count.basic` | `Sv_Count "l", sS` | `2` | [documented: Sv Count] |
+| 01_length_find | `count.in_word` | `Sv_Count "the", sS` | `2` | [documented: Sv Count] |
+| 01_length_find | `count.overlap` | `Sv_Count "aa", sS` | observe (2 or 3) | — |
+| 02_edit | `replace.count` | `Sv_Replace "-\|+", sS` | `2` | [documented: Sv Replace] |
+| 02_edit | `replace.result` | `sS` | `[a+b+c]` | [documented: Sv Replace] |
+| 02_edit | `replace.max1` | `sS` | `[a+b-c]` | [documented: Sv Replace] |
+| 02_edit | `replace.nocase` | `sS` | `[xx]` | [documented: Sv Replace] |
+| 02_edit | `replace.empty_old` | `sS` | observe | — |
+| 02_edit | `insert.start` | `sS` | `[Hello]` | [documented: Sv Insert] |
+| 02_edit | `insert.end` | `sS` | observe (Hello expected by analogy) | — |
+| 02_edit | `insert.past_end` | `sS` | observe | — |
+| 02_edit | `erase.count` | `sS` | `[adef]` | [documented: Sv Erase] |
+| 02_edit | `erase.to_end` | `sS` | `[ab]` | [documented: Sv Erase] |
+| 02_edit | `erase.past_end` | `sS` | observe | — |
+| 02_edit | `substring` | `Sv_SubString sS, 1, 3` | `[bcd]` | [documented: Sv SubString] |
+| 02_edit | `slice.inclusive` | `sS[1:3]` | `[bcd]` | [documented: NVSE Expressions; Sv SubString] |
+| 02_edit | `slice.negative` | `sS[-3:-1]` | `[def]` | [documented: NVSE Expressions; Sv SubString] |
+| 02_edit | `slice.out_of_range` | `sS[4:10]` | observe | — |
+| 02_edit | `subscript` | `sS[0]` | `[a]` | [documented: NVSE Expressions] |
+| 02_edit | `getchar` | `Sv_GetChar sS, 0` | `65` | [documented: Sv GetChar] |
+| 02_edit | `getchar.out` | `Sv_GetChar sS, 9` | observe | — |
+| 03_split_case_compare | `split.size` | `Ar_Size aA` | `3` | [documented: Sv Split] |
+| 03_split_case_compare | `split.last` | `aA[2]` | `[c]` | [documented: Sv Split] |
+| 03_split_case_compare | `split.keeps_spaces` | `aA[1]` | `[ b]` | [documented: Sv Split] |
+| 03_split_case_compare | `split.double` | `Ar_Size aA` | observe (2 or 3) | — |
+| 03_split_case_compare | `split.join` | `Ar_Size aA` | `3` | [documented: Sv Split] |
+| 03_split_case_compare | `upper` | `sv_ToUpper sS` | `[MIX 1!]` | [documented: Sv ToUpper] |
+| 03_split_case_compare | `lower` | `sv_ToLower sS` | `[mix 1!]` | [documented: Sv ToLower] |
+| 03_split_case_compare | `upper.source_kept` | `sS` | observe (Mix if the source is unchanged) | — |
+| 03_split_case_compare | `percentify` | `sv_Percentify sS` | `[50%%]` | [documented: Sv Percentify] |
+| 03_split_case_compare | `compare.equal_nocase` | `Sv_Compare "abc", sS` | `0` | [documented: Sv Compare] |
+| 03_split_case_compare | `compare.before` | `Sv_Compare "Beta", sS` | `1` | [documented: Sv Compare] |
+| 03_split_case_compare | `compare.after` | `Sv_Compare "Beta", sS` | `-1` | [documented: Sv Compare] |
+| 03_split_case_compare | `compare.case_flag` | `Sv_Compare "abc", sS, 1` | observe (not 0) | Sv Compare |
+| 03_split_case_compare | `eq.case` | `sS == "ABC"` | observe | — |
+| 03_split_case_compare | `lt.nocase` | `sS < "Banana"` | `1` | [documented: NVSE Expressions] |
+| 03_split_case_compare | `concat` | `sS + "c"` | `[abc]` | [documented: NVSE Expressions; Let] |
+| 04_convert | `tostring.int` | `$iI` | observe (the text form of a whole number) | — |
+| 04_convert | `tostring.float` | `$fF` | observe (decimals shown) | — |
+| 04_convert | `tostring.neg` | `$fF` | observe | — |
+| 04_convert | `tostring.form` | `$rRef` | observe (the player's name in this save) | ToString |
+| 04_convert | `tostring.unset_ref` | `$rRef` | observe | — |
+| 04_convert | `tonumber.int` | `#sS` | `1969` | [documented: ToNumber] |
+| 04_convert | `tonumber.float` | `#sS` | `3.14` | [documented: ToNumber] |
+| 04_convert | `tonumber.hex_prefix` | `ToNumber sS` | `31` | [documented: ToNumber] |
+| 04_convert | `tonumber.hex_flag` | `ToNumber sS, 1` | `31` | [documented: ToNumber] |
+| 04_convert | `tonumber.bad` | `#sS` | observe | — |
+| 04_convert | `tonumber.empty` | `#sS` | observe | — |
+| 04_convert | `tonumber.trailing` | `#sS` | observe | — |
+| 04_convert | `tonumeric.neg` | `Sv_ToNumeric sS` | `-55` | [documented: Sv ToNumeric] |
+| 04_convert | `tonumeric.stops` | `Sv_ToNumeric sS` | `12` | [documented: Sv ToNumeric] |
+| 04_convert | `tonumeric.exponent` | `Sv_ToNumeric sS` | `1000` | [documented: Sv ToNumeric] |
+| 04_convert | `tonumeric.none` | `Sv_ToNumeric sS` | observe | — |
 | 04_convert | `hex.width` | `NumToHex 42, 2` | `[2A]` | [documented: NumToHex] |
 | 04_convert | `hex.default_width` | `NumToHex 42` | `[0000002A]` | [documented: NumToHex] |
 | 04_convert | `hex.widened` | `NumToHex 255, 1` | `[FF]` | [documented: NumToHex] |
 | 04_convert | `hex.prefix` | `NumToHex 42, 2, 1` | `[0x2A]` | [documented: NumToHex (xNVSE 6.2.9)] |
 | 04_convert | `hex.over8` | `NumToHex 42, 10` | observe (at most 8 wide is documented) | NumToHex |
 | 04_convert | `hex.negative` | `NumToHex -1` | observe | — |
-| 04_convert | `formid.player` | `GetFormIDString r` | observe (form ID 14; padding and case open) | GetFormIDString |
+| 04_convert | `formid.player` | `GetFormIDString rRef` | observe (form ID 14; padding and case open) | GetFormIDString |
