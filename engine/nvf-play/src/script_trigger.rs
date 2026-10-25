@@ -32,7 +32,8 @@
 //!   physics capsule and `fnv_phys::CharacterParams::default()` × the reference's scale
 //!   for other actors].
 //! - **When**: OnTriggerEnter once on the frame an actor first touches the volume, then
-//!   OnTrigger every frame it touches it, **the entering frame included, after
+//!   OnTrigger every frame it touches it (a frame's OnTrigger runs are the script's
+//!   per-frame run for GetSecondsPassed, `Game::trigger_frame`), **the entering frame included, after
 //!   OnTriggerEnter** [documented: OnTrigger every frame inside, T3; hypothesis: the order
 //!   on the entering frame, open in game, level-design.md §13 question 2]; OnTriggerLeave
 //!   once on the first frame it no longer does. A trigger that is disabled, or whose cell
@@ -213,6 +214,12 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     for &(t, a) in &ch.entered {
         bevy::log::info!("script: {} entered trigger {}", who(g, a), g.data.name(t));
         g.ref_event(t, event::ON_TRIGGER_ENTER, Some(Value::Ref(a.0)), Some(a));
+    }
+    // Each trigger's OnTrigger is its script's run for this frame, once however many
+    // actors are inside (`Game::trigger_frame`: GetSecondsPassed counts from it).
+    let running: BTreeSet<FormId> = ch.inside.iter().map(|&(t, _)| t).collect();
+    for &t in &running {
+        g.trigger_frame(t);
     }
     for &(t, a) in &ch.inside {
         g.ref_event(t, event::ON_TRIGGER, Some(Value::Ref(a.0)), Some(a));
