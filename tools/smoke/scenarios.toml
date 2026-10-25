@@ -914,7 +914,7 @@ name = "combat-violet"
 launch = "violet"
 source = "CLAUDE.md: after combat AI changes, the first check of docs/design/combat-ai.md §7"
 areas = ["combat"]
-paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/attack_anims.rs"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/residents.rs", "crates/fnv-actor/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 45
@@ -924,7 +924,11 @@ expect = [
   "shots are drawn from its weapon's muzzle",
   { re = 'attack anims summary.*2hrattack3\.kf', known_failing = "claude/playtest-combat 2026-10-12, by design: Violet stops about 1,600 units off, beyond 20 m, so every shot is aimed down the sights and plays the iron-sights clip (attack anims summary: 2hrattack3is.kf 13); the owner's playtest list items 32-33, combat-ai.md §10.6. combat-sights checks both clips" },
   { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'", known_failing = "main fea339c 2026-10-15, 3 of 3 runs: 8 hits; cause not looked at (her run to cover, the mark above, leaves less time to shoot)" },
+  { re = 'npc combat facing: .*? (?P<n>\d+) frames a person was locked on its target', range = [200, 100000], label = "she is locked on the player while she sees it (owner 2026-10-25, combat-ai.md §22)" },
+  { re = 'npc combat facing: .*locked on its target, its body off it .*over 10° in (?P<n>\d+)', range = [0, 0], label = "never more than 10° off the player while she sees it (the original: within 1.5°, ai-observer.md §15)" },
+  { re = 'locomotion: \S+ 000F570B 1EFiendViolet 2hr Left plays \S*h2hleft\.kf', label = "walking left with her rifle she side-steps as the fists do, body square (combat-ai.md §22)" },
 ]
+forbid = [{ re = 'locomotion: \S+ 000F570B 1EFiendViolet 2hr (Fast)?Left plays \S*mt(fast)?left\.kf', label = "the unarmed walk left, which turns her side-on to the player (owner's video 2026-10-25)" }]
 
 [[scenario]]
 name = "combat-dogs"
@@ -3788,6 +3792,8 @@ expect = [
   { re = 'battle summary: .*?(?P<n>\d+) fights started by a hit between actors', range = [1, 1000], label = "fights started by a hit between actors (NPC against NPC)" },
   { re = 'fight move summary: .* moved [\d.]+ s forward, (?P<n>[\d.]+) s sideways', range = [5, 100000], label = "fighters strafe, facing their target (owner 2026-10-16)" },
   { re = 'attack anims summary: .* (?P<n>\d+) shots followed a shot still shown', range = [5, 1000000], label = "shots follow on from the last one held over the fighters' movement (owner 2026-10-19: shooting takes priority)" },
+  { re = 'npc combat facing: \d+ shots, off their target .*?over 10° in (?P<n>\d+);', range = [0, 0], label = "no shot fired more than 10° off the target (combat-ai.md §22)" },
+  { re = 'npc combat facing: .*locked on its target, its body off it .*over 10° in (?P<n>\d+)', range = [0, 0], label = "fighters stay locked on a target in sight, never more than 10° off it (owner 2026-10-25)" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
