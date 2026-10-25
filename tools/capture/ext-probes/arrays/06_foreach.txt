@@ -1,0 +1,63 @@
+scn ExtProbeArrays06
+; foreach over arrays, maps, strings; break; erasing while iterating (tools/capture/ext-probes/arrays/README.md)
+array_var a
+array_var b
+array_var c
+array_var d
+array_var e
+string_var s
+string_var t
+int r
+int iDone
+array_var x
+array_var y
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|arrays/06_foreach|begin"
+    let a := Ar_Null
+    let a := Ar_Map 5::1, 2::1
+    let r := 0
+    foreach e <- a
+        let r := r * 10 + e["key"]
+    loop
+    Print "EXTPROBE|foreach.keys|" + $(r)
+    let a := Ar_Null
+    let s := "abc"
+    let r := 0
+    foreach t <- s
+        let r += 1
+    loop
+    Print "EXTPROBE|foreach.string|" + $(r)
+    let a := Ar_Null
+    let a := Ar_List 1, 2, 3, 4
+    let r := 0
+    foreach e <- a
+        if eval *e == 3
+            break
+        endif
+        let r += *e
+    loop
+    Print "EXTPROBE|foreach.break|" + $(r)
+    let a := Ar_Null
+    let a := Ar_List 1, 2, 3, 4
+    let r := 0
+    foreach e <- a
+        let r += 1
+        Ar_Erase a, e["key"]
+    loop
+    Print "EXTPROBE|foreach.erase_current|" + $(r)
+    let a := Ar_Null
+    let a := Ar_List 1, 2
+    let r := 0
+    foreach e <- a
+        let r += 1
+        if eval r < 5
+            Ar_Append a, 9
+        endif
+    loop
+    Print "EXTPROBE|foreach.append|" + $(r)
+    Print "EXTPROBE|arrays/06_foreach|end"
+End
