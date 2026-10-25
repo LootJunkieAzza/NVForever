@@ -20,11 +20,12 @@
 //!   and ends when it is unequipped or leaves the inventory.
 //! - Effects of abilities and worn enchantments whose conditions fail stay listed but
 //!   inactive (no value change, no script) and their conditions are checked again
-//!   every second ([`Game::recheck_conditions`]). So are those of every other listed
-//!   effect with conditions (a spell's that passed when it was cast): the masters'
-//!   `PlayerConcussed`, which `GenericScript` keeps on the player for ten years, takes
-//!   Perception only while the head is crippled [hypothesis: as the abilities';
-//!   docs/spec-notes/crippled-limbs.md §2].
+//!   every second ([`Game::recheck_conditions`]). So are those of a spell's effects that
+//!   last (a duration above 0), whether their conditions passed when it was cast or not;
+//!   an instant one that fails is dropped: the masters' `PlayerConcussed`, which
+//!   `GenericScript` casts on the player while the head is whole and keeps on for ten
+//!   years, takes Perception only while the head is crippled [hypothesis: as the
+//!   abilities'; docs/spec-notes/crippled-limbs.md §2].
 
 use crate::game::Game;
 use fnv_sim::FormId;
