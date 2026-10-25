@@ -8357,12 +8357,22 @@ guards on DefaultGuardNPC and the Nellis Boomer tower guards. Spec: [packages §
 The original game, observed (idles.md §14.3): a warning gecko stops, faces you and draws
 and puts away its stance every 2 s (the hiss you saw), never "alerted"; it attacks about
 15 s after it starts warning if you stay; inside about half its radius it attacks at once.
-NVForever now does the same (it waited 10 s and held its stance drawn before).
+NVForever now does the same timing (it waited 10 s before); the cycle was replaced by draw and hold on 2026-10-25 (below).
 
 - *Guess:* the 15 s as two warnings 5 s apart and the attack 10 s after the second.
 - *Guess:* half the radius for the attack without warning (seen at 196 and 246 of 500).
-- *Guess:* the stance stays drawn for the first second of each 2 s cycle.
 - *Seen in Gomorrah:* the cash-room guard warned from his own 128-unit aggro radius, gun
-  drawn and holstered in turn every 2.5 s (people do this now too), and fought after 21 s.
+  drawn and holstered in turn every 2.5 s, and fought after 21 s (NVForever: draw and hold, below).
 - *Open:* Guard packages' own warnings were not seen in the original (the door test came
   out empty); they stay a guess from the wiki's Guard package summary.
+
+
+## Warnings: draw and hold, a line per warning (2026-10-25, owner, branch claude/aggro-warning-look)
+
+You judged the original's draw-and-holster cycle an unintended quirk. A warning actor now
+draws once and holds its weapon (a creature its stance, the gecko's hiss) and says a
+GuardTrespass line at each warning: the Detection lines' 15 s cooldown no longer silences
+the second warning. Smoke `warning-guard-draws` (Gomorrah's cash-room guard) and
+`aggro-warning-look` (a young gecko).
+
+- *Check:* a Gomorrah or Goodsprings warning: two different lines 5 s apart, weapon held.

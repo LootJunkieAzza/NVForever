@@ -761,14 +761,15 @@ plugin; the player put at a distance and left there):
   seconds (16.7 s).
 - A Young Gecko (radius 500) detecting the player first at 196 units attacked in the
   same sample, with no warning.
-- Built: the cycle (`creature_stance.rs`, 2 s, drawn the first second [hypothesis]), the
-  15 s and the half-radius attack (`fnv_game::aggro`, "The timing").
+- Built: the 15 s and the half-radius attack (`fnv_game::aggro`, "The timing"). Not the
+  cycle: the owner judged it an unintended quirk of the original (2026-10-25); a warning
+  creature draws its stance once and holds it (`creature_stance.rs`).
 
 Gomorrah sessions (same day): the cash-room guard 0x00127950, aggro radius 128 of his own,
 warned a player 66-85 units from him the same way: a run-time Guard package (type 35,
 procedure 44), faced the player, drew and holstered his gun every 2.5 s (IsWeaponOut,
 GetAnimAction 0 / 1), GetIsAlerted 0, and fought 21 s later. A player 129-135 from him
 (24-33 from the door his Guard package guards) got a brief run-time Follow package and a
-turn of his head, no warning. Built for people: `alert.rs`, the weapon drawn and holstered
-in turn every 2.5 s while warning. The bouncer sessions saw nothing (no detection; the
+turn of his head, no warning. For people too the owner chose draw and hold over the cycle
+(2026-10-25, `alert.rs`); they say their GuardTrespass line at each warning. The bouncer sessions saw nothing (no detection; the
 player was moved away by something in Gomorrah).

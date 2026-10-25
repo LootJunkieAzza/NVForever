@@ -19,10 +19,11 @@
 //!   `fnv_actor::weapon::WeaponAnim`, as for people's weapons (`weapons.rs`), on the same
 //!   blend layers 2 and 3 (a creature has no `WeaponHold`).
 //! - **When**: `fnv_game` says the creature is alerted (a combat state, SetAlert), as
-//!   `alert.rs` draws people's weapons. Warning the player (`Game::warning_to`, not
-//!   alerted) it draws the stance and puts it away again every [`WARN_CYCLE_SECONDS`]:
-//!   the original's warning gecko did, and its draw clip is the hiss the owner saw
-//!   (2026-10-24).
+//!   `alert.rs` draws people's weapons; and while it warns the player
+//!   (`Game::warning_to`, not alerted), drawn once and held [owner decision 2026-10-25:
+//!   the original's warning gecko drew and put away its stance every 2 s (capture
+//!   `warnings`, idles.md §14.3), which looks like an unintended quirk; draw and hold
+//!   instead]. The draw clip is the gecko's hiss.
 //! - Attacks (`attack_anims.rs`) play over the aim on layers 4 and 5 and are found as
 //!   before: a creature with a stance still has no `WeaponHold`.
 
@@ -70,24 +71,12 @@ pub struct CreatureStance {
     logged: Stage,
     /// What the creature does with its stance, last logged.
     mode: Mode,
-    /// Seconds into the warning's draw cycle.
-    cycle: f32,
 }
-
-/// Seconds from one draw of a warning creature's stance to the next [observed: the
-/// original's Young Gecko Hunter 0x00165186 had its weapon out every 0.0167 game hours,
-/// 60 game seconds, 2 s at TimeScale 30, GetAnimAction cycling 0 equip / 1 unequip;
-/// capture `warnings` gecko_stay_400, 2026-10-24; the owner saw it hiss].
-pub const WARN_CYCLE_SECONDS: f32 = 2.0;
-
-/// Of the cycle, the seconds the stance is wanted drawn; then it is put away [hypothesis:
-/// how long it stays out was not sampled finely enough].
-pub const WARN_DRAWN_SECONDS: f32 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Calm,
-    /// Warning the player: drawn and put away again in a cycle (module notes).
+    /// Warning the player: drawn and held (module notes).
     Warning,
     Alerted,
 }
@@ -176,7 +165,7 @@ fn attach(
         });
         match found.flatten() {
             Some(clips) => {
-                commands.entity(e).insert(CreatureStance { clips, anim: WeaponAnim::new(false), drawn: false, logged: Stage::Holstered, mode: Mode::Calm, cycle: 0.0 });
+                commands.entity(e).insert(CreatureStance { clips, anim: WeaponAnim::new(false), drawn: false, logged: Stage::Holstered, mode: Mode::Calm });
             }
             None => {
                 commands.entity(e).insert(NoStance);
@@ -185,9 +174,9 @@ fn attach(
     }
 }
 
-/// Draw the stance of alerted creatures, put it away when they are calm, draw and put it
-/// away in a cycle while they warn the player; log each change.
-fn alerted(script: Option<Res<ScriptState>>, time: Res<Time>, mut q: Query<(&ActorRig, &mut CreatureStance, Option<&Name>), Without<Dying>>) {
+/// Draw the stance of alerted creatures and of those warning the player, put it away when
+/// they are calm; log each change.
+fn alerted(script: Option<Res<ScriptState>>, mut q: Query<(&ActorRig, &mut CreatureStance, Option<&Name>), Without<Dying>>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     for (rig, mut s, name) in &mut q {
         let id = FormId(rig.reference);
@@ -202,27 +191,16 @@ fn alerted(script: Option<Res<ScriptState>>, time: Res<Time>, mut q: Query<(&Act
         };
         if mode != s.mode {
             s.mode = mode;
-            s.cycle = 0.0;
             info!("creature stance: {} {}", label(), match mode {
                 Mode::Alerted => "draws (alerted)",
-                Mode::Warning => "draws and puts away in turn (warning the player)",
+                Mode::Warning => "draws (warning the player)",
                 Mode::Calm => "puts away (calm)",
             });
         }
-        s.drawn = match mode {
-            Mode::Alerted => true,
-            Mode::Calm => false,
-            Mode::Warning => {
-                s.cycle = (s.cycle + time.delta_secs()) % WARN_CYCLE_SECONDS;
-                s.cycle < WARN_DRAWN_SECONDS
-            }
-        };
-        // The warning's cycle is logged once, by its mode, not stage by stage.
+        s.drawn = mode != Mode::Calm;
         if s.anim.stage != s.logged {
             s.logged = s.anim.stage;
-            if s.mode != Mode::Warning {
-                info!("creature stance: {} {:?}", label(), s.logged);
-            }
+            info!("creature stance: {} {:?}", label(), s.logged);
         }
     }
 }
@@ -244,7 +222,7 @@ mod tests {
         let f = |duration: f32| ClipFacts { duration, blend_time: 0.2, prn: Vec::new(), switch: None };
         let facts = StanceFacts::from([(EquipClip::Equip, f(1.0)), (EquipClip::Aim, f(2.0)), (EquipClip::Unequip, f(1.0))]);
         let clips = Arc::new(CreatureClips { clips: BTreeMap::new(), facts });
-        let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered, mode: Mode::Calm, cycle: 0.0 };
+        let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered, mode: Mode::Calm };
         let mut stages = vec![s.anim.stage];
         for i in 0..300 {
             s.drawn = i < 150;

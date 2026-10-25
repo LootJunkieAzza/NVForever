@@ -808,7 +808,10 @@ impl Game<'_> {
     /// conditions' target), when the load order has the topic, the actor is not already
     /// speaking and no conversation or menu holds the game [documented: Detection Tab],
     /// and neither it nor a member of its group near it has said a line of the same kind
-    /// within the cooldown ([`Timers::bark_cooldown`], [`Game::bark_mates`]).
+    /// within the cooldown ([`Timers::bark_cooldown`], [`Game::bark_mates`]). A warning
+    /// (GuardTrespass) has no cooldown: each of the warnings, `fAITrespassWarningTimer`
+    /// apart, is said (`crate::aggro`, `crate::crime`) [design: the 15 s cooldown kept the
+    /// second warning silent].
     pub fn detection_bark(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) {
         if self.menu.is_some() || self.dialogue.is_some() || self.is_talking(actor) {
             return;
@@ -821,7 +824,8 @@ impl Game<'_> {
         let at = position(self, actor);
         self.awareness.said.retain(|s| now - s.time < cooldown);
         let said = self.awareness.said.clone();
-        if let Some(by) = held_back_by(&said, kind, at, |other| self.bark_mates(actor, other)) {
+        let warning = topic == "GuardTrespass";
+        if let Some(by) = held_back_by(&said, kind, at, |other| self.bark_mates(actor, other)).filter(|_| !warning) {
             self.awareness.held_back.push((topic, actor, by));
             return;
         }
