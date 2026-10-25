@@ -90,7 +90,9 @@ pub fn adapt_speed(eye_adapt_speed: f32) -> f32 {
     if eye_adapt_speed <= 0.0 {
         return INSTANT_ADAPT_SPEED;
     }
-    (ADAPT_SPEED * eye_adapt_speed / BASE_EYE_ADAPT_SPEED).clamp(SLOWEST_ADAPT_SPEED, INSTANT_ADAPT_SPEED)
+    // The ratio first, so the base speed gives ADAPT_SPEED exactly (3 × 0.9 / 0.9 rounds to
+    // 2.9999998 in f32).
+    (ADAPT_SPEED * (eye_adapt_speed / BASE_EYE_ADAPT_SPEED)).clamp(SLOWEST_ADAPT_SPEED, INSTANT_ADAPT_SPEED)
 }
 
 /// The exposure change, in EV, of image space modifiers that multiply Target LUM by
