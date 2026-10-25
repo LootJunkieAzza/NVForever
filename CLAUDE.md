@@ -3,16 +3,16 @@
 NVForever is an open-source, clean-room reimplementation of the Fallout: New Vegas engine
 (OpenMW-style). The owner wants sessions to work autonomously, including pushing.
 
-The owner's playtest lists (all merged) and what is left after them are in
-`docs/handoff/playtest-2026-10-12.md` (lists 1-3), `playtest-list-4.md` and `playtest-list-5.md`
-(each with an Outcome section); the state of every system is in `docs/status.md`. The queue of
-work that needs nothing from the owner, done one item at a time: `docs/handoff/queue-2026-10-20.md`.
-What is left after that queue and the ESM gap audit: `docs/handoff/handover-2026-10-21.md`,
-updated after audit groups 1–4 by `docs/handoff/handover-2026-10-22.md`. **Read first**: the
-code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion, playthrough
-blockers, stale docs; its §7 is the ranked next work) and the owner's `playtest-list-7.md`.
-What ESM data the engine still does nothing with, and the docs that no longer match the code:
-`docs/handoff/esm-audit-2026-10-25.md`.
+The state of every system is in `docs/status.md`; the open gameplay decisions for the owner
+are in `docs/owner-review.md` (a short ranked list: add a bullet, never a running log), the
+questions the original game can answer in `docs/handoff/observer-checks.md`. **Read first**:
+the code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion,
+playthrough blockers; its 2026-10-25 note and §7 say what is still open: the main-quest
+walkthroughs, the Hoover Dam load test, a recorded parity-lab run) and the owner's
+`playtest-list-7.md`. What ESM data the engine still does nothing with:
+`docs/handoff/esm-audit-2026-10-25.md`. Finished, kept for their Outcome sections and
+history only: playtest lists 1-5 (`playtest-2026-10-12.md`, `playtest-list-4.md`,
+`playtest-list-5.md`), the queue `queue-2026-10-20.md` and the handovers of 2026-10-21/22.
 Script extender compatibility (xNVSE, JIP LN, JohnnyGuitar as engine code, no DLLs, no
 extender source read): `docs/design/extender-compat.md`, core tasks in
 `docs/handoff/extender-core-tasks.md`.

@@ -9,6 +9,18 @@ events, a main-quest walk, stale documents, test health, and the other systems, 
 add-ons. Nothing was run in the game. Tags: [observed] = read in code, data or logs;
 [documented] = from a named doc; [hypothesis] = a guess.
 
+> **State on 2026-10-25 (main at #799).** Struck through below where later PRs closed an
+> item. Closed since this audit: the event blocks and script unlocks (#632), NPC door
+> OnActivate (#729), the non-combat perk entry points (#672, #674, #680, #685, #692, #701,
+> #715), the embedded creature weapons (esm-audit-2026-10-25 row 14), AI progress in saves
+> (patrol points and sandbox days, #730), the credits (#750), NPC grenades (#739),
+> dismemberment by blasts and NPC blows (#748), the *Response combat lines (#734), the
+> package behaviours (#757), companion perks (#715) and light colour controllers (#658).
+> Still open from §7: the headless main-quest walkthroughs (3), the Hoover Dam load test
+> (6), melee VATS specials (8, now an owner question: owner-review.md item 31), a recorded
+> full parity-lab run (9) and the documentation sweep (10, partly done 2026-10-25). The
+> smoke runner has 553 scenarios (431 here).
+
 ## 1. The answer in short
 
 - **Every layer has code, and every function the shipped scripts call is registered**
@@ -33,13 +45,13 @@ add-ons. Nothing was run in the game. Tags: [observed] = read in code, data or l
      is never called outside tests. Escort and travel packages through quest-unlocked doors
      may be set aside as unreachable. `VMQYesMan01MoveToTerminal` already shows as
      unreachable [observed].
-  3. **About 38 perk entry points are never evaluated**, so those perks can be taken and do
+  3. ~~**About 38 perk entry points are never evaluated**~~ (*built 2026-10-24/25, #672–#715; perk-entry-points.md §7–§14*), so those perks can be taken and do
      nothing. Among them are Light Step, Computer Whiz, Infiltrator, Hoarder, Pack Rat,
      Travel Light, Living Anatomy, Jury Rigging, Mysterious Stranger, Miss Fortune,
      Meltdown, Better Healing, Silent Running and Concentrated Fire (§2.2) [observed].
   4. **Melee and unarmed VATS specials are missing**: WEAP VATS/VANM (Mauler, Lights Out,
      Grand Slam) are unread [observed].
-  5. **A creature's built-in weapon survives the limb that carries it being crippled**:
+  5. ~~**A creature's built-in weapon survives the limb that carries it being crippled**~~ (*built: esm-audit-2026-10-25 row 14, `fnv-combat` data.rs*):
      WEAP DNAM embedded-weapon actor value (70 weapons) is unread [observed].
 - **The verification baseline is stale**: the last full parity-lab run (2026-10-19,
   372/387, 0 regressions) is recorded in no document, 531 commits ago. About a quarter of
@@ -182,7 +194,7 @@ scenarios [observed].
 | Legion path (Cottonwood Cove, the Fort's confiscation, arena) | **Untested** | — |
 | Hoover Dam (vHDBattleController, ~300 named actors) | **Untested; performance unmeasured** | — |
 | End slides (VEndingScript, NarratorScript, SwapTexture) | Built, never run | — |
-| Credits | **Missing** | gap-audit S3 |
+| Credits | ~~Missing~~ Built 2026-10-25 (#750), never run at the end of a playthrough | gap-audit S3 |
 | Add-ons (DM, HH, OWB, LR, GRA) | Every called function registered; no quest played. HH Prisoners of War stalls (OnOpen) | — |
 
 ### 4.1 Blockers, ranked
@@ -197,12 +209,12 @@ Hard means the player cannot progress; soft means play degrades.
    through unlocked doors).
 4. **Hoover Dam scale** (possibly hard: frame rate or stalls). REPCONN with 26 actors
    already takes 15–29 ms a frame; meshes are drawn one draw call each; teleports hitch ~1 s.
-5. **NPCs at scripted doors skip OnActivate** (soft to hard: 67 scripts, finale doors among
+5. ~~**NPCs at scripted doors skip OnActivate**~~ (*done, #729*) (soft to hard: 67 scripts, finale doors among
    them).
-6. **Saves drop AI progress** (soft: a save mid-scene, during Kimball's speech or the
+6. ~~**Saves drop AI progress**~~ (*patrol points and sandbox days kept since #730*) (soft: a save mid-scene, during Kimball's speech or the
    battle, may leave actors out of step). The longest saves on this machine hold under 15
    minutes of play; one frozen load is unexplained (save-load.md §6).
-7. **Ending**: slides never run; no credits (soft).
+7. **Ending**: slides never run; ~~no credits~~ (credits built, #750) (soft).
 8. **Perks that do nothing; no melee VATS specials; no original VATS** (soft but widely
    noticed).
 9. **Companions**: perks on NPCs fail, no Hardcore ammo use, ED-E crafts at the player's
@@ -273,12 +285,12 @@ tools; point CLAUDE.md at this file, gap-audit §7 and playtest list 7.
    `walkthrough/intro.actions.json` for each main-quest chain, then one smoke scenario per
    milestone: the Strip gate, the Lucky 38 elevator, the Fort's confiscation, the Hoover
    Dam panel, VEnding. This turns "untested" into a list.
-4. **NPC door OnActivate** (gap-audit S2).
-5. **The non-combat perk entry points** (Light Step, Computer Whiz, Infiltrator, Pack Rat,
-   Hoarder, Travel Light, Living Anatomy, Jury Rigging …).
+4. ~~**NPC door OnActivate** (gap-audit S2)~~ (done 2026-10-25, #729).
+5. ~~**The non-combat perk entry points** (Light Step, Computer Whiz, Infiltrator, Pack Rat,
+   Hoarder, Travel Light, Living Anatomy, Jury Rigging …)~~ (done 2026-10-24/25, #672–#715).
 6. **Hoover Dam load test** with the stress tools; renderer batching.
-7. **AI progress in saves.**
-8. **Melee VATS specials and embedded creature weapons** (WEAP VATS/VANM, DNAM).
+7. ~~**AI progress in saves.**~~ (done 2026-10-25 for patrol points and sandbox days, #730; the rest starts again from the packages, save-load.md §5)
+8. **Melee VATS specials** (WEAP VATS/VANM; now owner-review.md item 31) ~~and embedded creature weapons (DNAM)~~ (built).
 9. **Run the full parity lab** and record it; explain L5.script.decode 71 vs 44; trace
    skill-books on main.
 10. **Documentation sweep** per §6.
