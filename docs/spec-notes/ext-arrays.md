@@ -2,7 +2,7 @@
 
 Covers `array_var` locals (arrays, maps, string maps), the `ar_*` functions and `foreach`.
 
-Skeleton for task G4 of the extender plan (docs/handoff/extender-core-tasks.md); every behaviour below is **open** until that task fills it.
+Skeleton for task G4 of the extender plan ([extender-core-tasks.md](../handoff/extender-core-tasks.md)); every behaviour below is **open** until that task fills it.
 
 Wiki pages (topic, not one function): `NVSE Expressions`, `ForEach`.
 
@@ -20,7 +20,7 @@ Each entry, once filled, has:
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
 from a cited document or from compiling our own test scripts with xNVSE,
-docs/design/extender-compat.md §4.1).
+[extender-compat.md](../design/extender-compat.md) §4.1).
 
 ## Functions
 

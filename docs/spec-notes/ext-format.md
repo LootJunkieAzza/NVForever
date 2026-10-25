@@ -2,7 +2,7 @@
 
 Covers the `%`-codes that string-building functions expand (numbers, forms, names, strings). The wiki's format specifiers page is not in the private dump yet: the owner adds it to the next `Special:Export`.
 
-Skeleton for task G4 of the extender plan (docs/handoff/extender-core-tasks.md); every behaviour below is **open** until that task fills it.
+Skeleton for task G4 of the extender plan ([extender-core-tasks.md](../handoff/extender-core-tasks.md)); every behaviour below is **open** until that task fills it.
 
 ## Per-entry template
 
@@ -18,8 +18,8 @@ Each entry, once filled, has:
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
 from a cited document or from compiling our own test scripts with xNVSE,
-docs/design/extender-compat.md §4.1).
+[extender-compat.md](../design/extender-compat.md) §4.1).
 
 ## Functions
 
-No catalogue function belongs here; the note covers language and file behaviour. Open.
+No catalogue function belongs here; the note covers language or file behaviour. Open.
