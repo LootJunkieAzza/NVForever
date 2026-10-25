@@ -100,6 +100,7 @@ pub mod sim;
 pub mod space;
 pub mod terminal;
 pub mod tutorial_menu;
+pub mod credits;
 mod test_aid;
 pub mod sfx;
 pub mod sneak_gauges;
@@ -306,6 +307,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
+            .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
             .add_plugins(slots::SlotsPlugin)

@@ -5069,6 +5069,19 @@ run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
 
 [[scenario]]
+name = "end-credits"
+source = "GECK wiki ExitGame: \"plays credits and returns the game to the main menu\" (nvf-play credits.rs): the game's Credits.txt laid out by its own commands and rolled over credits_menu.xml's background (the run ends while they roll: their end starts the program again for the main menu)"
+areas = ["menus"]
+paths = ["engine/nvf-play/src/credits.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_CREDITS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "14:exitgame;14.3:close", NVF_PLAY_TEST_SHOTS = "30:credits.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  "script: ExitGame: the credits, then the main menu",
+  { re = 'credits: rolling (?P<n>\d+) lines and 2 pictures', range = [1000, 2000], label = "the credits' lines and the file's two pictures" },
+]
+
+[[scenario]]
 name = "teammate-perk"
 source = "playtest list 7 item 44 (gap audit 2026-10-23; docs/spec-notes/perk-entry-points.md §6): a perk given to the player's teammates (player.AddPerk CalmHeart 1, Cass's quest reward) gives its ability to a teammate, and the ability ends when the actor leaves the team"
 areas = ["perks", "followers", "scripts"]
