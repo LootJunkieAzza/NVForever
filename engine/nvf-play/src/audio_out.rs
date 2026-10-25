@@ -79,7 +79,7 @@ use std::time::{Duration, Instant};
 use bevy::asset::Asset;
 use bevy::audio::{
     AudioLoader, AudioPlayer, AudioSink, AudioSinkPlayback, AudioSource, Decodable, GlobalVolume, PlaybackMode,
-    PlaybackSettings,
+    PlaybackSettings, Volume,
 };
 use bevy::prelude::*;
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
@@ -278,7 +278,8 @@ impl Source for Gain {
 
 /// A playing sound that ends, instead of taking the audio output thread down with it, when
 /// its decoder panics on a broken part of its file (nvf_assets::guard); every sound
-/// played goes through one.
+/// played goes through one. A sample that is not a number (a garbled float file, a gain
+/// from a broken place) is silence, so it cannot spread through the mix and the reverb.
 struct GuardedSource<S> {
     inner: S,
     dead: bool,
@@ -298,7 +299,7 @@ impl<S: Source> Iterator for GuardedSource<S> {
             return None;
         }
         match nvf_assets::guard::guarded(|| Ok(self.inner.next())) {
-            Ok(s) => s,
+            Ok(s) => s.map(|x| if x.is_finite() { x } else { 0.0 }),
             Err(e) => {
                 warn!("audio output: a sound's file broke while playing ({e}); it stops");
                 self.dead = true;
@@ -526,7 +527,8 @@ fn play_queued<T: Decodable + Asset>(
             sink.mute();
         }
         sink.set_speed(settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps));
-        sink.set_volume(settings.volume * global.volume);
+        // A volume that is not a number would reach the mix after the guard: silence.
+        sink.set_volume(Volume::Linear(Some(settings.volume.to_linear() * global.volume.to_linear()).filter(|v| v.is_finite()).unwrap_or(0.0)));
         if settings.paused {
             sink.pause();
         }

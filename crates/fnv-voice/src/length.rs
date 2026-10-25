@@ -357,4 +357,39 @@ mod tests {
         let half = &f[..44 + 8_000];
         assert!((wav_info(half).unwrap().seconds - 0.5).abs() < 1e-12);
     }
+
+    #[test]
+    fn corrupt_headers_do_not_panic() {
+        // Every cut of an Ogg and a WAV file: an error or a length, no panic.
+        for f in [ogg_vorbis(2, 44_100, 88_200, 3), wav_pcm(2, 22_050, 16, 100)] {
+            for n in 0..f.len() {
+                let _ = sound_info(&f[..n]);
+            }
+        }
+        // Chunk sizes of 4 GB and 0, and a data chunk larger than the file.
+        let mut big = b"RIFF\0\0\0\0WAVEjunk".to_vec();
+        big.extend(u32::MAX.to_le_bytes());
+        assert!(wav_info(&big).is_err());
+        let mut zeros = b"RIFF\0\0\0\0WAVE".to_vec();
+        for _ in 0..1000 {
+            zeros.extend(b"junk\0\0\0\0");
+        }
+        assert!(matches!(wav_info(&zeros), Err(LengthError::Missing(_))));
+        let mut f = wav_pcm(1, 8_000, 16, 10);
+        let data_size = f.len() - 20 - 4;
+        f[data_size..data_size + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(wav_info(&f).unwrap().samples, 10);
+        // Zero rate and zero block align: refused, or measured some other way, never a
+        // division by zero.
+        let mut zero_rate = wav_pcm(1, 8_000, 16, 10);
+        zero_rate[24..28].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(wav_info(&zero_rate), Err(LengthError::ZeroRate));
+        let mut no_align = wav_pcm(1, 8_000, 16, 10);
+        no_align[32..34].copy_from_slice(&0u16.to_le_bytes());
+        assert!(wav_info(&no_align).unwrap().seconds.is_finite());
+        // Garbage after an OggS: refused.
+        let mut garbage = b"OggS".to_vec();
+        garbage.extend((0..4096u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8));
+        assert!(sound_info(&garbage).is_err());
+    }
 }
