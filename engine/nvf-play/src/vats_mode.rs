@@ -195,8 +195,11 @@ pub const HELPER_EYE: f32 = 110.0;
 /// A mark's "x": its size as a share of the screen width, and its colour: the interface's
 /// amber (`crate::interface::AMBER`) lifted [`MARK_LIFT`] of the way to white, so it
 /// stands out on the amber grade [design: the owner's wishes, 2026-10-24, to match the HUD
-/// and then to be brighter; it was a dark red before].
-pub const MARK_SIZE: f32 = 0.019;
+/// and then to be brighter; it was a dark red before; owner 2026-10-25: smaller and thinner
+/// than 0.019 with 22 % bars].
+pub const MARK_SIZE: f32 = 0.013;
+/// Each bar's thickness, a share of the "x"'s size [design].
+const MARK_BAR: f32 = 10.0;
 /// How far the marks' amber is lifted towards white (0 = the HUD's amber) [design].
 const MARK_LIFT: f32 = 0.25;
 const MARK_COLOUR: Color = Color::srgb(lift(crate::interface::AMBER[0]), lift(crate::interface::AMBER[1]), lift(crate::interface::AMBER[2]));
@@ -1392,7 +1395,7 @@ fn spawn_marks(mut commands: Commands) {
             .with_children(|p| {
                 for deg in [45.0f32, -45.0] {
                     p.spawn((
-                        Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(22.0), top: Val::Percent(39.0), ..default() },
+                        Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(MARK_BAR), top: Val::Percent((100.0 - MARK_BAR) / 2.0), ..default() },
                         BackgroundColor(MARK_COLOUR),
                         UiTransform::from_rotation(Rot2::degrees(deg)),
                     ));
