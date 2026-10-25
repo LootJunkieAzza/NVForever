@@ -81,6 +81,11 @@ pub struct Graphics {
     pub bloom: bool,
     /// Light glow from the image space's HDR values (on in vanilla; see the module notes).
     pub glow: bool,
+    /// Eye adaptation on the light glow's HDR view (`eye_adapt.rs`; on in vanilla).
+    pub eye_adaptation: bool,
+    /// The light glow's bright pass where the image space's Bright Scale is high (the
+    /// Strip's neon at night, `post.rs` `BrightPass`; on in vanilla).
+    pub neon_glow: bool,
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
@@ -115,6 +120,8 @@ impl Graphics {
             fine_shadows: on,
             bloom: on,
             glow: true,
+            eye_adaptation: true,
+            neon_glow: true,
             sharpen: on,
             anisotropic: on,
             // Anti-aliasing after the picture is the other choice to multisampling, not
@@ -135,6 +142,8 @@ impl Graphics {
             "fine-shadows" => &mut self.fine_shadows,
             "bloom" => &mut self.bloom,
             "glow" => &mut self.glow,
+            "eye-adaptation" => &mut self.eye_adaptation,
+            "neon-glow" => &mut self.neon_glow,
             "sharpen" => &mut self.sharpen,
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
@@ -155,9 +164,11 @@ impl Graphics {
                 "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
                 "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
                 "no-glow" => g.glow = false,
+                "no-eye-adaptation" => g.eye_adaptation = false,
+                "no-neon-glow" => g.neon_glow = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow", KEYS.join(", "))),
                 },
             }
         }
@@ -171,6 +182,8 @@ impl Graphics {
             (self.fine_shadows, "finer, longer shadows"),
             (self.bloom, "bloom"),
             (self.glow, "light glow"),
+            (self.glow && !self.eye_adaptation, "no eye adaptation"),
+            (self.glow && !self.neon_glow, "no neon glow"),
             (self.sharpen, "sharpening"),
             (self.anisotropic, "16x anisotropic filtering"),
             (self.screen_aa == ScreenAa::Fxaa, "FXAA"),
@@ -470,10 +483,21 @@ fn apply(
         // Bloom adds to it (owner's playtest 2026-10-25: with Bloom on, the Strip's neon
         // had no glow at all).
         if g.glow {
-            // With eye adaptation (eye_adapt.rs), which needs the HDR view.
-            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::BrightPass::default(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(&eye)));
+            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow));
         } else {
-            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::BrightPass, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
+            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
+        }
+        // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
+        // its own switch.
+        if g.glow && g.eye_adaptation {
+            e.insert(crate::eye_adapt::auto_exposure(&eye));
+        } else {
+            e.remove::<bevy::post_process::auto_exposure::AutoExposure>();
+        }
+        if g.glow && g.neon_glow {
+            e.insert(crate::post::BrightPass::default());
+        } else {
+            e.remove::<crate::post::BrightPass>();
         }
         // Anti-aliasing after the picture replaces the multisampling.
         let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };
