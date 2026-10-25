@@ -66,7 +66,24 @@ self-damage) is in `combat-rules.md` (step C7); this note is about the model.
   outside it, checked every frame. Log lines: `damage stage: <ref> add-on node <n> waits
   for model stages <lo>-<hi> (at <s>)`, `… on at model stage <s>`, `… off at model stage
   <s>`.
-- Not built: shapes below damage-stage nodes are still drawn at every stage, the DMDL
-  replacement model is not swapped in (combat logs "not drawn yet"), a model's own
-  particle systems below a damage-stage node are not gated, and blast/debris nodes
-  are unused (`nif-node-audit.md` item 3).
+- Since 2026-10-25 (`engine/nvforever/src/destroyed.rs`):
+  - **Replacement model**: a reference whose destruction stage reached one with a DMDL
+    is drawn with the DMDL of the highest such stage reached
+    (`Game::destruction_model`) [hypothesis: it stays through later stages without one];
+    its drawn entities are replaced at once, and the streamer keeps the model so the cell
+    drawn again, or a loaded save, draws the hulk. ClearDestruction brings the intact
+    model back. Log `destroyed: <ref> drawn with <model> (model damage stage <n>)`. Seen:
+    the bike `00157C97` burns down to `Vehicles\Motorcycle01Hulk.NIF`, and its explosion
+    takes the truck, the street cleaner and the car beside it to their hulks (smoke
+    `bike-smoke-damaged`).
+  - **Shapes below a damage-stage node** of a model drawn without a rig of its own are
+    drawn only at the node's stages (`StagedShape`), as the add-on nodes are.
+  - **Debris**: each stage reached that names a DEBR throws its count of pieces, each
+    model picked by its DEBR percentage, from the object's middle as gore pieces are
+    thrown (`dismember.rs` `throw_object_debris`) [design: speeds and spin]. In the
+    masters 18 activator and 12 container stages name debris [observed: `fnvtool esm
+    fields`]; not yet seen in a game run.
+- Not built: a model's own particle systems below a damage-stage node are not gated;
+  shapes below one in a model drawn as a rig (an idle, a door); blast nodes
+  (`nif-node-audit.md` item 3); creatures' destruction stages (76 stages with debris, the
+  robots').

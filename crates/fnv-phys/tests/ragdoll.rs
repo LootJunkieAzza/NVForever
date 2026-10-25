@@ -515,3 +515,75 @@ fn a_held_corpse_is_not_put_at_rest() {
     w.release_grip(None);
     assert!(!w.ragdoll_held(0x10) && w.set_ragdoll_at_rest(0x10));
 }
+
+/// The highest and lowest point of the figure's bones.
+fn span(w: &PhysWorld, id: u32) -> (f32, f32) {
+    nodes(w, id).iter().map(|n| n.translation[2]).fold((f32::INFINITY, f32::NEG_INFINITY), |m, z| (m.0.min(z), m.1.max(z)))
+}
+
+#[test]
+fn a_corpse_on_a_lake_bed_rises_and_floats_at_the_surface() {
+    let mut w = ground();
+    w.set_water(WaterArea::Exterior(0, 0), Some(400.0));
+    let (_, report, _) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 0.0);
+    assert_eq!(report.bodies, 7);
+    assert!(w.ragdoll_in_water(0x10));
+    let mut rose_at = None;
+    for i in 0..(30.0 * 60.0) as usize {
+        w.step();
+        if rose_at.is_none() && span(&w, 0x10).1 > 380.0 {
+            rose_at = Some(i as f32 / 60.0);
+        }
+    }
+    let rose_at = rose_at.expect("the corpse reaches the surface");
+    // Rising some 300 units at the drag-capped pace takes seconds, not a frame.
+    assert!(rose_at > 2.0 && rose_at < 15.0, "reached the surface after {rose_at} s");
+    // Floating: every bone near the surface, none sunk back or thrown out of the water.
+    let (lo, hi) = span(&w, 0x10);
+    assert!(lo > 340.0 && hi < 440.0, "bones between {lo} and {hi}");
+    let (v, _) = w.ragdoll_speed(0x10).unwrap();
+    assert!(v < 15.0, "still at the surface: {v} units/s");
+    let c = w.ragdoll_center(0x10).unwrap();
+    assert!((c[2] - 400.0).abs() < 30.0, "the trunk floats at the surface: {c:?}");
+    // Straight up: water lifts, it does not push sideways.
+    assert!((c[0] - 100.0).abs() < 60.0 && (c[1] - 100.0).abs() < 60.0, "drifted to {c:?}");
+}
+
+#[test]
+fn a_corpse_dropped_into_water_sinks_no_further_than_the_bed_and_comes_back_up() {
+    let mut w = ground();
+    w.set_water(WaterArea::Exterior(0, 0), Some(400.0));
+    // From 200 units above the surface: in at speed, slowed, back up.
+    let (_, _, _) = drop_figure(&mut w, 0x10, [100.0, 100.0, 600.0], 0.0);
+    let mut deepest = f32::INFINITY;
+    for _ in 0..(30.0 * 60.0) as usize {
+        w.step();
+        deepest = deepest.min(span(&w, 0x10).0);
+    }
+    assert!(deepest < 380.0 && deepest > 0.0, "went under to {deepest}");
+    let c = w.ragdoll_center(0x10).unwrap();
+    assert!((c[2] - 400.0).abs() < 30.0, "floats again: {c:?}");
+}
+
+#[test]
+fn out_of_water_nothing_floats() {
+    let mut w = ground();
+    // Water in the next square over only.
+    w.set_water(WaterArea::Exterior(-1, -1), Some(400.0));
+    let (_, _, slept) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 20.0);
+    assert!(slept && !w.ragdoll_in_water(0x10));
+    assert!(span(&w, 0x10).1 < 45.0, "lies on the ground");
+}
+
+#[test]
+fn gore_pieces_float() {
+    use fnv_phys::gore::GoreStart;
+    let mut w = ground();
+    w.set_water(WaterArea::Exterior(0, 0), Some(400.0));
+    w.add_gore(&GoreStart { id: 1, actor: 0x10, translation: [100.0, 100.0, 50.0], rotation: ID, half_extents: [2.0, 1.5, 1.0], center: [0.0; 3], linvel: [0.0; 3], angvel: [0.0; 3], mass: 0.3 });
+    for _ in 0..(20.0 * 60.0) as usize {
+        w.step();
+    }
+    let z = w.gore_state(1).unwrap().translation[2];
+    assert!((z - 400.0).abs() < 5.0, "the piece floats: z {z}");
+}

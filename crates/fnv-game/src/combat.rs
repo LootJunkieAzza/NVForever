@@ -82,6 +82,8 @@ pub struct DestructionChange {
     /// The last stage's replacement model and model damage stage, when it has them.
     pub model: Option<String>,
     pub damage_stage: Option<u8>,
+    /// The debris (DEBR) of the stages reached and how many pieces of it.
+    pub debris: Vec<(FormId, i32)>,
 }
 
 /// What a hit did.
@@ -652,6 +654,25 @@ impl Game<'_> {
     /// shown for; 0 undamaged, back to 0 after ClearDestruction, and always 0 without
     /// destruction data [documented: xEdit wbDEST field; hypothesis: the meaning,
     /// docs/spec-notes/destruction-stages.md].
+    /// The replacement model a destructible reference is drawn with now: that of the
+    /// highest destruction stage reached that names one (DSTD's DMDL, "Replacement model"
+    /// [documented: xEdit wbDEST]; the Motorcycle01's stage 4 `Vehicles\Motorcycle01Hulk.NIF`)
+    /// [hypothesis: it stays through later stages that name none]; `None` undamaged, after
+    /// ClearDestruction, or without one (docs/spec-notes/destruction-stages.md §4).
+    pub fn destruction_model(&self, r: FormId) -> Option<&str> {
+        let stage = crate::functions::objects_destruction_stage(self, r);
+        if stage < 0 {
+            return None;
+        }
+        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b))?;
+        def.stages.iter().filter(|s| i32::from(s.index) <= stage && s.model.is_some()).max_by_key(|s| s.index).and_then(|s| s.model.as_deref())
+    }
+
+    /// The references that have taken object damage (destruction stages).
+    pub fn damaged_refs(&self) -> impl Iterator<Item = FormId> + '_ {
+        self.extra.iter().filter(|(_, e)| e.damage.is_some()).map(|(r, _)| *r)
+    }
+
     pub fn model_damage_stage(&self, r: FormId) -> u8 {
         let stage = crate::functions::objects_destruction_stage(self, r);
         let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b));
@@ -711,6 +732,9 @@ impl Game<'_> {
                 out.disabled = true;
             }
             out.explosions.extend(s.explosion);
+            if let Some(d) = s.debris.filter(|_| s.debris_count > 0) {
+                out.debris.push((d, s.debris_count));
+            }
             if s.model.is_some() {
                 out.model = s.model.clone();
             }

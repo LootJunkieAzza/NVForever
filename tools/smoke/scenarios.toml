@@ -6556,6 +6556,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "ragdoll-floats"
+source = "owner 2026-10-25: anything ragdolled floats to the surface in water (docs/spec-notes/ragdoll.md §8, crates/fnv-phys/src/buoyancy.rs)"
+note = "the player swims out from the Boulder Beach shore as wade-in-swim (on to x about 59300), is killed under the lake's surface (2600) at 19 s, and its body rises and comes to rest floating there"
+areas = ["ragdoll", "physics"]
+paths = ["crates/fnv-phys/src/buoyancy.rs", "crates/fnv-phys/src/ragdoll.rs", "crates/fnv-phys/src/water.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/death_cam.rs"]
+env = { NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0", NVF_PLAY_TEST_CONSOLE = "19:player.killactor;20:close" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 50
+expect = [
+  "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
+  { re = 'ragdoll: actor 00000014 floats at \(5\d{4}, 37\d{3}, [\d.]+\), its trunk (?P<n>-?\d+) units under the surface at 2600', range = [-25, 25], label = "the body comes to rest floating, its trunk at the lake's surface (6 under, 13 s after the death, 2026-10-25)" },
+]
+forbid = [{ re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
+
+[[scenario]]
 name = "aim-zoom"
 source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
 note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
@@ -8764,6 +8779,7 @@ order = [[
   { re = 'damage stage: 00157C97 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the intact bike's smoke waits" },
   { re = 'damage stage: 00157C97 add-on node 2 on at model stage 1', label = "30 damage (stage 1) starts the smoke" },
   { re = 'damage stage: 00157C97 add-on node 2 off at model stage [45]', label = "the destroying stage stops the intact model's smoke (its stage explosions can take it from 2 through 4 to 5 in one frame)" },
+  { re = 'destroyed: 00157C97 drawn with Vehicles\\Motorcycle01Hulk\.NIF', label = "the destroyed bike is drawn as its hulk (DSTD's DMDL, destruction-stages.md §4)" },
 ]]
 expect = ["Screenshot saved to bike_smoke_2.png"]
 

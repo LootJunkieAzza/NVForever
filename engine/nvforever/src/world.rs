@@ -191,6 +191,14 @@ pub struct Streamer {
     /// Placed actors of loaded cells whose parts are still being read on a worker thread
     /// (`readahead::ready_to_draw`), drawn by [`draw_waiting_actors`] once they are in.
     pub waiting: Vec<WaitingActor>,
+    /// Destroyed references drawn with their destruction stage's replacement model
+    /// (`destroyed.rs`): kept here so a cell drawn again draws them so.
+    pub model_overrides: HashMap<u32, String>,
+}
+
+/// `base` drawn with the model `path` (a DMDL replacement model) instead of its own.
+pub fn base_object_with_model(base: BaseObject, path: &str) -> BaseObject {
+    BaseObject { world_model: Some(path.to_string()), ..base }
 }
 
 /// A placed actor or creature of a loaded cell, drawn once its parts are read.
@@ -870,6 +878,7 @@ fn spawn_ref(
     // Once the start's cells are in, an actor whose parts are not read yet is drawn when
     // they are (`draw_waiting_actors`); before, behind the loading screen, at once.
     let waits = streamer.settled;
+    let override_model = streamer.model_overrides.get(&r).cloned();
     let (hide, light_scale, managed, stats, waiting) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats, &mut streamer.waiting);
     let manage_actors = streamer.manage_actors;
     let to_cell = Affine3A::from_translation(-origin);
@@ -949,6 +958,11 @@ fn spawn_ref(
     if &base.sig == b"PWAT" && spawn_placed_water(commands, cell_e, world, &base, r, to_cell * ref_affine(&p), models, water, stats) {
         return;
     }
+    // A destroyed reference: its destruction stage's replacement model (destroyed.rs).
+    let base = match override_model {
+        Some(m) => base_object_with_model(base, &m),
+        None => base,
+    };
     // The reference transform replaces the model root's own (world.md §4).
     spawn_model(commands, cell_e, world, &p, r, &base, to_cell * ref_affine(&p), models, emittance, hide, stats);
 }
@@ -1115,7 +1129,16 @@ pub fn spawn_model(
             .filter(|_| s.external_emittance)
             .and_then(|x| emittance.material(world, &mut models.materials, &s.material, x))
             .unwrap_or_else(|| s.material.clone());
-        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r), ChildOf(parent))).id();
+        // A shape below a damage-stage node: under a holder of its own, shown at its stages
+        // only (destroyed.rs); the holder's RefVisual follows the reference's presence.
+        let stages = s.node.and_then(|n| nvf_assets::model::damage_stages_of(&model.nodes, n));
+        let e = match stages {
+            Some(st) => {
+                let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(parent))).id();
+                commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), Visibility::Hidden, crate::destroyed::StagedShape::new(r, st), ChildOf(holder))).id()
+            }
+            None => commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r), ChildOf(parent))).id(),
+        };
         // A mine's light parts: shown and hidden by its state (`nvf_play::mines`).
         if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
             commands.entity(e).insert(l);
