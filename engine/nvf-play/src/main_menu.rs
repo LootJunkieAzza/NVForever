@@ -292,7 +292,7 @@ fn open_at_start(
 }
 
 /// A shuffled order, different each start.
-fn shuffle(v: &mut [String]) {
+pub(crate) fn shuffle(v: &mut [String]) {
     let mut s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64) | 1;
     for i in (1..v.len()).rev() {
         // xorshift64
