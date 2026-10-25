@@ -314,7 +314,22 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
-23. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
+23. **Actor Effect spells in NPC and creature spell lists** (P2; decides whether we
+    build it). About 110 actors carry SPEL records of type 0 "Actor Effect" (not
+    Ability) in their NPC_/CREA SPLO lists, all duration 0 on Self. Ours applies only
+    the Ability ones. Examples:
+    - Ruthless on 21 Hoover Dam legionaries (+25 melee damage);
+    - the Tunnelers' Increase Damage Threshold 2 and 5 (23 creatures);
+    - SporeCarrierRegen (7);
+    - NVDLC02QuietWatersPerkEffect (57).
+
+    The GECK wiki's AddSpell page says the vanilla game uses only addictions and
+    abilities. To check: does the original apply these type-0 entries? Read a Tunneler's
+    DamageThreshold with GetActorValue against its base record's, and GetIsSpellTarget /
+    IsSpellTarget for the SPEL on the actor. The earlier captures esmfx2 and esmfx3
+    placed a spore carrier and a Ruthless legionary but did not ask.
+    ([area-effects §3](../spec-notes/area-effects.md))
+24. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
     goes on to its next point after a reload.
     To check: save while it is half-way along its route, reload, and see whether it
     goes on or starts again from the first point.
