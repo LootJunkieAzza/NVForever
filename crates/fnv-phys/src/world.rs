@@ -715,6 +715,7 @@ impl PhysWorld {
             self.update_queries();
         }
         self.drive_grip();
+        self.buoy();
         self.step_world();
         self.dirty = false;
         self.new_bodies.clear();
