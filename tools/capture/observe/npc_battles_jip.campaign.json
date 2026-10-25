@@ -1,7 +1,7 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "npc_battles_jip",
- "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q21): npc_battles three_party and ncr_fiends with each fighter's combat targets and allies (who the game counts on whose side) and the hit details",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q21): npc_battles three_party and ncr_fiends with each fighter's combat targets and allies (who the game counts on whose side) and the hit details. three_party has god mode: without it the player was killed and the game reloaded the save about 40 times [observed 2026-10-25]",
  "save": "nvftest",
  "defaults": {
   "fields": "fight",
@@ -36,6 +36,7 @@
     }
    ],
    "console_first": [
+    "tgm",
     "killall",
     "player.SetAV Sneak 100",
     "player.SetForceSneak 1",

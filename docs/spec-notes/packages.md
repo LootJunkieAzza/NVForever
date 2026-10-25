@@ -843,9 +843,10 @@ packages, packages in no list, placed actors whose base lists packages).
   three troopers' patrols in one sample mid-way (§10.1).
 - The meaning of the type-specific bits on package types without such flags (§2), and of
   Fallout behaviour bit 3.
-- The run-time type code of Follow, Wander and Use Weapon packages (paired by name, not
-  yet seen running; Find runs as 0, Escort as 2, Use Item At as 16 [observed, §4]), and what the package target is for
-  packages whose record names none (§4).
+- What the package target is for packages whose record names none (§4). (The run-time
+  type codes of Follow, Wander and Use Weapon, once listed here, were seen running in
+  the §4 procedure table: Follow 1, Wander 13, Use Weapon 33; Find runs as 0, Escort as
+  2, Use Item At as 16 [observed, §4].)
 - Which patrol point a patrol located near a reference with no linked reference (59
   packages) uses, and how a patrol located near the editor location (61) finds its route.
 - **Dialogue packages**: what the game does when the target is inside a trigger

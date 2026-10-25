@@ -197,6 +197,9 @@ wiki pages cited in §3, not from JIP's source code, and nothing of JIP ships.
     in JIP or JohnnyGuitar (`bJIPFixes` is on); off-screen processing between the save
     loading and the clock moving. A round with JIP alone would tell the two plugins
     apart.
+  - **First JIP-tier runs** (2026-10-25): the audit of every open observer question and what
+    the JIP campaigns answered, with the engine changes that follow, are in
+    [observer-jip-audit-2026-10-25](../handoff/observer-jip-audit-2026-10-25.md).
   - **Verdict:** the plugins change something, though not the NPC schedules and packages
     measured here. So the §4 rule applies: JIP-tier data backs **state facts only**
     (processing level, stable and interrupt package, detection value), tagged
