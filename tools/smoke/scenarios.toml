@@ -3209,7 +3209,7 @@ name = "repconn-rocket-launch"
 source = "docs/spec-notes/particles.md §6.7: a drawn model's sequences drive its emitters; REPCONN's launch (RepconLaunchSCRIPT on RepconLaunchButton 0x0008CD96) plays the rocket bay's (repbay.nif, ref 0x0008D36C, editor ID AnimationTest) Forward, then Right 20 s later, whose 56 smoke and fire systems ride on the rockets; owner spot check 2026-10-24: no exhaust showed"
 note = "The player stands in the viewing pod (its XMarker 0x001000D6) facing the bay, 8,800 units south-west. Come Fly With Me (VMS01) is started and objective 100 shown, which the button's GameMode reads to make it usable; the button is pressed at 20 s, after the add-ons' start-up message boxes. PFire01 is on for 0.5 s of Right at 1,200 a second (about 600 born); before the press the bay emits nothing. Frames: rocket_open.png (the bay open, Forward's clouds), rocket_liftoff.png and rocket_climb.png (Right, the exhaust with the rockets)"
 areas = ["particles", "effects", "object-anims"]
-paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-play/src/script_draw.rs"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-9294:-30133:8820,15:-9294:-30133:8820", NVF_PLAY_TEST_SCRIPT = "7:start:VMS01,7.5:objective:VMS01:100,20:activate:0x0008CD96", NVF_PLAY_TEST_LOOK = "18:202:4", NVF_PLAY_TEST_SHOTS = "39:rocket_open.png,41.5:rocket_liftoff.png,43:rocket_climb.png" }
 args = ["--play", "--pos=-9294,-30133,8820", "--heading", "202", "--hour", "12", "--no-voice"]
 run_seconds = 70
