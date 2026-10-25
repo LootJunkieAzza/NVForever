@@ -68,6 +68,7 @@ mod lips;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
+mod body_weapons;
 mod terminal_view;
 mod scope_view;
 mod poker_view;
@@ -1359,6 +1360,8 @@ fn main() -> AppExit {
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // Creatures fight with their body weapons and switch between them (body_weapons.rs).
+            app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
             app.add_plugins(use_weapon::UseWeaponPlugin);
             app.add_plugins(combat_tactics::CombatTacticsPlugin);

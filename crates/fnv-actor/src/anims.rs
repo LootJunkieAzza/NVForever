@@ -182,6 +182,22 @@ pub fn kffz_candidates(skeleton: &str, name: &str) -> Vec<String> {
     vec![format!("{folder}\\specialanims\\{name}"), format!("{folder}\\{name}")]
 }
 
+/// Where a creature clip at `path` (`<folder>\<name>.kf`) is found when its folder has
+/// none: `<folder>\specialanims\<name>.kf`. Only for creature skeleton folders (a path
+/// with a `creatures` folder in it): the stance clips of Mister Handy and Gutsy
+/// (`1hmaim.kf`, `1hpattackright.kf`, `2hlattackspin.kf` …), the protectron's and the
+/// bloatfly's are there and not at the folder's root, and their CREA KFFZ lists name them
+/// [observed: `Fallout - Meshes.bsa` listing and FalloutNV.esm CrMisterHandy KFFZ,
+/// 2026-10-24]; no other placed creature's folder keeps stance clips there.
+pub fn special_anims_path(path: &str) -> Option<String> {
+    let p = normalize(path);
+    if !p.contains("creatures\\") || p.contains("\\specialanims\\") {
+        return None;
+    }
+    let (folder, name) = p.rsplit_once('\\')?;
+    Some(format!("{folder}\\specialanims\\{name}"))
+}
+
 /// The animation-related lists of an actor base: `MODL` (skeleton), KFFZ (extra `.kf`
 /// names) and, for CREA, NIFZ (body part models) [documented: xEdit; layouts in
 /// `schemas/fnv/gameplay.json`].
@@ -233,6 +249,13 @@ pub fn actor_anim_lists(lo: &LoadOrder, schema: &Schema, issues: &mut Issues) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creature_clips_fall_back_to_their_special_anims_folder() {
+        assert_eq!(special_anims_path(r"Meshes\Creatures\MisterGutsy\1hmAim.kf").as_deref(), Some(r"meshes\creatures\mistergutsy\specialanims\1hmaim.kf"));
+        assert_eq!(special_anims_path(r"meshes\creatures\mistergutsy\specialanims\1hmaim.kf"), None);
+        assert_eq!(special_anims_path(r"meshes\characters\_male\1hmaim.kf"), None);
+    }
 
     #[test]
     fn random_anim_start_only_on_its_record_types() {
