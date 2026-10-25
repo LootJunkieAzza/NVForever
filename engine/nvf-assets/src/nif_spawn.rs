@@ -584,6 +584,13 @@ pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Fall
     props.falloff.filter(|_| matches!(alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
 }
 
+/// Whether a shape's emitted light is over white: emissive colour × multiplier over 1 in
+/// its brightest channel (neon, glowing signs; [`crate::nif_material::soft_intersections`]).
+pub(crate) fn burns(props: &Props) -> bool {
+    let (e, m) = props.emissive_parts();
+    e.iter().fold(0.0f32, |a, &c| a.max(c)) * m > 1.0
+}
+
 /// Emitted light of a shape: emissive colour × emissive multiplier (× the glow map and the
 /// surface colour in the shader) [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"],
 /// `None` when the colour is black. An unlit shape's value is [`unlit_emissive`]. A
@@ -731,7 +738,7 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
-    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some()) {
+    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
     if let Some(strength) = props.refraction {

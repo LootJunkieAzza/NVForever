@@ -246,8 +246,12 @@ impl Game<'_> {
         self.knockout_news.push(News { actor: r, cause, what: Happened::Down });
         if !cause.awake() {
             self.combat_line(r, by, "KOed");
-        } else if cause.knockdown() && by == Some(FormId::PLAYER_REF) && r != FormId::PLAYER_REF {
-            self.challenge_knockdown(r);
+        } else if cause.knockdown() {
+            // Knocked down but not out [documented: GECK wiki Combat Tab, KnockedBack].
+            self.combat_line(r, by, "KnockedBack");
+            if by == Some(FormId::PLAYER_REF) && r != FormId::PLAYER_REF {
+                self.challenge_knockdown(r);
+            }
         }
         true
     }

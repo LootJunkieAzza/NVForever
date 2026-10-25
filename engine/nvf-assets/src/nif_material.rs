@@ -324,9 +324,13 @@ pub fn soft_distance(extent: f32) -> f32 {
 /// included: a decal laid on a surface lies along it and is not faded, while Dead Money's
 /// lantern glow (three crossed discs through the glass, decal flags set) must fade where
 /// it comes out of a pane, or the pane shows a hard seam (nif.md §6 "Soft intersections
-/// of small shapes").
-pub fn soft_intersections(alpha_mode: AlphaMode, unlit: bool, refracts: bool) -> bool {
-    unlit && !refracts && matches!(alpha_mode, AlphaMode::Add | AlphaMode::Blend | AlphaMode::Premultiplied)
+/// of small shapes"). Not burning shapes either (emissive colour × multiplier over 1 in
+/// its brightest channel: neon tubes and glowing signs mounted on a building): Gomorrah's
+/// porch tube (`OverHangGlow`, × 15) is tilted 45° a few units off the fascia and faded
+/// almost to nothing, where the original burns it bright with a halo (owner's frames
+/// 2026-10-25, nif.md §6 "Soft intersections").
+pub fn soft_intersections(alpha_mode: AlphaMode, unlit: bool, refracts: bool, burning: bool) -> bool {
+    unlit && !refracts && !burning && matches!(alpha_mode, AlphaMode::Add | AlphaMode::Blend | AlphaMode::Premultiplied)
 }
 
 /// [`NifSurface::holes`] of a shape with no holes.
@@ -823,16 +827,18 @@ mod tests {
     fn soft_intersections_for_unlit_added_and_blended_shapes_only() {
         // Beams and glows (added), smoke and particles (blended), premultiplied.
         for mode in [AlphaMode::Add, AlphaMode::Blend, AlphaMode::Premultiplied] {
-            assert!(soft_intersections(mode, true, false));
+            assert!(soft_intersections(mode, true, false, false));
         }
         // Not lit shapes (glass), multiply cards, solid or cut-out shapes, decals or
         // refracting shells.
-        assert!(!soft_intersections(AlphaMode::Blend, false, false));
-        assert!(!soft_intersections(AlphaMode::Multiply, true, false));
-        assert!(!soft_intersections(AlphaMode::Opaque, true, false));
-        assert!(!soft_intersections(AlphaMode::Mask(0.5), true, false));
+        assert!(!soft_intersections(AlphaMode::Blend, false, false, false));
+        assert!(!soft_intersections(AlphaMode::Multiply, true, false, false));
+        assert!(!soft_intersections(AlphaMode::Opaque, true, false, false));
+        assert!(!soft_intersections(AlphaMode::Mask(0.5), true, false, false));
         // Decal-flagged shapes are included (the along-the-surface rule keeps decals).
-        assert!(!soft_intersections(AlphaMode::Add, true, true));
+        assert!(!soft_intersections(AlphaMode::Add, true, true, false));
+        // Burning neon keeps its full strength against the wall it is mounted on.
+        assert!(!soft_intersections(AlphaMode::Blend, true, false, true));
     }
 
     #[test]

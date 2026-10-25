@@ -90,6 +90,51 @@ pub fn glow_intensity(hdr: &fnv_world::imagespace::Hdr) -> f32 {
     GLOW_INTENSITY * (scale / 2.0).clamp(0.5, 2.0)
 }
 
+/// The "Bright Scale" up to which the light glow alone stands for the original's glow
+/// (NVDefaultExterior's, the Mojave's) [observed: IMGS 0x0008809D].
+pub const BRIGHT_SCALE_BASE: f32 = 2.0;
+/// Bright pass strength per unit of "Bright Scale" above [`BRIGHT_SCALE_BASE`], and the
+/// most it reaches [engineering choice, fitted to the original's Strip frames and the
+/// owner's judgement, 2026-10-25: 0.4 on the Strip at night].
+pub const BRIGHT_PASS_PER_SCALE: f32 = 0.08;
+pub const BRIGHT_PASS_MAX: f32 = 1.0;
+/// The HDR value (brightest channel, linear, before the tonemapper) over which a pixel
+/// feeds the bright pass, and the soft knee around it [engineering choice: neon, bulbs and
+/// glowing signs, drawn at their emissive multipliers, are far over it; lit surfaces and
+/// the sky stay under].
+pub const BRIGHT_PASS_THRESHOLD: f32 = 1.0;
+pub const BRIGHT_PASS_KNEE: f32 = 0.25;
+/// The bright pass's blur step: a Gaussian about 17 × this quarter-size texels wide
+/// [engineering choice: owner, 2026-10-25, the halo a bit smaller than at 1].
+pub const BRIGHT_PASS_STEP: f32 = 0.5;
+
+/// The strength of the bright pass ([`BrightPass`]) added to the light glow for a "Bright
+/// Scale" above the Mojave's: none up to [`BRIGHT_SCALE_BASE`], then
+/// [`BRIGHT_PASS_PER_SCALE`] per unit, up to [`BRIGHT_PASS_MAX`] (docs/spec-notes/world.md
+/// §6 "HDR and bloom"). The Strip's night adapter (NVTheStripNightIS) sets Bright Scale 7,
+/// and the original's neon there throws halos far wider than the light glow's
+/// [observed: fx_audit fx_strip_b, owner's frame 2026-10-25]; only what is brighter than
+/// [`BRIGHT_PASS_THRESHOLD`] feeds the pass, so the rest of the picture keeps its look
+/// [hypothesis].
+pub fn bright_pass(scale: f32) -> f32 {
+    (BRIGHT_PASS_PER_SCALE * (scale - BRIGHT_SCALE_BASE)).clamp(0.0, BRIGHT_PASS_MAX)
+}
+
+/// The bright pass of the light glow's HDR view: what is brighter than a threshold, blurred
+/// wide and added back before the tonemapper (`bright_pass_hdr`), so a thin neon tube far
+/// over white still throws a halo. Same layout as [`PostEffects`]: x threshold, y knee,
+/// z strength (0 none), w the blur's step in quarter-size texels ([`BRIGHT_PASS_STEP`]).
+#[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+pub struct BrightPass {
+    pub params: Vec4,
+}
+
+impl Default for BrightPass {
+    fn default() -> Self {
+        BrightPass { params: Vec4::new(BRIGHT_PASS_THRESHOLD, BRIGHT_PASS_KNEE, 0.0, BRIGHT_PASS_STEP) }
+    }
+}
+
 /// The most the image space modifiers raise the light glow to (Bevy's bloom intensity)
 /// [engineering choice: CGCameraFlashISFX multiplies Bright Scale by 5 and Bright Clamp by
 /// 0.1, which this reading turns into a factor of 50; a full-strength glow is the flash].
@@ -109,14 +154,31 @@ pub fn modified_glow(base: f32, scale_ratio: f32, clamp_ratio: f32) -> f32 {
     (base * k).clamp(0.0, GLOW_MODIFIED_MAX.max(base))
 }
 
-/// Set the light glow's strength on [`ImageSpaceGlow`] cameras from the image space now.
-fn image_space_glow(sky: Option<Res<crate::sky::SkyState>>, screen: Option<Res<crate::imagespace::ScreenModifiers>>, mut cams: Query<&mut bevy::post_process::bloom::Bloom, With<ImageSpaceGlow>>) {
+/// Set the light glow's strength on [`ImageSpaceGlow`] cameras from the image space now,
+/// and the bright pass ([`bright_pass`]) that goes with a high "Bright Scale".
+fn image_space_glow(
+    sky: Option<Res<crate::sky::SkyState>>,
+    screen: Option<Res<crate::imagespace::ScreenModifiers>>,
+    mut cams: Query<(&mut bevy::post_process::bloom::Bloom, Option<&mut BrightPass>), With<ImageSpaceGlow>>,
+    mut told: Local<f32>,
+) {
     let Some(sky) = sky else { return };
     let ratio = |i: usize| screen.as_deref().map_or(1.0, |s| s.hdr_ratio(i));
-    let intensity = modified_glow(glow_intensity(&sky.cinematic().hdr), ratio(fnv_world::imagespace::HDR_BRIGHT_SCALE), ratio(fnv_world::imagespace::HDR_BRIGHT_CLAMP));
-    for mut b in &mut cams {
+    let hdr = &sky.cinematic().hdr;
+    let intensity = modified_glow(glow_intensity(hdr), ratio(fnv_world::imagespace::HDR_BRIGHT_SCALE), ratio(fnv_world::imagespace::HDR_BRIGHT_CLAMP));
+    let pass = bright_pass(hdr.v[fnv_world::imagespace::HDR_BRIGHT_SCALE] * ratio(fnv_world::imagespace::HDR_BRIGHT_SCALE));
+    if (pass - *told).abs() > 0.05 {
+        info!("light glow: bright pass {pass:.2} (Bright Scale {:.1})", hdr.v[fnv_world::imagespace::HDR_BRIGHT_SCALE]);
+        *told = pass;
+    }
+    for (mut b, effects) in &mut cams {
         if b.intensity != intensity {
             b.intensity = intensity;
+        }
+        if let Some(mut e) = effects {
+            if e.params.z != pass {
+                e.params.z = pass;
+            }
         }
     }
 }
@@ -126,12 +188,18 @@ pub struct PostPlugin;
 impl Plugin for PostPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "post.wgsl");
-        app.add_plugins((ExtractComponentPlugin::<PostEffects>::default(), UniformComponentPlugin::<PostEffects>::default()))
-            .add_systems(PostUpdate, image_space_glow);
+        app.add_plugins((
+            ExtractComponentPlugin::<PostEffects>::default(),
+            UniformComponentPlugin::<PostEffects>::default(),
+            ExtractComponentPlugin::<BrightPass>::default(),
+            UniformComponentPlugin::<BrightPass>::default(),
+        ))
+        .add_systems(PostUpdate, image_space_glow);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .add_systems(RenderStartup, init_pipelines)
-            .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
+            .add_systems(Render, (prepare::<PostEffects>, prepare::<BrightPass>).chain().in_set(RenderSystems::PrepareResources))
+            .add_systems(Core3d, bright_pass_hdr.in_set(Core3dSystems::PostProcess).after(bevy::post_process::bloom::bloom).before(tonemapping))
             .add_systems(
                 Core3d,
                 post_pass
@@ -156,17 +224,22 @@ pub(crate) struct PostPipelines {
     base: RenderPipelineDescriptor,
     /// bright, blur_across, blur_down (all into GLOW_FORMAT).
     glow: [CachedRenderPipelineId; 3],
+    /// The same for the HDR bright pass: bright_hdr, blur_across_fine, blur_down_fine.
+    glow_hdr: [CachedRenderPipelineId; 3],
     composite: HashMap<TextureFormat, CachedRenderPipelineId>,
 }
 
+/// A view's textures and composite pipeline for one pass: `C` is [`PostEffects`] (on the
+/// tonemapped picture) or [`BrightPass`] (on the HDR picture).
 #[derive(Component)]
-pub(crate) struct PostView {
+pub(crate) struct PostView<C> {
     composite: CachedRenderPipelineId,
     /// The picture's format the composite pipeline was built for.
     format: TextureFormat,
     /// Quarter-size textures: the bright part and its blur go back and forth.
     a: CachedTexture,
     b: CachedTexture,
+    pass: std::marker::PhantomData<C>,
 }
 
 const GLOW_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
@@ -195,24 +268,28 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/post.wgsl"), ..default() }),
         ..default()
     };
-    let glow = ["bright", "blur_across", "blur_down"].map(|entry| {
-        let mut d = base.clone();
-        if let Some(f) = d.fragment.as_mut() {
-            f.entry_point = Some(entry.into());
-            f.targets = vec![Some(ColorTargetState { format: GLOW_FORMAT, blend: None, write_mask: ColorWrites::ALL })];
-        }
-        cache.queue_render_pipeline(d)
-    });
-    commands.insert_resource(PostPipelines { single, composite_layout, sampler, base, glow, composite: HashMap::default() });
+    let queue = |entries: [&str; 3]| {
+        entries.map(|entry| {
+            let mut d = base.clone();
+            if let Some(f) = d.fragment.as_mut() {
+                f.entry_point = Some(entry.to_string().into());
+                f.targets = vec![Some(ColorTargetState { format: GLOW_FORMAT, blend: None, write_mask: ColorWrites::ALL })];
+            }
+            cache.queue_render_pipeline(d)
+        })
+    };
+    let glow = queue(["bright", "blur_across", "blur_down"]);
+    let glow_hdr = queue(["bright_hdr", "blur_across_fine", "blur_down_fine"]);
+    commands.insert_resource(PostPipelines { single, composite_layout, sampler, base, glow, glow_hdr, composite: HashMap::default() });
 }
 
-fn prepare(
+fn prepare<C: Component>(
     mut commands: Commands,
     cache: Res<PipelineCache>,
     mut pipelines: ResMut<PostPipelines>,
     mut textures: ResMut<TextureCache>,
     device: Res<RenderDevice>,
-    views: Query<(Entity, &ExtractedView), With<PostEffects>>,
+    views: Query<(Entity, &ExtractedView), With<C>>,
 ) {
     for (entity, view) in &views {
         let format = view.target_format;
@@ -248,7 +325,7 @@ fn prepare(
         };
         let a = quarter("post_glow_a");
         let b = quarter("post_glow_b");
-        commands.entity(entity).insert(PostView { composite, format, a, b });
+        commands.entity(entity).insert(PostView::<C> { composite, format, a, b, pass: std::marker::PhantomData });
     }
 }
 
@@ -266,8 +343,48 @@ fn draw(ctx: &mut RenderContext, label: &'static str, target: &TextureView, pipe
     pass.draw(0..3, 0..1);
 }
 
+/// The bright part of the picture, blurred (when `bloom`), then the picture written back
+/// with it added (and sharpened, by the uniform's w).
+#[allow(clippy::too_many_arguments)]
+fn glow_and_composite<C>(
+    ctx: &mut RenderContext,
+    target: &ViewTarget,
+    pv: &PostView<C>,
+    pipelines: &PostPipelines,
+    cache: &PipelineCache,
+    device: &RenderDevice,
+    binding: bevy::render::render_resource::BindingResource,
+    offset: u32,
+    bloom: bool,
+    hdr: bool,
+    label: &'static str,
+) {
+    let Some(composite) = cache.get_render_pipeline(pv.composite) else { return };
+    let ids = if hdr { &pipelines.glow_hdr } else { &pipelines.glow };
+    let glow: Option<Vec<_>> = ids.iter().map(|id| cache.get_render_pipeline(*id)).collect();
+    let Some(glow) = glow else { return };
+    let single: BindGroupLayout = cache.get_bind_group_layout(&pipelines.single);
+    // GPU time of the pass (recorded with --log-frame-times, graphics.rs).
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let span = diagnostics.time_span(ctx.command_encoder(), label);
+    let post = target.post_process_write();
+    if bloom {
+        let bright = device.create_bind_group("post_bright", &single, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone())));
+        draw(ctx, "post_bright_pass", &pv.a.default_view, glow[0], &bright, offset);
+        let across = device.create_bind_group("post_across", &single, &BindGroupEntries::sequential((&pv.a.default_view, &pipelines.sampler, binding.clone())));
+        draw(ctx, "post_blur_across_pass", &pv.b.default_view, glow[1], &across, offset);
+        let down = device.create_bind_group("post_down", &single, &BindGroupEntries::sequential((&pv.b.default_view, &pipelines.sampler, binding.clone())));
+        draw(ctx, "post_blur_down_pass", &pv.a.default_view, glow[2], &down, offset);
+    }
+    let layout = cache.get_bind_group_layout(&pipelines.composite_layout);
+    let bind_group = device.create_bind_group("post_composite", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding, &pv.a.default_view)));
+    draw(ctx, "post_composite_pass", post.destination, composite, &bind_group, offset);
+    span.end(ctx.command_encoder());
+}
+
 pub(crate) fn post_pass(
-    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<PostEffects>, &PostEffects, &PostView)>,
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<PostEffects>, &PostEffects, &PostView<PostEffects>)>,
     pipelines: Res<PostPipelines>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<PostEffects>>,
@@ -279,29 +396,25 @@ pub(crate) fn post_pass(
     if (!bloom && !sharpen) || !crate::ssao::format_matches(target, pv.format) {
         return;
     }
-    let Some(composite) = cache.get_render_pipeline(pv.composite) else { return };
-    let glow: Option<Vec<_>> = pipelines.glow.iter().map(|id| cache.get_render_pipeline(*id)).collect();
-    let Some(glow) = glow else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
-    let single: BindGroupLayout = cache.get_bind_group_layout(&pipelines.single);
-    // GPU time of the pass (recorded with --log-frame-times, graphics.rs).
-    let diagnostics = ctx.diagnostic_recorder();
-    let diagnostics = diagnostics.as_deref();
-    let span = diagnostics.time_span(ctx.command_encoder(), "nvf_bloom_sharpen");
-    let offset = index.index();
-    let post = target.post_process_write();
-    if bloom {
-        let bright = device.create_bind_group("post_bright", &single, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone())));
-        draw(&mut ctx, "post_bright_pass", &pv.a.default_view, glow[0], &bright, offset);
-        let across = device.create_bind_group("post_across", &single, &BindGroupEntries::sequential((&pv.a.default_view, &pipelines.sampler, binding.clone())));
-        draw(&mut ctx, "post_blur_across_pass", &pv.b.default_view, glow[1], &across, offset);
-        let down = device.create_bind_group("post_down", &single, &BindGroupEntries::sequential((&pv.b.default_view, &pipelines.sampler, binding.clone())));
-        draw(&mut ctx, "post_blur_down_pass", &pv.a.default_view, glow[2], &down, offset);
+    glow_and_composite(&mut ctx, target, pv, &pipelines, &cache, &device, binding, index.index(), bloom, false, "nvf_bloom_sharpen");
+}
+
+/// The light glow's bright pass ([`BrightPass`]) on the HDR picture, before the tonemapper.
+pub(crate) fn bright_pass_hdr(
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<BrightPass>, &BrightPass, &PostView<BrightPass>)>,
+    pipelines: Res<PostPipelines>,
+    cache: Res<PipelineCache>,
+    uniforms: Res<ComponentUniforms<BrightPass>>,
+    device: Res<RenderDevice>,
+    mut ctx: RenderContext,
+) {
+    let (target, index, pass, pv) = view.into_inner();
+    if pass.params.z <= 0.0 || !crate::ssao::format_matches(target, pv.format) {
+        return;
     }
-    let layout = cache.get_bind_group_layout(&pipelines.composite_layout);
-    let bind_group = device.create_bind_group("post_composite", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding, &pv.a.default_view)));
-    draw(&mut ctx, "post_composite_pass", post.destination, composite, &bind_group, offset);
-    span.end(ctx.command_encoder());
+    let Some(binding) = uniforms.uniforms().binding() else { return };
+    glow_and_composite(&mut ctx, target, pv, &pipelines, &cache, &device, binding, index.index(), true, true, "nvf_bright_pass");
 }
 
 #[cfg(test)]
@@ -321,5 +434,14 @@ mod tests {
         assert_eq!(at(10.0), GLOW_INTENSITY * 2.0);
         assert_eq!(at(0.1), GLOW_INTENSITY * 0.5);
         assert_eq!(at(0.0), GLOW_INTENSITY);
+    }
+
+    #[test]
+    fn bright_pass_only_above_the_mojaves_bright_scale() {
+        assert_eq!(bright_pass(2.0), 0.0);
+        assert_eq!(bright_pass(1.0), 0.0);
+        // The Strip's night adapter, Bright Scale 7.
+        assert!((bright_pass(7.0) - 0.4).abs() < 1e-6);
+        assert_eq!(bright_pass(1000.0), BRIGHT_PASS_MAX);
     }
 }

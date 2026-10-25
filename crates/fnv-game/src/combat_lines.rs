@@ -23,17 +23,76 @@
 //!   NPC battles, observed 2026-10-17; the player keeps the timer alone, our design].
 //!   It cuts the actor's own Hit line [design].
 //! - **WeaponBroke, NoAmmo** ([`Game::combat_line`], from the engine).
+//! - **Answers** ([`Game::queue_response`]): after an Attack, FireExplosive, Flee or
+//!   AvoidThreat line the nearest living member of the speaker's group within
+//!   [`RESPONSE_RADIUS`] says AttackResponse, FireExplosiveResponse, FleeResponse or
+//!   AvoidThreatResponse once that line is over [documented: Combat Tab, "If a valid actor
+//!   is nearby and an Attack line is said, the other actor will say their AttackResponse
+//!   line in response", and the same for the others; design: who is valid and how near,
+//!   as DeathResponse]. NormalToAlert is answered by NormalToAlertResponse and
+//!   NormalToCombat by StartCombatResponse [hypothesis: the topics are not on the page;
+//!   NormalToAlertResponse's lines answer a noise heard ("Yeah, I heard it too"),
+//!   StartCombatResponse's are a fighter's word as a fight begins ("Ready as I'll ever
+//!   be"), observed in FalloutNV.esm's lines].
+//! - **OnFire, Poisoned** ([`Game::effect_started_lines`], from
+//!   `Game::apply_hit_effect`): when a hit's effect resisted by Fire Resistance or Poison
+//!   Resistance takes hold (not when it only lasts longer) [documented: Combat Tab, "Said
+//!   when an actor gets lit on fire", "when an actor has been poisoned"; hypothesis: the
+//!   resistance tells the two apart].
+//! - **KnockedBack** (from `Game::knock`): knocked down but not unconscious (PushActorAway,
+//!   an explosion's knockdown) [documented: Combat Tab].
+//! - **WeaponIneffective, ArmorIneffective** ([`Game::armour_lines`], from the engine
+//!   with a hit's damage before and after DT): the attacker when DT cut its hit down to
+//!   its floor (the weapon cannot get through), the one hit when one hit took
+//!   [`ARMOUR_FAILED_SHARE`] of its health or more while its DT stopped
+//!   [`ARMOUR_FAILED_DT`] of the hit or less; each at most once per
+//!   [`INEFFECTIVE_SECONDS`] per actor [documented: Combat Tab, "when an actor's weapon
+//!   fails to damage an enemy sufficiently", "when an actor's armor fails to protect them
+//!   sufficiently"; design: the measures, the page gives none]. Every line of the four
+//!   topics above in the masters is a companion's (VNPCFollowers) [observed].
 //!
 //! A response with a sound of its own (creature grunts, robot buzzes) plays that sound
 //! instead of the voice: `nvf-play`'s `voice.rs`.
 
 use crate::game::Game;
 use fnv_sim::FormId;
+
+/// The actor value Fire Resistance [documented: GECK wiki Actor Value list, code 52;
+/// `functions::actor` SCRIPT_AV_NAMES].
+pub const FIRE_RESISTANCE: u16 = 52;
 use std::collections::BTreeMap;
 
 /// The actor of the group nearest to one that died says DeathResponse when within this
 /// many game units of it [design: a room's width; the documentation says "nearby"].
 pub const RESPONSE_RADIUS: f32 = 1536.0;
+
+/// The topics answered by a nearby member of the speaker's group, and their answers
+/// (module notes).
+pub const ANSWERS: [(&str, &str); 6] = [
+    ("Attack", "AttackResponse"),
+    ("FireExplosive", "FireExplosiveResponse"),
+    ("Flee", "FleeResponse"),
+    ("AvoidThreat", "AvoidThreatResponse"),
+    ("NormalToAlert", "NormalToAlertResponse"),
+    ("NormalToCombat", "StartCombatResponse"),
+];
+
+/// ArmorIneffective: one hit took at least this share of the actor's health [design].
+pub const ARMOUR_FAILED_SHARE: f64 = 0.25;
+/// … while the actor's DT stopped at most this share of the hit's damage [design].
+pub const ARMOUR_FAILED_DT: f64 = 0.10;
+/// WeaponIneffective and ArmorIneffective are said at most once per this many seconds by
+/// one actor [design].
+pub const INEFFECTIVE_SECONDS: f64 = 60.0;
+
+/// An answer due: when, who says it, about whom, the topic.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Due {
+    pub at: f64,
+    pub who: FormId,
+    pub about: FormId,
+    pub topic: &'static str,
+}
 
 /// The settings of the Combat tab's timing, with FalloutNV.esm's values as defaults
 /// [observed 2026-10-16, `fnvtool esm decode`].
@@ -77,8 +136,11 @@ pub struct CombatLines {
     pub next_attack: BTreeMap<FormId, f64>,
     /// Per actor: the lowest health mark it has said a line for (2 half, 4 quarter).
     pub marks: BTreeMap<FormId, u8>,
-    /// DeathResponse lines due: (when, who, about the dead).
-    pub responses: Vec<(f64, FormId, FormId)>,
+    /// Answers due (DeathResponse and [`ANSWERS`]).
+    pub responses: Vec<Due>,
+    /// Per actor and topic (WeaponIneffective, ArmorIneffective): `Game::time` before
+    /// which it is not said again.
+    pub next_said: BTreeMap<(FormId, &'static str), f64>,
     /// Lines tried since the engine last took them: topic, speaker, the line said (`None`:
     /// the actor has none).
     pub said: Vec<(&'static str, FormId, Option<FormId>)>,
@@ -165,7 +227,81 @@ impl Game<'_> {
         let t = data.by_edid(topic).filter(|t| data.topic_defs.contains_key(t))?;
         let line = self.say(actor, about, t, false);
         self.combat_lines.said.push((topic, actor, line));
+        if line.is_some() {
+            self.queue_response(actor, topic);
+        }
         line
+    }
+
+    /// `speaker` said a line of `topic`: when the topic is one of [`ANSWERS`], the nearest
+    /// living member of its group within [`RESPONSE_RADIUS`] says the answer once the line
+    /// is over (module notes).
+    pub(crate) fn queue_response(&mut self, speaker: FormId, topic: &str) {
+        let Some(&(_, answer)) = ANSWERS.iter().find(|(t, _)| *t == topic) else { return };
+        self.queue_answer(speaker, answer);
+    }
+
+    /// The nearest living member of `speaker`'s group within [`RESPONSE_RADIUS`] says
+    /// `answer` about it when its line is over.
+    fn queue_answer(&mut self, speaker: FormId, answer: &'static str) {
+        let Some(at) = crate::awareness::position(self, speaker) else { return };
+        let ids: Vec<FormId> = self.awareness.actors.keys().copied().filter(|&o| o != speaker && o != FormId::PLAYER_REF).collect();
+        let near = ids
+            .into_iter()
+            .filter(|&o| !self.is_dead(o) && self.bark_mates(speaker, o))
+            .filter_map(|o| {
+                let p = crate::awareness::position(self, o)?;
+                let d = (p[0] - at[0]).hypot(p[1] - at[1]).hypot(p[2] - at[2]);
+                (d <= RESPONSE_RADIUS).then_some((d, o))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, o)) = near {
+            let seconds = self.speech.iter().find(|s| s.speaker == speaker).map_or(0.0, |s| s.remaining);
+            self.combat_lines.responses.push(Due { at: self.time + seconds, who: o, about: speaker, topic: answer });
+        }
+    }
+
+    /// A hit's effect took hold on `target` (`Game::apply_hit_effect`): one resisted by
+    /// Fire Resistance says OnFire, one by Poison Resistance Poisoned (module notes).
+    pub(crate) fn effect_started_lines(&mut self, target: FormId, caster: Option<FormId>, applied: &[crate::aid::Applied]) {
+        let data = self.data;
+        let resisted = |code: u16| applied.iter().any(|a| !a.extended && data.magic_effects.get(&a.effect).is_some_and(|m| m.resistance == Some(code)));
+        if resisted(FIRE_RESISTANCE) {
+            self.combat_line(target, caster, "OnFire");
+        } else if resisted(crate::actor_values::POISON_RESISTANCE) {
+            self.combat_line(target, caster, "Poisoned");
+        }
+    }
+
+    /// A hit by `attacker` on `target` of `raw` damage before armour, `dt` its DT and
+    /// `dealt` the damage after armour, with `floor` the share of a hit DT always lets
+    /// through (`fnv_combat::tuning::CombatTuning::dt_floor`): WeaponIneffective and
+    /// ArmorIneffective (module notes). Called by the engine after the hit.
+    pub fn armour_lines(&mut self, attacker: Option<FormId>, target: FormId, raw: f64, dt: f64, dealt: f64, floor: f64) {
+        if raw <= 0.0 {
+            return;
+        }
+        if let Some(a) = attacker.filter(|&a| a != target) {
+            // DT took the hit down to its floor: what got through is the floor's share.
+            if dt > 0.0 && raw - dt <= raw * floor {
+                self.timed_line(a, Some(target), "WeaponIneffective");
+            }
+        }
+        let max = self.max_health(target);
+        if max > 0.0 && dealt >= ARMOUR_FAILED_SHARE * max && dt <= ARMOUR_FAILED_DT * raw && !self.is_dead(target) {
+            self.timed_line(target, attacker, "ArmorIneffective");
+        }
+    }
+
+    /// A combat line said at most once per [`INEFFECTIVE_SECONDS`] by one actor.
+    fn timed_line(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) {
+        let now = self.time;
+        if self.combat_lines.next_said.get(&(actor, topic)).is_some_and(|&t| now < t) {
+            return;
+        }
+        if self.combat_line(actor, about, topic).is_some() {
+            self.combat_lines.next_said.insert((actor, topic), now + INEFFECTIVE_SECONDS);
+        }
     }
 
     /// `actor` begins an attack on `target`: a power attack, the throw of a grenade or
@@ -214,6 +350,7 @@ impl Game<'_> {
             self.cut_line(actor);
             self.say_line(actor, target, t, info, crate::game::LineKind::Say);
             self.combat_lines.said.push((name, actor, Some(info)));
+            self.queue_response(actor, name);
             return Some(info);
         }
         None
@@ -271,34 +408,20 @@ impl Game<'_> {
         if self.say_combat(actor, killer, "Death").is_none() {
             return;
         }
-        let Some(at) = crate::awareness::position(self, actor) else { return };
-        let ids: Vec<FormId> = self.awareness.actors.keys().copied().filter(|&o| o != actor && o != FormId::PLAYER_REF).collect();
-        let near = ids
-            .into_iter()
-            .filter(|&o| !self.is_dead(o) && self.bark_mates(actor, o))
-            .filter_map(|o| {
-                let p = crate::awareness::position(self, o)?;
-                let d = (p[0] - at[0]).hypot(p[1] - at[1]).hypot(p[2] - at[2]);
-                (d <= RESPONSE_RADIUS).then_some((d, o))
-            })
-            .min_by(|a, b| a.0.total_cmp(&b.0));
-        if let Some((_, o)) = near {
-            let seconds = self.speech.iter().find(|s| s.speaker == actor).map_or(0.0, |s| s.remaining);
-            self.combat_lines.responses.push((self.time + seconds, o, actor));
-        }
+        self.queue_answer(actor, "DeathResponse");
     }
 
     /// The DeathResponse lines that are due (called each frame from `Game::update_speech`).
     pub(crate) fn combat_lines_tick(&mut self) {
         let now = self.time;
-        if self.combat_lines.responses.iter().all(|r| r.0 > now) {
+        if self.combat_lines.responses.iter().all(|r| r.at > now) {
             return;
         }
-        let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.combat_lines.responses).into_iter().partition(|r| r.0 <= now);
+        let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.combat_lines.responses).into_iter().partition(|r| r.at <= now);
         self.combat_lines.responses = later;
-        for (_, who, dead) in due {
-            if self.present(who) {
-                self.combat_line(who, Some(dead), "DeathResponse");
+        for d in due {
+            if self.present(d.who) {
+                self.combat_line(d.who, Some(d.about), d.topic);
             }
         }
     }

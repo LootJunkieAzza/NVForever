@@ -396,6 +396,8 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
     let mut by_type: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     let mut examples: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut doors_used: BTreeMap<String, u64> = BTreeMap::new();
+    // Per load door: the reachable pairs whose way goes through it, and a few of them.
+    let mut through: BTreeMap<u32, (u64, Vec<String>)> = BTreeMap::new();
     let mut longest: Vec<(usize, String)> = Vec::new();
     let (mut actors, mut with_packages, mut pairs) = (0u64, 0u64, 0u64);
     let ids: Vec<FormId> = refs.refs.iter().filter(|(_, p)| matches!(&p.sig, b"ACHR" | b"ACRE")).map(|(id, _)| *id).collect();
@@ -480,6 +482,13 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
                             Ok(_) if cant_open && nav.door_route(from, *to, &shy).is_err() => (2, "only through a door the creature cannot open (Can't Open Doors)".to_string()),
                             Ok(doors) => {
                                 most_doors = most_doors.max(doors.len());
+                                for d in &doors {
+                                    let e = through.entry(d.door).or_default();
+                                    e.0 += 1;
+                                    if e.1.len() < 5 {
+                                        e.1.push(format!("{} {}", name(data, refs, actor), data.name(p)));
+                                    }
+                                }
                                 (0, String::new())
                             }
                             Err(PathError::NoTriangle { which, .. }) => (4, format!("no navmesh near the {which}")),
@@ -543,6 +552,9 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
         "verdicts": verdicts,
         "doors_on_reachable_routes": doors_used,
         "most_doors": longest.iter().take(12).map(|x| x.1.clone()).collect::<Vec<_>>(),
+        // Load doors (teleport doors) only: doors that open in place lie inside a path,
+        // which this search over walkable areas does not walk.
+        "routes_through_door": through.iter().map(|(d, (n, ex))| (FormId(*d).to_string(), json!({"door": name(data, refs, FormId(*d)), "pairs": n, "examples": ex}))).collect::<serde_json::Map<_, _>>(),
         "by_package_type": by_type,
         "examples": examples,
     }))

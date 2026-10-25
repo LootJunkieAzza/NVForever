@@ -672,6 +672,10 @@ mod tests {
         assert!(!IdleDef::from_raw(None, None).has_file());
         // The replay delay is the i16 after the unused byte.
         assert_eq!(IdleDef::from_raw(None, Some(&[0, 0, 0, 0, 45, 0])).replay_delay, 45);
+        // "No attacking" is bit 0 of the flags byte after it (`NVgeckoHiss`); the short
+        // form has none.
+        assert!(IdleDef::from_raw(None, Some(&[7, 1, 1, 0, 0, 0, 1, 0])).no_attacking);
+        assert!(!IdleDef::from_raw(None, Some(&[7, 1, 1, 0, 0, 0])).no_attacking);
     }
 
     #[test]

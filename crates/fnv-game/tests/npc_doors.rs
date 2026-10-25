@@ -129,6 +129,7 @@ const CELL: u32 = 0x930;
 const REF_LETS: u32 = 0x301;
 const REF_PLAYER: u32 = 0x302;
 const REF_PLAYER_BLOCK: u32 = 0x303;
+const REF_PLAYER_LOAD: u32 = 0x304;
 const NPC_REF: u32 = 0x310;
 
 /// `IsActionRef player == want`: the expression token.
@@ -180,7 +181,11 @@ fn plugin_bytes() -> Vec<u8> {
         ],
     );
     let placed = |sig: &[u8; 4], id: u32, base: u32| record(sig, 0, id, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
-    let refs = [placed(b"REFR", REF_LETS, DOOR_LETS), placed(b"REFR", REF_PLAYER, DOOR_PLAYER), placed(b"REFR", REF_PLAYER_BLOCK, DOOR_PLAYER_BLOCK), placed(b"ACHR", NPC_REF, NPC)].concat();
+    // DoorPlayer's script on a load door too: XTEL to DoorLets' reference (door, position,
+    // rotation, no alarm).
+    let xtel = [REF_LETS.to_le_bytes().to_vec(), [0f32; 6].iter().flat_map(|f| f.to_le_bytes()).collect(), 0u32.to_le_bytes().to_vec()].concat();
+    let load = record(b"REFR", 0, REF_PLAYER_LOAD, &[sub(b"NAME", DOOR_PLAYER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]), sub(b"XTEL", xtel)]);
+    let refs = [placed(b"REFR", REF_LETS, DOOR_LETS), placed(b"REFR", REF_PLAYER, DOOR_PLAYER), placed(b"REFR", REF_PLAYER_BLOCK, DOOR_PLAYER_BLOCK), load, placed(b"ACHR", NPC_REF, NPC)].concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("DoorCell"))]);
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
@@ -256,6 +261,18 @@ fn a_door_whose_block_acts_only_for_the_player_refuses_the_npc_for_a_while() {
     assert!(g.refused_doors(npc).is_empty());
     assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
     assert_eq!(used(&g, REF_PLAYER), Value::Num(2.0));
+}
+
+/// A load door whose block does nothing for an NPC takes it through all the same; the
+/// block has run.
+#[test]
+fn a_load_door_lets_the_npc_through_whatever_its_block_did() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER_LOAD)), DoorAnswer::LoadDoor);
+    assert_eq!(used(&g, REF_PLAYER_LOAD), Value::Num(1.0));
+    assert!(g.refused_doors(npc).is_empty());
 }
 
 #[test]

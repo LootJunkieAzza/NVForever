@@ -631,6 +631,15 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
     alpha 0.25 at most, multiplier 1) on the night sky: the game adds 0.25 at most, the
     power added 0.39 (fx-lighting-audit-2026-10-23.md item 4, "too strong at night").
     Now 0.25; in the frames of the Strip the beams are the faint haze of the original.
+    That held only before the image space's Emissive Mult reached unlit shapes (#643):
+    at night the Strip's adapter NVTheStripNightIS sets Emissive Mult 4 (the Mojave's
+    1.5), and raised to the display gamma for additive shapes it took the beams ×8.7 in
+    linear light, on top of their emittance (stripStreetLight (150, 198, 102) × fade 4).
+    The gate lamp's beams (0x0015DB0B, 0x0015DB0E) then added +65 grey levels in the
+    gate's box and blew out white, where the original's frames (owner's, 2026-10-25, and
+    `fx_strip_b`) show no cone at all [observed]. Rule since 2026-10-25 [hypothesis]:
+    additive shapes do not take the image space's Emissive Mult (`nif_material.wgsl`);
+    the gate's box is then 94 against the original's 76 (79 with the beams not drawn).
   - X-13's door lamps (`fxlightbeambrt03`) show as two beams, as in the original; Primm
     and the Strip's other effects are otherwise unchanged.
   - The Prospector Saloon's window rays, from the camera of the table below (shown minus
@@ -733,6 +742,15 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   bulb and a soft pool on the road with no line where the panels meet road or pavement
   [observed]. How the game hides it is not known (no depth-fade setting is documented for
   this shader).
+
+  Burning shapes are not faded (2026-10-25): an unlit shape whose emissive colour ×
+  multiplier is over 1 in its brightest channel (neon, glowing signs) keeps its full
+  strength against the surface it is mounted on [engineering choice]. Gomorrah's porch
+  tube (`gomorrahlightslowerlevel.nif` `OverHangGlow:0`, white × 15, a flat strip tilted
+  45° a few units off the fascia, its alpha pulsing 1 ↔ 0.18 on a 2 s cycle by the
+  model's SpecialIdle) was faded to a dull red line; the original burns it bright with a
+  halo (owner's frames). Whether the original pulses it is not known: its frames show it
+  bright.
 
   What the renderers do [engineering choice, nif_material.rs module notes "Soft
   intersections"]: every unlit shape that adds or blends (additive SRC_ALPHA / ONE and

@@ -269,3 +269,46 @@ engine if needed, and delete the item here.
     frame before and while aiming near hostiles and near dropped items (a Stimpak, a
     pistol, a melee weapon, food) at a few distances; the compass with ED-E at low
     Perception. ([perk-entry-points §13](../spec-notes/perk-entry-points.md))
+
+## Added 2026-10-25 (from the ESM-gap work)
+
+The numbers above stay put so links to them hold; each item here gives its own priority.
+
+20. **NPC grenades** (P1). Ours: the first throw comes 4–10 s after the NPC sees its
+    target, then one every 12–25 s, only between 1.5× the blast radius and the throw's
+    reach (at most 1,500 units), and each throw takes one from the inventory.
+    To check:
+    - When do NPCs throw grenades or dynamite: the distance to the target, how often,
+      and how soon into the fight?
+    - Do they visibly switch to the grenade and back?
+    - Does their count drop?
+    Setup: Powder Gangers with dynamite at NCRCF, or a Legion squad.
+    ([combat-ai §20](../design/combat-ai.md))
+21. **NPCs at scripted doors** (P2). Some door scripts never call Activate for an NPC:
+    VStripGate (the Strip gates), V22ElevatorDoor, GomorraElevatorDoor.
+    To check:
+    - Does an NPC whose package path goes through one stop and wait there, take another
+      way, or never plan through it?
+    - Is the refusal remembered?
+    Test: AddScriptPackage a Freeside NPC onto a Strip travel package and watch it at
+    the gate. ([doors §5.2](../spec-notes/doors.md))
+22. **Combat answer lines and companion complaints** (P2). To check:
+    - When a group-mate says NormalToAlert or NormalToCombat, does a nearby mate answer
+      with NormalToAlertResponse or StartCombatResponse?
+    - Are AttackResponse (BoS: "On it!") and FleeResponse (super mutants: "Coward!")
+      said after Attack and Flee lines?
+    - Does DeathResponse play without JIP? The wiki says it doesn't.
+    - When does a companion say WeaponIneffective or ArmorIneffective? Ours says:
+      - WeaponIneffective when DT cut the hit to its floor;
+      - ArmorIneffective when one hit took 25 % of health with DT stopping 10 % or less;
+      - each at most once a minute.
+
+      Test: Boone with a 9mm against a high-DT target, and Boone in light armour taking
+      a heavy hit.
+    Read dialogue events in the observer timeline, with audio or subtitles.
+    ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
+23. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
+    goes on to its next point after a reload.
+    To check: save while it is half-way along its route, reload, and see whether it
+    goes on or starts again from the first point.
+    ([save-load §5 item 4](../design/save-load.md))

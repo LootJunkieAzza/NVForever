@@ -135,3 +135,46 @@ RACE skill boosts, NPC/CREA barter gold, AIDT teaches/max training level, LVLO c
 MODT/MO2T/MO3T/MO4T/DMDT texture hashes, MODB bound radius, MODD/MOSD FaceGen flags,
 DSTF end markers, PKAM/PKED/PUID empty package markers, IDLC counts (the arrays are read),
 CREA NIFT (undecoded), OBND on most base types.
+
+## Follow-up 2026-10-25: what could be filled
+
+Each gap above was checked against the spec notes, the owner's decisions and the masters'
+data (`fnvtool esm fields`/`survey` over the ten masters, plus a private scan) [observed
+unless tagged]. The documentation audit session ([esm-audit-2026-10-25](esm-audit-2026-10-25.md)
+§7) takes the dumb responses, actor effects in spell lists, destruction models and debris,
+creature turn rate and the image-space dimmers; they are not repeated here.
+
+Built (branch `claude/esm-data-gaps`):
+- **IDLE "No attacking"** (67 idles): a fighter starts no attack while such an idle
+  plays (idles.md §9, §14.2).
+- **CELL / WRLD "No LOD Water"**: no distant water plane there (world-fields.md §1).
+
+Not gaps after all, or nothing to build from:
+- 12 **EXPL INAM**: no explosion in the masters names a placed object (0 of 225); mods only.
+- 13 **AMMO Ignores Normal Weapon Resistance**: "No longer used" [documented: GECK wiki
+  Ammo; weapon-data-fields.md].
+- 4 **XSED / TREE**: 9 of 19,065 references set a non-zero seed and there are 3 TREE
+  records; nothing to see.
+- 5 **BRUS**: owner decision, not built (audio.md §15.3: an index with no table to a SOUN).
+- 6 **Light shadows**: no LIGH in the masters sets Spot Shadow; Dynamic is on 4. Shadows
+  off for placed lights is a performance choice, not missing data.
+- 15 **Old-format sounds**: SNDX is read (`fnv-combat fx.rs:449`); all 135 ANAM curves
+  are (100, 50, 20, 5, 0), the default curve, and every HNAM priority is 128.
+- 14 **Magic effect archetypes**: of the six named only Light (PipLight, the Pip-Boy light,
+  the owner's cone by design) and Bound Item (`NVDLC02BindWeapon`, one Honest Hearts
+  effect, left open) occur; no MGEF is Cure Disease, Lock, Open or Summon Creature.
+- 7 **CREA LNAM** is a weapon list (`EmbeddedWeapons` on 452 creatures,
+  `SupermutantWeapons` on 106): which weapons the creature may use; creatures carry their
+  inventory's weapon and pick none up, so it restricts nothing yet.
+- 9 **Factions**: the XNAM modifier feeds only GetDisposition (14 INFO conditions against
+  globals and the IDLE `HighDisposition`), whose rule is not documented; rank titles and
+  Hidden from PC have no screen in the game ("no effect in Fallout" [documented:
+  Category:Factions], actor-behaviour.md).
+- 8 **Package flags**, 11 **walla**: settled as left (packages.md §7.7, audio.md §15.3).
+- Smaller rows: DOOR Automatic Door is set on no door; TERM Hide Welcome Text on 5
+  terminals, none placed (object-fields.md); QUST log entries and MESG Auto Display have
+  their reasons in logic-fields.md §4; WEAP Short/Long Burst and the IS-animation flags in
+  item-fields.md §1.
+
+Owner calls left: 2 (the GMST groups, mostly combat tuning, which is not a parity
+target) and 3 (special VATS attacks).

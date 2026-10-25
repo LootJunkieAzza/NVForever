@@ -16,7 +16,18 @@
 //!   "The OnActivate block of the object will be run instead of the default
 //!   activation"]. That this holds for an NPC's walk through the door as for the player's
 //!   hand is a [hypothesis]: no capture saw an NPC held at a door.
-//! - **A refused door** is closed to that actor's paths for [`REFUSED_SECONDS`], as a
+//! - **A load door lets it through anyway.** A teleport door (REFR XTEL) whose block
+//!   activates nothing for an NPC still takes it to the other side; the block has run for
+//!   its other doings. The packages say so: in FalloutNV.esm about 420 actor/package
+//!   pairs walk through the Strip gates (VStripGate: the securitrons' gate posts and
+//!   patrols, the NCR MPs' patrols, the Omerta thugs' VMS33ThugLeavePackage) and 15
+//!   through Gomorrah's elevator doors (Nero's and Big Sal's ways between their rooms and
+//!   the casino) [observed: `fnvtool ai reach`, `routes_through_door`], though their
+//!   blocks call `Activate` for the player only [observed: the door survey]; refused,
+//!   those packages would all be out of reach [hypothesis: the original moves an NPC
+//!   through a load door its package goes through; refused through #729, 2026-10-25,
+//!   until the owner's playtest].
+//! - **A refused door** (one that opens in place) is closed to that actor's paths for [`REFUSED_SECONDS`], as a
 //!   locked door without its key is (`fnv_nav::PathParams::refused_doors`); its package
 //!   is taken up afresh and finds another way or is set aside as out of reach [design].
 //! - **A block for the player only** (`Begin OnActivate player`, 12 of the scripted
@@ -54,6 +65,9 @@ pub enum DoorAnswer {
     Let,
     /// The block ran and did not activate the door.
     Refused,
+    /// The block ran and did not activate the door, but it is a load door: the actor goes
+    /// through all the same (module notes).
+    LoadDoor,
 }
 
 /// A door's last answer to one actor and until when it stands.
@@ -95,6 +109,7 @@ impl Game<'_> {
             // `Begin OnActivate player`: the block is not for this actor.
             (false, _) => (DoorAnswer::NoBlock, ASKED_SECONDS),
             (true, true) => (DoorAnswer::Let, ASKED_SECONDS),
+            (true, false) if self.world.placed.get(door).is_some_and(|p| p.teleport.is_some()) => (DoorAnswer::LoadDoor, ASKED_SECONDS),
             (true, false) => (DoorAnswer::Refused, REFUSED_SECONDS),
         };
         let base = crate::functions::base_of(self, door).map(|b| self.data.name(b)).unwrap_or_default();

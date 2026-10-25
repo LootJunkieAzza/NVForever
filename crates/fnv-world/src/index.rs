@@ -22,6 +22,8 @@ pub struct Worldspace {
     pub parent: Option<u32>,
     /// WRLD PNAM: which data the worldspace takes from its parent.
     pub parent_flags: u16,
+    /// WRLD DATA flags (bit 0 Small World, 4 No LOD Water, … [documented: xEdit WRLD]).
+    pub data_flags: u8,
     pub default_land_height: Option<f32>,
     pub default_water_height: Option<f32>,
     /// WRLD CNAM climate and NAM2 water.
@@ -68,6 +70,12 @@ impl Cell {
     /// CELL DATA bit 1 [documented: xEdit "Has water"].
     pub fn has_water(&self) -> bool {
         self.data_flags & 2 != 0
+    }
+
+    /// CELL DATA bit 3 [documented: xEdit "No LOD Water"]: set on 3,967 cells, all
+    /// of them Zion Canyon's, in the masters [observed].
+    pub fn no_lod_water(&self) -> bool {
+        self.data_flags & 8 != 0
     }
 
     /// Height of the cell's water surface: none without the "has water" flag; XCLW when it
@@ -197,6 +205,7 @@ impl WorldIndex {
         w.water = f.formid(b"NAM2", lo);
         w.encounter_zone = f.formid(b"XEZN", lo);
         w.parent_flags = f.get(b"PNAM").and_then(|v| num(&v, "value")).map_or(0, |v| v as u16);
+        w.data_flags = f.get(b"DATA").and_then(|v| num(&v, "value")).map_or(0, |v| v as u8);
         if let Some(d) = f.get(b"DNAM") {
             w.default_land_height = num(&d, "default_land_height").map(|v| v as f32);
             w.default_water_height = num(&d, "default_water_height").map(|v| v as f32);
