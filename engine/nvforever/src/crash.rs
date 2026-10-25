@@ -212,6 +212,21 @@ pub fn early_exit(why: &str) {
     }
 }
 
+/// A reason the game stops at the start that the player must see (a damaged archive): a
+/// message box before the game ends, as there is no window yet. None in unattended runs
+/// (a test aid drives them; they would wait on it) or in a handoff's new run, whose old
+/// run shows the reason it reads from this run's log (handoff.rs).
+pub fn tell_player_at_start(text: &str, handoff: bool) {
+    if handoff || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_"))) {
+        return;
+    }
+    // rfd is a Windows-only dependency; elsewhere the error line carries the reason.
+    #[cfg(windows)]
+    rfd::MessageDialog::new().set_title("NVForever").set_level(rfd::MessageLevel::Error).set_description(text).show();
+    #[cfg(not(windows))]
+    let _ = text;
+}
+
 /// The run log's path, when there is one.
 pub fn run_log_path() -> Option<&'static Path> {
     RUN_LOG.get().map(|l| l.path.as_path())

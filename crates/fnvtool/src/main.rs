@@ -919,6 +919,9 @@ pub enum BsaCmd {
     },
     /// Byte-identical rewrite check plus decode of every file.
     Verify { archive: PathBuf },
+    /// The game's start-up check (headers and tables only, nothing decompressed); fails
+    /// when any archive fails it.
+    Check { archives: Vec<PathBuf> },
 }
 
 #[derive(Subcommand)]

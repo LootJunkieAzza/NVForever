@@ -365,7 +365,8 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
     started = time.monotonic()
     if launch.kind == GAME:
         cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
-        aids = game_env(launch)
+        # `{repo}` in a value: the repository (a fixture's path).
+        aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
         (env.out / f"{launch.name}.cmd.txt").write_text(
             "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
         (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
