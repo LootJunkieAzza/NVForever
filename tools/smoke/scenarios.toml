@@ -498,6 +498,21 @@ expect = [
 manual = "the sums of §5.3 (512 not reachable, 901 not carried out) are not checked one by one: explain a change of the verdicts against docs/design/actor-behaviour.md §5.3"
 
 [[scenario]]
+name = "npc-scripted-doors"
+kind = "tool"
+source = "docs/spec-notes/doors.md §5: an NPC walking through a scripted door runs its OnActivate block first (fnv_game::npc_doors); GSDocMitchellDoor's block activates the door for anyone but the player, so Doc Mitchell, sent to the saloon, walks out through it and on"
+areas = ["ai"]
+paths = ["crates/fnv-game/src/npc_doors.rs", "crates/fnv-ai/", "crates/fnv-nav/src/follow.rs", "crates/fnv-nav/src/doors.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--start-hour", "12", "--actor", "DocMitchellREF", "--force", "DocMitchellREF=EasyPeteEat12x2"],
+]
+expect = [
+  { json = "actors.?actor=DocMitchellREF.event_counts.door", schema = "fnv.ai.run/1", range = [2, 100], label = "through his house's scripted door and the saloon's" },
+  { json = "actors.?actor=DocMitchellREF.event_counts.arrived", schema = "fnv.ai.run/1", range = [1, 100], label = "arrived at the saloon" },
+  { json = "actors.?actor=DocMitchellREF.event_counts.door_refused", schema = "fnv.ai.run/1", count = 0, label = "no door refused him" },
+]
+
+[[scenario]]
 name = "ai-observed"
 kind = "tool"
 source = "CLAUDE.md: after AI package changes, with the owner's observer captures: fnvtool ai observed and ai run --samples (actor-behaviour.md §4, §5.3)"

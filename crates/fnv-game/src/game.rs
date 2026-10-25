@@ -1197,6 +1197,11 @@ pub struct Game<'a> {
     /// next one [observed: OnLoad after Enable had not run on the line after Enable and
     /// had run by the next frame, layer5-captures.md §8.3 d].
     pub pending_onload: Vec<FormId>,
+    /// Scripted doors' last answers to the NPCs walking through them, by (actor, door)
+    /// (`crate::npc_doors`). Not part of the saved state.
+    pub door_gates: std::collections::HashMap<(FormId, FormId), crate::npc_doors::Gate>,
+    /// The door block being run for an NPC walking through it (`Game::npc_door`).
+    pub npc_door_run: Option<crate::npc_doors::DoorRun>,
     /// Reference events the engine reported outside a script run (a container menu
     /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
     /// world in place ([`Game::queue_ref_event`]).
@@ -1494,6 +1499,8 @@ impl<'a> Game<'a> {
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
+            door_gates: Default::default(),
+            npc_door_run: None,
             queued_ref_events: Vec::new(),
             door_open_seen: BTreeMap::new(),
             events: Vec::new(),
@@ -2779,6 +2786,10 @@ impl<'a> Game<'a> {
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
         if self.activation_refused(target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
+        }
+        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
+        if mode == ActMode::Default && self.npc_door_activated(actor, target) {
+            return Ok(serde_json::json!({"result": "npc door"}));
         }
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
         match mode {

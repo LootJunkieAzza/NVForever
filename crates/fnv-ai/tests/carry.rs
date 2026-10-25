@@ -636,6 +636,36 @@ fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A scripted door that does not let the actor through (its OnActivate block called no
+/// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
+/// actor comes near, it plans again without the door and, with no other way, sets the
+/// package aside. The refusal lapses and the way is open again.
+#[test]
+fn a_door_whose_script_refuses_the_actor_shuts_its_way() {
+    use fnv_game::npc_doors::{DoorAnswer, Gate};
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // The door's answer, as its block would give it (the fixture's door has no script).
+    let until = s.game.time + 60.0;
+    s.game.door_gates.insert((actor, FormId(DOOR_A)), Gate { answer: DoorAnswer::Refused, until });
+    s.run(20.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::DoorRefused { door } if door.0 == DOOR_A)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Door { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+    // Another actor's paths are not touched by it.
+    assert!(s.game.refused_doors(FormId(R_IN)).is_empty());
+    // Lapsed (and the package's hour over): through the door.
+    s.game.door_gates.clear();
+    s.game.world.set_global(FormId(G_DAYS), 5.0 + 1.1 / 24.0).unwrap();
+    s.run(40.0);
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 #[test]
 fn an_in_cell_location_is_met_on_entering_the_cell() {
     let f = fixture();

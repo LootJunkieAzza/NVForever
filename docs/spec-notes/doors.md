@@ -117,3 +117,44 @@ door blocks once the character has stepped out; the same for a character standin
 the open leaf lands; a door with nobody near is solid on the first frame at rest. Open
 question for captures: what the original game does when a door closes on an actor (stops,
 reopens, pushes, passes through).
+
+## 5. NPCs at scripted doors (built 2026-10-25, `fnv_game::npc_doors`)
+
+### 5.1 What the doors' scripts do for an NPC [observed: survey of the ten masters]
+
+The survey decompiled the script of every DOOR base that has one (`fnvtool script
+decompile` over the ten masters; base forms and placements read from the plugins) and
+followed each OnActivate block with the action reference an NPC: tests that it is the
+player taken as false, every other condition as either.
+
+| Doors (of 214 with a script) | What an NPC gets |
+|---|---|
+| 15 | no OnActivate block (HVLevel1To2Door, vCCHQDoor among them) |
+| 12 | `Begin OnActivate player`: the block is not for it (IndDoorSmAnim01, REPCONN's basement doors and ladder) |
+| 111 | the block activates the door for it (`if IsActionRef player … else activate`, the GECK wiki's own pattern) |
+| 34 | depends on the game's state (a quest stage, a variable, the actor's faction) |
+| 42 | never activated for it: 11 in FalloutNV.esm (VStripGate, GomorraElevatorDoor, V22ElevatorDoor, V22BathroomScareDoor, SVComputerRoomDoor02, NVMonorailDoor, NVCCBarge, NVCCInvisibleFortGate, NVCCRadTruckDoor, VHDExteriorLadder and its fake), 31 in the add-ons (most of them the doors back to the Mojave) |
+
+Some blocks look after NPCs themselves: VHDExteriorLadder moves an NPC to the ladder's
+linked marker (`MoveToMarkerWithFade`), GomorraElevatorDoor moves the player's teammates
+to the player.
+
+### 5.2 The rule
+
+- The original fires the activation event for NPCs walking through doors, in unloaded
+  cells too [observed: xNVSE OnActivate events, script-function-coverage.md §3.3].
+- A block runs instead of the default activation; the door opens only when the block
+  calls `Activate` [documented: GECK wiki Activate, IsActionRef]. Applied to an NPC's walk
+  through the door as to the player's hand [hypothesis: no capture saw an NPC held].
+- NVForever: as an actor the AI walks comes within its step and 96 units of the next door
+  of its way, the door's OnActivate block runs with the actor as the action reference
+  (GetActionRef, IsActionRef). A block that calls `Activate` for it lets it through: the
+  AI moves it and opens the door as for a door without a script, and the door's activate
+  children go off. A block that does not closes the door to that actor's paths for 120
+  game seconds (an hour at TimeScale 30) and its package is taken up afresh: another way,
+  or the package set aside as out of reach as for a locked door. A door asked and passed
+  is not asked again by that actor for 10 s. A `Begin OnActivate player` block does not
+  run for an NPC and does not hold it [hypothesis].
+- Not saved: after a load the doors are asked again.
+- Open, for a capture: whether the original's NPCs wait at a refusing door, take another
+  way or never plan through it; whether a refusal is remembered.
