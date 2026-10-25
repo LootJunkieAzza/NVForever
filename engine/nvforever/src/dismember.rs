@@ -109,7 +109,7 @@ impl Plugin for DismemberPlugin {
         app.init_resource::<Gore>()
             .add_systems(
                 Update,
-                (apply_skins, cut_ragdolls, throw_gore.before(crate::shot_fx::ShotFxSet), move_pieces.after(nvf_play::PlaySet::Physics))
+                (apply_skins, cut_ragdolls, throw_gore.before(crate::shot_fx::ShotFxSet), throw_object_debris, move_pieces.after(nvf_play::PlaySet::Physics))
                     .after(nvf_play::PlaySet::Activation)
                     .run_if(resource_exists::<Combat>)
                     .run_if(resource_exists::<PhysState>),
@@ -502,46 +502,8 @@ fn throw_gore(
             }
         }
         // The pieces.
-        let mut thrown = 0;
-        let mut farthest = 0.0f32;
-        let mut lowest = f32::MAX;
         let actor_scale = sim.ref_scale(e.form_id);
-        for ((path, s), pm) in wanted.iter().zip(&loaded) {
-            let Some(pm) = pm else { continue };
-            let place = Affine3A::from_mat3_translation(frame * actor_scale * *s, origin);
-            for (piece, local, shapes) in pieces(pm) {
-                let key = (path.to_ascii_lowercase(), piece);
-                let (half, center) = *gore.boxes.entry(key).or_insert_with(|| piece_box(&models.meshes, pm, &shapes));
-                let world = place * local;
-                let (sc, q, t) = world.to_scale_rotation_translation();
-                let k = sc.x.max(0.01);
-                let id = gore.next;
-                gore.next = gore.next.wrapping_add(1).max(1);
-                let dir = (random_dir(&mut gore.rng) + Vec3::from(e.dir) * 0.6 + Vec3::Z * 0.6).normalize_or_zero();
-                let speed = PIECE_SPEED.0 + (PIECE_SPEED.1 - PIECE_SPEED.0) * gore.rng.next_f32();
-                let spin = random_dir(&mut gore.rng) * PIECE_SPIN * gore.rng.next_f32();
-                phys.world.add_gore(&GoreStart {
-                    id,
-                    actor: e.form_id,
-                    translation: t.to_array(),
-                    rotation: rows(Mat3::from_quat(q)),
-                    half_extents: (Vec3::from(half) * k).to_array(),
-                    center: (Vec3::from(center) * k).to_array(),
-                    linvel: (dir * speed).to_array(),
-                    angvel: spin.to_array(),
-                    mass: PIECE_MASS,
-                });
-                let holder = commands.spawn((Transform::from_translation(t).with_rotation(q).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(world_root), GorePiece { id, actor: e.form_id, settled: false })).id();
-                farthest = farthest.max(t.distance(origin));
-                lowest = lowest.min(t.z);
-                for (rel, si) in shapes {
-                    let sh = &pm.shapes[si];
-                    commands.spawn((Mesh3d(sh.mesh.clone()), MeshMaterial3d(sh.material.clone()), Transform::from_matrix(Mat4::from(rel)), Visibility::Inherited, NotShadowCaster, ChildOf(holder)));
-                }
-                gore.pieces.push((id, holder));
-                thrown += 1;
-            }
-        }
+        let (thrown, farthest, lowest) = throw_pieces(&mut commands, world_root, &models.meshes, &mut phys, &mut gore, e.form_id, origin, frame, actor_scale, &wanted, &loaded, Vec3::from(e.dir));
         gore.thrown += thrown;
         gore.landed.entry(e.form_id).or_default().0 += thrown;
         while gore.pieces.len() > MAX_PIECES {
@@ -565,6 +527,115 @@ fn throw_gore(
             origin.z,
             if thrown > 0 { format!(", the lowest at z {lowest:.0}") } else { String::new() }
         );
+    }
+}
+
+/// Throw the pieces of `wanted` (model path and scale, `loaded` their models) as physics
+/// bodies of `owner`'s: placed at `origin` in `frame` times `scale`, flying out along
+/// `dir` and up, spinning. The pieces thrown, the farthest one's start from `origin` and
+/// the lowest one's height.
+#[allow(clippy::too_many_arguments)]
+fn throw_pieces(
+    commands: &mut Commands,
+    world_root: Entity,
+    meshes: &Assets<Mesh>,
+    phys: &mut PhysState,
+    gore: &mut Gore,
+    owner: u32,
+    origin: Vec3,
+    frame: Mat3,
+    scale: f32,
+    wanted: &[(String, f32)],
+    loaded: &[Option<Arc<PreparedModel>>],
+    dir: Vec3,
+) -> (u32, f32, f32) {
+    let mut thrown = 0;
+    let mut farthest = 0.0f32;
+    let mut lowest = f32::MAX;
+    for ((path, s), pm) in wanted.iter().zip(loaded) {
+        let Some(pm) = pm else { continue };
+        let place = Affine3A::from_mat3_translation(frame * scale * *s, origin);
+        for (piece, local, shapes) in pieces(pm) {
+            let key = (path.to_ascii_lowercase(), piece);
+            let (half, center) = *gore.boxes.entry(key).or_insert_with(|| piece_box(meshes, pm, &shapes));
+            let world = place * local;
+            let (sc, q, t) = world.to_scale_rotation_translation();
+            let k = sc.x.max(0.01);
+            let id = gore.next;
+            gore.next = gore.next.wrapping_add(1).max(1);
+            let d = (random_dir(&mut gore.rng) + dir * 0.6 + Vec3::Z * 0.6).normalize_or_zero();
+            let speed = PIECE_SPEED.0 + (PIECE_SPEED.1 - PIECE_SPEED.0) * gore.rng.next_f32();
+            let spin = random_dir(&mut gore.rng) * PIECE_SPIN * gore.rng.next_f32();
+            phys.world.add_gore(&GoreStart {
+                id,
+                actor: owner,
+                translation: t.to_array(),
+                rotation: rows(Mat3::from_quat(q)),
+                half_extents: (Vec3::from(half) * k).to_array(),
+                center: (Vec3::from(center) * k).to_array(),
+                linvel: (d * speed).to_array(),
+                angvel: spin.to_array(),
+                mass: PIECE_MASS,
+            });
+            let holder = commands.spawn((Transform::from_translation(t).with_rotation(q).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(world_root), GorePiece { id, actor: owner, settled: false })).id();
+            farthest = farthest.max(t.distance(origin));
+            lowest = lowest.min(t.z);
+            for (rel, si) in shapes {
+                let sh = &pm.shapes[si];
+                commands.spawn((Mesh3d(sh.mesh.clone()), MeshMaterial3d(sh.material.clone()), Transform::from_matrix(Mat4::from(rel)), Visibility::Inherited, NotShadowCaster, ChildOf(holder)));
+            }
+            gore.pieces.push((id, holder));
+            thrown += 1;
+        }
+    }
+    (thrown, farthest, lowest)
+}
+
+/// A destroyed object's debris (a destruction stage's DEBR, `nvf_play::combat::
+/// ObjectDebris`): `count` pieces, each model picked by its DEBR percentage, thrown from
+/// the object's middle as the gore of a dismembered body is [design: the gore's speeds
+/// and spin; docs/spec-notes/destruction-stages.md §4]. A debris model not loaded yet
+/// waits a few frames.
+#[allow(clippy::too_many_arguments)]
+fn throw_object_debris(
+    mut commands: Commands,
+    mut combat: ResMut<Combat>,
+    root: Query<Entity, With<WorldRoot>>,
+    mut models: ModelCtx,
+    mut phys: ResMut<PhysState>,
+    mut gore: ResMut<Gore>,
+    mut waiting: Local<Vec<(nvf_play::combat::ObjectDebris, u8)>>,
+) {
+    let mut due: Vec<(nvf_play::combat::ObjectDebris, u8)> = std::mem::take(&mut *waiting);
+    due.extend(std::mem::take(&mut combat.debris).into_iter().map(|d| (d, 0)));
+    let Ok(world_root) = root.single() else { return };
+    for (d, tries) in due {
+        let list: Vec<(u8, String)> = combat.forms.debris.get(&d.debris).map(|m| m.iter().map(|m| (m.percent, m.model.clone())).collect()).unwrap_or_default();
+        let total: u32 = list.iter().map(|m| m.0 as u32).sum();
+        let mut wanted: Vec<(String, f32)> = Vec::new();
+        for _ in 0..d.count.clamp(0, 16) {
+            let mut pick = gore.rng.next_f32() * total as f32;
+            if let Some((_, m)) = list.iter().find(|m| {
+                pick -= m.0 as f32;
+                pick < 0.0
+            }) {
+                wanted.push((m.clone(), 1.0));
+            }
+        }
+        let loaded: Vec<Option<Arc<PreparedModel>>> = wanted.iter().map(|(m, _)| models.model(&fnv_actor::resolve::mesh_path(m))).collect();
+        if loaded.iter().any(Option::is_none) && tries < 3 {
+            waiting.push((d, tries + 1));
+            continue;
+        }
+        let at = Vec3::from(d.at);
+        let (thrown, farthest, _) = throw_pieces(&mut commands, world_root, &models.meshes, &mut phys, &mut gore, d.reference.0, at, Mat3::IDENTITY, 1.0, &wanted, &loaded, Vec3::ZERO);
+        gore.thrown += thrown;
+        while gore.pieces.len() > MAX_PIECES {
+            let (id, ent) = gore.pieces.remove(0);
+            phys.world.remove_gore(id);
+            commands.entity(ent).despawn();
+        }
+        info!("destroyed: {} throws {thrown} debris pieces of {} (within {farthest:.0} units of ({:.0}, {:.0}, {:.0}))", d.reference, d.debris, at.x, at.y, at.z);
     }
 }
 
