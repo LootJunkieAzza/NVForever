@@ -203,9 +203,9 @@ pub fn parse(v: &Json, types: &ParamTypes, map: &dyn Fn(u32) -> Option<u32>) -> 
 }
 
 /// Combine evaluated conditions: a condition with the OR flag is joined to the next one;
-/// the OR groups are joined with AND [hypothesis: the grouping commonly described for
-/// this engine generation, in which OR binds tighter than AND, as `||` does in compiled
-/// script expressions (scripts.md §3.3); to be captured]. An empty list passes.
+/// the OR groups are joined with AND, so OR binds tighter than AND [documented: GECK
+/// wiki Category:Conditions, "AND/OR Precedence": consecutive ORs are one block, and
+/// A AND B OR C AND D is A AND (B OR C) AND D]. An empty list passes.
 pub fn combine(results: &[(bool, bool)]) -> bool {
     // (passed, or-flag)
     let mut all = true;
