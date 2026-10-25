@@ -9597,3 +9597,21 @@ expect = [
   { re = 'particles: born in \S*b29_riseanim\.nif: wDripL04 [1-9]', label = "the drips fall from the risen plane" },
   { re = 'particles: born in \S*b29_riseanim\.nif: .*[ ,]wFlingL01 (?P<n>\d+)', range = [40, 60], label = "a waterline fling sprays only in its Forward window (150 a second for 0.33 s), not all the time" },
 ]
+
+[[scenario]]
+name = "combat-npc-rearm"
+source = "owner request 2026-10-25: a Viper Gunslinger fought with her fists after losing her weapon; NPCs go for a better weapon by damage per second, a gunman keeps to guns, a gun needs ammunition found too (copied, the source keeps it), fists last, with the pick-up animation (docs/design/combat-ai.md §22)"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) loses all her items at 3 s (scripts' clock); a service rifle and a box of 5.56mm rounds are laid at the player's feet about 1,000 units away, and she is set on the player at 4 s, god mode. Unarmed, she runs to the rounds and the rifle, plays the pick-up idle at each, copies one round (the box stays), takes the rifle and fights with it"
+areas = ["combat"]
+paths = ["crates/fnv-ai/src/rearm.rs", "crates/fnv-game/src/rearm.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:RemoveAllItems,3.2:call:player:PlaceAtMe:WeapNVServiceRifle:1,3.3:call:player:PlaceAtMe:Ammo556mm:1,4:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  { re = 'rearm: goes for .*, 2 stop\(s\)', count = 1, label = "unarmed, she sets off for the rifle and its rounds" },
+  { re = 'rearm: picks up .*\(a copy\) from', label = "she copies a round" },
+  { re = 'rearm: picks up .* from the ground', label = "she picks the rifle up" },
+  { re = 'idle: \S+ plays LoosePickUpGroundObject .*\(PickUp\)', label = "the game's pick-up idle plays" },
+  { re = 'rearm: now holds .* it fetched', label = "she holds the rifle" },
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVServiceRifle \(gun\)', label = "she fights with the rifle" },
+]

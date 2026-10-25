@@ -288,21 +288,9 @@ pub fn skill_bonus(r: &Rules, skill: f32) -> f32 {
     r.damage_skill_base + r.damage_skill_mult * skill.clamp(0.0, 100.0) / 100.0
 }
 
-/// Weapon condition at and above which a weapon deals all its damage
-/// [documented: GECK wiki SetConditionDamagePenalty (JIP), "the 75% threshold"].
-pub const CONDITION_DAMAGE_THRESHOLD: f32 = 0.75;
-/// How fast damage falls below [`CONDITION_DAMAGE_THRESHOLD`]: the engine's hard-coded
-/// multiplier [documented: GECK wiki SetConditionDamagePenalty, "0.67, by default"].
-pub const CONDITION_DAMAGE_PENALTY: f32 = 0.67;
-
-/// The damage multiplier of a weapon at `condition` (0..=1): 1 at or above 75 %, below it
-/// `1 − (0.75 − condition) × 0.67`, 0.4975 at zero [documented: GECK wiki
-/// SetConditionDamagePenalty, the formula the JIP function overrides; observed: troopers'
-/// Service Rifles at 30, 45 and 50 % dealt 0.698, 0.799 and 0.832 of the full-condition
-/// hit, AI observer campaign fight_stats_round 2026-10-19, npc-behaviour-compare.md §9].
-pub fn condition_mult(condition: f32) -> f32 {
-    1.0 - (CONDITION_DAMAGE_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * CONDITION_DAMAGE_PENALTY
-}
+/// The weapon condition rule lives with the carried items' condition (`fnv_sim::inventory`),
+/// where the rules' weapon choices read it too (`fnv_game::rearm`).
+pub use fnv_sim::inventory::{condition_mult, CONDITION_DAMAGE_PENALTY, CONDITION_DAMAGE_THRESHOLD};
 
 /// The MeleeDamage actor value's base: Strength × mult + offset [documented].
 pub fn melee_damage_av(r: &Rules, strength: f32) -> f32 {

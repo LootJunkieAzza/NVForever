@@ -20,6 +20,7 @@ pub mod carry;
 pub mod errand;
 pub mod goal;
 pub mod process;
+pub mod rearm;
 pub mod progress;
 pub mod sandbox;
 pub mod social;

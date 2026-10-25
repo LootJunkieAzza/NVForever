@@ -1474,7 +1474,9 @@ pub(crate) fn fight(
                 None => {}
             }
             let flight = g.awareness.tactics.flights.get(&me).copied();
-            let fleeing = flight.is_some();
+            // On its way to a better weapon (`fnv_ai::rearm`, combat-ai.md §22) it holds its
+            // fire and takes no post, as a fleeing actor does.
+            let fleeing = flight.is_some() || g.rearms.fetches.contains_key(&me);
             if let Some(fl) = flight {
                 // How it fled, counted once: by its spot, or cornered.
                 let key = (id, fl.since.to_bits());

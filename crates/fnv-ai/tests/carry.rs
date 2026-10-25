@@ -2006,3 +2006,147 @@ fn a_sandboxer_tells_the_game_what_it_does() {
         }
     }
 }
+
+// ---- re-arming (`fnv_ai::rearm`, docs/design/combat-ai.md §22) ----------------------
+
+const PISTOL: u32 = 0xA00;
+const ROUNDS: u32 = 0xA01;
+const KNIFE: u32 = 0xA02;
+
+/// A pistol (Guns, 10 a shot, 2 a second, firing `ROUNDS`), its rounds and a knife (Melee,
+/// 60 a blow): the knife does more damage a second than the pistol.
+fn with_arms(mut f: Fixture) -> Fixture {
+    use fnv_sim::forms::{BaseData, BaseForm, Item, ItemKind, WeaponTraits};
+    let item = |kind: ItemKind, damage: Option<f32>, traits: Option<WeaponTraits>, projectile: Option<FormId>| Item {
+        kind,
+        value: Some(1),
+        money: None,
+        weight: Some(1.0),
+        slots: None,
+        projectile,
+        health: Some(100),
+        non_playable: false,
+        cant_drop: false,
+        armor_class: Default::default(),
+        power_armor: false,
+        armor_dr: None,
+        armor_dt: None,
+        weapon_damage: damage,
+        weight_mods: [0.0; 3],
+        drawable: kind == ItemKind::Weapon,
+        not_for_npcs: false,
+        thrown: false,
+        quest_item: false,
+        icon: None,
+        placed_count: None,
+        teaches: None,
+        cant_be_taken: false,
+        modulates_voice: false,
+        weapon_traits: traits,
+    };
+    let pistol = item(ItemKind::Weapon, Some(10.0), Some(WeaponTraits { skill: Some(41), shots_per_sec: 2.0, ammo: Some(FormId(ROUNDS)), ..Default::default() }), Some(FormId(0xA0F)));
+    let knife = item(ItemKind::Weapon, Some(60.0), Some(WeaponTraits { skill: Some(38), attack_mult: 1.0, ..Default::default() }), None);
+    let rounds = item(ItemKind::Ammo, None, None, None);
+    // Animation types Pistol - Ballistic (1 Hand) 3 and Melee (1 Hand) 1 [documented: xEdit].
+    f.data.weapon_anim_types.extend([(FormId(PISTOL), 3), (FormId(KNIFE), 1)]);
+    for (id, sig, it) in [(PISTOL, *b"WEAP", pistol), (KNIFE, *b"WEAP", knife), (ROUNDS, *b"AMMO", rounds)] {
+        let id = FormId(id);
+        f.forms.sigs.insert(id, sig);
+        f.forms.bases.insert(id, BaseForm { id, sig, edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
+    }
+    f
+}
+
+/// Lay `base` on the ground of cell C at `at`.
+fn lay(s: &mut Sim, base: u32, at: [f32; 3]) -> FormId {
+    s.game.world.place(FormId(base), Some(FormId(CELL_C)), at, [0.0; 3], 1).unwrap()
+}
+
+#[test]
+fn an_unarmed_fighter_fetches_a_gun_and_a_copy_of_its_ammunition() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let feet = s.feet(R_SB_NOTHING);
+    let gun = lay(&mut s, PISTOL, [feet[0] + 250.0, feet[1], 0.0]);
+    let box_of_rounds = lay(&mut s, ROUNDS, [feet[0] + 120.0, feet[1] + 60.0, 0.0]);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    let me = FormId(R_SB_NOTHING);
+    assert!(s.game.held_weapon(me).is_none(), "it starts with its fists");
+    s.run(8.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Fetch { weapon, stops: 2, .. } if *weapon == FormId(PISTOL))), "{ev:?}");
+    // The ammunition first (nearer), copied; then the gun, picked up.
+    let got: Vec<FormId> = ev.iter().filter_map(|e| if let AiEvent::FetchGot { item, got: true, .. } = e { Some(*item) } else { None }).collect();
+    assert_eq!(got, vec![FormId(ROUNDS), FormId(PISTOL)], "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Rearmed { weapon, .. } if *weapon == FormId(PISTOL))), "{ev:?}");
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(PISTOL)));
+    assert!(!s.game.present(gun), "the gun left the ground");
+    assert!(s.game.present(box_of_rounds), "the source of the copied rounds stays");
+    assert!(s.game.carries_any(me, &[FormId(ROUNDS)]));
+    assert!(!s.game.rearms.fetches.contains_key(&me));
+}
+
+#[test]
+fn a_gunman_takes_a_weak_gun_over_a_strong_knife_and_the_knife_only_without_ammunition() {
+    let f = with_arms(fixture());
+    let me = FormId(R_SB_NOTHING);
+    // With rounds for the pistol on the ground: the pistol (its own class first).
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let feet = s.feet(R_SB_NOTHING);
+    lay(&mut s, KNIFE, [feet[0] + 100.0, feet[1], 0.0]);
+    lay(&mut s, PISTOL, [feet[0] + 200.0, feet[1], 0.0]);
+    lay(&mut s, ROUNDS, [feet[0] + 200.0, feet[1] + 80.0, 0.0]);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    s.run(8.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(PISTOL)), "{:?}", s.events(R_SB_NOTHING));
+    // No rounds anywhere: the pistol is no use, so the knife, before the fists.
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let feet = s.feet(R_SB_NOTHING);
+    lay(&mut s, KNIFE, [feet[0] + 100.0, feet[1], 0.0]);
+    let gun = lay(&mut s, PISTOL, [feet[0] + 200.0, feet[1], 0.0]);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    s.run(8.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)), "{:?} {:?}", s.events(R_SB_NOTHING), s.game.world.peek(me).and_then(|r| r.inventory.clone()));
+    assert!(s.game.present(gun), "a gun without ammunition is left lying");
+}
+
+#[test]
+fn a_gun_without_ammunition_anywhere_is_not_fetched() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let feet = s.feet(R_SB_NOTHING);
+    lay(&mut s, PISTOL, [feet[0] + 200.0, feet[1], 0.0]);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    s.run(4.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Fetch { .. })), "{ev:?}");
+    assert!(s.game.held_weapon(FormId(R_SB_NOTHING)).is_none());
+}
+
+#[test]
+fn a_fighter_keeps_the_weapon_it_holds_over_its_other_carried_ones_until_it_loses_it() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    // The outfitting holds the knife (the higher damage); a gunman would rank the pistol
+    // above it, but the outfitting's choice stands (Cook-Cook's Incinerator).
+    for (item, n) in [(KNIFE, 1), (PISTOL, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    // Outfitted, as a drawn actor is: what it holds is what is equipped.
+    assert!(s.game.world.outfit(me).unwrap());
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)));
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    s.run(3.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)), "{:?} {:?}", s.events(R_SB_NOTHING), s.game.world.peek(me).and_then(|r| r.inventory.clone()));
+    // The knife is lost: the pistol it carries, rounds and all, by the same rank whether
+    // the fight's empty-hand rule (`Game::arm_by_style`) or re-arming takes it up first.
+    s.game.world.remove_item(me, FormId(KNIFE), 1).unwrap();
+    s.run(2.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(PISTOL)), "{:?}", s.events(R_SB_NOTHING));
+}
