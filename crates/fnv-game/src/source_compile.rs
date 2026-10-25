@@ -6,8 +6,10 @@
 //! game's own function table does not have. NVForever has no table of those numbers, so it
 //! compiles such a unit's source again with its own compiler (`fnv_script::compile`) and
 //! runs that. The rule: a unit whose bytes call an opcode above the highest one in the
-//! function table, and that has source, runs from its source [decision: no shipped unit
-//! calls such an opcode (scripts.md §2.6), so the shipped game is unchanged]. The compile
+//! function table, or whose bytes the decoder cannot read (the extender's own statements
+//! have byte forms of their own [hypothesis]), and that has source, runs from its source
+//! [decision: no shipped unit calls such an opcode or holds unreadable bytes (scripts.md
+//! §2.6), so the shipped game is unchanged]. The compile
 //! is seeded with the unit's own variable and reference lists, so other scripts' bytes
 //! that name its variables by index stay right.
 //!
@@ -91,7 +93,8 @@ pub fn calls_above(p: &Program, highest: u16) -> bool {
                 arms.iter().any(|a| expr(&a.cond, h) || stmts(&a.body, h)) || otherwise.as_ref().is_some_and(|o| stmts(o, h))
             }
             Stmt::Unmatched { cond, .. } => cond.as_ref().is_some_and(|c| expr(c, h)),
-            Stmt::Return | Stmt::Raw { .. } => false,
+            // An extended statement calls only what its tree names (no opcode above the table).
+            Stmt::Return | Stmt::Raw { .. } | Stmt::Let { .. } => false,
         })
     }
     stmts(&p.top, highest) || p.blocks.iter().any(|b| stmts(&b.body, highest))
@@ -108,7 +111,7 @@ pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv
     let picked: Vec<usize> = (0..units.len())
         .filter(|&i| {
             let c = &units[i].1;
-            c.unit.has_scda && c.unit.source.is_some() && (m == Mode::Always || calls_above(&c.program, highest))
+            c.unit.has_scda && c.unit.source.is_some() && (m == Mode::Always || calls_above(&c.program, highest) || c.raw > 0)
         })
         .collect();
     if picked.is_empty() {

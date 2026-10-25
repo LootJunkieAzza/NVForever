@@ -1,0 +1,312 @@
+//! The extender's expressions (task A7; docs/spec-notes/ext-syntax.md, script-compiler.md
+//! §9): tokens → a resolved [`XExpr`] tree, by precedence climbing over the operator table
+//! of NVSE Expressions [documented: NVSE Expressions].
+//!
+//! Precedence, loosest first (the page's numbers): `:=` (0, right to left) · `||` (1) ·
+//! `&&` and the compound assignments (2) · `:` `::` (3) · `==` `!=` (4) · `<` `>` `<=` `>=`
+//! (5) · `|` (6) · `&` (7) · `<<` `>>` (8) · `+` `-` (9) · `*` `/` `%` (10) · `^` (11) ·
+//! unary `-` `$` `#` `*` `&` (12) · `!` (13) · `[]` `->` (15). Only `:=` has a documented
+//! associativity; the other binary operators group left to right and the compound
+//! assignments right to left [hypothesis, to check with the editor: extender-core-tasks.md
+//! G2].
+//!
+//! A function inside an expression takes up to as many arguments as it has parameters, and
+//! each argument is a whole expression (`Sin 14 == 1` is `Sin (14 == 1)`) [documented:
+//! Script Compiler Override, "Unforeseen Consequences"]. Arguments are separated by a comma
+//! or by two operands meeting without an operator (`Rand 0, 10`, `Rand 0 10`) [hypothesis].
+
+use super::{Gen, Val};
+use crate::compile::lex::{XKind, XTok};
+use crate::ir::{FuncId, RefIndex, VarRef, VarSlot, XAssign, XCall, XExpr, XOp, XUnary};
+use crate::table::ParamEnc;
+
+pub(in crate::compile) struct P<'t> {
+    t: &'t [XTok],
+    i: usize,
+}
+
+impl<'t> P<'t> {
+    pub(in crate::compile) fn new(t: &'t [XTok]) -> P<'t> {
+        P { t, i: 0 }
+    }
+    fn peek(&self) -> Option<&'t XTok> {
+        self.t.get(self.i)
+    }
+    fn peek2(&self) -> Option<&'t XTok> {
+        self.t.get(self.i + 1)
+    }
+    fn next(&mut self) -> Option<&'t XTok> {
+        let t = self.t.get(self.i);
+        self.i += 1;
+        t
+    }
+    pub(in crate::compile) fn done(&self) -> bool {
+        self.i >= self.t.len()
+    }
+    pub(in crate::compile) fn rest(&self) -> String {
+        self.t[self.i.min(self.t.len())..].iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ")
+    }
+}
+
+enum Infix {
+    Bin(XOp),
+    Assign(XAssign),
+}
+
+/// Left and right binding power of an infix operator (twice the page's precedence, plus
+/// one; a right-to-left operator's right side binds as loosely as its left).
+fn infix(t: &XTok) -> Option<(u8, u8, Infix)> {
+    if t.kind != XKind::Op {
+        return None;
+    }
+    let l = |p: u8| (p * 2 + 1, p * 2 + 2);
+    let r = |p: u8| (p * 2 + 1, p * 2 + 1);
+    let (lb, rb, op) = match t.text.as_str() {
+        ":=" | "=" => (r(0).0, r(0).1, Infix::Assign(XAssign::Set)),
+        "||" => (l(1).0, l(1).1, Infix::Bin(XOp::Or)),
+        "&&" => (l(2).0, l(2).1, Infix::Bin(XOp::And)),
+        "+=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Add)),
+        "-=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Sub)),
+        "*=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Mul)),
+        "/=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Div)),
+        "^=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Pow)),
+        "|=" => (r(2).0, r(2).1, Infix::Assign(XAssign::BitOr)),
+        "&=" => (r(2).0, r(2).1, Infix::Assign(XAssign::BitAnd)),
+        "%=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Mod)),
+        ":" => (l(3).0, l(3).1, Infix::Bin(XOp::Slice)),
+        "::" => (l(3).0, l(3).1, Infix::Bin(XOp::Pair)),
+        "==" => (l(4).0, l(4).1, Infix::Bin(XOp::Eq)),
+        "!=" => (l(4).0, l(4).1, Infix::Bin(XOp::Ne)),
+        "<" => (l(5).0, l(5).1, Infix::Bin(XOp::Lt)),
+        ">" => (l(5).0, l(5).1, Infix::Bin(XOp::Gt)),
+        "<=" => (l(5).0, l(5).1, Infix::Bin(XOp::Le)),
+        ">=" => (l(5).0, l(5).1, Infix::Bin(XOp::Ge)),
+        "|" => (l(6).0, l(6).1, Infix::Bin(XOp::BitOr)),
+        "&" => (l(7).0, l(7).1, Infix::Bin(XOp::BitAnd)),
+        "<<" => (l(8).0, l(8).1, Infix::Bin(XOp::Shl)),
+        ">>" => (l(8).0, l(8).1, Infix::Bin(XOp::Shr)),
+        "+" => (l(9).0, l(9).1, Infix::Bin(XOp::Add)),
+        "-" => (l(9).0, l(9).1, Infix::Bin(XOp::Sub)),
+        "*" => (l(10).0, l(10).1, Infix::Bin(XOp::Mul)),
+        "/" => (l(10).0, l(10).1, Infix::Bin(XOp::Div)),
+        "%" => (l(10).0, l(10).1, Infix::Bin(XOp::Mod)),
+        "^" => (l(11).0, l(11).1, Infix::Bin(XOp::Pow)),
+        _ => return None,
+    };
+    Some((lb, rb, op))
+}
+
+/// A prefix operator and the binding power of its operand.
+fn prefix(t: &XTok) -> Option<(XUnary, u8)> {
+    if t.kind != XKind::Op {
+        return None;
+    }
+    Some(match t.text.as_str() {
+        "-" => (XUnary::Neg, 25),
+        "$" => (XUnary::Stringize, 25),
+        "#" => (XUnary::Numericize, 25),
+        "*" => (XUnary::Unbox, 25),
+        "&" => (XUnary::Box, 25),
+        "!" => (XUnary::Not, 27),
+        _ => return None,
+    })
+}
+
+/// Binding power of `[]` and `->` (precedence 15).
+const POSTFIX: u8 = 31;
+/// Arguments of a function: everything but the assignments of precedence 0.
+const ARG: u8 = 2;
+
+fn starts_operand(t: Option<&XTok>) -> bool {
+    match t {
+        Some(t) => match t.kind {
+            XKind::Word | XKind::Num | XKind::Str | XKind::Open => true,
+            XKind::Op => matches!(t.text.as_str(), "$" | "#" | "!"),
+            _ => false,
+        },
+        None => false,
+    }
+}
+
+/// A function as the extended grammar sees it.
+struct XFn {
+    func: FuncId,
+    /// Arguments taken; `None`: all that follow.
+    params: Option<usize>,
+    opcode: Option<u16>,
+}
+
+impl Gen<'_> {
+    fn xerr(&mut self, kind: &'static str, detail: impl Into<String>) -> Option<XExpr> {
+        self.diag(kind, true, detail);
+        None
+    }
+
+    /// A whole expression (`min` = the loosest binding power accepted).
+    pub(in crate::compile) fn xexpr(&mut self, p: &mut P<'_>, min: u8) -> Option<XExpr> {
+        let mut left = match p.peek().and_then(prefix) {
+            Some((op, bp)) => {
+                p.next();
+                let e = self.xexpr(p, bp)?;
+                XExpr::Unary { op, e: Box::new(e) }
+            }
+            None => self.xprimary(p)?,
+        };
+        while let Some(t) = p.peek() {
+            if t.kind == XKind::LBracket && POSTFIX >= min {
+                p.next();
+                let inner = self.xexpr(p, 0)?;
+                if p.next().map(|t| t.kind) != Some(XKind::RBracket) {
+                    return self.xerr("syntax", "missing ]");
+                }
+                left = XExpr::Binary { op: XOp::Subscript, l: Box::new(left), r: Box::new(inner) };
+                continue;
+            }
+            if t.is(XKind::Op, "->") && POSTFIX >= min {
+                p.next();
+                let Some(k) = p.next().filter(|k| matches!(k.kind, XKind::Word | XKind::Str)) else {
+                    return self.xerr("syntax", "-> without a key");
+                };
+                left = XExpr::Member { l: Box::new(left), key: k.text.clone() };
+                continue;
+            }
+            let Some((lb, rb, op)) = infix(t) else { break };
+            if lb < min {
+                break;
+            }
+            p.next();
+            let right = self.xexpr(p, rb)?;
+            left = match op {
+                Infix::Bin(op) => XExpr::Binary { op, l: Box::new(left), r: Box::new(right) },
+                Infix::Assign(op) => {
+                    if !matches!(left, XExpr::Var { .. } | XExpr::Binary { op: XOp::Subscript, .. } | XExpr::Member { .. }) {
+                        return self.xerr("bad_assignment_target", t.text.clone());
+                    }
+                    XExpr::Assign { op, target: Box::new(left), value: Box::new(right) }
+                }
+            };
+        }
+        Some(left)
+    }
+
+    fn xprimary(&mut self, p: &mut P<'_>) -> Option<XExpr> {
+        let Some(t) = p.next() else { return self.xerr("syntax", "expression ends early") };
+        match t.kind {
+            XKind::Num => Some(XExpr::Num { value: t.text.parse().unwrap_or(0.0), text: t.text.clone() }),
+            XKind::Str => Some(XExpr::Str { s: t.text.clone() }),
+            XKind::Open => {
+                let e = self.xexpr(p, 0)?;
+                if p.next().map(|c| c.kind) != Some(XKind::Close) {
+                    return self.xerr("syntax", "missing )");
+                }
+                Some(e)
+            }
+            XKind::Word => self.xword(p, &t.text),
+            _ => self.xerr("syntax", format!("unexpected {}", t.text)),
+        }
+    }
+
+    fn xfunction(&self, name: &str) -> Option<XFn> {
+        if let Some(op) = self.table.by_name(name) {
+            let f = self.table.get(op)?;
+            let params = match f.param_count {
+                Some(n) => Some(n),
+                None if f.params.iter().any(|p| p.name == "...") => None,
+                None => Some(f.params.len().max(f.encodings.len())),
+            };
+            return Some(XFn { func: FuncId::Opcode(op), params, opcode: Some(op) });
+        }
+        let u = self.table.unnumbered.get(&name.to_ascii_lowercase())?;
+        let params = if u.params.iter().any(|p| p.name == "...") { None } else { Some(u.params.len()) };
+        Some(XFn { func: FuncId::Name(u.name.clone()), params, opcode: None })
+    }
+
+    /// A word: a call (`[Ref.]Function args`), `Quest.var`, a local, a form.
+    fn xword(&mut self, p: &mut P<'_>, w: &str) -> Option<XExpr> {
+        let (head, name) = match w.split_once('.') {
+            Some((h, n)) if !h.is_empty() => (Some(h), n),
+            Some((_, n)) => (None, n),
+            None => (None, w),
+        };
+        let is_local = head.is_none() && self.var(name).is_some();
+        if !is_local {
+            if let Some(f) = self.xfunction(name) {
+                let on = match head {
+                    Some(h) => match self.reference(h) {
+                        Some(r) => Some(Box::new(XExpr::Ref { r: RefIndex(r) })),
+                        None => return self.xerr("unresolved_name", h.to_string()),
+                    },
+                    None => None,
+                };
+                let args = self.xargs(p, &f)?;
+                return Some(XExpr::Call { call: XCall { on, func: f.func, args } });
+            }
+        }
+        if let Some(h) = head {
+            let v = self.remote(h, name)?;
+            return Some(val_expr(v));
+        }
+        if let Some(v) = self.var(name) {
+            return Some(XExpr::Var {
+                var: VarRef { on: None, var: VarSlot::Local { index: v.index as u16, letter: super::letter_of(&v.ty) } },
+            });
+        }
+        match self.form(name) {
+            Some(f) => Some(val_expr(self.form_val(f, name))),
+            None => self.xerr("unresolved_name", name.to_string()),
+        }
+    }
+
+    fn xargs(&mut self, p: &mut P<'_>, f: &XFn) -> Option<Vec<XExpr>> {
+        let mut args = Vec::new();
+        loop {
+            if f.params.is_some_and(|n| args.len() >= n) {
+                break;
+            }
+            if !args.is_empty() && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
+                p.next();
+            }
+            if !starts_operand(p.peek()) {
+                break;
+            }
+            let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
+            args.push(self.xarg(p, &enc)?);
+        }
+        Some(args)
+    }
+
+    /// One argument. A name in a parameter that takes an enumeration, an axis or a string
+    /// is that, when nothing follows it but the next argument.
+    fn xarg(&mut self, p: &mut P<'_>, enc: &ParamEnc) -> Option<XExpr> {
+        let single = p.peek().is_some_and(|t| matches!(t.kind, XKind::Word | XKind::Str))
+            && !p.peek2().is_some_and(|n| infix(n).is_some() || n.kind == XKind::LBracket || n.is(XKind::Op, "->"));
+        if single && *enc != ParamEnc::Value {
+            let t = p.next()?;
+            return match enc {
+                ParamEnc::Enum(kind) => {
+                    let code = t.text.parse::<u16>().ok().or_else(|| self.enums.get(kind).and_then(|m| m.get(&t.text.to_ascii_lowercase())).copied());
+                    match code {
+                        Some(code) => Some(XExpr::Enum { code }),
+                        None => self.xerr("unknown_enum_name", format!("{kind}: {}", t.text)),
+                    }
+                }
+                ParamEnc::Axis => match t.text.to_ascii_uppercase().as_str() {
+                    a @ ("X" | "Y" | "Z") => Some(XExpr::Axis { c: a.chars().next().unwrap_or('X') }),
+                    _ => self.xerr("bad_axis", t.text.clone()),
+                },
+                _ => Some(XExpr::Str { s: t.text.clone() }),
+            };
+        }
+        self.xexpr(p, ARG)
+    }
+}
+
+fn val_expr(v: Val) -> XExpr {
+    match v {
+        Val::Num(text) => XExpr::Num { value: text.parse().unwrap_or(0.0), text },
+        Val::Local { index, letter } => XExpr::Var { var: VarRef { on: None, var: VarSlot::Local { index, letter } } },
+        Val::Global(r) => XExpr::Var { var: VarRef { on: None, var: VarSlot::Global { global: RefIndex(r) } } },
+        Val::Remote { on, index, letter } => XExpr::Var { var: VarRef { on: Some(RefIndex(on)), var: VarSlot::Local { index, letter } } },
+        Val::Ref(r) => XExpr::Ref { r: RefIndex(r) },
+    }
+}

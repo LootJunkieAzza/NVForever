@@ -10,6 +10,8 @@ use crate::table::{FunctionTable, ParamEnc, TrailerEnc};
 use crate::unit::{RefSlot, VarDecl, VarType};
 use std::collections::HashMap;
 
+mod x;
+
 /// Binary operators, higher binds tighter; `||` above `&&` [observed: scripts.md §3.3].
 fn precedence(op: &str) -> u8 {
     match op {
@@ -608,10 +610,35 @@ impl<'a> Gen<'a> {
 
     /// `If`/`ElseIf`/`Else` marker: skip count (patched later), then the condition.
     fn marker(&mut self, opcode: u16, cond: Option<&[Tok]>) {
+        let e = cond.map(|c| self.expr(c));
+        self.marker_bytes(opcode, e);
+    }
+
+    /// An extended expression as NVForever's own token (script-compiler.md §8).
+    fn xbytes(&mut self, e: &crate::ir::XExpr) -> Vec<u8> {
+        let json = serde_json::to_vec(e).unwrap_or_default();
+        let mut b = vec![b' ', op::X_TOKEN];
+        put16(&mut b, json.len() as u16);
+        b.extend_from_slice(&json);
+        b
+    }
+
+    /// Parse a whole extended expression, reporting what is left over.
+    fn xwhole(&mut self, toks: &[lex::XTok]) -> Option<crate::ir::XExpr> {
+        let mut p = x::P::new(toks);
+        let e = self.xexpr(&mut p, 0)?;
+        if !p.done() {
+            let rest = p.rest();
+            self.diag("syntax", true, format!("unexpected {rest}"));
+            return None;
+        }
+        Some(e)
+    }
+
+    fn marker_bytes(&mut self, opcode: u16, cond: Option<Vec<u8>>) {
         let here = self.stmts;
         let mut body = vec![0, 0];
-        if let Some(c) = cond {
-            let e = self.expr(c);
+        if let Some(e) = cond {
             put16(&mut body, e.len() as u16);
             body.extend_from_slice(&e);
         }
@@ -669,6 +696,22 @@ impl<'a> Gen<'a> {
                 }
             }
             Kw::If(c) => self.marker(op::IF, Some(c)),
+            Kw::IfEval(c) | Kw::ElseIfEval(c) => {
+                let opcode = if matches!(kw, Kw::IfEval(_)) { op::IF } else { op::ELSEIF };
+                // A condition that does not compile still opens its chain, so the
+                // markers after it pair up.
+                let e = self.xwhole(c).map(|e| self.xbytes(&e)).unwrap_or_else(|| b" 0".to_vec());
+                self.marker_bytes(opcode, Some(e));
+            }
+            Kw::Let(toks) => {
+                let Some(e) = self.xwhole(toks) else { return };
+                if !matches!(e, crate::ir::XExpr::Assign { .. }) {
+                    self.diag("let_without_assignment", true, "");
+                    return;
+                }
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_LET, &json);
+            }
             Kw::ElseIf(c) => self.marker(op::ELSEIF, Some(c)),
             Kw::Else => self.marker(op::ELSE, None),
             Kw::EndIf => {

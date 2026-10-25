@@ -170,8 +170,9 @@ GECK compile cases (extender-core-tasks.md G2) [hypothesis].
 game runs compiled bytes only. A mod compiled with the script extender loaded has bytes
 that call the extender's functions at opcodes the extender assigned. Our function table
 has no such opcodes, so those bytes would not run. Rule: a unit whose bytes call an
-opcode above the highest one in the function table, and that has source, runs from its
-source compiled by NVForever, seeded with its own lists [decision; no shipped unit calls
+opcode above the highest one in the function table, or that the decoder cannot read (the
+extender's own statements have byte forms of their own [hypothesis]), and that has source,
+runs from its source compiled by NVForever, seeded with its own lists [decision; no shipped unit calls
 such an opcode, so the shipped game is unchanged in `auto`]. A unit whose source does not
 compile keeps its bytes. Names the lists lacked are added after the existing entries. A
 unit without bytes stays unrun, as in the original (the three never-compiled units of
@@ -205,7 +206,53 @@ not take goes through the compiler and runs as a one-line result script
 expression (`set TimeScale to 10 + 2 * 10`) and a call the reader refuses that contains
 an operator or parenthesis. Smoke `console-compiled-source`.
 
-## 8. Open
+## 8. The extender's grammar (tasks A7, A8 in part)
+
+Written from the wiki export's pages (NVSE Expressions, Let, Let Macro, Eval, Inline
+Expression, Script Compiler Override), our notes in docs/spec-notes/ext-syntax.md. Code:
+`compile/lex.rs` (`xtokens`), `compile/parse.rs` (which lines), `compile/gen/x.rs` (the
+expression parser), `vm.rs` (`xeval`).
+
+- **Which lines.** `let …`; the Let macro, a name followed by `=`, `+=`, `-=` or `*=`
+  [documented: Let Macro lists these four]; and `if eval …` / `elseif eval …`. Every
+  other line is read as vanilla, so the shipped units compile as before (§5, unchanged).
+- **Tokens.** The operators of NVSE Expressions (`:=` and the compound assignments,
+  `::` `->` `<<` `>>` `^` `|` `&` `!` `$` `#`), brackets, braces and commas, besides the
+  vanilla ones.
+- **Precedence** is the page's table (header of `compile/gen/x.rs`). Only `:=` has a
+  documented associativity (right to left). The other binary operators group left to right
+  and the compound assignments right to left [hypothesis; probes in
+  extender-core-tasks.md G3].
+- **Functions in an expression.** A function takes up to as many arguments as it has
+  parameters (the catalogue's count, or the compiler's observed one, §3), and each
+  argument is a whole expression: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script
+  Compiler Override]. Arguments are separated by a comma or by two operands meeting
+  without an operator [hypothesis]. In a parameter that takes an actor value, an axis or a
+  string, a lone name is that name. A function the catalogue lists without an opcode (the
+  extender's own) is kept by its catalogue name (`FuncId::Name`). A local variable's name
+  hides a function of the same name, as in vanilla.
+- **Values** (VM `xeval`): numbers and references. `&&` and `||` evaluate left to right,
+  stop when the left operand decides, and return the deciding operand's value [documented:
+  NVSE Expressions; Eval]. Bitwise operators and shifts take the operands as integers
+  [documented]. `^` is a power. An assignment stores the value and yields it [documented].
+  Strings, arrays, `$` `#` `*` `&`, `[]`, `->`, `:` `::` and the extender's own functions
+  stop the statement with `NotBuilt` until tasks B1–B3 and D build them.
+
+**NVForever's own byte forms.** The extender's own byte encodings are not known here
+(extender-compat.md §5.2), and none is needed: the compiler writes the extended statements
+in a form of NVForever's own, which only its decoder reads. These forms never go into a
+plugin or a save:
+
+| Form | Bytes |
+|---|---|
+| `let` statement | opcode 0x00F0, body = the expression tree as JSON (`ir::XExpr`) |
+| extended condition (`if eval`) | the If/ElseIf condition holds one token: 0x20, 0xF0, u16 length, the tree as JSON |
+
+The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scripts.md
+§2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
+unit with one runs from source (§7).
+
+## 9. Open
 
 - The editor's error messages and refusals (G2).
 - Rule 7's declaration counting and rule 8's entry order (more cases would come from mods'

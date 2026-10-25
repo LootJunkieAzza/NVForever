@@ -108,6 +108,15 @@ pub struct Function {
     pub number_types: BTreeMap<usize, bool>,
 }
 
+/// A function the catalogue lists without an opcode.
+#[derive(Debug, Clone)]
+pub struct Unnumbered {
+    pub name: String,
+    /// The catalogue's `origin` (`NVSE`, `JIP`, …).
+    pub origin: String,
+    pub params: Vec<Param>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FunctionTable {
     pub functions: BTreeMap<u16, Function>,
@@ -118,6 +127,10 @@ pub struct FunctionTable {
     /// Begin events whose statement has a parameter block (encodings.json
     /// `compiler.begin_params`).
     pub begin_params: std::collections::BTreeSet<u16>,
+    /// Functions the catalogue lists without an opcode (the script extenders' and the
+    /// console's), by lower-case name and alias: their parameters, for the compiler's
+    /// extender grammar (docs/spec-notes/script-compiler.md).
+    pub unnumbered: HashMap<String, Unnumbered>,
     by_name: HashMap<String, u16>,
 }
 
@@ -237,9 +250,6 @@ impl FunctionTable {
         for (i, func) in funcs.iter().enumerate() {
             let mut ops: Vec<u16> = strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect();
             ops.extend(console_ops.get(&i));
-            if ops.is_empty() {
-                continue;
-            }
             let name = func.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let params: Vec<Param> = func
                 .get("params")
@@ -253,6 +263,17 @@ impl FunctionTable {
                     optional: p.get("optional").and_then(Value::as_bool).unwrap_or(false),
                 })
                 .collect();
+            if ops.is_empty() {
+                let u = Unnumbered {
+                    name: name.clone(),
+                    origin: func.get("origin").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    params,
+                };
+                for s in std::iter::once(&name).chain(&strings(func.get("aliases"))) {
+                    t.unnumbered.entry(s.to_ascii_lowercase()).or_insert_with(|| u.clone());
+                }
+                continue;
+            }
             let xedit_types = strings(func.get("xedit_param_types"));
             let n = |k: &str| func.get(k).and_then(Value::as_u64).unwrap_or(0);
             for &op in &ops {

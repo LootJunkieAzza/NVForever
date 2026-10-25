@@ -77,6 +77,7 @@ fn ops(e: &Expr) -> Vec<String> {
             Token::Var { .. } => "var".into(),
             Token::Ref { .. } => "ref".into(),
             Token::Call { call } => format!("call{:04X}", call.opcode),
+            Token::X { .. } => "x".into(),
             Token::Raw { .. } => "raw".into(),
         })
         .collect()
@@ -174,4 +175,153 @@ fn begin_blocks_with_parameters() {
     assert_eq!(p.blocks[0].params.as_ref().map(Vec::len), Some(1));
     assert_eq!(p.blocks[1].params, None);
     assert_eq!(c.refs, [RefSlot::Form(PLAYER)]);
+}
+
+// ---- the extender's expressions (task A7) --------------------------------------
+
+use fnv_script::ir::{FuncId, VarSlot, XAssign, XExpr, XOp};
+use fnv_script::vm::{ArgValue, Host, RunOpts, Value, Vm};
+
+/// The tree as text, every operation in parentheses.
+fn x(e: &XExpr) -> String {
+    match e {
+        XExpr::Num { text, .. } => text.clone(),
+        XExpr::Str { s } => format!("{s:?}"),
+        XExpr::Var { var } => match var.var {
+            VarSlot::Local { index, .. } => format!("v{index}"),
+            VarSlot::Global { global } => format!("g{}", global.0),
+        },
+        XExpr::Ref { r } => format!("r{}", r.0),
+        XExpr::Enum { code } => format!("#{code}"),
+        XExpr::Axis { c } => c.to_string(),
+        XExpr::Call { call } => {
+            let f = match &call.func {
+                FuncId::Opcode(o) => format!("{o:04X}"),
+                FuncId::Name(n) => n.clone(),
+            };
+            let on = call.on.as_ref().map(|o| format!("{}.", x(o))).unwrap_or_default();
+            format!("{on}{f}({})", call.args.iter().map(x).collect::<Vec<_>>().join(" "))
+        }
+        XExpr::Unary { op, e } => format!("({op:?} {})", x(e)),
+        XExpr::Binary { op, l, r } => format!("({} {op:?} {})", x(l), x(r)),
+        XExpr::Member { l, key } => format!("{}->{key}", x(l)),
+        XExpr::Assign { op, target, value } => format!("({} {op:?}= {})", x(target), x(value)),
+    }
+}
+
+fn lets(src: &str) -> Vec<String> {
+    let (_, p) = build(src);
+    let mut out = Vec::new();
+    p.walk(&mut |s| match s {
+        Stmt::Let { expr } => out.push(x(expr)),
+        Stmt::If { arms, .. } => {
+            for a in arms {
+                if let [Token::X { e }] = &a.cond.0[..] {
+                    out.push(format!("if {}", x(e)));
+                }
+            }
+        }
+        _ => {}
+    });
+    out
+}
+
+#[test]
+fn extender_precedence_follows_the_operator_table() {
+    let l = lets("int a\nint b\nbegin GameMode\nlet a := 1 + 2 * 3 ^ 2\nlet a := b := 2\na += 1\nlet a := 1 || 0 && 2\nlet a := !-b\nend");
+    assert_eq!(l[0], "(v1 Set= (1 Add (2 Mul (3 Pow 2))))");
+    assert_eq!(l[1], "(v1 Set= (v2 Set= 2))", ":= groups right to left");
+    assert_eq!(l[2], "(v1 Add= 1)", "the Let macro");
+    assert_eq!(l[3], "(v1 Set= (1 Or (0 And 2)))", "&& binds tighter than ||");
+    assert_eq!(l[4], "(v1 Set= (Not (Neg v2)))");
+}
+
+#[test]
+fn a_functions_argument_is_a_whole_expression() {
+    // `GetStage Q >= 10` in an extended expression: the argument swallows the comparison,
+    // as the wiki's `Sin 14 == 1` (Script Compiler Override); parentheses keep it apart.
+    let l = lets("int a\nbegin GameMode\nif eval (GetStage TestQuest) >= 10\nendif\nlet a := player.GetAV Luck\nlet a := GetRandomPercent * 2\nend");
+    assert_eq!(l[0], "if (103A(r1) Ge 10)");
+    assert!(l[1].starts_with("(v1 Set= r2.100E(#"), "an actor value name is its code: {}", l[1]);
+    assert_eq!(l[2], "(v1 Set= (104D() Mul 2))", "a function without parameters takes no operand");
+}
+
+#[test]
+fn extender_functions_are_named() {
+    let t = table();
+    let c = compile("int a\nbegin GameMode\nlet a := Ar_Size b\nend", &t, &World, None);
+    assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), ["unresolved_name"], "b is not declared");
+    let c = compile("int a\nint b\nbegin GameMode\nlet a := Ar_Size b\nend", &t, &World, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let p = decode(&c.bytes, &t).program;
+    let Stmt::Let { expr: XExpr::Assign { op: XAssign::Set, value, .. } } = &body(&p)[0] else { panic!() };
+    assert!(matches!(value.as_ref(), XExpr::Call { call } if call.func == FuncId::Name("Ar_Size".into())));
+}
+
+#[test]
+fn bad_extended_lines_are_errors() {
+    let t = table();
+    for (src, kind) in [
+        ("begin GameMode\nlet 5 := 1\nend", "bad_assignment_target"),
+        ("int a\nbegin GameMode\nlet a + 1\nend", "let_without_assignment"),
+        ("int a\nbegin GameMode\nlet a := (1 + 2\nend", "syntax"),
+        ("int a\nbegin GameMode\nlet a := 1 2\nend", "syntax"),
+    ] {
+        let c = compile(src, &t, &World, None);
+        assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), [kind], "{src}");
+    }
+}
+
+#[derive(Default)]
+struct Locals(std::collections::BTreeMap<u16, Value>);
+
+impl Host for Locals {
+    fn get_var(&mut self, var: &fnv_script::VarRef) -> Result<Value, String> {
+        let VarSlot::Local { index, .. } = var.var else { return Err("global".into()) };
+        Ok(self.0.get(&index).copied().unwrap_or_default())
+    }
+    fn set_var(&mut self, var: &fnv_script::VarRef, value: Value) -> Result<(), String> {
+        let VarSlot::Local { index, .. } = var.var else { return Err("global".into()) };
+        self.0.insert(index, value);
+        Ok(())
+    }
+    fn ref_value(&mut self, _r: fnv_script::RefIndex) -> Result<Value, String> {
+        Ok(Value::Ref(PLAYER))
+    }
+    fn call(&mut self, _opcode: u16, _on: Option<Value>, _args: &[ArgValue]) -> Result<Value, String> {
+        Ok(Value::Num(4.0))
+    }
+}
+
+fn run(src: &str) -> Locals {
+    let t = table();
+    let (_, p) = build(src);
+    let mut h = Locals::default();
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs");
+    h
+}
+
+#[test]
+fn let_runs_on_numbers() {
+    let h = run("float a\nfloat b\nfloat c\nbegin GameMode\nlet a := 2 + 3 * 4\nlet b := c := 7\nb += 1\nlet c := 0 || 5\nlet a := (1 << 3) | 1\nend");
+    assert_eq!(h.0[&1], Value::Num(9.0));
+    assert_eq!(h.0[&2], Value::Num(8.0));
+    // `||` returns the deciding operand's value [documented: NVSE Expressions].
+    assert_eq!(h.0[&3], Value::Num(5.0));
+}
+
+#[test]
+fn if_eval_tests_an_extended_condition() {
+    let h = run("float a\nbegin GameMode\nif eval 2 ^ 3 == 8 && GetRandomPercent\nlet a := 1\nelseif eval 1\nlet a := 2\nendif\nend");
+    assert_eq!(h.0[&1], Value::Num(1.0));
+}
+
+#[test]
+fn not_built_yet_stops_the_statement() {
+    let t = table();
+    let (_, p) = build("float a\nbegin GameMode\nlet a := $a\nend");
+    let mut h = Locals::default();
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
+    assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
+    let _ = XOp::Add;
 }

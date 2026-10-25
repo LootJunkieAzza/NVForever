@@ -20,6 +20,12 @@ pub mod op {
     pub const RETURN: u16 = 0x1E;
     /// Opcodes from here on are function calls.
     pub const FIRST_FUNCTION: u16 = 0x1000;
+    /// NVForever's own statement for `let` (docs/spec-notes/script-compiler.md §8): the
+    /// body is the extended expression as JSON. Only our compiler writes it, never into a
+    /// plugin.
+    pub const X_LET: u16 = 0x00F0;
+    /// NVForever's own expression token: u16 length + an extended expression as JSON.
+    pub const X_TOKEN: u8 = 0xF0;
 }
 
 /// Something the decoder noticed that is not an unknown encoding: a skip count or block
@@ -384,6 +390,12 @@ fn expr(c: &mut Ctx<'_>, bytes: &[u8]) -> Expr {
                     r.u8();
                     Token::Ref { r: RefIndex(r.u16()?) }
                 }
+                op::X_TOKEN if on.is_none() => {
+                    r.u8();
+                    let n = r.u16()? as usize;
+                    let e = serde_json::from_slice(r.take(n)?).ok()?;
+                    Token::X { e }
+                }
                 b'X' => {
                     r.u8();
                     let opcode = r.u16()?;
@@ -475,6 +487,10 @@ fn piece(c: &mut Ctx<'_>, f: &Flat<'_>) -> Piece {
         op::END if empty => Piece::End,
         op::SCRIPT_NAME if empty => Piece::ScriptName,
         op::RETURN if empty => Piece::Stmt(Stmt::Return),
+        op::X_LET => match serde_json::from_slice(f.body) {
+            Ok(expr) => Piece::Stmt(Stmt::Let { expr }),
+            Err(_) => raw(c, "unreadable extended statement"),
+        },
         op::ENDIF if empty => Piece::EndIf,
         op::ELSE if f.body.len() == 2 => Piece::Else { skip: r.u16().unwrap_or_default() },
         op::IF | op::ELSEIF => {

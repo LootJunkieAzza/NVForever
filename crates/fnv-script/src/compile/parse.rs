@@ -2,7 +2,7 @@
 //! §4–5). Expressions and arguments stay token lists here: how far a function's
 //! arguments reach depends on its parameter count, which code generation knows.
 
-use super::lex::{Kind, Line, Tok};
+use super::lex::{xtokens, Kind, Line, Tok, XKind, XTok};
 
 /// Declared type of a local variable [documented: Scripting for Beginners].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +41,31 @@ pub enum Kw {
     Set { target: Vec<Tok>, expr: Vec<Tok> },
     /// `[Ref.]Function args…`, or a line the code generator reports as unknown.
     Call(Vec<Tok>),
+    /// `let <assignment>`, or the Let macro (`x = 1`, `x += 1`), in the extender's tokens
+    /// [documented: Let; Let Macro].
+    Let(Vec<XTok>),
+    /// `if eval <expression>` / `elseif eval …` [documented: Eval].
+    IfEval(Vec<XTok>),
+    ElseIfEval(Vec<XTok>),
+}
+
+/// The assignments the Let macro takes without `let` [documented: Let Macro].
+const MACRO_OPS: [&str; 4] = ["=", "+=", "-=", "*="];
+
+/// A line of the extender's grammar, by its first words.
+fn extender(l: &Line) -> Option<Kw> {
+    let head = l.toks[0].text.to_ascii_lowercase();
+    let second = l.toks.get(1).map(|t| t.text.to_ascii_lowercase());
+    match (head.as_str(), second.as_deref()) {
+        ("let", _) => Some(Kw::Let(xtokens(&l.text)[1..].to_vec())),
+        ("if", Some("eval")) => Some(Kw::IfEval(xtokens(&l.text)[2..].to_vec())),
+        ("elseif", Some("eval")) => Some(Kw::ElseIfEval(xtokens(&l.text)[2..].to_vec())),
+        _ => {
+            let x = xtokens(&l.text);
+            let assigns = x.len() > 2 && x[0].kind == XKind::Word && x[1].kind == XKind::Op && MACRO_OPS.contains(&x[1].text.as_str());
+            assigns.then_some(Kw::Let(x))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +86,11 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
     let head = &toks[0];
     let rest = toks[1..].to_vec();
     let err = |msg: &str| ParseError { line: l.no, msg: msg.to_string() };
+    if head.kind == Kind::Word {
+        if let Some(kw) = extender(l) {
+            return Ok(Statement { line: l.no, kw });
+        }
+    }
     let kw = if head.kind != Kind::Word {
         Kw::Call(toks.clone())
     } else {

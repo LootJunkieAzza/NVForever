@@ -40,6 +40,8 @@ pub struct Line {
     /// 1-based line number in the source.
     pub no: usize,
     pub toks: Vec<Tok>,
+    /// The line's text without its comment, for the extender's lexer ([`xtokens`]).
+    pub text: String,
 }
 
 /// The longest source line the editor accepts [documented: Inline Expression; Lambda].
@@ -140,8 +142,95 @@ pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
         }
         let toks = tokens(text);
         if !toks.is_empty() {
-            out.push(Line { no: n + 1, toks });
+            out.push(Line { no: n + 1, toks, text: text.to_string() });
         }
+    }
+    out
+}
+
+/// What a token of the extender's expressions is ([`xtokens`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XKind {
+    Word,
+    Num,
+    Str,
+    /// Every operator of NVSE Expressions, assignments included, and `=` (the Let macro's
+    /// assignment, docs/spec-notes/ext-syntax.md).
+    Op,
+    Open,
+    Close,
+    LBracket,
+    RBracket,
+    LBrace,
+    RBrace,
+    Comma,
+    /// Anything else.
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XTok {
+    pub kind: XKind,
+    pub text: String,
+}
+
+impl XTok {
+    pub fn is(&self, kind: XKind, text: &str) -> bool {
+        self.kind == kind && self.text.eq_ignore_ascii_case(text)
+    }
+}
+
+/// Operators of the extender's expressions, longest first [documented: NVSE Expressions].
+const XOPS: [&str; 31] = [
+    ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
+    "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
+];
+
+/// Tokens of a line in the extender's grammar. Words and numbers as in [`tokens`]; `!`,
+/// `$` and `#` are operators too.
+pub fn xtokens(line: &str) -> Vec<XTok> {
+    let cs: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            let end = cs[i + 1..].iter().position(|&q| q == '"').map(|p| i + 1 + p);
+            out.push(XTok { kind: XKind::Str, text: cs[i + 1..end.unwrap_or(cs.len())].iter().collect() });
+            i = end.map(|e| e + 1).unwrap_or(cs.len());
+            continue;
+        }
+        if word_char(c) {
+            let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
+            let text: String = cs[i..i + n].iter().collect();
+            let kind = if is_number(&text) { XKind::Num } else { XKind::Word };
+            out.push(XTok { kind, text });
+            i += n;
+            continue;
+        }
+        let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
+        if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
+            out.push(XTok { kind: XKind::Op, text: op.to_string() });
+            i += op.chars().count();
+            continue;
+        }
+        let kind = match c {
+            '(' => XKind::Open,
+            ')' => XKind::Close,
+            '[' => XKind::LBracket,
+            ']' => XKind::RBracket,
+            '{' => XKind::LBrace,
+            '}' => XKind::RBrace,
+            ',' => XKind::Comma,
+            '!' | '$' | '#' => XKind::Op,
+            _ => XKind::Other,
+        };
+        out.push(XTok { kind, text: c.to_string() });
+        i += 1;
     }
     out
 }
@@ -178,6 +267,14 @@ mod tests {
         assert_eq!(l[1].no, 5);
         assert_eq!(l[1].toks[3].text, "a;b");
         assert!(long.is_empty());
+    }
+
+    #[test]
+    fn extender_tokens() {
+        let t: Vec<String> = xtokens("let a[0] := b -> key + $c :: 2 != !d").into_iter().map(|t| t.text).collect();
+        assert_eq!(t, ["let", "a", "[", "0", "]", ":=", "b", "->", "key", "+", "$", "c", "::", "2", "!=", "!", "d"]);
+        let t = xtokens("x += 1.5, \"s\"");
+        assert_eq!(t.iter().map(|t| t.kind).collect::<Vec<_>>(), [XKind::Word, XKind::Op, XKind::Num, XKind::Comma, XKind::Str]);
     }
 
     #[test]

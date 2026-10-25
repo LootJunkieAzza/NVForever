@@ -309,6 +309,7 @@ impl Stats {
                     "call"
                 }
                 Token::Op { .. } => "op",
+                Token::X { .. } => "extended",
                 Token::Raw { .. } => "raw",
             };
             *self.tokens.entry(k).or_default() += 1;
@@ -358,6 +359,7 @@ impl Stats {
                         fnv_script::Marker::EndIf => "unmatched_endif",
                     }
                 }
+                Stmt::Let { .. } => "let",
                 Stmt::Raw { .. } => "raw",
             };
             *self.statements.entry(k).or_default() += 1;

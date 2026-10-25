@@ -180,10 +180,47 @@ impl Decompiler<'_> {
                 Token::Ref { r } => self.slot(*r),
                 Token::Call { call } => self.call_expr(call),
                 Token::Op { op } => op.symbol().to_string(),
+                Token::X { e } => format!("eval {}", self.xexpr(e)),
                 Token::Raw { bytes } => format!("?{}", hex(bytes)),
             })
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// An extended expression, every operation in parentheses:
+    /// `(a := (b + 1))`, `getav(health)`, `(0x00000014.getav(luck) > 5)`.
+    pub fn xexpr(&self, e: &XExpr) -> String {
+        match e {
+            XExpr::Num { value, .. } => number(*value),
+            XExpr::Str { s } => format!("{s:?}"),
+            XExpr::Var { var } => self.var(var),
+            XExpr::Ref { r } => self.slot(*r),
+            XExpr::Enum { code } => format!("#{code}"),
+            XExpr::Axis { c } => c.to_ascii_lowercase().to_string(),
+            XExpr::Call { call } => {
+                let head = match &call.func {
+                    FuncId::Opcode(o) => self.table.get(*o).map_or_else(|| format!("#0x{o:04x}"), |f| f.name.to_ascii_lowercase()),
+                    FuncId::Name(n) => n.to_ascii_lowercase(),
+                };
+                let on = call.on.as_ref().map(|o| format!("{}.", self.xexpr(o))).unwrap_or_default();
+                format!("{on}{head}({})", call.args.iter().map(|a| self.xexpr(a)).collect::<Vec<_>>().join(" "))
+            }
+            XExpr::Unary { op, e } => {
+                let sym = match op {
+                    XUnary::Neg => "-",
+                    XUnary::Stringize => "$",
+                    XUnary::Numericize => "#",
+                    XUnary::Unbox => "*",
+                    XUnary::Box => "&",
+                    XUnary::Not => "!",
+                };
+                format!("({sym}{})", self.xexpr(e))
+            }
+            XExpr::Binary { op: XOp::Subscript, l, r } => format!("{}[{}]", self.xexpr(l), self.xexpr(r)),
+            XExpr::Binary { op, l, r } => format!("({} {} {})", self.xexpr(l), xop_symbol(*op), self.xexpr(r)),
+            XExpr::Member { l, key } => format!("{}->{key}", self.xexpr(l)),
+            XExpr::Assign { op, target, value } => format!("({} {} {})", self.xexpr(target), xassign_symbol(*op), self.xexpr(value)),
+        }
     }
 
     fn with_expr(head: &str, e: String) -> String {
@@ -211,6 +248,7 @@ impl Decompiler<'_> {
                 }
                 Stmt::Return => out.push("return".into()),
                 Stmt::Call { call } => out.push(self.call_stmt(call)),
+                Stmt::Let { expr } => out.push(format!("let {}", self.xexpr(expr))),
                 Stmt::Unmatched { marker, cond, .. } => out.push(match marker {
                     Marker::Else => "else".into(),
                     Marker::EndIf => "endif".into(),
@@ -250,4 +288,46 @@ impl Decompiler<'_> {
 /// Canonical lines of `program` decoded from `unit`.
 pub fn decompile(unit: &ScriptUnit, program: &Program, table: &FunctionTable, names: &dyn Names) -> Vec<String> {
     Decompiler { unit, table, names }.lines(program)
+}
+
+/// The source spelling of an extended binary operator.
+pub fn xop_symbol(op: XOp) -> &'static str {
+    match op {
+        XOp::Or => "||",
+        XOp::And => "&&",
+        XOp::Slice => ":",
+        XOp::Pair => "::",
+        XOp::Eq => "==",
+        XOp::Ne => "!=",
+        XOp::Gt => ">",
+        XOp::Lt => "<",
+        XOp::Ge => ">=",
+        XOp::Le => "<=",
+        XOp::BitOr => "|",
+        XOp::BitAnd => "&",
+        XOp::Shl => "<<",
+        XOp::Shr => ">>",
+        XOp::Add => "+",
+        XOp::Sub => "-",
+        XOp::Mul => "*",
+        XOp::Div => "/",
+        XOp::Mod => "%",
+        XOp::Pow => "^",
+        XOp::Subscript => "[]",
+    }
+}
+
+/// The source spelling of an assignment operator.
+pub fn xassign_symbol(op: XAssign) -> &'static str {
+    match op {
+        XAssign::Set => ":=",
+        XAssign::Add => "+=",
+        XAssign::Sub => "-=",
+        XAssign::Mul => "*=",
+        XAssign::Div => "/=",
+        XAssign::Pow => "^=",
+        XAssign::BitOr => "|=",
+        XAssign::BitAnd => "&=",
+        XAssign::Mod => "%=",
+    }
 }

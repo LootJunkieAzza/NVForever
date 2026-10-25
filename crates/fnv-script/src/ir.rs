@@ -183,6 +183,9 @@ pub enum Token {
     Ref { r: RefIndex },
     Call { call: Call },
     Op { op: Op },
+    /// An extended expression (`if eval …`), NVForever's own form
+    /// (docs/spec-notes/script-compiler.md §8).
+    X { e: XExpr },
     /// A token the decoder could not explain; the rest of the expression is kept here.
     Raw {
         #[serde(with = "hex_bytes")]
@@ -239,6 +242,9 @@ pub enum Stmt {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         cond: Option<Expr>,
     },
+    /// `let <assignment>` and the Let macro (`x = 1`, `x += 1`): an extended expression
+    /// whose top is an assignment (docs/spec-notes/script-compiler.md §8).
+    Let { expr: XExpr },
     /// A statement whose opcode or body the decoder could not explain.
     Raw {
         opcode: u16,
@@ -311,4 +317,107 @@ impl Program {
             rec(&b.body, f);
         }
     }
+}
+
+// ---------------------------------------------------------------------------- extender
+
+/// A function in an extended expression: by opcode when the function table gives it one,
+/// else by catalogue name (the extender's functions have no opcodes here,
+/// docs/design/extender-compat.md §5.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "by", content = "id", rename_all = "snake_case")]
+pub enum FuncId {
+    Opcode(u16),
+    Name(String),
+}
+
+/// A call inside an extended expression. Its arguments are expressions themselves
+/// [documented: Inline Expression; Script Compiler Override].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XCall {
+    /// The calling reference: a reference list entry, or any expression (`a[0].GetAV`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub on: Option<Box<XExpr>>,
+    pub func: FuncId,
+    pub args: Vec<XExpr>,
+}
+
+/// Operators of the extender's expressions [documented: NVSE Expressions].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum XOp {
+    Or,
+    And,
+    Slice,
+    Pair,
+    Eq,
+    Ne,
+    Gt,
+    Lt,
+    Ge,
+    Le,
+    BitOr,
+    BitAnd,
+    Shl,
+    Shr,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Pow,
+    Subscript,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum XUnary {
+    Neg,
+    /// `$`: to a string.
+    Stringize,
+    /// `#`: a string to a number.
+    Numericize,
+    /// `*`: an array's first element (or its `"value"` key).
+    Unbox,
+    /// `&`: a one-element array.
+    Box,
+    Not,
+}
+
+/// `:=` and the compound assignments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum XAssign {
+    Set,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Pow,
+    BitOr,
+    BitAnd,
+    Mod,
+}
+
+/// An extended expression, as a tree (the vanilla postfix [`Expr`] cannot hold strings,
+/// arrays or calls as arguments). docs/spec-notes/ext-syntax.md.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "x", rename_all = "snake_case")]
+pub enum XExpr {
+    /// A number, with its text as written.
+    Num { value: f64, text: String },
+    Str { s: String },
+    Var { var: VarRef },
+    /// A reference list entry used as a value.
+    Ref { r: RefIndex },
+    /// A name in a parameter that takes an enumeration (an actor value), as its code.
+    Enum { code: u16 },
+    /// An axis parameter (`X`, `Y`, `Z`).
+    Axis { c: char },
+    Call { call: XCall },
+    Unary { op: XUnary, e: Box<XExpr> },
+    Binary { op: XOp, l: Box<XExpr>, r: Box<XExpr> },
+    /// `l -> key`: a string map's element.
+    Member { l: Box<XExpr>, key: String },
+    Assign { op: XAssign, target: Box<XExpr>, value: Box<XExpr> },
 }

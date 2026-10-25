@@ -130,6 +130,9 @@ pub enum VmError {
     Expression(String),
     #[error("{0}")]
     Host(String),
+    /// Something of the script extender's that is not built yet (task named).
+    #[error("not built yet: {0}")]
+    NotBuilt(String),
 }
 
 /// What the VM needs from the game. Every method may fail with a message; a failure
@@ -226,6 +229,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Token::Var { var } => self.host.get_var(var).map_err(VmError::Host)?,
                 Token::Ref { r } => self.host.ref_value(*r).map_err(VmError::Host)?,
                 Token::Call { call } => self.call(call)?,
+                Token::X { e } => self.xeval(e)?,
                 Token::Op { op } => {
                     let b = stack.pop().ok_or_else(|| VmError::Expression(format!("{} without operands", op.symbol())))?;
                     if *op == Op::Neg {
@@ -317,6 +321,12 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Stmt::Return => return Ok(Flow::Return),
                 Stmt::Call { call } => {
                     self.call(call)?;
+                }
+                Stmt::Let { expr } => {
+                    self.xeval(expr)?;
+                    if self.host.take_return() {
+                        return Ok(Flow::Return);
+                    }
                 }
                 Stmt::Unmatched { marker: Marker::EndIf, .. } => {}
                 Stmt::Unmatched { .. } if in_else => {
@@ -451,6 +461,140 @@ impl<'t, 'h> Vm<'t, 'h> {
             Arg::Raw(_) => return Ok(None),
         }))
     }
+}
+
+impl Vm<'_, '_> {
+    /// Evaluate an extended expression (docs/spec-notes/ext-syntax.md, ext-values.md).
+    /// Numbers and references only so far: strings, arrays and the extender's own
+    /// functions are tasks B1-B3 and D, and stop the statement with `NotBuilt`.
+    pub fn xeval(&mut self, e: &XExpr) -> Result<Value, VmError> {
+        Ok(match e {
+            XExpr::Num { value, text } => Value::Num(literal(text, *value)),
+            XExpr::Var { var } => self.host.get_var(var).map_err(VmError::Host)?,
+            XExpr::Ref { r } => self.host.ref_value(*r).map_err(VmError::Host)?,
+            XExpr::Enum { code } => Value::Num(*code as f64),
+            XExpr::Str { .. } => return Err(VmError::NotBuilt("string values (B1)".into())),
+            XExpr::Axis { .. } => return Err(VmError::Expression("an axis outside a parameter".into())),
+            XExpr::Member { .. } => return Err(VmError::NotBuilt("string maps (B3)".into())),
+            XExpr::Call { call } => self.xcall(call)?,
+            XExpr::Unary { op, e } => {
+                let v = self.xeval(e)?;
+                match op {
+                    XUnary::Neg => Value::Num(-v.num()),
+                    XUnary::Not => Value::bool(!v.truthy()),
+                    XUnary::Stringize | XUnary::Numericize => return Err(VmError::NotBuilt("string values (B1)".into())),
+                    XUnary::Box | XUnary::Unbox => return Err(VmError::NotBuilt("arrays (B3)".into())),
+                }
+            }
+            // `||` and `&&` return an operand's value and evaluate the right one only when
+            // it decides [documented: NVSE Expressions; Eval (short-circuit)].
+            XExpr::Binary { op: XOp::Or, l, r } => {
+                let a = self.xeval(l)?;
+                if a.truthy() {
+                    Value::Num(a.num())
+                } else {
+                    Value::Num(self.xeval(r)?.num())
+                }
+            }
+            XExpr::Binary { op: XOp::And, l, r } => {
+                if !self.xeval(l)?.truthy() {
+                    Value::ZERO
+                } else {
+                    Value::Num(self.xeval(r)?.num())
+                }
+            }
+            XExpr::Binary { op, l, r } => {
+                let (a, b) = (self.xeval(l)?, self.xeval(r)?);
+                xbinary(*op, a, b)?
+            }
+            XExpr::Assign { op, target, value } => {
+                let XExpr::Var { var } = target.as_ref() else {
+                    return Err(VmError::NotBuilt("assigning to an array element (B3)".into()));
+                };
+                let v = self.xeval(value)?;
+                let v = match op {
+                    XAssign::Set => v,
+                    _ => {
+                        let cur = self.host.get_var(var).map_err(VmError::Host)?;
+                        let bop = match op {
+                            XAssign::Add => XOp::Add,
+                            XAssign::Sub => XOp::Sub,
+                            XAssign::Mul => XOp::Mul,
+                            XAssign::Div => XOp::Div,
+                            XAssign::Pow => XOp::Pow,
+                            XAssign::BitOr => XOp::BitOr,
+                            XAssign::BitAnd => XOp::BitAnd,
+                            XAssign::Mod | XAssign::Set => XOp::Mod,
+                        };
+                        xbinary(bop, cur, v)?
+                    }
+                };
+                self.host.set_var(var, v).map_err(VmError::Host)?;
+                // The value of an assignment is its right-most operand
+                // [documented: NVSE Expressions].
+                v
+            }
+        })
+    }
+
+    fn xcall(&mut self, c: &XCall) -> Result<Value, VmError> {
+        let opcode = match &c.func {
+            FuncId::Opcode(o) => *o,
+            FuncId::Name(n) => return Err(VmError::NotBuilt(format!("the extender function {n} (tasks C, D)"))),
+        };
+        self.step()?;
+        if self.table.get(opcode).is_none() {
+            let e = VmError::UnknownOpcode(opcode);
+            if self.opts.strict {
+                return Err(e);
+            }
+            self.host.skipped(&e);
+            return Ok(Value::ZERO);
+        }
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for (k, a) in c.args.iter().enumerate() {
+            args.push(match a {
+                XExpr::Enum { code } => ArgValue::Enum(*code),
+                XExpr::Axis { c } => ArgValue::Axis(*c),
+                XExpr::Str { s } if self.table.param_enc(opcode, k) == crate::table::ParamEnc::String => ArgValue::Str(s.clone()),
+                other => ArgValue::Value(self.xeval(other)?),
+            });
+        }
+        self.host.call(opcode, on, &args).map_err(VmError::Host)
+    }
+}
+
+/// A binary operator of the extended expressions on numbers [documented: NVSE
+/// Expressions: the bitwise operators and shifts demote their operands to integers; `^`
+/// raises to a power]. Arithmetic and comparisons as the vanilla ones ([`binary`]).
+fn xbinary(op: XOp, a: Value, b: Value) -> Result<Value, VmError> {
+    let int = |v: Value| v.num().trunc() as i64;
+    let vanilla = |o: Op| binary(o, a, b);
+    Ok(match op {
+        XOp::Eq => vanilla(Op::Eq),
+        XOp::Ne => vanilla(Op::Ne),
+        XOp::Lt => vanilla(Op::Lt),
+        XOp::Le => vanilla(Op::Le),
+        XOp::Gt => vanilla(Op::Gt),
+        XOp::Ge => vanilla(Op::Ge),
+        XOp::Add => vanilla(Op::Add),
+        XOp::Sub => vanilla(Op::Sub),
+        XOp::Mul => vanilla(Op::Mul),
+        XOp::Div => vanilla(Op::Div),
+        XOp::Mod => vanilla(Op::Mod),
+        XOp::Pow => Value::Num(a.num().powf(b.num())),
+        XOp::BitOr => Value::Num((int(a) | int(b)) as f64),
+        XOp::BitAnd => Value::Num((int(a) & int(b)) as f64),
+        XOp::Shl => Value::Num(int(a).checked_shl(int(b).clamp(0, 63) as u32).unwrap_or(0) as f64),
+        XOp::Shr => Value::Num(int(a).checked_shr(int(b).clamp(0, 63) as u32).unwrap_or(0) as f64),
+        XOp::Or => Value::Num(if a.truthy() { a.num() } else { b.num() }),
+        XOp::And => Value::Num(if a.truthy() { b.num() } else { 0.0 }),
+        XOp::Slice | XOp::Pair | XOp::Subscript => return Err(VmError::NotBuilt("arrays and strings (B1-B3)".into())),
+    })
 }
 
 /// A binary operator [hypothesis unless tagged: comparisons give 1 or 0, `&&` and `||`

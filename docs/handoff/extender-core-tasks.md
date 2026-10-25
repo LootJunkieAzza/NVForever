@@ -55,7 +55,10 @@ editor's bytes rather than IR (the decoder turns them into IR), so parity is che
 byte: 14,489 of 14,511 shipped units are identical, and the 22 others are explained in
 docs/spec-notes/script-compiler.md §5. A6 done: units whose bytes call opcodes the table
 lacks run from their source, `[Extenders] CompileSource` switches it, and the console sends
-expressions through the compiler (script-compiler.md §7). Next: A7.
+expressions through the compiler (script-compiler.md §7). A7 done: the expression grammar
+(precedence, operators, functions taking expressions as arguments) with `let`, the Let
+macro and `if eval` from A8, and numbers in the VM (script-compiler.md §8). Next: the rest
+of A8 (loops), then A9–A10.
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any
