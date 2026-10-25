@@ -858,3 +858,112 @@ fn water_triangles_close_to_actors_that_do_not_swim() {
     assert!(matches!(g.find_path(from, pond, &no_swim), Err(PathError::Unreachable { expanded: 0 })));
     assert!(g.find_path(pond, to, &no_swim).is_ok());
 }
+
+// Broken data (a damaged or badly made plugin): the graph builds, queries answer, and
+// nothing panics or runs on for ever.
+
+/// `grid` plus triangles whose corners are not finite, lie far out, or spread over many
+/// cells (each its own three vertices, no neighbours).
+fn with_bad_corners() -> NavMeshRecord {
+    let mut m = grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat);
+    let bad: [[[f32; 3]; 3]; 4] = [
+        [[0.0, 0.0, 0.0], [f32::INFINITY, 0.0, 0.0], [0.0, 100.0, 0.0]],
+        [[0.0, 0.0, 0.0], [100.0, 0.0, f32::NAN], [0.0, 100.0, 0.0]],
+        [[1.0e30, 0.0, 0.0], [1.0e30, 100.0, 0.0], [-1.0e30, 0.0, 0.0]],
+        [[0.0, 0.0, 0.0], [1.0e6, 0.0, 0.0], [0.0, 1.0e6, 0.0]],
+    ];
+    for c in bad {
+        let first = m.vertices.len() as u16;
+        m.vertices.extend(c);
+        m.triangles.push(Triangle { v: [first, first + 1, first + 2], edges: [-1; 3], flags: 0, cover: 0 });
+    }
+    m
+}
+
+#[test]
+fn triangles_with_broken_corners_are_left_out() {
+    let g = graph(&[(with_bad_corners(), W)]);
+    assert_eq!(g.stats.bad_triangles, 4);
+    for t in 32..36 {
+        assert!(g.tris[t].has(tri_flags::DELETED) && !g.usable(t as u32));
+    }
+    // The good part still works.
+    let p = g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [350.0, 350.0, 0.0] }, &PathParams::default()).unwrap();
+    assert!(on_mesh(&g, W, &p.legs[0].points, 10.0));
+}
+
+#[test]
+fn indices_past_the_end_are_ignored() {
+    let mut m = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let n = m.triangles.len();
+    m.triangles[0].v[0] = 999; // vertex past the end
+    m.triangles[1].edges[0] = 999; // neighbour past the end
+    m.triangles[2].edges[1] = -7; // negative neighbour
+    // Linked edges: NVEX index past the list, a navmesh not loaded, a triangle past the end.
+    m.triangles[3].flags |= 1 << 1;
+    m.triangles[3].edges[1] = 50;
+    link(&mut m, 4, 1, 0xDEAD, 0, link_kind::PORTAL);
+    link(&mut m, 5, 1, 1, 60_000, link_kind::LEDGE_UP);
+    m.cover_triangles.extend([0, 65_535]);
+    m.door_links.push(DoorLink { door: 0xD1, triangle: 65_535 });
+    // A navmesh with triangles and no vertices at all.
+    let mut empty = NavMeshRecord { form_id: 2, ..Default::default() };
+    empty.triangles.push(Triangle { v: [0, 1, 2], edges: [0, 1, 2], flags: 0b111, cover: 0 });
+    let meshes = [(m, W), (empty, W)];
+    let input: Vec<_> = meshes.iter().map(|(m, s)| (m, Some(0), Some(*s))).collect();
+    let mut g = NavGraph::assemble(&input);
+    g.join_doors(&input, |_| Some((0xD2, [f32::NAN, 0.0, 0.0], 0.0, W)));
+    assert_eq!(g.tris.len(), n + 1);
+    assert!(g.stats.unresolved_links >= 3);
+    assert_eq!(g.stats.doors, 0);
+    assert!(!g.usable(0) && !g.usable(n as u32));
+    for t in 0..g.tris.len() as u32 {
+        assert!(g.tris[t as usize].next.iter().all(|&x| x == NONE || (x as usize) < g.tris.len()));
+    }
+    // Most of the grid is broken: a path or a clean error, either is an answer.
+    for (a, b) in [([150.0, 150.0, 0.0], [50.0, 150.0, 0.0]), ([50.0, 50.0, 0.0], [150.0, 150.0, 0.0])] {
+        let _ = g.find_path(Place { space: W, pos: a }, Place { space: W, pos: b }, &PathParams { ledges: true, ..Default::default() });
+        let _ = g.find_path(Place { space: W, pos: a }, Place { space: W, pos: b }, &PathParams::default());
+    }
+}
+
+#[test]
+fn queries_with_broken_numbers_answer_at_once() {
+    let g = graph(&[(with_bad_corners(), W)]);
+    let ok = [100.0, 100.0, 0.0];
+    for p in [[f32::NAN, 0.0, 0.0], [f32::INFINITY, 0.0, 0.0], [0.0, f32::NEG_INFINITY, 0.0], [0.0, 0.0, f32::NAN]] {
+        assert_eq!(g.nearest(W, p, 512.0), None, "{p:?}");
+        assert!(g.triangles_near(W, p[0], p[1], 512.0).is_empty() || p[0].is_finite() && p[1].is_finite());
+        let e = g.find_path(Place { space: W, pos: ok }, Place { space: W, pos: p }, &PathParams::default());
+        assert!(matches!(e, Err(PathError::NoTriangle { .. })), "{p:?}: {e:?}");
+    }
+    // Huge, infinite and NaN radii.
+    for r in [f32::MAX, f32::INFINITY, f32::NAN, -5.0] {
+        let _ = g.nearest(W, [5000.0, 5000.0, 0.0], r);
+        let _ = g.triangles_near(W, 100.0, 100.0, r);
+        let _ = g.cover_edges_near(W, ok, r);
+    }
+    assert!(g.nearest(W, [5000.0, 5000.0, 0.0], f32::MAX).is_some());
+    // Far-out but finite points (bucket indices at the ends of i32).
+    for p in [[3.0e38, 3.0e38, 0.0], [-3.0e38, 0.0, 0.0]] {
+        assert_eq!(g.nearest(W, p, f32::MAX), None);
+        assert!(g.triangles_near(W, p[0], p[1], f32::MAX).is_empty());
+    }
+}
+
+#[test]
+fn obstacles_and_doors_with_broken_placement_do_not_hang() {
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat), W)]);
+    let o = |scale: f32, position: [f32; 3]| crate::obstacles::Obstacle {
+        reference: 0x5B0,
+        space: W,
+        position,
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        scale,
+        bounds: ([-50.0, -4.0, 0.0], [50.0, 4.0, 90.0]),
+        initially_enabled: true,
+    };
+    for (s, p) in [(f32::INFINITY, [200.0, 200.0, 0.0]), (1.0e30, [200.0, 200.0, 0.0]), (f32::NAN, [200.0, 200.0, 0.0]), (1.0, [f32::NAN, 0.0, 0.0]), (1.0, [1.0e30, 1.0e30, 0.0])] {
+        g.set_obstacles(vec![o(s, p)], |o| o.initially_enabled);
+    }
+}
