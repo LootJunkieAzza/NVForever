@@ -960,13 +960,16 @@ fn mark(
             let perk_text = if names.is_empty() { String::new() } else { format!(", perks {}", names.join(", ")) };
             let cf = if spot.perks.concentrated_fire && earlier > 0 { format!(", concentrated fire +{earlier}") } else { String::new() };
             info!(
-                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf})",
+                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf}); {:.0} units, skill {:.0}, cone {}",
                 spot.name,
                 spot.part,
                 v.queue.reserved(),
                 if ap_now.is_finite() { format!("{:.0}", ap_now - v.queue.reserved()) } else { "unlimited".into() },
                 spot.chance,
                 spot.base,
+                crate::combat::distance(player.eye(), spot.point),
+                v.weapon.as_ref().map_or(0.0, |w| w.skill),
+                combat.vats_cone.map_or("none".to_string(), |c| format!("{c:.2} deg")),
             );
             v.spots.push(spot);
             sounds.play(v, if part.is_some() { "UIVATSSelectTargetPart" } else { "UIVATSSelectTarget" });
@@ -1107,6 +1110,22 @@ fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, mut script: Option<&mu
         }
         Some(MeleeAction::Done) => end(v, "all shots fired", sounds),
         None => {}
+    }
+}
+
+impl VatsMode {
+    /// The last mark's shot, once every mark's attack has started (a kill camera watches
+    /// its actor, `crate::kill_cam`, §19): as the scripts see a shot, with the weapon VATS
+    /// mode was entered with, and its point now.
+    pub fn final_shot(&self, eye: [f32; 3]) -> Option<(fnv_game::vats::VatsShot, [f32; 3])> {
+        let n = self.queue.len();
+        if self.phase != Phase::Firing || n == 0 || self.started < n {
+            return None;
+        }
+        let (m, s) = (self.queue.marks().get(n - 1)?, self.spots.get(n - 1)?);
+        let d = ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2) + (s.point[2] - eye[2]).powi(2)).sqrt();
+        let shot = fnv_game::vats::VatsShot { weapon: self.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false) };
+        Some((shot, s.point))
     }
 }
 
@@ -1404,6 +1423,10 @@ fn report(mut exit: MessageReader<AppExit>, vats: Res<VatsMode>) {
     );
 }
 
+/// VATS mode's frame (`update`), for systems that read what it decided (`crate::kill_cam`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VatsUpdate;
+
 pub struct VatsModePlugin;
 
 impl Plugin for VatsModePlugin {
@@ -1411,7 +1434,7 @@ impl Plugin for VatsModePlugin {
         app.init_resource::<VatsMode>()
             .add_systems(Startup, spawn_marks)
             .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).after(crate::player::encumbered_walks).before(PlaySet::Physics))
-            .add_systems(Update, update.in_set(PlaySet::Activation).before(crate::combat::fire))
+            .add_systems(Update, update.in_set(PlaySet::Activation).in_set(VatsUpdate).before(crate::combat::fire))
             .add_systems(Update, (draw_marks, draw_labels).after(PlaySet::Activation))
             .add_systems(Last, report);
     }

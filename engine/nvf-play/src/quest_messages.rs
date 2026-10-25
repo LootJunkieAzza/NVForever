@@ -329,7 +329,7 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>),
+    (state, script, driven): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
     let hold = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.auto_objectives);
@@ -339,8 +339,10 @@ fn draw(
     }
     // Behind a message box or a script's menu, and in a conversation (every HUD element
     // goes then: the owner's playtest list 5, item 74): hidden, and no time passes, so
-    // the line comes back when the conversation ends.
-    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue);
+    // the line comes back when the conversation ends. So too while an idle holds the
+    // camera (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then
+    // [owner 2026-10-24].
+    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }

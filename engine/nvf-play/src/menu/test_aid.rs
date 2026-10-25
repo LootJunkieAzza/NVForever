@@ -301,7 +301,7 @@ pub(super) fn run_drops(
                         // the item's tab and look again.
                         None if stage == 1 && pip.is_some() => {
                             let kind = sim.forms.sig(job.item).and_then(|s| ItemKind::from_sig(&s));
-                            if let (Some(mut p), Some(tab)) = (pip, crate::pipboy::items::TABS.iter().position(|c| c.holds(kind))) {
+                            if let (Some(mut p), Some(tab)) = (pip, crate::pipboy::items::TABS.iter().position(|c| c.holds_item(kind, sim.forms.item(job.item)))) {
                                 p.tabs[crate::pipboy::Page::Items.index()] = tab;
                             }
                             d.current = Some((job, 3, now + 0.3));

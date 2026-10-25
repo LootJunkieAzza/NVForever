@@ -10,12 +10,12 @@
 //!   master either), is drawn as `RAD` between SLP and LMB [owner, 2026-10-23: RAD with the
 //!   other HUD indicators, "same rules"].
 //! - Each word has one of four looks ([`Look`]): faded, the HUD's amber, red, flashing red.
-//!   A need's look follows the stage the game holds for it (`fnv_game::needs`); the limb
-//!   word's follows how many limbs are crippled; the radiation word's the radiation
-//!   sickness stage the game holds (in every mode).
+//!   A need's word and the radiation word follow the stage the game holds for them
+//!   (`fnv_game::needs`; radiation in every mode) and are hidden with no stage held; the
+//!   limb word follows how many limbs are crippled and is hidden with none.
 //! - The need words show in Hardcore only; the radiation and limb words in every mode
 //!   [design], taking the first places outside Hardcore.
-//! - [`need_look`], [`rad_look`] and [`limb_look`] are pure, tested without the game.
+//! - [`need_look`] and [`limb_look`] are pure, tested without the game.
 
 use crate::combat::PlayerLimbs;
 use crate::hud::{HudSet, HudView, FONT, HP, HP_LABEL_X, HP_PANEL, MARGIN_X, MARGIN_Y, UPPER_BASE};
@@ -70,13 +70,15 @@ impl Look {
     }
 }
 
-/// A need's look from the stage the game holds (`stage`, 0 the lowest, of `count` stages)
-/// [design: owner 2026-10-23, "none/lowest faded, then normal, red, flashing for the last
-/// ones"]: with the masters' five stages (Minor, Advanced, Critical, Deadly, Fatal) none
-/// and Minor are faded, Advanced normal, Critical red, Deadly and Fatal flash. Fewer stages
-/// (a plugin's) give up the faded stage first, then the normal one.
+/// A need's or the radiation's look from the stage the game holds (`stage`, 0 the lowest,
+/// of `count` stages) [design: owner 2026-10-23, "none/lowest faded, then normal, red,
+/// flashing for the last ones"; owner 2026-10-24: nothing shows under the first stage, and
+/// radiation follows the same rule]: with the masters' five stages (Minor 200, Advanced
+/// 400, Critical 600, Deadly 800, Fatal 1000) no stage is hidden, Minor faded, Advanced
+/// normal, Critical red, Deadly and Fatal flash. Fewer stages (a plugin's) give up the
+/// faded stage first, then the normal one.
 pub fn need_look(stage: Option<usize>, count: usize) -> Look {
-    let Some(i) = stage else { return Look::Faded };
+    let Some(i) = stage else { return Look::Hidden };
     // The stage counted from the worst: 0 the last.
     let from_top = count.saturating_sub(1).saturating_sub(i);
     match from_top {
@@ -87,24 +89,11 @@ pub fn need_look(stage: Option<usize>, count: usize) -> Look {
     }
 }
 
-/// The radiation word's look from the sickness stage the game holds (`stage`, 0 the
-/// lowest) [design: owner 2026-10-23, "same rules … for each radiation threshold"]: each
-/// threshold steps it up: no sickness faded, the first stage (Minor, 200 rads) normal, the
-/// second (Advanced, 400) red, from the third (Critical, 600) flashing.
-pub fn rad_look(stage: Option<usize>) -> Look {
-    match stage {
-        None => Look::Faded,
-        Some(0) => Look::Normal,
-        Some(1) => Look::Red,
-        Some(_) => Look::Flashing,
-    }
-}
-
 /// The limb word's look from how many limbs are crippled [design: owner 2026-10-23,
-/// "0 faded, 1 normal, 2 red, 3 or more flashing red"].
+/// "1 normal, 2 red, 3 or more flashing red"; owner 2026-10-24: hidden with none].
 pub fn limb_look(crippled: usize) -> Look {
     match crippled {
-        0 => Look::Faded,
+        0 => Look::Hidden,
         1 => Look::Normal,
         2 => Look::Red,
         _ => Look::Flashing,
@@ -159,7 +148,7 @@ fn watch(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, lim
         let g = &rt.game;
         let stages = g.data.need_stages.get(&RAD_LEVEL).map_or(&[][..], |s| s.as_slice());
         let held = g.player.need_stages.get(&RAD_LEVEL).and_then(|h| stages.iter().position(|s| s.stage == *h));
-        looks[RAD] = rad_look(held);
+        looks[RAD] = need_look(held, stages.len());
         why[RAD] = match held {
             Some(s) => format!("stage {} of {}, {}", s + 1, stages.len(), g.data.name(stages[s].spell)),
             None => "no stage".into(),
@@ -289,7 +278,8 @@ mod tests {
 
     #[test]
     fn the_masters_five_stages_take_the_four_looks() {
-        assert_eq!(need_look(None, 5), Look::Faded);
+        // Under the first stage (200) nothing shows.
+        assert_eq!(need_look(None, 5), Look::Hidden);
         let looks: Vec<Look> = (0..5).map(|i| need_look(Some(i), 5)).collect();
         assert_eq!(looks, [Look::Faded, Look::Normal, Look::Red, Look::Flashing, Look::Flashing]);
     }
@@ -304,17 +294,8 @@ mod tests {
     }
 
     #[test]
-    fn each_radiation_threshold_steps_the_word_up() {
-        assert_eq!(rad_look(None), Look::Faded);
-        assert_eq!(rad_look(Some(0)), Look::Normal);
-        assert_eq!(rad_look(Some(1)), Look::Red);
-        assert_eq!(rad_look(Some(2)), Look::Flashing);
-        assert_eq!(rad_look(Some(4)), Look::Flashing);
-    }
-
-    #[test]
     fn crippled_limbs_count_up_to_flashing() {
-        assert_eq!(limb_look(0), Look::Faded);
+        assert_eq!(limb_look(0), Look::Hidden);
         assert_eq!(limb_look(1), Look::Normal);
         assert_eq!(limb_look(2), Look::Red);
         assert_eq!(limb_look(3), Look::Flashing);

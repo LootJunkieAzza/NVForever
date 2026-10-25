@@ -23,8 +23,13 @@
 //!   fSneakLightRunMult; blindness is always 1 in New Vegas; stealth boy =
 //!   fSneakStealthboyMult when the target's Invisibility or Chameleon is at least 1;
 //! - **Detector skill** = falloff · Perception skill · (1 + alert · fSneakAlertMod + asleep
-//!   · fSneakSleepBonus + busy · fSneakCombatMod), Perception skill = fSneakPerceptionSkillMin
-//!   + (Max − Min) · Perception / 10;
+//!   · fSneakSleepBonus + combat target · fSneakCombatMod), Perception skill =
+//!   fSneakPerceptionSkillMin + (Max − Min) · Perception / 10; "combat target" is
+//!   IsCombatTarget: the target is one the detector fights, so a fighter perceives its own
+//!   foes at 0.8 and anyone else at 1.2 [documented: the page's formula and the Fallout
+//!   Wiki's Sneak (New Vegas) page agree; the page's one-line description of
+//!   fSneakCombatMod says "against someone else", the other way round:
+//!   docs/design/detection.md §9];
 //! - **Target skill** (New Vegas) = sneaking · (Sneak + iSneakLevelBonus · (target level −
 //!   detector level) + max(iSneakStartBonus − iSneakStartBonusLevelPenatly · target level,
 //!   0) − armour penalty), the penalty iMediumArmorStealthPenalty or
@@ -219,23 +224,31 @@ impl Settings {
         }
     }
 
+    /// The sound the target makes, as the sound term counts it before the distance
+    /// falloff: fSneakSoundsMult · (movement + action), movement 0 standing still, else
+    /// (fSneakBootWeightBase + fSneakBootWeightMult · body armour weight) × fSneakRunningMult
+    /// when running (not with Ignore Running During Detection), a creature's by its sound
+    /// level; action = the loudest action sound × fSneakActionMult.
+    pub fn noise(&self, p: &Pair, moving: bool, running: bool, action_sound: f64) -> f64 {
+        let movement = if moving || running {
+            let run = if running && !p.ignore_running { self.running_mult } else { 1.0 };
+            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
+            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
+            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * run * level
+        } else {
+            0.0
+        };
+        self.sounds_mult * (movement + action_sound * self.action_mult)
+    }
+
     /// The detection value of a pair in a situation, with its parts.
     pub fn evaluate(&self, p: &Pair, s: &Situation) -> Detection {
         let a = self.attenuation(s.distance, s.exterior);
         let moving = s.moving || s.running;
 
         // Sound.
-        let movement = if moving {
-            let running = if s.running && !p.ignore_running { self.running_mult } else { 1.0 };
-            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
-            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
-            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * running * level
-        } else {
-            0.0
-        };
-        let action = s.action_sound * self.action_mult;
         let sound_falloff = if s.line_of_sight { a } else { a * self.sound_los_mult };
-        let sound = sound_falloff * self.sounds_mult * (movement + action);
+        let sound = sound_falloff * self.noise(p, moving, s.running, s.action_sound);
 
         // Visual.
         let seen = s.line_of_sight && s.in_view;
@@ -251,7 +264,7 @@ impl Settings {
         let state = 1.0
             + if s.detector_alert { self.alert_mod } else { 0.0 }
             + if s.detector_asleep { self.sleep_bonus } else { 0.0 }
-            + if s.detector_busy { self.combat_mod } else { 0.0 };
+            + if s.combat_target { self.combat_mod } else { 0.0 };
         let detector_skill = a * perception_skill * state;
         let target_skill = if s.sneaking {
             let penalty = match p.target_armor_class {
@@ -381,8 +394,9 @@ pub struct Situation {
     /// The detector is in a combat state (Alert, Combat or Lost).
     pub detector_alert: bool,
     pub detector_asleep: bool,
-    /// The detector is fighting someone other than the target.
-    pub detector_busy: bool,
+    /// The target is one of the detector's combat targets, the detector in Combat
+    /// (IsCombatTarget; fSneakCombatMod applies).
+    pub combat_target: bool,
     /// What GetLineOfSight reads when it differs from the sight above: the player's is the
     /// camera's, its detection the body's [observed: capture detection-2 det4, 2026-10-17,
     /// third person: player.GetDetected Ringo 1 to 90° off the facing on both sides, 0
@@ -806,8 +820,11 @@ mod tests {
         assert_eq!(s.evaluate(&boy, &sit).visual, 0.0);
         let asleep = s.evaluate(&Pair::default(), &Situation { detector_asleep: true, ..sit });
         assert!(near(asleep.detector_skill, 0.81 * 50.0 * 0.8));
-        let alert_busy = s.evaluate(&Pair::default(), &Situation { detector_alert: true, detector_busy: true, ..sit });
-        assert!(near(alert_busy.detector_skill, 0.81 * 50.0 * 0.8));
+        // In Combat: its own foe at 1 + 0.2 − 0.4, anyone else at 1 + 0.2.
+        let foe = s.evaluate(&Pair::default(), &Situation { detector_alert: true, combat_target: true, ..sit });
+        assert!(near(foe.detector_skill, 0.81 * 50.0 * 0.8));
+        let other = s.evaluate(&Pair::default(), &Situation { detector_alert: true, ..sit });
+        assert!(near(other.detector_skill, 0.81 * 50.0 * 1.2));
     }
 
     #[test]

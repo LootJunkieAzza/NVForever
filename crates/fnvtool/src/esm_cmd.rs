@@ -53,6 +53,7 @@ pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
         }
         EsmCmd::Loadorder { lo, schema } => loadorder(&lo, schema.as_deref()),
         EsmCmd::Survey { lo, plugin } => survey(&lo, plugin.as_deref()),
+        EsmCmd::Fields { lo, schema } => crate::esm_fields::fields(&lo, &schema),
     }
 }
 

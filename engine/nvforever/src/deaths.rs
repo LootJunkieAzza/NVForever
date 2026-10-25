@@ -3,7 +3,9 @@
 //! reaction for where it was hit (step C8) once over its other clips, when the hit
 //! cripples a body part, or lands on a crippled one (or anywhere while its torso is
 //! crippled, docs/spec-notes/crippled-limbs.md §3) and the actor's last reaction ended
-//! long enough ago (`fnv_combat::damage::staggers`) [design: the owner's rule].
+//! long enough ago (`fnv_combat::damage::staggers`) [design: the owner's rule]. A hit
+//! that forces the reaction ([`ForcedHitReaction`]: Khan Trick, perk-entry-points.md
+//! §11.4) plays it whatever it crippled and however recent the last one was.
 //!
 //! A dead actor whose skeleton has a ragdoll becomes a [`crate::ragdoll::Corpse`]: killed
 //! in sight on loaded ground, its pose stops where it is and the ragdoll drops it
@@ -23,7 +25,7 @@ use crate::locomotion::{Dying, Flinch, Locomotion};
 use crate::ragdoll::Ragdolls;
 use bevy::prelude::*;
 use nvf_assets::data::GameData;
-use nvf_play::combat::{is_dead, ActorHit, Combat};
+use nvf_play::combat::{is_dead, ActorHit, Combat, ForcedHitReaction};
 use nvf_play::phys::PhysState;
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
@@ -56,7 +58,7 @@ fn show_hits_and_deaths(
     time: Res<Time>,
     combat: Option<Res<Combat>>,
     mut commands: Commands,
-    mut hits: MessageReader<ActorHit>,
+    (mut hits, mut forced): (MessageReader<ActorHit>, MessageReader<ForcedHitReaction>),
     script: Option<Res<ScriptState>>,
     data: Option<Res<GameData>>,
     phys: Option<Res<PhysState>>,
@@ -66,6 +68,7 @@ fn show_hits_and_deaths(
     actor_world: Option<Res<crate::actors::ActorWorld>>,
 ) {
     let fresh: Vec<ActorHit> = hits.read().copied().collect();
+    let forcing: Vec<ForcedHitReaction> = forced.read().copied().collect();
     let now = time.elapsed_secs();
     let tuning = combat.map(|c| c.tuning.clone()).unwrap_or_default();
     for (e, r, rig, lo, flinch, mut t, gt, dressed) in &mut actors {
@@ -100,6 +103,14 @@ fn show_hits_and_deaths(
             // Of this frame's hits (a shotgun's pellets), the crippling one comes first.
             let mine = || fresh.iter().rev().filter(|h| h.form_id == r.0);
             let since = flinch.map(|f| now - f.at - f.clip.clip.length());
+            // A forced reaction (Khan Trick) plays for where it was hit, at once.
+            if let Some(f) = forcing.iter().rev().find(|f| f.form_id == r.0) {
+                if let Some(c) = lo.set.flinch_for(f.location) {
+                    info!("hit reaction: {:08X} staggers for {:.1} s (location {}, forced: {})", r.0, c.clip.length(), f.location, f.by);
+                    commands.entity(e).insert(Flinch { clip: c, at: now });
+                }
+                continue;
+            }
             // A power attack that broke its block staggers it whatever was hit, with the
             // torso's reaction (combat-rules.md §12) [design].
             if mine().any(|h| h.guard_broken) {

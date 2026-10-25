@@ -51,7 +51,8 @@
 //!   with the view level, as a player looking ahead at a short creature), `aimcorpse` (to the trunk of the
 //!   nearest ragdoll), `aimnpc` (the same, NPCs only),
 //!   `aimnpc=<share>` (at that share of the NPC's height, 0 feet to 1 top: the head or
-//!   legs for limb hits), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
+//!   legs for limb hits; `aimnpc=<share>@<n>` at that height over body part `n`'s centre,
+//!   e.g. the forehead of a leaning NPC whose head is off the body's middle), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
 //!   the NPC's BPTD, step C8), `aimref=<FormID hex>` (at the collision body of a placed
 //!   object, e.g. a bottle to shoot), `equip=<FormID hex>` (give one unless carried and
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
@@ -76,7 +77,8 @@
 //! (`GOTO`, `FACE`, the `aim…` presses) are not.
 //!
 //! - `NVF_PLAY_TEST_NO_SPREAD=1` (combat.rs): the player's shots leave exactly along the
-//!   view, with no spread or bloom, so a shot aimed with `aimref` or `aimpart` lands there.
+//!   view, with no spread, bloom or recoil, so a shot aimed with `aimref` or `aimpart`
+//!   lands there.
 //! - `NVF_PLAY_TEST_TRACERS=<seconds>` (combat.rs): every projectile of the player's
 //!   draws a line, and the lines and a marker at the muzzle stay that long, so one
 //!   screenshot shows where the shots were drawn from. Muzzle flashes and projectile
@@ -181,6 +183,8 @@ enum Press {
     AimCorpse,
     AimNpc,
     AimNpcAt(f32),
+    /// A share of the NPC's height, over a body part's centre.
+    AimNpcOver(f32, u8),
     AimPart(u8),
     AimRef(u32),
     Equip(FormId),
@@ -212,6 +216,8 @@ fn press(rest: &str) -> Result<Press, String> {
                 Press::Equip(FormId(id))
             } else if let Some(Ok(p)) = rest.strip_prefix("condition=").map(|p| p.trim().parse::<f32>()) {
                 Press::Condition(p)
+            } else if let Some((Ok(h), Ok(n))) = rest.strip_prefix("aimnpc=").and_then(|v| v.split_once('@')).map(|(h, n)| (h.trim().parse::<f32>(), n.trim().parse::<u8>())) {
+                Press::AimNpcOver(h, n)
             } else if let Some(Ok(h)) = rest.strip_prefix("aimnpc=").map(|h| h.trim().parse::<f32>()) {
                 Press::AimNpcAt(h)
             } else if let Some(Ok(n)) = rest.strip_prefix("aimpart=").map(|n| n.trim().parse::<u8>()) {
@@ -509,6 +515,7 @@ fn keys_and_controls(
             Press::AimCorpse => aim_at_nearest_corpse(&phys, &mut player, cross.as_ref()),
             Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
             Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
+            Press::AimNpcOver(h, n) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::ShareOver(h, n))),
             Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
             Press::AimRef(id) => aim_at_ref(&phys, &mut player, cross.as_ref(), id),
             Press::AimVats => {
@@ -554,6 +561,8 @@ fn keys_and_controls(
 enum Aim {
     /// A share of its height.
     Share(f32),
+    /// A share of its height, over a body part's centre.
+    ShareOver(f32, u8),
     /// A body part (its index in the actor's BPTD).
     Part(u8),
 }
@@ -565,6 +574,7 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, cross: Option<&Cr
     let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
     let point = |id: u32| match aim {
         Some(Aim::Share(s)) => phys.world.actor_volume(id).map(|v| [v.feet[0], v.feet[1], v.feet[2] + v.height * s]),
+        Some(Aim::ShareOver(s, n)) => phys.world.actor_volume(id).zip(phys.world.actor_part_center(id, n)).map(|(v, c)| [c[0], c[1], v.feet[2] + v.height * s]),
         Some(Aim::Part(n)) => phys.world.actor_part_center(id, n),
         None => phys.world.actor_aim_point(id),
     };
@@ -734,6 +744,7 @@ mod tests {
         assert_eq!(press("aimactor").unwrap(), Press::AimActor);
         assert_eq!(press("aimflat").unwrap(), Press::AimFlat);
         assert_eq!(press("aimnpc=0.9").unwrap(), Press::AimNpcAt(0.9));
+        assert_eq!(press("aimnpc=0.95@0").unwrap(), Press::AimNpcOver(0.95, 0));
         assert_eq!(press("aimref=0010A202").unwrap(), Press::AimRef(0x10A202));
         assert_eq!(press("aimpart=4").unwrap(), Press::AimPart(4));
         assert_eq!(press("condition=2.5").unwrap(), Press::Condition(2.5));

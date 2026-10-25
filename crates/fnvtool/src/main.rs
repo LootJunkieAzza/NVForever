@@ -31,6 +31,7 @@ mod dds_cmd;
 mod dialogue_cmd;
 mod spt_cmd;
 mod esm_cmd;
+mod esm_fields;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
@@ -961,6 +962,15 @@ pub enum EsmCmd {
         /// Only survey this plugin (case-insensitive name).
         #[arg(long)]
         plugin: Option<String>,
+    },
+    /// Every schema field and flag bit the records of a load order carry: per record
+    /// type, subrecord and field path, how often present, how often non-zero, the most
+    /// common values and each flag bit's count (fnv.esm.fields/1).
+    Fields {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
     },
 }
 

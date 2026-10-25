@@ -144,6 +144,9 @@ pub struct PlayerControl {
     pub crosshair: Option<Crosshair>,
     /// The character creator's camera, while it is open.
     pub portrait: Option<Portrait>,
+    /// A kill camera has the view (`crate::kill_cam`): it counts as a third-person view,
+    /// so the body is drawn and the first-person arms are not.
+    pub cinematic: bool,
 }
 
 impl Default for PlayerControl {
@@ -163,6 +166,7 @@ impl Default for PlayerControl {
             ammo_swap: false,
             crosshair: None,
             portrait: None,
+            cinematic: false,
         }
     }
 }
@@ -170,7 +174,7 @@ impl Default for PlayerControl {
 impl PlayerControl {
     /// Whether the camera shows the player from outside (third person, or circling).
     pub fn third_person_view(&self) -> bool {
-        self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some()
+        self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some() || self.cinematic
     }
 }
 

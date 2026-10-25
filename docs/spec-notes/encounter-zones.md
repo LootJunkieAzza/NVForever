@@ -104,10 +104,11 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
 
 ## 7. Not built, open
 
-- Leveled locks: REFR XLOC "Leveled" is stored only. [documented: GECK wiki Bethsoft
-  Tutorial Non-NPC population, "The 'leveled' checkbox in the lock tab is a deprecated
-  feature: leave it unchecked"; Reference: "will start at the base level specified and
-  become harder as the player levels" — no rule for how much is documented.] Not built.
+- Leveled locks: REFR XLOC "Leveled" [documented: GECK wiki Bethsoft Tutorial Non-NPC
+  population, "The 'leveled' checkbox in the lock tab is a deprecated feature: leave it
+  unchecked"; Reference: "will start at the base level specified and become harder as
+  the player levels" — no rule for how much is documented]. Built 2026-10-24 with a
+  guessed rule from the reference's level (simulation.md §5).
 - The game settings that bound how far below the level an entry may be
   (`iLevItemLevelDifferenceMax` and the like) are not read; the "highest eligible level"
   pool makes them matter only with "Calculate from all levels".

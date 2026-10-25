@@ -53,6 +53,8 @@ pub struct Forms {
     effects: HashMap<u32, (bool, bool)>,
     /// An item's enchantment (EITM).
     item_ench: HashMap<u32, Option<u32>>,
+    /// The hints' items from the DOBJ list ([`Forms::hint_items`]), read once.
+    hint_items: Option<[Option<u32>; 4]>,
 }
 
 fn fields(lo: &'static LoadOrder<'static>, schema: &'static Schema, id: u32) -> Option<(usize, Fields<'static>)> {
@@ -67,7 +69,7 @@ fn zstring(b: &[u8]) -> String {
 
 impl Forms {
     pub fn new(lo: &'static LoadOrder<'static>, schema: &'static Schema) -> Forms {
-        Forms { lo, schema, texts: HashMap::new(), perks: HashMap::new(), enchs: HashMap::new(), effects: HashMap::new(), item_ench: HashMap::new() }
+        Forms { lo, schema, texts: HashMap::new(), perks: HashMap::new(), enchs: HashMap::new(), effects: HashMap::new(), item_ench: HashMap::new(), hint_items: None }
     }
 
     /// FULL, DESC, ICON (and ANAM) of a record.
@@ -144,6 +146,13 @@ impl Forms {
         out
     }
 
+    /// The hints' items: the DOBJ list's Stimpak, Doctor's Bag, RadAway and RadX
+    /// ([`HINT_PLACES`]), each `None` when the list names none there.
+    pub fn hint_items(&mut self) -> [Option<u32>; 4] {
+        let lo = self.lo;
+        *self.hint_items.get_or_insert_with(|| default_objects(lo, HINT_PLACES))
+    }
+
     /// An item's enchantment (EITM) [observed: ARMO records carry it, e.g. the Vault 21
     /// Jumpsuit's `EnchClothingVaultSuitNormal`].
     pub fn item_ench(&mut self, item: u32) -> Option<u32> {
@@ -153,8 +162,30 @@ impl Forms {
 }
 
 /// The items the status page's hints count, by Editor ID [observed: FalloutNV.esm ALCH
-/// `Stimpak` 0x15169, `NVDoctorBag` 0xCB05C, `RadAway` 0x15167, `RadX` 0x15168].
+/// `Stimpak` 0x15169, `NVDoctorBag` 0xCB05C, `RadAway` 0x15167, `RadX` 0x15168]: the
+/// fallback when the DOBJ list names none ([`HINT_PLACES`]).
 const HINT_ITEMS: [&str; 4] = ["Stimpak", "NVDoctorBag", "RadAway", "RadX"];
+
+/// The DOBJ places of the hints' items, in the hints' order: 0 Stimpak, 21 Doctor's Bag,
+/// 3 RadAway, 2 RadX [documented: xEdit wbDefinitionsFNV.pas DOBJ names, in order;
+/// docs/spec-notes/default-objects.md §1; observed: FalloutNV.esm names the four items of
+/// [`HINT_ITEMS`] there].
+const HINT_PLACES: [usize; 4] = [0, 21, 3, 2];
+
+/// The default objects (DOBJ `DATA`, the winning definition of the last plugin that has
+/// one) at `places`, as global FormIDs; `None` where the list names nothing.
+fn default_objects(lo: &LoadOrder, places: [usize; 4]) -> [Option<u32>; 4] {
+    let mut list: Vec<u32> = Vec::new();
+    for (pi, records) in lo.records.iter().enumerate() {
+        for r in records.iter().filter(|r| &r.header.sig == b"DOBJ" && r.header.flags & fnv_world::placed::ref_flags::DELETED == 0) {
+            let Ok(subs) = r.subrecords() else { continue };
+            if let Some(d) = subs.iter().find(|s| &s.sig == b"DATA") {
+                list = d.data.as_chunks::<4>().0.iter().map(|c| global(lo, pi, u32::from_le_bytes(*c)).filter(|&x| x != 0).unwrap_or(0)).collect();
+            }
+        }
+    }
+    places.map(|i| list.get(i).copied().filter(|&x| x != 0))
+}
 
 /// The player's base form (NPC_ 0x7) [documented: GECK wiki, the player is 0x14 placed
 /// of base 0x7].
@@ -168,8 +199,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     s.effects = effects;
     // The hints' counts.
     let mut texts: [String; 4] = Default::default();
+    let dobj = forms.hint_items();
     for (i, edid) in HINT_ITEMS.iter().enumerate() {
-        let id = sim.forms.by_edid(edid);
+        let id = dobj[i].map(FormId).or_else(|| sim.forms.by_edid(edid));
         let count = id.and_then(|id| sim.world.item_count(FormId::PLAYER_REF, id).ok()).unwrap_or(0);
         let name = id.and_then(|id| sim.name(id)).unwrap_or(edid).to_string();
         texts[i] = model::hint_text(&name, count);

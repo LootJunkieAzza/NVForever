@@ -492,6 +492,13 @@
   "STAT": {
    "name": "Static",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "25": "Obstacle"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(STAT) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Only the bit NVForever reads is listed. Obstacle: 'the object will dynamically cut the navmesh in game preventing actors from walking into it' [GECK wiki Activator, Flags; owner export 2026-10-07]."
+   },
    "subrecords": {
     "BRUS": {
      "name": "Passthrough Sound",
@@ -526,6 +533,13 @@
   "ACTI": {
    "name": "Activator",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "25": "Obstacle"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(ACTI) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Only the bit NVForever reads is listed. Obstacle: 'the object will dynamically cut the navmesh in game preventing actors from walking into it' [GECK wiki Activator, Flags; owner export 2026-10-07]."
+   },
    "subrecords": {
     "SNAM": {
      "name": "Sound - Looping",
@@ -600,6 +614,13 @@
   "CONT": {
    "name": "Container",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "25": "Obstacle"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(CONT) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Only the bit NVForever reads is listed. Obstacle: 'the object will dynamically cut the navmesh in game preventing actors from walking into it' [GECK wiki Activator, Flags; owner export 2026-10-07]."
+   },
    "subrecords": {
     "DATA": {
      "name": "Data",
@@ -2105,6 +2126,13 @@
   "SCOL": {
    "name": "Static Collection",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "25": "Obstacle"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(SCOL) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Only the bit NVForever reads is listed. Obstacle: 'the object will dynamically cut the navmesh in game preventing actors from walking into it' [GECK wiki Activator, Flags; owner export 2026-10-07]."
+   },
    "subrecords": {
     "ONAM": {
      "name": "Static",

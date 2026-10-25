@@ -19,12 +19,13 @@
 //!   380 square) and its figures (`IM_ItemInfoRect`, 385, 340, 446 × 150, three cards a
 //!   row of a third of it, 10 apart, a third of its height high, `item_stats_display.xml`)
 //!   [documented: places]: [`info_tiles`].
-//! - A weapon's DPS (`DPSInfo`, `sInventoryDamagePerSecond`) over its DAM card: the
-//!   damage a shot does at the weapon's condition times the shots a second
-//!   ([`weapon_dps`]) [documented: the card; hypothesis: the formula and the place, the
-//!   file puts DPS and DAM both at the first card's place and leaves which shows to code].
-//! - The ammunition's badge (`IM_ItemIconBadge`, 390, 260, 64 square): the picture of the
-//!   ammunition the ammo card names [documented: place; hypothesis: the ammo's own icon].
+//! - A weapon's skill badge (`IM_ItemIconBadge`, 390, 260, 64 square): the picture of
+//!   the skill the weapon uses (`weap_skill_icon_*.dds`), and beside it the skill it
+//!   needs (`IM_StrReq`, 440, 300, font 7, left), "0" too [documented: places; observed:
+//!   the owner's ITEMS screenshots, Guns 0/25/50 under the bullets, the Throwing Spear's
+//!   Melee Weapons 25 under the knife]. Not on the ITEMS page: DPS (the original shows
+//!   none there, and the badge takes its place over DAM [observed]); the container and
+//!   barter figures keep it ([`weapon_dps`]).
 //! - "Mod X)" under the Repair hint (`IM_ModButton`, 47 lower, `sInventoryMod`) for a
 //!   weapon with mod slots: bright when the player carries a mod that fits a slot not
 //!   taken yet, dim otherwise [documented: place, key; hypothesis: when it shows]. X on a
@@ -82,8 +83,11 @@ const INFO: Rect = Rect { min: Vec2::new(385.0, 340.0), max: Vec2::new(831.0, 49
 /// The condition meter inside its card: 62 in, 15 down, 20 high, 72 short of the card
 /// [documented: item_stats_display.xml ConditionMeter].
 const METER: (f32, f32, f32, f32) = (62.0, 15.0, 20.0, 72.0);
-/// The ammunition's badge [documented: `IM_ItemIconBadge`].
+/// The weapon's skill badge and the skill it needs, font 7 [documented:
+/// `IM_ItemIconBadge`, `IM_StrReq`].
 const BADGE: Rect = Rect { min: Vec2::new(390.0, 260.0), max: Vec2::new(454.0, 324.0) };
+const SKILL_REQ: Vec2 = Vec2::new(440.0, 300.0);
+const SKILL_REQ_FONT: usize = 7;
 /// "Mod X)": the Repair hint's place 47 lower [documented: `IM_ModButton` `_y` 47].
 const MOD_HINT: Vec2 = Vec2::new(855.0, 45.0 + 47.0);
 /// The scroll bar: 32 wide, arrows 32 × 16 [documented: list_box.xml, the DATA lists].
@@ -106,10 +110,29 @@ pub struct Info {
     pub effects: Option<String>,
     /// A weapon's damage a second, over the DAM card.
     pub dps: Option<String>,
-    /// The ammunition's picture for the badge.
+    /// A weapon's skill picture for the badge ([`skill_badge`]).
     pub badge: Option<String>,
+    /// The skill the weapon needs, beside the badge.
+    pub skill_req: Option<u32>,
     /// A weapon with mod slots: whether the player carries a mod that fits a free one.
     pub mod_hint: Option<bool>,
+}
+
+/// The badge of a weapon's skill (WEAP DNAM skill, by its name) [documented: the six
+/// `textures\interface\icons\typeicons\weap_skill_icon_*.dds` in Fallout - Textures;
+/// observed: which shows for Guns and Melee Weapons on the owner's screenshots;
+/// hypothesis: the other four by their names]. Other skills (Barter on binoculars) have
+/// none.
+pub fn skill_badge(skill: &str) -> Option<&'static str> {
+    Some(match skill {
+        "Guns" => "Interface\\Icons\\TypeIcons\\weap_skill_icon_sm_arms.dds",
+        "Big Guns" => "Interface\\Icons\\TypeIcons\\weap_skill_icon_big_guns.dds",
+        "Energy Weapons" => "Interface\\Icons\\TypeIcons\\weap_skill_icon_energy.dds",
+        "Explosives" => "Interface\\Icons\\TypeIcons\\weap_skill_icon_explosives.dds",
+        "Melee Weapons" => "Interface\\Icons\\TypeIcons\\weap_skill_icon_melee.dds",
+        "Unarmed" => "Interface\\Icons\\TypeIcons\\weap_skill_icon_unarmed.dds",
+        _ => return None,
+    })
 }
 
 /// Damage a second of a weapon at `condition`: the damage a shot does at that condition
@@ -210,6 +233,8 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 // [hypothesis].
                 i.first = (w.base_damage > 0).then(|| ("DAM", w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
+                i.badge = w.skill.as_deref().and_then(skill_badge).map(str::to_string);
+                i.skill_req = i.badge.is_some().then_some(w.skill_req);
                 if w.base_damage > 0 {
                     i.dps = Some(format!("{:.0}", weapon_dps(w, r.condition.unwrap_or(1.0))));
                 }
@@ -229,7 +254,6 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                     // "(2/30)" on the owner's screenshot reads as clip/carried].
                     let clip = (w.clip_size as i32).min(count).max(0);
                     i.beside = Some(format!("{name} ({clip}/{count})"));
-                    i.badge = sim.forms.item(ammo).and_then(|it| it.icon.clone());
                 }
             }
         }
@@ -378,7 +402,8 @@ pub fn draw(
     let mut script = script.as_mut().map(|s| s.bypass_change_detection());
     let caps = sim.world.item_count(FormId::PLAYER_REF, model::CAPS).unwrap_or(0);
     let selected = m.list(Side::Player).rows.get(m.selected[Side::Player as usize]);
-    let info = selected.map(|r| (r.icon.clone(), info_of(r, combat.as_deref(), sim, forms.as_mut(), script.as_deref_mut())));
+    // No DPS on this page: the skill badge stands over DAM (`item_info`).
+    let info = selected.map(|r| (r.icon.clone(), Info { dps: None, ..info_of(r, combat.as_deref(), sim, forms.as_mut(), script.as_deref_mut()) }));
     if let (Some(r), Some((_, i))) = (selected, &info) {
         info!("pipboy items: {} selected: {:?}", r.name, i);
     }
@@ -416,7 +441,7 @@ pub fn draw(
             item_info(p, &mut c, icon.as_deref(), i);
             if let (Some(bright), Some(r)) = (i.mod_hint, selected) {
                 info!("pipboy items: {} Mod X){}", r.name, if bright { "" } else { " (dim)" });
-                c.text(p, 2, "Mod X)", MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y, Align::Right, amber(if bright { TEXT } else { frame::DIMMED }));
+                c.text(p, 2, "Mod X)", MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y + frame::BUTTON_TEXT_Y, Align::Right, amber(if bright { TEXT } else { frame::DIMMED }));
             }
         }
     });
@@ -439,6 +464,9 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
     if let Some(b) = i.badge.as_deref() {
         let r = Rect::from_corners(MAIN.min + BADGE.min, MAIN.min + BADGE.max);
         c.image(p, b, at(r.min.x, r.min.y, r.width(), r.height()), bright);
+    }
+    if let Some(req) = i.skill_req {
+        c.text(p, SKILL_REQ_FONT, &req.to_string(), MAIN.min.x + SKILL_REQ.x, MAIN.min.y + SKILL_REQ.y, Align::Left, bright);
     }
     let o = MAIN.min + INFO.min;
     for t in info_tiles(i) {
@@ -585,6 +613,13 @@ mod tests {
     }
 
     #[test]
+    fn a_weapon_skill_has_its_badge() {
+        assert_eq!(skill_badge("Guns"), Some("Interface\\Icons\\TypeIcons\\weap_skill_icon_sm_arms.dds"));
+        assert_eq!(skill_badge("Melee Weapons"), Some("Interface\\Icons\\TypeIcons\\weap_skill_icon_melee.dds"));
+        assert_eq!(skill_badge("Barter"), None);
+    }
+
+    #[test]
     fn the_figures_are_laid_out_as_the_file() {
         let (w, h) = (INFO.width() / 3.0, INFO.height() / 3.0);
         // A weapon: DAM, WG, VAL; STR over VAL; CND and the ammunition.
@@ -598,6 +633,7 @@ mod tests {
             effects: None,
             dps: Some("72".into()),
             badge: None,
+            skill_req: None,
             mod_hint: None,
         };
         let t = info_tiles(&weapon);
