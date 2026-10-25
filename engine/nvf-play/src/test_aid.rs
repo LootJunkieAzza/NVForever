@@ -76,7 +76,8 @@
 //! (`GOTO`, `FACE`, the `aim…` presses) are not.
 //!
 //! - `NVF_PLAY_TEST_NO_SPREAD=1` (combat.rs): the player's shots leave exactly along the
-//!   view, with no spread or bloom, so a shot aimed with `aimref` or `aimpart` lands there.
+//!   view, with no spread, bloom or recoil, so a shot aimed with `aimref` or `aimpart`
+//!   lands there.
 //! - `NVF_PLAY_TEST_TRACERS=<seconds>` (combat.rs): every projectile of the player's
 //!   draws a line, and the lines and a marker at the muzzle stay that long, so one
 //!   screenshot shows where the shots were drawn from. Muzzle flashes and projectile

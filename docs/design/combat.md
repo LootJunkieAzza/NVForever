@@ -441,9 +441,10 @@ role; their exact names come from C1.
   - The actor's spread widens the cone instead of swaying the weapon, so the
     crosshair stays true. A light idle sway remains in the scope, for feel.
   - The crosshair shows the current cone.
-  - **Bloom**: each shot widens the cone and it recovers over time, scaled by the
-    weapon's spread.
-  - **Recoil**: the view kicks up and recovers, stronger for heavier weapons.
+  - **Bloom**: each shot widens the cone, scaled by the weapon's spread. Continuous fire
+    keeps widening it; it closes again once the trigger has rested a moment.
+  - **Recoil**: the view climbs up in a random pattern that leans side to side,
+    stronger for heavier weapons. It stays there: the player pulls it back down.
   - Jumping adds a penalty of its own.
 
   Bloom, recoil and the jump penalty are tuning values.

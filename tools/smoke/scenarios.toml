@@ -5535,6 +5535,29 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-bloom-recoil"
+source = "owner 2026-10-24 (docs/spec-notes/combat-rules.md §3, fnv_combat::spread::Kick): the 10mm Pistol (0000434F) pulled and let go eight times, 0.55 s apart (about its fastest), from the hip: the bloom builds shot by shot and the crosshair's arrows open wide; each shot climbs the view; once the trigger rests the bloom settles and the arrows close again, while the climb stays for the player to pull down"
+areas = ["combat", "hud"]
+paths = ["crates/fnv-combat/src/spread.rs", "crates/fnv-combat/src/tuning.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11.00:fire,11.20:fire,11.55:fire,11.75:fire,12.10:fire,12.30:fire,12.65:fire,12.85:fire,13.20:fire,13.40:fire,13.75:fire,13.95:fire,14.30:fire,14.50:fire,14.85:fire,15.05:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  { re = 'combat: kick: shot 1 in a row, bloom (?P<n>[0-9.]+)', range = [0.05, 0.3], label = "one shot blooms a little" },
+  { re = 'combat: kick: shot [6-8] in a row, bloom (?P<n>[0-9.]+)', range = [0.6, 1.0], label = "a run of shots builds the bloom" },
+  { re = 'combat: kick: .*view up (?P<n>[0-9.]+) deg', range = [0.5, 3.0], all = true, label = "every shot kicks the view up" },
+  { re = 'combat: kick: shot [6-8] in a row, .*crosshair cone now (?P<n>[0-9.]+) deg', range = [3.0, 15.0], label = "the crosshair cone opens wide during the run (about 1.4 deg at rest)" },
+  { re = 'combat: kick settled .*crosshair cone (?P<n>[0-9.]+) deg', range = [0.3, 2.0], label = "the cone is back to its resting size" },
+  { re = 'combat: kick settled (?P<n>[0-9.]+) s after the last shot', range = [0.35, 2.0], label = "the weapon settles within two seconds of the last shot" },
+  { re = 'combat: kick settled .*climbed the view (?P<n>[0-9.]+) deg up', range = [6.0, 20.0], label = "the climb is left for the player (not eased back)" },
+]
+order = [[
+  { re = 'combat: kick: shot 1 in a row' },
+  { re = 'combat: kick: shot [6-8] in a row' },
+  { re = 'combat: kick settled' },
+]]
+
+[[scenario]]
 name = "compass-reticle"
 source = "owner's playtest list 5, items 15, 57 and 58 (docs/spec-notes/hud.md §11, reticle.md §6): at the bighorner pen with the varmint rifle drawn the crosshair's arrows open with the spread; the bighorners are ticks on the compass, red once shot; the crosshair is red over one that turned on the player"
 areas = ["hud", "combat"]
