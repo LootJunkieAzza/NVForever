@@ -4382,6 +4382,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "holmes-comes-from-far"
+source = "owner 2026-10-24 (actors heading for the player from outside the loaded area): Malcolm Holmes after the first star cap, as the original's observer capture holmes_far_travel showed (fnv_ai::process, docs/spec-notes/ai-observer.md §13)"
+note = "the player stands on Holmes's observed route, about 15,000 units west of SSHQMalcolmHolmesMarker; at 1 s AddItem gives the first star cap, whose OnAdd script (NVStarBottleCapScript) moves him to the marker out of the loaded area and enables him. His Dialogue package (Always Run, the player) walks him at the Low level, every 120 s, and the walk stops at the edge of the loaded area; from there he runs in and talks"
+areas = ["ai", "process-levels"]
+paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:call:player:AddItem:NVStarBottleCap:1" }
+args = ["--play", "--pos=21000,-14450,7500", "--heading", "90", "--hour", "12", "--no-voice", "--npc-packages", "all,SSHQMalcolmHolmesREF"]
+run_seconds = 360
+order = [[
+  "SSHQMalcolmHolmesREF: put at",
+  "SSHQMalcolmHolmesREF: out of the loaded area and the cell buffer (low process every 120 s)",
+  "SSHQMalcolmHolmesREF: runs up to 0x00000014 to talk",
+  "SSHQMalcolmHolmesREF: back in the loaded area",
+  "SSHQMalcolmHolmesREF: starts a conversation with",
+]]
+expect = [
+  { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [1, 1000000], label = "process summary: Low-level updates every 120 s (Holmes out of the loaded area and the cell buffer)" },
+  { re = 'process summary: .* (?P<n>\d+) far walks stopped at the edge of the loaded area', range = [1, 100000], label = "process summary: a far walk stopped at the edge of the loaded area" },
+]
+
+[[scenario]]
 name = "ringo-comes-out"
 source = "playtest list 4 item 13 (docs/design/actor-behaviour.md §5.9, fnv_ai::process ProcessLevel::Coming): Ringo, sent out of the gas station by RingoTravelPackage after the player left, is moved every frame on his way into the loaded area and comes out of the door"
 note = "the player leaves through the gas station door at 5 s (after Ringo's greeting); at 15 s the result script of INFO 0x00105D09 gives Ringo (0x00104C7D) RingoTravelPackage; he takes it up at his next 18 s update in the cell buffer, then walks every frame"

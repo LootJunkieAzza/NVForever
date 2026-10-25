@@ -25,7 +25,9 @@
 //!   current package and walks on as far as the time owed since the last takes it, on
 //!   the navmesh (doors as if open), as in an hour passed in the Wait menu
 //!   ([`crate::Ai::pass_time`]): nothing that needs the player near: no sandbox
-//!   behaviour, no combat state, no Dialogue package, no hello, no random conversation.
+//!   behaviour, no combat state, no hello, no random conversation; a Dialogue package
+//!   without a wait location only takes the actor towards its target, the talking waits
+//!   for the high process.
 //!   How often depends on where:
 //!   - [`ProcessLevel::MidHigh`], cells left recently and still in the cell buffer (the
 //!     engine keeps it: `uExterior Cell Buffer`, `uInterior Cell Buffer`): every
@@ -39,6 +41,22 @@
 //!   visited, "unknown" rate) has no actors here: the AI only has the actors of cells
 //!   loaded once, or moved by scripts.
 //!
+//! How the original carries an actor at the Low level to the player, watched with the AI
+//! observer [observed 2026-10-24: Malcolm Holmes after the first star cap,
+//! `tools/capture/observe/holmes_far_travel.campaign.json` and `holmes_far_moving`,
+//! docs/spec-notes/ai-observer.md §13]: he stood still between jumps once per game hour
+//! (one [`FAR_PROCESS_SECONDS`] at TimeScale 30) of 9,050–10,170 units along a route, not
+//! a straight line: about a walk's worth (86.8 units/s), though his package has Always
+//! Run. The jump that would have taken him into the loaded area stopped short at its
+//! edge (5,330 units), and from there he ran in the high process. So here:
+//! - at the Low level an actor walks, whatever its package says [hypothesis: one actor
+//!   seen];
+//! - a low-process walk stops where it comes into the loaded area ([`Ai::set_loaded`]),
+//!   dropping the rest of the time owed;
+//! - a Dialogue package without a wait location goes towards its target out of the high
+//!   process too, on the route planned when it set off (`Ai::talk_step_far`); one with a
+//!   wait location keeps its actor there [hypothesis: Ringo stays in the gas station].
+//!
 //! An actor whose base has "No Low Level Processing" gets no update at all out of the
 //! loaded area, not even for hours passed in the Wait menu.
 //!
@@ -50,7 +68,7 @@
 use crate::carry::{Activity, Ai, Mover};
 use crate::social::Chat;
 use fnv_game::game::Game;
-use fnv_nav::NavGraph;
+use fnv_nav::{NavGraph, Space};
 use fnv_sim::FormId;
 use serde::Serialize;
 
@@ -115,6 +133,24 @@ pub struct ProcessStats {
     /// and the updates given to such actors.
     pub coming: usize,
     pub coming_updates: usize,
+    /// Low-process walks cut short where they came into the loaded area.
+    pub reached_loaded: usize,
+}
+
+/// The loaded area, as the engine has it ([`Ai::set_loaded`]): an interior, or the
+/// exterior cells loaded around the player in one worldspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedArea {
+    pub space: Space,
+    /// The loaded cells (grid X, Y) of an exterior; empty for an interior.
+    pub cells: std::collections::BTreeSet<(i32, i32)>,
+}
+
+impl LoadedArea {
+    /// Whether a place is in the loaded area.
+    pub fn holds(&self, space: Space, feet: [f32; 3]) -> bool {
+        space == self.space && (matches!(space, Space::Interior(_)) || self.cells.contains(&fnv_world::cell_of(feet[0], feet[1])))
+    }
 }
 
 /// [`crate::Ai::update_low`]'s mover: the walker's own steps, every door open.
@@ -123,6 +159,17 @@ struct Low;
 impl Mover for Low {}
 
 impl Ai {
+    /// The engine says what is loaded, so that a low-process walk stops where it comes
+    /// into the loaded area ([`Ai::low_update`]). `None`: nothing is (headless runs).
+    pub fn set_loaded(&mut self, loaded: Option<LoadedArea>) {
+        self.loaded = loaded;
+    }
+
+    /// The loaded area last given by [`Ai::set_loaded`].
+    pub fn loaded(&self) -> Option<&LoadedArea> {
+        self.loaded.as_ref()
+    }
+
     /// Whether `actor` is in the high process (an actor the AI does not look after is).
     pub fn is_high(&self, actor: FormId) -> bool {
         !self.low.contains_key(&actor)
@@ -297,13 +344,33 @@ impl Ai {
         self.process_stats.low_updates += 1;
         let mut left = seconds;
         let package = self.agents.get(&actor).and_then(|a| a.package);
+        let far = self.far.contains(&actor);
+        let walk = self.calm_speeds(actor).walk;
         while left > 0.0 {
             let step = LOW_STEP_SECONDS.min(left);
+            // At the Low level it goes at a walk, also when its package runs (module notes).
+            let kept = self.agents.get_mut(&actor).filter(|_| far).map(|a| {
+                let kept = a.walker.speed;
+                a.walker.speed = kept.min(walk);
+                (kept, a.walker.speed)
+            });
             self.step_actor(game, nav, actor, step, &mut Low, true);
             self.process_stats.low_steps += 1;
             left -= step;
-            let Some(a) = self.agents.get(&actor) else { break };
+            let Some(a) = self.agents.get_mut(&actor) else { break };
+            // A speed the step set (a new walk) is the one kept.
+            if let Some((kept, capped)) = kept {
+                if a.walker.speed == capped {
+                    a.walker.speed = kept;
+                }
+            }
             if a.activity != Activity::Travelling {
+                break;
+            }
+            // Into the loaded area: the rest of the time owed is dropped, and the engine
+            // puts it in the high process from there (module notes).
+            if self.loaded.as_ref().is_some_and(|l| l.holds(a.walker.space, a.walker.feet)) {
+                self.process_stats.reached_loaded += 1;
                 break;
             }
             // A walk just begun (a new package) waits for the next update with the rest of
