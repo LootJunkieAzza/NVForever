@@ -62,7 +62,7 @@ The owner compiles them in the GECK with xNVSE loaded and runs them in the origi
 | 04_lambdas | `lambda.changes_parent` | `{} => iP += 1` called once, iP was 5 | `6` | [documented: Lambda (lambdas change the parent's variables)] |  |
 | 04_lambdas | `lambda.result` | its result | to observe | [documented: Lambda (a one-line lambda returns its expression)] | 6 if `+=` gives the assigned value, as `:=` does (stated only for `:=`) |
 | 04_lambdas | `lambda.reads_parent` | `{} => iP * 2` | `12` | [documented: Lambda] |  |
-| 04_lambdas | `lambda.param` | `{i} => iP += i` called with 10 | `16` | [documented: Lambda (the page's own example)] |  |
+| 04_lambdas | `lambda.param` | `{iI} => iP += iI` called with 10 | `16` | [documented: Lambda (the page's own example)] |  |
 | 04_lambdas | `lambda.block` | a block lambda setting iP := 100 | `100` | [documented: Lambda] |  |
 | 05_depth | `depth.10` | ExtUdfDepth 10 (calls itself 10 deep) | to observe | [documented: User Defined Function (recursion allowed, at most 30 nested calls)] | 10 if each call has its own variables; within the limit |
 | 05_depth | `depth.100` | 100 deep, past the documented limit of 30 | to observe | [documented: User Defined Function (NVSE aborts recursion past 30 nested calls)] | what the aborted calls return, and whether an error is printed |

@@ -1,0 +1,16 @@
+scn ExtProbeExpr11
+; one probe that may not compile (tools/capture/ext-probes/expressions/README.md)
+int iX
+int iY
+int iR
+float fF
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr11|begin"
+    Print "EXTPROBE|neg.not|" + $(-!0)
+    Print "EXTPROBE|expressions/ExtProbeExpr11|end"
+End

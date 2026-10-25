@@ -1,12 +1,12 @@
 scn ExtProbeUdf02
 ; Return with a value (may not compile) (tools/capture/ext-probes/udf/README.md)
-int i
-int r
+int iI
+int iR
 int iP
 ref rL
 ref rRef
-string_var s
-array_var a
+string_var sS
+array_var aA
 int iDone
 Begin GameMode
     if iDone

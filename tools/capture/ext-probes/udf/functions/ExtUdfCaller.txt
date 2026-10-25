@@ -1,7 +1,7 @@
 scn ExtUdfCaller
 ; function script for tools/capture/ext-probes/udf/README.md
-ref r
+ref iR
 Begin Function { }
-    let r := GetCallingScript
-    SetFunctionValue r
+    let iR := GetCallingScript
+    SetFunctionValue iR
 End

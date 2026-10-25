@@ -1,7 +1,7 @@
 scn ExtUdfThis
 ; function script for tools/capture/ext-probes/udf/README.md
-ref r
+ref iR
 Begin Function { }
-    let r := this
-    SetFunctionValue r
+    let iR := this
+    SetFunctionValue iR
 End

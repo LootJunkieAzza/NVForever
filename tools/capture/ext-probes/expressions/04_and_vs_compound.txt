@@ -1,9 +1,9 @@
 scn ExtProbeExpr04
 ; one probe that may not compile (tools/capture/ext-probes/expressions/README.md)
-int x
-int y
-int r
-float f
+int iX
+int iY
+int iR
+float fF
 int iDone
 Begin GameMode
     if iDone
@@ -11,8 +11,8 @@ Begin GameMode
     endif
     let iDone := 1
     Print "EXTPROBE|expressions/ExtProbeExpr04|begin"
-    let x := 1
-    let r := 1 && x += 5
-    Print "EXTPROBE|and.vs_compound|" + $(x)
+    let iX := 1
+    let iR := 1 && iX += 5
+    Print "EXTPROBE|and.vs_compound|" + $(iX)
     Print "EXTPROBE|expressions/ExtProbeExpr04|end"
 End

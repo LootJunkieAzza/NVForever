@@ -32,11 +32,11 @@ differences:
 |---|---|---|---|---|---|
 | 01_while | `while.sum` | 1+…+5 with a while | `15` | [documented: While] |  |
 | 01_while | `while.break_continue` | skip 2, stop at 4, digits of the rest | `13` | [documented: While (its own example prints 1 and 3)] |  |
-| 01_while | `while.cond_assign_final` | `while 5 > (i += 1)` with an empty body; i afterwards | `5` | [documented: While (the assignment runs on every test, the last failing one included)] |  |
+| 01_while | `while.cond_assign_final` | `while 5 > (iI += 1)` with an empty body; i afterwards | `5` | [documented: While (the assignment runs on every test, the last failing one included)] |  |
 | 01_while | `nested.inner_break` | break in an inner loop, 3 outer passes | to observe | — | 3 if break leaves only the inner loop; 1 if it left both |
 | 01_while | `nested.inner_continue` | continue in an inner loop, 3 outer passes | to observe | — | 6 if continue acts on the inner loop |
 | 02_foreach | `foreach.list_keys` | keys of a 3-element list, as digits | `12` | [documented: ForEach (keys 0, 1, 2; a leading 0 drops)] |  |
-| 02_foreach | `foreach.list_values` | sum of `*e` | `60` | [documented: ForEach; NVSE Expressions] |  |
+| 02_foreach | `foreach.list_values` | sum of `*aE` | `60` | [documented: ForEach; NVSE Expressions] |  |
 | 02_foreach | `foreach.smap_order` | string-map keys in loop order | `[abc]` | [documented: ForEach; Ar Keys (keys sorted)] |  |
 | 02_foreach | `foreach.string_count` | entries for a 3-character string | `3` | [documented: ForEach] |  |
 | 02_foreach | `foreach.string_last` | the last entry | `[z]` | [documented: ForEach (one-character strings)] |  |

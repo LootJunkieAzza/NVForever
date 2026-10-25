@@ -1,53 +1,53 @@
 scn ExtProbeLoops03
 ; changing an array during while and foreach loops (tools/capture/ext-probes/loops/README.md)
-int i
-int j
-int r
-int n
+int iI
+int iJ
+int iR
+int iN
 int iFrame
 ref rItem
 ref rKeep
 ref rForm
-array_var a
-array_var e
-string_var s
-string_var c
+array_var aA
+array_var aE
+string_var sS
+string_var sC
 Begin GameMode
     let iFrame += 1
     if iFrame == 1
         Print "EXTPROBE|loops/ExtProbeLoops03|begin"
-        let a := Ar_List 1, 2, 3, 4, 5, 6
-        let i := -1
-        let n := Ar_Size a
-        while n > (i += 1)
-            if eval a[i] % 2 == 0
-                Ar_Erase a, i
+        let aA := Ar_List 1, 2, 3, 4, 5, 6
+        let iI := -1
+        let iN := Ar_Size aA
+        while iN > (iI += 1)
+            if eval aA[iI] % 2 == 0
+                Ar_Erase aA, iI
             endif
         loop
-        Print "EXTPROBE|change.forward_erase_size|" + $(Ar_Size a)
-        let a := Ar_List 1, 2, 3, 4, 5, 6
-        let i := Ar_Size a
-        while -1 < (i -= 1)
-            if eval a[i] % 2 == 0
-                Ar_Erase a, i
+        Print "EXTPROBE|change.forward_erase_size|" + $(Ar_Size aA)
+        let aA := Ar_List 1, 2, 3, 4, 5, 6
+        let iI := Ar_Size aA
+        while -1 < (iI -= 1)
+            if eval aA[iI] % 2 == 0
+                Ar_Erase aA, iI
             endif
         loop
-        Print "EXTPROBE|change.backward_erase_size|" + $(Ar_Size a)
-        let a := Ar_List 1, 2, 3
-        let r := 0
-        foreach e <- a
-            let r += 1
-            let a[2] := 99
-            let r += 0
+        Print "EXTPROBE|change.backward_erase_size|" + $(Ar_Size aA)
+        let aA := Ar_List 1, 2, 3
+        let iR := 0
+        foreach aE <- aA
+            let iR += 1
+            let aA[2] := 99
+            let iR += 0
         loop
-        Print "EXTPROBE|change.foreach_write|" + $r
-        let a := Ar_List 1, 2, 3
-        let r := 0
-        foreach e <- a
-            let r := *e
-            let a[2] := 99
+        Print "EXTPROBE|change.foreach_write|" + $iR
+        let aA := Ar_List 1, 2, 3
+        let iR := 0
+        foreach aE <- aA
+            let iR := *aE
+            let aA[2] := 99
         loop
-        Print "EXTPROBE|change.foreach_sees_write|" + $r
+        Print "EXTPROBE|change.foreach_sees_write|" + $iR
         Print "EXTPROBE|loops/ExtProbeLoops03|end"
     endif
 End

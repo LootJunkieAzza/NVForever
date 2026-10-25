@@ -1,7 +1,7 @@
 scn ExtUdfSelf
 ; function script for tools/capture/ext-probes/udf/README.md
-ref r
+ref iR
 Begin Function { }
-    let r := GetSelf
-    SetFunctionValue r
+    let iR := GetSelf
+    SetFunctionValue iR
 End
