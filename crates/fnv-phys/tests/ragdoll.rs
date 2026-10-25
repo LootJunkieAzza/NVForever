@@ -612,3 +612,26 @@ fn an_object_ragdoll_swings_from_its_fixed_anchor() {
     }
     assert!(lowest < 260.0, "the arm swung down: lowest end at z {lowest}");
 }
+
+/// A placed object's joint that starts outside its limits (the swinging log's rear chain
+/// on its ram) is built without them, and its parts do not collide with each other; the
+/// same joint on an actor's ragdoll keeps its limits.
+#[test]
+fn an_object_joint_starting_outside_its_limits_is_built_free() {
+    let mut w = ground();
+    let mut arm = body("arm", Shape::Capsule { a: [0.0, 4.0, 0.0], b: [0.0, 60.0, 0.0], radius: 3.0 }, 10.0, [0.0, 0.0, 300.0]);
+    arm.object.motion = Motion::Dynamic;
+    // The arm's node turned 90 degrees about x: the hinge's angle starts at 90 degrees,
+    // past its limits of ±0.1.
+    arm.object.node_transform.rotation = [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0];
+    let anchor = body("anchor", Shape::Box { half_extents: [5.0, 5.0, 5.0] }, 0.0, [0.0, 0.0, 300.0]);
+    let hinge = JointKind::Hinge { axis_a: X, perp_a: Y, axis_b: X, perp_b: Y, limits: Some([-0.1, 0.1]) };
+    let rag = Arc::new(Ragdoll { bodies: vec![arm, anchor], joints: vec![joint(0, 1, [0.0; 3], [0.0; 3], hinge)], problems: vec![] });
+    let rest: Vec<Iso> = rag.bodies.iter().map(|b| b.rest()).collect();
+    assert!(!rag.joints[0].within(&rag.joints[0].angles(&rest[0], &rest[1]), 0.05), "the test pose starts outside");
+    let r = w.add_object_ragdoll(&start(0x0016_5273, &rag, &rest));
+    assert_eq!((r.joints, r.freed.clone(), r.self_pairs), (1, vec![0], 0));
+    let mut actor = ground();
+    let r = actor.add_ragdoll(&start(7, &rag, &rest));
+    assert!(r.freed.is_empty(), "an actor's joint keeps its limits");
+}
