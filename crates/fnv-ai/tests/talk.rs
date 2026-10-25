@@ -127,6 +127,8 @@ const T_SAY: u32 = 0x812;
 const T_EMPTY: u32 = 0x813;
 const I_HELLO: u32 = 0x818;
 const I_SAY: u32 = 0x819;
+const T_CHATTER: u32 = 0x814;
+const I_CHATTER: u32 = 0x81A;
 const STAT: u32 = 0x820;
 const ACTI: u32 = 0x821;
 // Packages.
@@ -136,6 +138,7 @@ const P_WAIT: u32 = 0x832;
 const P_SAY: u32 = 0x833;
 const P_TO_NPC: u32 = 0x834;
 const P_MUTE: u32 = 0x835;
+const P_WANDER: u32 = 0x836;
 // Bases.
 const N_GREET: u32 = 0x840;
 const N_COME: u32 = 0x841;
@@ -143,6 +146,7 @@ const N_WAIT: u32 = 0x842;
 const N_SAY: u32 = 0x843;
 const N_TO_NPC: u32 = 0x844;
 const N_MUTE: u32 = 0x845;
+const N_IDLE: u32 = 0x846;
 // The cell and its references.
 const CELL: u32 = 0x860;
 const TRIGGER: u32 = 0x870;
@@ -154,6 +158,7 @@ const R_WAIT: u32 = 0x882;
 const R_SAY: u32 = 0x883;
 const R_TO_NPC: u32 = 0x884;
 const R_MUTE: u32 = 0x885;
+const R_IDLE: u32 = 0x886;
 
 const PLAYER: u32 = 0x14;
 const GOODBYE: u16 = 0x0001;
@@ -185,6 +190,9 @@ fn plugin_bytes(greeting: u16) -> Vec<u8> {
         talk_pack(P_SAY, "SayALine", 0, None, None, (0, PLAYER, 200), T_SAY, true),
         talk_pack(P_TO_NPC, "TalkToAnActor", 0, None, None, (0, R_GREET, 200), 0, false),
         talk_pack(P_MUTE, "NothingToSay", flags::MUST_COMPLETE, None, None, (0, PLAYER, 200), T_EMPTY, false),
+        // A Wander package about its editor location, no Fallout behaviour flags set (so all
+        // of them allowed).
+        record(b"PACK", P_WANDER, &[sub(b"EDID", z("WanderHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[5, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
     ]
     .concat();
     let npcs = [
@@ -195,10 +203,11 @@ fn plugin_bytes(greeting: u16) -> Vec<u8> {
         npc(N_SAY, "Sayer", &[P_SAY]),
         npc(N_TO_NPC, "Chatter", &[P_TO_NPC]),
         npc(N_MUTE, "Mute", &[P_MUTE]),
+        npc(N_IDLE, "Idler", &[P_WANDER]),
     ]
     .concat();
     let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
-    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None)].concat();
+    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None), topic(T_CHATTER, "IdleChatter", Some((I_CHATTER, 0, "Hot one today.")))].concat();
     let bases = [record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]), record(b"ACTI", ACTI, &[sub(b"EDID", z("TalkTrigger"))])];
     let refs = [
         placed(b"REFR", TRIGGER, "TriggerBox", ACTI, [600.0, 600.0, 100.0], Some(box_primitive([300.0, 350.0, 110.0]))),
@@ -210,6 +219,7 @@ fn plugin_bytes(greeting: u16) -> Vec<u8> {
         placed(b"ACHR", R_SAY, "SayerRef", N_SAY, CORNER, None),
         placed(b"ACHR", R_TO_NPC, "ChatterRef", N_TO_NPC, CORNER, None),
         placed(b"ACHR", R_MUTE, "MuteRef", N_MUTE, CORNER, None),
+        placed(b"ACHR", R_IDLE, "IdlerRef", N_IDLE, CORNER, None),
     ]
     .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Room"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
@@ -747,4 +757,19 @@ fn far_away_a_dialogue_package_with_a_wait_location_keeps_its_actor_there() {
     next_far_update(&mut s);
     assert!(flat(s.agent(R_GREET).walker.feet, GREETER) < 1.0, "stays at {:?}", s.agent(R_GREET).walker.feet);
     assert_eq!(s.talks(), 0);
+}
+
+/// Idle chatter (fnv-ai social.rs, packages.md §7.7): an actor whose package allows it
+/// says its IdleChatter line next to the player once the area's timer (15 to 60 s by
+/// default) runs out; far from the player it says nothing.
+#[test]
+fn an_actor_next_to_the_player_chatters_now_and_then() {
+    let f = fixture();
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.run_social(70.0);
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::IdleChatter { .. })), "far from the player: {:?}", s.events());
+    s.player_to([CORNER[0] + 100.0, CORNER[1], 0.0]);
+    s.run_social(70.0);
+    let said: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::IdleChatter { .. })).collect();
+    assert!(matches!(said.first(), Some(AiEvent::IdleChatter { line, away }) if line.0 == I_CHATTER && *away <= fnv_ai::social::CHAT_NEAR_PLAYER), "{:?}", s.events());
 }

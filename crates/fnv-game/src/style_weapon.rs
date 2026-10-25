@@ -18,7 +18,9 @@
 //! - **No weapon held**: an NPC that fights with nothing equipped while it carries a weapon
 //!   its style allows takes that one up as well [hypothesis: the GECK wiki's UnequipItem
 //!   notes that companions do not stay unequipped, "NoEquipFlag … ignored by companions";
-//!   generalised to every NPC in combat]. A weapon a script locked off (UnequipItem's
+//!   generalised to every NPC in combat]: the best by the re-arming rank
+//!   (`crate::rearm`, docs/design/combat-ai.md §22: its own class, damage per second, a gun
+//!   only with ammunition) [design: owner 2026-10-25]. A weapon a script locked off (UnequipItem's
 //!   NoEquip flag) and a broken one are not taken; one locked on is not swapped out
 //!   (`fnv_sim::World::equip`).
 //! - **Who**: NPCs only (creatures fight with their bodies' attacks), alive, in combat
@@ -84,7 +86,7 @@ impl Game<'_> {
     }
 
     /// The weapon `actor` should swap to now, if any (module notes).
-    pub fn style_weapon_swap(&self, actor: FormId) -> Option<FormId> {
+    pub fn style_weapon_swap(&mut self, actor: FormId) -> Option<FormId> {
         if actor == FormId::PLAYER_REF || self.is_dead(actor) {
             return None;
         }
@@ -100,9 +102,13 @@ impl Game<'_> {
         if held.is_some_and(|w| allowed(restriction, reach(w))) {
             return None;
         }
-        // An unrestricted actor keeps whatever it holds; only an empty hand looks.
+        // An unrestricted actor keeps whatever it holds; only an empty hand looks, by the
+        // re-arming rank.
         if held.is_some() && restriction == 0 {
             return None;
+        }
+        if held.is_none() {
+            return self.best_carried(actor).map(|(w, _, _)| w);
         }
         let carried: Vec<(FormId, f32, Reach)> = inv
             .iter()

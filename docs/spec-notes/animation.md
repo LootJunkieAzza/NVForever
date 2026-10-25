@@ -523,7 +523,7 @@ clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_ma
   (`fnv_actor::player_clips::move_clips`; running left keeps `mtfastleft.kf`, which turns
   the body the same way: not seen in the original yet). NPCs take the same side-step
   from 2026-10-25, and `h2hfastleft.kf` running left where the stance has no run left
-  (`fnv_actor::locomotion::weapon_moves`; design/combat-ai.md §22). The first-person folder has no
+  (`fnv_actor::locomotion::weapon_moves`; design/combat-ai.md §23). The first-person folder has no
   `h2hleft.kf`, so the arms rig keeps `mtleft.kf`. Also, while down the sights in third
   person, `player_body::keep_sights_facing` gives the nodes above `Bip01 Spine` the aim
   clips' own rotation in place of the blend's, faded with the aim clips (2.7° with

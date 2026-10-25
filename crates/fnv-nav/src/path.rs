@@ -31,6 +31,15 @@ pub struct PathParams {
     pub preferred_cost: f32,
     /// Cost per unit across water triangles.
     pub water_cost: f32,
+    /// Places to keep away from (centre, radius; radiated ground for an actor that avoids
+    /// radiation): a triangle whose centre lies in one costs [`PathParams::avoid_cost`]
+    /// times as much.
+    pub avoid: Vec<([f32; 3], f32)>,
+    pub avoid_cost: f32,
+    /// Whether water triangles may be used at all: a creature without the Swims flag
+    /// "will avoid using water triangles" [documented: GECK wiki Navmesh Creation
+    /// Workflow], so they are closed to it.
+    pub water: bool,
     /// Fixed cost of using a door, in units of distance.
     pub door_cost: f32,
     /// A* gives up after expanding this many triangles (per leg).
@@ -66,6 +75,9 @@ impl Default for PathParams {
             ledge_rise_max: crate::jump::LEDGE_RISE_MAX,
             preferred_cost: 0.85,
             water_cost: 3.0,
+            avoid: Vec::new(),
+            avoid_cost: 1.0,
+            water: true,
             door_cost: 256.0,
             max_expanded: 400_000,
             open_locked: false,
@@ -263,6 +275,9 @@ impl NavGraph {
         if p.large && self.tris[n as usize].has(tri_flags::NO_LARGE_CREATURES) {
             return None;
         }
+        if !p.water && self.tris[n as usize].has(tri_flags::WATER) {
+            return None;
+        }
         if p.max_slope_deg.is_some_and(|m| self.up[n as usize] < m.to_radians().cos() - 1e-4) {
             return None;
         }
@@ -320,12 +335,22 @@ impl NavGraph {
 
     fn cost_factor(&self, t: u32, p: &PathParams) -> f32 {
         let tri = &self.tris[t as usize];
-        if tri.has(tri_flags::WATER) {
+        let base = if tri.has(tri_flags::WATER) {
             p.water_cost
         } else if tri.has(tri_flags::PREFERRED) {
             p.preferred_cost
         } else {
             1.0
+        };
+        if p.avoid.is_empty() {
+            return base;
+        }
+        let c = self.centre(t);
+        let inside = p.avoid.iter().any(|(at, r)| (0..3).map(|i| (at[i] - c[i]).powi(2)).sum::<f32>() <= r * r);
+        if inside {
+            base * p.avoid_cost
+        } else {
+            base
         }
     }
 
@@ -428,6 +453,21 @@ impl NavGraph {
     pub fn find_path(&self, from: Place, to: Place, p: &PathParams) -> Result<Path, PathError> {
         let (start, s_at) = self.nearest(from.space, from.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "start", at: from.pos })?;
         let (goal, g_at) = self.nearest(to.space, to.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "goal", at: to.pos })?;
+        // Water closed to it ([`PathParams::water`]): a goal in water is out of reach at
+        // once, not after a search of everything round it; one that stands in water may
+        // walk out through it [design].
+        let wet = |t: u32| self.tris[t as usize].has(tri_flags::WATER);
+        let lifted;
+        let p = if p.water {
+            p
+        } else if wet(start) {
+            lifted = PathParams { water: true, ..p.clone() };
+            &lifted
+        } else if wet(goal) {
+            return Err(PathError::Unreachable { expanded: 0 });
+        } else {
+            p
+        };
         let (chain, expanded) = if p.ledges {
             self.search(start, s_at, goal, g_at, to.space, p, p.doors)?
         } else {
@@ -847,6 +887,9 @@ impl NavGraph {
         while i + 1 < pts.len() {
             let mut next = (i + 1, NONE);
             for j in ((i + 2)..pts.len().min(i + 33)).rev() {
+                if cuts_into_avoided(&pts[i..=j], p) {
+                    continue;
+                }
                 if let Some(t) = self.walkable_line(space, ti, pts[i], pts[j], clear, p) {
                     next = (j, t);
                     break;
@@ -1013,6 +1056,20 @@ pub fn funnel(start: [f32; 3], end: [f32; 3], mut portals: &[([f32; 3], [f32; 3]
         pts.push(end);
     }
     pts
+}
+
+/// Whether the straight line from the first of `way` to its last enters a place to avoid
+/// ([`PathParams::avoid`], seen from above) that the way itself keeps out of: the
+/// shortcut pass may not undo the search's way round it.
+fn cuts_into_avoided(way: &[[f32; 3]], p: &PathParams) -> bool {
+    let (a, b) = (way[0], way[way.len() - 1]);
+    p.avoid.iter().any(|(c, r)| {
+        let near = |q: [f32; 3]| (q[0] - c[0]).hypot(q[1] - c[1]) <= *r;
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let len2 = dx * dx + dy * dy;
+        let s = if len2 > 1e-8 { (((c[0] - a[0]) * dx + (c[1] - a[1]) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+        near([a[0] + dx * s, a[1] + dy * s, 0.0]) && !way.iter().any(|&q| near(q))
+    })
 }
 
 #[cfg(test)]

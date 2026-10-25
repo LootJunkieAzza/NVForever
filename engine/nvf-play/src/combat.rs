@@ -281,6 +281,9 @@ pub struct By {
     /// A marked shot of VATS mode (`crate::vats_mode`): its hit counts as a VATS attack
     /// (the critical chance bonus, docs/design/vats-mode.md §9.2).
     pub vats: bool,
+    /// The player was sneaking as it left: its hit may be a sneak attack
+    /// ([`sneak_attack`]).
+    pub sneaking: bool,
 }
 
 /// Debris a destroyed object throws (a destruction stage's DEBR and count) from `at`
@@ -406,7 +409,28 @@ pub struct ExplosionFx {
     /// (`nvforever::shot_fx` aligns the model with it unless the EXPL always uses the
     /// world's orientation).
     pub normal: Option<V3>,
+    /// How it is drawn.
+    pub look: ExplosionLook,
 }
+
+/// How an explosion is drawn (`nvforever::shot_fx`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExplosionLook {
+    /// Its EXPL's model and light.
+    Own,
+    /// Nothing of its own: it went off in or by water, which shows instead.
+    Hidden,
+    /// The water's surface thrown up ([`WATER_SURFACE_EXPLOSION`]), upright.
+    WaterSurface,
+}
+
+/// The model of an explosion throwing up water: a column and drops over a spreading
+/// ring of foam [observed: an original-game recording of 40mm grenades going off in Lake
+/// Mead, 2026-10-25, shows a tall white column over a flat white disc and no fireball;
+/// the model's meshes are named WideMesh, TallMesh, BaseMesh and SurfaceFun, with a Drops
+/// emitter and the text key "sound: FXExplosionImpactWater"]. No record names it; that
+/// this is the model the game drew is a hypothesis from that match.
+pub const WATER_SURFACE_EXPLOSION: &str = r"Effects\WaterSurfaceExplosion01.NIF";
 
 /// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
 /// owner asked for bullets that are not invisible, 2026-10-10; the game draws a
@@ -690,6 +714,9 @@ pub struct CombatStats {
     pub jams: u32,
     /// Melee blows that showed an impact (item 24).
     pub melee_impacts: u32,
+    /// Shots that splashed going into water, and explosions that threw up water.
+    pub water_splashes: u32,
+    pub water_blasts: u32,
     pub kills: u32,
     pub xp: f64,
     pub swings: u32,
@@ -910,6 +937,8 @@ pub struct Combat {
     settled: Vec<SettledMine>,
     /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
     landed: Vec<LandedThrow>,
+    /// Shots that went down into water, shown when due ([`Splash`]).
+    splashes: Vec<Splash>,
     ghosts: Vec<Ghost>,
     /// The weapon's looping shoot sound while it plays, and the seconds it has left
     /// unless another shot comes.
@@ -1041,6 +1070,18 @@ pub(crate) struct LandedThrow {
     pub dir: V3,
     pub struck: Option<FormId>,
     pub by: FormId,
+}
+
+/// A shot went down into water ([`ProjEvent::Splash`]): the water impact of its weapon's
+/// impact data set shows on the surface when it gets there (a shot found at once:
+/// distance ÷ speed after it was fired, as its hit).
+#[derive(Clone, Copy, Debug)]
+struct Splash {
+    due: f32,
+    point: V3,
+    dir: V3,
+    weapon: FormId,
+    shooter: FormId,
 }
 
 /// A thrown mine that came to rest ([`ProjEvent::Settled`]): its PROJ, where, the way it
@@ -1700,6 +1741,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flying: Vec::new(),
         settled: Vec::new(),
         landed: Vec::new(),
+        splashes: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
         ejects_seen: 0,
@@ -1928,7 +1970,8 @@ impl CombatWorld for PhysView<'_> {
         if len < 1e-4 {
             return None;
         }
-        // Shots pass what the character passes (triggers, zones, water, …) [design].
+        // Shots pass what the character passes (triggers, zones, water, …) [design]: they splash
+        // going into water (`water_surface`, `ProjEvent::Splash`) and fly on.
         let mut f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
         // Another actor's shot can hit the player's character; the player's own and
         // the rest (blasts, picks) pass it, as before.
@@ -2008,6 +2051,10 @@ impl CombatWorld for PhysView<'_> {
 
     fn aim_points(&self, actor: ActorId) -> Vec<V3> {
         self.aims.get(&actor).cloned().unwrap_or_default()
+    }
+
+    fn water_surface(&self, point: V3) -> Option<f32> {
+        self.q.water_surface_for(point)
     }
 }
 
@@ -2091,6 +2138,27 @@ fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Ru
 fn companion_nerve(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId) -> f32 {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return 0.0 };
     with_world(rt, sim, |rt| rt.game.companion_nerve(actor)) as f32
+}
+
+/// Whether a hit by `attacker` on `target` is a sneak attack (the sneak multiplier and
+/// always a critical, docs/spec-notes/combat-rules.md §4): the player's, made sneaking
+/// (`sneaking`: as a swing lands, as a shot left), on a target that does not have the
+/// player in its Detected band now; a pair detection has not measured counts as unseen,
+/// as does every target without a script runtime.
+fn sneak_attack(script: Option<&ScriptState>, attacker: FormId, sneaking: bool, target: FormId) -> bool {
+    use fnv_game::detection::Band;
+    attacker == FormId::PLAYER_REF
+        && sneaking
+        && script.and_then(|s| s.rt.as_ref()).is_none_or(|rt| rt.game.detection.get(target, FormId::PLAYER_REF).is_none_or(|d| d.band != Band::Detected))
+}
+
+/// The hit log's note on a critical: a sneak attack's says so.
+fn crit_note(a: &Attacker, d: &damage::Damage) -> &'static str {
+    match (d.critical, a.sneaking) {
+        (false, _) => "",
+        (true, false) => ", critical",
+        (true, true) => ", sneak attack critical",
+    }
 }
 
 /// A perk entry's resolved function as combat applies it.
@@ -2562,7 +2630,7 @@ pub(crate) fn fire(
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
-                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some() };
+                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
                     c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -3232,7 +3300,8 @@ fn melee(
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-            let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
+            let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
+            a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
@@ -3310,7 +3379,7 @@ fn melee(
                     bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                     r.dealt,
                     d.dt,
-                    if d.critical { ", critical" } else { "" },
+                    crit_note(&a, &d),
                     r.health,
                     r.max_health
                 ),
@@ -3329,6 +3398,23 @@ const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
 /// its data set there, game units [design].
 const EXPLOSION_GROUND_UP: f32 = 32.0;
 const EXPLOSION_GROUND_REACH: f32 = 160.0;
+/// The game's own water explosion: `DefaultWaterExplosion` ("Water Explosion",
+/// `Effects\UnderWaterExplosion.NIF`, the sound `CWaterExplosionSplash`, no damage)
+/// [observed: FalloutNV.esm 000001F5]. Its sound plays where an explosion throws up
+/// water; its model (bubbles and a glowing shock wave) is not the surface's
+/// ([`WATER_SURFACE_EXPLOSION`]).
+const WATER_EXPLOSION: FormId = FormId(0x0000_01F5);
+/// How far from the surface, over or under it, an explosion throws up water, units:
+/// `fExplosionSplashRadius` (250 in FalloutNV.esm) [hypothesis from its name; the
+/// recording's first grenade went off 186 units under the surface and threw it up].
+const WATER_BLAST_REACH: f32 = 250.0;
+
+/// The surface an explosion at `at` throws water up from: the water it is in or over,
+/// when it is within `reach` of the surface and the ground under it (its height, if
+/// found) is not above the surface.
+fn water_thrown_up(at: V3, surface: Option<f32>, ground: Option<f32>, reach: f32) -> Option<f32> {
+    surface.filter(|&s| (at[2] - s).abs() <= reach && ground.is_none_or(|g| g < s))
+}
 
 /// The block sound of a blocked blow: the blocker's weapon's `NAM6`, at the blocker (at
 /// the listener for the player) [hypothesis: whose weapon; docs/spec-notes/audio.md §15.2].
@@ -3464,7 +3550,7 @@ fn actor_attacks(
             }
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
-        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false };
+        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
         let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
@@ -3746,6 +3832,10 @@ fn fly(
                     ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)))),
                     ProjEvent::Explode { .. } => {}
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
+                    ProjEvent::Splash { point, dir } => {
+                        let delay = if at_once && !beam && speed > 0.0 { vec::len(vec::sub(point, f.origin)) / speed } else { 0.0 };
+                        c.splashes.push(Splash { due: c.time + delay, point, dir, weapon: f.by.weapon, shooter: f.by.actor });
+                    }
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
                         if let Some(weapon) = lands {
@@ -3815,7 +3905,25 @@ fn fly(
                 x.radius = r.max(0.0);
             }
         }
-        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal) });
+        // Water near enough to throw up, when no ground lies between the blast and it:
+        // the water shows instead of the blast's own model (no fireball in the
+        // original, `WATER_SURFACE_EXPLOSION`); its damage and push are as on land.
+        let reach = c.forms.setting("fExplosionSplashRadius").filter(|r| *r > 0.0).unwrap_or(WATER_BLAST_REACH);
+        let water = water_thrown_up(at, phys.world.water_surface_for(at), ground.as_ref().map(|g| g.point[2]), reach);
+        let look = if water.is_some() { ExplosionLook::Hidden } else { ExplosionLook::Own };
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal), look });
+        if let Some(surface) = water {
+            let point = [at[0], at[1], surface];
+            stats.water_blasts += 1;
+            info!("combat: explosion {} throws up water at ({:.0}, {:.0}, {:.0}), {:.0} units from the surface", x.edid.as_deref().unwrap_or("?"), point[0], point[1], point[2], (at[2] - surface).abs());
+            // No one's: it is not heard as a second blast (detection hears the blast's).
+            effects.2.write(ExplosionFx { explosion: WATER_EXPLOSION, point, cause: None, normal: None, look: ExplosionLook::WaterSurface });
+            if let Some(splash) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&WATER_EXPLOSION)) {
+                for sound in splash.sound_1.into_iter().chain(splash.sound_2) {
+                    effects.0.write(PlaySound { sound, at: Some(point) });
+                }
+            }
+        }
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -3824,8 +3932,9 @@ fn fly(
             // is near: the dirt it throws up (`ImpactExplosionDirt.nif`) [hypothesis:
             // that the game shows the EXPL's IPDS on what lies under the blast, as a
             // shot's on what it hits; the reach is a design choice].
-            let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
-            if let (Some(impact), Some(g)) = (impact, ground) {
+            // Not on a bed under the water it threw up.
+            let impact = e.impact_dataset.zip(ground.as_ref().filter(|_| water.is_none())).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
+            if let (Some(impact), Some(g)) = (impact, ground.filter(|_| water.is_none())) {
                 // The dirt is the cause's (no one's without one): detection hears it as theirs.
                 effects.1.write(ImpactFx { impact, shooter: cause.map_or(FormId(0), |c| c.actor), point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
                 if let Some(i) = sfx.as_deref().and_then(|s| s.forms.impacts.get(&impact)) {
@@ -3924,6 +4033,20 @@ fn fly(
             }
         }
     }
+    // Shots that went down into water: the water impact of the weapon's impact data set
+    // on the surface, facing up (no decal on water).
+    let (splashes, keep): (Vec<Splash>, Vec<Splash>) = std::mem::take(&mut c.splashes).into_iter().partition(|w| w.due <= c.time);
+    c.splashes = keep;
+    if let Some(s) = sfx.as_deref() {
+        for w in splashes {
+            let impact = c.forms.weapons.get(&w.weapon).and_then(|x| x.impact_dataset).and_then(|set| s.forms.impact_id(set, "water"));
+            if let Some(impact) = impact {
+                stats.water_splashes += 1;
+                debug!("combat: splash {impact} at ({:.0}, {:.0}, {:.0})", w.point[0], w.point[1], w.point[2]);
+                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter: w.shooter, point: w.point, normal: [0.0, 0.0, 1.0], dir: w.dir, actor: None, no_spray: false, no_decal: true }, &mut effects.0, &mut effects.1);
+            }
+        }
+    }
     let now = c.time;
     let due: Vec<Pending> = {
         let (d, keep): (Vec<Pending>, Vec<Pending>) = std::mem::take(&mut c.pending).into_iter().partition(|p| p.due <= now);
@@ -3956,7 +4079,8 @@ fn fly(
             continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
+        let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
+        a.sneaking = p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, shooter, id), ammo_effects: &ammo_effects, part, power: 1.0 };
@@ -4049,7 +4173,7 @@ fn fly(
                 bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                 r.dealt,
                 d.dt,
-                if d.critical { ", critical" } else { "" },
+                crit_note(&a, &d),
                 r.health,
                 r.max_health,
                 if r.immune { ", takes no damage" } else { "" }
@@ -4153,8 +4277,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires, {} jams, {} melee impacts",
-            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires, s.jams, s.melee_impacts
+            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires, {} jams, {} melee impacts, {} water splashes, {} water blasts",
+            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires, s.jams, s.melee_impacts, s.water_splashes, s.water_blasts
         );
         if s.spent_rolls > 0 {
             let given: Vec<String> = s.spent_given.iter().map(|(i, n)| format!("{i:08X} x {n}")).collect();
@@ -4340,9 +4464,19 @@ mod tests {
     /// with that weapon, not the player's (every blast used to be the player's, with the
     /// player's weapon: XP, hit marker and OnHit attacker for NPC-against-NPC blasts, and
     /// none of them in the `npc hits summary`). One nobody set off has no attacker.
+    /// Only the player's hits made sneaking are sneak attacks; with no detection measured
+    /// the target counts as unseen.
+    #[test]
+    fn sneak_attacks_are_the_sneaking_players() {
+        let target = FormId(0x00104F0A);
+        assert!(sneak_attack(None, FormId::PLAYER_REF, true, target));
+        assert!(!sneak_attack(None, FormId::PLAYER_REF, false, target));
+        assert!(!sneak_attack(None, FormId(0x000F5704), true, target));
+    }
+
     #[test]
     fn a_blast_hit_is_its_causes_not_the_players() {
-        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false };
+        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false, sneaking: false };
         let info = blast_hit_info(Some(Cause::of(&by)));
         assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
         let none = blast_hit_info(None);
@@ -4405,5 +4539,20 @@ mod tests {
         assert_eq!(jam_anim("ReloadZ").as_deref(), Some("JamZ"));
         assert_eq!(jam_anim("Reload"), None);
         assert_eq!(jam_anim("AttackLeft"), None);
+    }
+
+    #[test]
+    fn explosions_throw_up_water_near_its_surface() {
+        // Just over the surface, on it, and deep under it.
+        let r = WATER_BLAST_REACH;
+        // Over the surface, on it, and on the bed 186 under it (the recording's grenade).
+        assert_eq!(water_thrown_up([0.0, 0.0, 140.0], Some(100.0), Some(-200.0), r), Some(100.0));
+        assert_eq!(water_thrown_up([0.0, 0.0, 100.0], Some(100.0), None, r), Some(100.0));
+        assert_eq!(water_thrown_up([0.0, 0.0, -86.0], Some(100.0), Some(-90.0), r), Some(100.0));
+        // Too high over it, too deep, no water, or on a bank above the surface.
+        assert_eq!(water_thrown_up([0.0, 0.0, 100.0 + r + 1.0], Some(100.0), None, r), None);
+        assert_eq!(water_thrown_up([0.0, 0.0, 100.0 - r - 1.0], Some(100.0), None, r), None);
+        assert_eq!(water_thrown_up([0.0, 0.0, 120.0], None, Some(0.0), r), None);
+        assert_eq!(water_thrown_up([0.0, 0.0, 130.0], Some(100.0), Some(110.0), r), None);
     }
 }

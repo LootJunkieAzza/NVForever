@@ -90,6 +90,12 @@ impl QuestDef {
         self.flags & START_GAME_ENABLED != 0
     }
 
+    /// "Allow Repeated Conversation Topics": a conversation may use a topic of this
+    /// quest more than once [documented: GECK wiki Quest Data Tab].
+    pub fn repeated_topics(&self) -> bool {
+        self.flags & ALLOW_REPEATED_TOPICS != 0
+    }
+
     pub fn repeated_stages(&self) -> bool {
         self.flags & ALLOW_REPEATED_STAGES != 0
     }

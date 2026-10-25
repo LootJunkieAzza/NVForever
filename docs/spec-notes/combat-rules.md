@@ -69,6 +69,15 @@ For one projectile (or one swing) that hits [documented unless marked]:
    `Game::companion_nerve`).
 4. **Sneak attacks.** × `fCombatDamageBonusSneakingMult` for guns,
    × `fCombatDamageBonusMeleeSneakingMult` for melee and unarmed.
+   - Only the player makes sneak attacks [documented: GECK wiki Weapon Damage Formula,
+     "only the player in … vanilla New Vegas"].
+   - A hit is a sneak attack when the player was sneaking as it was made (a swing as
+     it lands, a shot or throw as it left) and the target does not have the player in
+     its Detected band when it lands (`Game::detection`; a pair not measured counts as
+     unseen) [owner statement 2026-10-25: "all unseen hits from a sneaking player are
+     criticals"; hypothesis: the band is judged as the hit lands, and the sneak taken
+     from when the shot left].
+   - Explosions are not sneak attacks [hypothesis].
 5. **Body part.** × the part's damage multiplier [design: placed after the documented
    steps].
 6. **Critical chance.**
@@ -77,9 +86,11 @@ For one projectile (or one swing) that hits [documented unless marked]:
      weapons.
    - Through the "Calculate My Critical Hit Chance" hook, + `fVATSCriticalChanceBonus`
      in VATS, then the target's "Modify Enemy Critical Hit Chance" hook.
-   - The hit is a critical if a roll in [0, 100) falls under the chance, or if it is a
-     headshot on an unaware target [design]. A weapon with crit % multiplier 0 never
-     crits.
+   - The hit is a critical if a roll in [0, 100) falls under the chance, if it is a
+     sneak attack (§4) [owner statement 2026-10-25], or if it is a headshot on an
+     unaware target [design]. A weapon with crit % multiplier 0 never crits, sneak
+     attacks included [documented: GECK wiki Weapons, Crit % Mult: "will not cause any
+     critical hits, even for sneak attacks"].
    - Critical damage (through "Calculate My Critical Hit Damage") is added before
      armour. For shotguns it is shared among the projectiles [design].
 7. **Armour.**

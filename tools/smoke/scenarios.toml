@@ -468,6 +468,47 @@ expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arriv
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]
+name = "player-fire-comment"
+source = "GECK wiki Topics Tab: PLAYERFIREWEAPON is \"used when the player fires their weapon near an actor\"; the package's Fallout behaviour Reaction To Player Actions allows it (fnv-ai social.rs, packages.md §7.7): the player fires the 10mm pistol into the sky beside Easy Pete, who says one of his PLAYERFIREWEAPON lines (\"What in tarnation?\" or \"What in blazes?\")"
+areas = ["ai", "dialogue"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:200:0:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONTROL = "4:weapon,9:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+run_seconds = 20
+expect = [
+  { re = 'EasyPeteRef: comments on the player \(PLAYERFIREWEAPON, \d+ units away\)', label = "Easy Pete comments on the shot" },
+  { re = 'subtitle: Easy Pete: What in (tarnation|blazes)\?', label = "one of his two lines" },
+]
+
+[[scenario]]
+name = "observe-combat-comment"
+source = "GECK wiki Misc Tab: ObserveCombat is said by \"actors in 'spectator' mode -- watching a combat but not joining in\"; the package's Fallout behaviour Observe Combat allows it (fnv-ai social.rs, packages.md §7.7): a cazador fights the player (god mode) beside Easy Pete, who says one of his ObserveCombat lines (\"Look at 'em go!\" or \"Get 'em! Yeah!\")"
+areas = ["ai", "dialogue"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:300:0:0,4:call:player:PlaceAtMe:NVCrCazador:1:600:0,4.5:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+run_seconds = 25
+expect = [
+  { re = 'EasyPeteRef: comments on the fight of .* \(\d+ units away\)', label = "Easy Pete comments on the fight" },
+]
+
+[[scenario]]
+name = "nav-water-closed"
+kind = "tool"
+source = "GECK wiki Navmesh Creation Workflow: creatures without the Swims flag \"will avoid using water triangles\" (PathParams::water, fnv-ai keeps_out_of_water): from the Boulder Beach shore to a point in Lake Mead a swimmer's path crosses water triangles; for one that does not swim the goal in water is out of reach at once (no search of the area); standing in the water, it walks out"
+areas = ["nav", "ai"]
+paths = ["crates/fnv-nav/src/path.rs", "crates/fnvtool/src/nav_path.rs", "crates/fnv-ai/src/carry.rs"]
+commands = [
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=56992,37536,2745", "--to=57800,37536,2500"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=56992,37536,2745", "--to=57800,37536,2500", "--no-water"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=57800,37536,2500", "--to=56992,37536,2745", "--no-water"],
+]
+expect = [
+  { json = "path.legs.0.water_triangles", schema = "fnv.nav.path/1", range = [1, 100], count = 2, label = "the swimmer's way in and the non-swimmer's way out cross water" },
+  { json = "error", schema = "fnv.nav.path/1", equals = "the goal cannot be reached (0 triangles searched)", count = 1, label = "a goal in water is out of a non-swimmer's reach, no search" },
+]
+
+[[scenario]]
 name = "npc-travel"
 source = "CLAUDE.md: after navmesh, pathing or travelling-NPC changes, the travel smoke test"
 areas = ["nav"]
@@ -924,9 +965,9 @@ expect = [
   "shots are drawn from its weapon's muzzle",
   { re = 'attack anims summary.*2hrattack3\.kf', known_failing = "claude/playtest-combat 2026-10-12, by design: Violet stops about 1,600 units off, beyond 20 m, so every shot is aimed down the sights and plays the iron-sights clip (attack anims summary: 2hrattack3is.kf 13); the owner's playtest list items 32-33, combat-ai.md §10.6. combat-sights checks both clips" },
   { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'", known_failing = "main fea339c 2026-10-15, 3 of 3 runs: 8 hits; cause not looked at (her run to cover, the mark above, leaves less time to shoot)" },
-  { re = 'npc combat facing: .*? (?P<n>\d+) frames a person was locked on its target', range = [200, 100000], label = "she is locked on the player while she sees it (owner 2026-10-25, combat-ai.md §22)" },
+  { re = 'npc combat facing: .*? (?P<n>\d+) frames a person was locked on its target', range = [200, 100000], label = "she is locked on the player while she sees it (owner 2026-10-25, combat-ai.md §23)" },
   { re = 'npc combat facing: .*locked on its target, its body off it .*over 10° in (?P<n>\d+)', range = [0, 0], label = "never more than 10° off the player while she sees it (the original: within 1.5°, ai-observer.md §15)" },
-  { re = 'locomotion: \S+ 000F570B 1EFiendViolet 2hr Left plays \S*h2hleft\.kf', label = "walking left with her rifle she side-steps as the fists do, body square (combat-ai.md §22)" },
+  { re = 'locomotion: \S+ 000F570B 1EFiendViolet 2hr Left plays \S*h2hleft\.kf', label = "walking left with her rifle she side-steps as the fists do, body square (combat-ai.md §23)" },
 ]
 forbid = [{ re = 'locomotion: \S+ 000F570B 1EFiendViolet 2hr (Fast)?Left plays \S*mt(fast)?left\.kf', label = "the unarmed walk left, which turns her side-on to the player (owner's video 2026-10-25)" }]
 
@@ -3792,7 +3833,7 @@ expect = [
   { re = 'battle summary: .*?(?P<n>\d+) fights started by a hit between actors', range = [1, 1000], label = "fights started by a hit between actors (NPC against NPC)" },
   { re = 'fight move summary: .* moved [\d.]+ s forward, (?P<n>[\d.]+) s sideways', range = [5, 100000], label = "fighters strafe, facing their target (owner 2026-10-16)" },
   { re = 'attack anims summary: .* (?P<n>\d+) shots followed a shot still shown', range = [5, 1000000], label = "shots follow on from the last one held over the fighters' movement (owner 2026-10-19: shooting takes priority)" },
-  { re = 'npc combat facing: \d+ shots, off their target .*?over 10° in (?P<n>\d+);', range = [0, 0], label = "no shot fired more than 10° off the target (combat-ai.md §22)" },
+  { re = 'npc combat facing: \d+ shots, off their target .*?over 10° in (?P<n>\d+);', range = [0, 0], label = "no shot fired more than 10° off the target (combat-ai.md §23)" },
   { re = 'npc combat facing: .*locked on its target, its body off it .*over 10° in (?P<n>\d+)', range = [0, 0], label = "fighters stay locked on a target in sight, never more than 10° off it (owner 2026-10-25)" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
@@ -4688,7 +4729,7 @@ name = "stagger-holds-attack"
 source = "playtest list 4 item 21 (npc_combat.rs, residents.rs): an actor playing a crippled stagger neither attacks nor walks until it ends"
 note = "Chet (GSChetRef) is shot in the legs with a 10mm pistol from 18 s (as provoked-yield): he fights back, and a crippled leg staggers him"
 areas = ["combat"]
-paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/deaths.rs"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/residents.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,18:aimnpc=0.2,18.1:fire,18.4:fire,19:aimnpc=0.2,19.1:fire,19.4:fire,20:aimnpc=0.2,20.1:fire,20.4:fire,21:aimnpc=0.2,21.1:fire,22:aimnpc=0.2,22.1:fire,23:aimnpc=0.2,23.1:fire" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 32
@@ -7693,6 +7734,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "sneak-attack-critical"
+source = "owner statement 2026-10-25 (\"all unseen hits from a sneaking player are criticals\"); docs/spec-notes/combat-rules.md §4: a sneak attack takes the sneak multiplier and is always a critical"
+note = "a gecko (NVCrGecko) placed at the player (GOD, UNSEEN: nobody perceives the player) at 3 s and held (SetRestrained: unheld it runs off to fight the coyotes); the player sneaks at 6 s and shoots it with the 9mm pistol at 9.1 s, stands at 10 s and shoots again at 11.1 s; only the first shot is a sneak attack (the second may miss a dead gecko)"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,6:sneak,9:aimactor,9.1:fire,10:sneak,11:aimactor,11.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat: hit 0x[0-9A-F]{8} on .* \(DT \d+, sneak attack critical\)', count = 1, label = "the sneaking shot, and only it, is a sneak attack critical" },
+]
+
+[[scenario]]
 name = "placed-weapon-ammo"
 source = "ESM audit low-impact list, World (docs/spec-notes/world-fields.md §1): the varmint rifle in Primm's sheriff station (REFR 0x000CDA0D, XAMT 5.56mm 0x00004240, XAMC 10) comes with its 10 rounds when taken by hand"
 areas = ["simulation", "activation"]
@@ -9573,4 +9627,51 @@ expect = [
   { re = 'particles: 00105868 \S*b29_riseanim\.nif emits as its Forward says: 39 of 39 systems', label = "the plane's emitters follow the rise (Forward)" },
   { re = 'particles: born in \S*b29_riseanim\.nif: wDripL04 [1-9]', label = "the drips fall from the risen plane" },
   { re = 'particles: born in \S*b29_riseanim\.nif: .*[ ,]wFlingL01 (?P<n>\d+)', range = [40, 60], label = "a waterline fling sprays only in its Forward window (150 a second for 0.33 s), not all the time" },
+]
+
+[[scenario]]
+name = "water-shot-splash"
+source = "owner 2026-10-25: shots fly on through water and strike actors under it, with a splash where they go in (crates/fnv-combat/src/projectile.rs water_entry, ProjEvent::Splash)"
+note = "Boulder Beach shore by Lake Mead (as own-sounds-lake), facing the lake and looking down at the water ahead; the 10mm pistol fired twice (each `fire` press toggles the trigger: held, then let go). Its impact data set's water impact is ImpactWaterSplashSm [observed: fnvtool combat fx]"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_LOOK = "4:90:-12", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7:fire,7.2:fire,8:fire,8.2:fire" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'combat: .* melee impacts, (?P<n>\d+) water splashes', range = [2, 2], label = "both shots splash going into the lake" },
+]
+
+[[scenario]]
+name = "water-blast-splash"
+source = "owner 2026-10-25: an explosion within fExplosionSplashRadius of water throws it up instead of its own fireball, as an original-game recording of 40mm grenades in Lake Mead showed: WaterSurfaceExplosion01.nif on the surface (engine/nvf-play/src/combat.rs water_thrown_up, WATER_SURFACE_EXPLOSION)"
+note = "as water-shot-splash with the grenade launcher (as explosion-ground-orientation): the grenade goes into the lake and goes off on its bed"
+areas = ["combat", "particles"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:4", NVF_PLAY_TEST_LOOK = "4:90:-12", NVF_PLAY_TEST_CONTROL = "3:weapon,7:fire" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'combat: explosion 40mmGrenadeExplosion throws up water at' },
+  { re = 'combat: .* water splashes, 1 water blasts', label = "one blast threw up water" },
+  { re = 'shot fx: 1 explosions in water drawn as 1 water surfaces thrown up', label = "the water thrown up shows instead of the grenade's fireball" },
+  { re = 'particles: born in \S*watersurfaceexplosion01\.nif: Drops [1-9]', label = "the column's drops fall" },
+]
+
+[[scenario]]
+name = "combat-npc-rearm"
+source = "owner request 2026-10-25: a Viper Gunslinger fought with her fists after losing her weapon; NPCs go for a better weapon by damage per second, a gunman keeps to guns, a gun needs ammunition found too (copied, the source keeps it), fists last, with the pick-up animation (docs/design/combat-ai.md §22)"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) loses all her items at 3 s (scripts' clock); a service rifle and a box of 5.56mm rounds are laid at the player's feet about 1,000 units away, and she is set on the player at 4 s, god mode. Unarmed, she runs to the rounds and the rifle, plays the pick-up idle at each, copies one round (the box stays), takes the rifle and fights with it"
+areas = ["combat"]
+paths = ["crates/fnv-ai/src/rearm.rs", "crates/fnv-game/src/rearm.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:RemoveAllItems,3.2:call:player:PlaceAtMe:WeapNVServiceRifle:1,3.3:call:player:PlaceAtMe:Ammo556mm:1,4:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  { re = 'rearm: goes for .*, 2 stop\(s\)', count = 1, label = "unarmed, she sets off for the rifle and its rounds" },
+  { re = 'rearm: picks up .*\(a copy\) from', label = "she copies a round" },
+  { re = 'rearm: picks up .* from the ground', label = "she picks the rifle up" },
+  { re = 'idle: \S+ plays LoosePickUpGroundObject .*\(PickUp\)', label = "the game's pick-up idle plays" },
+  { re = 'rearm: now holds .* it fetched', label = "she holds the rifle" },
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVServiceRifle \(gun\)', label = "she fights with the rifle" },
 ]

@@ -77,7 +77,7 @@ use fnv_phys::{layers, Filter};
 use nvf_assets::anim_play::MaterialTarget;
 use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisual, ShotVisuals};
+use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ExplosionLook, ImpactFx, ShotFired, ShotVisual, ShotVisuals, WATER_SURFACE_EXPLOSION};
 use nvf_play::phys::PhysState;
 use fnv_sim::FormId;
 use nvf_play::sfx::{PlaySound, Sfx};
@@ -191,6 +191,10 @@ struct ShotFx {
     explosions: u32,
     /// Explosions turned to the ground under them (no "Always Uses World Orientation").
     explosions_aligned: u32,
+    /// Explosions in or by water whose own model was not drawn, and the water surfaces
+    /// thrown up (`WATER_SURFACE_EXPLOSION`).
+    explosions_in_water: u32,
+    water_surfaces: u32,
     /// Effect models spawned playing their own clip, and of those, explosions whose
     /// image space modifier went on the screen.
     animated: u32,
@@ -689,12 +693,24 @@ fn explosions(
     let eye = camera.single().ok().map(|c| root_place.compute_affine().inverse().transform_point3(c.translation()));
     for b in boom.read() {
         let Some(x) = sfx.forms.explosions.get(&b.explosion) else { continue };
-        let world_up = combat.forms.explosions.get(&b.explosion).is_some_and(|s| s.flags.iter().any(|f| f == WORLD_ORIENTATION));
+        // One that went off in or by water shows only the water thrown up (its own
+        // model and light are not drawn; its screen effect still plays).
+        let model = match b.look {
+            ExplosionLook::Own => x.model.as_deref(),
+            ExplosionLook::Hidden => None,
+            ExplosionLook::WaterSurface => Some(WATER_SURFACE_EXPLOSION),
+        };
+        match b.look {
+            ExplosionLook::Hidden => fx.explosions_in_water += 1,
+            ExplosionLook::WaterSurface => fx.water_surfaces += 1,
+            ExplosionLook::Own => {}
+        }
+        let world_up = b.look == ExplosionLook::WaterSurface || combat.forms.explosions.get(&b.explosion).is_some_and(|s| s.flags.iter().any(|f| f == WORLD_ORIENTATION));
         let place = Transform::from_translation(Vec3::from_array(b.point)).with_rotation(explosion_rotation(world_up, b.normal));
-        if !world_up && b.normal.is_some() {
+        if !world_up && b.normal.is_some() && b.look == ExplosionLook::Own {
             fx.explosions_aligned += 1;
         }
-        let (holder, length) = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
+        let (holder, length) = match model.and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
             Some((m, pm)) => {
                 let (h, length) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, m, false);
                 commands.entity(h).insert(crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(m)));
@@ -703,7 +719,9 @@ fn explosions(
             None => (commands.spawn((place, Visibility::Inherited, ChildOf(world_root))).id(), 0.0),
         };
         commands.entity(holder).insert(Flash { left: if length > 0.0 { length } else { EXPLOSION_SECS } });
-        fx.explosions += 1;
+        if b.look == ExplosionLook::Own {
+            fx.explosions += 1;
+        }
         // Its image space modifier, seen from within its image-space radius ("IS Radius:
         // Radius of the area that will see the ImageSpace effect" [documented: GECK wiki
         // Explosion]), at full strength [hypothesis: the IMAD's keys have no distance in
@@ -715,7 +733,7 @@ fn explosions(
                 fx.screen_effects += 1;
             }
         }
-        let light = x.light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
+        let light = x.light.filter(|_| b.look == ExplosionLook::Own).zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
             let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
@@ -791,6 +809,9 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
         info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
         if fx.explosions > 0 {
             info!("shot fx: {} explosions turned to the ground under them, {} upright", fx.explosions_aligned, fx.explosions - fx.explosions_aligned);
+        }
+        if fx.explosions_in_water + fx.water_surfaces > 0 {
+            info!("shot fx: {} explosions in water drawn as {} water surfaces thrown up", fx.explosions_in_water, fx.water_surfaces);
         }
         if fx.no_spray > 0 {
             info!("shot fx: {} impacts on actors flagged No Blood Spray not shown", fx.no_spray);

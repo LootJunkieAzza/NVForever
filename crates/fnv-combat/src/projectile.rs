@@ -12,6 +12,10 @@
 //! as a mine in the world (`nvf_play::mines`), armed at once [owner 2026-10-19: "your own
 //! mines arm immediately after leaving the player hand"]. How gravity scales is a hypothesis: the PROJ value
 //! multiplies the world's gravity (9.81 m/s² at 70 units per metre, `fnv-phys`).
+//!
+//! Water does not stop a projectile (the game's does; NVForever's shots strike actors
+//! under the surface, owner 2026-10-25): it flies on, and where it first goes down
+//! through a surface it gives a [`ProjEvent::Splash`] ([`water_entry`]) [design].
 
 use serde::Serialize;
 
@@ -54,6 +58,11 @@ pub trait CombatWorld {
     fn aim_points(&self, _actor: ActorId) -> Vec<V3> {
         Vec::new()
     }
+    /// The height of the surface of the water a point is in or over, if any. None by
+    /// default: a world without water.
+    fn water_surface(&self, _point: V3) -> Option<f32> {
+        None
+    }
     /// The first hit on the segment `from` → `to` that is not an actor (a wall, the
     /// ground, a door): what shields from a blast. By default the ray is cast again past
     /// each actor it meets.
@@ -69,6 +78,26 @@ pub trait CombatWorld {
         }
         None
     }
+}
+
+/// Where the segment `from` → `to` first goes down through a water surface, if it does:
+/// the surfaces over its two ends are tried (a shot from the bank into a river finds the
+/// river's over its end), each kept only if the point where the segment meets its height
+/// lies in that same water [design].
+pub fn water_entry(world: &dyn CombatWorld, from: V3, to: V3) -> Option<V3> {
+    if from[2] <= to[2] {
+        return None;
+    }
+    let drop = from[2] - to[2];
+    [world.water_surface(from), world.water_surface(to)]
+        .into_iter()
+        .flatten()
+        .filter(|&s| from[2] > s && to[2] <= s)
+        .map(|s| ((from[2] - s) / drop, s))
+        .map(|(t, s)| (t, s, vec::add(from, vec::scale(vec::sub(to, from), t))))
+        .filter(|&(_, s, p)| world.water_surface(p).is_some_and(|w| (w - s).abs() < 1.0))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, s, p)| [p[0], p[1], s])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -89,6 +118,8 @@ pub enum ProjEvent {
     Expired { point: V3 },
     /// A mine came to rest here, on a surface with this normal: it leaves flight.
     Settled { point: V3, normal: V3 },
+    /// It went down through a water surface here, flying this way (once per projectile).
+    Splash { point: V3, dir: V3 },
 }
 
 /// A projectile in flight.
@@ -118,6 +149,9 @@ pub struct Projectile {
     pub mine: bool,
     /// Actors a flame has already hit.
     hit_actors: Vec<ActorId>,
+    /// It has gone into water once ([`ProjEvent::Splash`]): a lobber bouncing on the bed
+    /// splashes no more.
+    splashed: bool,
 }
 
 /// Lobbers stop bouncing below this speed, units/s [design].
@@ -174,6 +208,7 @@ impl Projectile {
             alive: true,
             mine: crate::mine::is_mine(p),
             hit_actors: Vec::new(),
+            splashed: false,
         }
     }
 
@@ -202,6 +237,17 @@ impl Projectile {
         None
     }
 
+    /// A splash where the segment goes down into water, once.
+    fn splash(&mut self, world: &dyn CombatWorld, from: V3, to: V3, out: &mut Vec<ProjEvent>) {
+        if self.splashed {
+            return;
+        }
+        if let Some(p) = water_entry(world, from, to) {
+            self.splashed = true;
+            out.push(ProjEvent::Splash { point: p, dir: vec::normalize(vec::sub(to, from)) });
+        }
+    }
+
     /// The explosion if it goes off on impact: not with Alt. Trigger (timer, proximity)
     /// nor Detonates (it waits for `detonate`) [documented: GECK wiki Projectile].
     fn impact_explosion(&self) -> Option<FormId> {
@@ -222,7 +268,10 @@ impl Projectile {
             let reach = if self.range.is_finite() { self.range } else { 100_000.0 };
             let end = vec::add(self.pos, vec::scale(dir, reach));
             self.alive = false;
-            match self.trace(world, self.pos, end) {
+            let h = self.trace(world, self.pos, end);
+            // The first hit lies past any water the trace went down through.
+            self.splash(world, self.pos, h.as_ref().map_or(end, |h| h.point), &mut out);
+            match h {
                 Some(h) => {
                     let delay = if self.motion == Motion::Beam || self.speed <= 0.0 { 0.0 } else { h.distance / self.speed };
                     out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay });
@@ -272,6 +321,14 @@ impl Projectile {
         let to = vec::add(self.pos, step);
         self.vel = vel;
         let mut from = self.pos;
+        // Water this step goes down through, when nothing solid comes first (a flame
+        // passes actors, but on the way down they stop it too: no splash behind one).
+        if !self.splashed {
+            if let Some(p) = water_entry(world, from, to).filter(|&p| self.trace(world, from, p).is_none()) {
+                self.splashed = true;
+                out.push(ProjEvent::Splash { point: p, dir: vec::normalize(step) });
+            }
+        }
         while let Some(h) = self.trace(world, from, to) {
             match (self.motion, h.actor) {
                 // A flame goes on through actors, hitting each once.

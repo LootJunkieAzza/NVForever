@@ -49,6 +49,9 @@ pub struct PathOpts {
     /// A large creature (keeps off "No Large Creatures" triangles).
     #[arg(long)]
     pub large: bool,
+    /// A creature that does not swim (keeps off water triangles).
+    #[arg(long)]
+    pub no_water: bool,
     /// Locked doors may be used.
     #[arg(long)]
     pub open_locked: bool,
@@ -66,6 +69,7 @@ impl PathOpts {
             ledges: self.ledges,
             doors: !self.no_doors,
             large: self.large,
+            water: !self.no_water,
             open_locked: self.open_locked,
             keys: self.keys.clone(),
             ..d
@@ -215,6 +219,7 @@ impl<'a> Nav<'a> {
                 "space": self.space_json(l.space),
                 "points": l.points,
                 "corridor_triangles": l.corridor.len(),
+                "water_triangles": l.corridor.iter().filter(|&&t| self.graph.tris[t as usize].has(fnv_nav::record::tri_flags::WATER)).count(),
                 "navmeshes": self.navmeshes_crossed(&l.corridor),
                 "door": l.door.map(|d| json!({
                     "door": fid(d.door),

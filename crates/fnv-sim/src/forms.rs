@@ -186,6 +186,28 @@ pub struct Item {
     /// (nvf-play `voice_filter`). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub modulates_voice: bool,
+    /// What a weapon's rank among weapons reads (`fnv_game::rearm`, docs/design/combat-ai.md
+    /// §22). `None` for other items. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub weapon_traits: Option<WeaponTraits>,
+}
+
+/// A weapon's WEAP fields that its damage per second and its use by an actor depend on
+/// [documented: xEdit wbDefinitionsFNV.pas WEAP DNAM, NAM0].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WeaponTraits {
+    /// DNAM Skill as an actor value code, Barter 32 … Unarmed 45 (`None` for none).
+    pub skill: Option<u16>,
+    /// DNAM Flags 1 "Is Automatic".
+    pub automatic: bool,
+    /// DNAM Fire Rate: shots per second of an automatic weapon.
+    pub fire_rate: f32,
+    /// DNAM Attack Shots/Sec.
+    pub shots_per_sec: f32,
+    /// DNAM Attack Mult: the attack animation's speed.
+    pub attack_mult: f32,
+    /// NAM0: the AMMO it fires, or a form list of acceptable AMMO (global FormID).
+    pub ammo: Option<FormId>,
 }
 
 impl Item {
@@ -582,6 +604,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         teaches: None,
                         cant_be_taken: false,
                         modulates_voice: false,
+                        weapon_traits: None,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -661,6 +684,16 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     let anim = first(&d, b"DNAM").and_then(|v| v.get("animation_type")).and_then(text);
                     let explosion = i.projectile.map_or(0.0, |p| explosion_damage(lo, schema, p));
                     i.weapon_damage = i.weapon_damage.map(|base| weapon_choice_damage(base, explosion, anim.as_deref()));
+                }
+                if let Some(t) = i.weapon_traits.as_mut() {
+                    t.ammo = match t.ammo.map(|a| global(lo, pi, a.0)) {
+                        Some(Ok(g)) => g,
+                        Some(Err(l)) => {
+                            issues.note("FormID outside master list", || format!("{id} NAM0 ammo 0x{l:08X}"));
+                            None
+                        }
+                        None => None,
+                    };
                 }
                 BaseData::Item(i)
             }
@@ -820,6 +853,19 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         },
         cant_be_taken: kind == ItemKind::Book && data.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Can't be Taken")),
         modulates_voice: kind == ItemKind::Armor && first(d, b"DNAM").and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Modulates Voice")),
+        // NAM0 file-local here; made global by the caller.
+        weapon_traits: (kind == ItemKind::Weapon).then(|| {
+            let dn = first(d, b"DNAM");
+            let f = |k: &str| dn.and_then(|v| num(v, k)).unwrap_or(0.0) as f32;
+            WeaponTraits {
+                skill: dn.and_then(|v| v.get("skill")).and_then(skill_code),
+                automatic: weapon_flags.is_some_and(|x| has_flag(x, "Is Automatic")),
+                fire_rate: f("fire_rate"),
+                shots_per_sec: f("attack_shots_per_sec"),
+                attack_mult: f("attack_mult"),
+                ammo: first(d, b"NAM0").and_then(local_fid).map(FormId),
+            }
+        }),
     })
 }
 

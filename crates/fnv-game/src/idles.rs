@@ -54,6 +54,8 @@ pub enum IdleSource {
     /// An NPC uses a stimpak it carries (`crate::npc_stimpaks`): played on its upper
     /// body only, over what it does otherwise.
     Stimpak,
+    /// An actor picks up a weapon or ammunition it fetched (`crate::rearm`).
+    PickUp,
 }
 
 /// Which fidgets of the idle tree are played: the branch below a node whose conditions
