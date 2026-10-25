@@ -1115,6 +1115,12 @@ impl Core {
             let who: Vec<String> = again.iter().map(|a| format!("{:08X}", a.0)).collect();
             info!("nav: door locks changed; {} actors choose their package again [{}]", again.len(), who.join(", "));
         }
+        // Obstacles enabled or disabled since cut or free the navmesh under them
+        // (`fnv_ai::Ai::apply_obstacles`, docs/spec-notes/navmesh.md §7).
+        if let Some((changed, again)) = self.ai.apply_obstacles(game, &mut nav.graph) {
+            let which: Vec<String> = changed.iter().map(|r| format!("{r:08X} {}", if nav.graph.obstacles.get(r).is_some_and(|o| o.enabled) { "on" } else { "off" })).collect();
+            info!("nav: obstacles switched [{}]; {} triangles cut now; {} actors plan their way again", which.join(", "), nav.graph.cut_triangles(), again.len());
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -83,7 +83,7 @@ original before building (an AI observer capture), or a decision to adapt them t
 mode, which is NVForever's own (vats-mode.md): VATS mode fires every mark at once, so the
 roll would be one per mark as it fires.
 
-### 3.2 Attack, reload, equip and run speed
+### 3.2 Attack, reload, equip and run speed (built 2026-10-24: run speed perk-entry-points.md §8; attack, reload, equip §10; the teammates' attack speed 2026-10-25, §12)
 
 | Entry point | Perks |
 |---|---|
@@ -112,7 +112,7 @@ run speed has no such block.
 | 20 Ignore Locked Terminal | Computer Whiz: another try at a locked-out terminal |
 | 31 Ignore Running During Detection | Silent Running: running no longer counts against sneaking (`fSneakRunningMult` is read in detection) |
 
-### 3.5 Explosives, throwing, mines
+### 3.5 Explosives, throwing, mines (built 2026-10-24, perk-entry-points.md §8)
 
 | Entry point | Perks |
 |---|---|
@@ -120,7 +120,7 @@ run speed has no such block.
 | 59 Modify Throwing Velocity | Heave, Ho! × 1.5, Loose Cannon × 0.75 (with a condition) |
 | 4 Calculate Mine Explode Chance | Light Step (Set 0), In My Footsteps (Set 0, Dead Money), ED-E's Light Step (Lonesome Road, for ED-E) |
 
-### 3.6 Melee, unarmed and knockdowns
+### 3.6 Melee, unarmed and knockdowns (knockdowns and the special moves built 2026-10-24, perk-entry-points.md §11; Weapon Handling and Run 'n Gun 2026-10-25, §12; 3 has nothing to build, §12)
 
 | Entry point | Perks |
 |---|---|
@@ -130,7 +130,7 @@ run speed has no such block.
 | 54 Modify Aiming Move Speed | Run 'n Gun × 2 |
 | 3 Calculate Weapon Attack AP Cost | Ain't Like That Now × 0.8 (attacks outside VATS cost AP in the original only through this) |
 
-### 3.7 Kills, health, repair, the HUD
+### 3.7 Kills, health, repair, the HUD (built 2026-10-24 but Better Healing and Cardiac Arrest, perk-entry-points.md §9)
 
 | Entry point | Perks |
 |---|---|
@@ -258,7 +258,7 @@ hit chance (2026-10-23): VATS mode now has one, and both entry points apply to i
 | Rapid Reload | FalloutNV | perk | entry points 37 Reload Speed | **missing** (37) |
 | Retention | FalloutNV | perk | conditions in ALCH; scripts VCG04ActivatorScript | works through scripts / conditions |
 | Robotics Expert | FalloutNV | perk | entry points 0 Weapon Damage, 27 Activate | works |
-| Run 'n Gun | FalloutNV | perk | entry points 54 Aiming Move Speed | **missing** (54) |
+| Run 'n Gun | FalloutNV | perk | entry points 54 Aiming Move Speed | built 2026-10-25 (perk-entry-points.md §12) |
 | Scrounger | FalloutNV | perk | quest stage Generic@70 | works |
 | Set Lasers for Fun | FalloutNV | perk | entry points 1 My Crit Chance | works |
 | Shotgun Surgeon | FalloutNV | perk | entry points 58 DT attacker | works |
@@ -279,7 +279,7 @@ hit chance (2026-10-23): VATS mode now has one, and both entry points apply to i
 | Travel Light | FalloutNV | perk | entry points 42 Run Speed | **missing** (42) |
 | Unstoppable Force | FalloutNV | perk | entry points 0 Weapon Damage | works |
 | Vigilant Recycler | FalloutNV | perk | entry points 57 Ammo Item Chance; conditions in RCPE | works |
-| Weapon Handling | FalloutNV | perk | entry points 53 Weapon Str Req | **missing** (53) |
+| Weapon Handling | FalloutNV | perk | entry points 53 Weapon Str Req | built 2026-10-25 (§12) |
 | Abominable | FalloutNV | other | entry points 0 Weapon Damage | works |
 | Agility Implant | FalloutNV | other | ability IncreaseAgility | works |
 | Animal Control | FalloutNV | other | entry points 0 Weapon Damage | works |
@@ -292,7 +292,7 @@ hit chance (2026-10-23): VATS mode now has one, and both entry points apply to i
 | Calm Heart | FalloutNV | other | ability CalmHeartAbilityEffect | works |
 | Calm Heart | FalloutNV | other | ability CalmHeartAbilityEffect | works |
 | Camel of the Mojave | FalloutNV | other | conditions in ALCH, SPEL; scripts ChallengeWaterSCRIPT | works through scripts / conditions |
-| Causeless Rebel | FalloutNV | other | entry points 43 Attack Speed | **missing** (43) |
+| Causeless Rebel | FalloutNV | other | entry points 43 Attack Speed | built 2026-10-25 (§12, the teammate's gun and blows) |
 | Charisma Implant | FalloutNV | other | ability IncreaseCharisma | works |
 | Child at Heart | FalloutNV | other | conditions in INFO; scripts PressDemoQuestScript, VCG04ActivatorScript | works through scripts / conditions |
 | Companion Suite | FalloutNV | other | entry points 58 DT attacker; ability IncreaseDamageResistance, IncreaseSkillSneak, ReduceCarryWeight | works |
@@ -324,7 +324,7 @@ hit chance (2026-10-23): VATS mode now has one, and both entry points apply to i
 | Melee Hacker | FalloutNV | other | entry points 43 Attack Speed | **missing** (43) |
 | Monocyte Breeder | FalloutNV | other | ability ImplantRegenEffect | works |
 | Mutant Massacrer | FalloutNV | other | entry points 0 Weapon Damage | works |
-| Old Vaquero | FalloutNV | other | entry points 43 Attack Speed | **missing** (43) |
+| Old Vaquero | FalloutNV | other | entry points 43 Attack Speed | built 2026-10-25 (§12) |
 | Perception Implant | FalloutNV | other | ability IncreasePerception | works |
 | Power Armor Training | FalloutNV | other | quest stage Generic@80; conditions in INFO | works |
 | PsychoPerk | FalloutNV | other | entry points 0 Weapon Damage | works |
@@ -421,7 +421,7 @@ hit chance (2026-10-23): VATS mode now has one, and both entry points apply to i
 | Lonesome Road | LonesomeRoad | other | entry points 0 Weapon Damage, 8 To Hit Chance | works, but its to-hit part has nothing to change (8) |
 | Marked | LonesomeRoad | other | entry points 0 Weapon Damage, 56 DT defender | works |
 | NVDLC01InShiningArmorEyewear | DeadMoney | other | entry points 56 DT defender | works |
-| NVDLC03LobotimiteReduceSpeedPERK | OldWorldBlues | other | entry points 42 Run Speed | **missing** (42) |
+| NVDLC03LobotimiteReduceSpeedPERK | OldWorldBlues | other | entry points 42 Run Speed | works: a player perk (§12), run speed built 2026-10-24 |
 | NVDLC04RushingWaterEffectsPerk | LonesomeRoad | other | entry points 43 Attack Speed | **missing** (43) |
 | Quiet as the Waters | HonestHearts | other | conditions in SPEL; scripts NVDLC02FireTriggerSCRIPT, NVDLC02HireTriggerSCRIPT, NVDLC02WakingCloudSCRIPT … | works through scripts / conditions |
 | Reinforced Spine | OldWorldBlues | other | entry points 56 DT defender; ability IncreaseStrength, RestoreLimbChest | works |

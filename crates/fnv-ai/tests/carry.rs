@@ -200,6 +200,7 @@ const R_DOG: u32 = 0x889;
 const R_COMPANION: u32 = 0x89B;
 const R_LONER: u32 = 0x89C;
 const R_SHOOTER: u32 = 0x89D;
+const R_DOG2: u32 = 0x89E;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -306,6 +307,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_RUN, "RunnerRef", N_RUN, START, None),
         placed(b"ACHR", R_STEADY, "CourierRef", N_STEADY, START, None),
         placed(b"ACHR", R_DOG, "DogRef", N_DOG, [150.0, 50.0, 0.0], None),
+        placed(b"ACHR", R_DOG2, "SecondDogRef", N_DOG, [150.0, 250.0, 0.0], None),
         placed(b"ACHR", R_COMPANION, "CompanionRef", N_COMPANION, [250.0, 50.0, 0.0], None),
         placed(b"ACHR", R_LONER, "LonerRef", N_LONER, [350.0, 50.0, 0.0], None),
         placed(b"ACHR", R_SHOOTER, "ShooterRef", N_SHOOTER, START, None),
@@ -741,6 +743,42 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
     let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
     s.run(20.0);
     assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
+}
+
+/// Two actors following one target walk after it in a line: the one nearer the target
+/// at first after the target, the other after it, nearer than the package's distance
+/// (`Ai::ahead_in_column`, `COLUMN_GAP`; the owner's playtest of 2026-10-24).
+#[test]
+fn two_actors_following_one_target_walk_in_a_line() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG, R_DOG2]);
+    s.run(40.0);
+    let first = s.events(R_DOG);
+    assert!(first.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_TRAVEL)), "{first:?}");
+    let second = s.events(R_DOG2);
+    assert!(second.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_DOG)), "{second:?}");
+    assert!(!second.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_TRAVEL)), "{second:?}");
+    // Both went through to cell B and stand there in a line.
+    for d in [R_DOG, R_DOG2] {
+        assert_eq!(s.ai.agents[&FormId(d)].walker.space, B);
+        assert_eq!(s.ai.agents[&FormId(d)].activity, Activity::There);
+    }
+    let (t, d1, d2) = (s.feet(R_TRAVEL), s.feet(R_DOG), s.feet(R_DOG2));
+    assert!(dist(d1, t) <= 128.0 + 64.0 + 1.0, "{d1:?} {t:?}");
+    assert!(dist(d2, d1) <= fnv_ai::carry::COLUMN_GAP + 64.0 + 1.0, "{d2:?} {d1:?}");
+    assert!(dist(d2, t) > dist(d1, t), "{d2:?} {d1:?} {t:?}");
+}
+
+/// A follower far behind goes faster than it runs to catch up, more the farther it is,
+/// up to half as fast again (`carry::catch_up`; the owner's playtest of 2026-10-24).
+#[test]
+fn a_follower_far_behind_catches_up_faster_than_it_runs() {
+    use fnv_ai::carry::{catch_up, CATCH_UP_BOOST, CATCH_UP_SPAN, FOLLOW_RUN_FROM};
+    assert_eq!(catch_up(100.0), 1.0);
+    assert_eq!(catch_up(FOLLOW_RUN_FROM), 1.0);
+    assert!((catch_up(FOLLOW_RUN_FROM + CATCH_UP_SPAN / 2.0) - (1.0 + CATCH_UP_BOOST / 2.0)).abs() < 1e-6);
+    assert_eq!(catch_up(FOLLOW_RUN_FROM + CATCH_UP_SPAN), 1.0 + CATCH_UP_BOOST);
+    assert_eq!(catch_up(f32::INFINITY), 1.0 + CATCH_UP_BOOST);
 }
 
 /// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,

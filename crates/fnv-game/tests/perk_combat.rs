@@ -43,6 +43,10 @@ const HOARDER: u32 = 0x70F;
 const SILENT: u32 = 0x710;
 const INFILTRATOR: u32 = 0x711;
 const WHIZ: u32 = 0x712;
+const LIGHT_STEP: u32 = 0x713;
+const SPLASH: u32 = 0x714;
+const HEAVE: u32 = 0x715;
+const TRAVEL: u32 = 0x716;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_IS_ID: u16 = 72;
@@ -143,6 +147,11 @@ fn plugin_bytes() -> Vec<u8> {
         perk(SILENT, "SilentRunning", 1, vec![entry(perks::IGNORE_RUNNING_DURING_DETECTION, perks::SET_VALUE, 1.0, vec![])]),
         perk(INFILTRATOR, "Infiltrator", 1, vec![entry(perks::IGNORE_BROKEN_LOCK, perks::SET_VALUE, 1.0, vec![])]),
         perk(WHIZ, "ComputerWhiz", 1, vec![entry(perks::IGNORE_LOCKED_TERMINAL, perks::SET_VALUE, 1.0, vec![])]),
+        // Mines, explosions, throws and movement (perk-entry-points.md §8).
+        perk(LIGHT_STEP, "LightStep", 1, vec![entry(perks::CALCULATE_MINE_EXPLODE_CHANCE, perks::SET_VALUE, 0.0, vec![])]),
+        perk(SPLASH, "SplashDamage", 1, vec![entry(perks::ADJUST_EXPLOSION_RADIUS, perks::MULTIPLY_VALUE, 1.25, vec![])]),
+        perk(HEAVE, "HeaveHo", 1, vec![entry(perks::MODIFY_THROWING_VELOCITY, perks::MULTIPLY_VALUE, 1.5, vec![])]),
+        perk(TRAVEL, "TravelLight", 1, vec![entry(perks::MODIFY_RUN_SPEED, perks::MULTIPLY_VALUE, 1.1, vec![])]),
     ]
     .concat();
     let npcs = [
@@ -391,4 +400,23 @@ fn a_second_failure_spends_the_extra_try() {
     g.player.perks.insert(FormId(INFILTRATOR), 1);
     g.player.perks.insert(FormId(WHIZ), 1);
     assert!(g.player_has_entry(perks::IGNORE_BROKEN_LOCK) && g.player_has_entry(perks::IGNORE_LOCKED_TERMINAL));
+}
+
+/// Light Step's mine chance 0, Splash Damage's radius, Heave Ho!'s throw and Travel
+/// Light's speed as their entry points give them (perk-entry-points.md §8).
+#[test]
+fn mine_blast_throw_and_speed_perks() {
+    let f = fixture();
+    let mut g = game(&f);
+    let at = |g: &mut Game, point: u8, v: f64| g.entry_point(P, point, v).0;
+    assert_eq!(at(&mut g, perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0), 1.0);
+    for p in [LIGHT_STEP, SPLASH, HEAVE, TRAVEL] {
+        g.player.perks.insert(FormId(p), 1);
+    }
+    assert_eq!(at(&mut g, perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0), 0.0, "Light Step: no mine goes off");
+    assert!((at(&mut g, perks::ADJUST_EXPLOSION_RADIUS, 200.0) - 250.0).abs() < 1e-6);
+    assert!((at(&mut g, perks::MODIFY_THROWING_VELOCITY, 1.0) - 1.5).abs() < 1e-6);
+    assert!((at(&mut g, perks::MODIFY_RUN_SPEED, 1.0) - 1.1).abs() < 1e-6);
+    // Another actor's mine chance is its own (no perks).
+    assert_eq!(g.entry_point(FormId(NPC_REF), perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0, 1.0);
 }

@@ -30,7 +30,14 @@
 //! - Ripples from rain and from things moving through the water (ripples.rs) add to
 //!   the wave normal.
 //!
-//! Not done: the ANAM opacity (its role is unknown).
+//! - Shore fade: seen from above, the whole surface (reflection included) fades in over
+//!   the type's depth falloff, from its start to its end in units of water the view ray
+//!   crosses (`fnv_world::sky::Water::edge_falloff`), so the reflecting surface meets
+//!   the land without a seam ("used for edges of the water, to blend it smoothly with
+//!   the land" [documented: GECK wiki WaterType]; the units are a hypothesis).
+//!
+//! Not done: the ANAM opacity (the GECK wiki names it without a meaning), distortion,
+//! light radius and brightness.
 
 use crate::lod::LodState;
 use crate::reflection::{Reflection, WATER_LAYER};
@@ -89,6 +96,9 @@ pub struct WaterParams {
     pub reflection_plane: Vec4,
     /// Ripple grid: game x, y of its corner, units per cell, height scale (0: none).
     pub ripple: Vec4,
+    /// Shore fade: the depth falloff's start and end in units of water crossed, and 1
+    /// when the type has one (`fnv_world::sky::Water::edge_falloff`).
+    pub edge: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -339,6 +349,7 @@ pub fn water_params(w: &Water) -> WaterParams {
         layers: [layer(&w.noise_layers[0]), layer(&w.noise_layers[1]), layer(&w.noise_layers[2])],
         reflection_plane: Vec4::ZERO,
         ripple: Vec4::ZERO,
+        edge: w.edge_falloff().map_or(Vec4::ZERO, |(a, b)| Vec4::new(a, b, 1.0, 0.0)),
     }
 }
 

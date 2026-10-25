@@ -45,6 +45,9 @@ pub const CONCUSSION_SECONDS: f64 = 40.0;
 pub const IMAGE_SPACE_CONCUSSION: FormId = FormId(0x0000_0164);
 /// SPEL `PerkParalyzingPalm` "Paralyzing Palm" [documented: GECK wiki GetDefaultForms
 /// lists it among the default forms; observed: 0x0006B20B, Paralysis 1 for 30 s, Touch].
+/// The palm casts the DOBJ's Perk Paralysis (place 5, which FalloutNV.esm fills with this
+/// spell [observed: `fnvtool esm decode --edid DefaultObjectManager`]); this is the
+/// fallback when the list names none ([`Game::palm_spell`]).
 pub const PARALYZING_PALM: FormId = FormId(0x0006_B20B);
 /// The perk entry point "Has Paralyzing Palm" [documented: GECK wiki
 /// GetNthPerkEntryFunction, entry point 29].
@@ -164,7 +167,8 @@ impl Game<'_> {
     /// counts a Paralyzing Punch [documented: settings and entry point; hypothesis: the
     /// weapon test]. `roll` is a number in [0, 1). Returns whether it paralysed.
     pub fn paralyzing_palm(&mut self, target: FormId, weapon: Option<FormId>, roll: f64) -> bool {
-        if self.vats.mode != crate::vats::MODE_PLAYBACK || self.is_dead(target) || !self.data.effect_items.contains_key(&PARALYZING_PALM) {
+        let palm = self.palm_spell();
+        if self.vats.mode != crate::vats::MODE_PLAYBACK || self.is_dead(target) || !self.data.effect_items.contains_key(&palm) {
             return false;
         }
         if weapon.is_some_and(|w| self.data.weapon_skills.get(&w) != Some(&UNARMED)) {
@@ -176,13 +180,19 @@ impl Game<'_> {
         if roll >= crate::combat::setting(self, "fVATSParalyzePalmChance", PALM_CHANCE) {
             return false;
         }
-        let applied = self.apply_hit_effect(target, PARALYZING_PALM, Some(FormId::PLAYER_REF));
+        let applied = self.apply_hit_effect(target, palm, Some(FormId::PLAYER_REF));
         let took = applied.iter().any(|a| self.data.magic_effects.get(&a.effect).is_some_and(|m| m.archetype == ARCHETYPE_PARALYSIS));
         if took {
             self.count_stat(PARALYZING_PUNCHES, 1.0);
             self.magic_news.push(MagicNews::Palm { target });
         }
         took
+    }
+
+    /// The spell a Paralyzing Palm casts: the DOBJ's Perk Paralysis (place 5) [documented:
+    /// xEdit DOBJ names], else [`PARALYZING_PALM`].
+    pub fn palm_spell(&self) -> FormId {
+        palm_spell_in(self.data.default_object(crate::data::DefaultObject::PerkParalysis))
     }
 
     /// What the archetypes did since the last call.
@@ -204,4 +214,20 @@ pub fn hash_roll(time: f64, r: FormId) -> f64 {
 /// Whether a base effect is of an archetype this module acts on when it starts.
 pub fn acts_on_start(m: &MagicEffectDef) -> bool {
     matches!(m.archetype, ARCHETYPE_PARALYSIS | ARCHETYPE_CURE_PARALYSIS | ARCHETYPE_CURE_POISON | ARCHETYPE_DISPEL)
+}
+
+/// The palm's spell from the DOBJ's Perk Paralysis entry, or the fixed fallback.
+fn palm_spell_in(dobj: Option<FormId>) -> FormId {
+    dobj.unwrap_or(PARALYZING_PALM)
+}
+
+#[cfg(test)]
+mod palm_tests {
+    use super::*;
+
+    #[test]
+    fn the_palm_casts_the_default_object() {
+        assert_eq!(palm_spell_in(Some(FormId(0x0100_0ABC))), FormId(0x0100_0ABC));
+        assert_eq!(palm_spell_in(None), PARALYZING_PALM);
+    }
 }

@@ -12,9 +12,14 @@
 //!   NPCs, the sky's clock, test aids) holds too. Streaming goes on: it is what is being
 //!   waited for.
 //! - It comes down when physics has every cell around the player
-//!   (`PhysState::loading_done`) and the renderer has drawn its cells (it reports through
-//!   [`Loading::render_busy`]), [`SETTLE_SECS`] later so that textures and meshes reach
+//!   (`PhysState::loading_done`), the renderer has drawn its cells (it reports through
+//!   [`Loading::render_busy`]) and no actor in view still waits for its parts
+//!   ([`Loading::actors_busy`]), [`SETTLE_SECS`] later so that textures and meshes reach
 //!   the graphics card behind the picture.
+//! - A run that starts in the world ([`StartCover`]) is held under the screen from its
+//!   first frame until the same is in and the scripts are made (a save put back into
+//!   them); the test aids' clock and `--run-seconds` count from when it comes down
+//!   (docs/design/loading-screen.md §1a).
 //! - The picture and its text are a loading screen record of the plugins
 //!   (`fnv_world::loadscreen`): one that belongs to the destination, or one for anywhere.
 //!   The layout is ours: the picture fills the window (cropped, not stretched), the text
@@ -83,10 +88,31 @@ struct Trip {
     ready: Option<(f64, u32)>,
 }
 
+/// Asked for by nvforever for a run that starts in the world (`--play`, not on the main
+/// menu or behind the intro film): the start is held behind a loading screen
+/// ([`Loading::starting`]) until the world can be played (module notes).
+#[derive(Resource)]
+pub struct StartCover;
+
+/// The start held behind a loading screen.
+#[derive(Debug, Clone, Copy)]
+struct StartHold {
+    /// Real time the screen came up.
+    started: f64,
+    /// Since when everything has been ready (real time, frames).
+    ready: Option<(f64, u32)>,
+}
+
 /// The loading screen's state.
 #[derive(Resource, Default)]
 pub struct Loading {
     trip: Option<Trip>,
+    /// The start of the run, held until the world can be played ([`StartCover`]).
+    start: Option<StartHold>,
+    /// Actors around the player whose parts are still being read, so they are not drawn
+    /// yet. Set by nvforever every frame (`readahead::actors_waiting`); stays false
+    /// without it.
+    pub actors_busy: bool,
     /// A screen is up for a [`CoverRequest`].
     cover: bool,
     /// What the game was in when a [`CoverRequest`] came (its state, and whether the
@@ -116,7 +142,14 @@ pub struct Loading {
 impl Loading {
     /// Whether a loading screen is up.
     pub fn active(&self) -> bool {
-        self.trip.is_some() || self.cover
+        self.trip.is_some() || self.cover || self.start.is_some()
+    }
+
+    /// Whether the start's screen is up ([`StartCover`]). Its time counts on no test
+    /// aid's clock (`crate::pause::PlayClock`) and not in `--run-seconds`: they count
+    /// from when it comes down.
+    pub fn starting(&self) -> bool {
+        self.start.is_some()
     }
 
     /// Whether a loading screen is up for travel (not for a [`CoverRequest`]).
@@ -150,7 +183,7 @@ impl Plugin for LoadingPlugin {
             .add_message::<CoverRequest>()
             .add_message::<Uncover>()
             .add_systems(Startup, read_screens)
-            .add_systems(Update, (send.in_set(PlaySet::Input), (begin, hold, fit_picture).chain().in_set(PlaySet::Sync)))
+            .add_systems(Update, (send.in_set(PlaySet::Input), (begin_start, begin, hold, fit_picture).chain().in_set(PlaySet::Sync)))
             .add_systems(Last, finish);
     }
 }
@@ -199,6 +232,36 @@ struct Art<'w> {
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
 }
 
+/// The run starts in the world ([`StartCover`]): bring the screen up in its first frame
+/// and hold the game until [`finish`] finds the world ready to play.
+#[allow(clippy::too_many_arguments)]
+fn begin_start(
+    mut commands: Commands,
+    asked: Option<Res<StartCover>>,
+    mut loading: ResMut<Loading>,
+    location: Res<Location>,
+    real: Res<Time<Real>>,
+    mut clock: ResMut<Time<Virtual>>,
+    mut next: ResMut<NextState<PlayState>>,
+    mut art: Art,
+) {
+    if asked.is_none() {
+        return;
+    }
+    commands.remove_resource::<StartCover>();
+    if loading.active() {
+        return;
+    }
+    // An interior's own screen; outdoors one for anywhere (the start's cell is not known
+    // to this frame).
+    let to = location.interior.map(|c| Destination { interior: Some(c), exterior: None });
+    info!("loading screen: the start is held until the world can be played");
+    spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
+    clock.pause();
+    next.set(PlayState::Loading);
+    loading.start = Some(StartHold { started: real.elapsed_secs_f64(), ready: None });
+}
+
 /// A travel was asked for: bring the screen up and hold the game.
 #[allow(clippy::too_many_arguments)]
 fn begin(
@@ -220,6 +283,12 @@ fn begin(
     }
     if loading.cover {
         info!("loading screen: travel ignored under a screen held for a restart");
+        return;
+    }
+    if loading.start.is_some() {
+        // Under the start's screen: the travel goes out behind it, and the start waits
+        // for the destination too.
+        loading.trip = Some(Trip { travel, sent: false, frames: SHOW_FRAMES, started: real.elapsed_secs_f64(), ready: None });
         return;
     }
     let to = (!std::mem::take(&mut loading.generic_next)).then(|| destination(&travel, *location));
@@ -370,35 +439,84 @@ fn send(mut loading: ResMut<Loading>, mut travel: MessageWriter<Travel>, mut com
     }
 }
 
-/// Everything is in: take the screen down and let the game go on.
+/// What a loading screen still waits for (empty: nothing).
+fn missing(loading: &Loading, phys: Option<&PhysState>, scripts: Option<&crate::script::ScriptState>, start: bool) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    if loading.render_busy {
+        out.push("cells to draw");
+    }
+    if !phys.is_none_or(|p| p.loading_done()) {
+        out.push("cells in physics");
+    }
+    if loading.actors_busy {
+        out.push("actors to draw");
+    }
+    if start && scripts.is_some_and(|s| s.loading() || s.pending_game_waiting()) {
+        out.push("the scripts");
+    }
+    out
+}
+
+/// Whether `ready` has held for the settle time, counting this frame; `false` resets it.
+fn settled(ready: &mut Option<(f64, u32)>, ok: bool, now: f64) -> bool {
+    if !ok {
+        *ready = None;
+        return false;
+    }
+    let (since, frames) = ready.get_or_insert((now, 0));
+    *frames += 1;
+    *frames >= SETTLE_FRAMES && now - *since >= SETTLE_SECS
+}
+
+/// Everything is in: take the screen down and let the game go on. A travel's screen waits
+/// for the destination's cells (drawn and in physics) and its actors; the start's
+/// ([`StartCover`]) for those and the scripts too (made, and a save put back).
+#[allow(clippy::too_many_arguments)]
 fn finish(
     mut commands: Commands,
     mut loading: ResMut<Loading>,
     phys: Option<Res<PhysState>>,
+    scripts: Option<Res<crate::script::ScriptState>>,
     real: Res<Time<Real>>,
     mut clock: ResMut<Time<Virtual>>,
     mut next: ResMut<NextState<PlayState>>,
     roots: Query<Entity, With<LoadingRoot>>,
 ) {
-    let busy = loading.render_busy;
-    let Some(trip) = loading.trip.as_mut().filter(|t| t.sent) else { return };
     let now = real.elapsed_secs_f64();
-    let waited = now - trip.started;
-    if busy || !phys.is_none_or(|p| p.loading_done()) {
-        trip.ready = None;
-        if waited < TIMEOUT_SECS {
+    let starting = loading.start.is_some();
+    if loading.trip.as_ref().is_some_and(|t| t.sent) {
+        let wait = missing(&loading, phys.as_deref(), None, false);
+        let trip = loading.trip.as_mut().expect("trip");
+        let waited = now - trip.started;
+        if !settled(&mut trip.ready, wait.is_empty(), now) {
+            if !wait.is_empty() && waited >= TIMEOUT_SECS {
+                warn!("loading screen: still waiting for {} after {waited:.0} s; going on without it", wait.join(", "));
+            } else {
+                return;
+            }
+        }
+        loading.trip = None;
+        if starting {
+            // A travel under the start's screen: the start goes on waiting under it.
             return;
         }
-        warn!("loading screen: still loading after {waited:.0} s (renderer busy: {busy}); going on without it");
+        info!("loading screen down after {waited:.2} s");
+    } else if starting && loading.trip.is_none() {
+        let wait = missing(&loading, phys.as_deref(), scripts.as_deref(), true);
+        let hold = loading.start.as_mut().expect("start");
+        let waited = now - hold.started;
+        if !settled(&mut hold.ready, wait.is_empty(), now) {
+            if !wait.is_empty() && waited >= TIMEOUT_SECS {
+                warn!("loading screen: the start still waits for {} after {waited:.0} s; going on without it", wait.join(", "));
+            } else {
+                return;
+            }
+        }
+        loading.start = None;
+        info!("loading screen down after {waited:.2} s (the start: cells, actors and scripts ready); the test aids and --run-seconds count from now");
     } else {
-        let (since, frames) = trip.ready.get_or_insert((now, 0));
-        *frames += 1;
-        if *frames < SETTLE_FRAMES || now - *since < SETTLE_SECS {
-            return;
-        }
+        return;
     }
-    info!("loading screen down after {waited:.2} s");
-    loading.trip = None;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -521,5 +639,88 @@ mod tests {
         assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Menu);
         assert!(app.world().resource::<crate::pause::Paused>().0);
         assert!(!app.world().resource::<Loading>().active());
+    }
+    /// Come down once nothing is missing, after the settle time (at most 10 s of frames).
+    fn until_down(app: &mut App) {
+        let t0 = std::time::Instant::now();
+        while app.world().resource::<Loading>().active() {
+            assert!(t0.elapsed().as_secs_f64() < 10.0, "the screen never came down");
+            app.update();
+        }
+        app.update();
+    }
+
+    #[test]
+    fn the_start_is_held_until_the_actors_are_drawn() {
+        let mut app = app();
+        app.insert_resource(StartCover);
+        app.update();
+        // Up in the first frame, the game held; the aids' clock does not run under it.
+        assert!(app.world().resource::<Loading>().starting());
+        assert!(app.world().resource::<Time<Virtual>>().is_paused());
+        assert_eq!(app.world_mut().query::<&LoadingRoot>().iter(app.world()).count(), 1);
+        app.world_mut().resource_mut::<Loading>().actors_busy = true;
+        for _ in 0..10 {
+            app.update();
+        }
+        assert!(app.world().resource::<Loading>().starting(), "held while actors are still read");
+        app.world_mut().resource_mut::<Loading>().actors_busy = false;
+        until_down(&mut app);
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+        assert!(!app.world().resource::<Time<Virtual>>().is_paused());
+        assert_eq!(app.world_mut().query::<&LoadingRoot>().iter(app.world()).count(), 0);
+        assert!(!app.world().contains_resource::<StartCover>());
+    }
+
+    #[test]
+    fn the_aids_clock_stands_still_under_the_start_screen() {
+        let mut app = app();
+        app.init_resource::<crate::pause::PlayClock>().add_systems(Update, crate::pause::tick_play_clock.before(PlaySet::Input));
+        app.insert_resource(StartCover);
+        app.update();
+        let t0 = std::time::Instant::now();
+        while t0.elapsed().as_secs_f64() < 0.1 {
+            app.update();
+        }
+        assert!(app.world().resource::<Loading>().starting());
+        assert_eq!(app.world().resource::<crate::pause::PlayClock>().stopped_secs(), 0.0);
+    }
+
+    #[test]
+    fn a_travel_screen_waits_for_the_destinations_actors() {
+        let mut app = app();
+        app.update();
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        app.world_mut().write_message(TravelRequest(t));
+        app.world_mut().resource_mut::<Loading>().actors_busy = true;
+        for _ in 0..10 {
+            app.update();
+        }
+        assert!(app.world().resource::<Loading>().travelling(), "held while actors are still read");
+        app.world_mut().resource_mut::<Loading>().actors_busy = false;
+        until_down(&mut app);
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+    }
+
+    #[test]
+    fn a_travel_under_the_start_screen_goes_out_and_the_start_waits_on() {
+        let mut app = app();
+        app.insert_resource(StartCover);
+        app.update();
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        app.world_mut().write_message(TravelRequest(t));
+        app.world_mut().resource_mut::<Loading>().actors_busy = true;
+        app.update();
+        app.update();
+        assert_eq!(sent(&mut app), 1, "the travel goes out behind the start's screen");
+        assert_eq!(app.world_mut().query::<&LoadingRoot>().iter(app.world()).count(), 1, "one screen");
+        for _ in 0..10 {
+            app.update();
+        }
+        assert!(app.world().resource::<Loading>().starting());
+        app.world_mut().resource_mut::<Loading>().actors_busy = false;
+        until_down(&mut app);
+        assert!(!app.world().resource::<Loading>().active());
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
     }
 }

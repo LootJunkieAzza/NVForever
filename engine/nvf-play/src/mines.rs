@@ -38,7 +38,7 @@ use crate::combat::{actor_av, Combat, DESTRUCTION_BLAST_HEIGHT};
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::script::ScriptState;
+use crate::script::{with_world, ScriptState};
 use crate::sfx::{PlaySound, Sfx};
 use crate::sim::SimState;
 use crate::{PlaySet, RefChanged, RefVisual};
@@ -72,6 +72,8 @@ pub struct Mines {
     live: HashMap<FormId, V3>,
     /// Whether each live mine's light is lit now (by FormID).
     lit: HashMap<u32, bool>,
+    /// (mine, actor) pairs whose perks kept the mine from going off, logged once.
+    spared: HashSet<(FormId, FormId)>,
 }
 
 struct Burning {
@@ -188,10 +190,31 @@ pub(crate) fn tick(
             let owner = sim.world.peek(id).and_then(|r| r.extra.owner).or_else(|| sim.refs.get(id).and_then(|r| r.owner));
             let radius = m.rules.trigger_radius(&p, exterior);
             let rt = script.as_deref().and_then(|s| s.rt.as_ref());
-            let by = bodies.iter().map(|&(a, feet, h)| (a, body_distance(pos, feet, h))).filter(|&(_, d)| d <= radius).find(|&(a, _)| match rt {
-                Some(rt) => !rt.game.is_dead(a) && !fnv_game::functions::mine_spares(&rt.game, owner, a),
-                None => owner != Some(a),
-            });
+            let near: Vec<(FormId, f32)> = bodies
+                .iter()
+                .map(|&(a, feet, h)| (a, body_distance(pos, feet, h)))
+                .filter(|&(_, d)| d <= radius)
+                .filter(|&(a, _)| match rt {
+                    Some(rt) => !rt.game.is_dead(a) && !fnv_game::functions::mine_spares(&rt.game, owner, a),
+                    None => owner != Some(a),
+                })
+                .collect();
+            // Light Step's Calculate Mine Explode Chance: an actor whose chance is 0 does
+            // not set it off (the player, and teammates with ED-E's Light Step;
+            // docs/spec-notes/perk-entry-points.md §8) [design: the masters' entries all
+            // Set 0, so no part chance is rolled].
+            let mut by = None;
+            for (a, d) in near {
+                let chance = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(1.0, |rt| with_world(rt, &mut sim, |rt| rt.game.entry_point(a, fnv_game::perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0));
+                if chance <= 0.0 {
+                    if m.spared.insert((id, a)) {
+                        info!("mines: {a} does not set off mine {id} at {d:.0} units (Calculate Mine Explode Chance {chance}: Light Step)");
+                    }
+                    continue;
+                }
+                by = Some((a, d));
+                break;
+            }
             if let Some((a, d)) = by {
                 // Without scripts there are no actor values: a middling skill [design].
                 let skill = actor_av(script.as_deref_mut(), &mut sim, a, fnv_game::actor_values::EXPLOSIVES).unwrap_or(50.0);

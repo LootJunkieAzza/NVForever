@@ -54,11 +54,13 @@ pub fn remove_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 
 /// `ref.CastImmediateOnSelf spell`: the spell's effects apply to the caller at once,
 /// with their durations [documented: catalogue summary; hypothesis: no casting
-/// animation or projectile is involved].
+/// animation or projectile is involved], and its area effects to the actors around it
+/// (`crate::area_effects`).
 pub fn cast_immediate_on_self(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = magic_item(g, a)?;
     g.apply_magic_item(r, s, Some(r), false);
+    g.spread_area(r, s, Some(r), false);
     none()
 }
 

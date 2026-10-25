@@ -256,12 +256,14 @@ impl Game<'_> {
     }
 
     /// The stimpak the player would give: a carried ingestible of equip type Stimpak
-    /// (ETYP 11), the one named `Stimpak` first [hypothesis: which one; observed: the
-    /// masters' Stimpak and Super Stimpak both have equip type 11].
+    /// (ETYP 11), the DOBJ's Stimpak (place 0 [documented: xEdit DOBJ names]; FalloutNV.esm
+    /// names `Stimpak` 0x00015169 there [observed]) first, else the one with Editor ID
+    /// `Stimpak` [hypothesis: which one; observed: the masters' Stimpak and Super Stimpak
+    /// both have equip type 11].
     pub fn wheel_stimpak(&self) -> Option<(FormId, i32)> {
         let data = self.data;
         let inv = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref())?;
-        let plain = data.by_edid("Stimpak");
+        let plain = data.default_object(crate::data::DefaultObject::Stimpak).or_else(|| data.by_edid("Stimpak"));
         let mut found: Vec<(FormId, i32)> = inv.iter().filter(|(i, n)| *n > 0 && data.ingestibles.get(i).is_some_and(|d| d.equip_type == 11)).collect();
         found.sort_by_key(|(i, _)| (Some(*i) != plain, *i));
         let total = found.iter().map(|(_, n)| n).sum();

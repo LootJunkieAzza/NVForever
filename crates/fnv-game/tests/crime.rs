@@ -33,6 +33,10 @@ const FIEND_REF: u32 = 0x322;
 const STRANGER_REF: u32 = 0x323;
 const TRINKET_REF: u32 = 0x330;
 const GANG_TRINKET_REF: u32 = 0x331;
+const SHOP_DOOR: u32 = 0x860;
+/// Two teleport doors into the shop: the first flagged No Alarm (XTEL), the second not.
+const QUIET_DOOR_REF: u32 = 0x340;
+const LOUD_DOOR_REF: u32 = 0x341;
 
 const GET_ACTOR_CRIME_PLAYER_ENEMY: u16 = 0x11CB;
 const GET_MINOR_CRIME_COUNT: u16 = 0x1074;
@@ -97,6 +101,9 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let misc = record(b"MISC", 0, TRINKET, &[sub(b"EDID", z("Trinket")), sub(b"DATA", [5i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
+    let door = record(b"DOOR", 0, SHOP_DOOR, &[sub(b"EDID", z("ShopDoor"))]);
+    // XTEL: destination door, position and rotation, No Alarm (u32) [xEdit REFR XTEL].
+    let xtel = |to: u32, no_alarm: u32| sub(b"XTEL", [to.to_le_bytes().to_vec(), vec![0; 24], no_alarm.to_le_bytes().to_vec()].concat());
     // An interior cell, not public, owned by the shopkeeper.
     let cell = record(b"CELL", 0, SHOP, &[sub(b"EDID", z("Shop")), sub(b"DATA", vec![0x01]), sub(b"XOWN", SHOPKEEPER.to_le_bytes().to_vec())]);
     let refs = [
@@ -107,6 +114,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", CONVICT_REF, CONVICT, vec![]),
         placed(b"REFR", TRINKET_REF, TRINKET, vec![]),
         placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
+        placed(b"REFR", QUIET_DOOR_REF, SHOP_DOOR, vec![xtel(LOUD_DOOR_REF, 1)]),
+        placed(b"REFR", LOUD_DOOR_REF, SHOP_DOOR, vec![xtel(QUIET_DOOR_REF, 0)]),
     ]
     .concat();
     let children = group(SHOP.to_le_bytes(), 6, &group(SHOP.to_le_bytes(), 9, &refs));
@@ -115,6 +124,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"FACT", &factions),
         top(b"NPC_", &npcs),
         top(b"MISC", &misc),
+        top(b"DOOR", &door),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
@@ -300,6 +310,24 @@ fn a_seen_trespasser_is_warned_twice_then_attacked() {
     // A public cell is no trespass.
     g.forms.public_cells.insert(FormId(SHOP), true);
     assert_eq!(call(&mut g, IS_TRESPASSING, Some(0x14), &[]), 0.0);
+}
+
+#[test]
+fn a_no_alarm_door_excuses_trespassing_in_its_cell() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, IS_TRESPASSING, Some(0x14), &[]), 1.0);
+    // In through the door flagged No Alarm: not trespassing, so no warning.
+    g.arrived_through(FormId(QUIET_DOOR_REF), Some(FormId(SHOP)));
+    assert!(g.crimes.take_notes().contains(&Note::NoAlarm { door: FormId(QUIET_DOOR_REF), cell: FormId(SHOP) }));
+    assert_eq!(call(&mut g, IS_TRESPASSING, Some(0x14), &[]), 0.0);
+    sees(&mut g, SHOPKEEPER_REF);
+    g.crime_tick();
+    assert_eq!(call(&mut g, GET_TRESPASS_WARNING_LEVEL, Some(SHOPKEEPER_REF), &[ArgValue::Value(Value::Ref(0x14))]), 0.0);
+    // In through the other door: trespassing again.
+    g.arrived_through(FormId(LOUD_DOOR_REF), Some(FormId(SHOP)));
+    assert!(g.crimes.take_notes().is_empty());
+    assert_eq!(call(&mut g, IS_TRESPASSING, Some(0x14), &[]), 1.0);
 }
 
 #[test]

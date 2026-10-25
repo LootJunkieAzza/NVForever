@@ -27,14 +27,39 @@ Category:NPC]; hypothesis: the two flags go with that tab). Logged at exit: `sho
 impacts on actors flagged No Blood Spray not shown`, `decals: … hits on actors flagged No
 Blood Decal left none`.
 
-## 3. Is Ghost (CREA ACBS bit 28): not applied
+## 3. CREA ACBS bits 27–31 (corrected 2026-10-24)
 
-124 creatures have bit 28, which xEdit names "Is Ghost". They include the wild dogs
-(`VCrTier1DogWildMedNR` and others), giant rats and big horners that the player kills in
-normal play. So in the original the bit cannot mean what SetGhost means ("cannot be harmed
-… Projectiles pass through them" [documented: GECK wiki SetGhost]) [observed]. Applying it
-would make those creatures unkillable. Not applied; SetGhost works as before. What the bit
-does in the original is an open question.
+The schema followed an xEdit list that names bit 27 twice ("Not Pushable / Allow
+Pickpocket"), so every later name sat one bit too low. The GECK wiki's ActorHasBaseFlag
+table gives, for creatures, 27 Not Pushable, 28 Allow Pickpocket, 29 Is Ghost, 30 No
+Rotating To Head-track, 31 Invulnerable [documented: owner's export, functions.xml]. The
+records agree [observed: raw read of the ten masters, 2026-10-24]:
+
+| Bit | Name | FalloutNV.esm | Examples |
+|---|---|---|---|
+| 28 | Allow Pickpocket | 124 | wild dogs, giant rats, big horners, ED-E's upgrade forms |
+| 29 | Is Ghost | 6 (DM 4, OWB 4) | the tumbleweeds, Festus, the Gun Runners' protectron, Dead Money holograms, OWB's brain tank |
+| 30 | No Rotating To Head-track | 4 | the tumbleweeds, CG02Andy |
+| 31 | Invulnerable | 10 (DM 20, OWB 4) | Mr. House, Yes Man and his mainframe, House's securitrons, Festus, ARCHIMEDES, the Dead Money holograms |
+
+What this changes:
+
+- **Invulnerable** (`Game::is_immune`) now holds for the creatures above; before, the
+  tumbleweeds and CG02Andy (bit 30) were invulnerable and Mr. House was not.
+- **Is Ghost** is applied: the actor counts as SetGhost 1 from the start ("cannot be
+  harmed … Projectiles pass through them … Enemies … will not go into combat or detect"
+  [documented: GECK wiki SetGhost notes]): `Game::is_ghost` reads the flag from the
+  definition supplying the base data, so shots and blows pass through such creatures
+  (`nvf_play::combat::ghosts`), they take no damage and enemies ignore them. SetGhost 0
+  clears it for that reference [hypothesis: the script wins over the base flag];
+  GetIsGhost reads both. The earlier note here said "Is Ghost" (then read off bit 28)
+  could not mean SetGhost's ghost because dogs and rats had it: that was bit 28, Allow
+  Pickpocket.
+- **No Rotating To Head-track** moves from bit 29 to bit 30 (actor-fields.md §1).
+- **Allow Pickpocket**: docs/spec-notes/pickpocket.md.
+
+Smoke: `ghost-tumbleweed` (shots pass through a tumbleweed), `blood-none-ant` (the No
+Blood checks of §2 now on an explosive Nellis ant, as the tumbleweed is a ghost).
 
 ## 4. Allow PC Dialogue (CREA ACBS bit 21)
 
@@ -97,6 +122,6 @@ allowed too, since it is said by that actor only [hypothesis]. A VTYP without DN
 ## 10. Checks
 
 Unit test: `fnv_sim::leveled::rolls_none`. Smoke: `vats-no-melee-turret` (a melee mark on
-a ceiling turret is refused), `blood-none-tumbleweed` (hits on a tumbleweed leave no
-spray and no decal), plus the dialogue, creature talk (`creature-no-talk`,
+a ceiling turret is refused), `blood-none-ant` (hits on an explosive Nellis ant leave no
+spray and no decal), `ghost-tumbleweed`, plus the dialogue, creature talk (`creature-no-talk`,
 `creature-names`) and VATS scenarios already there.

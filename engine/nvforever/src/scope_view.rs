@@ -45,7 +45,8 @@ const PLACE: Vec3 = Vec3::new(0.0, -220_000.0, 0.0);
 pub const VIEW_HEIGHT: f32 = 920.0;
 /// The mask's half width: black beyond it [observed: `keepScope01:0` spans ±740].
 const MASK_HALF_WIDTH: f32 = 740.0;
-/// The night-vision scope's image space modifier, by Editor ID [hypothesis, §4].
+/// The night-vision scope's image space modifier, by Editor ID [hypothesis, §4]. No DOBJ
+/// place names a scope image space (default-objects.md §1), so it stays an Editor ID.
 pub const NIGHT_SCOPE_IMAD: &str = "NightScopeISFX";
 /// The scope's wobble [observed, §5].
 pub const WOBBLE_MODEL: &str = "meshes\\characters\\weaponwobbles\\scopewobble.nif";
