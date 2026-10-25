@@ -27,6 +27,12 @@ use std::sync::Arc;
 /// for far fewer; particles.md quotes 12 and 14].
 pub const MAX_PARTICLES: usize = 8192;
 
+/// The most points one particle's strip keeps, whatever its file asks for: a broken
+/// file's `max_point_count` (up to 65,535) times [`MAX_PARTICLES`] long-lived particles
+/// would fill gigabytes [design; vanilla strips ask for 4 to 33, observed:
+/// docs/spec-notes/nif-engine-gap-audit.md].
+pub const MAX_STRIP_POINTS: usize = 256;
+
 #[derive(Debug, Clone)]
 pub struct FloatKeys {
     pub channel: Channel<1>,
@@ -1231,7 +1237,7 @@ impl ModelCtx<'_> {
                 drag: Vec::new(),
                 bombs: Vec::new(),
                 colliders: Vec::new(),
-                strip: strips.then(|| Strip { max_points: data.and_then(|d| d.int("max_point_count")).unwrap_or(2).max(2) as usize, step: 1.0 / 30.0 }),
+                strip: strips.then(|| Strip { max_points: data.and_then(|d| d.int("max_point_count")).unwrap_or(2).clamp(2, MAX_STRIP_POINTS as i64) as usize, step: 1.0 / 30.0 }),
                 subtextures: data
                     .and_then(|d| d.floats("subtexture_offsets"))
                     .map(|f| f.as_chunks::<4>().0.to_vec())

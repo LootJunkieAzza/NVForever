@@ -266,3 +266,145 @@ fn parent_loops_are_broken() {
     let objs = scene_objects(&f, &dec);
     assert_eq!(objs.iter().map(|o| o.parent).collect::<Vec<_>>(), [None, Some(0), None]);
 }
+
+/// A chain of nodes each listing the next, closed into a loop by its last: every link but
+/// the closing one is kept. The loop check takes about one step per link (a walk to the
+/// root per link took minutes on a long chain).
+#[test]
+fn deep_chains_link_and_their_loop_is_broken() {
+    let s = schema();
+    const N: usize = 50_000;
+    let blocks: Vec<(&str, Vec<u8>)> = (0..N).map(|k| ("NiNode", node(((k + 1) % N) as i32))).collect();
+    let data = build(&blocks, &["Root"], &[0]);
+    let f = NifFile::parse(&data, Some(&s)).unwrap();
+    let dec = Decoded::new(&f, &data, &s);
+    let objs = scene_objects(&f, &dec);
+    assert_eq!(objs.len(), N);
+    assert_eq!(objs[0].parent, None);
+    assert!(objs.iter().skip(1).all(|o| o.parent == Some(o.block - 1)));
+    assert_eq!(fnv_nif::scene::geometry_order(&objs).len(), 0);
+}
+
+/// NiGeomMorpherController (Active, no interpolators) on block 2, with its NiMorphData.
+fn morpher(data: i32) -> Vec<u8> {
+    let mut w = W::default();
+    w.i32(-1).u16(8).f(&[1.0, 0.0, 0.0, 1.0]).i32(1); // next, flags, frequency, phase, start, stop, target
+    w.u16(0).i32(data).u8(0).u32(0); // morpher flags, data, always update, no interpolators
+    w.0
+}
+
+fn morph_data(num_vertices: u32) -> Vec<u8> {
+    let mut w = W::default();
+    w.u32(0).u32(num_vertices).u8(1); // no morphs, vertices, relative targets
+    w.0
+}
+
+/// A morph data block claiming four billion vertices and holding no morphs: the
+/// morpher's vertex count is cut to what its morphs hold, so sampling it allocates
+/// nothing.
+#[test]
+fn huge_morph_vertex_counts_are_cut() {
+    let s = schema();
+    let data = build(
+        &[("BSFadeNode", node(1)), ("NiTriStrips", tri_strips(2)), ("NiGeomMorpherController", morpher(3)), ("NiMorphData", morph_data(u32::MAX))],
+        &["Root", "Shape"],
+        &[0],
+    );
+    let f = NifFile::parse(&data, Some(&s)).unwrap();
+    assert!(f.decode_block(&s, &data, 2).is_ok() && f.decode_block(&s, &data, 3).is_ok());
+    let dec = Decoded::new(&f, &data, &s);
+    let g = fnv_nif::anim::geom_morphers(&f, &dec);
+    assert_eq!(g.len(), 1);
+    assert_eq!(g[0].num_vertices, 0);
+    let mut out = Vec::new();
+    g[0].positions_at(0.5, &mut out);
+    assert!(out.is_empty());
+}
+
+/// Everything that reads a decoded file, run over it (a broken file must give results,
+/// not panics, hangs or huge allocations).
+fn read_everything(data: &[u8], s: &Schema) {
+    let Ok(f) = NifFile::parse(data, Some(s)) else { return };
+    let dec = Decoded::new(&f, data, s);
+    let objs = scene_objects(&f, &dec);
+    let _ = fnv_nif::scene::geometry_order(&objs);
+    for (i, b) in dec.blocks.iter().enumerate() {
+        let Ok(b) = b else { continue };
+        let m = mesh_data(b);
+        let _ = shape_summary(i, &f.blocks[i].type_name, b);
+        let _ = fnv_nif::scene::segment_triangles(b, m.triangles.len());
+        let _ = fnv_nif::anim::transform_track(&dec, i as i32, &f.blocks[i].type_name);
+        let _ = fnv_nif::anim::value_track(&dec, i as i32, &f.blocks[i].type_name);
+        let _ = fnv_nif::anim::bool_track(&dec, i as i32);
+    }
+    for seq in fnv_nif::anim::sequences(&f, &dec) {
+        for t in &seq.tracks {
+            if let fnv_nif::anim::TrackData::Transform(tr) = &t.data {
+                let _ = (tr.translation.sample(0.5), tr.rotation_at(0.5), tr.scale.sample(f32::NAN));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for g in fnv_nif::anim::geom_morphers(&f, &dec) {
+        assert!(g.num_vertices <= data.len(), "morph vertex count {} from a {}-byte file", g.num_vertices, data.len());
+        g.positions_at(0.5, &mut out);
+        let _ = g.moves();
+    }
+}
+
+fn morph_sample() -> Vec<u8> {
+    build(
+        &[("BSFadeNode", node(1)), ("NiTriStrips", tri_strips(2)), ("NiTriStripsData", strips_data()), ("NiGeomMorpherController", morpher(4)), ("NiMorphData", morph_data(4))],
+        &["Root", "Shape"],
+        &[0],
+    )
+}
+
+/// Every truncation of the samples reads without a panic.
+#[test]
+fn every_truncation_reads() {
+    let s = schema();
+    for data in [sample(), morph_sample()] {
+        for cut in 0..data.len() {
+            read_everything(&data[..cut], &s);
+        }
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(400))]
+    /// Several bytes or whole words overwritten, with the values broken counts and
+    /// indices tend to take (0, -1, the sign bit, the largest), then perhaps truncated.
+    #[test]
+    fn mutated_files_read_without_panics(
+        edits in proptest::collection::vec((0usize..1000, 0u8..6, proptest::prelude::any::<u32>()), 1..8),
+        cut in proptest::option::of(0usize..1000),
+        morphs in proptest::prelude::any::<bool>(),
+    ) {
+        let s = schema();
+        let mut data = if morphs { morph_sample() } else { sample() };
+        for (pos, kind, x) in edits {
+            let p = pos % data.len();
+            let word: u32 = match kind {
+                0 => 0,
+                1 => u32::MAX,
+                2 => 0x8000_0000,
+                3 => 0x7FFF_FFFF,
+                4 => x,
+                _ => {
+                    data[p] = x as u8;
+                    continue;
+                }
+            };
+            for (k, b) in word.to_le_bytes().into_iter().enumerate() {
+                if let Some(d) = data.get_mut(p + k) {
+                    *d = b;
+                }
+            }
+        }
+        if let Some(c) = cut {
+            data.truncate(c % (data.len() + 1));
+        }
+        read_everything(&data, &s);
+    }
+}
