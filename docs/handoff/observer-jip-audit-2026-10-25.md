@@ -225,7 +225,7 @@ All in `tools/capture/observe.py`, tests in `tests/test_observe.py`:
 
 In order of payoff. Each says where, what, and how sure.
 
-1. **Limb damage without the part multiplier.**
+1. **Limb damage without the part multiplier.** Built 2026-10-25 in claude/limb-damage-part-mult (PR #770): `Damage::limb_damage`.
    - Where: `engine/nvf-play/src/combat.rs` `limb_hit` takes `d.dealt`, which includes `part_mult` (`crates/fnv-combat/src/damage.rs`, `raw = modified × sneak_mult × part_mult + crit_bonus`).
    - What: limb damage should be `dealt ÷ part_mult × Limb Dmg Mult`. Today a head hit costs the head twice the condition the game takes.
    - Tests: a unit test in fnv-combat (a head hit dealing 30.12 with the ×2, on a 215-health actor with Limb Dmg Mult 1, costs 15.06 ÷ (215 × 0.20) × 100 = 35.0 points); update combat-rules.md "Damage".
