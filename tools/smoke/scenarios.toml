@@ -1283,10 +1283,10 @@ expect = [
 [[scenario]]
 name = "radio-jukebox"
 launch = "saloon-jukebox"
-source = "CLAUDE.md: after radio changes, the saloon jukebox switched off at 20 s and on at 28 s (docs/spec-notes/radio.md §6)"
+source = "CLAUDE.md: after radio changes, the saloon jukebox switched off at 14 s and on at 22 s (docs/spec-notes/radio.md §6: the programme runs on from when first heard, at the scripts' first frame, so it comes back about 22 s in; the aids count from the same frame since the start's loading screen, #703)"
 areas = ["radio", "audio"]
 paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "20,28" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "14,22" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -1305,7 +1305,7 @@ launch = "saloon-jukebox"
 source = "CLAUDE.md: after changes to activators' on/off looks or to sequences on materials (docs/spec-notes/activators.md §3): the saloon radio test"
 areas = ["activators"]
 paths = ["engine/nvforever/src/activators.rs", "engine/nvf-assets/src/material_anim.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "20,28" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "14,22" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -1650,10 +1650,10 @@ expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped tex
 [[scenario]]
 name = "corner-messages"
 launch = "house-messages"
-source = "CLAUDE.md: after changes to the messages at the top left (docs/spec-notes/corner-messages.md §7)"
+source = "CLAUDE.md: after changes to the messages at the top left (docs/spec-notes/corner-messages.md §7); the messages at 1 s, done before the add-ons' start-up message boxes (from about 5 s of the scripts' time) hold the queue"
 areas = ["corner-messages", "hud"]
 paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/script_events.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:message:FactionReminderNCR,3.1:message:AbilityWellRestedStartMsg" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 20
 order = [[
