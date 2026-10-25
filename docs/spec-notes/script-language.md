@@ -218,8 +218,9 @@ Where the documentation and a capture disagree, the capture wins; every differen
   [observed: capture job `od_09a_disabled_ref_script`, 2026-10-18: the skull's `timer`
   fell from 998.19 to 992.94 over 300 loops while disabled, owner-decision-captures.md].
   Runtime: `Game::active_refs` runs GameMode and MenuMode for disabled references
-  (MenuMode with them is [hypothesis]); OnLoad at a cell load still needs the reference
-  enabled [hypothesis]; see §7.2 row 5.
+  (MenuMode with them is [hypothesis]); `Game::set_loaded` runs OnLoad at a cell load
+  for disabled references too [observed for VMS15's rising plane, layer5-captures.md
+  §8.3 d]; see §7.2 row 5.
 - **Quest scripts** run only while the quest runs, at its delay; a tiny delay (0.01, or
   0.001 in another page) amounts to every frame [documented: Quest scripts; Scripting for
   Beginners]. Captured the same (quests-dialogue.md §5).
@@ -368,10 +369,12 @@ Candidates for the capture plugin (`nvf_capture`, layer5-captures.md). Job scrip
 compiled by the game, so plain `set`/`if` statements in a job behave as vanilla.
 
 1. **Disabled references' GameMode** (settled for GameMode by `od_09a_disabled_ref_script`,
-   §7.2 row 5; OnLoad on a cell load is still open): disable the skull in Doc Mitchell's house (FalloutNV
+   §7.2 row 5; OnLoad on a cell load read from the rising plane, layer5-captures.md §8.3 d,
+   with "cell load or inside Enable" not yet told apart): disable the skull in Doc Mitchell's house (FalloutNV
    0x00104C10, the round 4 stopwatch, layer5-captures.md §10.4), start its timer and
    sample `timer`. Settles §7.2 row 5 for GameMode; OnLoad of a disabled reference on a
-   cell load is a second job.
+   cell load is a second job (read `bLoaded` of VMS15's plane after the cell load, before
+   any Enable).
 2. **Scripted items outside the player's inventory**: add JarPistolPowder to a container
    and to an NPC in the loaded cell and watch the holder's PowderPistol count
    (`L5.quest.onadd_gamemode` with another holder; §7.2 row 6). Also OnAdd once per call

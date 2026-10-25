@@ -61,6 +61,17 @@ pub struct WantsEmittance(pub u32);
 #[derive(Component, Clone, Debug)]
 pub struct ScriptDrawnModel(pub String);
 
+/// On the rig root of a model drawn here whose rig has named sequences (`Forward`,
+/// `Left`, …): its node entities by name, so the engine can play the groups scripts
+/// ask for on it as on one render streaming drew (`nvforever::object_anims`). VMS15's
+/// rising bomber is enabled by the detonator and then plays `Forward`.
+#[derive(Component, Clone, Debug)]
+pub struct ScriptDrawnRig {
+    pub reference: u32,
+    pub path: String,
+    pub nodes: HashMap<String, Entity>,
+}
+
 #[derive(Resource, Default)]
 pub struct ScriptDrawn {
     /// Dormant references per render cell, read when the cell first loads.
@@ -198,8 +209,11 @@ fn sync(
                     // mine's light parts (`crate::mines::MineLight`).
                     let shapes = match model.rig.as_ref().filter(|rig| rig.idle.is_some() || rig.door.is_some() || !rig.groups.is_empty()) {
                         Some(rig) => {
-                            let (r, drawn) = rig.spawn(&mut commands, root, Transform::IDENTITY, &d.path);
+                            let (r, drawn, nodes) = rig.spawn_nodes(&mut commands, root, Transform::IDENTITY, &d.path, 0.0);
                             commands.entity(r).insert(RefVisual(id));
+                            if !rig.groups.is_empty() {
+                                commands.entity(r).insert(ScriptDrawnRig { reference: id, path: d.path.clone(), nodes });
+                            }
                             for e in &drawn {
                                 commands.entity(*e).insert(RefVisual(id));
                             }
