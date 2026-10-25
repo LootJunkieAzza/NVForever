@@ -832,9 +832,13 @@ impl Game<'_> {
     /// within the cooldown ([`Timers::bark_cooldown`], [`Game::bark_mates`]). A warning
     /// (GuardTrespass) has no cooldown: each of the warnings, `fAITrespassWarningTimer`
     /// apart, is said (`crate::aggro`, `crate::crime`) [design: the 15 s cooldown kept the
-    /// second warning silent].
+    /// second warning silent]; and it cuts a hello the actor is still saying [design: a
+    /// Gomorrah guard's hello as the player came near silenced his first warning, smoke
+    /// `warning-guard-draws`, 2026-10-25].
     pub fn detection_bark(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) {
-        if self.menu.is_some() || self.dialogue.is_some() || self.is_talking(actor) {
+        let warning = topic == "GuardTrespass";
+        let hello_only = self.speech.iter().filter(|s| s.speaker == actor).all(|s| s.hello) && !self.dialogue.as_ref().is_some_and(|c| c.actor == actor);
+        if self.menu.is_some() || self.dialogue.is_some() || (self.is_talking(actor) && !(warning && hello_only)) {
             return;
         }
         let data = self.data;
@@ -845,7 +849,6 @@ impl Game<'_> {
         let at = position(self, actor);
         self.awareness.said.retain(|s| now - s.time < cooldown);
         let said = self.awareness.said.clone();
-        let warning = topic == "GuardTrespass";
         if let Some(by) = held_back_by(&said, kind, at, |other| self.bark_mates(actor, other)).filter(|_| !warning) {
             self.awareness.held_back.push((topic, actor, by));
             return;
