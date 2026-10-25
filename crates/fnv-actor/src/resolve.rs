@@ -12,7 +12,7 @@
 //! 4. The weapon an actor holds: among the same carried items, the drawable weapon with
 //!    the highest damage, a gun's explosion counted (§9; `crate::weapon::choose_weapon`).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fnv_sim::forms::{BaseData, ItemKind};
 use fnv_sim::zones::LevelAt;
@@ -508,7 +508,7 @@ impl<'a> Resolver<'a> {
                 push_race_part(&mut parts, role, race_id, p, texture);
             }
             for &hp in &model.head_parts {
-                self.push_head_part(&mut parts, hp, 0);
+                self.push_head_part(&mut parts, hp, 0, &mut HashSet::new());
             }
         }
         // Hair (§2.4): gone with the head; under headgear covering Hat, the hair model's
@@ -554,14 +554,19 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    fn push_head_part(&self, parts: &mut Vec<Part>, id: FormId, depth: u32) {
+    /// A head part and its extra parts, each once (`seen`): a part naming itself or a
+    /// part already in (a broken mod) adds nothing more.
+    fn push_head_part(&self, parts: &mut Vec<Part>, id: FormId, depth: u32, seen: &mut HashSet<FormId>) {
+        if !seen.insert(id) {
+            return;
+        }
         let Some(h) = self.actors.head_parts.get(&id) else { return };
         if let Some(m) = &h.model {
             parts.push(Part { role: "head_part".into(), form: id, model: mesh_path(m), texture: None });
         }
         if depth < MAX_DEPTH {
             for &e in &h.extra {
-                self.push_head_part(parts, e, depth + 1);
+                self.push_head_part(parts, e, depth + 1, seen);
             }
         }
     }
@@ -796,11 +801,21 @@ pub fn pick_leveled(entries: &[(u16, FormId)], all_levels: bool, level: u16, rng
 /// or an LVLG global, a pool of more than one distinct entry, or such a list among the
 /// entries it can produce. Plain items are not random.
 pub fn leveled_item_random(forms: &FormStore, item: FormId, depth: u32) -> bool {
+    random_list(forms, item, depth, &mut HashSet::new())
+}
+
+/// [`leveled_item_random`], each list looked at once (`seen`): a list met again has
+/// already had its say, so lists naming themselves or each other (a broken mod) cost
+/// one look each, not one per path.
+fn random_list(forms: &FormStore, item: FormId, depth: u32, seen: &mut HashSet<FormId>) -> bool {
     let Some(list) = forms.leveled(item) else { return false };
     if depth > MAX_DEPTH {
         return true;
     }
-    if !yields_armor(forms, item, 0) {
+    if !seen.insert(item) {
+        return false;
+    }
+    if !yields_armor(forms, item, 0, &mut HashSet::new()) {
         return false;
     }
     let entries: Vec<(u16, FormId)> = list.entries.iter().map(|e| (e.level, e.item)).collect();
@@ -812,17 +827,21 @@ pub fn leveled_item_random(forms: &FormStore, item: FormId, depth: u32) -> bool 
     if !list.use_all && distinct(reachable.iter().map(|e| e.1)) > 1 {
         return true;
     }
-    reachable.iter().any(|e| leveled_item_random(forms, e.1, depth + 1))
+    reachable.iter().any(|e| random_list(forms, e.1, depth + 1, seen))
 }
 
 /// Whether `item` is armour or a leveled list that can produce armour at the display
 /// level.
-fn yields_armor(forms: &FormStore, item: FormId, depth: u32) -> bool {
+/// Each list looked at once (`seen`), as in [`random_list`].
+fn yields_armor(forms: &FormStore, item: FormId, depth: u32, seen: &mut HashSet<FormId>) -> bool {
     if let Some(list) = forms.leveled(item) {
+        if !seen.insert(item) {
+            return false;
+        }
         let entries: Vec<(u16, FormId)> = list.entries.iter().map(|e| (e.level, e.item)).collect();
         let (pool, eligible) = leveled_pool(&entries, list.all_levels, DISPLAY_LEVEL);
         let reachable = if list.use_all { eligible } else { pool };
-        return depth <= MAX_DEPTH && reachable.iter().any(|e| yields_armor(forms, e.1, depth + 1));
+        return depth <= MAX_DEPTH && reachable.iter().any(|e| yields_armor(forms, e.1, depth + 1, seen));
     }
     matches!(forms.get(item).map(|b| &b.data), Some(BaseData::Item(i)) if i.kind == ItemKind::Armor)
 }
@@ -893,6 +912,23 @@ mod tests {
         }
         assert_eq!(pick_leveled(&e, false, 9, &mut rng), Some(FormId(11)));
         assert_eq!(pick_leveled(&[(3, FormId(1))], false, 1, &mut rng), None);
+    }
+
+    /// Leveled lists naming themselves and each other many times (a broken mod) are
+    /// looked at once each, not once per path (which never ended).
+    #[test]
+    fn self_naming_leveled_lists_end() {
+        use fnv_sim::forms::{BaseForm, LeveledEntry, LeveledList};
+        let mut forms = FormStore::default();
+        for (id, other) in [(1u32, 2u32), (2, 1)] {
+            let entries = (0..8)
+                .map(|k| LeveledEntry { level: 1, item: FormId(if k % 2 == 0 { id } else { other }), count: 1, condition: None })
+                .collect();
+            let list = LeveledList { chance_none: 0, all_levels: false, each: false, use_all: false, global: None, entries };
+            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::LeveledItem(list) };
+            forms.bases.insert(FormId(id), base);
+        }
+        assert!(!leveled_item_random(&forms, FormId(1), 0));
     }
 
     #[test]

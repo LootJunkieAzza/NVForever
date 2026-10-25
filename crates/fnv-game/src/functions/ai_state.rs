@@ -82,6 +82,11 @@ enum Doing {
     /// Fleeing from a fight (`combat_group::Flight`, in any combat state).
     Fleeing,
     Searching,
+    /// Warning the player, in Normal (`Game::warning_to`): the game runs a Guard package
+    /// of its own meanwhile [observed: a young gecko's package read a form made at run
+    /// time (FF…), GetCurrentAIPackage 35 GUARD and GetCurrentAIProcedure 44 GUARD from
+    /// its first warning until it fought; capture `warnings`, young_gecko, 2026-10-24].
+    Warning,
     Package(Option<PackageType>),
 }
 
@@ -104,6 +109,9 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
         State::Alert | State::Lost => return Doing::Searching,
         State::Normal => {}
     }
+    if g.warning_to(r).is_some() {
+        return Doing::Warning;
+    }
     let p = g.current_package(r);
     Doing::Package(p.and_then(|p| g.data.package_defs.get(&p)).map(|d| d.ty))
 }
@@ -120,6 +128,7 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
         Doing::Talking => 6,
         Doing::Fighting | Doing::Fleeing => 5,
         Doing::Searching => 29,
+        Doing::Warning => 35,
         Doing::Package(t) => t.map_or(0, package_code),
     };
     Ok(Value::Num(code as f64))
@@ -141,6 +150,7 @@ pub fn get_offers_services_now(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Val
 /// package can contain several possible procedures"]. Chosen here:
 ///
 /// - a conversation with the player or between two actors 4, combat 13, Alert or Lost 36;
+/// - warning the player (`Game::warning_to`) 44 GUARD [observed: [`Doing::Warning`]];
 /// - fleeing from a fight 16 FLEE [documented: the wiki's table names 16 FLEE;
 ///   hypothesis: it is the procedure of the combat AI's flight, as the IDLE tree reads it:
 ///   `CowerIdles` (FalloutNV.esm 0x0006CB4A) and `3rdPCrouchedHit` want 16 or 34 with
@@ -156,6 +166,7 @@ pub fn get_current_ai_procedure(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Va
         Doing::Fighting => 13,
         Doing::Fleeing => 16,
         Doing::Searching => 36,
+        Doing::Warning => 44,
         Doing::Package(None) => 0,
         Doing::Package(Some(t)) => package_procedure(t, phase, furniture.map(|u| (u.state, bed(&u))), goal_met),
     };

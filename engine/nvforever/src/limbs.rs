@@ -268,8 +268,16 @@ pub fn weapon_segment(shapes: &[ShapeBox]) -> Option<(Vec3, Vec3)> {
 fn rig_limbs(mut commands: Commands, combat: Res<Combat>, rigs: Query<(Entity, &ActorRig), Without<LimbRig>>) {
     for (e, rig) in &rigs {
         let mut limb = LimbRig { data: FormId(0), chains: Vec::new() };
-        if let Some(data) = combat.forms.body_parts_for(FormId(rig.base), &rig.skeleton) {
-            let parts = &combat.forms.body_parts[&data].parts;
+        // A body part data FormID that is missing or not a BPTD (a broken mod): no limbs.
+        let found = combat.forms.body_parts_for(FormId(rig.base), &rig.skeleton).and_then(|d| match combat.forms.body_parts.get(&d) {
+            Some(b) => Some((d, b)),
+            None => {
+                warn!("actor {:08X}: body part data {d} not found; no limbs", rig.reference);
+                None
+            }
+        });
+        if let Some((data, bpd)) = found {
+            let parts = &bpd.parts;
             let names: Vec<Option<&str>> = parts.iter().map(|p| p.node.as_deref()).collect();
             let bind: Vec<Vec3> = rig.skel.bind_world.iter().map(|a| Vec3::from(a.translation)).collect();
             limb.data = data;

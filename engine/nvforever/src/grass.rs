@@ -293,7 +293,8 @@ impl GrassCtx<'_> {
         let name = g.edid.clone().unwrap_or_else(|| format!("{:08X}", g.form_id));
         let made = match g.model.as_deref().map(model_path) {
             None => Err("no model".to_string()),
-            Some(path) => load_model(&path, models, &mut self.materials, params).map_err(|e| format!("{path}: {e}")),
+            // A panic reading a broken file counts as an error: that grass is not drawn.
+            Some(path) => nvf_assets::guard::guarded(|| load_model(&path, models, &mut self.materials, params)).map_err(|e| format!("{path}: {e}")),
         };
         let made = match made {
             Ok(m) => Some(Arc::new(m)),

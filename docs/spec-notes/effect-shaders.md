@@ -106,6 +106,12 @@ Read here as [hypothesis where marked]:
   material's view-angle falloff). The fall off value sets the angle at which the rim
   reaches half strength: cos θ = 1 − 0.5^(1/fall off), a linear ramp through it
   [design: the game's rim curve is not documented].
+- Cut-out and blended meshes (hair, beards, lashes: alpha-tested or alpha-blended
+  materials) get no overlay [design]. The overlays carry no texture alpha of the mesh,
+  so on hair they covered every card whole in the membrane's colour: Flames01's edge
+  (no fill) painted the player's hair flat orange with a bright rim and the head looked
+  bald (owner's playtest, 2026-10-24; smoke `hair-under-fire`). Whether the original
+  draws the membrane on hair, and through its alpha, is not known.
 - Blend: destination 2 (One) and 5 (Source Alpha) are drawn additively, 6 (Source
   Inverted Alpha) as ordinary blending, 9 (Dest Colour) multiplied [design over the
   documented blend factors; 5 + 5 is "source × alpha + destination × alpha", nearest to

@@ -159,7 +159,7 @@ for models placed in cells (§5: fires, steam, smoke). Code:
   motorcycle's smoke once it is damaged, never on the Prospector Saloon's static bikes):
   `destruction-stages.md`.
 - Not built: turbulence, spawn on death, the ADDN's sound and particle cap (spherical colliders: §7.3).
-  The dust devils' path: §6.7 (built 2026-10-23). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
+  The dust devils' path: §6.8 (built 2026-10-23). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
   `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
   dlc03fxdarksmoke.nif` (13, Primm), `effects/nv/fxtiresmoke.nif` (16),
   `clutter/ashtray/ashtray03smoke.nif` (19), `effects/fxhelios_steam.nif` (8)
@@ -296,10 +296,63 @@ names [hypothesis] unless tagged otherwise.
 - Code: `nvf_assets::particles` (`EmitterMesh`, `Strip`, `Bomb`, `Collider`,
   `FloatKeys`); `nvforever::particles` (emission from meshes, bomb push, collisions,
   trails, ribbons).
-- Not built: spawning on collision; the strip's cap sizes (0 in both files). An emitter
-  object moved by the model's sequence: §6.7.
+- Not built: spawning on collision; the strip's cap sizes (0 in both files). Emitters a
+  model's sequence moves or keys: §6.7–§6.9.
 
-### 6.7 Emitters a sequence moves: the dust devils [2026-10-23]
+### 6.7 Drawn models whose sequences drive their emitters [2026-10-24]
+
+- **The models** [observed: `fnvtool sim activator-models`, FalloutNV.esm]: 21 activator
+  bases have sequences with `NiPSysEmitterCtlr` tracks: REPCONN's rocket bay `repbay.nif`
+  (RepconDome; Forward, Right, Left), the force-field glows (`forcefieldrightglow02.nif`,
+  35 references, and the left one; Forward loops 25 s, Backward 7.2 s clamped), the
+  protectron pods (Open, Close), the vertibird encounters, the B-29s
+  (`b29_riseanim.nif`, `b29_bombanim01/02.nif`), the Hoover Dam AA gun and the Fort's
+  howitzer. Scripts start every one: the force fields' `OnLoadPlayForwardSCRIPT` plays
+  Forward on load and another script Backward to power them down; RepconLaunchSCRIPT
+  plays the bay's Forward, then Right (or Left, sabotaged) [observed: `fnvtool sim
+  playgroup-calls`].
+- **`repbay.nif`** [observed: `fnvtool nif decode`]: 56 systems, each under a node named
+  `<system>-Emitter` that hangs from a node the sequences move (`objBase`, `Rocket01`…
+  `Rocket21`; the sequences' 26 transform tracks move the doors, the platform, the
+  rockets and debris). The systems' own `NiPSysEmitterCtlr`s carry blend interpolators;
+  each of the three sequences gives every system a `BirthRate` (a lone float) and an
+  `EmitterActive` track. Most `EmitterActive` tracks are a `NiBoolInterpolator` with a
+  lone value and no keys: `PFire01` is false all through Forward and Left, and in Right
+  has keys off, on at 0.5 s, off at 1 s; `PCloud04` is off in Right and Left, and in
+  Forward off then on from 18.3 s to the end; `PCloudRise` on from 10 s to 18.3 s of
+  Forward. Bomb and drag modifiers are switched per sequence too
+  (`NiPSysModifierActiveCtlr`, `NiBoolTimelineInterpolator`).
+- **Before this**: a track without keys was read as no track (always on), and only the
+  first sequence's tracks were read, on the emitter's own time from load. The bay's fire
+  and smoke burned from the moment it was drawn, at the rockets' resting places inside
+  the closed dome; at the launch nothing showed [observed 2026-10-24: the REPCONN launch
+  spot check, 2.2 million particles born, none on screen].
+- **Reading** [hypothesis, from the data above and as the sequences' other tracks act]:
+  - A `NiBoolInterpolator` without keys is its lone value from 0 (an undefined value, as
+    a blend interpolator's, is no track).
+  - A placed model drawn with its own nodes (`object_anims::GroupRig`) whose sequences
+    drive a system emits by the sequence playing on it (`Playing`, the name a script
+    plays), on that sequence's time from its start: its on/off and birth-rate tracks,
+    and the emitter fields it keys (`NiPSysEmitterSpeedCtlr`…). A sequence that does not
+    name the system, or none playing, leaves it off: an emitter whose controller
+    leaves everything to sequences has nothing to emit by. A clamped sequence holds its
+    end, the last key's state going on (Forward leaves the bay's clouds on until Right
+    replaces it).
+  - It emits from its emitter object's node as drawn, so the sequence's moves carry it
+    (the exhaust rides with the rockets).
+  - A modifier switched by the sequences follows the keys of the sequence the particle
+    was born under, on that sequence's time.
+  - Models not drawn with their own nodes (explosions and shot effects, `shot_fx`) keep
+    the first sequence's tracks on the emitter's own time, as before.
+- Code: `nvf_assets::particles` (`SequenceEmission`, `ParticleSystemDef::sequences`,
+  `ModifierActive::by_sequence`, `Emitter::object`); `nvforever::particles` (`emit`,
+  `simulate`). Log: the model's line ends `; <n> driven by the sequences [<names>]`, and
+  `particles: <ref> <path> emits as its <sequence> says: <k> of <n> systems` when a
+  sequence begins. Smoke `repconn-rocket-launch`.
+- A mesh emitter's meshes, and the bombs under a moved node, move by the node's keys on the same sequence time (§6.8, `Mover`, 2026-10-25). Not built: gravity strength keys
+  come from the first sequence only.
+
+### 6.8 Emitters a sequence moves: the dust devils [2026-10-23]
 
 Owner report 2026-10-23 (Goodsprings, screenshots and a game video): the dust devils
 whirled in one spot for good and drew white; in the game a brown column travels along the
@@ -346,7 +399,7 @@ How the engine plays it [hypothesis]:
   display-value blend of unlit shapes (nif.md §6 "Alpha blend of unlit shapes", same
   branch history); whether the game restarts the walk at once or waits.
 
-### 6.8 Which sequence keys a placed model's systems; keyed particle alpha [2026-10-23]
+### 6.9 Which sequence keys a placed model's systems; keyed particle alpha [2026-10-23]
 
 An audit of every placed model with a sequence, controllers or particle systems
 [observed: `fnvtool world refs` over all 14 worldspaces and the interiors of
@@ -382,7 +435,7 @@ of their own] found three gaps for emitters:
 `sanddust02.nif` as a whole [observed]: Idle 45 s, loop. Over 0–5.3 s `DustVortexSlide`
 (the two sheets) and `PCloud01-Emitter` move 510 units along x and 102 up (157 linear
 keys), the sheets' alpha goes 0 → 0.5/0.35 → 0 and their textures scroll; the box
-emitter is on 0–3.67 s; then nothing shows for about 39 s. Smoke `dust-vortex-cycle`.
+emitter is on 0–3.67 s; then nothing shows for about 39 s. Smoke `dust-vortex-cycle`. Drawn models whose sequence drives their systems (§6.7) take the rate, on/off keys and the mover's time from the sequence playing on the drawn rig; the order here is for the rest.
 
 Left for later (the same audit): visibility tracks of a plain rig's Idle are not applied
 (`fxelectricarc01/02.nif`, 29; `gomorrahlightslowerlevel.nif`) nor
@@ -462,7 +515,7 @@ script-drawn root).
 - `nvbouldersm.nif` (89 MSTT, 5,000 particles, stop time 20 s): a rock-slide effect that
   emits from the start; whether the game holds it until a trigger is not known.
 - Unchanged from §5: turbulence, spawn on death, the ADDN's particle cap (`DNAM`), the dust
-  devils' path; an emitter moved by its model's sequence emits from its place in the file.
+  devils' path. (An emitter moved by its model's sequence: built, §6.7.)
 - Exit log: `particles: placed references emitting: <n> of <m> with particle systems, at
   most <k> placed model instances at once`; smoke `placed-particle-smokes` (Gomorrah's
   floor: 45 of 45, 45 instances [observed 2026-10-21]).

@@ -36,6 +36,12 @@ impl HitVolume {
         }
     }
 
+    /// Whether every size and position is finite (a broken skeleton or record can give
+    /// NaN, which must not reach rapier).
+    pub fn is_finite(&self) -> bool {
+        self.feet.iter().all(|v| v.is_finite()) && self.radius.is_finite() && self.height.is_finite()
+    }
+
     /// Centre of the capsule, game units.
     pub fn center(&self) -> [f32; 3] {
         let h = self.height.max(2.0 * self.radius);
@@ -51,6 +57,13 @@ pub struct PartCapsule {
     pub a: [f32; 3],
     pub b: [f32; 3],
     pub radius: f32,
+}
+
+impl PartCapsule {
+    /// Whether its segment and radius are finite.
+    pub fn is_finite(&self) -> bool {
+        self.a.iter().chain(&self.b).all(|v| v.is_finite()) && self.radius.is_finite()
+    }
 }
 
 /// The part index of a whole-actor capsule.
@@ -116,6 +129,10 @@ impl PhysWorld {
     /// Add the single hit capsule of actor reference `form_id`, or move and resize it
     /// (nothing changes when `v` is what it already is).
     pub fn set_actor_volume(&mut self, form_id: u32, v: HitVolume) {
+        // A non-finite volume is ignored: the actor keeps the one it had (or none).
+        if !v.is_finite() {
+            return;
+        }
         if self.actors.get(&form_id).is_some_and(|a| a.volume == v && a.colliders.len() == 1 && a.colliders[0].1 == WHOLE) {
             return;
         }
@@ -144,8 +161,16 @@ impl PhysWorld {
 
     /// One capsule per body part (step C8): `v` is the actor's overall extent (its body
     /// stands at `v.feet`); each part's capsule is placed on its segment.
+    /// Parts whose segment or radius is not finite are left out.
     pub fn set_actor_parts(&mut self, form_id: u32, v: HitVolume, parts: &[PartCapsule]) {
-        if parts.is_empty() {
+        let finite: Vec<PartCapsule>;
+        let parts = if parts.iter().all(PartCapsule::is_finite) {
+            parts
+        } else {
+            finite = parts.iter().filter(|p| p.is_finite()).copied().collect();
+            &finite[..]
+        };
+        if parts.is_empty() || !v.is_finite() {
             return self.set_actor_volume(form_id, v);
         }
         let k = self.k;

@@ -211,6 +211,8 @@ fn step(
         if let Some(c) = cut {
             m.extension.alpha_cut = c * alpha;
         }
+        // Fading hair lets what lies behind it show too.
+        m.extension.depth_write = false;
         if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
             m.base.alpha_mode = AlphaMode::Blend;
         }

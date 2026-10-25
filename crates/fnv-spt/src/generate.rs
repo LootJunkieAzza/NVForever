@@ -83,7 +83,8 @@ pub fn generate(tree: &Tree) -> Geometry {
     let trunk = &tree.levels[0];
     let length = trunk.length().sample(0.0, rng.f()).max(1e-4);
     let radius = trunk.radius().sample(0.0, rng.f()).max(0.0);
-    grow(tree, 0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], length, radius, &mut rng, &mut g);
+    let mut budget = Budget { branches: MAX_BRANCHES };
+    grow(tree, 0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], length, radius, &mut rng, &mut g, &mut budget);
     light_leaves(&mut g.leaves);
     let zs = || g.leaves.iter().map(|l| l.position[2]);
     g.crown = if g.leaves.is_empty() {
@@ -97,11 +98,30 @@ pub fn generate(tree: &Tree) -> Geometry {
 /// Guard against runaway counts from odd parameters.
 const MAX_CHILDREN: f32 = 4096.0;
 
+/// Limits on the whole tree, so a broken file's frequencies (4096 children a level,
+/// level after level) cannot grow it without end: past them the tree stops growing
+/// [observed: the base game's trees (`Fallout - Meshes.bsa`, 10 files) have at most 5
+/// levels, 7284 branch vertices and 6095 leaves; 3-5 levels, speedtree.md §3].
+pub const MAX_LEVELS: usize = 8;
+pub const MAX_VERTICES: usize = 200_000;
+pub const MAX_LEAVES: usize = 20_000;
+/// Branches grown (with or without wood: a branch of radius 0 adds no vertices).
+pub const MAX_BRANCHES: usize = 50_000;
+
+/// What is left of the whole tree's limits besides the geometry's own counts.
+struct Budget {
+    branches: usize,
+}
+
 /// Golden angle: successive children turn this far around their parent.
 const GOLDEN: f32 = 2.399_963;
 
 #[allow(clippy::too_many_arguments)]
-fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: &mut Rng, g: &mut Geometry) {
+fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: &mut Rng, g: &mut Geometry, budget: &mut Budget) {
+    if budget.branches == 0 || g.positions.len() >= MAX_VERTICES {
+        return;
+    }
+    budget.branches -= 1;
     let lv = &tree.levels[li];
     let segs = lv.segments_along.clamp(1, 32) as usize;
     // Centre line: equal steps, each turned a little from the last by the 6000 spread.
@@ -122,8 +142,12 @@ fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: 
     }
 
     let child = li + 1;
-    let Some(cl) = tree.levels.get(child) else { return };
-    let leafy = child == tree.levels.len() - 1;
+    let levels = tree.levels.len().min(MAX_LEVELS);
+    if child >= levels {
+        return;
+    }
+    let cl = &tree.levels[child];
+    let leafy = child == levels - 1;
     // Children per unit of length (6012), rounded up or down at random.
     let n = (lv.frequency.max(0.0) * length + rng.f()).floor().min(MAX_CHILDREN) as usize;
     let mut azimuth = rng.f() * std::f32::consts::TAU;
@@ -131,7 +155,7 @@ fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: 
         let t = lv.first + (lv.last - lv.first) * ((k as f32 + rng.f()) / n as f32);
         let (at, along) = point_at(&pts, &dirs, t);
         if leafy {
-            if tree.leaf_maps.is_empty() {
+            if tree.leaf_maps.is_empty() || g.leaves.len() >= MAX_LEAVES {
                 return;
             }
             let map = ((rng.f() * tree.leaf_maps.len() as f32) as usize).min(tree.leaf_maps.len() - 1);
@@ -149,7 +173,7 @@ fn grow(tree: &Tree, li: usize, base: V, dir: V, length: f32, radius: f32, rng: 
         azimuth += GOLDEN + 0.3 * (2.0 * rng.f() - 1.0);
         let axis = rotate(perpendicular(along), along, azimuth);
         let cdir = norm(rotate(along, axis, angle));
-        grow(tree, child, at, cdir, clen, crad, rng, g);
+        grow(tree, child, at, cdir, clen, crad, rng, g, budget);
     }
 }
 

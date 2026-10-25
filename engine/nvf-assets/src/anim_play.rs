@@ -184,6 +184,48 @@ impl MaterialTrack {
     }
 }
 
+/// Whether every key of `k` holds finite numbers only.
+fn keys_finite<const N: usize>(k: &fnv_nif::anim::Keys<N>) -> bool {
+    k.keys.iter().all(|k| k.time.is_finite() && k.value.iter().chain(&k.forward).chain(&k.backward).chain(&k.tbc).all(|v| v.is_finite()))
+}
+
+fn channel_finite<const N: usize>(c: &fnv_nif::anim::Channel<N>) -> bool {
+    use fnv_nif::anim::Channel;
+    match c {
+        Channel::Static(v) => v.is_none_or(|v| v.iter().all(|x| x.is_finite())),
+        Channel::Keys(k) => keys_finite(k),
+        Channel::BSpline { start, stop, spline } => start.is_finite() && stop.is_finite() && spline.points.iter().all(|v| v.is_finite()),
+    }
+}
+
+/// Whether a transform track holds finite numbers only ([`Clip::check`]).
+fn track_finite(t: &TransformTrack) -> bool {
+    channel_finite(&t.translation) && channel_finite(&t.rotation) && channel_finite(&t.scale) && t.euler.as_ref().is_none_or(|e| e.iter().all(keys_finite))
+}
+
+/// The largest frequency a playable clip may have ([`Clip::check`]), far past what the
+/// game's files hold [observed: in `Fallout - Meshes.bsa` (6229 sequences) every
+/// sequence and controller frequency is 1]: past it the clip's time runs out of the float
+/// range. Values are only required to be finite: the game's own clips hold very large
+/// ones [observed: `xanderrootplant.nif`'s Backward has a scale past 1e3, translations
+/// reach 2.9e6], so a bound on them refuses good files.
+const MAX_FREQUENCY: f32 = 1e3;
+
+/// Why a transform track cannot be played, if it cannot: a number that is not finite.
+fn track_fault(t: &TransformTrack) -> Option<&'static str> {
+    (!track_finite(t)).then_some("a key is not a finite number")
+}
+
+/// Whether a frequency is one a clip can play at: above 0, at most [`MAX_FREQUENCY`].
+fn frequency_ok(f: f32) -> bool {
+    f > 0.0 && f <= MAX_FREQUENCY
+}
+
+/// Whether a controller's own timing is finite and its frequency playable.
+fn cycle_ok(c: &OwnCycle) -> bool {
+    [c.start, c.stop, c.phase].iter().all(|v| v.is_finite()) && frequency_ok(c.frequency)
+}
+
 impl Clip {
     pub fn from_sequence(seq: &Sequence) -> Clip {
         let mut tracks = Vec::new();
@@ -223,6 +265,27 @@ impl Clip {
             free_visibility: Vec::new(),
             lights,
         }
+    }
+
+    /// Whether the clip can be played: its timing (and that of its tracks' own
+    /// controllers) and every transform key's time and value are finite numbers within
+    /// the limits above. A broken file's NaN would otherwise reach the bones, and from
+    /// them the physics bodies that follow them.
+    pub fn check(&self) -> Result<(), String> {
+        if ![self.start, self.stop].iter().all(|v| v.is_finite()) || !frequency_ok(self.frequency) {
+            return Err(format!("timing out of range (start {}, stop {}, frequency {})", self.start, self.stop, self.frequency));
+        }
+        let cycles = self.free.iter().map(|f| &f.2).chain(self.free_visibility.iter().map(|f| &f.2)).chain(self.materials.iter().filter_map(|m| m.cycle.as_ref()));
+        if let Some(c) = cycles.into_iter().find(|c| !cycle_ok(c)) {
+            return Err(format!("a controller's own timing is out of range ({c:?})"));
+        }
+        let tracks = self.tracks.iter().map(|(n, t)| (n, t)).chain(self.free.iter().map(|(n, t, _)| (n, t)));
+        for (name, t) in tracks {
+            if let Some(fault) = track_fault(t) {
+                return Err(format!("track {name}: {fault}"));
+            }
+        }
+        Ok(())
     }
 
     /// The clip a model plays for its controllers that run by themselves (material
@@ -768,6 +831,10 @@ impl AnimState {
     pub fn start(&mut self, index: usize, nodes: &HashMap<String, Entity>, bind: &HashMap<Entity, Transform>) {
         let Some((source, seq)) = self.available.get(index) else { return };
         let clip = Clip::from_sequence(seq);
+        if let Err(e) = clip.check() {
+            warn!("{source}: sequence {} not played: {e}", clip.name);
+            return;
+        }
         // Walk and run clips play in place, as on actors (docs/spec-notes/actors.md §8.2).
         let playing = Playing::new(source, &clip, |n| nodes.get(n).copied()).in_place(&clip, |n| nodes.get(n).copied());
         let hold = clip.undriven_accum_root().and_then(|r| nodes.get(r)).copied();
@@ -845,6 +912,53 @@ mod tests {
     use super::*;
     use fnv_nif::anim::{Channel, Key, KeyKind, Keys, Track};
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+
+    #[test]
+    fn a_clip_with_a_nan_key_is_refused() {
+        let track = |x: f32| TransformTrack {
+            translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![Key { time: 0.0, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }] }),
+            rotation: Channel::Static(None),
+            euler: None,
+            scale: Channel::Static(Some([1.0])),
+        };
+        let mut clip = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        clip.tracks.push(("Bip01".into(), Arc::new(track(1.0))));
+        assert_eq!(clip.check(), Ok(()));
+        clip.tracks.push(("Bip01 Head".into(), Arc::new(track(f32::NAN))));
+        assert_eq!(clip.check(), Err("track Bip01 Head: a key is not a finite number".into()));
+        clip.tracks.pop();
+        clip.stop = f32::INFINITY;
+        assert!(clip.check().is_err());
+    }
+
+    #[test]
+    fn a_clip_out_of_range_is_refused() {
+        let track = |x: f32, sc: f32| TransformTrack {
+            translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![Key { time: 0.0, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }] }),
+            rotation: Channel::Static(None),
+            euler: None,
+            scale: Channel::Static(Some([sc])),
+        };
+        let clip = |t: TransformTrack| {
+            let mut c = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+            c.tracks.push(("Bip01".into(), Arc::new(t)));
+            c
+        };
+        // The game's own extremes play (scale 0 hides a node; large values are in its files).
+        assert_eq!(clip(track(2.9e6, 0.0)).check(), Ok(()));
+        assert_eq!(clip(track(1.0, -0.2)).check(), Ok(()));
+        assert_eq!(clip(track(1e9, 1e4)).check(), Ok(()));
+        assert!(clip(track(f32::INFINITY, 1.0)).check().is_err());
+        let mut c = clip(track(1.0, 1.0));
+        c.frequency = 0.0;
+        assert!(c.check().is_err());
+        c.frequency = 1e6;
+        assert!(c.check().is_err());
+        let own = OwnCycle { start: 0.0, stop: 1.0, frequency: 1.0, phase: f32::NAN, cycle_type: 0 };
+        let mut c = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        c.free.push(("Bip01".into(), Arc::new(track(1.0, 1.0)), own));
+        assert!(c.check().is_err());
+    }
 
     #[test]
     fn an_own_controller_runs_on_the_effect_clock_from_zero() {

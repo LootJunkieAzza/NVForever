@@ -240,7 +240,7 @@ pub enum Channel<const N: usize> {
 /// key times [hypothesis: the flag's name; `fxdustwhirlwind01.nif` sets it, with path
 /// keys at 0, 0.5 and 1 whose two spans differ in length]. The flags `follow` and
 /// `bank` (turning the node along the curve) are not read: the three ambient files with
-/// a path set neither [observed, docs/spec-notes/particles.md §6.7].
+/// a path set neither [observed, docs/spec-notes/particles.md §6.8].
 #[derive(Debug, Clone, PartialEq)]
 pub struct PathChannel {
     pub path: Keys<3>,
@@ -625,15 +625,17 @@ fn bspline_channel(
         return None;
     }
     let data = dec.get(it.block_ref("spline_data")?)?;
-    let n = dec.get(it.block_ref("basis_data")?)?.int("num_control_points")? as usize;
+    // A broken file's negative or huge count gives no channel.
+    let n = usize::try_from(dec.get(it.block_ref("basis_data")?)?.int("num_control_points")?).ok()?;
     let h = h as usize;
+    let end = n.checked_mul(dim)?.checked_add(h)?;
     let points: Vec<f32> = match compact {
         Some((off, half)) => {
             let (o, r) = (it.float(off)?, it.float(half)?);
             let cps = data.ints("compact_control_points")?;
-            cps.get(h..h + n * dim)?.iter().map(|&c| o + (c as f32 / 32767.0) * r).collect()
+            cps.get(h..end)?.iter().map(|&c| o + (c as f32 / 32767.0) * r).collect()
         }
-        None => data.floats("float_control_points")?.get(h..h + n * dim)?.to_vec(),
+        None => data.floats("float_control_points")?.get(h..end)?.to_vec(),
     };
     Some(BSplineChannel { dim, points })
 }
@@ -699,7 +701,7 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
             Some(TransformTrack { translation, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) })
         }
         // A node moved along a curve: the dust devils' and drifting dust's movers
-        // (docs/spec-notes/particles.md §6.7). Its rotation and scale are the node's own.
+        // (docs/spec-notes/particles.md §6.8). Its rotation and scale are the node's own.
         "NiPathInterpolator" => {
             let keys3 = |field: &str| it.block_ref(field).and_then(|r| dec.get(r)).and_then(|d| d.strukt("data")).and_then(Keys::<3>::from_group).filter(|k| !k.is_empty());
             let path = keys3("path_data")?;

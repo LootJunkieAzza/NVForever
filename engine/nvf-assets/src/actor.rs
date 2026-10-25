@@ -183,8 +183,15 @@ pub struct ActorParts {
 }
 
 /// The first controller sequence of the KF file at `path`.
+/// A panic while reading it, or a clip whose keys could not be played, is this clip's
+/// failure (guard.rs).
 fn read_clip(data: &GameData, path: &str) -> Result<Clip, String> {
-    decode(data, path).and_then(|(file, _, dec)| fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence".into()))
+    let (file, _, dec) = decode(data, path)?;
+    crate::guard::guarded(|| {
+        let clip = fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence")?;
+        clip.check()?;
+        Ok(clip)
+    })
 }
 
 /// Where KF clips come from: the actor part cache on the main thread ([`ActorCtx`]), or a
@@ -334,12 +341,15 @@ pub struct PartUse {
     pub by_ancestor: bool,
 }
 
+/// Read and parse a NIF or KF; a panic while parsing is this file's failure (guard.rs).
 fn decode(data: &GameData, path: &str) -> Result<(NifFile, Vec<u8>, Decoded), String> {
-    let bytes = data.read(path).ok_or("not in any archive")?;
-    let schema = data.schema.clone();
-    let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
-    let dec = Decoded::new(&file, &bytes, &schema);
-    Ok((file, bytes, dec))
+    crate::guard::guarded(|| {
+        let bytes = data.read(path).ok_or("not in any archive")?;
+        let schema = data.schema.clone();
+        let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
+        let dec = Decoded::new(&file, &bytes, &schema);
+        Ok((file, bytes, dec))
+    })
 }
 
 /// Root first, then every object reachable from it, breadth first.
@@ -496,10 +506,10 @@ impl ActorCtx<'_, '_> {
             return s.clone();
         }
         let ahead = self.cache.fetched.remove(&key).map(|(nif, _)| nif);
-        let s = match prepare_skeleton(ahead.unwrap_or_else(|| decode(&self.models.data, &key))) {
+        let s = match crate::guard::guarded(|| prepare_skeleton(ahead.unwrap_or_else(|| decode(&self.models.data, &key)))) {
             Ok(s) => Some(Arc::new(s)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
                 None
             }
         };
@@ -536,10 +546,10 @@ impl ActorCtx<'_, '_> {
         if let Some(p) = self.cache.parts.get(&key) {
             return p.clone();
         }
-        let p = match self.prepare_part(&key) {
+        let p = match crate::guard::guarded(|| self.prepare_part(&key)) {
             Ok(p) => Some(Arc::new(p)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
                 None
             }
         };
@@ -599,7 +609,7 @@ impl ActorCtx<'_, '_> {
         let c = match read_clip(&self.models.data, &key) {
             Ok(c) => Some(Arc::new(c)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
                 None
             }
         };
@@ -787,11 +797,18 @@ fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
     let index: HashMap<usize, usize> = order.iter().enumerate().map(|(i, &b)| (b, i)).collect();
     let mut s = PreparedSkeleton::default();
     for (i, &b) in order.iter().enumerate() {
-        let o = by_block[&b];
+        let o = by_block.get(&b).ok_or_else(|| format!("block {b} is not a scene object"))?;
         let parent = o.parent.and_then(|p| index.get(&p).copied());
+        // A broken skeleton (a mod's file) is refused whole: a NaN bone
+        // would spread NaN to every bone below it, the skinned meshes and the physics.
+        let t = &o.transform;
+        let finite = t.translation.iter().chain(&t.rotation).all(|v| v.is_finite()) && t.scale.is_finite();
+        if i > 0 && !finite {
+            return Err(format!("node {:?} (block {b}) has a non-finite transform", o.name.as_deref().unwrap_or("")));
+        }
         let local = if i == 0 { Affine3A::IDENTITY } else { affine(&o.transform) };
         let world = match parent {
-            Some(p) => s.bind_world[p] * local,
+            Some(p) => *s.bind_world.get(p).ok_or_else(|| format!("node {:?} (block {b}) comes before its parent", o.name.as_deref().unwrap_or("")))? * local,
             None => local,
         };
         if let Some(n) = &o.name {
@@ -812,7 +829,12 @@ fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
 /// ordinary child (actors.md §1.2).
 pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &Affine3A) -> Affine3A {
     let head = skel.names.get(b).and_then(|n| n.as_deref()) == Some(DEFAULT_RIGID_BONE);
-    let inv = Mat3::from(skel.bind_world[b].matrix3).inverse();
+    // A bone missing or with a bind rotation that cannot be inverted (a broken
+    // skeleton): the part is placed as an ordinary child.
+    let Some(bind) = skel.bind_world.get(b).map(|w| Mat3::from(w.matrix3)).filter(|m| m.determinant().abs() > 1e-12 && m.is_finite()) else {
+        return *root * *shape;
+    };
+    let inv = bind.inverse();
     let compensated = (Mat3::from(root.matrix3) - inv).to_cols_array().iter().all(|d| d.abs() < 0.02);
     if !head || compensated {
         *root * *shape
@@ -1233,5 +1255,18 @@ mod tests {
         assert_eq!(local, shape);
         let p = (bone * local).transform_point3(Vec3::new(2.0, 0.0, 0.0));
         assert!((p - Vec3::new(-39.0, -3.7, 94.4)).length() < 1e-4, "{p}");
+    }
+
+    #[test]
+    fn a_degenerate_head_bone_places_parts_as_plain_children() {
+        let skel = PreparedSkeleton {
+            bind_world: vec![Affine3A::IDENTITY, Affine3A::from_mat3(Mat3::ZERO)],
+            names: vec![None, Some(DEFAULT_RIGID_BONE.to_string())],
+            ..Default::default()
+        };
+        let shape = Affine3A::from_translation(Vec3::new(8.0, 0.0, 0.0));
+        assert_eq!(rigid_local(&skel, 1, &Affine3A::IDENTITY, &shape), shape);
+        // A bone the skeleton does not have: the same.
+        assert_eq!(rigid_local(&skel, 9, &Affine3A::IDENTITY, &shape), shape);
     }
 }

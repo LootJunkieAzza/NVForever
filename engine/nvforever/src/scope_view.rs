@@ -214,7 +214,15 @@ impl Wobble {
         let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
         let (_, track, cycle) = nvf_assets::model::free_transform_tracks(&file, &dec).into_iter().find(|(n, ..)| n.eq_ignore_ascii_case("Camera1st"))?;
         let mut w = Wobble { track, start: cycle.start, stop: cycle.stop, peak: 0.0 };
-        w.peak = (0..=200).map(|k| w.angles(k as f32 / 200.0)).map(|[x, z]| x.hypot(z)).fold(0.0, f32::max);
+        if !(w.start.is_finite() && w.stop.is_finite()) {
+            return None;
+        }
+        let widths: Vec<f32> = (0..=200).map(|k| w.angles(k as f32 / 200.0)).map(|[x, z]| x.hypot(z)).collect();
+        // A broken file's NaN or infinite turn would reach the player's view: no sway.
+        if !widths.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        w.peak = widths.into_iter().fold(0.0, f32::max);
         (w.peak > 0.0).then_some(w)
     }
 
@@ -260,7 +268,11 @@ fn sway(
 ) {
     let want = if scope.on {
         if st.wobble.is_none() {
-            let w = data.as_deref().and_then(Wobble::load);
+            // A panic reading a broken file counts as no wobble.
+            let w = data.as_deref().and_then(|d| nvf_assets::guard::guarded(|| Ok(Wobble::load(d))).unwrap_or_else(|e| {
+                warn!("scope sway: {WOBBLE_MODEL} not read: {e}");
+                None
+            }));
             if w.is_none() {
                 warn!("scope sway: {WOBBLE_MODEL} has no Camera1st rotation; scopes do not sway");
             }

@@ -354,6 +354,38 @@ impl Decodable for PcmSound {
     }
 }
 
+/// Whether Bevy's own player can open `bytes` (an `AudioSource`): it stops the game on a
+/// file it cannot open [observed: bevy_audio 0.19.1 `AudioSource::decoder` unwraps the
+/// decoder]. So a broken voice or holotape file is checked here first, the same way that
+/// player opens it, and is skipped when it fails.
+pub fn playable(bytes: &[u8]) -> Result<(), String> {
+    let data = std::io::Cursor::new(bytes.to_vec());
+    nvf_assets::guard::guarded(|| {
+        let d = rodio::Decoder::builder().with_byte_len(bytes.len() as u64).with_data(data).build().map_err(|e| e.to_string())?;
+        let rate = d.sample_rate().get();
+        if !(1_000..=384_000).contains(&rate) {
+            return Err(format!("sample rate {rate} out of range"));
+        }
+        Ok(())
+    })
+}
+
+/// `bytes` of the file at `path` when [`playable`]; otherwise a warning, and `None` (the
+/// line goes on silent for its usual length).
+pub fn checked(path: &str, bytes: Vec<u8>) -> Option<Vec<u8>> {
+    let bytes = nvf_assets::guard::guarded(|| Ok(nvf_assets::data::test_broken(path, bytes))).unwrap_or_else(|e| {
+        warn!("sound not loaded: {path}: {e}; it is skipped");
+        None
+    })?;
+    match playable(&bytes) {
+        Ok(()) => Some(bytes),
+        Err(e) => {
+            warn!("sound not loaded: {path}: {e}; it is skipped");
+            None
+        }
+    }
+}
+
 impl PcmSound {
     pub fn seconds(&self) -> f64 {
         self.samples.len() as f64 / (self.channels.max(1) as f64 * self.rate.max(1) as f64)
@@ -565,12 +597,20 @@ pub(crate) fn resolve(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, sound: FormId) -> Optio
 pub(crate) fn source(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Assets<PcmSound>, sound: FormId) -> Option<(Sound, String, String, Handle<PcmSound>)> {
     let (s, name, path) = resolve(sfx, vfs, sound)?;
     if !sfx.files.contains_key(&path) {
-        let decoded = match vfs.read(&path) {
-            Some(Ok(bytes)) if path.ends_with(".wav") => PcmSound::from_wav(&bytes).map_err(|e| format!("{path}: {e}")),
-            Some(Ok(bytes)) => PcmSound::from_encoded(bytes).map_err(|e| format!("{path}: {e}")),
+        // A panic decoding a broken file is that file's failure, not the game's
+        // (nvf_assets::guard).
+        let decoded = nvf_assets::guard::guarded(|| match vfs.read(&path) {
+            Some(Ok(bytes)) => {
+                let bytes = nvf_assets::data::test_broken(&path, bytes).ok_or_else(|| format!("{path}: not in the archives"))?;
+                if path.ends_with(".wav") {
+                    PcmSound::from_wav(&bytes).map_err(|e| format!("{path}: {e}"))
+                } else {
+                    PcmSound::from_encoded(bytes).map_err(|e| format!("{path}: {e}"))
+                }
+            }
             Some(Err(e)) => Err(format!("{path}: {e}")),
             None => Err(format!("{path}: not in the archives")),
-        };
+        });
         let handle = match decoded {
             Ok(p) => Some(assets.add(p)),
             Err(e) => {
