@@ -447,6 +447,8 @@ pub struct Ai {
     /// Of the actors out of the high process, those walking into the loaded area:
     /// updated every frame ([`crate::process::ProcessLevel::Coming`]).
     pub(crate) coming: std::collections::BTreeSet<FormId>,
+    /// The loaded area, from the engine ([`Ai::set_loaded`]).
+    pub(crate) loaded: Option<crate::process::LoadedArea>,
     /// Actors with speeds of their own (creatures, from their clips); the others move at
     /// [`AiConfig::walk_speed`] and [`AiConfig::run_speed`].
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
@@ -488,7 +490,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -1061,8 +1063,15 @@ impl Ai {
             }
             _ => {}
         }
-        if !quiet && !alerted && !ordered && self.agents[&actor].talk.is_some() {
-            self.talk_step(game, nav, actor, dt);
+        if !alerted && !ordered && self.agents[&actor].talk.is_some() {
+            if quiet {
+                // Wait-menu hours in the loaded area leave it as it is.
+                if !self.is_high(actor) {
+                    self.talk_step_far(game, nav, actor);
+                }
+            } else {
+                self.talk_step(game, nav, actor, dt);
+            }
         }
         let backing = self.agents[&actor].backing.is_some();
         if !alerted && !chatting && !ordered && !backing && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
@@ -1176,6 +1185,45 @@ impl Ai {
                     // Near enough, or as near as the navmesh lets it get.
                     self.talk_start(game, actor, package, &talk, away);
                 } else if moved && game.time >= replan {
+                    self.approach(game, nav, actor, package, &talk, target, false);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A Dialogue package out of the high process ([`crate::process`]): the actor
+    /// sets off towards its target, but does not talk. The original's Malcolm Holmes,
+    /// sent at the player across the Mojave by the first star cap, kept to the route he
+    /// took at the start for 3 hours after the player moved 66,000 units away
+    /// [observed 2026-10-24, holmes_far_moving]: so no new plan while the old one
+    /// lasts. At its end, with the target gone elsewhere, it plans again [hypothesis:
+    /// not seen past 3 hours]. Talking waits for the high process.
+    ///
+    /// Only a package without a wait location does this (Holmes's has none); one with a
+    /// wait location keeps its actor there [hypothesis: Ringo's GSRingoDialoguePackage
+    /// waits at his editor location and should not follow the player out of the gas
+    /// station, smoke `ringo-comes-out`].
+    fn talk_step_far(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+        let a = &self.agents[&actor];
+        let (Some(package), Some(Goal::Talk(talk)), Some(phase)) = (a.package, a.goal.clone(), a.talk) else { return };
+        if !matches!(*talk.wait, Goal::Here) {
+            return;
+        }
+        let feet = Place { space: a.walker.space, pos: a.walker.feet };
+        let travelling = a.activity == Activity::Travelling;
+        let Some(target) = goal::place_of_ref(game, talk.target).filter(|_| game.present(talk.target) && !game.extra.get(&talk.target).is_some_and(|e| e.dead)) else {
+            return;
+        };
+        let away = if feet.space == target.space { goal::dist(feet.pos, target.pos) } else { f32::INFINITY };
+        if away <= talk.distance.max(self.cfg.arrive) {
+            return;
+        }
+        match phase {
+            Talking::Waiting if talk.trigger.holds(game, feet, target) => self.approach(game, nav, actor, package, &talk, target, true),
+            Talking::Approaching { to, .. } if !travelling => {
+                let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
+                if moved {
                     self.approach(game, nav, actor, package, &talk, target, false);
                 }
             }
