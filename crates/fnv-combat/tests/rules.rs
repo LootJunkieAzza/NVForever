@@ -138,6 +138,27 @@ fn criticals() {
 }
 
 #[test]
+fn limb_damage_leaves_out_the_part_multiplier() {
+    // The original's limb loss over its health damage is Limb Dmg Mult × 100 ÷ (max
+    // health × health % × the part's damage mult) [observed 2026-10-25, 3,254 hits]: the
+    // limb takes the hit without the part's multiplier.
+    let w = gun(20);
+    let body = hit(&w, 1, &skilled(), &Target::default(), &[], HitPart::default(), 0.99);
+    assert!(close(body.dealt, 20.0) && close(body.limb_damage(1.0), 20.0), "{body:?}");
+    let head = hit(&w, 1, &skilled(), &Target::default(), &[], HitPart { damage_mult: 2.0, head: true }, 0.99);
+    assert!(close(head.dealt, 40.0), "{head:?}");
+    assert!(close(head.limb_damage(1.0), 20.0), "the head's ×2 is not in the limb damage");
+    assert!(close(head.limb_damage(2.0), 40.0), "the weapon's Limb Dmg Mult is (a knife's 2)");
+    assert!(close(head.limb_damage(0.0), 0.0) && close(head.limb_damage(-1.0), 0.0));
+    // Armour first, then the part multiplier comes out: DT 10 on the ×2 head hit.
+    let armoured = hit(&w, 1, &skilled(), &Target { dt: 10.0, ..Target::default() }, &[], HitPart { damage_mult: 2.0, head: true }, 0.99);
+    assert!(close(armoured.dealt, 30.0) && close(armoured.limb_damage(1.0), 15.0), "{armoured:?}");
+    // A part of multiplier 0 deals no health damage and so no limb damage.
+    let none = hit(&w, 1, &skilled(), &Target::default(), &[], HitPart { damage_mult: 0.0, head: false }, 0.99);
+    assert!(close(none.limb_damage(1.0), 0.0));
+}
+
+#[test]
 fn sneak_melee_unarmed() {
     // A sneak attack: × 2 for a gun, and always a critical (+ Crit Dmg 10) [owner
     // statement 2026-10-25], but never with a crit multiplier of 0 [documented].

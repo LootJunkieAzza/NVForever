@@ -871,8 +871,17 @@ From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_w
     for the unaware-headshot critical).
   - The part gives the `GetHitLocation` number (`BodyPart::location`, the BodyLocation
     enum).
-  - The limb damage is the damage dealt × the WEAP Limb Dmg Mult. A multiplier of 0
-    deals none [hypothesis].
+  - The limb damage is the damage dealt without the part's damage multiplier × the WEAP
+    Limb Dmg Mult (`Damage::limb_damage`). A multiplier of 0 deals none [hypothesis].
+    The original's limb loss over its health damage was Limb Dmg Mult × 100 ÷ (max
+    health × health % ÷ 100 × the part's damage mult) for every target and part, over
+    3,254 hits [observed 2026-10-25: JIP GetHitLimbDamage and GetHitHealthDamage in the
+    OnHit handler; docs/handoff/observer-jip-audit-2026-10-25.md §3.6]. With
+    DefaultBodyPartData's head (20 %, ×2), torso (60 %) and limbs (25 %), a head hit
+    costs the head the condition of the hit before its ×2; critical bonuses stay in.
+    Until 2026-10-25 the multiplier stayed in, so head hits crippled twice as fast.
+    Guns only: two machete hits did not fit (×4 on the head, ×2 on a leg), so melee is
+    open.
   - Hits on the single capsule stay location 0 (torso); explosions are −1, with no
     limb [design].
 - **Limb condition** (`Game::hit`, `Game::damage_limb`):
