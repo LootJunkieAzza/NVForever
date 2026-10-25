@@ -9094,3 +9094,15 @@ order = [[
   "image space modifier sound: CGCameraFlashISFX intro 0x00179418",
 ]]
 
+[[scenario]]
+name = "hair-under-fire"
+source = "owner's playtest 2026-10-24: in third person, the player's hair vanished (the head showed bald) while the player burned or stood in a dust devil. Burning: Flames01's edge overlay covered the hair's cards whole (docs/spec-notes/effect-shaders.md §4); behind blended fire or dust the hair wrote no depth (nif.md §6 'Hair and depth'). PlayMagicShaderVisuals Flames01 (0005F9B6) on the player, frames from behind at 7 s (no fire) and 11 s (burning) in target/smoke; the hair must show in both"
+areas = ["effect-shaders", "render"]
+paths = [
+  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material.wgsl",
+  "engine/nvforever/src/effect_shaders.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_SCRIPT = "8:call:player:PlayMagicShaderVisuals:0x0005F9B6", NVF_PLAY_TEST_SHOTS = "7:hair_no_fire.png,11:hair_on_fire.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = ["effect shader: Flames01 on "]

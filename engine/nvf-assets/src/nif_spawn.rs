@@ -725,6 +725,10 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         material.extension.falloff = f.params;
     }
     material.extension.alpha_cut = cut.unwrap_or(0.0);
+    if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
+        material.extension.alpha_cut = HAIR_DEPTH_CUT;
+        material.extension.depth_write = true;
+    }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some()) {
@@ -742,6 +746,12 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     (material, missing)
 }
 
+/// The alpha from which a blended hair-shader shape (hair, beards, brows) writes depth;
+/// fainter fragments are dropped (`nif_material` module notes, "Depth of blended hair")
+/// [engineering choice: high enough that the faint fringe of a strand leaves no outline
+/// in the smoke or flames behind it, low enough that the strands keep their soft ends].
+pub const HAIR_DEPTH_CUT: f32 = 0.25;
+
 /// Make `material` a refracting one (`nif_material`, module notes "Refraction"): drawn
 /// after the opaque pass from Bevy's copy of it (a specular transmission above 0 puts
 /// the material there and keeps it out of the prepass), opaque, without depth writes.
@@ -751,6 +761,7 @@ pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_perio
     material.extension.refraction = strength;
     material.extension.fire_period = fire_period;
     material.extension.refract = true;
+    material.extension.depth_write = false;
 }
 
 pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
@@ -1018,6 +1029,35 @@ impl SpawnCtx<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct NoTextures;
+    impl TextureSource for NoTextures {
+        fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
+            None
+        }
+        fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
+            false
+        }
+    }
+
+    fn triangle() -> Mesh {
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD).with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3])
+    }
+
+    /// `hairbase.nif`'s NiAlphaProperty: blended, no test (flags 4333) [observed].
+    #[test]
+    fn blended_hair_writes_depth_above_its_cut() {
+        let hair = Props { hair: true, alpha: Some((4333, 0)), ..Default::default() };
+        let (m, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
+        assert!(m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, HAIR_DEPTH_CUT);
+        assert!(crate::nif_material::see_through(&m), "hair still casts no shadow");
+        // Other blended shapes (smoke, glass) write none and drop nothing.
+        let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures);
+        assert!(!m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, 0.0);
+    }
 
     #[test]
     fn fire_period_needs_its_flag() {
