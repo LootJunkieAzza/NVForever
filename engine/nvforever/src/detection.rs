@@ -50,8 +50,14 @@
 //!   target with the game's falloff 1 − (d/r)²; capped at 100. Outdoors the sunlight
 //!   counts only when a ray from the target's chest towards the sun meets nothing within
 //!   [`SUN_REACH`] (where the target is in the loaded collision; elsewhere it counts)
-//!   [hypothesis, docs/design/detection.md §8]. The player's flashlight (flashlight.rs) is not counted [design: it is not
-//!   the game's; whether it should show the player is undecided].
+//!   [hypothesis, docs/design/detection.md §8]. While the player's flashlight (the Pip-Boy
+//!   light, flashlight.rs) is on, the game's Pip-Boy light counts as a point light at the
+//!   player's chest: the LIGH [`PIPBOY_LIGHT`] with its own radius and colour
+//!   [documented: FalloutNV.esm, the loading screen "The light generated from your Pip-Boy
+//!   light actually makes you less stealthy" and Broad Daylight's "the light's sneak
+//!   penalty"; observed: the base effect PipLight 00021EC4, archetype Light, names that
+//!   LIGH; hypothesis: the penalty is that light in the light level, docs/design/detection.md §9].
+//!   Our own flashlight cone is not counted: it is not the game's light.
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
 //!   [hypothesis: a sneaking run counts as running]. Other actors sneak while
@@ -106,6 +112,11 @@ use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use nvf_play::{Location, PlayerCamera};
 use std::collections::{BTreeSet, HashMap};
+use nvf_play::flashlight::Flashlight;
+
+/// The game's Pip-Boy light, PipboyLight640: the light the base effect PipLight
+/// (00021EC4) names [observed: FalloutNV.esm decode, 2026-10-24].
+const PIPBOY_LIGHT: u32 = 0x0002923E;
 
 /// Seconds between two measurements [engineering choice].
 pub const INTERVAL: f32 = 0.25;
@@ -176,6 +187,9 @@ struct Stats {
     /// Targets measured outdoors under the sun, and of those in shade.
     sun_measured: usize,
     shaded: usize,
+    /// Measurements with the Pip-Boy light on, and the most light at the player then.
+    pip_light_on: usize,
+    pip_light_most: f64,
     /// What the lines of sight cost.
     sight: SightCounts,
 }
@@ -207,6 +221,9 @@ pub struct DetectionState {
     land: LandCache,
     /// The pairs' lines of sight at the last measurement, for still pairs.
     kept: KeptSights,
+    /// The Pip-Boy light's radius and luminance, read from its LIGH once (`None` inside:
+    /// not in the load order).
+    pip_light: Option<Option<(f32, f32)>>,
     stats: Stats,
 }
 
@@ -623,6 +640,7 @@ type Inputs<'w> = (
     Option<Res<'w, Location>>,
     Option<Res<'w, Combat>>,
     Option<Res<'w, SkyState>>,
+    Option<Res<'w, Flashlight>>,
 );
 
 /// Measure every pair (the module notes).
@@ -633,7 +651,7 @@ fn measure(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: Option<ResMut<SimState>>,
     mut phys: Option<ResMut<PhysState>>,
-    (player, intent, control, location, combat, sky): Inputs,
+    (player, intent, control, location, combat, sky, flashlight): Inputs,
     mut shots: MessageReader<ShotFired>,
     (mut impacts, mut hits, mut booms): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>),
     (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
@@ -797,6 +815,18 @@ fn measure(
             lights.push((bevy_to_game(g.translation()).to_array(), l.range, luminance(l.color.to_srgba().to_f32_array_no_alpha())));
         }
     }
+    // The Pip-Boy light, on the player while it is on (the module notes).
+    let pip_on = flashlight.as_deref().is_some_and(|f| f.on);
+    if pip_on {
+        let pip = *state.pip_light.get_or_insert_with(|| {
+            let w = world.as_deref()?;
+            let l = fnv_world::lighting::light_data(w.lo, w.schema, PIPBOY_LIGHT)?;
+            Some((l.radius, luminance(l.color.map(|b| b as f32 / 255.0))))
+        });
+        if let (Some((radius, lum)), Some(p)) = (pip, people.first()) {
+            lights.push((p.chest(), radius, lum));
+        }
+    }
     // Outdoors with the sun up, whether something shades each one from it.
     let sun = sky.as_deref().filter(|s| s.interior.is_none()).map(SkyState::sun_dir_game).filter(|d| d[2] > 0.0);
     let mut sunlit = vec![true; people.len()];
@@ -817,6 +847,10 @@ fn measure(
         state.stats.shaded += sunlit.iter().filter(|lit| !**lit).count();
     }
     let light: Vec<f64> = people.iter().zip(&sunlit).map(|(p, &lit)| light_at(sky.as_deref(), &lights, p.chest(), lit)).collect();
+    if pip_on {
+        state.stats.pip_light_on += 1;
+        state.stats.pip_light_most = state.stats.pip_light_most.max(light.first().copied().unwrap_or(0.0));
+    }
 
     // Every detector against every target within reach.
     let shots = std::mem::take(&mut state.shots);
@@ -922,7 +956,8 @@ fn measure(
             let by_player = i == 0;
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());
-            let fighting = aware.filter(|a| a.state == State::Combat).and_then(|a| a.combat_target()).map(|(t, _)| t);
+            // IsCombatTarget, in Combat only: a Lost fighter searches at 1.2 (§9 of the design).
+            let combat_target = aware.is_some_and(|a| a.state == State::Combat && a.targets.contains_key(&FormId(t.id)));
             let dist = distance(d.feet, t.feet);
             let target = t.chest();
             let sit = Situation {
@@ -937,7 +972,7 @@ fn measure(
                 action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
-                detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
+                combat_target,
                 camera_sight: d.camera.map(|_| camera_sight[k]),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
@@ -1172,7 +1207,7 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
     let bands = |c: [usize; 3]| format!("{} to hidden, {} to noticed, {} to detected", c[0], c[1], c[2]);
     info!(
         "detection summary: {} measurements, {} pairs ({} at most at once), {} actors measured the player, {} had it noticed, {} detected; \
-         the player's changes: {}; between actors: {}; the player was hidden {:.1} s, CAUTION {:.1} s, DANGER {:.1} s; {} shots heard; values {}; {} of {} measured under the sun in shade",
+         the player's changes: {}; between actors: {}; the player was hidden {:.1} s, CAUTION {:.1} s, DANGER {:.1} s; {} shots heard; values {}; {} of {} measured under the sun in shade; the Pip-Boy light on at {} measurements, the player lit up to {:.0}",
         s.measurements,
         s.pairs,
         s.most_pairs,
@@ -1188,6 +1223,8 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
         s.range.map_or("none".into(), |(lo, hi)| format!("{lo:.1} to {hi:.1}")),
         s.shaded,
         s.sun_measured,
+        s.pip_light_on,
+        s.pip_light_most,
     );
     info!(
         "detection summary, out of the player's reach: {} pairs, {} measured detected; the player as a detector: {}; {} actors detected by the player",

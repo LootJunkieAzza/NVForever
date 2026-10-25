@@ -7875,6 +7875,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "detection-pipboy-light"
+source = "Sneak audit (docs/design/detection.md §9): at night in Goodsprings the Pip-Boy light, switched on at 4 s, counts as the game's PipboyLight640 at the player's chest and lights the player near the top of the light term"
+areas = ["detection"]
+paths = ["engine/nvforever/src/detection.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_CONTROL = "4:flashlight" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "23", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'detection summary: .*; the Pip-Boy light on at (?P<n>\d+) measurements', range = [20, 1000000], label = "the light is on and measured" },
+  { re = 'detection summary: .*; the Pip-Boy light on at \d+ measurements, the player lit up to (?P<n>\d+)', range = [85, 100], label = "the light lights the player" },
+]
+
+[[scenario]]
 name = "drink-sink"
 source = "ESM audit group 7 (docs/spec-notes/activators.md §9): Doc Mitchell's sink (DrinkSinkClean03Purified, ACTI WNAM d1PurifiedWater0r30h) is drunk from: the water's effect applies to the player"
 areas = ["activation", "aid"]
