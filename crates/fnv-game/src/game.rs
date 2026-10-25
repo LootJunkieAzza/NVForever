@@ -975,6 +975,8 @@ pub struct Game<'a> {
     pub destruction_changes: Vec<(FormId, crate::combat::DestructionChange)>,
     /// Activate children waiting for their delay (`crate::traps`). Not saved.
     pub due_children: Vec<crate::traps::DueChild>,
+    /// The swinging traps let go and whom they hit (`crate::swing_traps`). Not saved.
+    pub swing_traps: crate::swing_traps::SwingTraps,
     /// Knockouts and getting up since the engine last took them
     /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
     pub knockout_news: Vec<crate::unconscious::News>,
@@ -1432,6 +1434,7 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),
+            swing_traps: Default::default(),
             knockout_news: Vec::new(),
             magic_news: Vec::new(),
             idle_requests: Vec::new(),

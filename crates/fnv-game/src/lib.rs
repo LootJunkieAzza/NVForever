@@ -106,6 +106,7 @@ pub mod sight;
 pub mod templates;
 pub mod terminal;
 pub mod trace;
+pub mod swing_traps;
 pub mod traps;
 pub mod unconscious;
 pub mod use_weapon;

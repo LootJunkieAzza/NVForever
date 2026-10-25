@@ -42,6 +42,7 @@ pub mod effect_sounds;
 pub mod fade;
 pub mod drowning;
 pub mod falls;
+pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
 pub mod game_start;
@@ -330,6 +331,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(mines::MinesPlugin)
             .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)
+            .add_plugins(swing_traps::SwingTrapsPlugin)
             .add_plugins(drowning::DrowningPlugin)
             .add_plugins(pickpocket::PickpocketPlugin)
             .add_plugins(repair::RepairPlugin)
