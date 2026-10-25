@@ -140,6 +140,9 @@ pub enum AiEvent {
     /// Already where the package wants it.
     AlreadyThere { package: FormId },
     Door { door: FormId, to_door: FormId },
+    /// After a load, the package goes on where the save had it (`crate::progress`): at
+    /// this patrol point, or with the sandbox's day as it was.
+    Resumed { package: FormId, patrol_point: Option<FormId>, sandbox: bool },
     /// The script of the next door on the way did not let the actor through
     /// (`fnv_game::npc_doors`): it plans again without that door.
     DoorRefused { door: FormId },
@@ -431,7 +434,7 @@ pub struct Agent {
     pub(crate) package: Option<FormId>,
     pub(crate) goal: Option<Goal>,
     /// Index of the patrol point being walked to.
-    route_at: usize,
+    pub(crate) route_at: usize,
     pub(crate) trip_started: f64,
     pub(crate) trip_from: f32,
     /// The door that opens in place the actor is standing at, waiting for it to open.
@@ -515,6 +518,9 @@ pub struct Ai {
     /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
     /// or the line clears.
     unseen_greets: std::collections::BTreeSet<FormId>,
+    /// Progress a loaded save kept, by actor, until the actor takes up that package again
+    /// ([`crate::progress`]).
+    pub(crate) restored: BTreeMap<FormId, crate::progress::Progress>,
     /// Restrained actors, whose package begins again once they are released
     /// ([`Ai::begin_in_place`]).
     restrained: std::collections::BTreeSet<FormId>,
@@ -541,7 +547,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), restored: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -1615,7 +1621,11 @@ impl Ai {
         let Some(def) = game.data.package_defs.get(&package) else { return };
         let at = Place { space: a.walker.space, pos: a.walker.feet };
         if matches!(def.ty, PackageType::Sandbox | PackageType::Wander) {
-            let sandbox = Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at);
+            let mut sandbox = Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at);
+            if let Some(s) = self.restored_schedule(actor, package) {
+                sandbox.set_schedule(&s);
+                self.log(game, actor, AiEvent::Resumed { package, patrol_point: None, sandbox: true });
+            }
             self.agents.get_mut(&actor).expect("listed").sandbox = Some(sandbox);
         } else if let Some(f) = goal::package_furniture(game, &self.taken, actor, def, at) {
             self.set_using(game, actor, Some(f));
@@ -1781,7 +1791,15 @@ impl Ai {
             Goal::Route(route) => {
                 // A repeatable patrol starts at the nearest point, another at the first
                 // [documented: GECK wiki, Patrol Package].
-                let start = if route.repeatable { nearest_point(route, feet) } else { 0 };
+                // After a load, where the save had it ([`crate::progress`]).
+                let start = match self.restored_patrol(actor, package, route.points.len()) {
+                    Some(i) => {
+                        self.log(game, actor, AiEvent::Resumed { package, patrol_point: Some(route.points[i].0), sandbox: false });
+                        i
+                    }
+                    None if route.repeatable => nearest_point(route, feet),
+                    None => 0,
+                };
                 self.agents.get_mut(&actor).expect("listed").route_at = start;
                 let (point, place) = route.points[start];
                 self.plan(game, nav, actor, package, place, Some(point));
