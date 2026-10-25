@@ -175,17 +175,44 @@ class ScriptRules(unittest.TestCase):
         job = ob.campaign_jobs(campaign(jip=True), EDIDS)["obs_c1_01_s1"][1]
         self.check(job)
         o = [s["observe"] for s in job["steps"] if "observe" in s][0]
-        self.assertEqual(len(o["groups"][0]["probe"]), len(ob.PARTS) + 1, "the JIP part for nearby actors")
-        self.assertIn("rA.GetActorProcessingLevel", o["groups"][0]["probe"][-1])
-        self.assertIn("rA.GetDetectionValue player", o["groups"][0]["probe"][-1])
+        self.assertEqual(len(o["groups"][0]["probe"]), len(ob.PARTS) + 3, "the JIP parts for nearby actors")
+        self.assertIn("rA.GetActorProcessingLevel", o["groups"][0]["probe"][-3])
+        self.assertIn("rA.GetDetectionValue player", o["groups"][0]["probe"][-3])
+        arrays = o["groups"][0]["probe"][-2]
+        self.assertIn("array_var aX0", arrays.split("Begin Function")[0], "declared before the block")
+        self.assertIn("let aX0 := rA.GetCombatTargets", arrays)
+        self.assertIn("let fN0 := Ar_Size aX0", arrays)
+        self.assertIn("    let rY1_3 := aX1[3]", arrays)
+        self.assertIn("let aX1 := rA.GetDetectingActors", o["groups"][0]["probe"][-1])
+        self.assertEqual(o["fields"]["parts"][-2][:6], [["combat_targets_n", "num"], ["combat_targets_1", "ref"],
+                                                         ["combat_targets_2", "ref"], ["combat_targets_3", "ref"],
+                                                         ["combat_targets_4", "ref"], ["combat_allies_n", "num"]])
+        self.assertEqual(len(o["fields"]["parts"][-1]), 2 * (1 + ob.ARRAY_REFS))
+        self.assertIn("player.GetActorLightAmount", "".join(o["header"]))
+        with self.assertRaises(ob.InputError):  # the compiler's limit on a parenthesised expression
+            ob.probe_part([(f"r{k}", "ref", "GetCombatTarget") for k in range(40)], [], [], [], True)
         self.assertEqual(len(o["groups"][1]["probe"]), ob.TRACKED_PARTS + 1, "and its short part for tracked ones")
         self.assertIn("rA.GetCurrentStablePackage", o["groups"][1]["probe"][-1])
         self.assertEqual(o["fields"]["tracked_parts"][-1], [["proc_level", "num"], ["stable_package", "ref"]])
         self.assertEqual(len(o["fields"]["tracked_parts"]), ob.TRACKED_PARTS + 1)
-        self.assertIn("GetPCDetectionState", o["header"][-1])
+        self.assertIn("GetPCDetectionState", o["header"][-2])
         plain = ob.campaign_jobs(campaign(), EDIDS)["obs_c1_01_s1"][1]
         self.assertNotIn("tracked_parts", [s["observe"] for s in plain["steps"] if "observe" in s][0]["fields"])
         self.assertNotIn("GetActorProcessingLevel", "".join(scripts_of(plain)), "base game + xNVSE only without the key")
+
+    def test_jip_hits(self):
+        job = ob.campaign_jobs(campaign(jip=True, events=["OnHit", "OnDeath"]), EDIDS)["obs_c1_01_s1"][1]
+        self.check(job)
+        o = [s["observe"] for s in job["steps"] if "observe" in s][0]
+        hit, death = o["events"]
+        self.assertIn("let rH0 := rEa.GetHitAttacker", hit["probe"])
+        self.assertIn("let fT := rEa.GetHitExtendedFlag 8", hit["probe"])
+        self.assertNotIn("GetHit", death["probe"], "only the hit events")
+        self.assertEqual(o["fields"]["event_fields"][-2:], [["hit_location", "num"], ["hit_flags", "num"]])
+        plain = ob.campaign_jobs(campaign(events=["OnHit"]), EDIDS)["obs_c1_01_s1"][1]
+        po = [s["observe"] for s in plain["steps"] if "observe" in s][0]
+        self.assertNotIn("GetHit", po["events"][0]["probe"])
+        self.assertEqual(len(po["fields"]["event_fields"]), len(ob.EVENT_FIELDS))
 
     def test_do_waits(self):
         job = ob.campaign_jobs(campaign(do=["tgm", {"frames": 180}, "player.SetPos y 5850"]), EDIDS)["obs_c1_01_s1"][1]
@@ -320,6 +347,31 @@ class Timeline(unittest.TestCase):
         self.assertEqual((bob["proc_level"], bob["stable_package"]), (3.0, "0x00002001"))
         ann = tl["actors"]["0x00001002"]["segments"][0]["state"]
         self.assertEqual((ann["proc_level"], ann["stable_package"], ann["interrupt_package"]), (1.0, "0x00002002", None))
+
+    def test_array_fields_and_hit_events_are_read(self):
+        combat = "|".join(["2", "00001001", "FF000801", "00000000", "00000000"] + ["-1"] + ["00000000"] * 4)
+        detection = "|".join(["0"] + ["00000000"] * 4 + ["1", "00000014"] + ["00000000"] * 3)
+        lines = output([(1.0, [actor("00001002") + ["", "1|0|0|-20|0|0|0|0|0|0|0", combat, detection]], [])])
+        obs = json.loads(lines[3])
+        obs["fields"] = ob.fields_doc(["Bob"], extra_parts=[ob.JIP_PART] + ob.JIP_ARRAY_PARTS, events=["OnHit"], hits=True)
+        lines[3] = json.dumps(obs)
+        lines[5:5] = [json.dumps({"kind": "event", "step": 3, "n": 0, "name": "OnHit",
+                                  "value": "00001002|00001001|1|6|80|0|0|00001001|12.5|3|0|00002001|FF000900|0|130"})]
+        tl = ob.timeline([("o.jsonl", lines)])
+        rec = tl["actors"]["0x00001002"]
+        self.assertEqual(rec["samples"], 1)
+        t, session, series = rec["series"][0]
+        self.assertEqual((t, session), (24.0, "s1"))
+        self.assertEqual((series["detection_value"], series["combat_targets_n"], series["combat_targets_2"]),
+                         (-20.0, 2.0, "0xFF000801"))
+        self.assertEqual(series["combat_allies_n"], -1.0)
+        self.assertIsNone(series.get("combat_targets_3"), "an empty slot")
+        self.assertEqual((series["detecting_n"], series["detecting_1"]), (1.0, "0x00000014"))
+        self.assertNotIn("proc_level", series, "a state field, in the segments")
+        self.assertNotIn("series", ob.timeline([("p.jsonl", output([(1.0, [actor("00001001")], [])]))])["actors"]["0x00001001"])
+        hit = tl["game_events"][0]
+        self.assertEqual((hit["hit_attacker"], hit["hit_health"], hit["hit_flags"]), ("0x00001001", 12.5, 130.0))
+        self.assertEqual(hit["hit_projectile"], "0xFF000900")
 
     def test_crashed_output_is_read_up_to_its_last_line(self):
         lines = output([(1.0, [actor("00001001")], []), (1.1, [actor("00001001")], [])], end=False)

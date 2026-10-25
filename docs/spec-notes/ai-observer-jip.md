@@ -30,6 +30,12 @@ text or guesses instead:
 - 2026-10-25: the owner asked for an opt-in JIP tier, with a vanilla vs JIP A/B check on
   `goodsprings` first. The base game + xNVSE campaigns stay the default and the source of
   every behaviour fact.
+- 2026-10-25 (later the same day), superseding the line above: JIP LN NVSE and
+  JohnnyGuitar NVSE **stay installed** for every observer run, plain campaigns included.
+  The owner: "there's no point taking them out once NVSE functionality is our own". The
+  engine is to implement these plugins' script functions itself, so a game with them is
+  the game we rebuild. The A/B differences of §5 stay on record as known effects of the
+  plugins (§4, "Using the data").
 
 ## 3. What the tier reads
 
@@ -54,7 +60,41 @@ JIP].
 | `move_flags` | GetActorMovementFlags | bitmask: 1 forward, 2 backward, 4 left, 8 right, 16/32 turn left/right, 256 walking, 512 running, 1024 sneaking, 2048 swimming, 4096 jumping, 8192 flying, 16384 falling, 32768 sliding |
 | `velocity` | GetActorVelocity | total velocity (no axis given) |
 | `combat_with_player` | IsInCombatWith player | in combat with the player |
+| `unreachable` | GetTargetUnreachable | 1 when the actor is stuck, unable to find a path to its package's target |
+| `combat_targets_*` | GetCombatTargets | for an actor in combat, the actors the game considers its potential targets at that moment |
+| `combat_allies_*` | GetCombatAllies | for an actor in combat, the actors the game considers its allies at that moment |
+| `detected_*` | GetDetectedActors | the actors it detects |
+| `detecting_*` | GetDetectingActors | the actors detecting it |
 | header `pc_detection` | GetPCDetectionState | -1 menu or loading, 0 hidden, 1 caution, 2 detected, 3 danger |
+| header `player_light` | player.GetActorLightAmount | the light falling on the player, 0.0 complete darkness to 100.0 very bright |
+
+An array field is recorded as its size, `<name>_n` (Ar_Size, -1 when the array was not
+set [documented: GECK wiki Ar_Size]), and its first four elements, `<name>_1` to
+`<name>_4`. In the game, an actor not in combat reads -1 for its targets and allies
+[observed 2026-10-25, jip_check]. Each pair of arrays is its own probe part: four arrays
+in one part made a return expression of about 560 characters, and the compiler refused
+it with "Max script expression length inside parenthesis (512 characters)" [observed
+2026-10-25, jip_check]. The job builder now refuses any part over 512.
+
+**Hits.** In a JIP session that listens to OnHit or OnHitWith, those events' probe also
+reads, from the target [documented: the JIP pages; valid "when called from ... the
+corresponding NVSE event handlers"]:
+- `hit_attacker` (GetHitAttacker), `hit_health`, `hit_limb` and `hit_fatigue` (the damage
+  of this hit), `hit_weapon` (the base weapon), `hit_projectile` (the projectile or
+  explosion reference; the page says one hit can come as up to three OnHit events);
+- `hit_location` (GetHitLocation, GECK1; "available in a UDF event handler script for
+  OnHit");
+- `hit_flags`, a bitmask of GetHitExtendedFlag 0-8: 1 target blocking, 2 critical,
+  4 fatal, 8 limb dismembered, 16 limb exploded, 32 limb crippled, 64 target's weapon
+  broke, 128 sneak attack, 256 explosion hit.
+
+In the gunfight of `jip_check` these answered for every hit [observed 2026-10-25]. Hits on
+non-actors read -1, and the player under god mode reads 0 damage. Flag values seen
+include 2, 4, 32, 38 and 46.
+
+The timeline keeps the fields that change too often to start segments
+(`detection_value`, movement, velocity, the arrays) as a per-actor `series` of [game
+time, session, {field: value}] per sample.
 
 Actors in the loaded area get all of these. Tracked (named) actors, loaded or not, get
 `proc_level` and `stable_package`: the processing level matters most for actors out of
@@ -65,12 +105,11 @@ not documented [hypothesis: safe; a crash would show in the run report].
 timeline segments like the other state fields. The rest are recorded per sample.
 
 **Not in the tier yet:**
-- Functions that return arrays (GetCombatTargets, GetCombatAllies, GetDetectedActors,
-  GetDetectingActors). The probe shape returns one `|`-joined record of scalars per
-  actor, and an array needs a shape of its own.
-- The hit getters (GetHitAttacker, GetHitHealthDamage, GetHitLimbDamage, ...). They
-  answer only inside an OnHit handler [documented: their pages], so they belong in the
-  event probe, not the samples.
+- GetBufferedCells / GetCellBuffered (which cells the game keeps buffered): an array in
+  the header, which the header scripts do not support yet.
+- JIP's SetOnDialogTopicEventHandler (a script handler run when a topic or info is
+  said): it would name the topic of each combat line, but the plugin only registers
+  native handlers for xNVSE's events, so it needs a handler script compiled at run time.
 - ClickMenuButton (choosing menu entries: dialogue, sleep/wait, cashiers). It makes the
   bot act, not just observe, and needs its own owner decision.
 - JohnnyGuitar's SetOnProcessLevelChangeEventHandler. That is a second plugin, and it
@@ -107,18 +146,22 @@ and three runs estimate run-to-run noise better than two runs of the 32-hour
    JIP installed. This checks that the probes compile and answer. Its per-sample cost (`us` in the samples)
    against the base runs shows whether the extra probes change timing.
 
-**Using the data.**
-- If the A/B shows no JIP effect, JIP-tier fields can back facts tagged `[observed: JIP
-  tier, campaign, date]`.
-- If it shows an effect, JIP-tier data backs only state facts (which processing level,
-  which stable package), never behaviour (timings, paths, package choice), and the
-  effect is written up here.
-- Either way, behaviour facts keep coming from base game + xNVSE runs. No goldens are
-  made from JIP-tier runs.
+**Using the data** (as of the owner's decision of 2026-10-25, §2: the plugins stay
+installed).
+- Every run, plain or JIP tier, backs facts tagged `[observed: campaign, date]`. Each run
+  report's `nvse_plugins` records which plugins were loaded.
+- A fact that leans on one of the A/B's known effects (§5) says so:
+  - the animals' brief GET_UP and TRAVEL spells inside WANDER;
+  - where an unloaded actor stands at the start of a session;
+  - a frame rate about 1 % lower.
+  - It names the effect.
+- A/B comparisons of the new runs (a TimeScale, a setting) go against base runs that
+  also had the plugins: the `with.timeline.*.json` of `jip_ab`, not its `base` runs.
+- Runs made before 2026-10-25 had no plugins, and keep their tags.
 
-**Install (owner).** Our tools never write into the game folder. The owner copies the
-plugins' DLLs from their official releases into `Data\NVSE\Plugins`, and takes them out
-again for the base half and afterwards, so the default campaigns run on plain xNVSE.
+**Install (owner).** Our tools never write into the game folder. The owner copied the
+plugins' DLLs from their official releases into `Data\NVSE\Plugins` (2026-10-25), and
+they stay there.
 
 **Clean room.** The JIP functions are used only as readers. Their meanings come from the
 wiki pages cited in §3, not from JIP's source code, and nothing of JIP ships.
@@ -164,9 +207,11 @@ wiki pages cited in §3, not from JIP's source code, and nothing of JIP ships.
     in JIP or JohnnyGuitar (`bJIPFixes` is on); off-screen processing between the save
     loading and the clock moving. A round with JIP alone would tell the two plugins
     apart.
+  - **First JIP-tier runs** (2026-10-25): the audit of every open observer question and what
+    the JIP campaigns answered, with the engine changes that follow, are in
+    [observer-jip-audit-2026-10-25](../handoff/observer-jip-audit-2026-10-25.md).
   - **Verdict:** the plugins change something, though not the NPC schedules and packages
-    measured here. So the §4 rule applies: JIP-tier data backs **state facts only**
-    (processing level, stable and interrupt package, detection value), tagged
-    `[observed: JIP tier ...]`. Behaviour facts and goldens keep coming from runs with
-    `nvf_capture.dll` alone, and the default campaigns are run with the other plugins'
-    DLLs taken out.
+    measured here. At first that meant JIP-tier data backed state facts only and plain
+    runs went without the plugins. The owner's decision later the same day (§2) keeps the
+    plugins installed for every run instead; the differences above are recorded as the
+    plugins' known effects (§4).
