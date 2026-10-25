@@ -676,7 +676,8 @@ fn name_index() -> &'static HashMap<String, &'static Kind> {
 }
 
 /// The implementation registered under a catalogue name (any case), in any of the three
-/// registries: the game's opcodes, the console's and the extender's functions.
+/// registries: the game's opcodes, the console's and the extender's functions. Catalogue
+/// names only: aliases (`GetAV`) resolve through `fnv_script::table::FunctionTable::by_name`.
 pub fn lookup_name(name: &str) -> Option<&'static Kind> {
     name_index().get(&name.to_ascii_lowercase()).copied()
 }
