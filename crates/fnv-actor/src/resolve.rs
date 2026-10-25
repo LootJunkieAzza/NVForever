@@ -31,6 +31,8 @@ pub mod slot {
     pub const LEFT_HAND: u32 = 1 << 3;
     pub const RIGHT_HAND: u32 = 1 << 4;
     pub const PIPBOY: u32 = 1 << 6;
+    /// Biped slot 7 [documented: xEdit wbDefinitionsFNV.pas BMDT biped flags].
+    pub const BACKPACK: u32 = 1 << 7;
     pub const HAT: u32 = 1 << 10;
 }
 
@@ -370,7 +372,7 @@ impl<'a> Resolver<'a> {
 
     /// [`Self::resolve`], with the armour worn given (`Some`: e.g. what the simulation
     /// has equipped on the player) instead of chosen from the carried items; entries that
-    /// are not ARMO records are ignored.
+    /// are not ARMO records are ignored, except a weapon held with "Hide Backpack".
     pub fn resolve_wearing(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>) -> Result<Appearance, ResolveError> {
         self.resolve_as(base, reference, wearing, None)
     }
@@ -446,13 +448,22 @@ impl<'a> Resolver<'a> {
             None => self.choose_armor(&carried),
         };
         let weapon = crate::weapon::choose_weapon(&carried, &self.actors.weapons);
+        // A weapon with "Hide Backpack" hides the pieces in the Backpack slot ("hides any
+        // equipped armor or armor addon that occupies the Backpack biped slot"
+        // [documented: GECK wiki Weapons]; the power armours' backpack addons under a
+        // minigun's or flamer's own tank): the weapon chosen, or one given among `wearing`.
+        let hides_backpack = |id: &FormId| self.actors.weapons.get(id).is_some_and(|w| w.hide_backpack);
+        let hide_backpack = match wearing {
+            Some(w) => w.iter().any(hides_backpack),
+            None => weapon.as_ref().is_some_and(hides_backpack),
+        };
         // The worn items and the armour addons their biped model lists name (ARMO BIPL,
         // `records::Armor::addons`): an addon's slots are covered and its model drawn as
         // the item's.
         let drawn: Vec<FormId> = worn
             .iter()
             .flat_map(|w| std::iter::once(*w).chain(self.actors.armors.get(w).map(|a| a.addons.clone()).unwrap_or_default()))
-            .filter(|id| self.actors.armors.contains_key(id))
+            .filter(|id| self.actors.armors.get(id).is_some_and(|a| !(hide_backpack && a.slots & slot::BACKPACK != 0)))
             .fold(Vec::new(), |mut v, id| {
                 if !v.contains(&id) {
                     v.push(id);

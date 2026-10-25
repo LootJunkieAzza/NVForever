@@ -219,6 +219,9 @@ impl Game<'_> {
         if self.wants_perk_sync(r) {
             self.sync_perk_abilities_of(r);
         }
+        if r == FormId::PLAYER_REF {
+            self.sync_perk_weights();
+        }
         self.sync_abilities(r);
         self.sync_worn(r);
         self.syncing_effects = false;

@@ -69,15 +69,23 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 
 - It picks the scenarios whose paths your branch changed (`--only NAME…`, `--area A…`,
   `--all` otherwise), shares a game launch between scenarios where that was checked to be
-  safe, takes both game locks for each launch and waits while another session holds them
-  (smoke runners wait in a first-come, first-served queue, `smoke-queue` beside the first
-  lock, and keep their place for the whole run),
-  and prints one line per scenario. **The summary is enough**: open a log in
+  safe, and runs up to 3 nvforever games on the machine at once (smoke slots,
+  `tools/smoke/smoke/slots.py`; `--slots N` / `NVF_SMOKE_SLOTS`, `--jobs N` for this run;
+  `--slots 1` is the same as `--exclusive`, the way to rerun a FAIL with the machine alone).
+  While any slot runs, `.claude\smoke.lock` exists as a shared lock, so captures (which
+  `mkdir` both game locks) wait; smoke never takes the capture lock `run.lock`, it only
+  waits while it is held. Runners queue first-come, first-served (`smoke-queue` beside
+  the first lock) and the first 3 share the slots. `--exclusive` is the old way (both
+  locks, one game on the machine) for a check that needs the screen to itself.
+  It prints one line per scenario. **The summary is enough**: open a log in
   `target/smoke/` only for a FAIL, and then only the lines it quotes. `plan` shows what
   would run; `check` judges the saved logs again after you edit a scenario; `--no-merge`
   runs scenarios one by one. Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
   `NVF_FNVTOOL`, `NVF_SMOKE_LOCKS` (other machines), `NVF_OBSERVER_SAMPLES` (the AI observer
   captures).
+- **Stop only your own runner, by the PID you started.** Never stop processes by a
+  command-line match or with `taskkill /T` on a shell you did not start: on 2026-10-24 one
+  such match stopped every session's smoke runner on the machine.
 - Fix or explain every FAIL. KNOWN marks a check that fails on main for a stated reason;
   it does not fail the run, and a "now passes" line says the mark can go.
 - **After merging anything into a branch: `python tools/smoke verify`** (fails when the

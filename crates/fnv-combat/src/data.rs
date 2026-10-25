@@ -31,6 +31,14 @@ fn label(v: Option<&Value>) -> Option<String> {
     }
 }
 
+/// The clip stem of a WEAP DNAM power attack override (`AttackCustom1Power` …
+/// `AttackCustom5Power`); `None` for DEFAULT, `0?` and anything else.
+pub fn power_override_stem(name: Option<&str>) -> Option<String> {
+    let n = name?.to_ascii_lowercase();
+    let k = n.strip_prefix("attackcustom")?.strip_suffix("power")?;
+    matches!(k, "1" | "2" | "3" | "4" | "5").then_some(n)
+}
+
 fn f(v: Option<&Value>, key: &str) -> f32 {
     v.and_then(|v| num(v, key)).unwrap_or(0.0) as f32
 }
@@ -153,6 +161,17 @@ pub struct WeaponStats {
     /// §2). Not part of any report.
     #[serde(skip)]
     pub reload_anim_mod: Option<String>,
+    /// DNAM "Power Attack Animation Override" as a clip stem (`AttackCustom3Power` →
+    /// `attackcustom3power`), `None` for DEFAULT (255) and 0 [documented: xEdit
+    /// wbDefinitionsFNV.pas WEAP DNAM; the clips `1hmattackcustom1power.kf` …
+    /// `2hmattackcustom5power.kf` are in the base meshes, observed]. Not part of any report.
+    #[serde(skip)]
+    pub power_attack_override: Option<String>,
+    /// `NNAM` "Embedded Weapon Node": the node of a creature's body an embedded weapon is
+    /// attached to [documented: GECK wiki Weapons, Embedded Weapon "Node"]; its shots leave
+    /// from there (nvforever `npc_combat`). Not part of any report.
+    #[serde(skip)]
+    pub embedded_node: Option<String>,
     pub mods: Vec<WeaponMod>,
     /// From the mods on ([`WeaponStats::modded`]): the projectile's speed multiplier
     /// ("Increase Projectile Speed", `None` for 1) and every fourth shot using no ammunition
@@ -178,11 +197,6 @@ pub struct WeaponStats {
     pub enchantment: Option<FormId>,
     pub impact_dataset: Option<FormId>,
     pub embedded: bool,
-    /// NNAM "Embedded Weapon Node": the node of a creature's body an embedded weapon is
-    /// on ("Node that the weapon is attached to" [documented: GECK wiki Weapons]); its
-    /// shots leave from there (docs/design/combat-ai.md §19). Not part of any report.
-    #[serde(skip)]
-    pub embedded_node: Option<String>,
     /// DNAM "Embedded Weapon - Actor Value" as a limb-condition actor value code (25
     /// Perception Condition … 31 Brain Condition): "the condition value affected when the
     /// weapon is targeted" [documented: GECK wiki Weapons; codes: [`limb_code`]]. `None`
@@ -369,6 +383,17 @@ impl WeaponStats {
 impl ProjectileStats {
     pub fn has(&self, flag: &str) -> bool {
         self.flags.iter().any(|f| f == flag)
+    }
+
+    /// Whether what this projectile was lands as its weapon, to be picked up again: DATA
+    /// flag "Can Be Picked Up" ("can be picked up by the player character after it has
+    /// been disabled, or regardless of it if Can be Disabled isn't enabled" [documented:
+    /// GECK wiki Projectile]) without "Can Be Disabled" (mines and C-4, which
+    /// `fnv_combat::mine` and the disarming keep) and without an explosion. The masters'
+    /// throwing knife, hatchet, spear and tomahawk (and the trap baseball and Old World
+    /// Blues' meat) [observed].
+    pub fn lands_as_weapon(&self) -> bool {
+        self.has("Can Be Picked Up") && !self.has("Can Be Disabled") && !self.has("Explosion")
     }
 
     /// The explosion this projectile sets off, if it sets one off.
@@ -970,6 +995,8 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         reload_anim: label(dn.and_then(|v| v.get("reload_animation"))),
         attack_anim: label(dn.and_then(|v| v.get("attack_animation"))),
         reload_anim_mod: label(dn.and_then(|v| v.get("reload_animation_mod"))),
+        power_attack_override: power_override_stem(label(dn.and_then(|v| v.get("power_attack_animation_override"))).as_deref()),
+        embedded_node: label(first(d, b"NNAM")).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
         mods,
         projectile_speed_mult: None,
         free_fourth_shot: false,
@@ -982,7 +1009,6 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         enchantment: cx.fid("EITM", first(d, b"EITM")),
         impact_dataset: cx.fid("INAM", first(d, b"INAM")),
         embedded: flags1.is_some_and(|x| has_flag(x, "Embedded Weapon")),
-        embedded_node: first(d, b"NNAM").and_then(text).filter(|n| !n.trim().is_empty()),
         embedded_limb: flags1.is_some_and(|x| has_flag(x, "Embedded Weapon")).then(|| label(dn.and_then(|v| v.get("embedded_weapon_actor_value"))).and_then(|l| limb_code(&l))).flatten(),
         playable: !flags1.is_some_and(|x| has_flag(x, "Non-Playable")),
         sound_level: label(first(d, b"VNAM")),
@@ -1201,6 +1227,24 @@ fn effect_form(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> EffectForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thrown_weapons_land_and_mines_do_not() {
+        let p = |flags: &[&str]| ProjectileStats { flags: flags.iter().map(|f| f.to_string()).collect(), ..Default::default() };
+        // NVThrowingKnifeProjectile and the frag mine's flags (FalloutNV.esm).
+        assert!(p(&["Alt. Trigger", "Can Be Picked Up", "Pins Limbs", "Rotation"]).lands_as_weapon());
+        assert!(!p(&["Explosion", "Alt. Trigger", "Can Be Disabled", "Can Be Picked Up"]).lands_as_weapon());
+        assert!(!p(&["Hitscan", "Supersonic"]).lands_as_weapon());
+    }
+
+    #[test]
+    fn power_attack_override_stems() {
+        assert_eq!(power_override_stem(Some("AttackCustom3Power")).as_deref(), Some("attackcustom3power"));
+        assert_eq!(power_override_stem(Some("DEFAULT")), None);
+        assert_eq!(power_override_stem(Some("0?")), None);
+        assert_eq!(power_override_stem(Some("AttackCustom9Power")), None);
+        assert_eq!(power_override_stem(None), None);
+    }
 
     #[test]
     fn debris_data_bytes() {

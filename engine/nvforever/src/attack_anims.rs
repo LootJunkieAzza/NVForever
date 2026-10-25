@@ -682,11 +682,15 @@ fn start(
             let w = fighters.weapon(id);
             if times.people_powers.get(&id).is_none_or(|(had, _)| *had != w) {
                 let prefix = weapon_prefix(w);
+                // The weapon's power attack override stands in for the standing one where
+                // the rig has its clip (`fnv_combat::melee::MeleeInput::power_override`).
+                let over = w.and_then(|w| combat.as_deref()?.forms.weapons.get(&w)?.power_attack_override.clone());
                 let found: Vec<PowerClip> = if matches!(prefix, "h2h" | "1hm" | "2hm") {
                     Power::ALL
                         .into_iter()
                         .filter_map(|p| {
-                            let c = clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{}.kf", p.dir().stem()))?;
+                            let custom = over.as_deref().filter(|_| p == Power::Normal).and_then(|o| clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{o}.kf")));
+                            let c = custom.or_else(|| clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{}.kf", p.dir().stem())))?;
                             let len = c.clip.length().max(0.05);
                             Some(PowerClip { power: p, hit: hit_time(&c).unwrap_or(DEFAULT_HIT).min(len), len })
                         })
@@ -743,7 +747,10 @@ fn start(
                         let stem = attack_stem(attack.as_deref());
                         match (a.power, a.swing) {
                             // A person's power attack: its own clip, crouched first.
-                            (Some(p), _) => attack_clips(stance, prefix, p.dir().stem(), false),
+                            (Some(p), _) => {
+                                let over = a.weapon.and_then(|w| combat.as_deref()?.forms.weapons.get(&w)?.power_attack_override.clone()).filter(|_| p == Power::Normal);
+                                attack_clips(stance, prefix, over.as_deref().unwrap_or(p.dir().stem()), false)
+                            }
                             // A swing: the group named (or the weapon's own), its `_a` or `_b` form.
                             (None, Some(p)) => attack_clips(stance, prefix, &swing_stem(&p.next.map_or(stem, |n| n.stem(p.rolls[1])), p.rolls[0]), false),
                             (None, None) => attack_clips(stance, prefix, &stem, a.sights),

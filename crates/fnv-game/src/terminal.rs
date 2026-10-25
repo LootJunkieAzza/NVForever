@@ -39,6 +39,8 @@ pub struct Terminals {
     pub access: BTreeMap<FormId, Access>,
     /// Lock and Unlock on terminals ([`lock`], [`unlock`]).
     pub script_locks: BTreeMap<FormId, ScriptLock>,
+    /// Terminals locked out again on Computer Whiz's try (perk-entry-points.md §7).
+    pub retried: std::collections::BTreeSet<FormId>,
     /// ForceTerminalBack was called by the result script running now
     /// ([`choose`] hands it on as [`Chosen::back`]).
     pub back: bool,
@@ -101,7 +103,14 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
     g.data.terminals.get(&base)?;
     let Some(difficulty) = still_locked(g, reference, base) else { return Some(Opening::Menu) };
     if g.terminals.access.get(&reference) == Some(&Access::LockedOut) {
-        return Some(Opening::LockedOut);
+        // Computer Whiz's Ignore Locked Terminal: one more try at a locked-out terminal
+        // [documented: GECK wiki Entry Point, "run when the player attempts to activate a
+        // locked terminal; if non-zero another chance will be granted"; observed: the perk,
+        // "one extra attempt to hack a locked-down terminal"].
+        if g.terminals.retried.contains(&reference) || !g.player_has_entry(crate::perks::IGNORE_LOCKED_TERMINAL) {
+            return Some(Opening::LockedOut);
+        }
+        tracing::info!("terminal: {reference} is locked out; Ignore Locked Terminal (Computer Whiz) gives one more try");
     }
     let s = Settings::default();
     Some(match hacking::may_hack(sci, difficulty, &s) {
@@ -161,7 +170,10 @@ pub fn lock_level(g: &Game, reference: FormId) -> i32 {
 /// experience earned.
 pub fn hacked(g: &mut Game, reference: FormId, success: bool) -> f64 {
     let a = if success { Access::Hacked } else { Access::LockedOut };
-    g.terminals.access.insert(reference, a);
+    // Locked out again on Computer Whiz's try: that try is spent.
+    if g.terminals.access.insert(reference, a) == Some(Access::LockedOut) && !success {
+        g.terminals.retried.insert(reference);
+    }
     if !success {
         return 0.0;
     }

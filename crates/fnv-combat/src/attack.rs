@@ -142,6 +142,22 @@ impl Timing {
     }
 }
 
+impl Timing {
+    /// The attack played at `rate` times its speed (the Modify Attack Speed perks: Fast
+    /// Shot, Slayer, Loose Cannon …; docs/spec-notes/perk-entry-points.md §10): the time
+    /// between shots, the wind-up to the shot and the `Attach` key take 1 ÷ `rate` as long;
+    /// an automatic weapon fires `rate` times as often [design: the entry point is "Modify
+    /// Attack Speed", and an automatic weapon's speed is its fire rate]. The reload and a
+    /// spin-up are not changed. A rate of 0 or below is read as 1.
+    pub fn with_attack_rate(mut self, rate: f32) -> Timing {
+        let rate = if rate.is_finite() && rate > 0.0 { rate } else { 1.0 };
+        self.interval /= rate;
+        self.fire_delay /= rate;
+        self.attach = self.attach.map(|a| a / rate);
+        self
+    }
+}
+
 /// How fast an actor reloads, as a multiple of the reload clip's own speed, before its
 /// perks' Reload Speed entry point: 0.5 + 0.1 × Agility, so 1 at Agility 5, 0.6 at 1 and
 /// 1.5 at 10 [documented: Fallout Wiki, Agility (Fallout: New Vegas): the reload time is

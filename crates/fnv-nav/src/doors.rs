@@ -119,7 +119,7 @@ impl InPlaceDoor {
     }
 
     /// Game-space z range of the bounds.
-    fn z_range(&self) -> (f32, f32) {
+    pub(crate) fn z_range(&self) -> (f32, f32) {
         let (lo, hi) = self.bounds;
         let mut zs = Vec::with_capacity(8);
         for x in [lo[0], hi[0]] {
@@ -213,12 +213,17 @@ pub fn in_place_doors(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex) -> Vec<I
 /// (separating axes of both), and its heights meet the door's (a navmesh lies at most a
 /// little below a door's base [engine choice: 64 units]).
 fn overlaps(d: &InPlaceDoor, t: [[f32; 3]; 3]) -> bool {
-    let (zlo, zhi) = d.z_range();
+    box_overlaps(d.footprint(), d.z_range(), t, 64.0, 0.0)
+}
+
+/// Whether triangle `t` (corners) and a box's footprint `f` overlap seen from above
+/// (separating axes of both), and the triangle's heights meet the box's z range `zlo`
+/// .. `zhi`, from `below` under its base up to `top_clear` under its top.
+pub(crate) fn box_overlaps(f: [[f32; 2]; 4], (zlo, zhi): (f32, f32), t: [[f32; 3]; 3], below: f32, top_clear: f32) -> bool {
     let (tlo, thi) = t.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), p| (a.min(p[2]), b.max(p[2])));
-    if thi < zlo - 64.0 || tlo > zhi {
+    if thi < zlo - below || tlo > zhi - top_clear {
         return false;
     }
-    let f = d.footprint();
     let tri: [[f32; 2]; 3] = t.map(|p| [p[0], p[1]]);
     let axes = |poly: &[[f32; 2]]| -> Vec<[f32; 2]> {
         (0..poly.len()).map(|i| {

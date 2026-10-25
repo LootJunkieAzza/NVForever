@@ -1796,10 +1796,10 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.s
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 22
 order = [[
-  { text = "perks: GoodNatured's ability PerkGoodNatured on", label = "the trait's ability joins the player" },
+  { text = "perks: 0x00000014: GoodNatured's ability PerkGoodNatured on", label = "the trait's ability joins the player" },
   { re = 'console: GetActorValue on player >> 25(\.0+)?$', label = "Speech 20 + 5" },
   { re = 'console: GetActorValue on player >> 15(\.0+)?$', label = "Guns 20 - 5" },
-  { text = "perks: ability PerkGoodNatured off", label = "RemovePerk takes the ability off" },
+  { text = "perks: 0x00000014's ability PerkGoodNatured off", label = "RemovePerk takes the ability off" },
   { re = 'console: GetActorValue on player >> 20(\.0+)?$', label = "Speech back to 20" },
   { re = 'levelup: \d+ skill points \(\d+ before Educated\)', label = "Educated's +2" },
   { re = 'levelup: menu open, level 2, \d+ skill points', label = "the menu opens with them" },
@@ -1944,6 +1944,104 @@ args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", 
 run_seconds = 55
 expect = [
   { re = 'own sounds summary:.* (?P<n>\d+) whizzed by', range = [1, 100], label = "a missed shot whizzes by" },
+]
+
+[[scenario]]
+name = "sound-curve-whiz"
+source = "ESM audit 2026-10-24 gaps 7 and 17 (docs/spec-notes/audio.md §15.5): Violet's missed shots are supersonic (PROJ Supersonic): FXBulletWhiz plays once at the point of the path nearest the listener, by its own attenuation curve (100, 30, 20, 5, 0)"
+note = "the own-sounds-whiz setup (Violet 0x000F570B, the player put about 1,000 units from her at 38 s)"
+areas = ["audio", "own-sounds", "combat"]
+paths = ["engine/nvforever/src/own_sounds.rs", "engine/nvf-play/src/sfx.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-45600:64896:4400" }
+args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 55
+expect = [
+  { re = 'own sounds summary:.* (?P<n>\d+) whizzed by', range = [1, 100], label = "a missed supersonic shot whizzes by" },
+  { re = 'sfx: .*; (?P<n>\d+) placed by a curve of their own', range = [1, 100000], label = "placed sounds follow their record's own attenuation curve" },
+]
+
+[[scenario]]
+name = "reverb-send-cave"
+source = "ESM audit 2026-10-24 gap 7 (docs/spec-notes/audio.md §15.5): SOUN Reverb Attenuation Control sets how much of a sound goes into the reverb; the 10mm shots in the Goodsprings cave send less than all of it"
+note = "the reverb-cave-exit setup"
+areas = ["audio"]
+paths = ["engine/nvf-play/src/reverb.rs", "engine/nvf-play/src/sfx.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "6:weapon,8:fire,8.4:fire", NVF_PLAY_TEST_SCRIPT = "11:activate:0x0015315F" }
+args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'reverb summary: .* (?P<n>\d+) sounds through a reverb \(mean send 0\.\d\d\)', range = [2, 400], label = "the shots went through the cave's reverb, sending part of themselves" },
+]
+
+[[scenario]]
+name = "voice-filter-helmet"
+source = "ESM audit 2026-10-24 gap 15 (docs/spec-notes/audio.md §15.5): a speaker wearing an armour with Modulates Voice (the T-45d power helmet 00014C08 given to Doc Mitchell) is heard through the voice filter"
+note = "the voice-opening setup; the console gives and equips the helmet before his first line"
+areas = ["voice", "audio"]
+paths = ["engine/nvf-play/src/voice.rs", "engine/nvf-play/src/voice_filter.rs", "engine/nvf-play/src/sfx.rs", "crates/fnv-sim/src/forms.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:DocMitchellREF.additem 00014C08 1;1.3:DocMitchellREF.equipitem 00014C08;1.6:close" }
+args = ["--play", "--new-game"]
+run_seconds = 30
+expect = [
+  { re = 'voice: playing \S+\.ogg \([\d.]+ s\) DocMitchellREF line .* through the voice filter', label = "Doc Mitchell's line is filtered" },
+  { re = 'voice summary: .* (?P<n>\d+) through the voice filter', range = [1, 1000], label = "filtered lines in the summary" },
+]
+
+# ------------------------------------------------------------------ weapons from the ESM audit
+
+[[scenario]]
+name = "thrown-knife-lands"
+source = "ESM audit 2026-10-24 gaps 5 and 13 (docs/spec-notes/combat-rules.md §11b, weapon-data-fields.md §7): a throwing knife (WeapNVThrowingKnife 00161246; PROJ Can Be Picked Up) thrown at the ground lands as a loose knife; the body holds it with its Hand Grip clip (HandGrip1, 1gthandgrip1.kf)"
+note = "the thrown-dynamite setup (controls from 14 s, once the player can act), looking down"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/thrown.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/data.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "00161246", NVF_PLAY_TEST_GIVE = "00161246:4", NVF_PLAY_TEST_LOOK = "15:0:-45", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,17.2:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'thrown: WeapNVThrowingKnife \(\S+\) thrown by \S+ landed at \(', label = "the knife lands to be picked up" },
+  { re = 'thrown summary: (?P<n>\d+) thrown weapons landed', range = [1, 4], label = "landed knives in the summary" },
+  { re = 'player Third rig: hand grip \S+1gthandgrip1\.kf', label = "the third-person body holds it with its hand grip" },
+]
+
+[[scenario]]
+name = "power-attack-override"
+source = "ESM audit 2026-10-24 gap 12 (docs/spec-notes/weapon-data-fields.md §7): the Machete Gladius (0015430B, DNAM Power Attack Animation Override AttackCustom3Power): a standing power attack plays 1hmattackcustom3power.kf"
+areas = ["combat", "melee"]
+paths = ["crates/fnv-combat/src/melee.rs", "crates/fnv-actor/src/player_clips.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/attack_anims.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0015430B", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,18.5:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'combat: WeapNVMacheteGladius swing attackcustom3power', label = "the standing power attack is the override" },
+  { re = 'player Third rig: Attack\(Stand, "1hm", "attackcustom3power", false\) plays \S+1hmattackcustom3power\.kf', label = "the body plays the override's clip" },
+]
+
+[[scenario]]
+name = "hide-backpack"
+source = "ESM audit 2026-10-24 gap 29 (docs/spec-notes/weapon-data-fields.md §7): the T-45d power armour's backpack addon (PowerArmorBackPack, Backpack slot) is not drawn while the Minigun (0000433F, Hide Backpack) is equipped"
+note = "the power-armor-training console lines: training first, then the armour (00014E13), then the minigun"
+areas = ["actors", "combat"]
+paths = ["crates/fnv-actor/src/resolve.rs", "crates/fnv-actor/src/records.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:setpccanusepowerarmor 1;14.3:player.additem 00014E13 1;14.6:player.equipitem 00014E13;16:player.additem 0000433F 1;16.3:player.equipitem 0000433F;16.6:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 24
+expect = [
+  { re = 'player body: armour drawn \[[^\]]*"PowerArmorBackPack"', label = "the power armour wears its backpack" },
+  { re = 'player body: armour drawn \[(?:(?!PowerArmorBackPack)[^\]])*"PowerArmorLeftHand"(?:(?!PowerArmorBackPack)[^\]])*\]', label = "with the minigun the backpack is not drawn" },
+]
+
+[[scenario]]
+name = "creature-embedded-muzzle"
+source = "ESM audit 2026-10-24 gap 14 (nvforever npc_combat.rs, weapon-data-fields.md §7): a creature's embedded weapon shoots from the node its WEAP NNAM names (a sentry bot's ProjectileNode_RGatling)"
+note = "a sentry bot (CrSentryBotMGHard 0x000E585E) placed at the player in Goodsprings at 3 s (the first created reference, 0xFF000000), put 600 units away and set on the player; god mode"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "crates/fnv-combat/src/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrSentryBotMGHard:1,5:moveto:0xFF000000:player:0:600:0,6:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = "npc combat: .* opens fire on .*, shooting from its embedded weapon's node ProjectileNode_RGatling", label = "the sentry bot's gun shoots from its node" },
 ]
 
 [[scenario]]
@@ -2544,6 +2642,74 @@ expect = [
   "ui sounds: lockpick lock broken by forcing: UILockpickingForceFail",
   "lockpick summary: 3 asked, 2 opened (1 refused); 0 picked, 0 forced, 1 broken by forcing; 1 torque tries, 0 pins broken, 0 times out of pins; 1 left before the end",
 ]
+
+[[scenario]]
+name = "perk-infiltrator"
+source = "perk audit 2026-10-23 §3.4, owner 2026-10-24: Infiltrator gives one more try at a broken lock (docs/spec-notes/perk-entry-points.md §7)"
+note = "lockpick-floor-safe's setup (Ringo's floor safe in GSGasStation, Lockpick 30, two pins) with the perk Infiltrator from 3 s: a failed Force Lock breaks the safe; the next activation opens the menu again (one more try), a second failed Force Lock spends it, and the activation after is refused as broken"
+areas = ["lockpick", "perks"]
+paths = ["crates/fnv-game/src/lockpick.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_SCRIPT = "3:perk:Infiltrator", NVF_PLAY_TEST_ACTIVATE = "12,18.5,24,29", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:force:99,20:force:99,25.5:force:99" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+order = [[
+  "lockpick: Force Lock (15%, roll 99.0): 0x0010B2D4 broken for good",
+  "lockpick: 0x0010B2D4 is broken; Ignore Broken Lock (Infiltrator) gives one more try",
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock",
+  "lockpick: Force Lock (15%, roll 99.0): 0x0010B2D4 broken for good",
+  'lockpick: 0x0010B2D4 Floor Safe refused (Lockpick 30): on screen: "This lock is broken. It can only be opened with a key."',
+]]
+expect = [
+  { text = "Ignore Broken Lock (Infiltrator) gives one more try", count = 1, label = "one more try, once" },
+]
+
+[[scenario]]
+name = "perk-computer-whiz"
+source = "perk audit 2026-10-23 §3.4, owner 2026-10-24: Computer Whiz gives one more try at a locked-out terminal (docs/spec-notes/perk-entry-points.md §7)"
+note = "the hacking scenario's Easy terminal (BisonSteve01, 000D74D5) at Science 25 with the perk ComputerWhiz: four wrong words lock it out; opened again it can be hacked once more; four more wrong words lock it out for good"
+areas = ["hacking", "terminal", "perks"]
+paths = ["crates/fnv-game/src/terminal.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:perk:ComputerWhiz", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:wrong,35:wrong,36:wrong,38:power,40:open:000D74D5,42:wrong,43:wrong,44:wrong,45:wrong,47:power,49:open:000D74D5" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 54
+order = [[
+  "terminal: open 0x000D74D5",
+  "Entry denied, no attempts left: the terminal is locked for good",
+  "terminal: 0x000D74D5 is locked out; Ignore Locked Terminal (Computer Whiz) gives one more try",
+  { re = 'terminal: open 0x000D74D5 .*: hacking, Easy', label = "the terminal can be hacked again" },
+  "Entry denied, no attempts left: the terminal is locked for good",
+  { re = 'terminal: open 0x000D74D5 .*: locked out for good', label = "the second lock-out is for good" },
+]]
+
+[[scenario]]
+name = "perk-long-haul"
+source = "perk audit 2026-10-23 §3.3, owner 2026-10-24: Long Haul lets an over-encumbered player fast travel (docs/spec-notes/perk-entry-points.md §7)"
+note = "fast-travel-primm's travel to Primm (0x000CDF46 made a travel target by ShowMap) with 15 miniguns (WeapMinigun 0000433F) carried, well over the capacity, and the perk LongHaul from 3 s: the travel is asked and taken"
+areas = ["pipboy", "fast-travel", "perks"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0000433F:15", NVF_PLAY_TEST_SCRIPT = "3:perk:LongHaul,6:call:-:ShowMap:0x000CDF46:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,18:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 40
+order = [[
+  "fast travel: over-encumbered, but Has Fast Travel Always (Long Haul) lets the player travel",
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference', label = "and goes" },
+]]
+forbid = [{ re = 'fast travel: to Primm .* refused \(Encumbered\)', label = "refused for the load" }]
+
+[[scenario]]
+name = "perk-weights"
+source = "perk audit 2026-10-23 §3.3, owner 2026-10-24: Pack Rat halves items of 2 or less, Heavyweight weapons of 10 or more (docs/spec-notes/perk-entry-points.md §7)"
+note = "the perks PackRat and NVDLC01HeavyWeight given by the console at 12 s and taken back at 15 s, as perk-skill-points does (a first try with script aids at 3 and 6 s ran before the game had started) (Hoarder's + 25 capacity is checked by fnv-game perk_combat weight_perks_change_the_players_load)"
+areas = ["perks", "inventory"]
+paths = ["crates/fnv-game/src/perks.rs", "crates/fnv-sim/src/inventory.rs", "crates/fnv-sim/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.addperk PackRat;12.3:player.addperk NVDLC01HeavyWeight;15:player.removeperk PackRat;15.3:player.removeperk NVDLC01HeavyWeight" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "perks: the player's item weights: items of 2 or less x 0.5, weapons of 10 or more x 0.5",
+  "perks: the player's item weights: light items as they are, heavy weapons as they are",
+]]
 
 [[scenario]]
 name = "lockpick-opens-container"
@@ -3580,6 +3746,122 @@ expect = [
   { re = 'npc stance summary: .*?(?P<n>\d+) blocks', range = [1, 100000], label = "blocks in the stance summary" },
 ]
 forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
+
+[[scenario]]
+name = "perk-unarmed-moves"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: the unarmed special moves (Ranger Takedown, Khan Trick, Legion Assault) and Super Slam's knockdown chance (docs/spec-notes/perk-entry-points.md §11)"
+note = "combat-block-break's fist fight (an NCR trooper with no weapon, put 90 units north of the player every 3 s, god mode) with the perks RangerTakedown, KhanTrick and LegionAssault from 3 s; three power attacks (Use held 1.5 s) with the movement keys held until well after each starts (let go at the 0.8 s mark, a loaded run started the backward one a frame after the keys were up: a standing power attack): back at 9.9 (Ranger Takedown), right at 12.9 (Khan Trick), forward at 15.9 (Legion Assault), 3 s later than first written: early in a run on a loaded machine a 2.8 s stall turned the first hold into a tap. Third person from 3.2 s; frames mid-swing of each move (move_*.png) for the owner to check the clips. Super Slam is perk-super-slam's: its conditions want a weapon of WeaponListMeleeALL or WeaponsAutomaticMeleeLIST, which the Fists are not in (a first run here gave the Fists no roll)"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:RangerTakedown,3:perk:KhanTrick,3:perk:LegionAssault,4:combat:0x000F36F5:player,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0,15:moveto:0x000F36F5:player:0:90:0,18:moveto:0x000F36F5:player:0:90:0,21:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "9.85:-1:0,11.3:0:0,12.85:0:1,14.3:0:0,15.85:1:0,17.3:0:0", NVF_PLAY_TEST_SHOTS = "10.5:move_ranger_takedown.png,13.5:move_khan_trick.png,16.5:move_legion_assault.png", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,9.8:aimnpc,9.9:fire,11.4:fire,12.8:aimnpc,12.9:fire,14.4:fire,15.8:aimnpc,15.9:fire,17.4:fire,18.8:aimnpc,18.9:fire,19.4:fire,19.9:fire,21.8:aimnpc,21.9:fire,22.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 29
+expect = [
+  { re = 'combat: Ranger Takedown \(Back power attack, unarmed\): clip attackcustom2power', label = "a backward power attack is Ranger Takedown, with its own clip" },
+  { re = 'combat: Khan Trick \(Right power attack, unarmed\): clip attackcustom5power', label = "a power attack to the right is Khan Trick, with its own clip" },
+  { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault, with its own clip" },
+  { re = 'combat: Fists swing attackcustom1power', label = "the swing plays the Legion Assault clip" },
+  { re = 'combat: Legion Assault: the player lunges 332 units', label = "Legion Assault starts the lunge" },
+]
+
+manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png: the player's body in each move's own clip (h2hattackcustom2power, custom5power, custom1power), not the plain directional power attack"
+
+[[scenario]]
+name = "perk-legion-lunge"
+source = "owner 2026-10-24: move the player forward during Legion Assault's lunge (docs/spec-notes/perk-entry-points.md §11.4)"
+note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.8 s). The distance is measured from the swing's start, and the key stays down a little after it (a first run: the swing began 0.53 s after Use, the key came up 0.26 s later; 394 units, about 60 of them walked), so the range allows up to about 90 walked; without the lunge it would be that walking alone"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.8:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 14
+order = [[
+  { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault" },
+  { re = 'combat: Legion Assault: the player lunges 332 units', label = "it starts the lunge" },
+  { re = 'player: lunge done: (3\d\d|4[0-2]\d) units', label = "the player ends the lunge's 332 units further on, and what walking adds" },
+]]
+
+[[scenario]]
+name = "perk-khan-trick-stun"
+source = "owner 2026-10-24: Khan Trick forces its target's hit reaction (docs/spec-notes/perk-entry-points.md §11.4)"
+note = "perk-unarmed-moves' NCR trooper fist fight with the perk KhanTrick alone from 3 s; three power attacks to the right (Use held 1.5 s, the right key held from 0.05 s before to 0.75 s after, the swing starting about 0.5 s in, then aimed at the trooper again 1 s in) at 6.9, 9.9 and 12.9 s, the trooper put 90 units north each 0.9 s before: one that lands forces the reaction (with the key held 1.4 s the player strafed out of reach and both blows of a run missed) (a first try inside perk-unarmed-moves had its one blow lost to a 3 s stall, and the trooper killed by the fiend dogs about)"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:KhanTrick,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:0:1,7.65:0:0,9.85:0:1,10.65:0:0,12.85:0:1,13.65:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.9:aimnpc,8.4:fire,9.8:aimnpc,9.9:fire,10.9:aimnpc,11.4:fire,12.8:aimnpc,12.9:fire,13.9:aimnpc,14.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 20
+order = [[
+  { re = 'combat: Khan Trick \(Right power attack, unarmed\): clip attackcustom5power', label = "a power attack to the right is Khan Trick" },
+  { re = 'combat: Khan Trick: \S+ is forced into its hit reaction', label = "a Khan Trick blow forces the trooper's hit reaction" },
+  { re = 'hit reaction: 000F36F5 staggers for [\d.]+ s \(location -?\d+, forced: Khan Trick\)', label = "the trooper plays it at once" },
+]]
+
+[[scenario]]
+name = "perk-spread-perks"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24 (the rest of the perks): Weapon Handling takes 2 off a weapon's Strength requirement and Run 'n Gun halves the moving spread penalty (docs/spec-notes/perk-entry-points.md §12)"
+note = "Goodsprings, the 10mm Pistol (Weap10mmPistol 0000434F) drawn; the perks WeaponHandling at 3 s and RunNGun at 5 s: each change of the spread perks is logged"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/spread.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "3:perk:WeaponHandling,5:perk:RunNGun", NVF_PLAY_TEST_CONTROL = "2:weapon" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 9
+order = [[
+  { re = 'combat: spread perks for \S+: Strength requirement -2, moving penalty / 1\.00 \(WeaponHandling\)', label = "Weapon Handling takes 2 off the Strength requirement" },
+  { re = 'combat: spread perks for \S+: Strength requirement -2, moving penalty / 2\.00 \(WeaponHandling, RunNGun\)', label = "Run 'n Gun halves the moving penalty with a pistol" },
+]]
+
+[[scenario]]
+name = "perk-teammate-attack-speed"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24 (the rest of the perks): Old Vaquero, a teammate perk, makes Raul attack faster with the weapons of OldVaqueroWeapons (docs/spec-notes/perk-entry-points.md §12)"
+note = "Raul (RaulREF, ACHR 000E6105) where he is placed, in BlackMountainPrison; at 3 s made a teammate and the player given OldVaquero for teammates (player.addperk OldVaquero 1), his own revolver (WeapNV44RevolverRaul 00176E57, not in OldVaqueroWeapons: a first run fought with it at its own speed, rightly) swapped for the .44 Revolver (WeapNV44Revolver 0008F215, in the list; the same rounds); at 5 s set on the player (god mode): its shot cycle at x1.33. A first try brought Raul to Goodsprings with MoveTo: an actor moved out of an interior cell was not drawn there, so did not fight"
+areas = ["combat", "perks", "followers"]
+paths = ["engine/nvforever/src/npc_combat.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "000E6105", NVF_PLAY_TEST_CONSOLE = "3:RaulREF.setplayerteammate 1;3.3:player.addperk OldVaquero 1;3.6:RaulREF.removeitem 00176E57 1;3.9:RaulREF.additem 0008F215 1;4.2:RaulREF.equipitem 0008F215;4.5:close", NVF_PLAY_TEST_SCRIPT = "5:combat:RaulREF:player" }
+args = ["--cell", "BlackMountainPrison", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "RaulREF"]
+run_seconds = 20
+expect = [
+  { re = 'npc combat: .*\(the teammate perks\)', label = "Raul attacks faster through Old Vaquero" },
+]
+
+[[scenario]]
+name = "perk-scribe-counter"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: Scribe Counter, a quick counter-attack after a block, with its clip h2hcounter (docs/spec-notes/perk-entry-points.md §11)"
+note = "perk-unarmed-moves' NCR trooper fist fight with the perk ScribeCounter from 3 s; five times the player holds Block (the right button) for 1.5 s facing the trooper while it punches, then strikes at once: a blow begun within a second of a blocked punch is the counter (a first version with one window saw no punch blocked in one of two runs, one with three 2.6 s windows struck more than a second after the last block in one of three: the block counts against a blow from the front only, and the trooper moves)"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:ScribeCounter,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9.5:moveto:0x000F36F5:player:0:90:0,13:moveto:0x000F36F5:player:0:90:0,16.5:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.4:aimnpc,8.05:fire,8.15:fire,9:aimnpc,10.65:fire,10.75:fire,11.6:aimnpc,13.25:fire,13.35:fire,14.2:aimnpc,15.85:fire,15.95:fire,16.8:aimnpc,18.45:fire,18.55:fire", NVF_PLAY_TEST_KEYS = "6.5:mouse-right:1.5,9.1:mouse-right:1.5,11.7:mouse-right:1.5,14.3:mouse-right:1.5,16.9:mouse-right:1.5" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 24
+order = [[
+  { re = '''combat: 0x00000014 blocks \S+'s blow''', label = "the player blocks a punch" },
+  { re = 'combat: Scribe Counter \(Stand power attack, unarmed\): clip counter', label = "the blow after it is Scribe Counter, with h2hcounter" },
+]]
+
+[[scenario]]
+name = "perk-super-slam"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: Super Slam gives melee blows a chance to knock the target down (docs/spec-notes/perk-entry-points.md §11)"
+note = "perk-unarmed-moves' NCR trooper fight with a machete (WeapNVMachete 000CE569, in WeaponListMeleeALL) and the perk SuperSlam from 3 s; plain blows from 6.9 s: each that lands rolls Super Slam's chance"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_SCRIPT = "3:perk:SuperSlam,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.5:fire,8.1:fire,9.8:aimnpc,9.9:fire,10.5:fire,11.1:fire,12.8:aimnpc,12.9:fire,13.5:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 20
+expect = [
+  { re = 'combat: Knockdown Chance 0\.(15|30) \(SuperSlam', label = "Super Slam rolls its chance on a machete blow" },
+]
+
+[[scenario]]
+name = "perk-and-stay-back"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: And Stay Back gives a shotgun's pellets a 10 % knockdown chance each (docs/spec-notes/perk-entry-points.md §11)"
+note = "the Goodsprings dogs set on the player (god mode, no spread); the Hunting Shotgun (WeapNVHuntingShotgun 0008ED0B, 12 gauge rounds 0008ECF5) and the perk NVDLC01AndStayBack from 3 s; aimactor and fire at 10, 11 and 12 s: each pellet that lands rolls 0.10"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:NVDLC01AndStayBack", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0008ECF5:30", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimactor,10:fire,10.8:aimactor,11:fire,11.8:aimactor,12:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+expect = [
+  { re = 'combat: Knockdown Chance 0\.10 \(NVDLC01AndStayBack', label = "And Stay Back rolls 10 % on a pellet that lands" },
+]
 
 [[scenario]]
 name = "combat-block-break"
@@ -4821,6 +5103,49 @@ expect = [
 order = [["pipboy repair: open", "pipboy repair: stays open", "pipboy repair: closed"]]
 
 [[scenario]]
+name = "perk-jury-rigging"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24: Jury Rigging repairs an item with a roughly similar one (docs/spec-notes/perk-entry-points.md §9)"
+note = "pipboy-repair's setup with a Cowboy Repeater at 40 % and a Trail Carbine at 30 % (both Guns, Rifle - Ballistic (2 Hand); neither is on the other's repair list) and the perk JuryRigging at 10 s: the player's starting items removed at 11 s (RemoveAllItems; at 8 s the starting kit was not given yet: the Weapons tab lists ammo and other gear before the repeater by name, a first run selected 10mm Rounds); R on the Cowboy Repeater, the first row, lists the Trail Carbine as its part; using it repairs the repeater"
+areas = ["repair", "pipboy", "perks"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs", "crates/fnv-game/src/repair.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVFOREVER_HOME = "perk-jury-rigging-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "11:call:player:RemoveAllItems,11.3:call:player:AddItemHealthPercent:WeapNVCowboyRepeater:1:0.4,11.6:call:player:AddItemHealthPercent:WeapNVTrailCarbine:1:0.3,11.8:perk:JuryRigging", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=items,15.5:tab=0,17:repair=open,18:repair=down,20:repair=use,22:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 27
+order = [[
+  { re = 'pipboy repair: open Cowboy Repeater at 40% \(Repair \d+\): Trail Carbine 30%', label = "Jury Rigging lists the Trail Carbine for the Cowboy Repeater" },
+  { re = 'pipboy repair: Cowboy Repeater 40% with Trail Carbine 30% -> \d+% \(Repair \d+\)', label = "and it repairs it" },
+]]
+
+[[scenario]]
+name = "perk-meltdown-anatomy"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24: Living Anatomy shows the target's health and DT on its bar; Meltdown makes a foe killed by an energy weapon give off an explosion (docs/spec-notes/perk-entry-points.md §9)"
+note = "the Goodsprings dogs set on the player (god mode, no spread) with the perks LivingAnatomy and Meltdown from 3 s and a Laser Pistol (WeapLaserPistol 00004335, small energy cells 00020772); the dogs' health set to 2 at 4 s so a shot kills (a first run set 10: the laser's 6.9 left the Fiend Guard Dog at 3); aimactor and fire at 10 and 11 s. The bar names the dog with its health and DT; a kill gives off the DOBJ's Meltdown Explosion (MinePlasmaExplosion)"
+areas = ["combat", "hud", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/hud_target.rs", "engine/nvf-play/src/hud.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:LivingAnatomy,3:perk:Meltdown,4:set_av:0x000F573F:Health:2,4:set_av:0x0013E5BB:Health:2", NVF_PLAY_TEST_EQUIP = "00004335", NVF_PLAY_TEST_GIVE = "00020772:60", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimactor,10:fire,10.8:aimactor,11:fire", NVF_PLAY_TEST_SHOTS = "9.9:living_anatomy_bar.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+expect = [
+  { re = 'hud: enemy health .* \(See Enemy Health: "HP:\d+ DT:\d+\.\d\d"\)', label = "Living Anatomy: the line under the name, as the original's HP:250 DT:15.00" },
+  { re = 'combat: Meltdown: 0x[0-9A-F]{8} gives off MinePlasmaExplosion \(0x00000014.s kill with WeapLaserPistol\)', label = "a laser kill gives off the Meltdown Explosion" },
+  { re = 'combat: explosion MinePlasmaExplosion at', label = "and it goes off" },
+]
+manual = "living_anatomy_bar.png: the dog's name under the enemy bar and HP:<n> DT:<n.nn> centred under it, both red"
+
+[[scenario]]
+name = "perk-implant-y3"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24: Implant Y-3 strips the rads from drinking water (docs/spec-notes/perk-entry-points.md §9)"
+note = "drink-sink's sink in Doc Mitchell's house (0x00103E58) drunk from at 6 s with the perk NVDLC03ImplantY3Perk given at 3 s: the rads x 0.01. Run 24 s: on a busy machine a 14 s run ended before the scripts first ran. A first run found that drinking by hand never reached Game::drink_from (the player's hand path activated the sink in the world only), so no water effect applied; fixed in nvf-play script.rs"
+areas = ["aid", "perks"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "3:perk:NVDLC03ImplantY3Perk,6:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'perks: drinking from 0x00103E58: rads x 0\.0100 \(NVDLC03ImplantY3Perk\)', label = "Implant Y-3 cuts the water's rads to 1 %" },
+]
+
+[[scenario]]
 name = "pipboy-item-mod"
 source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
 areas = ["pipboy", "combat"]
@@ -4980,6 +5305,7 @@ expect = [
   { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif: .*plays Effect' },
   { re = 'image space modifiers on the screen: .+' },
   { re = 'shot fx: (?P<n>\d+) effect models played their own animation, 1 explosion screen effects', range = [2, 1000] },
+  { re = 'shot fx: 0 explosions turned to the ground under them, 1 upright', label = "MissileExplosion always uses the world's orientation (EXPL flag 1)" },
 ]
 
 [[scenario]]
@@ -6558,19 +6884,41 @@ manual = "vats_hit_chance.png: a creamy 'NN%' to the right of each dark-red x"
 [[scenario]]
 name = "vats-mode-miss"
 source = "owner 2026-10-23: a hit chance in VATS mode; a missed roll goes wide of the mark (docs/design/vats-mode.md §17.4)"
-note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and hits no actor (the player is the only one shooting, so a projectile hit on another actor would be this shot)"
+note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and does not hit it. 2026-10-24: the forbid was any actor; a run's wide shot hit Violetta standing beside the mark, which a miss may do (vats-mode.md §17.4), so the check is now on the marked dog; and Violetta is killed at 3 s so the nearest living actor, the one marked, is always the Fiend Guard Dog (a run marked Violetta and the wide shot hit the Guard Dog)"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
-  { re = 'vats mode: marked .* mark 1; .*% to hit', label = "one mark with its chance" },
+  { re = 'vats mode: marked Fiend Guard Dog 000F573F .* mark 1; .*% to hit', label = "one mark with its chance, on the Fiend Guard Dog (the nearest)" },
   { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: missed', label = "the roll misses (forced)" },
   { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the shot is fired and its AP spent" },
   { re = 'vats mode: rolls: 0 hit, 1 missed', label = "one miss counted" },
 ]]
-forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
+forbid = [{ re = 'combat: hit 0x000F573F on ', label = "the missed shot hits its mark" }]
+
+[[scenario]]
+name = "vats-kill-cam"
+source = "ESM full audit gap 10 (2026-10-24): the masters' camera paths and shots (CPTH, CAMS) play as VATS mode's kill cameras (docs/design/vats-mode.md §19)"
+note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "crates/fnv-game/src/camera_paths.rs", "engine/nvf-assets/src/camera_shot.rs", "engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 28
+order = [[
+  { re = 'vats mode: marked .* mark 1; ', label = "one mark" },
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
+  { re = 'kill camera: .* killed by the last mark: path \S+ \(0x[0-9A-F]{8}\), shots \S', label = "the dog dies and the tree picks a path with shots" },
+  { re = 'kill camera: shot 1 of \d+ \S+: ', label = "the first shot plays" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself" },
+]]
+expect = [{ re = 'kill camera summary: 1 shown', label = "one kill camera shown" }]
+forbid = [
+  { text = "no camera path chosen", label = "the tree gave no path for a VATS kill" },
+  { text = "not loaded, the view stays", label = "a shot's camera model did not load" },
+]
 
 [[scenario]]
 name = "vats-mysterious-stranger"
@@ -6818,17 +7166,17 @@ expect = [
 ]
 
 [[scenario]]
-name = "blood-none-tumbleweed"
-source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §2): hits on an actor flagged No Blood Spray and No Blood Decal (a tumbleweed) show no impact model and leave no decal"
-note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots it with a 10mm pistol"
+name = "blood-none-ant"
+source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §2): hits on an actor flagged No Blood Spray and No Blood Decal (an explosive Nellis ant) show no impact model and leave no decal"
+note = "an explosive Nellis worker ant (NellisAntWorkerExplosive) placed at the player (GOD) at 3 s; the player shoots it with a 10mm pistol. Was blood-none-tumbleweed until 2026-10-24: the tumbleweed is flagged Is Ghost (CREA ACBS bit 29, actor-flags.md §3), so shots pass through it"
 areas = ["combat", "rendering"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/decals.rs", "crates/fnv-game/src/actor_values.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCRTumbleweed:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NellisAntWorkerExplosive:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
-  { re = 'shot fx: (?P<n>\d+) impacts on actors flagged No Blood Spray not shown', range = [1, 1000], label = "no spray on the tumbleweed" },
-  { re = 'decals: (?P<n>\d+) hits on actors flagged No Blood Decal left none', range = [1, 1000], label = "no decal on the tumbleweed" },
+  { re = 'shot fx: (?P<n>\d+) impacts on actors flagged No Blood Spray not shown', range = [1, 1000], label = "no spray on the ant" },
+  { re = 'decals: (?P<n>\d+) hits on actors flagged No Blood Decal left none', range = [1, 1000], label = "no decal on the ant" },
 ]
 
 [[scenario]]
@@ -7958,6 +8306,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "cloud-scroll-onam"
+source = "ESM full audit 2026-10-24 §3 (docs/spec-notes/world.md §6 \"Cloud scroll\"): each cloud layer scrolls by its weather's WTHR ONAM speed, not a fixed placeholder rate"
+note = "NVWastelandClear is pinned over Goodsprings at noon; its ONAM speeds are 52, 0, 0, 65 [observed]. The scale (1/25,600 texture repeats per second per unit) is a hypothesis awaiting the owner's timed screenshots (owner-review.md); the line checks that the shown weather's own speeds drive the layers"
+areas = ["sky", "weather"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--weather", "NVWastelandClear", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'clouds: NVWastelandClear layer speeds \[52, 0, 0, 65\] \(ONAM\), scrolling 0\.00203, 0\.00000, 0\.00000, 0\.00254 texture repeats/s', label = "the shown weather's ONAM speeds drive its cloud layers" },
+]
+
+[[scenario]]
 name = "weather-sound-precip"
 source = "ESM gap audit row 9 (docs/spec-notes/world.md §6 \"Weather sound, precipitation and lightning\"): a weather's SNAM sounds loop at the listener outdoors, its precipitation model is drawn about the camera, and lightning flashes with thunder after it"
 note = "NVDLC02ZVRainWeather (Honest Hearts' Zion rain, Rainy, lightning frequency 138, one Thunder sound AMBNVDLC02ThunderDis1) is pinned with --weather over Goodsprings. No weather in the masters has a precipitation model or a looping sound, so the test aid NVF_PLAY_TEST_WEATHER_FX gives the shown weather Honest Hearts' rain model and rain loop, as a mod's weather would carry them. The first flash comes 11-33 s after the start (the lightning roll is seeded), the thunder 1-4 s after it"
@@ -8212,6 +8573,75 @@ expect = [
 order = [["combat: WeapNVDynamite winds up", "starts at the pull", "combat: WeapNVDynamite leaves the hand"]]
 
 [[scenario]]
+name = "perk-light-step"
+source = "perk audit 2026-10-23 §3.5, owner 2026-10-24: with Light Step the player never sets off a mine (docs/spec-notes/perk-entry-points.md §8)"
+note = "mines-placed's last step (god mode, Explosives 20, the player put on the Primm bridge's frag mine 0x00172DB5, where it went off after 0.6 s) with the perk LightStep given at 4 s: the mine is not set off"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:player.setav explosives 20;4.3:player.addperk LightStep;4.6:close", NVF_PLAY_TEST_SCRIPT = "8:moveto:player:0x00172DB5:0:0:0" }
+args = ["--play", "--pos=-61200,-52600,6300", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'mines: 0x00000014 does not set off mine 0x00172DB5 at \d+ units \(Calculate Mine Explode Chance 0: Light Step\)', label = "standing on the mine, it does not go off" },
+]
+forbid = [{ re = 'mines: 0x00000014 sets off mine', label = "the player sets off a mine" }]
+
+[[scenario]]
+name = "perk-heave-ho-splash"
+source = "perk audit 2026-10-23 §3.5, owner 2026-10-24: Heave Ho! throws 1.5 x as fast, Splash Damage widens the player's explosions by 1.25 (docs/spec-notes/perk-entry-points.md §8)"
+note = "thrown-dynamite's setup (god mode in Goodsprings, three sticks of dynamite, one thrown at 17 s) with the perks HeaveHo and SplashDamage given by the console at 12 s"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "000BA0F3:3", NVF_PLAY_TEST_EQUIP = "000BA0F3", NVF_PLAY_TEST_CONSOLE = "12:player.addperk HeaveHo;12.3:player.addperk SplashDamage;12.6:close", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = '''combat: perks change WeapNVDynamite's projectile speed x 1\.50 \(.*HeaveHo''', label = "Heave Ho! speeds the throw" },
+  { re = '''combat: perks change \S+'s radius (?P<n>\d+) -> \d+ \(.*SplashDamage''', range = [1, 100000], label = "Splash Damage widens the dynamite's blast" },
+]]
+
+[[scenario]]
+name = "perk-run-speed"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24: the Modify Run Speed perks (Travel Light, Implant M-5 …) speed the player up, under their conditions (docs/spec-notes/perk-entry-points.md §8)"
+note = "in Doc Mitchell's house (the player in no armour from Travel Light's bad-armour list) Travel Light at 12 s: 110 %; Implant M-5 (NVDLC03ImplantM5Perk, IsSneaking) at 13 s does nothing until the player sneaks at 15 s: 1.1 x 1.2 = 132 %"
+areas = ["perks", "movement"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.addperk TravelLight;12.3:close;13:player.addperk NVDLC03ImplantM5Perk;13.3:close", NVF_PLAY_TEST_CONTROL = "15:sneak" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  { re = 'movement: the Modify Run Speed perks make the player move at 110% \(TravelLight\)', label = "Travel Light: 10 % faster in no armour" },
+  { re = 'movement: the Modify Run Speed perks make the player move at 132% \(TravelLight, NVDLC03ImplantM5Perk\)', label = "sneaking adds Implant M-5's 20 %" },
+]]
+
+[[scenario]]
+name = "perk-fast-shot-quick-draw"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24: Fast Shot fires 20 % faster with guns, Quick Draw draws and holsters 50 % faster; the body's clips play at the same rates (docs/spec-notes/perk-entry-points.md §10)"
+note = "a .357 (WeapNV357Revolver 0008F216) in Goodsprings; FastShot and QuickDraw given by the console at 12 s, the weapon drawn at 14 s and fired at 16 and 17 s"
+areas = ["combat", "perks", "animation"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONSOLE = "12:player.addperk FastShot;12.3:player.addperk QuickDraw;12.6:close", NVF_PLAY_TEST_CONTROL = "14:weapon,16:fire,17:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'combat: draws and holsters at x1\.50 \(QuickDraw\)', label = "Quick Draw: draws and holsters 1.5 x as fast" },
+  { re = 'combat: attacks at x0\.84 \(WeapNV357Revolver; perks x1\.20: FastShot\)', label = "Fast Shot: the .357's attack 1.2 x as fast (its own multipliers 0.7: 0.84)" },
+]
+
+[[scenario]]
+name = "perk-slayer"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24: Slayer swings melee and unarmed weapons 30 % faster (docs/spec-notes/perk-entry-points.md §10)"
+note = "a machete (WeapNVMachete 000CE569) in Goodsprings; Slayer given by the console at 12 s, the machete drawn at 14 s and swung at 16 s"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONSOLE = "12:player.addperk Slayer;12.3:close", NVF_PLAY_TEST_CONTROL = "14:weapon,16:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'combat: swings at x1\.69 \(WeapNVMachete; perks x1\.30: Slayer\)', label = "Slayer: the machete swings 1.3 x as fast (its own multipliers 1.3: 1.69)" },
+]
+
+[[scenario]]
 name = "falls-player"
 source = "owner's playtest list 7 item 21: no fall damage; a fall onto land from above fJumpFallHeightMin (600) loses health by fJumpFallHeightMult x (h - 600)^1.65 (docs/spec-notes/physics.md §6.10)"
 note = "God mode in Goodsprings: at 8 s the console puts the player about 1,500 units up; the landing logs the height and the fall damage the formula gives (god mode deals none). The formula is checked against the capture's falls in falls.rs's tests"
@@ -8325,3 +8755,163 @@ expect = [
   { re = 'npc combat summary: .*?(?P<n>\d+) shots \((?P<m>\d+) from a muzzle', label = "shots from the weapons' nodes" },
 ]
 forbid = [{ re = 'attack anims summary: .*without a clip: .*mistergutsy', label = "no attack of Mister Handy's or Gutsy's without a clip" }]
+
+[[scenario]]
+name = "ghost-tumbleweed"
+source = "ESM full audit gap 1 (docs/spec-notes/actor-flags.md §3): a creature flagged Is Ghost (CREA ACBS bit 29, a tumbleweed) lets shots pass through it, as SetGhost 1 does (GECK wiki SetGhost: Projectiles pass through them)"
+note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots at it with a 10mm pistol"
+areas = ["combat", "actors"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/data.rs", "schemas/fnv/gameplay.json"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCRTumbleweed:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat summary: (?P<n>\d+) rays passed through ghosts', range = [1, 1000], label = "shots pass through the tumbleweed" },
+  { re = 'combat: \S+ \S+ killed', count = 0, label = "the tumbleweed is not killed" },
+]
+
+[[scenario]]
+name = "npc-speed-mult"
+source = "ESM full audit gap 4 (engine/nvforever/src/creature_pace.rs npc_speeds): an NPC's Speed Mult scales its walking and running speeds (GECK wiki Stats Tab - NPC: a Speed actor value is a multiplier times a standard movement speed)"
+note = "a Legion recruit (VLegionaryWastelandRecruit, ACBS Speed Mult 130) placed beside the player (GOD) at 3 s"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VLegionaryWastelandRecruit:1:400:0" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'npc pace: .* walks \d+ and runs \d+ units/s \(Speed Mult 130\)', label = "the recruit moves at 130 % speed" },
+  { re = 'creature pace summary: .*\((?P<n>\d+) people by Speed Mult\)', range = [1, 100], label = "counted among the paced" },
+]
+
+[[scenario]]
+name = "pickpocket-steal"
+source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
+note = "Chet in the general store is given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
+areas = ["activate", "menus", "crime"]
+paths = ["engine/nvf-play/src/pickpocket.rs", "engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*", "crates/fnv-game/src/pickpocket.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:Stimpak:2", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,10:enter,10.5:enter,12:e" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'target 0x00104C79 .*\(Steal, owned\)', label = "the prompt reads Steal, as a crime, while sneaking" },
+  { re = 'activate 0x00104C79 .*\(Steal\): its pocket opens', label = "E opens his pocket" },
+  { re = 'pickpocket: open on 0x00104C79: Sneak \d+ against \d+', label = "the steal menu opens with both Sneak skills" },
+  { re = 'pickpocket: (took .* from .* unseen|caught by .* with )', label = "the take is unseen or caught" },
+]]
+
+[[scenario]]
+name = "death-weapon-drop"
+source = "ESM full audit gap 21 (engine/nvf-play/src/combat.rs death_drops): an NPC that dies holding its weapon drops it, with the chance iDeathDropWeaponChance (100 in FalloutNV.esm)"
+note = "Chet is given a .357 and set on the player (GOD) at 3-4 s, then killed by KillActor at 9 s"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player,9:call:GSChetRef:KillActor" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'combat: 0x00104C79 died: it drops its .* \(iDeathDropWeaponChance 100\)', label = "Chet drops his revolver as he dies" },
+  { re = 'combat summary: (?P<n>\d+) weapons dropped by actors that died holding them', range = [1, 1], label = "one weapon dropped" },
+]
+
+[[scenario]]
+name = "next-quest-active"
+source = "ESM full audit gap 20 (crates/fnv-game/src/game.rs set_stage): a stage entry that completes its quest makes its Next Quest (QUST NAM0) the active quest (GECK wiki Quest Stages)"
+note = "SetStage VCG01 200 (Ain't That a Kick in the Head; its Next Quest is VMQ01, They Went That-a-Way) at 4 s; the Pip-Boy's data page opens at 10 s"
+areas = ["quests", "pipboy"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/quest.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetStage:VCG01:200", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,13:close" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  "quest: 0x00104C1C stage 200 completes it; its Next Quest 0x000842DD becomes the active quest",
+  { re = 'pipboy data: active quest 0x000842DD \(ForceActiveQuest\)', label = "the Pip-Boy takes VMQ01 as the active quest" },
+]]
+
+[[scenario]]
+name = "pipboy-map-reputation"
+source = "ESM full audit gap 16 (docs/spec-notes/pipboy.md §5.3): map markers carry their reputation (REFR WMI1), shown under the name on world-map hover"
+note = "FalloutNV.esm has 36 markers with WMI1 (Goodsprings, NCR, Powder Gangers …), no add-on has any; the hover line itself needs the pointer on a marker and is not asserted"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'pipboy data: \d+ map markers \((\d+) with a reputation\)', range = [30, 1000], label = "the markers' reputations are read (36 in FalloutNV.esm)" },
+]
+
+[[scenario]]
+name = "main-menu-screens"
+source = "ESM full audit gap 25 (docs/spec-notes/loading-screens.md §5): the main menu shows the loading screens flagged Displays In Main Menu (33 in FalloutNV.esm), not the 196 with no location"
+areas = ["main-menu"]
+paths = ["engine/nvf-play/src/main_menu.rs", "crates/fnv-world/src/loadscreen.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--menu"]
+run_seconds = 8
+expect = [
+  { re = 'main menu: (\d+) loading screens flagged Displays In Main Menu of \d+', range = [1, 1000], label = "flagged screens found (33 in FalloutNV.esm)" },
+  { re = 'main menu: open \((\d+) loading screens', range = [1, 33], label = "only the flagged screens' pictures (at most 33, was about 196)" },
+]
+
+[[scenario]]
+name = "nav-obstacles"
+source = "ESM full audit gap 22 (docs/spec-notes/navmesh.md §4c): objects flagged Obstacle that can be enabled or disabled cut the navmesh while enabled"
+note = "000F3EF2 is a BoxCar placed Initially Disabled near the rail yard north of Camp McCarran (-31162, 63842); enabled by the console at 9 s, disabled at 14 s. The switch is applied to the whole graph, loaded cells or not. If the box car stands on no navmesh triangle it is not in the graph and the switch lines do not come: then pick another of the 149 (navmesh.md §4c)"
+areas = ["ai", "nav"]
+paths = ["crates/fnv-nav/src/obstacles.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/nav.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "9:000F3EF2.enable 0;9.3:close;14:000F3EF2.disable;14.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+expect = [
+  { re = 'nav: (\d+) obstacles that can be enabled or disabled stand on the navmesh', range = [20, 1000], label = "the obstacles that come and go are learnt (149 placed in FalloutNV.esm)" },
+]
+order = [[
+  { re = 'nav: obstacles switched \[000F3EF2 on\]; [1-9]\d* triangles cut now', label = "the box car enabled cuts the navmesh" },
+  { re = 'nav: obstacles switched \[000F3EF2 off\]; \d+ triangles cut now', label = "disabled, it frees it" },
+]]
+
+[[scenario]]
+name = "explosion-ground-orientation"
+source = "ESM audit gap 28 (docs/spec-notes/explosion-effects.md, engine/nvforever/src/shot_fx.rs): an EXPL without Always Uses World Orientation is turned to the ground under it"
+note = "as missile-explosion with the grenade launcher: its 40mmGrenadeExplosion lacks the flag, so its model's +z goes along the ground's normal by the Prospector Saloon"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:4", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'combat: explosion 40mmGrenadeExplosion at' },
+  { re = 'shot fx: 1 explosions turned to the ground under them, 0 upright', label = "the grenade's explosion follows the ground" },
+]
+
+[[scenario]]
+name = "area-effects-cast"
+source = "ESM audit gap 3 (docs/spec-notes/area-effects.md, crates/fnv-game/src/area_effects.rs): a spell with an area cast on oneself reaches the actors within it, in feet"
+note = "Goodsprings at noon: Ringo brought 300 units north of the player at 3 s; the player casts LegionExplorerAura (area 50, about 1,067 units, ignores sight) at 5 s; Ringo sent 3,000 units away at 7 s and the aura cast again at 16 s (after its 10 s); then the EvaluatePackage pulse (area 1024) at 18 s reaches the people around"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/area_effects.rs", "crates/fnv-game/src/functions/magic.rs", "engine/nvf-play/src/combat/hit_effects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:300:0,5:call:player:CastImmediateOnSelf:LegionExplorerAura,7:moveto:RingoRef:player:0:3000:0,16:call:player:CastImmediateOnSelf:LegionExplorerAura,18:call:player:CastImmediateOnSelf:VEvaluatePackagePulseSpell" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'area effect: LegionExplorerAura around the player: \d+ actor\(s\) reached \(.*Ringo', count = 1, label = "Ringo 300 units away is reached, and not again from 3,000" },
+  { re = 'area effect: VEvaluatePackagePulseSpell around the player: (?P<n>\d+) actor\(s\) reached', range = [1, 1000], label = "the pulse reaches the people around (1,024 feet)" },
+]
+
+[[scenario]]
+name = "imagespace-hdr-sounds"
+source = "ESM audit gaps 8 and 9 (docs/spec-notes/image-modifiers.md §10-11): a scripted modifier's HDR tracks change the exposure, its intro sound plays"
+note = "Goodsprings' street at noon; BarkScorpionPoisonISFX (animated 6 s: Target LUM x2 and Bright Scale x3 at 1.5 s; intro FXPoisonStinger) applied at 4 s; CGCameraFlashISFX (8 s: Bright Scale x5, Bright Clamp x0.1; intro FXExplosionThermite) at 12 s. Frames: hdr_before.png at 3 s, hdr_poison.png at 5.5 s, hdr_flash.png at 13 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*", "engine/nvforever/src/eye_adapt.rs", "engine/nvforever/src/post.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:BarkScorpionPoisonISFX,12:call:-:ApplyImageSpaceModifier:CGCameraFlashISFX", NVF_PLAY_TEST_SHOTS = "3:hdr_before.png,5.5:hdr_poison.png,13:hdr_flash.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+order = [[
+  "image space modifier sound: BarkScorpionPoisonISFX intro 0x001598F0",
+  { re = 'eye adaptation: .*modifiers \+1\.00 EV$', label = "the poison doubles Target LUM: one EV brighter" },
+  { re = 'eye adaptation: .*modifiers \+0\.00 EV$', label = "back when it has run" },
+  "image space modifier sound: CGCameraFlashISFX intro 0x00179418",
+]]
+

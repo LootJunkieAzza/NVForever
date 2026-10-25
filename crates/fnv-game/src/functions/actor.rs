@@ -170,14 +170,17 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
 /// temporary modifiers included (Buffout's +2), and Carry Weight's own modifiers add to
 /// it [documented: GECK wiki GetCalculatedMaxCarryWeight, "CarryWeight … Actor Values";
 /// hypothesis: the current, not the permanent, Strength; aid-items.md §12]. Called when
-/// Strength or Carry Weight changes.
-fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
+/// Strength or Carry Weight changes, and every frame for the player (its Get Max Carry
+/// Weight perks: Hoarder + 25 [documented: GECK wiki Entry Point, "run when the actor's max
+/// carry weight is calculated"], `Game::sync_perk_weights`).
+pub(crate) fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
     use crate::actor_values::{CARRY_WEIGHT, STRENGTH};
     if code != STRENGTH && code != CARRY_WEIGHT {
         return;
     }
     let Ok(formula) = g.world.formula_capacity(actor) else { return };
     let Ok(capacity) = actor_value(g, actor, CARRY_WEIGHT) else { return };
+    let capacity = if actor == FormId::PLAYER_REF { g.entry_point(actor, crate::perks::GET_MAX_CARRY_WEIGHT, capacity).0 } else { capacity };
     g.world.set_carry_bonus(actor, capacity - formula as f64);
 }
 
@@ -643,7 +646,31 @@ macro_rules! flag {
     };
 }
 
-flag!(set_ghost, get_ghost, ghost);
+/// `SetGhost flag`: projectiles pass, no damage, enemies ignore it (`Game::is_ghost`).
+/// SetGhost 0 also clears a base Is Ghost flag (actor-flags.md §3).
+pub fn set_ghost(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let on = a.num_or(0, 1.0) != 0.0;
+    let e = g.extra.entry(r).or_default();
+    (e.ghost, e.ghost_off) = (on, !on);
+    none()
+}
+
+/// `GetPlantedExplosive`: "Returns whether a live explosive has been planted on an
+/// actor" [documented: GECK wiki GetPlantedExplosive]; true once
+/// `fProjectileInventoryGrenadeFreakoutTime` has passed [documented: GECK wiki Projectile
+/// notes] (`crate::pickpocket`).
+pub fn get_planted_explosive(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.has_planted_explosive(r))
+}
+
+/// `GetIsGhost`: SetGhost or the base's Is Ghost flag.
+pub fn get_ghost(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.is_ghost(r))
+}
+
 flag!(set_restrained, get_restrained, restrained);
 flag!(set_unconscious_flag, get_unconscious, unconscious);
 
