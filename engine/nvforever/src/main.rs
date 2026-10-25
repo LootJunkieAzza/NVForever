@@ -1256,6 +1256,10 @@ fn main() -> AppExit {
     }
     if args.menu {
         app.insert_resource(nvf_play::main_menu::MainMenuStart);
+    } else if args.play {
+        // A run that starts in the world: held behind a loading screen until its cells,
+        // actors and scripts are ready (nvf_play::loading::StartCover).
+        app.insert_resource(nvf_play::loading::StartCover);
     }
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
@@ -1442,7 +1446,11 @@ fn main() -> AppExit {
             // While a menu holds the picture (the virtual clock is paused: --menu-pause
             // original, the Esc pause menu) the limit counts real time, so a run always
             // ends.
-            t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+            // The start's loading screen does not count: the run's seconds are counted
+            // from when it comes down (nvf_play::loading::StartCover).
+            if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
+                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+            }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with
             // NVF_PLAY_AIDS_FROM_SCRIPTS, `nvf_play::pause::WorldAidClock`) are added, so
@@ -1787,7 +1795,7 @@ fn timelapse(
 
 /// The `--run-seconds` limit's clocks: the virtual and the real one, and how long the
 /// world test aids were held back (`nvf_play::pause::WorldAidClock`).
-type RunClocks<'w> = (Res<'w, Time<Virtual>>, Res<'w, Time<Real>>, Option<Res<'w, nvf_play::pause::WorldAidClock>>);
+type RunClocks<'w> = (Res<'w, Time<Virtual>>, Res<'w, Time<Real>>, Option<Res<'w, nvf_play::pause::WorldAidClock>>, Option<Res<'w, nvf_play::loading::Loading>>);
 
 /// Time spent advancing single clips (animated models; actors are timed by
 /// `locomotion::ActorAnimCost`), for the `--run-seconds` summary.

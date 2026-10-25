@@ -32,7 +32,8 @@ The doc comment of `fnv_game::detection` spells out every term. Two readings the
 leaves open:
 
 - A running target also counts as moving in the visual movement multiplier
-  (1 + 0.01 + 0.2) [hypothesis].
+  (1 + 0.01 + 0.2) [documented since 2026-10-24: the Fallout Wiki's Sneak (New Vegas)
+  page gives 0.21 for running, §9].
 - The distance falloff is 0 at and beyond the reach, so only the base and the target's
   skill remain there: a target out of reach is hidden (−35 or lower).
 
@@ -46,13 +47,13 @@ Each is also listed in the module notes of `detection.rs`.
 | Reach | fSneakMaxDistance, × fSneakExteriorDistanceMult outside | [documented] |
 | Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height), and when that is blocked one to its eyes (§7); for the player's GetLineOfSight from the camera; world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7). Where either end is out of the loaded collision (3 × 3 cells around the player), only the landscape blocks it (§7) | [engineering choice]; the layers: [hypothesis] |
 | Field of view | 95° either side of where the actor's body faces, horizontally; for the player, of where the camera looks | [documented: GECK wiki GetLineOfSight]; using it for detection: [hypothesis] |
-| Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. Outdoors the sunlight counts only when a ray from the target's chest towards the sun meets nothing within 8,192 units (§8) | [hypothesis] |
+| Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. Outdoors the sunlight counts only when a ray from the target's chest towards the sun meets nothing within 8,192 units (§8). While the Pip-Boy light is on, the game's PipboyLight640 counts as a light at the player's chest (§9) | [hypothesis] |
 | Moving, running | from the distance moved since the last measurement: moving above 10 units/s; actors run above 215 units/s; the player runs when moving without holding Walk, sneaking or not | [engineering choice]; sneak-running counts as running: [hypothesis] |
 | Sneaking | the player's sneak toggle; actors never sneak (Always Sneak packages are not acted on) | — |
 | Action sound | the player's shots since the last measurement, at the weapon's VNAM sound level (100 / 50 / 10) | [documented] |
 | Movement sound of a creature | the boot term × the creature's NAM5 sound level ÷ Normal: Loud × 2, Normal × 1, Silent × 0.2 (§8) | [hypothesis] |
 | Detector asleep | lying on a bed (marker 1–10, state "on it") | [hypothesis] |
-| Detector alert or busy | alert in a combat state (Alert, Combat, Lost); busy in Combat with someone other than the target (docs/design/alert.md) | [documented] |
+| Detector alert, or on its target | alert in a combat state (Alert, Combat, Lost); fSneakCombatMod when the detector is in Combat and the target is on its target list (IsCombatTarget), so 0.8 against its foes and 1.2 against anyone else (§9) | [documented] |
 | Interval | 0.25 s | [engineering choice] |
 
 Pairs not measured for 1 s of game time are dropped from the table.
@@ -108,6 +109,9 @@ The light level decides most of the visual term, and its measure is a hypothesis
   player standing, walking, running and sneaking at set distances, lit and dark, and the
   game's values of the fSneak* settings (the masters may override the documented
   defaults; `Settings::read` takes them when present).
+  And for §9: a sneaking player, half hidden, read by an NPC in Combat with the player
+  and by one in Combat with someone else (fSneakCombatMod's direction), and GetDetected
+  at night with the Pip-Boy light on and off.
 - Not modelled: perk entry point "Ignore Running During Detection", melee blows' own
   sound (a blow's impact counts, §8), SetAllVisible, player.GetLineOfSight on objects
   that are not actors, the sneak meter on the HUD, fights in the low process (§7).
@@ -224,3 +228,86 @@ Silent (100 / 50 / 10), as a shot's.
 Checks: the `detection summary` line counts events by kind (impacts, projectiles,
 explosions) and the targets measured in shade. Smoke `detection-shade`, `detection-events-levels`.
 
+## 9. Audit against the Fallout Wiki's Sneak page (2026-10-24)
+
+The owner asked for the detection system, mainly sneaking, to be checked against the
+formulas of the Fallout Wiki's Sneak (Fallout: New Vegas) page (owner's saved copy,
+`C:nv-privateallout fandom`), taking nothing the game data or the GECK wiki
+contradicts. The page is a secondary source; its formulas are the GECK wiki's
+Category:Detection with the default settings filled in.
+
+**Agrees with what was built** (no change): the reach (2,500 inside, 5,000 outside);
+the falloff squared; `D = A·(Sound + Visual + DetectorSkill/2) − TargetSkill/2 − 35`
+(ours applies the falloff inside each term, the same sum); sound × 1.6 in sight and 0.16
+out of it (fSneakSoundsMult × fSneakSoundLosMult); movement sound `(12 + weight/2) ×
+1.5 running`; action sound 100 / 50 / 10 doubled; visual 0 out of sight or for an
+invisible or chameleon target (fSneakStealthboyMult 0); night eye × 3 with the cap at
+100; light × 1.4; visual movement 0 / 0.01 / 0.21 (the running reading of §2 was right);
+detector skill `10 + 8·Perception`; sleeping 0.8; the target skill with the level terms,
+the start bonus and the armour class penalty 10 / 20; the thresholds −20 and 0.
+
+**Changed:**
+
+- **The combat modifier was the wrong way round.** We took fSneakCombatMod (−0.4) for a
+  detector in Combat with someone other than the target, from the setting's description
+  on the GECK wiki ("in active combat against someone else"). The same page's formula
+  writes it `IsCombatTarget * fSneakCombatMod`, IsCombatTarget being 1 when the target
+  *is* one of the detector's combat targets, and the Fallout Wiki gives 0.8 for "In
+  Combat and trying to Detect a Current Combat Target" and 1.2 for anyone else, or for
+  an Alert or Lost detector [documented: both pages]. Two readings of the sources agree
+  against one, so a fighter now perceives its own foes at 1 + 0.2 − 0.4 = 0.8 and
+  everyone else at 1.2; a Lost detector at 1.2 (its targets are on its list, but it is not
+  in Combat). It makes a sneaking target easier to lose in a fight. A capture could settle
+  it: GetDetected of a sneaking player by a fighter it is shooting against one it is not
+  (§6, captures).
+- **The Pip-Boy light gives the player away.** We left the light out of detection as
+  undecided. The game says it counts: a FalloutNV.esm loading screen, "The light
+  generated from your Pip-Boy light actually makes you less stealthy", and Broad
+  Daylight's description in LonesomeRoad.esm, "a sneak bonus to offset the light's sneak
+  penalty" [documented: the records' text]. The game's light is the base effect PipLight
+  (00021EC4, archetype Light) naming the LIGH PipboyLight640 (0002923E: radius 768,
+  colour 194 245 209) [observed: FalloutNV.esm decode]. While our flashlight is on, that
+  record counts as a point light at the player's chest, read from the load order
+  [hypothesis: the penalty is that light raising the light level at the player; nothing
+  gives it as a number]. At the player it adds about 91 of the 100, so a lit player is
+  near the top of the light term day or night; it also lights actors near the player.
+  Our own flashlight cone (a design light) is not counted. The `detection summary` line
+  counts the measurements with it on and the most light at the player then.
+
+**Not taken: contradicted.**
+
+- "Movement Multiplier 0 … or has Silent Running": the GECK wiki says the Ignore Running
+  During Detection entry point (Silent Running's) only drops fSneakRunningMult, so
+  walking and running both make the walking sound. Built so since PR #672.
+- "Equipped Weight", all equipped items with the weapon in hand: the GECK wiki's
+  fSneakBootWeightMult "multiplies the weight of worn body armor". We keep the torso
+  armour's weight.
+
+**Not built, from the page's prose** (no number, or a feature of its own; none
+contradicted): touching or bumping into an actor while sneaking detects you at once;
+dead bodies seen put an actor in Caution and draw it to them; looking around counting
+as movement; a crippled head lowering a detector's Perception by 4 (the player's comes
+from GenericScript; NPCs' has no source in the data); pickpocketing and its chance
+formula (capped 5–85 %), not built at all.
+
+Checks: `fnv_game::detection` test `perception_night_eye_stealth_boys_and_the_detectors_state`
+(a fighter's foe at 0.8, anyone else at 1.2); smoke `detection-pipboy-light`.
+
+## 10. Light and noise gauges (owner request 2026-10-24)
+
+An optional HUD addition, after the stealth games that show how lit and how loud the
+player is [design: not the original's]. The settings page's Gameplay switch
+`sneak-gauges` (off by default, kept in the INI) shows two segmented bars under the
+sneak word while the player sneaks (`nvf_play::sneak_gauges`):
+
+- **Light**: the light level at the player, 0–100, from the detection pass (§3, with
+  the Pip-Boy light of §9), the bar following changes over half a second.
+- **Noise**: the player's sound term before the distance falloff,
+  `Settings::noise` (the same function the detection value uses): footsteps by body
+  armour weight, × 1.5 running unless Silent Running, shots × 2 by their sound level,
+  all × 1.6; full at 100. Standing still is 0, a walk in light armour about a third, a
+  run about half, any Normal or Loud shot fills it, and it falls back over 1.5 s.
+
+They show what the player gives off, not whether anyone notices (the sneak word says
+that); sneaking itself makes no less noise in the formula, only the Sneak skill counts.
+Smoke `sneak-gauges`.

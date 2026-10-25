@@ -14,6 +14,16 @@
 //!   `NonAccum` node: `Bip01`, the torso's node in `DefaultBodyPartData`, stands at the
 //!   feet [observed: posed segments, 2026-10-09], so the torso starts at the next joint
 //!   (the pelvis). Joints closer than [`MIN_SEGMENT`] to the last one kept are merged.
+//! - **The top of the head** [design]: a head part whose chain ends on a head bone (its
+//!   name ends in "Head") with no bone below it stops at the base of the skull. The human skeleton is so:
+//!   `Bip01 Neck1` (z 107.4) → `Bip01 Head` (z 112.8) and nothing above, while the head
+//!   mesh reaches 15.1 above `Bip01 Head` [observed: `characters\_male\skeleton.nif` and
+//!   `characters\head\headhuman.nif` decoded, 2026-10-24]. Its capsule shrank to a ball
+//!   at the neck, so the face and crown were no head (the owner's playtest, 2026-10-24:
+//!   a VATS mark on the head needed the crosshair on the neck). Such a chain's last joint
+//!   is moved on along its last segment to [`SKULL_SHARE`] of the bone's height above
+//!   the skeleton's root ([`skull_tip`]), a point carried by the head bone, so the
+//!   capsule runs from the neck joint to the crown.
 //! - **The weapon in the hand** (docs/spec-notes/combat-rules.md §17) [design]: an actor
 //!   with its weapon drawn also gets one segment along the weapon model's longest side
 //!   ([`weapon_segment`]), numbered `hitvol::WEAPON_PART`, so a shot can strike the
@@ -41,6 +51,11 @@ pub const MIN_SEGMENT: f32 = 4.0;
 pub const BRANCH_MIN: f32 = 12.0;
 pub const MAX_BRANCHES: usize = 8;
 
+/// How far past a head bone with no bone below it the skull reaches, as a share of the
+/// bone's height above the skeleton's root [observed: the human head mesh's top is 15.1
+/// above `Bip01 Head`, at z 112.8, about 15.6 along the neck's line: 0.138].
+pub const SKULL_SHARE: f32 = 0.135;
+
 /// An actor's skeleton as spawned, until its parts are matched ([`LimbRig`]).
 #[derive(Component, Clone)]
 pub struct ActorRig {
@@ -56,8 +71,10 @@ pub struct ActorRig {
 #[derive(Component, Clone, Debug)]
 pub struct LimbRig {
     pub data: FormId,
-    /// (part index, kind, the chain's node entities from the part's node to its end).
-    pub chains: Vec<(u8, Limb, Vec<Entity>)>,
+    /// (part index, kind, the chain's node entities from the part's node to its end,
+    /// the top of the skull in the end node's own frame when the chain stops short of it:
+    /// [`skull_tip`]).
+    pub chains: Vec<(u8, Limb, Vec<Entity>, Option<Vec3>)>,
 }
 
 pub struct LimbsPlugin;
@@ -172,6 +189,37 @@ pub fn part_chains(names: &[Option<String>], parents: &[Option<usize>], bind: &[
     out
 }
 
+/// The top of the skull, bind space, for a head chain (joint indices) that ends on a head
+/// bone (named "… Head") with no bone below it (see the module notes): the last segment
+/// carried on by [`SKULL_SHARE`] of the end bone's height above the skeleton's root.
+/// `None` for a chain of one joint, another end (a "HeadNub" already at the top), an end
+/// with bones below it, or an end not above the root.
+pub fn skull_tip(names: &[Option<String>], parents: &[Option<usize>], bind: &[Vec3], chain: &[usize]) -> Option<Vec3> {
+    let [.., prev, end] = *chain else { return None };
+    let is_bone = |i: usize| names[i].as_deref().is_some_and(|s| s.to_ascii_lowercase().starts_with("bip01"));
+    let below = |i: usize| {
+        let mut p = parents[i];
+        while let Some(x) = p {
+            if x == end {
+                return true;
+            }
+            p = parents[x];
+        }
+        false
+    };
+    let head = names[end].as_deref().is_some_and(|s| s.to_ascii_lowercase().ends_with("head"));
+    if !head || (0..names.len()).any(|i| is_bone(i) && below(i)) {
+        return None;
+    }
+    let mut root = end;
+    while let Some(p) = parents[root] {
+        root = p;
+    }
+    let height = bind[end].z - bind[root].z;
+    let dir = (bind[end] - bind[prev]).normalize_or_zero();
+    (height > 0.0 && dir != Vec3::ZERO).then(|| bind[end] + dir * SKULL_SHARE * height)
+}
+
 /// A path of joints with those too close to the last one kept merged (the end always
 /// stays).
 fn merged(path: &[usize], bind: &[Vec3]) -> Vec<usize> {
@@ -227,7 +275,14 @@ fn rig_limbs(mut commands: Commands, combat: Res<Combat>, rigs: Query<(Entity, &
             limb.data = data;
             for (k, chain) in part_chains(&rig.skel.names, &rig.skel.parents, &bind, &names) {
                 let ents: Vec<Entity> = chain.iter().filter_map(|&i| rig.nodes.get(i).copied()).collect();
-                limb.chains.push((k as u8, parts[k].limb(), ents));
+                let kind = parts[k].limb();
+                // The skull's top in the end bone's own frame, so it nods with the head.
+                let tip = (kind == Limb::Head)
+                    .then(|| skull_tip(&rig.skel.names, &rig.skel.parents, &bind, &chain))
+                    .flatten()
+                    .zip(chain.last().and_then(|&e| rig.skel.bind_world.get(e)))
+                    .map(|(t, end)| end.inverse().transform_point3(t));
+                limb.chains.push((k as u8, kind, ents, tip));
             }
             debug!("actor {:08X}: body parts {data} on {} chains", rig.reference, limb.chains.len());
         }
@@ -253,8 +308,14 @@ fn publish_limbs(
             continue;
         }
         let mut posed = PosedParts { data: limb.data, segments: Vec::new(), weapon: None };
-        for (part, kind, chain) in &limb.chains {
-            let pts: Vec<[f32; 3]> = chain.iter().filter_map(|&e| nodes.get(e).ok()).map(|g| nvf_play::space::to_game(g.translation())).collect();
+        for (part, kind, chain, tip) in &limb.chains {
+            let mut pts: Vec<[f32; 3]> = chain.iter().filter_map(|&e| nodes.get(e).ok()).map(|g| nvf_play::space::to_game(g.translation())).collect();
+            // A head that stops at the base of the skull ends at its crown instead.
+            if let (Some(tip), Some(end)) = (tip, chain.last().and_then(|&e| nodes.get(e).ok())) {
+                if pts.len() == chain.len() && pts.len() >= 2 {
+                    *pts.last_mut().expect("two points") = nvf_play::space::to_game(end.transform_point(*tip));
+                }
+            }
             match pts.len() {
                 0 => {}
                 1 => posed.segments.push(PartSegment { part: *part, limb: *kind, a: pts[0], b: pts[0] }),
@@ -359,6 +420,48 @@ mod tests {
         // hanging below it is the body's too (playtest list 5 item 16); the wing, head,
         // brain and stinger as before.
         assert_eq!(chains, vec![(0, vec![3, 10, 11]), (0, vec![3, 7, 8, 9]), (1, vec![6]), (2, vec![5]), (3, vec![4]), (4, vec![12])]);
+    }
+
+    /// The human head as `characters\_male\skeleton.nif` lays it out [observed, 2026-10-24]:
+    /// `Bip01 Head` has no bone below it (only `HeadAnims`), and the head mesh reaches
+    /// 15.1 above it.
+    fn human_head() -> (Vec<Option<String>>, Vec<Option<usize>>, Vec<Vec3>) {
+        let nodes: [(&str, Option<usize>, [f32; 3]); 6] = [
+            ("Scene Root", None, [0.0, 0.0, 0.0]),
+            ("Bip01", Some(0), [0.0, 0.0, 0.0]),
+            ("Bip01 Neck", Some(1), [0.0, -1.0, 104.0]),
+            ("Bip01 Neck1", Some(2), [0.0, -1.0, 107.4]),
+            ("Bip01 Head", Some(3), [0.0, 0.4, 112.8]),
+            ("HeadAnims", Some(4), [0.0, 0.4, 112.8]),
+        ];
+        (nodes.iter().map(|n| Some(n.0.to_string())).collect(), nodes.iter().map(|n| n.1).collect(), nodes.iter().map(|n| Vec3::from(n.2)).collect())
+    }
+
+    #[test]
+    fn a_head_without_a_top_bone_reaches_the_crown() {
+        let (names, parents, bind) = human_head();
+        let chains = part_chains(&names, &parents, &bind, &[Some("Bip01 Neck1")]);
+        assert_eq!(chains, vec![(0, vec![3, 4])]);
+        let tip = skull_tip(&names, &parents, &bind, &chains[0].1).expect("the head stops at the skull's base");
+        // The mesh's top is at 127.9.
+        assert!((126.5..129.0).contains(&tip.z) && tip.y > 0.4, "{tip}");
+        // The capsule (a 128-unit actor) now holds the face and the crown, not only the
+        // neck: it once shrank to a ball at z 110.
+        let seg = nvf_play::hitvol::PartSegment { part: 0, limb: Limb::Head, a: bind[3].to_array(), b: tip.to_array() };
+        let cap = nvf_play::hitvol::part_capsules(&[seg], 128.0)[0];
+        let inside = |p: Vec3| {
+            let (a, b) = (Vec3::from(cap.a), Vec3::from(cap.b));
+            let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+            p.distance(a + (b - a) * t) <= cap.radius
+        };
+        for (what, p) in [("eyes", Vec3::new(0.0, 6.0, 119.0)), ("forehead", Vec3::new(0.0, 5.0, 124.0)), ("crown", Vec3::new(0.0, 0.0, 126.5)), ("chin", Vec3::new(0.0, 4.0, 109.0))] {
+            assert!(inside(p), "{what} {p} outside {cap:?}");
+        }
+        // A head with a bone to its top (the made-up biped's HeadNub) is left as it is,
+        // and so is a lone joint.
+        let (names, parents, bind) = biped();
+        assert_eq!(skull_tip(&names, &parents, &bind, &[9, 11]), None);
+        assert_eq!(skull_tip(&names, &parents, &bind, &[10]), None);
     }
 
     #[test]

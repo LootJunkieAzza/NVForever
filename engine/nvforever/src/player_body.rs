@@ -487,6 +487,17 @@ fn loop_time(time: f32, start: f32, end: f32) -> f32 {
 }
 
 impl Rig {
+    /// Whether the rig plays the down-the-sights clips (`…aimis…`, `…attack…is`) while
+    /// Block is held. The third-person body always does; the arms rig only with a weapon
+    /// model that has a sighting node (`iron_sights::SIGHTING_NODES`). Without one the
+    /// original keeps the hip pose and only narrows the view [observed: the owner's
+    /// screenshots, 2026-10-24, Laser Rifle in first person at the hip and aimed: same
+    /// pose, the view zoomed; the owner: "base game has no aim animation it literally
+    /// just zooms the screen in", "third person is still animated"].
+    fn sights_clips(&self, aiming: bool) -> bool {
+        aiming && (self.view != View::First || self.sighting.is_some())
+    }
+
     /// Where the weapon's muzzle is in the last pose with the rig at `root` (game
     /// space): under the node the `Weapon` node hangs from, down the weapon model to its
     /// `ProjectileNode`, each node where the clips have it.
@@ -652,6 +663,8 @@ struct Motion {
     sway: ViewSway,
     /// The true iron sights were last reported on the eye (a smoke check).
     sights_told: bool,
+    /// How far the gun is on its way up to the eye (0–1, not eased; `iron_sights::step`).
+    sights_share: f32,
 }
 
 impl Motion {
@@ -698,6 +711,7 @@ impl Default for Motion {
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
             sights_told: false,
+            sights_share: 0.0,
         }
     }
 }
@@ -1022,6 +1036,9 @@ fn ensure_body(
                 rig.casing_entity = casing.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.casing = casing.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                if rig.view == View::First {
+                    info!("player weapon model (First person): {}", if rig.sighting.is_some() { "a sighting node: aimed with the down-the-sights clips" } else { "no sighting node: aimed with the hip clips, the view zoomed" });
+                }
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -1404,6 +1421,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     // First person pitches the whole arms rig instead of bending the body.
+    let sights_clips = rig.sights_clips(f.aiming);
     let aim_w = match rig.view {
         View::Third if !f.upright => aim_weights(f.pitch),
         _ => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
@@ -1422,7 +1440,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 if w <= 0.0 && aim != Aim::Level {
                     continue;
                 }
-                if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, f.aiming)) {
+                if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, sights_clips)) {
                     want.push((c, TAG_AIM + i as u32, w, Mode::Loop));
                 }
             }
@@ -1451,7 +1469,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     if f.hands.in_hand && (f.attack_now || f.spin_now || f.wind_now) {
-        if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
+        if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, sights_clips))) {
             // A clip with a `Loop` key plays on through the shots that follow while it
             // runs (a minigun's spin) instead of starting again at each, going round from
             // its `Fire` key to its `Loop` key [documented: GECK wiki NiTextKeyExtraData,
@@ -2119,7 +2137,7 @@ fn drive_body(
         None => m.intern(attack_stem(anim.attack.as_deref())),
     };
     let reload = anim.reload.clone().map(|r| m.intern(r));
-    let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
+    let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, timing_rig.sights_clips(control.aiming)));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
     let reload_open = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::ReloadOpen(stance, prefix, r)));
     let jam = anim.jam.clone().map(|j| m.intern(j));
@@ -2253,14 +2271,14 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
-    // True iron sights: eased in with the zoom, for the guns whose model has a sighting
-    // node, while the
-    // player looks through the arms rig by themself.
-    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()))
-        .then(|| zoom.as_deref().map_or(0.0, |z| z.blend))
-        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()));
+    // True iron sights: brought up at their own pace while the view zooms in, for the
+    // guns whose model has a sighting node, while the player looks through the arms rig
+    // by themself.
+    let sights_can = state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()) && combat.as_deref().is_some_and(|c| c.sight_fov().is_some());
+    m.sights_share = if sights_can { crate::iron_sights::step(m.sights_share, zoom.as_deref().is_some_and(|z| z.aimed), dt) } else { 0.0 };
+    let sights_in = Some(m.sights_share).filter(|s| *s > 0.0);
     // The view's direction in the arms rig's own frame (turned by the heading only).
-    let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
+    let sights = sights_in.map(|s| (crate::iron_sights::ease(s), Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {

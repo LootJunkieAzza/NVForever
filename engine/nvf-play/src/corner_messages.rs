@@ -217,11 +217,14 @@ fn draw(
     mut fills: Query<&mut BackgroundColor, With<Fill>>,
     mut kit: Local<Option<Kit>>,
     state: Option<Res<State<crate::PlayState>>>,
+    driven: Option<Res<crate::player::ViewDriven>>,
 ) {
     // Behind a message box or a script's menu, and in a conversation (every HUD element
     // goes then: the owner's playtest list 5, item 74): hidden, and no time passes, so
-    // the line comes back when the conversation ends.
-    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue);
+    // the line comes back when the conversation ends. So too while an idle holds the
+    // camera (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then
+    // [owner 2026-10-24].
+    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }
