@@ -1,0 +1,8 @@
+scn ExtCase08
+int iCount
+Begin GameMode
+    set iCount to 0
+    while 5 > (iCount += 1)
+        Print $iCount
+    loop
+End

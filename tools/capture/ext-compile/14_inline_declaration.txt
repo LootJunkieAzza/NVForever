@@ -1,0 +1,5 @@
+scn ExtCase14
+Begin GameMode
+    let int iCount := 10
+    int iOther = 10
+End

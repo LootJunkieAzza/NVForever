@@ -1,0 +1,10 @@
+scn ExtCase10
+array_var aList
+array_var Entry
+ref rItem
+Begin GameMode
+    let aList := Ar_List PlayerREF, PlayerREF
+    foreach Entry <- aList
+        let rItem := Entry["value"]
+    loop
+End

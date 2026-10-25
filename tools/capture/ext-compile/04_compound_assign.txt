@@ -1,0 +1,9 @@
+scn ExtCase04
+int iA
+Begin GameMode
+    let iA := 5
+    let iA += 1
+    let iA -= 2
+    let iA *= 10
+    let iA /= 5
+End
