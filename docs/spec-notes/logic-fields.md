@@ -36,7 +36,7 @@ the ammo`.
   conversation)" [documented: GECK wiki Quest]. The player's dialogue never removes a
   topic once said (said lines darken, dialogue.md), so there is nothing for the flag to
   allow; NPC-to-NPC conversations are where it would apply.
-- **INFO Low / High Intelligence** (28 and 20 lines): only listed as INFO flags
+- **INFO Low / High Intelligence** (28 and 20 lines): applied since 2026-10-25 (dialogue.md §2: a dim player, Intelligence at or below `iDialogueDummySpeakThisIntOrBelow`). Was: only listed as INFO flags
   [documented: GECK wiki GetDialogueInfoFlags]; the threshold is not documented, and New
   Vegas gates intelligence lines with conditions.
 - **INFO speech challenge** (3 lines in the masters): the roll is not documented, but its
