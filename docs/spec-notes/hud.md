@@ -165,6 +165,16 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   132–192 with the bottom on the line left the bar 2 pixels from the "D" and low].
   Right of the divider the ammo, right-justified near the
   upright, as "rounds in the weapon/rounds carried besides".
+- Left of the counter, the ammo type's label (`AmmoTypeLabel`: font 7, right-justified,
+  its place and text set in code [documented: hud_main_menu.xml]): the AMMO record's
+  `QNAM` abbreviation ("HP", "JHP", "AP", "Slg", "Bag", "MAG", "CS"), nothing for
+  standard rounds, which have no `QNAM` [observed: FalloutNV.esm, 48 of 92 AMMO records
+  have one; `Ammo9mm`, `Ammo10mm`, `Ammo12Ga` have none]. It ends at x 290 [observed:
+  the owner's screenshot 2026-10-25 of the original, a 12 gauge with "1/16", marks the
+  label's room at 1680-1765 of 1920 pixels, the divider at 1672: 214-290 units], or 6
+  before a counter long enough to reach past that, never left of the divider and 6
+  [design: "without overlapping anything", owner 2026-10-25]. A thrown weapon and a
+  weapon that uses no ammo show no label.
 - Over the condition bar, the jamming threshold: `CNDArrows`, the picture
   `interface\shared\arrow\repair_meter_pips.dds` [documented: hud_main_menu.xml, its
   place "set in code"], two black arrows at the picture's top and bottom edges pointing
@@ -227,7 +237,7 @@ the compass the eight directions' letters in Bevy's font.
 - The XP meter is built: experience.md (`xp_meter.rs`).
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
 - The messages at the top left with their icons, subtitles, the breath meter,
-  the armour-piercing icons, the ammo type's label. The crippled-limb
+  the armour-piercing icons. The ammo type's label is built (§4). The crippled-limb
   picture is built (§12), and Hardcore mode's words (§13).
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `script_hud.rs`) are

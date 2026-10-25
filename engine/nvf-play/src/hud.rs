@@ -152,6 +152,11 @@ const AP_LABEL_END: f32 = 355.0;
 const CND_BEFORE_DIVIDER: f32 = 10.0;
 const CND_RAISE: f32 = 2.0;
 const CND_LABEL_GAP: f32 = 11.0;
+/// The ammo type's abbreviation ends here, right-justified between the divider and the
+/// counter [documented: `AmmoTypeLabel`, font 7, right-justified, placed in code;
+/// observed: the owner's screenshot 2026-10-25 of the original marks its room at about
+/// x 1680-1765 of 1920 at 1080 lines, the divider at 1672: 214-290 units].
+const AMMO_LABEL_END: f32 = 290.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -319,6 +324,12 @@ pub fn ammo_text(ammo: Option<(u32, u32)>) -> String {
     }
 }
 
+/// Where the ammo type's abbreviation, `width` wide, ends: at its place, or `LABEL_GAP`
+/// before a counter that reaches further left, but never over the divider.
+pub fn ammo_label_right(width: f32, counter_left: f32) -> f32 {
+    AMMO_LABEL_END.min(counter_left - LABEL_GAP).max(DIVIDER + LABEL_GAP + width)
+}
+
 /// Where the pieces stand in their corner piece, from its top left corner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Places {
@@ -431,6 +442,9 @@ fn gather(
             Some(s) => info!("hud: sneak {}", s.word()),
             None => info!("hud: sneak off"),
         }
+    }
+    if now.weapon.abbrev != view.weapon.abbrev && now.shown {
+        info!("hud: ammo label {}", now.weapon.abbrev.as_deref().unwrap_or("(none)"));
     }
     view.set_if_neq(now);
 }
@@ -801,15 +815,23 @@ fn texts(
     let face_ = face_.get_or_insert_with(|| face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
     let font = &face_.font;
     let text = ammo_text(view.weapon.ammo);
-    if shown.0.as_deref() != Some(text.as_str()) {
+    let abbrev = view.weapon.abbrev.as_deref().unwrap_or("");
+    // Both texts make the key: swapping ammo of the same count changes only the label.
+    let key = format!("{abbrev}|{text}");
+    if shown.0.as_deref() != Some(key.as_str()) {
         if let Ok(e) = ammo.single() {
             let places = Places::new(font);
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
                 if let Some(line) = font.lines(&text, None).into_iter().next() {
-                    set_line(p, face_, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
+                    let left = places.ammo_right - line.width;
+                    set_line(p, face_, &line, left, LOWER_BASE, amber(255.0));
+                    if let Some(label) = font.lines(abbrev, None).into_iter().next().filter(|_| !abbrev.is_empty()) {
+                        let right = ammo_label_right(label.width, left);
+                        set_line(p, face_, &label, right - label.width, LOWER_BASE, amber(255.0));
+                    }
                 }
             });
-            shown.0 = Some(text);
+            shown.0 = Some(key);
         }
     }
     let enemy = target.0.as_ref().map(|t| t.name.clone());
@@ -943,6 +965,17 @@ mod tests {
         assert_eq!(ammo_text(Some((0, 0))), "0/0");
         assert_eq!(ammo_text(Some((6, 42))), "6/42");
         assert_eq!(ammo_text(None), "");
+    }
+
+    #[test]
+    fn the_ammo_label_keeps_clear_of_the_counter_and_the_divider() {
+        // A short counter leaves the label at its place.
+        assert_eq!(ammo_label_right(20.0, 318.0), AMMO_LABEL_END);
+        // A long one pushes it left, a gap before the counter.
+        assert_eq!(ammo_label_right(20.0, 280.0), 280.0 - LABEL_GAP);
+        // Never over the divider.
+        assert_eq!(ammo_label_right(40.0, 230.0), DIVIDER + LABEL_GAP + 40.0);
+        const { assert!(AMMO_LABEL_END > DIVIDER && AMMO_LABEL_END < RIGHT_UPRIGHT) };
     }
 
     #[test]
