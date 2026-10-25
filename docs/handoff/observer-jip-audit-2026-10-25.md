@@ -5,9 +5,9 @@ The owner asked (2026-10-25) for three things:
 - observation jobs for them, run in the game with the new JIP tier;
 - everything written down for the engine to build or change.
 
-The tier and its rule are in [ai-observer-jip](../spec-notes/ai-observer-jip.md):
-- data read with JIP or JohnnyGuitar functions backs **state** facts only;
-- behaviour (timings, paths, package choice) comes from runs with `nvf_capture.dll` alone, because the vanilla-vs-JIP A/B check found the plugins nudge small behaviours.
+The tier and its rules are in [ai-observer-jip](../spec-notes/ai-observer-jip.md).
+- These runs were made under the first rule: data read with JIP or JohnnyGuitar functions backs **state** facts only, because the vanilla-vs-JIP A/B check found the plugins nudge small behaviours.
+- Later that day the owner decided the plugins **stay installed** for every run ("there's no point taking them out once NVSE functionality is our own"; ai-observer-jip.md §2). Plain campaigns now run with them too, and the A/B differences are recorded as the plugins' known effects.
 
 Tags as everywhere: [documented: source], [observed: run, date], [hypothesis], [design]. Runs: plugin version 9, xNVSE 6.4.9, JIP LN `jip_nvse.dll` and JohnnyGuitar 528 at their shipped settings. Results are private, in `C:\fnv-private\capture\observe\jip_runs\` (per campaign `<name>.run.json` and `.timeline.json`).
 
@@ -265,9 +265,9 @@ In order of payoff. Each says where, what, and how sure.
 
 ## 7. Next runs
 
-- **Plain (need jip_nvse.dll and johnnyguitar.dll out of `Data\NVSE\Plugins`):**
+- **Plain** (with the plugins installed, as the owner decided):
   - `goodsprings_ticks` (Q3, 14 game hours);
-  - `goodsprings_ab_ts120` (Q18 and item 2's unit, `--repeat 3`, compared with the goodsprings_ab base runs);
+  - `goodsprings_ab_ts120` (Q18 and item 2's unit, `--repeat 3`, compared with the A/B's with-plugins runs, `jip_ab\with.timeline.*.json`, which had the same plugins);
   - `hv_knights_ts60` (Q17, 12 game hours).
 - **JIP, to write:**
   - Q8 at a quiet spot (the player arriving out of sight of an enemy camp, then a shot);

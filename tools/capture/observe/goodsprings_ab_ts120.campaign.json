@@ -1,7 +1,7 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "goodsprings_ab_ts120",
- "title": "Plain run (docs/handoff/observer-jip-audit-2026-10-25.md Q18): goodsprings_ab at TimeScale 120 instead of 30, compared with observe_compare.py against the goodsprings_ab base runs of 2026-10-25: does a raised TimeScale change what NPCs do in game time",
+ "title": "Plain run (docs/handoff/observer-jip-audit-2026-10-25.md Q18): goodsprings_ab at TimeScale 120 instead of 30, compared with observe_compare.py against the goodsprings_ab with-plugins runs of 2026-10-25 (jip_ab with.timeline.*.json: the same plugins installed): does a raised TimeScale change what NPCs do in game time",
  "save": "nvftest",
  "defaults": {
   "every": 60,
