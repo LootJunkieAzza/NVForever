@@ -35,7 +35,18 @@ pub fn stance_prefix(stem: &str) -> Option<String> {
 pub fn report(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, folder: &str, samples: usize) -> Value {
     let folder = anims::normalize(folder).trim_end_matches('\\').to_string();
     let loco = format!("{folder}\\locomotion\\");
-    let paths: BTreeSet<String> = vfs.paths(|p| p.starts_with(&loco) && p.ends_with(".kf")).into_iter().collect();
+    // Also a move's clip kept beside the skeleton (`creatures\blowfly\mtforward.kf`,
+    // mistergutsy, queenant [observed: the base meshes archive, 2026-10-25]), the last
+    // place the engine looks (`fnv_actor::locomotion::clip_candidates`).
+    let beside = format!("{folder}\\");
+    let paths: BTreeSet<String> = vfs
+        .paths(|p| {
+            p.ends_with(".kf")
+                && (p.starts_with(&loco)
+                    || p.strip_prefix(&beside).is_some_and(|rest| !rest.contains('\\') && stance_prefix(rest.trim_end_matches(".kf")).is_some()))
+        })
+        .into_iter()
+        .collect();
     let mut files = Vec::new();
     let mut prefixes = BTreeSet::new();
     for path in &paths {

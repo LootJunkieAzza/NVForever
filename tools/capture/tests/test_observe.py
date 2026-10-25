@@ -186,6 +186,15 @@ class ScriptRules(unittest.TestCase):
             with self.assertRaises(ob.InputError, msg=bad):
                 ob.campaign_jobs(campaign(do=[bad]), EDIDS)
 
+    def test_place_sets_actor_values(self):
+        job = ob.campaign_jobs(campaign(place=[{"base": "Bob", "av": [["Confidence", 0], ["Aggression", 2]], "attack": "player"}]),
+                               EDIDS)["obs_c1_01_s1"][1]
+        text = "".join(s.get("script", "") for s in job["steps"])
+        self.assertIn("rA.SetAV Confidence 0\n    rA.SetAV Aggression 2\n    rA.StartCombat player", text)
+        for bad in ([["Confidence"]], [["x y", 1]], [["Confidence", True]]):
+            with self.assertRaises(ob.InputError, msg=bad):
+                ob.campaign_jobs(campaign(place=[{"base": "Bob", "av": bad}]), EDIDS)
+
     def test_plugin_parses_generated_jobs(self):
         # The plugin's own parser is checked against the committed diag job by its Rust
         # tests; here only the step keys the plugin knows are used.
