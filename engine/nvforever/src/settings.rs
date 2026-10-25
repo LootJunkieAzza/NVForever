@@ -460,7 +460,7 @@ fn register_graphics(app: &mut App) {
         (
             "glow",
             "Light glow",
-            "On: neon, lamps, glowing beams and fire glow softly into their surroundings, as the original's HDR glow does; how much follows the place's image space. Bloom, when on, replaces it. (--graphics-only no-glow turns it off)",
+            "On: neon, lamps, glowing beams and fire glow softly into their surroundings, as the original's HDR glow does; how much follows the place's image space (the Strip's neon at night most). Bloom, when on, adds to it. (--graphics-only no-glow turns it off)",
             |w| w.resource::<Graphics>().glow,
             |w, on| w.resource_mut::<Graphics>().glow = on,
         ),

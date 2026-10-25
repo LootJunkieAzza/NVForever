@@ -13,8 +13,9 @@
 //! lamps, glowing beams and fire that the original draws with its HDR pass (the owner
 //! plays with `bDoHighDynamicRange=1`), driven by the image space's HDR values
 //! (`post.rs` `glow_params`; docs/spec-notes/world.md §6 "HDR and bloom"). `--graphics-only
-//! no-glow` (or the settings switch) turns it off. With Bloom on, Bloom's own stronger
-//! values are used instead.
+//! no-glow` (or the settings switch) turns it off. Bloom, when on, adds its pass to it
+//! (until 2026-10-25 it replaced it, and with it the HDR view, eye adaptation and the
+//! Strip's neon glow).
 //! - **Sharpening**: contrast-adaptive sharpening of the picture (`post.rs`).
 //! - **Anisotropic filtering 16x** (8x in vanilla) for the game's textures loaded from then on.
 //! - **Anti-aliasing**, one choice and not part of `enhanced`: multisampling (`--msaa`,
@@ -169,7 +170,7 @@ impl Graphics {
             (self.ambient_occlusion, "ambient occlusion"),
             (self.fine_shadows, "finer, longer shadows"),
             (self.bloom, "bloom"),
-            (self.glow && !self.bloom, "light glow"),
+            (self.glow, "light glow"),
             (self.sharpen, "sharpening"),
             (self.anisotropic, "16x anisotropic filtering"),
             (self.screen_aa == ScreenAa::Fxaa, "FXAA"),
@@ -464,13 +465,15 @@ fn apply(
             e.remove::<PostEffects>();
         }
         // The light glow: an HDR main view (values over 1 kept until the tonemapper) and
-        // Bevy's energy-conserving bloom on it, its strength set every frame from the
-        // image space (post.rs `image_space_glow`).
-        if g.glow && !g.bloom {
+        // Bevy's energy-conserving bloom on it, its strength and the bright pass's set
+        // every frame from the image space (post.rs `image_space_glow`). The enhanced
+        // Bloom adds to it (owner's playtest 2026-10-25: with Bloom on, the Strip's neon
+        // had no glow at all).
+        if g.glow {
             // With eye adaptation (eye_adapt.rs), which needs the HDR view.
-            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(&eye)));
+            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::BrightPass::default(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(&eye)));
         } else {
-            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
+            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::BrightPass, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
         }
         // Anti-aliasing after the picture replaces the multisampling.
         let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };
@@ -535,7 +538,7 @@ mod tests {
         let all = Graphics::only(&KEYS.map(String::from)).expect("keys");
         // "finer, longer shadows" has a comma of its own; of the three anti-aliasings and
         // the two shadow filters the last named is on.
-        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 3);
+        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 2 - 3);
         assert_eq!((all.screen_aa, all.shadow_filter), (ScreenAa::Taa, ShadowFilteringMethod::Temporal));
         let enhanced = Graphics::preset(Preset::Enhanced);
         assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections);
@@ -557,7 +560,7 @@ mod tests {
         let off = Graphics::only(&["no-glow".into()]).expect("no-glow");
         assert!(!off.glow);
         assert_eq!(off.describe(), "vanilla (no engine-level improvements)");
-        // Bloom, when on, stands in for the glow.
-        assert!(!Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
+        // Bloom, when on, adds to the glow.
+        assert!(Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
     }
 }

@@ -54,6 +54,13 @@ const BASE_TARGET_LUM: f32 = 1.4;
 /// about −12 EV, sunlit sand about 0].
 const METER_LOW: f32 = -16.0;
 const METER_HIGH: f32 = 6.0;
+/// The share of the metered histogram (darkest to brightest) the average is taken over:
+/// the darkest tenth left out, the brightest kept [hypothesis, 2026-10-25: with Bevy's
+/// default 10-90 % the Strip at night, Target LUM 4, was lifted about 0.3 EV over the
+/// original's frames (owner's and fx_strip_b) though without adaptation it matched within
+/// 5 %; counting the brightest tenth, where its neon and lamps lie, it is not lifted;
+/// the original's meter may be a plain average, which bright lights hold up (module note)].
+pub const METER_FILTER: std::ops::RangeInclusive<f32> = 0.10..=1.0;
 /// The sky's weight in the meter, against 1 for the world [hypothesis, see the module
 /// note; not 0, so a view of nothing but sky still has a reading]. The mask keeps 16
 /// levels (Bevy's auto exposure), so 1/16 is the smallest weight above none.
@@ -180,6 +187,7 @@ pub fn auto_exposure(eye: &EyeCurve) -> AutoExposure {
         speed_darken: ADAPT_SPEED,
         compensation_curve: eye.handle.clone(),
         metering_mask: eye.mask.clone(),
+        filter: METER_FILTER,
         ..default()
     }
 }

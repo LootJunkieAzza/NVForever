@@ -355,9 +355,11 @@ fn fragment(
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
         pbr_input.material.emissive = standard_material(in.instance_index).emissive;
     }
-    // The image space's Emissive Mult; an additive shape forms its light in display
-    // values (`add_display`), so there it is raised to the display gamma.
-    let emissive_scale = select(view_emissive_scale(), pow(view_emissive_scale(), 2.2), (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
+    // The image space's Emissive Mult; not on additive shapes (light beams, glow cards):
+    // the Strip's night adapter raises it to 4 (×2.67 over the Mojave's), and the
+    // original's Strip lamp beams stay a faint haze under it where ours, scaled in
+    // display values, blew out white (nif.md §6 "Additive blend", 2026-10-25).
+    let emissive_scale = select(view_emissive_scale(), 1.0, (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
     let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
 
