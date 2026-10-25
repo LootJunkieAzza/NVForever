@@ -587,3 +587,28 @@ fn gore_pieces_float() {
     let z = w.gore_state(1).unwrap().translation[2];
     assert!((z - 400.0).abs() < 5.0, "the piece floats: z {z}");
 }
+
+/// A placed object's jointed bodies (a swinging trap, `add_object_ragdoll`): its
+/// keyframed anchor stays fixed in the air while its dynamic arm, held out level, swings
+/// down on the joint.
+#[test]
+fn an_object_ragdoll_swings_from_its_fixed_anchor() {
+    let mut w = ground();
+    let mut arm = body("arm", Shape::Capsule { a: [0.0, 4.0, 0.0], b: [0.0, 60.0, 0.0], radius: 3.0 }, 10.0, [0.0, 0.0, 300.0]);
+    arm.object.motion = Motion::Dynamic;
+    let anchor = body("anchor", Shape::Box { half_extents: [5.0, 5.0, 5.0] }, 0.0, [0.0, 0.0, 300.0]);
+    let rag = Arc::new(Ragdoll { bodies: vec![arm, anchor], joints: vec![joint(0, 1, [0.0; 3], [0.0; 3], JointKind::Ball)], problems: vec![] });
+    let rest: Vec<Iso> = rag.bodies.iter().map(|b| b.rest()).collect();
+    let r = w.add_object_ragdoll(&start(0x0016_5273, &rag, &rest));
+    assert_eq!((r.bodies, r.joints), (2, 1));
+    assert!(w.is_object_ragdoll(0x0016_5273));
+    let mut lowest = f32::INFINITY;
+    for _ in 0..90 {
+        w.step();
+        let n = nodes(&w, 0x0016_5273);
+        // The arm's far end swings below the anchor.
+        lowest = lowest.min(n[0].apply([0.0, 60.0, 0.0])[2]);
+        assert!((n[1].translation[2] - 300.0).abs() < 1e-3, "the anchor stays: {:?}", n[1].translation);
+    }
+    assert!(lowest < 260.0, "the arm swung down: lowest end at z {lowest}");
+}

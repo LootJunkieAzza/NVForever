@@ -92,6 +92,10 @@ pub struct PreparedModel {
     /// drives it (docs/spec-notes/model-lights.md): where it hangs in the rig, so that the
     /// light of a LIGH reference can follow its model (nvforever `lights.rs`).
     pub light: Option<ModelLight>,
+    /// The file joins Havok bodies with constraints (a swinging trap's log and chains,
+    /// a hanging lamp): its rig is built though no sequence moves it, so that the bodies
+    /// can move its nodes (nvforever `swing_traps.rs`).
+    pub jointed: bool,
 }
 
 /// A light inside a model whose colour or dimmer a sequence drives. Lights are not
@@ -1272,7 +1276,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // The light a clip of the rig drives.
     out.light = first_light.filter(|l| idle.iter().chain(groups.iter()).any(|c| c.lights.iter().any(|t| t.light == l.name)));
     // Rig nodes: the root first, then every object reachable from it.
-    let animated = idle.is_some() || door.is_some() || !groups.is_empty() || effect.is_some();
+    let jointed = file.blocks.iter().any(|b| b.type_name.ends_with("Constraint"));
+    out.jointed = jointed;
+    let animated = idle.is_some() || door.is_some() || !groups.is_empty() || effect.is_some() || jointed;
     let mut rig = animated
         .then(|| {
         let root = root?;
