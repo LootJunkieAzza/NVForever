@@ -37,8 +37,9 @@ decodes every script unit of the load order (object, quest and effect scripts; q
 dialogue, package and terminal result scripts: 14,907 units over the ten masters) and
 counts each stub's calls; condition uses (CTDA) are the catalogue's
 (`schemas/script/functions.json`, from xEdit's table and the masters' scan). It lists every
-stub and no-op with its status, sorted by use, and the functions used but not registered at
-all (§6). The smoke scenario `script-stubs` (tools/smoke/scenarios.toml) checks the counts
+stub and no-op with its status and catalogue origin (`GECK1`, `VEGAS1`, … or an extender's,
+with the stub count per origin in `summary.by_origin`), sorted by use, and the functions
+used but not registered at all (§6). The smoke scenario `script-stubs` (tools/smoke/scenarios.toml) checks the counts
 of §1, kept in tools/smoke/expected/script-stubs.toml (a branch that implements a stub
 changes them there; `cargo test -p fnv-game` checks the stub and status counts against the
 registry).

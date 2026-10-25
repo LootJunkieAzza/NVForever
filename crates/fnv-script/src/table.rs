@@ -85,6 +85,9 @@ pub struct Param {
 pub struct Function {
     pub opcode: u16,
     pub name: String,
+    /// The catalogue's origin code: `GECK1`, `VEGAS1`, `CONSOLENV`, `observed-only`, or an
+    /// extender's (`NVSE`, `JIP`, …; script-functions.md §2).
+    pub origin: Option<String>,
     pub aliases: Vec<String>,
     pub observed_spellings: Vec<String>,
     pub params: Vec<Param>,
@@ -271,6 +274,7 @@ impl FunctionTable {
                 let fun = Function {
                     opcode: op,
                     name: name.clone(),
+                    origin: func.get("origin").and_then(Value::as_str).map(str::to_string),
                     aliases: strings(func.get("aliases")),
                     observed_spellings: strings(func.get("observed_spellings")),
                     params: params.clone(),
