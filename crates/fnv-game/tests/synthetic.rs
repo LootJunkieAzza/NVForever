@@ -1756,3 +1756,21 @@ fn lambdas_and_the_array_functions_that_take_them() {
     let src = "array_var a\narray_var b\narray_var it\nlet a := Ar_List 1, 2, 3\nlet b := Ar_MapTo a, ({it} => *it * 10)\nlet TestGlobal := b[2]";
     assert_eq!(global_after(&f, src), 30.0);
 }
+
+#[test]
+fn the_extenders_strings_arrays_and_lambdas_are_in_the_save() {
+    // Task F1: a snapshot keeps the ExtStore and the lambdas; a restore gives them back.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("int x\nlet TestGlobal := Call ({x} => x * 3) 4", Default::default()).expect("compiles");
+    let id = g.ext.new_string("kept".into());
+    let snap = g.snapshot();
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, snap);
+    assert_eq!(snap.lambdas.len(), 1);
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let r = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
+    assert_eq!(r.ext.text(id), Some("kept"));
+    assert_eq!(r.snapshot().lambdas, snap.lambdas);
+}

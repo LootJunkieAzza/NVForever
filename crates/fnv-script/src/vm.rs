@@ -623,6 +623,10 @@ pub struct ExtStore {
 pub const MAX_STRING: usize = 16_384;
 
 impl ExtStore {
+    pub fn is_empty(&self) -> bool {
+        self.strings.is_empty() && self.arrays.is_empty()
+    }
+
     pub fn new_string(&mut self, text: String) -> u32 {
         self.next += 1;
         let id = self.next;

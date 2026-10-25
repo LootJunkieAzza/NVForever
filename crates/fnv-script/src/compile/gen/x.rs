@@ -5,10 +5,11 @@
 //! Precedence, loosest first (the page's numbers): `:=` (0, right to left) · `||` (1) ·
 //! `&&` and the compound assignments (2) · `:` `::` (3) · `==` `!=` (4) · `<` `>` `<=` `>=`
 //! (5) · `|` (6) · `&` (7) · `<<` `>>` (8) · `+` `-` (9) · `*` `/` `%` (10) · `^` (11) ·
-//! unary `-` `$` `#` `*` `&` (12) · `!` (13) · `[]` `->` (15). Only `:=` has a documented
-//! associativity; the other binary operators group left to right and the compound
-//! assignments right to left [hypothesis, to check with the editor: extender-core-tasks.md
-//! G2].
+//! unary `-` `$` `#` `*` `&` (12) · `!` (13) · `[]` `->` (15). `:=` groups right to left
+//! and `&&` binds tighter than `||` [documented; observed in the bytes the GECK with xNVSE
+//! wrote, docs/spec-notes/ext-bytecode.md]; the other binary operators group left to right
+//! and the compound assignments right to left [hypothesis, probes in
+//! tools/capture/ext-probes/expressions].
 //!
 //! A function inside an expression takes up to as many arguments as it has parameters. An
 //! argument is an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50`

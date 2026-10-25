@@ -963,13 +963,13 @@ pub enum LineKind {
 pub struct Game<'a> {
     pub data: &'a GameData,
     /// The script extender's strings and arrays by id (fnv_script::vm::ExtStore;
-    /// docs/spec-notes/ext-values.md). Not in the save yet (task F1).
+    /// docs/spec-notes/ext-values.md), saved with the game (`GameSnapshot::ext`).
     pub ext: fnv_script::vm::ExtStore,
     /// The user-defined functions running, innermost last (script-compiler.md §9).
     udf: Vec<UdfFrame>,
     /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
     /// shares; named by `LAMBDA_BASE + index`.
-    lambdas: Vec<(&'a Compiled, fnv_script::ir::XExpr, Option<InstKey>)>,
+    lambdas: Vec<LambdaDef<'a>>,
     /// A lambda already made, by where its expression is and whose variables it shares.
     lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
     /// The console's world toggles (`functions::toggles`).
@@ -1270,10 +1270,28 @@ pub struct Game<'a> {
     pub(crate) package_scan_due: f64,
 }
 
+/// A lambda in a save: the unit it is written in (by key), the lambda, the instance whose
+/// variables it shares.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedLambda {
+    pub unit: String,
+    pub lambda: fnv_script::ir::XExpr,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inst: Option<InstKey>,
+}
+
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
     pub format: String,
+    /// The script extender's strings and arrays, kept with the save as the original keeps
+    /// them in its co-save (task F1; docs/spec-notes/ext-save.md; NVForever never reads
+    /// or writes the original's `.nvse` file).
+    #[serde(default, skip_serializing_if = "fnv_script::vm::ExtStore::is_empty")]
+    pub ext: fnv_script::vm::ExtStore,
+    /// The lambdas scripts made, so variables naming them stay right after a load.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lambdas: Vec<SavedLambda>,
     pub sim: Snapshot,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
@@ -1420,6 +1438,16 @@ enum Locals {
     Instance(InstKey),
     /// A result script (stage, dialogue, package): locals live for one run.
     Temp(BTreeMap<u16, Value>),
+}
+
+/// A lambda a script made: its unit (`None` when a loaded save names a unit that is gone)
+/// and that unit's key, the lambda, and the instance whose variables it shares.
+#[derive(Clone)]
+struct LambdaDef<'a> {
+    unit: Option<&'a Compiled>,
+    key: String,
+    lambda: fnv_script::ir::XExpr,
+    inst: Option<InstKey>,
 }
 
 /// A user-defined function running: the value it set, and the script that called it.
@@ -3528,6 +3556,8 @@ impl<'a> Game<'a> {
     pub fn snapshot(&self) -> GameSnapshot {
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
+            ext: self.ext.clone(),
+            lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
             sim: self.world.snapshot(),
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
@@ -3574,6 +3604,13 @@ impl<'a> Game<'a> {
             return Err(format!("unsupported snapshot format {:?}", s.format));
         }
         let mut g = Game::new(data, world, cfg);
+        g.ext = s.ext.clone();
+        for l in &s.lambdas {
+            // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
+            // so the later ones keep their names; calling it fails.
+            let unit = data.units.iter().find(|u| u.key() == l.unit);
+            g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst });
+        }
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
@@ -3847,7 +3884,7 @@ impl Host for Exec<'_, '_> {
             return Ok(fnv_script::vm::XVal::Ref(id));
         }
         let id = LAMBDA_BASE + self.game.lambdas.len() as u32;
-        self.game.lambdas.push((self.unit, l.clone(), key.1));
+        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.1 });
         self.game.lambda_ids.insert(key, id);
         Ok(fnv_script::vm::XVal::Ref(id))
     }
@@ -3889,7 +3926,8 @@ impl Host for Exec<'_, '_> {
         let opts = self.game.opts();
         let self_ref = on.and_then(|v| v.as_form()).map(FormId);
         let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
-            let (unit, l, inst) = self.game.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
+            let d = self.game.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
+            let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
             let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
             let locals = match inst {
                 Some(k) => Locals::Instance(k),

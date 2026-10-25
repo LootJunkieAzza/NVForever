@@ -251,10 +251,12 @@ expression parser), `vm.rs` (`xeval`).
 - **Tokens.** The operators of NVSE Expressions (`:=` and the compound assignments,
   `::` `->` `<<` `>>` `^` `|` `&` `!` `$` `#`), brackets, braces and commas, besides the
   vanilla ones.
-- **Precedence** is the page's table (header of `compile/gen/x.rs`). Only `:=` has a
-  documented associativity (right to left). The other binary operators group left to right
-  and the compound assignments right to left [hypothesis; probes in
-  extender-core-tasks.md G3].
+- **Precedence** is the page's table (header of `compile/gen/x.rs`). `:=` groups right to
+  left [documented; observed: the GECK with xNVSE compiles `a := b := 2` with both
+  assignments last, docs/spec-notes/ext-bytecode.md] and `&&` binds tighter than `||`
+  [observed: `iA || iB && iC` compiles with `&&` first, ext-bytecode.md]. The other binary
+  operators group left to right and the compound assignments right to left [hypothesis;
+  probes in extender-core-tasks.md G3].
 - **Functions in an expression.** A function takes up to as many arguments as it has
   parameters (the catalogue's count, or the compiler's observed one, §3). An argument is
   an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50` [documented:
@@ -315,8 +317,11 @@ rules; what NVForever decides where they are open is tagged here.
   game's `ExtStore` (`Game::ext`); 0 is none [documented: a string_var or array_var holds
   a number underneath, Array Variable; for strings hypothesis]. Assigning a string copies
   its text into the variable's string [documented: NVSE Expressions]. A string keeps at
-  most 16,384 characters [documented: String Variable]. Strings are not in NVForever's
-  save yet (F1).
+  most 16,384 characters [documented: String Variable]. Strings and arrays are kept in
+  NVForever's save (`GameSnapshot::ext`, F1), as the original keeps them in its co-save
+  [documented: ext-save.md]; NVForever never reads or writes the original's `.nvse`
+  file. Lambdas are saved with their unit's key and the instance whose variables they
+  share; one whose unit is gone after a load keeps its place and fails when called.
 - **Conversions.** `$x` / ToString: a number's text (whole numbers without decimals,
   others with up to six [hypothesis]), a form's name (FULL; a reference's base form's),
   or its FormID in hex without one [documented: ToString]. `#s` / ToNumber: the number in
