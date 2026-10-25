@@ -859,6 +859,15 @@
   "REFR": {
    "name": "Placed Object",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "6": "Hidden From Local Map",
+     "10": "Persistent",
+     "11": "Initially Disabled"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(REFR) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Only the bits NVForever reads by name are listed (the rest are read as raw bits, fnv_world::placed::ref_flags). Hidden From Local Map: 'The reference will not be displayed on the local map' [GECK wiki Reference, Reference Data Flags; owner export 2026-10-07]."
+   },
    "subrecords": {
     "RCLR": {
      "name": "Unused",

@@ -412,7 +412,9 @@ Readings used by the player body [hypothesis]:
   9mm pistol sits at the right hip and the varmint rifle across the back [observed:
   screenshots, kept privately].
 - The weapon-out stance is the type's Aim group (looped), with `aimup`/`aimdown` blended
-  in by the view's pitch, and the `AimIS` clips while aiming down the sights (§9.6).
+  in by the view's pitch, and the `AimIS` clips while aiming down the sights (§9.6); in
+  first person only for a gun whose model has a sighting node, else the hip clips go on
+  (camera.md §4.1).
 
 ### 9.4 Blending [hypothesis]
 
@@ -495,6 +497,38 @@ clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_ma
   rifle stays level. Whether the game's does is not known (owner-review.md).
   Reloading (`2hrreloada.kf`, spine at 65, no up or down form) straightens the body in
   ours for the same reason.
+- Down the sights while strafing [observed: `kf_pose_compare`, 2026-10-23]: `2hr` has no
+  side-step clips (`locomotion\2hrleft.kf` does not exist), so the unarmed
+  `locomotion\male\mtleft.kf` plays. It drives `Bip01 NonAccum` at 30, above
+  `2hraimis.kf`'s 26, and turns it 87.5° from the sights clip's pose (`mtright.kf` 2.7°,
+  `mtforward.kf` 2.7°, `mtbackward.kf` 0.1°), turning its head back by 88°. Sampled
+  (`fnvtool actor locomotion --samples 5`), `Bip01 NonAccum` stays at yaw 87.5–90.9° in
+  every move of `male\` and `female\` and in the weapons' own side-steps (`1hpleft`,
+  `1hpright`, `1hmleft`, `2hhleft`, `h2hleft`, `1hpfastleft`) but sits at 177.5° in
+  `male\mtleft.kf` and `female\mtleft.kf` and −168.6° to −179.4° in their
+  `mtfastleft.kf`: the unarmed walk left turns the whole body (`child\mtleft.kf` does
+  not). `Bip01 Spine` and `Bip01 Pelvis` both hang from `Bip01 NonAccum`, the thighs from
+  the pelvis [observed: `skeleton.nif` node tree]. With the sights clip's spine (50) over
+  that turned node, the body and rifle faced a quarter turn left of the view.
+- In the original, strafing left down the sights with a rifle, the body is yawed some
+  30–45° right of the view, knees bent, the legs stepping back across one another (the
+  owner: "almost like a backpedal"), the rifle on the crosshair [observed: the owner's
+  capture 2026-10-23, camera zoomed out]. Rendered in ours under `2hraimis.kf`,
+  `h2hleft.kf` and `1hpleft.kf` look like that; `mtleft.kf` (the body turned, then with
+  the body held square a forward stride) and `mtbackward.kf` (square) do not [observed:
+  screenshots, kept privately]. Both side-steps keep every track at priority 30, under
+  the rifle's aim arms (35) and sights clip (50).
+- Engine [hypothesis: which side-step the game takes is not known]: a weapon with no
+  walk left of its own walks left with `h2hleft.kf`
+  (`fnv_actor::player_clips::move_clips`; running left keeps `mtfastleft.kf`, which turns
+  the body the same way: not seen in the original yet). The first-person folder has no
+  `h2hleft.kf`, so the arms rig keeps `mtleft.kf`. Also, while down the sights in third
+  person, `player_body::keep_sights_facing` gives the nodes above `Bip01 Spine` the aim
+  clips' own rotation in place of the blend's, faded with the aim clips (2.7° with
+  `h2hleft.kf`; it keeps the rifle on the crosshair under `mtfastleft.kf`). Turning only
+  the spine back instead (the first try) wrung the skin at the waist a quarter turn,
+  and holding the body square over `mtleft.kf` (the second) made the legs walk forward
+  [observed: the owner's screenshots]. Smoke `third-person-sights-strafe`.
 
 ### 9.7 The `Weapon` node between clips [observed unless tagged]
 
@@ -885,6 +919,40 @@ Measured with `kf_pose_compare` (`KF_TRACK=Weapon` prints the `Weapon` track eve
 - Engine (`fnv_actor::weapon`): the drawn bone is the equip clip's `prn:` (else the aim
   clip's), and the weapon changes bones at `Attach` / `Detach` (`ClipFacts::switch`),
   for NPCs as for the player body (`player_clips::HandEvent`).
+
+### 9.11 The Land Mine weapons in the first-person hand [observed unless tagged]
+
+Sources: the owner's first-person frames of the frag mine (WEAP 0x0000433C, animation
+type 11 "Land Mine") drawn in the original game, level and looking down (2026-10-23, kept
+privately in `C:\fnv-private\references\mines`); `_1stperson\1lmaim.kf`, `1lmequip.kf`,
+`1lmhandgrip1.kf`; NifSkope 2.0 Dev 7 playing `1lmaim.kf` on `_1stperson\skeleton.nif`
+with `minefrag.nif` under `Weapon`.
+
+- In the game the mine's ringed top faces up and back towards the view, tilted back
+  about 40–50°, with its wire handle at the right in the hand and the thumb over the
+  rim; the left hand is not in view. Only the dark lens (`##LightOff:0`) shows: no glow
+  (`##Glow:0`) and no lit lens (`##LightOn:0`), which a live placed mine shows
+  (combat-rules.md §11a).
+- The clips alone leave the mine on its edge, underside to the view, handle up: NVForever
+  posed `1lmaim.kf` bone for bone as the file says (every arm bone's rotation checked
+  against the track values), and NifSkope shows the same. The `Weapon` track of every
+  `1lm` clip holds the pistol's rotation (about 88° about the hand's x axis, as in
+  `1hpaim.kf` and the skeleton's own `Weapon` node); what turns `1lm` apart is the hand,
+  which `1lmaim.kf` rolls about 90° from the pistol's.
+- `1lmhandgrip1.kf` (the type's only grip clip) drives no right-arm bone: it poses the
+  left arm (priority 45, as the aim), the fingers and thumbs (56) and `Weapon` (45, the
+  aim's value). Played over the aim it takes the left hand out of view and puts the right
+  thumb over the rim, as in the game's frames. The frag mine's WEAP hand grip is the
+  default (DNAM byte 13 = 0xFF) [hypothesis: the default grip plays `handgrip1` where the
+  stance has one; not checked for the grenades' `1gthandgrip1–3`].
+- The turn the game adds is not in any file read here [hypothesis: an engine rule for
+  these weapons]. NVForever turns the `Weapon` node 240° about the hand's x axis and
+  moves it (4.4, −3.9, 4.5) in the hand's frame (`player_body::land_mine_grip`): fitted
+  by eye to the level frame, where the lens lands within about 30 pixels of the game's at
+  1280×720. Not matched: looking down, the game's mine rises towards the middle of the
+  view while ours stays where it is (the arms rig turns with the view, §9.5).
+- The plasma (0x433D), pulse (0x433E) and powder charge (0x109A0B) mines are also
+  "Land Mine" and get the same; they were not compared with the game.
 
 ### 9.5 The first-person rig [observed unless tagged]
 

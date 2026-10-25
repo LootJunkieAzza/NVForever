@@ -33,6 +33,8 @@ struct WaterParams {
     reflection_plane: vec4<f32>,
     // ripple grid: game x, y of its corner, units per cell, height scale (0: none)
     ripple: vec4<f32>,
+    // shore fade: depth falloff start, end (units of water crossed), 1 when in use
+    edge: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> water: WaterParams;
@@ -281,7 +283,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if lights.n_directional_lights > 0u {
             let sun = lights.directional_lights[0];
             let spec = pow(max(dot(R, sun.direction_to_light), 0.0), max(water.surface.z, 1.0));
-            reflected += spec * sun.color.rgb * view.exposure;
+            // In a world view the sun's colour holds display values (nvforever lights.rs
+            // DISPLAY_HELPERS): its light is that value raised to the display gamma.
+            let sun_light = select(sun.color.rgb * view.exposure, 3.14159265 * pow(max(sun.color.rgb * view.exposure / 3.14159265, vec3(0.0)), vec3(2.2)), lights.ambient_color.a < 0.0);
+            reflected += spec * sun_light;
         }
     } else {
         // From below, the sky shows only within Snell's window (refractive index 1.33:
@@ -291,8 +296,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         reflected = lit;
     }
 
-    let alpha = fr + (1.0 - fr) * body_alpha;
-    let premultiplied = fr * reflected + (1.0 - fr) * body_alpha * lit;
+    // Shore fade (water.rs): from above, the surface fades in over the depth falloff.
+    var edge = 1.0;
+    if above && water.edge.z > 0.5 {
+        edge = clamp((fog_distance - water.edge.x) / max(water.edge.y - water.edge.x, 1e-3), 0.0, 1.0);
+    }
+    let alpha = (fr + (1.0 - fr) * body_alpha) * edge;
+    let premultiplied = (fr * reflected + (1.0 - fr) * body_alpha * lit) * edge;
     var colour = vec4(premultiplied / max(alpha, 1e-4), alpha);
     // Distance fog and (non-HDR) tonemapping as for the standard material, then over the
     // refracted scene (already fogged and tonemapped: a copy of the opaque pass).

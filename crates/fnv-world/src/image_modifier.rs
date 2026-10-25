@@ -4,8 +4,8 @@
 //! the first key of the cinematic tracks); here every track is read with all its keys and
 //! evaluated over time. Layout and rules: docs/spec-notes/image-modifiers.md.
 
-use crate::fields::{winner, Fields};
-use crate::imagespace::{Adapter, Cinematic, MultAdd};
+use crate::fields::{formid_of, global, winner, Fields};
+use crate::imagespace::{Adapter, Cinematic, MultAdd, HDR_VALUES};
 use fnv_esm::{LoadOrder, Schema};
 use serde_json::Value;
 
@@ -116,6 +116,15 @@ pub struct ImageModifier {
     pub radial: RadialTracks,
     pub dof: DofTracks,
     pub motion_blur: Track,
+    /// The HDR and bloom tracks `\x00IAD`..`\x10IAD` (adds at +0x40), indexed as
+    /// `crate::imagespace::Hdr::v` [documented: xEdit IMAD; the same tracks a weather's
+    /// adapter has, read here with all their keys].
+    pub hdr: [MultAddTrack; HDR_VALUES],
+    /// RDSD "Sound - Intro" and RDSI "Sound - Outro" (SOUN) [documented: xEdit
+    /// wbDefinitionsFNV.pas IMAD]; played when the modifier comes on the screen and when
+    /// it leaves it [hypothesis from the names and the data: image-modifiers.md §10].
+    pub intro_sound: Option<u32>,
+    pub outro_sound: Option<u32>,
 }
 
 /// Radial blur values at one moment.
@@ -238,6 +247,7 @@ impl ScreenEffect {
             && one(&c.contrast)
             && one(&c.contrast_avg_lum)
             && one(&c.brightness)
+            && c.hdr.iter().all(one)
             && self.tint[3] == 0.0
             && self.fade[3] == 0.0
             && self.blur_radius == 0.0
@@ -276,6 +286,7 @@ impl ImageModifier {
                 contrast_avg_lum: self.contrast_avg_lum.at(t),
                 brightness: self.brightness.at(t),
                 tint: None,
+                hdr: std::array::from_fn(|i| self.hdr[i].at(t)),
             },
             tint: self.tint.at(t).unwrap_or([1.0, 1.0, 1.0, 0.0]),
             fade: self.fade.at(t).unwrap_or([0.0; 4]),
@@ -341,6 +352,9 @@ pub fn combine(effects: &[ScreenEffect]) -> ScreenEffect {
         fold(&mut out.cinematic.contrast, &e.cinematic.contrast);
         fold(&mut out.cinematic.contrast_avg_lum, &e.cinematic.contrast_avg_lum);
         fold(&mut out.cinematic.brightness, &e.cinematic.brightness);
+        for (a, b) in out.cinematic.hdr.iter_mut().zip(&e.cinematic.hdr) {
+            fold(a, b);
+        }
         out.blur_radius = out.blur_radius.max(e.blur_radius);
         out.double_vision = out.double_vision.max(e.double_vision);
         out.motion_blur = out.motion_blur.max(e.motion_blur);
@@ -438,6 +452,9 @@ pub fn image_modifier(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Image
             flags: raw.get(DOF_FLAGS).copied().unwrap_or(0),
         },
         motion_blur: tr(b"NAM4"),
+        hdr: std::array::from_fn(|i| pair(i as u8)),
+        intro_sound: f.get(b"RDSD").and_then(|v| formid_of(&v)).and_then(|id| global(lo, pi, id)),
+        outro_sound: f.get(b"RDSI").and_then(|v| formid_of(&v)).and_then(|id| global(lo, pi, id)),
     })
 }
 
@@ -536,7 +553,7 @@ mod tests {
 
     #[test]
     fn grade_with_modifiers() {
-        let base = Cinematic { saturation: 1.1, contrast: 1.2, contrast_avg_lum: 0.2, brightness: 1.0, tint: [1.0, 0.5, 0.0], tint_amount: 0.3 };
+        let base = Cinematic { saturation: 1.1, contrast: 1.2, contrast_avg_lum: 0.2, brightness: 1.0, tint: [1.0, 0.5, 0.0], tint_amount: 0.3, ..Default::default() };
         assert_eq!(graded(&base, &ScreenEffect::default()), base);
         let mut e = ScreenEffect { tint: [0.0, 0.5, 1.0, 0.6], ..Default::default() };
         e.cinematic.brightness = MultAdd { mult: 0.0, add: 0.25 };
@@ -544,6 +561,26 @@ mod tests {
         assert_eq!((g.brightness, g.saturation, g.contrast), (0.25, 1.1, 1.2));
         // One part of the base tint to two of the modifier's; the larger amount.
         assert!((g.tint[0] - 1.0 / 3.0).abs() < 1e-6 && (g.tint[2] - 2.0 / 3.0).abs() < 1e-6 && g.tint_amount == 0.6);
+    }
+
+    #[test]
+    fn hdr_tracks_play_and_combine() {
+        use crate::imagespace::{Hdr, HDR_BRIGHT_SCALE, HDR_TARGET_LUM};
+        // BarkScorpionPoisonISFX's shape: Target LUM and Bright Scale up at a quarter.
+        let mut m = ImageModifier { animatable: true, duration: 6.0, ..Default::default() };
+        m.hdr[HDR_TARGET_LUM].mult = Track(vec![(0.0, 1.0), (0.25, 2.0), (1.0, 1.0)]);
+        m.hdr[HDR_BRIGHT_SCALE].mult = Track(vec![(0.0, 1.0), (0.25, 3.0), (1.0, 1.0)]);
+        let e = m.at(1.5);
+        assert_eq!(e.cinematic.hdr[HDR_TARGET_LUM], MultAdd { mult: 2.0, add: 0.0 });
+        assert!(!e.is_identity());
+        assert!(m.at(6.0).is_identity());
+        // Two at once multiply; the grade's HDR values follow.
+        let c = combine(&[e, e]);
+        assert_eq!(c.cinematic.hdr[HDR_BRIGHT_SCALE].mult, 9.0);
+        let mut base = Cinematic { hdr: Hdr { v: [1.0; HDR_VALUES], blur_passes: 0.0 }, ..Default::default() };
+        base.hdr.v[HDR_TARGET_LUM] = 1.4;
+        let g = graded(&base, &c);
+        assert!((g.hdr.v[HDR_TARGET_LUM] - 5.6).abs() < 1e-5);
     }
 
     #[test]

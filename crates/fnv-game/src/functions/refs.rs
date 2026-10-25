@@ -151,6 +151,8 @@ pub(crate) fn finish_fade_moves(g: &mut Game) {
 /// MoveToMarkerWithFade).
 pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]) -> Result<(), String> {
     let (cell, mut pos, mut rot) = place(g, marker)?;
+    // Where the player was, for whoever follows them (`Game::bring_teammates`).
+    let from = (r == FormId::PLAYER_REF).then(|| g.world.peek(r).map(|p| (p.cell, p.pos))).flatten();
     for (p, o) in pos.iter_mut().zip(offset) {
         *p += o as f32;
     }
@@ -181,7 +183,7 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
     g.emit(EventKind::Moved { reference: r, cell, pos });
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
-        g.bring_teammates();
+        g.bring_teammates(from);
     }
     Ok(())
 }

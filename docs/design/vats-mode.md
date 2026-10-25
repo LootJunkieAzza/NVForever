@@ -6,9 +6,18 @@ run). Owner request (todo
 6): "VATS mode", NVForever's own take on VATS, modelled on Red Dead Redemption's Dead Eye.
 Combat is not a parity target (docs/design/combat.md §1: only the quest script hooks must
 behave as in the original), so this is deliberately **not** the original's VATS (no
-paused target menu, no hit chances, no kill camera). The original's VATS stays "not
+paused target menu, no hit chances, no kill camera; kill cameras came later, §19). The original's VATS stays "not
 started" in docs/status.md; the script functions that ask about VATS answer for this
 mode (§12).
+
+2026-10-24: **the VATS helpers and the AP perks** (§18): Mysterious Stranger and Miss
+Fortune come beside the player and shoot the mark, Friendly Help doubles their odds,
+Grim Reaper's Sprint gives AP back after a kill, Nerves of Steel speeds the AP back.
+
+2026-10-23: **hit chances** (§17, owner: "lets build hit chance into our vats … show a
+percentage hit chance against the X"): each mark shows its chance to hit beside its "x"
+and every shot is rolled on it; a miss goes wide. Built, unit-tested, not yet seen in a
+game run.
 
 2026-10-20: **beyond single-shot guns** (§16): automatic weapons fire a burst per mark,
 melee and unarmed weapons teleport beside each mark and swing, grenades and thrown weapons
@@ -33,7 +42,8 @@ quoted as "owner".
   with 6 rounds loaded takes at most 6 marks). Single-shot pistols and rifles first.
 - **Accept** (owner): E (Activate) fires every marked shot in real time (since 2026-10-18 at half speed, §4), auto-aimed at
   each mark in order, faster than the weapon's normal rate.
-- **Accuracy** (owner): 100 %; no shot misses.
+- **Accuracy** (owner): 100 %; no shot misses. Replaced 2026-10-23 by a hit chance per
+  mark (owner, §17).
 - **Sound** (owner): the base game's VATS sounds for entering, marking, accepting and
   leaving.
 - **Look** (owner's references): two Dead Eye clips in `C:\fnv-private\VATS` (private,
@@ -54,12 +64,13 @@ quoted as "owner".
 
 - **Off**: the game as usual.
 - **Marking**: the clock runs at [`MARK_SCALE`](#4-time-scale); the view still turns at
-  full speed (the mouse is read per event, not per game second); left click marks, right
-  click unmarks, E accepts. The weapon's own trigger, aiming down the sights and
-  activation are held (§11.5).
+  full speed (the mouse is read per event, not per game second); left click marks, a
+  right-click tap unmarks, E accepts. The weapon's own trigger and activation are held;
+  a held right click aims down the sights (§11.5, since 2026-10-23).
 - **Firing**: the clock runs at half speed (`FIRE_SCALE`, §4); the marked shots leave one after another
   (§9); all other input is held until the mode is off [design: the sequence is the
-  player's committed action, like the original's VATS playback].
+  player's committed action, like the original's VATS playback], except aiming down
+  the sights (§11.5, since 2026-10-23).
 - Leaving takes the grade off over [`LEAVE_FADE`](#5-the-look) (§5); the state is Off
   at once, only the look lingers.
 
@@ -233,10 +244,16 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 
 ## 8. Mark visuals and the HUD
 
-- **"x" marks**: each mark draws a dark-red (0.45, 0.05, 0.03) "x" of two crossed bars,
-  1.9 % of the screen width across, at its point projected on the screen (§6) [design,
-  after the references]. Marks behind the camera are not drawn. A mark that has fired
-  goes [design].
+- **"x" marks**: each mark draws an "x" of two crossed bars in the interface's amber
+  (`interface::AMBER`, the HUD's colour) lifted 25 % of the way to white so it stands out
+  on the amber grade, 1.9 % of the screen width across, at its point projected on the
+  screen (§6) [design, after the references; amber instead of their dark red at the
+  owner's wishes of 2026-10-24, to match the HUD and then to be brighter]. Marks behind
+  the camera are not drawn. A mark that has fired goes [design]. The "x" and its
+  chance are kept at the same size on the screen at any range, so a far mark stays
+  readable [design]. Marks on the same actor and part share a point, so they draw one
+  "x" and one chance, the newest mark's: with Concentrated Fire it climbs as marks are
+  added (§17.2) [design: the owner, 2026-10-24, no stacked marks].
 - **AP bar**: while marking, the HUD's AP bar shows the AP that is left after the
   reservations (`(AP − reserved) / max`), so it drains mark by mark [design]; firing
   spends it for real, so the bar stays where it was.
@@ -260,6 +277,8 @@ On E with at least one mark (`UIVATSReady`):
      fire now whatever its cooldown or wind-up (the fire-rate override), it takes its
      rounds from the magazine as any shot, plays the weapon's sounds, muzzle flash,
      casing and OnFire blocks, wears the weapon, and counts in the stats;
+   - the hit is rolled on the mark's chance (§17.4); a miss leaves through a point beside
+     the mark instead of the mark's own;
    - the shot leaves along the line from the eye to the point with **no spread, bloom or
      recoil** (owner: 100 % accuracy) and never jams [design];
    - the shot's AP is spent (§7.2).
@@ -345,9 +364,35 @@ not overlap.
 - `Control::Vats` (V) leaves `NOT_BUILT`; it enters, and in Marking leaves without
   firing [design: a second V is "never mind", as a right click with no marks].
 - In Marking and Firing the mode takes Use (left mouse: mark), Block (right mouse:
-  unmark) and Activate (E: accept) for itself: `PlayerControl::trigger` and
-  `PlayerControl::aiming` are cleared and activation is held (`activate.rs`) [design].
-  Movement, looking, sneaking and the camera (Toggle POV too) keep working, slowed with
+  unmark) and Activate (E: accept) for itself: `PlayerControl::trigger` is cleared and
+  activation is held (`activate.rs`) [design].
+- **Aiming down the sights** (owner 2026-10-23: "vats mode to also work whilst the
+  player is aiming down sight … so that snipers scopes are still usable in vats … let
+  the player aim or not whilst vats slow time is running"):
+  - Marking: Block is shared. A **tap** (let go within `UNMARK_TAP` = 0.25 real
+    seconds of the press) unmarks, or with no marks ends the mode; a **hold** aims down
+    the sights (or blocks, with a melee weapon), the zoom and a scope included. The aim
+    waits out the tap, so a tap does not twitch the zoom; the unmark comes on the
+    release, not the press [design]. Aiming held from before V goes on aiming; its
+    release is no tap.
+  - Firing, first person: the player's own aim stays as it is: a scoped rifle keeps
+    its scope up through the marked shots, or the player lets go and fires unaimed
+    [design]. Melee and thrown weapons do not aim while firing.
+  - Firing, third person: the body follows the NPCs' 20 m rule (owner 2026-10-23: "the
+    player will play his aiming animation if the target is far away greater than 20
+    metres but he hip fires if its close by"; docs/design/combat-ai.md §10.6): a gun
+    with sights (Sight FOV above 0) aims down them for a mark beyond 1,400 units of the
+    eye and fires from the hip nearer, held up to 1,350 once raised
+    (`nvf_play::combat::aims_down_sights`, shared with `npc_combat`). The mark looked at
+    is the one being fired until its burst is out, then the next. The aim clips, the
+    third-person zoom and the walk while aiming follow as for a held Block. Log:
+    `vats mode: third person, mark k N units away: aims down the sights (beyond 20 m)`
+    or `… fires from the hip (within 20 m)`.
+  - The zoom runs on real time (`aim_zoom.rs`), so the sights come up at their usual
+    pace on the slowed clock; the arms' own aim clips run on the game clock and are
+    slowed with the world [observed in code; with true iron sights on, the gun is put
+    on the eye by the zoom's share, so the sight picture arrives at the usual pace].
+- Movement, looking, sneaking and the camera (Toggle POV too) keep working, slowed with
   the world. Ready Item's reload and Ammo Swap are held while the mode is on [design: no
   reload or ammunition change mid-mode].
 - Controller: the same controls on their pad bindings (`Bindings::pad`), nothing extra.
@@ -393,8 +438,8 @@ while a shot leaves see it:
 | 4 | Target Distance | the distance from the player to the target, units |
 | 5 | Targeted Part (a body part's condition actor value) | 1 if the mark's part names that condition: the BPTD part's own Actor Value, as combat's limb hits read it (`fnv_game::combat::limb_condition`, 25–31) |
 | 6 | VATS Action | 1 for the code of the attack action (0) [hypothesis: Attack is the first] |
-| 7 | Is Success | 1 (owner: no shot misses) [design] |
-| 8–14 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design] |
+| 7 | Is Success | 1 if the shot's hit roll succeeded (§17.4); 0 while a mark's chance is worked out |
+| 8–14 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design]; while a kill camera is chosen 8 and 11–14 answer about the landed shot (§19.3) |
 | 15 | Weapon Type Is (an animation type) | 1 if the weapon's DNAM animation type is it |
 
 The parameter of codes 0, 1, 2 and 3 arrives as a raw FormID (`ptVATSValueParam` is
@@ -407,6 +452,9 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 
 ## 13. Test aids and smoke tests
 
+- `NVF_PLAY_TEST_VATS_HELPER=stranger|fortune|none` (§18.5).
+- `NVF_PLAY_TEST_VATS_ROLL=hit` (or `miss`) makes every hit roll come out so (§17.4), for
+  checks about something other than the chance; unset, the rolls are rolled.
 - `NVF_PLAY_TEST_KEYS` presses V, the left mouse button and E through the bindings
   (`v`, `mouse-left`, `mouse-right`, `e`), so the real key path is tested.
 - New `NVF_PLAY_TEST_CONTROL` press **`aimvats`**: turn the view (and the third-person
@@ -423,7 +471,8 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
   - `vats mode: firing <n> marked shots`
   - `vats mode: shot <k> of <n> at <name> <ref> (<part>), <cost> AP spent`
   - `vats mode: off (<n> shots fired, <ap> AP spent; <why>)`
-  - at exit: `vats mode summary: entered <e> times, <m> marks, <s> shots, <ap> AP spent, <r> refused`
+  - at exit: `vats mode summary: entered <e> times, <m> marks, <s> shots, <ap> AP spent, <r> refused, <h> hit, <x> missed`
+  - the hit chance's lines: §17.6
 - Scenarios in `tools/smoke/scenarios.toml`: `vats-mode-two-marks` (the Goodsprings dogs,
   a .357: enter, mark both, accept, two shots, 52 AP), `vats-mode-unmark` (mark, unmark,
   right click again: off with nothing fired or spent) and `vats-mode-ammo-limit` (one
@@ -433,9 +482,9 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 
 - Bursts, melee and thrown weapons: built 2026-10-20 (§16). Left: power attacks and
   chained swings in VATS mode, a short last burst, mines.
-- Perk entry points on the AP cost and the "Action Point Cost" effect; the original's
-  hit chances and the perks that change them (owner: 100 % for now).
-- A kill camera, the original's VATS menu, GetVATSTargetHeight, SetVatsTarget.
+- The "Action Point Cost" effect. Hit chances: built 2026-10-23 (§17).
+- The original's VATS menu, GetVATSTargetHeight, SetVatsTarget. (Kill cameras: built
+  2026-10-24, §19.)
 - Tuning by eye: `MARK_SCALE`, the swipe and grade colours, `SHOT_INTERVAL`, the mark's
   size, all [design] and owner-checkable in one run.
 
@@ -571,3 +620,346 @@ at each mark; replaced before it was built into a run.)
   44 AP), `vats-mode-melee` (a machete, one mark on a dog: teleport, swing, 20 AP),
   `vats-mode-thrown` (frag grenades, one mark: one throw, 24 AP). Written 2026-10-20 by a
   worker session that does not run the game: not yet run.
+
+## 17. Hit chance (2026-10-23)
+
+Owner 2026-10-23: "lets build hit chance into our vats we'll need to extend the UI when
+marking targets to show a percentage hit chance against the X too". Each mark has a
+chance to hit, drawn beside its "x" and rolled for every shot. The original's formula is
+not documented (the GECK wiki names its settings, not how they combine), so the
+formula is ours [design], built from what is documented and observed.
+
+### 17.1 What is documented and observed
+
+- Each BPTD part has a "To Hit Chance", "the base percentage chance to hit this body part
+  target in VATS" [documented: GECK wiki Body Part, BodyPartData]. FalloutNV.esm
+  [observed: `fnvtool combat form`]: DefaultBodyPartData (people) Head 30, Torso 60, arms
+  45, legs 50; DogBodyPartData Torso 75, Head 30, legs 40.
+- A WEAP's DNAM "Base VATS To-Hit Chance": the chance to hit the weapon in another actor's
+  hands, "factored before distance, gun skill and screen percentage" [documented: GECK
+  wiki Weapons]. So the original's chance reads the part, the distance, the skill and how
+  big the target is on the screen.
+- The settings [documented: GECK wiki VATS Settings, the defaults; observed:
+  FalloutNV.esm sets `fVATSDistanceFactor` 2 (the wiki says it does not exist in New
+  Vegas; the game data has it, so it is read) and `fVATSSpreadMult` 1.1, and none of the
+  others, so their wiki defaults are used]: `fVATSMaxChance` 95 ("the maximum chance to
+  hit a target in VATS"), `fVATSHitChanceMult` 1, `fVATSSkillFactor` 1,
+  `fVATSDistanceFactor` ("how rapidly the chance to hit decreases as the range of the
+  target increases … non linear"), `fVATSSpreadMult` ("gun spread … multiplied by this
+  value while in VATS"), `iVATSConcentratedFireBonus` 5 ("+ [bonus/100] × [current shot −
+  1]": 63 % on a limb becomes 68 on the second shot, 73 on the third).
+- The perks: entry point 8 Calculate To Hit Chance (Commando × 1.25 with rifles,
+  Gunslinger × 1.25 with pistols, Sniper × 1.25 on the head, Hobbler × 1.25 on the legs,
+  Wired Reflexes × 1.1, Fast Shot × 0.8 and Trigger Discipline × 1.2 with guns and energy
+  weapons, Sneering Imperialist × 1.25 against some factions, Camarader-E, Lonesome Road)
+  and 33 Has Concentrated Fire (Concentrated Fire, Set 1) [observed: the PERK records;
+  documented: GECK wiki GetNthPerkEntryFunction, the codes; docs/handoff/
+  perk-audit-2026-10-23.md §3.9].
+
+### 17.2 The chance [design]
+
+```
+chance = clamp( perks( base × skill × range × fVATSHitChanceMult )
+                + concentrated, 0, fVATSMaxChance )
+skill  = 0.5 + 1.5 × weapon skill / 100 × fVATSSkillFactor      (0.5 … 2.0)
+range  = 1 / (1 + (open / 32)^fVATSDistanceFactor)              (1 for a melee mark)
+open   = distance × tan(cone × fVATSSpreadMult)
+```
+
+- **base**: the marked part's BPTD To Hit Chance; an actor marked whole (no parts)
+  `WHOLE_TO_HIT` 75; an NPC's held weapon `HELD_WEAPON_TO_HIT` 30 (its WEAP's own value is
+  read into `WeaponStats::base_vats_to_hit` but the NPC's weapon is not looked up yet).
+- **skill**: the player's actor value for the weapon's WEAP skill (Guns, Energy Weapons,
+  Melee Weapons, Unarmed, Explosives), read on entering. Skill 0 halves the base, 50
+  gives 1.25 ×, 100 doubles it, so a torso (60) at skill 100 close by reaches the cap
+  and a head (30) about 60 %.
+- **range**: how wide the shot's spread has opened by the time it reaches the mark,
+  against `FOCUS` 32 units (about a torso's width): half the chance where the spread is
+  that wide. The cone is the gun's own (`Combat::vats_cone`): the Gun Spread Formula
+  with the sights up, the stance (moving, sneaking, crippled arms), the skill's wobble,
+  the weapon's Min Spread and the ammo's spread effects, after the Calculate Gun Spread
+  perks, no bloom. So a rifle keeps its chance far longer than a pistol or a shotgun,
+  sneaking helps, and the spread perks help. A melee mark has no range: the player is put
+  beside it (§16.2). A grenade's own cone is used for throws.
+- The distance is the eye's to the mark's point now: the chance is worked out again
+  every frame while marking and firing, so it changes as the actor and the player move.
+- **perks**: the player's Calculate To Hit Chance entries with the tabs Weapon and
+  Target (the conditions of each tab as for the other entry points,
+  perk-entry-points.md §3), read when the mark is made, with GetVATSValue answering for
+  that mark (so Sniper's head and Hobbler's legs see the marked part) and GetVATSMode for
+  the mode as it is (`fnv_game::Game::vats_hit_perks`). Not read again while the mark
+  stays [design: the conditions are about the weapon, the target and the part, which do
+  not change].
+- **concentrated**: with Concentrated Fire, `iVATSConcentratedFireBonus` for each mark
+  made before it on the same actor and part [documented].
+- Examples [from the formula, a cone of 1° and `fVATSSpreadMult` 1.1]: at skill 50 a
+  human torso (60) is 69 % at 500 units (7 m), 55 % at 1,000, 29 % at 2,100 (30 m); its
+  head (30) 34 %, 28 %, 14 %; at skill 100 the torso 95 %, 88 %, 46 %.
+
+### 17.3 Where it is worked out
+
+- `fnv_combat::vats`: `HitTuning` (the settings, `Rules::vats_hit`), `raw_chance`,
+  `final_chance`, `rolled_hit`, `miss_point`, `throw_miss_point`; unit-tested.
+- `fnv_game::vats`: `HAS_CONCENTRATED_FIRE`, `HitPerks`, `Game::vats_hit_perks`;
+  `tests/perk_combat.rs` `vats_to_hit_perks_see_the_mark`.
+- `nvf-play` `vats_mode.rs`: each mark's base, perks and earlier marks when it is made,
+  its chance every frame (`chance_of`, `rechance`), the rolls, the labels.
+
+### 17.4 Rolling and missing [design]
+
+- Every round is rolled on its mark's chance at the moment it leaves: a single shot once,
+  each round of a burst on its own, each throw, each swing. The rolls come from their
+  own seeded generator, so a run with the same inputs repeats.
+- **A gun's miss** leaves from the eye through a point beside the mark, across the line
+  of fire, 45–80 units from it (`MISS_MIN`, `MISS_SPAN`), to a side or above, never more
+  than 30° below the side (where the legs are, which would turn a miss into a hit). The
+  shot then flies as any other and hits what it meets: another actor behind, a wall.
+- **A throw's miss** is thrown on the low arc onto a point 120–240 units from the mark
+  across the ground (`THROW_MISS_*`); its explosion may still reach the mark.
+- **A swing's miss** strikes no one: the blow is not dealt, the swing plays.
+- The AP is spent either way. GetVATSValue Is Success answers the roll while the shot
+  leaves.
+
+### 17.5 On the screen
+
+- Beside each mark's "x" (to its right, centred on it) its chance in whole percent,
+  "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), in the
+  marks' brightened amber (§8) [design: the owner's wishes of 2026-10-24; it was a
+  creamy white]. It follows the mark and changes as the
+  chance does; it goes with the "x" once the mark is fired.
+- Nothing shows the chance of what is under the crosshair before it is marked [design:
+  the owner asked for the marks; a later step if wanted].
+
+### 17.6 Log lines
+
+- `vats mode: marked <name> <ref> (<part>), mark <k>; <r> AP reserved, <left> AP left;
+  <c>% to hit (base <b>[, perks <names>][, concentrated fire +<n>]); <d> units, skill <s>,
+  cone <deg> deg|none` (the distance, skill and cone the chance was worked from)
+- `vats mode: shot <k> of <n> at … , <cost> AP spent; <c>% to hit: hit|missed (rolled
+  <r>)` (`burst …; round 1 …`, `throw …`, `swing …` alike; later rounds of a burst at
+  debug)
+- `combat: vats mode blow on <ref>: missed (the hit roll)` for a swing's miss
+- `vats mode: rolls: <h> hit, <x> missed` after `off (…)`
+- the summary's `<h> hit, <x> missed`
+
+### 17.7 Checks
+
+- Unit: `fnv-combat` `vats` (`the_hit_chance_grows_with_skill_and_falls_with_range`,
+  `perks_concentrated_fire_and_the_cap`, `a_miss_passes_wide_and_never_below`),
+  `nvf-play` `vats_mode` (`a_marks_chance_follows_skill_range_and_perks`,
+  `a_chance_reads_as_whole_percent`), `fnv-game` `perk_combat`.
+- Smoke: `vats-mode-hit-chance` (two marks on the Goodsprings dogs show their chances and
+  are rolled), `vats-mode-miss` (every roll forced to miss: the shot goes wide and the
+  dog is not hit by it).
+
+## 18. VATS helpers and the AP perks (2026-10-24)
+
+Owner 2026-10-24: "Build the VATS perk batch next: Mysterious Stranger, Miss Fortune,
+Friendly Help, Grim Reaper's Sprint and Nerves of Steel" (docs/handoff/
+perk-audit-2026-10-23.md §3.1). The original runs these in its own VATS; VATS mode is
+ours (§1), so where they fit in it is [design]. What they do comes from the records.
+
+### 18.1 What the records and the wiki say
+
+- The perks' entries [observed: FalloutNV.esm PERK]: Mysterious Stranger (level 10, Luck
+  6) entry point 28 Mysterious Stranger Set 1; Miss Fortune (level 10, Luck 6) 41 Miss
+  Fortune Set 1; Friendly Help (the challenge reward) 67 VATS HelperChance Multiply 2;
+  Grim Reaper's Sprint (level 20) 35 Player Kill AP Reward Add 20; Nerves of Steel (level
+  26, Agility 7) 39 Action Point Regen Multiply 1.2. What each entry point does
+  [documented: GECK wiki Entry Point]: 28 and 41 "if non-zero, the VATS helper … may
+  appear"; 67 "modifies the chance of a VATS helper"; 35 "run when VATS finishes if the
+  player killed at least one enemy; modifies the AP reward from 0".
+- The settings [observed: FalloutNV.esm GMST; documented: GECK wiki VATS Settings]:
+  `fVATSStrangerOdds` 0.1, `fVATSFortuneOdds` 0.1, `iVATSStrangerMaxHP` 150 ("the maximum
+  health of an NPC that the stranger … will act upon"; the wiki's condition: "attacking
+  in VATS, enemy not dead, but less than 150 hitpoints"), `fVATSStrangerDistance` 164.
+- The helpers [observed: FalloutNV.esm]: the NPC_ `Stranger` ("Mysterious Stranger",
+  essential, MysteriousStrangerFaction) carries `MysteriousStranger44Magnum`, a .44 of
+  9,000 damage; `MissFortune` (the same faction) carries `WeapNVMissFortuneGun`, 10
+  damage, whose object effect `VMissFortuneGunObjectEffect` casts `MissFortuneGunSpell`,
+  whose script (NVMissFortuneGunSpellScript) rolls GetRandomPercent and knocks the target
+  down (MissFortuneKnockdownSpell: PushActorAway), sets off an explosion where it carries
+  grenades or a flamer, ruins its weapon arm and weapon, or paralyses it. The music
+  `MUSMysteriousStrangerA01`, `A02`. The challenge "He Moves in Mysterious Ways"
+  (NVChallengeMysterious) counts misc statistic 25, Mysterious Stranger Visits, to 15; its
+  script adds Friendly Help.
+- Not used here: the camera path `MysteriousStrangerCameras` and its 13 shots (the
+  original's kill camera; VATS mode has none, §14).
+
+### 18.2 The helpers in VATS mode [design]
+
+- **When**: as each mark's attack starts (its AP spent: a shot's first round, a burst's,
+  a throw, a swing), if no helper is in the world already. One roll a mark
+  (`fnv_game::vats::pick_helper`): the Stranger on the first `odds.stranger` of the line,
+  Miss Fortune on the next `odds.fortune`, none after.
+- **Odds** (`Game::vats_helper_odds`): with Mysterious Stranger `fVATSStrangerOdds` when
+  the mark's actor lives with at most `iVATSStrangerMaxHP` health; with Miss Fortune
+  `fVATSFortuneOdds` when it lives [hypothesis: no limit is given for her]; each times the
+  VATS HelperChance entries (Friendly Help: × 2). The player's own roll (§17.4) is not
+  looked at: the helper may come for a mark the player hits, as the wiki's condition is
+  about the target, not the shot.
+- **Where**: `fVATSStrangerDistance` (164) units from the player's feet across the line to
+  the mark, on its right, else its left, else behind the player: the first spot from whose
+  eye (110 units up) nothing but the mark's actor stands in the way (`helper_spot`). All
+  blocked: no helper. The helper is a new reference of their NPC_ in the player's cell,
+  turned to the mark (`Game::summon_vats_helper`, made as PlaceAtMe makes them). The
+  Stranger's music plays as he comes (A01 or A02).
+- **The shot**: `HELPER_DRAW` (0.3 game s) after appearing, one shot of their weapon from
+  their eye straight at the mark's point (an `ActorFire`, no spread), through combat's own
+  path: its sounds, projectile, hit, damage and the weapon's object effect, all the
+  records'. The Stranger's 9,000 kills; Miss Fortune's 10 and her object effect do what
+  its script rolls. They are the shooter, so the kill is not the player's (no XP, no
+  Grim Reaper's Sprint) [design].
+- **Leaving**: `HELPER_STAY` (1.2 game s) after appearing they fade out (Disable 1) and
+  are deleted (MarkForDelete) (`Game::dismiss_vats_helper`), whether the mode is still on
+  or not.
+- **Counting**: each Stranger visit adds 1 to Mysterious Stranger Visits, so 15 visits
+  complete "He Moves in Mysterious Ways" and give Friendly Help through its script. Miss
+  Fortune's visits are not counted [observed: the statistic and the challenge name only
+  the Stranger; the fandom wiki's Friendly Help says "15 Mysterious Stranger or Miss
+  Fortune visits", which the records do not bear out].
+- Not built: the helpers' own attack clips (the body stands while the shot leaves), the
+  original's kill camera, a helper's line.
+
+### 18.3 Grim Reaper's Sprint [design where the wiki is silent]
+
+When the mode ends after firing, if the player's kills (People Killed + Creatures
+Killed) rose since E, the Player Kill AP Reward entries give that much AP back (from 0;
+Grim Reaper's Sprint + 20), no more than was spent. Kills by a helper are theirs, not the
+player's. Log `vats mode: <n> killed: the Player Kill AP Reward perks give <r> AP back
+(<b> restored)`.
+
+### 18.4 Nerves of Steel
+
+The AP's regeneration outside the mode (§7.2) is `fActionPointsRestoreRate` × the maximum
+× the Action Point Regen entries (Nerves of Steel × 1.2; Atomic! × 1.1 … 1.5 by its rads;
+Ain't Like That Now × 1.25, their own conditions deciding). Log `vats mode: AP
+regenerates at <m> x (the Action Point Regen perks)` when the factor changes.
+
+### 18.5 Test aids, logs and checks
+
+- `NVF_PLAY_TEST_VATS_HELPER=stranger|fortune|none`: that helper comes for every mark
+  whose odds for them are above 0 (the player still needs the perk), or none.
+- Logs: `vats mode: <helper> comes for mark <k> (<ref>), <d> units from the player (<o>%
+  odds, rolled <r>)`, `vats mode: <helper> appears (<ref>)`, `… fires at <ref> from <d>
+  units`, `… leaves`; the summary's `<h> helpers, <a> AP rewarded`.
+- Unit: `fnv-game` `vats` `one_helper_a_roll_the_stranger_first`, `perk_combat`
+  `vats_helpers_and_ap_perks`. Smoke: `vats-mysterious-stranger`, `vats-miss-fortune`,
+  `vats-grim-reaper-nerves`.
+
+## 19. Kill cameras (2026-10-24)
+
+ESM audit gap 10 (docs/handoff/esm-full-audit-2026-10-24.md): the masters' camera shots
+(CAMS, 276) and camera paths (CPTH, 418) were never loaded. They are now, and VATS mode
+plays them as kill cameras. Built and unit-tested; the path choice is also checked
+against FalloutNV.esm's own tree (`fnv-game` test `camera_paths`, with game data).
+
+### 19.1 What the records say
+
+- **CAMS** [documented: xEdit wbDefinitionsFNV.pas CAMS; GECK wiki CameraShot]: a model
+  (`meshes\vatscameras\…`), the action that starts the shot (Shoot when the command
+  starts, Fly when the projectile starts to fly, Hit when the target takes the hit),
+  where the camera is held and what it looks at (attacker, projectile or target), flags
+  (Position Follows Location, Rotation Follows Target, Don't Follow Bone, First Person
+  Camera, which ignores the model and uses the first-person view, No Tracer, Start At
+  Time Zero), time multipliers (Global slows everything but the camera shot itself; the
+  player's and the target's are relative to it), Max and Min Time (how long before the
+  next camera), Target % Between Actors, and an image space modifier.
+- **CPTH** [documented: xEdit]: conditions, the parent path and the previous sibling,
+  the camera zoom and the shots. The paths form a tree [observed: FalloutNV.esm]:
+  `PlayerDeath`, `MrHouseKC`, `MysteriousStrangerCameras`, `MustDoCam`, `DEMOCams`,
+  `MeleeWeaponAttackKC`, `MeleeWeaponAttack`, weapon roots (`SpecMiniGun`,
+  `MissileLauncherCams`, `FatManCams`, `FlamerAttacks`, `ThrownCams`, `GrenadeCams`),
+  `CloseCameras`, `DefaultMissCams`, `DefaultHitsKC`, `DefaultHits`. Under them the
+  conditions are GetVATSValue (Is Success, Is Fatal, Target Distance, Weapon Type Is,
+  Explode/Dismember Part, VATS Action 15 or 18), GetRandomPercent (to vary the shot),
+  GetDistance with no reference, and eight functions only xEdit names: 518–521
+  GetVATS{Right,Left,Back,Front}AreaFree and 525–528 GetVATS{…}TargetVisible, compared
+  with 40 to 320 [documented: xEdit wbCTDAFunctions, the names and a reference parameter;
+  observed: the comparisons].
+- **The models** [observed: `simplefronthitl03.nif`, `snipercamhit01.nif`]: a root node
+  moved by its own transform controller for about 17 s (Euler keys of a few degrees, a
+  hand-held sway; a few translation keys) over an `NiCamera` 75° across.
+
+### 19.2 When a kill camera plays [design]
+
+VATS mode fires its marks in one run (§9), so a kill camera follows only the run's last
+mark: from the frame every mark's attack has started until 2 game seconds after the mode
+is off (a slow projectile), the last mark's actor is watched, and if it dies the kill
+camera starts. Earlier kills in the run do not cut it short. With the masters' data a
+kill camera plays on every such kill: the original's chance of one is not in our notes
+(the tree's GetRandomPercent conditions only choose between shots).
+
+### 19.3 Choosing the path [hypothesis]
+
+`fnv_game::camera_paths`, `Game::pick_camera_path`: the tree is walked from the roots in
+order (siblings by their previous-sibling links); the first path whose conditions pass is
+entered; its first child chosen so wins, else the path itself when it has shots; a
+passing path that gives nothing is passed over for its next sibling. The conditions run
+on the player with the target as target, while:
+
+- GetVATSValue answers about the last shot, with what is known once it landed: Is
+  Success 1, Is Fatal 1, Is Critical from the killing hit, Explode Part and Dismember
+  Part when a part of the target is gone (`Game::kill_outcome`), Cripple Part 0 [design];
+  VATS Action stays 1 only for action 0 (§12), so the `…KC` paths (action 18) and
+  `PlayerDeath` (15) are not taken [hypothesis: 18 is the original's kill camera outside
+  VATS, `fKillCameraCooldown`; 15 the player's death].
+- A GetDistance naming no reference measures to the target [hypothesis].
+- The area functions read the room measured by rays at the moment of the kill
+  (`nvf_play::kill_cam::measure_room`): AreaFree, how far the way is free from the
+  attacker's middle to its right, left, back and front of the level line from the
+  attacker to the target; TargetVisible, the same from the target's middle (up to 1024
+  units) [hypothesis: from the names; the paths pick a side camera only where these
+  pass, observed].
+
+From the chosen path the shots started by the hit play in order; a path with none plays
+its last shot (`camera_paths::hit_shots`) [design: the choice is made once the shot has
+landed, so its Shoot and Fly shots have passed].
+
+### 19.4 Playing a shot
+
+`nvf_play::kill_cam`:
+
+- It plays for its Max Time in real seconds (0.5 to 10) [hypothesis: with nothing to cut
+  to sooner, the most the page allows]; the world's clock runs at its Global time
+  multiplier (0.25 for most hit shots [observed]) in place of VATS mode's own scale, with
+  the sounds slowed as for VATS mode (§4); the player's and the target's multipliers are
+  not applied [design: one clock for the world]; its image space modifier plays.
+- The camera [hypothesis: the models carry no frame; this one puts their cameras where
+  the shot names say, a front shot's at (−59, −226, 18) between the target and the
+  attacker, observed]: the model's animated root in a frame centred on the actor the shot
+  is held by (its Location; a projectile counts as the attacker) at its middle, +Y level
+  from the attacker to the target, +Z up; the frame follows the actor with Position
+  Follows Location, else it stays where the shot began. It looks at its Target actor's
+  middle moved Target % Between Actors of the way to the other actor (followed with
+  Rotation Follows Target, else as at the start), plus the model's own turn since its
+  first key as a sway. Don't Follow Bone is not told apart: the middle is used for every
+  shot [design]. It keeps in front of walls between the look point and it.
+- A First Person Camera shot leaves the view where it is (the slow motion and the
+  modifier still play).
+- While a model's camera has the view, it counts as third person
+  (`PlayerControl::cinematic`): the body is drawn, the first-person arms are not.
+- The player's death or any menu ends it.
+- Not built: the HUD stays up; the player's input is not held (VATS mode's firing holds
+  it, the kill camera after it does not); the No Tracer flag; the shots' fields of view
+  (the player's stays); the death cameras (§19.5).
+
+### 19.5 Death cameras
+
+The `PlayerDeath` paths (`PlayerDeathDefault`, `…Back`, `…Above`; VATS Action 15) are
+loaded but not played: the death camera is the owner's own design (`death_cam.rs`, owner
+2026-10-16), so the masters' one waits for the owner's word (docs/owner-review.md).
+
+### 19.6 Log lines and checks
+
+- `kill camera: <name> <ref> killed by the last mark: path <EDID> (<FormID>), shots
+  <EDID>, …; room right/left/back/front …, target seen …`, or `… no camera path chosen`
+- `kill camera: shot <k> of <n> <EDID>: <model>, held by the <Location>, looking at the
+  <Target>, <s> s at world speed <x>[, image space modifier <EDID>]`
+- `kill camera: done (<s> s[; <why cut short>])`; at exit `kill camera summary: <n> shown`
+- Unit: `fnv-game` `camera_paths` (tree order, shot data, hit shots) and the
+  `camera_paths` test file (the choice on a synthetic tree; the masters' tree with
+  `FNVLAB_DATA_DIR`), `nvf-assets` `camera_shot`, `nvf-play` `kill_cam` (frame, look
+  point, length).
+- Smoke: `vats-kill-cam` (one mark on a Goodsprings dog left with 1 health: the shot
+  kills it, a path and its shots play, the camera ends).

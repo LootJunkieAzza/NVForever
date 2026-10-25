@@ -496,6 +496,28 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     0.28·exp(−(e/60°)²), turning to sky-lower by 10° below the horizon [hypothesis,
     fitted]. At night the same reading keeps 30-45° nearly black, as in the game at
     20:36 (0-6 per channel).
+  - **Night sky** (2026-10-23). That night check was made while the grade read the night
+    adapter's track 0x12 as contrast (1.32 around 0.2, which crushed dark values); read
+    as the average luminance (below, "IMAD cinematic track order") the night grade is
+    1.1 around 0.24 and the floor term lit the whole night sky: (10, 10, 17) near the
+    zenith against the original's (0, 0, 3) at 23:00 [observed: own captures
+    `C:\fnv-private\references\stars\game`, renders of the same cameras]. Neither
+    grade reading fits dusk and night together (the old one makes the 19:06 sky too
+    light). Solving the original's frames for the horizon weight under the current grade,
+    per elevation (sky-upper weight free): at 19:06 (sun +11°, sunset colours) 0.25-0.28
+    from 15° to 50° and 0.2 at 60-67°, the floor as fitted; at 23:00 (sun −54°) under
+    0.08 from 25° up, and 0.7, 0.5, 0.3 and 0.1 at 12°, 15°, 18° and 21°, the near term
+    alone. The vertex weights do not change with the hour, and the sunset fog or ambient
+    colour in place of the horizon does not fit the dusk floor. Fitting the floor's share
+    alone: 1.1 at 19:06, 0.6 at 20:30 (sun −9°, looking west), 0 at 23:00 (three
+    cameras). The renderer scales the floor by a twilight factor, smoothstep from the sun
+    at −18° (0, the end of astronomical twilight) to 0° (1) [hypothesis, fitted]. Mean
+    sky-row error against the original (0-255 per channel): Mojave 23:00 views 15-16 → 3-5
+    (the view 60° up: see "Eye adaptation"); 19:06, 20:30 and noon unchanged within 1;
+    the 22:00 ambient frames' sky 10 % / 50 % / 90 % levels (3, 21, 43) original,
+    (20, 32, 52) before, (8, 17, 33) after. Left open: at 20:00 the original's sky looking
+    west is still a dusk sky (37-57 per channel at 20-40°) where ours is already night;
+    the colour keys put full night at sunset end (20:00 here).
   - The sky went through the renderer's tonemapper and then the grade. The game's sky
     colours behave like display values that the grade changes directly (the dusk fit
     above needs no other factor). The tonemapper (Bevy's Tony McMapface) maps linear
@@ -567,6 +589,18 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
   fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
   Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Cloud scroll** (2026-10-24): ONAM is one byte of speed per cloud layer [documented:
+  xEdit wbWeatherCloudSpeed; GECK wiki GetWeatherTraitNumeric, traits 0-3 "Layer N Cloud
+  Speed"]; neither source gives a unit. Each layer's texture scrolls along u by
+  speed × 1/25,600 texture repeats per real second (`fnv_world::sky::CLOUD_SCROLL_PER_UNIT`,
+  `Weather::cloud_scroll`) [hypothesis: linear, 0 still; the scale is the first sky pass's
+  placeholder, so NVWastelandClear's top layer (65) drifts one texture width in about 6.6
+  minutes; to be measured from two game screenshots of the same view some seconds apart].
+  During a weather fade the outgoing weather's layers keep their own speeds and the
+  incoming weather's theirs, each faded by the transition (the two cloud sets of
+  `nvforever::sky::update_clouds`). The renderer logs `clouds: <weather> layer speeds
+  [..] (ONAM), scrolling .. texture repeats/s` when a weather first shows (smoke
+  `cloud-scroll-onam`).
 - **Fog colour by day** [observed 2026-10-21, the eight exterior reference frames against
   renders of the same cameras, mean colour per 30-pixel row]: distant land fades into a
   warm haze in the game and into a light blue-grey in the renderer. At
@@ -589,7 +623,8 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   horizon colour (also too blue-white in the renderer: (235, 236, 210) against (224, 216,
   181) a few degrees up) made the mean colour worse at both shares tried (0.5, 1.0) and
   was dropped. The FNAM fog powers (day 0.6, night 0.5 [documented: xEdit names]) are
-  still unused; the fog's share already fits these frames.
+  were unused then; they are used since 2026-10-23 ("Fog power" below), which kept these
+  frames as they were or better.
 - **What holds the exterior frames under the threshold** [observed 2026-10-21]: with the
   game's own pixels pasted over the renderer's top quarter (the sky, mostly clouds), the
   eight exterior frames would score SSIM 0.63-0.85, all passing (goodsprings_noon 0.477
@@ -640,10 +675,32 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
   understood]. NVWastelandClearNight has no clouds (`sky\alpha.dds` on layers 1-3) and a
   darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
-- **Star texture alpha** [observed]: `SkyStars.dds` (512², DXT5) has colour in 6,225
-  texels but non-zero alpha in only ~430, and its shader property sets the
-  alpha-texture flag. The owner's in-game night shots show sparse, faint stars, so the
-  renderer weights star colour by texture alpha (additive) [hypothesis].
+- **Star domes** (2026-10-23). The data [observed, `fnvtool nif decode`, BSA extracts]:
+  both domes are the same 16-unit sphere (434 vertices, UVs −1..3 × −2..2), NiAlphaProperty
+  0x1001 (blend ONE/ONE, so the blend itself ignores alpha), SkyShaderProperty sky object
+  type 5. Mojave `Sky\Stars.nif`: `SkyStars.dds` 512² DXT5, colour in 21,309 texels
+  (6,225 above 15), alpha in only 436, every one of them with colour 192-255; shader
+  flags 0x80000100 (Alpha_Texture); emissive × 1. Big MT `NVDLC02\sky\stars.nif`:
+  `Skystars.dds` 1024² DXT1, alpha 255 in every texel, colour in 112,126 texels (4,028
+  at 224+); flags 0x80000000; emissive × 10. Both weathers' night "stars" colour is about
+  white (Big MT 245, 251, 254). On a 1280 × 720 frame at FOV 75 (~14.6 pixels a degree)
+  the Mojave dome has ~12 texels a degree, the Big MT's ~24 (so mip filtering halves its
+  single-texel stars).
+  The original [observed: own captures, clear Mojave night 23:00 at −70500, 1200,
+  `C:\fnv-private\references\stars\game`; Big MT 22:00, `references\owb\game`]: the
+  Mojave sky shows ~19 stars per 10⁴ pixels (peaks p50 39, p90 69, max 143 grey); the
+  Big MT ~76-91 (p50 39-54, p90 75-126, max 110). Rule [hypothesis]: a dome adds its
+  texture colour × the weather's stars colour × `STAR_STRENGTH` (0.25), weighted by
+  texture alpha only where the shader flags set Alpha_Texture; the emissive multiplier is
+  not used (× 10 would saturate every coloured texel). With alpha weighting the Mojave
+  star count matches the original at any strength; 0.25 fits the Mojave's peaks
+  (40, 76, 130). It leaves the Big MT's stars about 1.7 × the original's (p90 126 vs 75),
+  the same factor as our Big MT night background (24, 24, 50 vs 15, 13, 27), so the rest
+  is the grade (owb-comparison F6), not the stars. Which part of the original's pipeline
+  the 0.25 stands for is not known. Our night sky background was also lighter than the
+  original's in the Mojave (10, 10, 17 vs 0, 0, 3) and did not change with the star
+  strength [observed]: the horizon colour's floor, now faded out with twilight ("Sky
+  colours", "Night sky").
 - **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
   `INAM` names the worldspace's image space (IMGS); WTHR `\x00IAD`..`\x05IAD` name one
   image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
@@ -674,6 +731,72 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   luminance × tint colour, brightness factor, contrast around the average luminance
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
   NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
+- **HDR and bloom** (IMGS DNAM, 2026-10-23). The 14 HDR floats and the bloom block
+  [documented: xEdit wbDefinitionsFNV.pas IMGS: eye adapt speed, blur radius, blur
+  passes, emissive mult, target lum, upper lum clamp, bright scale, bright clamp, lum
+  ramp no tex, min, max, sunlight, grass and tree dimmer; skin dimmer from form version
+  10; bloom: blur radius, alpha mult interior, alpha mult exterior] are read by
+  `fnv_world::imagespace` (`Hdr`, indexed in the IMAD track order `\x00IAD`..`\x10IAD`;
+  adapters scale them as the cinematic values). NVDefaultExterior (the Mojave and the
+  Strip) [observed]: eye adapt speed 0.9, blur radius 7, passes 3, emissive mult 1.5,
+  target lum 1.4, upper lum clamp 1.0, bright scale 2.0, bright clamp 0.6, sunlight
+  dimmer 1.1; skin dimmer 0.55; bloom radius 0.03, interior 0.8, exterior 0.2. Hoover
+  Dam's lower level (0x0011C0C1): blur radius 6, passes 4, emissive mult 1.0, bright
+  scale 2.4, bright clamp 0.9; bloom 3.0, 0.8, 0.2. The bloom block equals the owner's
+  `[BlurShader]` INI values (fBlurRadius 0.03, fAlphaAddExterior 0.2, interior 0.7) and
+  belongs to the non-HDR mode; the owner plays with `bDoHighDynamicRange=1`, where the
+  HDR block applies [hypothesis from the names]. What the original computes from them
+  is not documented. The renderer's light glow (docs/design/graphics-enhanced.md §3.11)
+  uses Bevy's bloom on an HDR view, its strength scaled by Bright Scale / 2
+  [engineering choice]; eye adaptation: next item.
+- **Eye adaptation** (2026-10-23). The HDR tab's Eye Adapt Speed "controls how quickly
+  the adapted scene lum chases the actual lum", and Target LUM exists ("changing this
+  just seems to break everything") [documented: GECK wiki ImageSpace, HDR tab]; what the
+  adapted lum does to the picture is not documented. Measured on 31 original frames
+  against renders of the same cameras without adaptation [observed: mean log2 luminance
+  of the 10-90 % pixels, display values linearised]: the lab's eight Mojave exterior
+  frames (−3.2 to −1.8 EV) agree within 0.9 EV (most within 0.3); the saloon (Target LUM
+  0.75) agrees, Doc Mitchell's house (1.0) is 0.5-0.9 EV darker in the renderer; the
+  effects audit's night spots above −7 EV agree within ±0.8; darker pictures are lifted
+  in the original: Jacobstown lodge −9.6 → −7.9, Hoover Dam's lower level −10.5 → −9.2,
+  Dead Money's Villa −9.1 → −6.5, −10.3 → −7.8 and −11.7 → −7.8, Puesta del Sol (whose
+  adapter triples Target LUM) −10.0 → −6.6. As built [hypothesis, fitted to those
+  numbers]: the renderer meters its HDR view (Bevy's auto exposure, 10-90 % of a log
+  histogram) and brightens only, by 0.85 EV per EV the average lies under a reference,
+  at most 5 EV; the reference is −6.8 EV at Target LUM 1.4 (NVDefaultExterior) and moves
+  by log2(Target LUM / 1.4) with the image space and its adapters (Puesta del Sol −5.2,
+  the saloon −7.7). Adaptation runs at 3 EV a second either way [engineering choice; Eye
+  Adapt Speed is not used]. It needs the HDR view, so it is on with the light glow (the
+  default) and off without it (`nvforever/src/eye_adapt.rs`). With the fog changes
+  below, the Dead Money frames come out within 1 EV of the original's; the lab's frames
+  move by under 0.1 EV.
+  The sky counts 1/16 of a world pixel in the meter, from a mask drawn each frame from
+  the depth prepass (`eye_mask.wgsl`) [hypothesis, 2026-10-23]: once our night sky was
+  as dark as the original's ("Night sky" above), metering it with the world brightened
+  the Mojave 23:00 views by several EV (windmill and buildings far lighter than the
+  original's, whose frames match ours without adaptation). With the mask those views
+  match; the Dead Money exteriors, the Strip and Primm (fx audit spots) move by 0.1 EV
+  or less. Still lifted: a view that is mostly sky with a dark object (the windmill seen
+  60° up, 10 % / 50 % / 90 % levels (0, 0, 1) original, (10, 27, 131) ours): the dark
+  object alone averages under the reference. The original's meter may be a plain
+  average, which bright lights and the moon would hold up [hypothesis, unchecked].
+- **Emissive mult** (2026-10-23). "Emissive Mult: (non-imagespace) Multiplier applied to
+  the emittance of an object" [documented: GECK wiki ImageSpace, HDR tab]. Values
+  [observed]: NVDefaultExterior 1.5 (the Mojave's adapters leave it), interiors 1.0-1.3;
+  Dead Money's NVDLC01VillaExtIS ×3.5 (5.25) and NVDLC01WestTownIS ×2 (3.0). In the
+  original's frame of Puesta del Sol the lantern glass (emissive (0.76, 0.55, 0.20) ×
+  10) burns near white; ours was dim orange. As built [hypothesis]: outdoors, emitted
+  light (lit shapes' emissive and unlit shapes' emissive brightness) is scaled by the
+  adapted value over the worldspace base image space's own (the Mojave 1, the Villa
+  3.5, Puesta del Sol 2); indoors 1. Carried to the NIF shader in the view's fog
+  uniform (`nvforever/src/fog.rs`).
+- **Sunlight dimmer** in Dead Money (2026-10-23): NVDLC01WestTownIS sets it ×0.4 + 0.1
+  (1.1 → 0.54), about half the Mojave's day value (1.21), and Puesta del Sol's original
+  frames are lit by its yellow ambient ((119, 81, 9)) with the blue channel at 0, where
+  the renderer's white moonlight ((182, 188, 226)) still shows. The rule for every world
+  is being built with the Old World Blues comparison (docs/handoff/owb-comparison-2026-10-23.md);
+  a trial that only dimmed (never above 1, relative to the base image space) moved
+  Puesta del Sol's median from (10, 0, 0) to (28, 13, 0) against the game's (36, 18, 0).
 - **IMAD as a screen effect**: the same record type played by scripts (fade colour,
   blur, double vision, radial blur, every key of every track) is in
   docs/spec-notes/image-modifiers.md; the weather grade above reads only the first
@@ -827,6 +950,20 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   shows only within Snell's window (refractive index 1.33) and the surface reflects the
   water body outside it. The under fog "amount" is unused like the above one. Unknown: the roles of ANAM
   opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
+- **Depth falloff** (2026-10-24, ESM audit gap 27): DNAM "Depth Falloff Start" and
+  "End", "where the alpha fadeoff begins (used for edges of the water, to blend it
+  smoothly with the land)" and "where the alpha fadeoff ends" [documented: GECK wiki
+  WaterType; xEdit files them under the noise normals]. The masters store fractions: start
+  0 in all but WaterTypeOasisClean (0.029), end 0.0109 for NVCleanWater and its copies,
+  0.0797 for the Potomac types, 0.1268 for NVCleanWater02, 0.3152 for WaterTypeBlood, up
+  to 0.8 [observed: the ten masters' 74 WATR]. Taken as fractions of the above fog's far
+  distance [hypothesis: that gives an edge of a few units to a few tens, NVCleanWater
+  0 to 9 units, the Potomac's 0 to 37, the Goodsprings blood pools' 0 to 5; as game units
+  they would be hundredths of a unit]: seen from above, the whole surface, reflection
+  included, fades in from the start to the end of that ramp of water crossed by the view
+  ray, so the reflecting surface meets the shore without a seam
+  (`fnv_world::sky::Water::edge_falloff`, water.wgsl). The refraction's 200-unit ramp is
+  another thing and stays; distortion, light radius and brightness are still unused.
 - **Ripples** [hypothesis, the renderer's model]: DNAM's "rain" and "displacement"
   groups (starting size, force, velocity, falloff, dampner; NVCleanWater: rain 0.05 /
   0.1 / 0.6 / 0.985 / 2.0, displacement 0.01 / 0.4 / 0.6 / 0.985 / 10.0) are read as two
@@ -874,8 +1011,93 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   in 55 it is nearer than the fog's end (WinsResidence 1,800 against 3,300). As built:
   indoors the camera's far plane is the clip distance, 0 for none [hypothesis: 0 is no
   clip]; outdoors 400,000 units as before.
-- **Fog power** (XCLL, LGTM, WTHR) varies (1.0 in 189 interiors, 0.5–2.0 in the rest)
-  but what curve it sets is not documented, and the fog stays linear.
+- **Fog power** (XCLL, LGTM, WTHR) varies (1.0 in 189 interiors, 0.5–2.0 in the rest;
+  0.2–1.0 in the masters' 98 weathers, the Mojave's 0.6 by day and 0.5 by night, Dead
+  Money's 0.21–0.5 [observed, `weather_dump.rs --fog`]). What curve it sets is not
+  documented. As built since 2026-10-23 [hypothesis, fitted to the frames below]: the
+  fog's share at a distance d is ((d − near) / (far − near))^power, clamped to 0..1, so
+  a power under 1 fogs near things more than a straight line. Outdoors the fog colour is
+  blended in display values (gamma 2.2), indoors in linear light. Every world shader
+  reaches it through Bevy's fog function, which the renderer patches
+  (`nvforever/src/fog.rs`); the weather's fog colour, distances and fades are as before.
+  Evidence (original frames against renders of the same cameras; SSIM as the lab's
+  frame scenarios score it):
+  - Dead Money's Villa (NVDLC01VillaWeather 0..75,000, power 0.35, fog (119, 46, 28)):
+    in the original the far buildings read through a red haze ((50, 23, 22) on a facade
+    about 2,000 units away; the mountains (56, 19, 11), the colour of the sky just above
+    them). Straight-line fog leaves 3 % of fog there and the facades black ((10, 0, 0));
+    the power curve mixed in linear light washes the picture in orange ((75, 16, 5),
+    mountains (104, 29, 12)); mixed in display values the facades are (35, 2, 2) and the
+    picture reads like the original's. Worked through by hand in display values
+    (texture × ambient, then fog, then the grade) the curve predicts (54, 15, 19) for that
+    facade and (35, 7, 19) for a wall 200 units away (game (24, 5, 12)).
+  - The lab's Mojave frames: the power curve mixed in linear light lowered every exterior
+    frame (spring_mountains_east 0.703 → 0.625, black_mountain_north 0.605 → 0.584, under
+    the 0.6 threshold); mixed in display values they score as before or better
+    (spring_mountains_east 0.726, goodsprings_dusk 0.508 → 0.514, lake_shore_noon 0.515 →
+    0.524, black_mountain_north 0.605). In the original the land in the middle distance
+    is clear and the haze gathers at the horizon, as this curve does.
+  - Interiors: the power curve in linear light left Doc Mitchell's house better (bedroom
+    0.713 → 0.758) and the saloon as it was (0.811 → 0.807); in display values the
+    saloon fell to 0.715-0.663, its dark corners losing a faint neutral veil the original
+    has ((14, 12, 12) in the game, (5, 4, 5) in display values, (13, 11, 16) before). So
+    indoors the blend stays linear. Why the two differ is not known.
+  - Not checked: the fog clip distance's interplay, Honest Hearts' and the other add-ons'
+    worldspaces (Honest Hearts' archive is a lab holdout), the underwater fog (still
+    linear, water.md).
+
+### Sunlight Dimmer (Old World Blues comparison F1, 2026-10-23)
+
+- **Where it is** [documented: xEdit wbDefinitionsFNV.pas IMGS DNAM, IMAD]: the twelfth
+  HDR float of IMGS DNAM (byte 44, in front of the size-dependent part, so the same in the
+  152-, 148- and 132-byte layouts), "Sunlight Dimmer"; each IMAD multiplies and adds to it
+  with track `\x0bIAD` (multiply) and `KIAD` (0x4B, add). Read with the other HDR values
+  ("HDR and bloom" above; `Hdr::v[HDR_SUNLIGHT_DIMMER]`), at the time-0 key like the
+  cinematic tracks.
+- **Values** [observed: fnvtool esm decode; base × multiply + add]: NVDefaultExterior 1.1.
+  The Mojave's clear weathers (NVWastelandClear, ClearNight, GS, Borders, UrbanClear,
+  BlackMountain, ClearWindy) give 1.65 at sunrise, 1.21 by day, 1.3 at sunset, 1.1 at
+  night. Others: NVWastelandHazy 0.75 / 1.0 / 1.3 / 1.1; NVTheStripWeather night 0.6;
+  NVHooverDamWeather 0.77 by day; NVSearchlightWeather 0.44 by day; NVWastelandClearEast
+  1.21 from sunrise to sunset. Big MT (NVDLC03BigMTWeather) 3.3 / 2.475 / 2.2 / 2.2.
+  Dead Money: NVDLC01VillaWeather 1.1 at every hour, NVDLC01WestTownWeather 0.54 (×0.4 + 0.1),
+  NVDLC01EastTownWeather and DefaultWeather 1.3 (+0.2), each on NVDefaultExterior (the
+  Villa's INAM; the other Dead Money worlds not checked); NVDLC01FogWeather and
+  VistaWeather link Fallout 3's Pitt adapters (`DLC01Pitt01*ISFX`), which set it outright
+  (multiply 0, add 2.1 by day, 2.3 at night, 2.5 at sunset).
+- **What it does** [hypothesis: the dimmer scales the directional (sun and moon) light
+  directly]. Evidence [observed, OWB comparison `docs/handoff/owb-comparison-2026-10-23.md`]:
+  in the original the Big MT's directly lit surfaces are about twice the brightness of
+  ours (Think Tank ground 162 against 82 grey), and its dimmer is about twice the Mojave's;
+  a test build with the sun × 2.05 moved that ground to 112 and a night ground from 18
+  to 31 (original 26). The earlier Mojave fit above read the noon factor 0.66 as the day
+  dimmer used as a divisor; at sunrise and sunset that reading made frames worse, and the
+  Big MT rules it out (a divisor would halve the Big MT's light).
+- **As built**: the outdoor directional light is × dimmer(hour) ÷ the Mojave reference
+  (hour), where dimmer(hour) is the image space's value with the weather's adapters,
+  blended between the four times of day like the grade (and across a weather fade), and
+  the reference is the Mojave clear weathers' 1.65 / 1.21 / 1.3 / 1.1 blended the same
+  way (`fnv_world::imagespace::sun_scale`). The Mojave's light was fitted under its clear
+  weathers, so they give exactly 1 at every hour and their frames do not change; every
+  other weather and world is lit relative to them, by one rule. Interiors keep XCLL's
+  light unchanged (their image spaces' dimmers are not checked yet). The log's
+  `sky: ...` line ends with `sun x<scale>`.
+- **Checked** [observed, 1280 × 720 renders of the OWB comparison cameras against the
+  original's, medians of 8-bit regions]: Big MT ×2.05 by day, ×2.0 at sunrise and night,
+  ×1.7 at sunset. Think Tank by day frame mean 63.8 → 72.0 (original 72.1); X-8 26.7 →
+  35.0 (31.6); X-12 at sunset 54.9 → 60.9 (76.3); Little Yangtze sunrise 78.5 → 82.9
+  (103.0); Think Tank night ground (11, 12, 22) → (21, 23, 32) (original (22, 20, 35)).
+  Z-38 at night overshoots (25.0 → 37.4, original 22.7): its east-facing facades are lit,
+  which the original leaves dark (moonlight direction, OWB F5). Mojave Goodsprings in
+  NVWastelandClear at 12:06 and 19:06: ×1.00, region medians unchanged. Dead Money: the
+  Villa ×1.00 at night (unchanged); Puesta del Sol ×0.49 at night takes out some of the
+  greenish-white moonlight on the lantern wall, which the original does not show, and
+  the frame mean goes 24.3 → 21.9 (original 38.4, lit by warm ambient and the lantern:
+  a separate gap).
+- **Open**: whether the dimmer's own change through the day also applies in the Mojave
+  (the reference would then be the day value 1.21 alone: sunrise × 1.36, night × 0.91).
+  The Mojave fit's per-hour sun factors (0.9-1.2 at 07:36 against 0.5 at 09:06) lean that
+  way but are noisy; not changed without a check against Mojave sunrise frames.
 
 ## 7. Distant LOD
 
@@ -1034,9 +1256,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   Saloon porch lamp, has radius 200, colour (254, 209, 73) and fade 2.2 [observed].
   The renderer draws each enabled, non-negative, not-off-by-default light as a point
   light (spot light for spot types) with range = radius. Each adds colour x fade x
-  (1 - (d / radius)^2) x N.L in the display units of the sky lighting, with no inverse
-  square [hypothesis: to calibrate against captures; the falloff exponent, 1 for most
-  lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
+  (1 - (d / radius)^2) x N.L to the display-value lighting sum ("Light on surfaces in
+  display values" below), with no inverse square [hypothesis: the falloff exponent, 1
+  for most lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
 - **Placed light radius**: a placed light's `XRDS` "Radius" [documented: xEdit] is an
@@ -1063,7 +1285,8 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   The renderer takes, for a black DATA colour, the diffuse colour times the dimmer of the
   first `NiPointLight` or `NiSpotLight` of the LIGH's model, as display values like the
   DATA colour [hypothesis], and draws no light when there is none
-  (`nvf_assets::model_light`, nvforever `lights.rs`). Not done: the flicker.
+  (`nvf_assets::model_light`, nvforever `lights.rs`). The flicker is played from the
+  model's keys since 2026-10-23 ([model-lights](model-lights.md)).
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
@@ -1081,13 +1304,22 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     day and black at night; their shader sets bit 29 too. In game they are warm yellow
     by day.
 
-  The renderer resolves XEMI to the region's highest-chance weather or the light's
+  The renderer resolves XEMI to a region's weather or the light's colour times its fade.
+  The region's weather is the one on screen when the region lists it, else the region's
+  highest-chance weather (the only one before 2026-10-24); while the sky fades between
+  weathers, the colour fades from the outgoing weather's pick to the incoming one's
+  [hypothesis: a region's weather is rolled only where the camera stands, so a region the
+  camera is not in shows its likeliest; `fnv_world::lighting::RegionEmittance::shown`;
+  headless callers without a sky get the highest-chance weather]. The light's
   colour times its fade (the GECK tutorials: emittance takes the light's colour and
   brightness, level-design.md section 2) and scales by its sunlight colour at the current
   hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
   and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
   unchanged. Before this the beam drew at full strength day and night and the rays were
-  white.
+  white. References that scripts enable at run time (`nvf_play::script_draw`) take the
+  same driven material (2026-10-23): the Strip's 32 street lamp beams
+  (`StripLightBeamAct`, enable parents 0x0013BAE1-3, switched on at night) name the light
+  `stripStreetLight` (0x0012762B, colour (150, 198, 102), fade 4) and had drawn white.
   XEMI on light references [observed, `light_survey --xemi`]: 2,508 of 10,087 interior
   lights carry one (1,497 name a LIGH, 1,011 a REGN such as NVInteriorRegion or
   NewVegasRegion); outdoors 304 of 1,070 (246 REGN, mostly InvertedDaylightRegion). In
@@ -1111,6 +1343,62 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   Prospector Saloon's ShackInteriorWaste01 (saturation 0.82, tint (1.0, 0.71, 0.27) at
   0.4) gives the warm brown look of the owner's in-game screenshot [observed]. Cells
   without XCIM are not graded [hypothesis].
+- **Light on surfaces in display values** (2026-10-24, the Dead Money lantern) [hypothesis,
+  fitted to the original's frames]: the game adds its lights as display values — colour
+  bytes / 255 × fade × attenuation × N.L for each light, the sun's (or moon's, or the
+  interior's directional) colour × N.L, plus the ambient colour — multiplies the texture
+  by the sum and shows the result held to 1 per channel. Evidence: the original's wall
+  beside the Puesta del Sol lantern (light `NVDLC01ExtSconceKeyWT`, radius 200, colour
+  (224, 255, 117), fade 2.5, 91 units in front of the wall; frames `dm_lamp_*.png`,
+  private) is clipped to (255, 255, 255) under NVWastelandClear and to (255, 201, 71)
+  under Dead Money's own weather, saturated, a few metres from the lamp. Summed in linear
+  light and shown through Bevy's Tony McMapface (as before), the same light gave
+  (141, 162, 136) and (100, 92, 52): the linear sum spends the light, and Tony McMapface
+  turns bright light pale and never reaches white (light × 20 still gave
+  (229, 243, 255), bluish). Lamp-only rescalings (light fade^2.2) had failed the lab: Doc Mitchell's lights already matched.
+  The renderer now [observed: bevy_pbr 0.19.1, nvforever `lights.rs`]:
+  - patches `apply_pbr_lighting`: in a world view (marked by a negative ambient-light
+    alpha; the minigame views keep Bevy's sum) Bevy's diffuse terms are left out and the
+    sum is formed from the same lights, whose colours there hold display values; the
+    surface gets diffuse colour × sum^2.2, held to 1 per channel. The lights' and the
+    ambient light's highlights (specular) take their colours back as linear light;
+    taken as display values they put white sparkles on the floors of Jacobstown's lodge;
+  - shows the main view's colour clipped to 1 in the place of Tony McMapface (its curve
+    in Bevy's tonemapping functions is swapped; the pass keeps running, and with it the
+    eye adaptation's exposure, which Bevy applies there); the sky leaves out its inverse
+    of Tony McMapface;
+  - shares in the sum [fitted]: interiors XCLL's ambient and directional colours × 1.0;
+    outdoors the weather's ambient × 0.9, its sunlight × 0.75 by day (× the Sunlight
+    Dimmer's scale) and its night "sunlight" (moonlight) × 0.5; lights × 1 (colour ×
+    fade); grass's own weights 1.3 and 0.25 (grass.md §5). Fitting showed: interiors
+    want the ambient as stored (× 1.0: every Doc Mitchell frame then beats the linear
+    sum); stronger lights help the saloon and hurt Doc Mitchell's house, so the lights
+    stay at their records' strength; outdoors by day more ambient and less sun than the
+    first guess (0.697 = Bevy's old 0.452 as a display value, and 1.0); at night the
+    moonlight at the sun's share made Primm and the Strip bright and blue (Primm street
+    median (39, 46, 65), original (41, 41, 49)), halving it fixes that.
+  - Results against the linear sum (SSIM / mean colour error, lab comparator): lab L3
+    frames goodsprings noon 0.498/0.011 → 0.502/0.026, dusk 0.514/0.063 → 0.532/0.058,
+    hill 0.579/0.022 → 0.582/0.041, lake shore 0.524/0.087 → 0.523/0.106, black mountain
+    0.605/0.009 → 0.605/0.026, east 0.467/0.021 → 0.469/0.037, spring mountains
+    0.723/0.036 → 0.717/0.042, hoover ridge 0.572/0.016 → 0.580/0.035, Doc's entry
+    0.706/0.033 → 0.714/0.008, living 0.725/0.023 → 0.737/0.013, kitchen 0.777/0.018 →
+    0.778/0.007, bedroom 0.762/0.023 → 0.777/0.019, saloon south 0.807/0.014 →
+    0.799/0.004, north 0.750/0.019 → 0.709/0.023, bar 0.730/0.026 → 0.716/0.032 (mean
+    SSIM 0.649 both; every frame passes its threshold). Night frames of the effects audit
+    (22:00): lantern front 0.536/0.136 → 0.606/0.061, side 0.544/0.111 → 0.636/0.053,
+    front under NVWastelandClear 0.502/0.089 → 0.554/0.033; Jacobstown lodge 0.606 →
+    0.777, Hoover Dam lower level 0.729 → 0.796, Primm entrance 0.617 → 0.683, Strip
+    0.450/0.500 → 0.499/0.548, Dead Money Villa three frames +0.01 to +0.04; lower:
+    HELIOS One 0.500 → 0.452, Lake Mead cave 0.780 → 0.746, Vault 19 0.627 → 0.606 (its
+    colour error 0.051 → 0.095). The lantern's wall now reads lit: (218, 231, 244) and
+    (166, 147, 70) where the original clips to (255, 255, 255) and (255, 201, 71).
+  - Open: the original's lamp pools are still brighter and more saturated close to the
+    lamp (the lantern's) and the saloon's north and bar frames darker than the
+    original's (means (22, 15, 11) against (28, 21, 14)), while Doc Mitchell's lights,
+    under the same rule, are right; the attenuation's shape (1 − (d / r)², the falloff
+    exponent unused) is the next candidate. Outdoors by day the frames came out a little
+    bluer than the original (the weather's bluish ambient takes a larger share).
 
 ## 9. Open questions
 

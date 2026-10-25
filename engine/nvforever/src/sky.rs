@@ -18,8 +18,9 @@
 //! - The sun: the climate's sun texture and glare texture spread over angular squares
 //!   around the sun, coloured by the weather's "sun" colour and drawn into the dome (the
 //!   disc, behind the clouds) and the clouds (the glare) by sky.wgsl [hypothesis, fitted].
-//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive, weighted by
-//!   the star texture's alpha),
+//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive at
+//!   `STAR_STRENGTH`, weighted by the star texture's alpha where its shader flags set
+//!   Alpha_Texture),
 //!   coloured by the weather's "stars" colour and faded in as the sun sinks from 0° to
 //!   −12° (sunset to full dark) [hypothesis: the stars colour is white by day, so the
 //!   weather alone does not hide them].
@@ -95,9 +96,6 @@ const MOON_FADE: (f32, f32) = (5.0, -6.0);
 const SUN_SOUTH: f32 = 9.0 * PI / 180.0;
 /// Elevation (radians) below which the directional light fades out towards the horizon.
 const HORIZON_FADE: f32 = 0.1;
-/// Cloud texture scroll per second per ONAM speed unit, in texture repeats [placeholder
-/// rate, to tune against the game].
-const CLOUD_SCROLL: f32 = 1.0 / 25_600.0;
 /// Game hours per real second at the default TimeScale of 30 [documented: GECK wiki
 /// TimeScale]: a weather's transition, given in real seconds
 /// (`Weather::transition_seconds`), fades over that many game hours.
@@ -119,6 +117,19 @@ const SKY_SORT_BIAS: f32 = -1.0e6;
 pub const DEFAULT_SHADOW_DISTANCE: f32 = 8_000.0;
 /// The sun's shadow cascades by default (see [`DEFAULT_SHADOW_DISTANCE`]).
 pub const DEFAULT_SHADOW_CASCADES: usize = 3;
+
+/// Shares of the weather's and the interior's light colours (display values) in the
+/// display-value lighting sum (lights.rs `DISPLAY_HELPERS`; world.md §8 "Light on
+/// surfaces in display values") [fitted to the original's frames: the lab's 15 L3 frames,
+/// the effects audit's night frames and Dead Money's lantern]. Outdoors: the weather's
+/// ambient colour, its sunlight by day (before the Sunlight Dimmer's scale) and its
+/// night "sunlight" as moonlight. Interiors: XCLL's ambient and directional colours as
+/// stored.
+pub const AMBIENT_SHARE: f32 = 0.9;
+pub const SUN_SHARE: f32 = 0.75;
+pub const MOON_SHARE: f32 = 0.5;
+pub const INTERIOR_AMBIENT_SHARE: f32 = 1.0;
+pub const INTERIOR_DIRECTIONAL_SHARE: f32 = 1.0;
 
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
@@ -161,11 +172,13 @@ pub struct SkyDisplay {
 /// additive quads after the inverse could not reproduce the game's glow over a bright sky.
 #[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
 pub struct SkyLight {
-    /// x: scale; z: 1 for parts the light applies to (the dome, clouds and moon), 0 for
-    /// additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
+    /// x: scale; y: 1 for additive parts weighted by texture alpha (Alpha_Texture), 0 for
+    /// those adding their colour alone; z: 1 for parts the light applies to (the dome,
+    /// clouds and moon), 0 for additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
     /// only (clouds), 0 neither.
     pub params: Vec4,
-    /// Linear RGB added.
+    /// Linear RGB added; w 1 when the view's tonemapper is the clip (lights.rs
+    /// `display_clip`), 0 for Tony McMapface.
     pub glow: Vec4,
     /// xyz: direction to the sun (Bevy world space).
     pub sun_dir: Vec4,
@@ -738,6 +751,23 @@ impl SkyState {
         }
     }
 
+    /// How strong the outdoor sun and moon are against the Mojave's at this hour: the
+    /// image space's Sunlight Dimmer with the weather's adapters, blended like the grade
+    /// and across a weather fade, over the dimmer the Mojave's lighting was fitted under
+    /// (`fnv_world::imagespace::sun_scale`; world.md §6). 1 without an image space. Kept
+    /// when the grade is switched off: it is light, not a colour grade.
+    pub fn sun_scale(&self) -> f32 {
+        let Some(base) = self.image_space else { return 1.0 };
+        let none = [None; 6];
+        let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour).hdr.v[fnv_world::imagespace::HDR_SUNLIGHT_DIMMER];
+        let cur = at(&self.weather);
+        let dimmer = match &self.prev {
+            Some(p) => at(p) + (cur - at(p)) * self.fade,
+            None => cur,
+        };
+        fnv_world::imagespace::sun_scale(dimmer, &self.climate, self.hour)
+    }
+
     /// Fog near, far and strength (0..1), blended across a weather fade; `None` when
     /// neither weather has fog. Fading to or from a weather without fog fades the
     /// strength and keeps the other weather's distances.
@@ -754,6 +784,40 @@ impl SkyState {
             (None, Some((n, f))) => Some((n, f, t)),
             (None, None) => None,
         }
+    }
+
+    /// Fog power now (the weather's FNAM day/night power, blended across a weather fade;
+    /// see `fnv_world::sky::Weather::fog_power_at`). An overridden fog (`--fog`) is linear.
+    pub fn fog_power(&self) -> f32 {
+        if self.fog_override.is_some() {
+            return 1.0;
+        }
+        let cur = self.weather.fog_power_at(&self.climate, self.hour);
+        match &self.prev {
+            Some(p) if p.fog_at(&self.climate, self.hour).is_some() && self.weather.fog_at(&self.climate, self.hour).is_some() => {
+                let prev = p.fog_power_at(&self.climate, self.hour);
+                prev + (cur - prev) * self.fade
+            }
+            Some(p) if self.weather.fog_at(&self.climate, self.hour).is_none() => p.fog_power_at(&self.climate, self.hour),
+            _ => cur,
+        }
+    }
+
+    /// How much brighter emitted light is drawn under the image space now: its adapted
+    /// Emissive Mult ("multiplier applied to the emittance of an object" [documented:
+    /// GECK wiki ImageSpace, HDR tab]) over the worldspace base image space's own
+    /// [hypothesis: the renderer's emissive light was judged under the Mojave's base
+    /// value, 1.5, which its adapters leave alone; Dead Money's Villa adapter multiplies
+    /// it by 3.5 and Puesta del Sol's by 2, and there the lanterns' glass burns near
+    /// white in the original. world.md §6 "Emissive mult"]. 1 indoors and without a base.
+    pub fn emissive_scale(&self) -> f32 {
+        use fnv_world::imagespace::HDR_EMISSIVE_MULT;
+        if self.interior.is_some() {
+            return 1.0;
+        }
+        let Some(base) = self.image_space.as_ref().map(|c| c.hdr.v[HDR_EMISSIVE_MULT]).filter(|&v| v > 0.0) else { return 1.0 };
+        let now = self.cinematic().hdr.v[HDR_EMISSIVE_MULT];
+        if now > 0.0 { now / base } else { 1.0 }
     }
 
     /// Recompute sky, light and fog next frame (e.g. after something else changed the fog).
@@ -788,7 +852,9 @@ impl SkyState {
         let glare = self.prev.as_ref().map_or(glare, |p| p.glare_scale() + (glare - p.glare_scale()) * self.fade);
         SkyLight {
             params: Vec4::new(1.0 - SKY_DIM * day, 0.0, 1.0, 0.0),
-            glow: (s * SKY_GLOW * day).extend(0.0),
+            // w: 1 when the main view shows display values clipped (lights.rs
+            // `display_clip`), so the sky leaves out its inverse of Tony McMapface.
+            glow: (s * SKY_GLOW * day).extend(if crate::lights::display_clip() { 1.0 } else { 0.0 }),
             sun_dir: dir.extend(0.0),
             sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
             glare: (sun_col * GLARE_STRENGTH * glare).extend(half_tan(GLARE_SIZE_DEG)),
@@ -846,6 +912,18 @@ impl SkyState {
     /// Sun elevation above the horizon in degrees.
     pub fn sun_elevation(&self) -> f32 {
         sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
+    }
+
+    /// Twilight (0..1): 1 while the sun is above the horizon, falling to 0 as it sinks to
+    /// `TWILIGHT_END_DEG` (the end of astronomical twilight) [hypothesis fitted 2026-10-23:
+    /// the share of the horizon colour's wide floor that fits the original's sky is about
+    /// 1.1 with the sun at +11° (19:06), 0.6 at −9° (20:30) and 0 at −54° (23:00); world.md
+    /// §6 "Sky colours"]. 1 indoors (no sky).
+    pub fn twilight(&self) -> f32 {
+        if self.interior.is_some() {
+            return 1.0;
+        }
+        smoothstep(TWILIGHT_END_DEG, 0.0, self.sun_elevation())
     }
 
     /// Star and moon visibility (0..1) at this hour.
@@ -995,6 +1073,17 @@ pub const ARMS_LAYER: usize = 3;
 /// player casts no flashlight shadow, as the arms did aiming in third person).
 pub const BODY_LAYER: usize = 4;
 
+/// Alpha_Texture in a BSShaderProperty's shader flags (bit 8) [documented: nif.xml BSShaderFlags].
+const ALPHA_TEXTURE: i64 = 1 << 8;
+
+/// What a star dome adds, as a share of its texture's display value × the weather's
+/// stars colour [hypothesis, fitted 2026-10-23 to the original's clear Mojave night at
+/// 23:00 (star peaks p50 39, p90 69, max 143 grey in a 1280 × 720 frame at FOV 75; this
+/// value gives 40, 76, 130); the same value leaves the Big MT's stars about 1.7 × the
+/// original's, as much as our grade lifts that sky's background (world.md §6 "Star
+/// domes")]. The material's emissive multiplier (× 1 Mojave, × 10 Big MT) is not used.
+const STAR_STRENGTH: f32 = 0.25;
+
 /// The climate's star model.
 #[derive(Component)]
 pub struct Stars;
@@ -1010,6 +1099,8 @@ pub struct MoonDisc {
 struct SkyShape {
     /// The SkyShaderProperty's texture (file_name), if any.
     texture: Option<String>,
+    /// The SkyShaderProperty's shader flags set Alpha_Texture (bit 8).
+    alpha_texture: bool,
     positions: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
     uv: Vec<[f32; 2]>,
@@ -1038,13 +1129,10 @@ fn sky_shapes(data: &GameData, path: &str) -> Vec<SkyShape> {
             let colors = if md.colors.len() == n { md.colors } else { vec![[1.0; 4]; n] };
             let uv = md.uv_sets.into_iter().next().filter(|u| u.len() == n).unwrap_or_else(|| vec![[0.0; 2]; n]);
             let indices = md.triangles.iter().filter(|t| t.iter().all(|&i| (i as usize) < n)).flatten().copied().collect();
-            let texture = shape
-                .refs("properties")
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|&r| dec.get(r))
-                .find_map(|p| p.text("file_name").filter(|t| !t.is_empty()).map(str::to_string));
-            Some(SkyShape { texture, positions: md.positions, colors, uv, indices })
+            let props: Vec<_> = shape.refs("properties").unwrap_or_default().iter().filter_map(|&r| dec.get(r)).collect();
+            let texture = props.iter().find_map(|p| p.text("file_name").filter(|t| !t.is_empty()).map(str::to_string));
+            let alpha_texture = props.iter().filter_map(|p| p.int("shader_flags")).any(|f| f & ALPHA_TEXTURE != 0);
+            Some(SkyShape { texture, alpha_texture, positions: md.positions, colors, uv, indices })
         })
         .collect()
 }
@@ -1087,7 +1175,7 @@ fn fallback_dome() -> SkyShape {
         Some(Indices::U16(i)) => i.iter().map(|&x| x as u32).collect(),
         None => Vec::new(),
     };
-    SkyShape { texture: None, positions: pos, colors, uv: vec![[0.0; 2]; n], indices }
+    SkyShape { texture: None, alpha_texture: false, positions: pos, colors, uv: vec![[0.0; 2]; n], indices }
 }
 
 /// Transform of a sky mesh around the camera: game space to Bevy, scaled to the dome.
@@ -1171,17 +1259,19 @@ pub fn setup_sky(
                 Name::new("Stars"),
                 Stars,
                 Mesh3d(meshes.add(sky_mesh(shape, vec![[1.0; 4]; shape.positions.len()]))),
-                MeshMaterial3d(materials.add(sky_material(StandardMaterial {
-                    base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
-                    base_color_texture: tex,
-                    // Additive, weighted by the texture's alpha: SkyStars.dds has colour in
-                    // 6,225 texels but alpha in only ~430, and the game shows sparse, faint
-                    // stars [observed: owner's screenshots; the shader property sets the
-                    // alpha-texture flag; hypothesis: the game weights by alpha].
-                    alpha_mode: AlphaMode::Add,
-                    depth_bias: SKY_SORT_BIAS - 30.0,
-                    ..default()
-                }, 0.0))),
+                MeshMaterial3d(materials.add({
+                    let mut m = sky_material(StandardMaterial {
+                        base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
+                        base_color_texture: tex,
+                        alpha_mode: AlphaMode::Add,
+                        depth_bias: SKY_SORT_BIAS - 30.0,
+                        ..default()
+                    }, 0.0);
+                    // Additive (NiAlphaProperty ONE/ONE): the texture's alpha weighs the
+                    // colour only where the shader flags set Alpha_Texture (sky.wgsl).
+                    m.extension.light.params.y = if shape.alpha_texture { 1.0 } else { 0.0 };
+                    m
+                })),
                 Transform { rotation: game_to_bevy().rotation, scale: Vec3::splat(0.9 * SKY_INNER / radius), ..default() },
                 NotShadowCaster,
                 NotShadowReceiver,
@@ -1270,9 +1360,10 @@ pub fn update_clouds(
     mut materials: ResMut<Assets<SkyMaterial>>,
     cam: Query<&Transform, (With<FlyCam>, Without<CloudLayer>)>,
     mut clouds: Query<(&mut CloudLayer, &MeshMaterial3d<SkyMaterial>, &mut Transform, &mut Visibility), Without<FlyCam>>,
+    mut logged: Local<Option<u32>>,
 ) {
     let Ok(cam_t) = cam.single() else { return };
-    let secs = time.elapsed_secs();
+    let secs = time.elapsed_secs_f64();
     // Set 0 shows the current weather while no fade runs; during a fade the set whose
     // texture already shows the new weather keeps it.
     for (mut cl, m, mut t, mut vis) in &mut clouds {
@@ -1297,8 +1388,19 @@ pub fn update_clouds(
         *vis = if mat.base.base_color_texture.is_some() && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
         let c = sky.cloud_tint(w.cloud_color(&sky.climate, cl.layer, sky.hour));
         mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], alpha));
-        let speed = w.cloud_speeds[cl.layer] as f32;
-        mat.base.uv_transform = Affine2::from_translation(Vec2::new((secs * speed * CLOUD_SCROLL).fract(), 0.0));
+        // Each set scrolls at its own weather's ONAM speeds, so a fade blends the two
+        // weathers' layers each moving at its own rate (fnv_world::sky::Weather::cloud_scroll).
+        mat.base.uv_transform = Affine2::from_translation(Vec2::new(w.cloud_offset(cl.layer, secs), 0.0));
+        if cl.set == 0 && cl.layer == 0 && *logged != Some(w.form_id) {
+            *logged = Some(w.form_id);
+            let rates = [0, 1, 2, 3].map(|i| format!("{:.5}", w.cloud_scroll(i)));
+            info!(
+                "clouds: {} layer speeds {:?} (ONAM), scrolling {} texture repeats/s",
+                w.edid.as_deref().unwrap_or("?"),
+                w.cloud_speeds,
+                rates.join(", ")
+            );
+        }
     }
 }
 
@@ -1326,7 +1428,8 @@ pub fn update_night_sky(
         if refresh {
             if let Some(mut mat) = materials.get_mut(&m.0) {
                 let c = sky.color(ColorType::Stars);
-                mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 1.0));
+                let v = star_vis * STAR_STRENGTH;
+                mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0] * v, c[1] * v, c[2] * v, 1.0));
             }
         }
     }
@@ -1352,13 +1455,13 @@ pub fn update_night_sky(
 
 /// Colour of an atmosphere vertex at `elevation` (degrees) with sky-upper weight `up_w`
 /// (the vertex colour's blue), linear RGB. Mixed as display (sRGB) values: sky-upper ×
-/// `up_w` plus horizon × `horizon_weight(elevation)`; below the horizon the colour turns to
-/// sky-lower by 10° down [hypothesis fitted to screenshots of the original game,
-/// docs/spec-notes/world.md §6 "Sky colours": the vertex colours' green channel, read as
-/// the horizon weight, peaks 10-15° up and gives the horizon colour far too much sky].
-pub(crate) fn dome_color(elevation: f32, up_w: f32, lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
+/// `up_w` plus horizon × `horizon_weight(elevation, twilight)`; below the horizon the
+/// colour turns to sky-lower by 10° down [hypothesis fitted to screenshots of the original
+/// game, docs/spec-notes/world.md §6 "Sky colours": the vertex colours' green channel, read
+/// as the horizon weight, peaks 10-15° up and gives the horizon colour far too much sky].
+pub(crate) fn dome_color(elevation: f32, up_w: f32, twilight: f32, lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
     use crate::lodgen::{linear_to_srgb as d, srgb_to_linear as l};
-    let a = horizon_weight(elevation);
+    let a = horizon_weight(elevation, twilight);
     let below = smoothstep(0.0, -10.0, elevation);
     std::array::from_fn(|i| {
         let above = up_w * d(upper[i]) + a * d(horizon[i]);
@@ -1367,18 +1470,24 @@ pub(crate) fn dome_color(elevation: f32, up_w: f32, lower: [f32; 3], horizon: [f
 }
 
 /// Weight of the horizon colour at `elevation` (degrees): 1 at the horizon, about 0.5 at
-/// 15°, 0.3 at 25° [hypothesis fitted to the dusk reference frame, where the sky colours
-/// are graded without further change; world.md §6].
-pub(crate) fn horizon_weight(elevation: f32) -> f32 {
+/// 15°, 0.3 at 25° at dusk [hypothesis fitted to the dusk reference frame, where the sky
+/// colours are graded without further change; world.md §6]. The wide part (the floor,
+/// `HORIZON_FLOOR`) is scaled by `twilight` (`SkyState::twilight`, 1 while the sun is up,
+/// 0 in full night): the original's night sky keeps under a third of it above 25°
+/// [hypothesis fitted 2026-10-23 to clear Mojave frames at 19:06, 20:30 and 23:00, world.md
+/// §6 "Sky colours"].
+pub(crate) fn horizon_weight(elevation: f32, twilight: f32) -> f32 {
     let e = elevation.max(0.0);
     let (near, far) = (HORIZON_NEAR_DEG, HORIZON_FAR_DEG);
     let fl = HORIZON_FLOOR;
-    (1.0 - fl) * (-(e / near).powi(2)).exp() + fl * (-(e / far).powi(2)).exp()
+    (1.0 - fl) * (-(e / near).powi(2)).exp() + fl * twilight.clamp(0.0, 1.0) * (-(e / far).powi(2)).exp()
 }
 
 const HORIZON_NEAR_DEG: f32 = 14.0;
 const HORIZON_FAR_DEG: f32 = 60.0;
 const HORIZON_FLOOR: f32 = 0.28;
+/// Sun elevation (degrees) at which the horizon colour's floor is gone (see `twilight`).
+const TWILIGHT_END_DEG: f32 = -18.0;
 
 /// Fitted daylight factors (see `SkyLight`).
 const SKY_DIM: f32 = 0.6;
@@ -1444,8 +1553,13 @@ pub fn update_sky(
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<CloudLayer>)>,
     mut materials: ResMut<Assets<SkyMaterial>>,
     mut flashed: Local<bool>,
+    screen: Option<Res<crate::imagespace::ScreenModifiers>>,
 ) {
     let mut cam = cam;
+    // What the image space modifiers on the screen do to the Sunlight Dimmer and the
+    // Emissive Mult (image-modifiers.md §11), on top of the image space's.
+    let ratio = |i: usize| screen.as_deref().map_or(1.0, |s| s.hdr_ratio(i));
+    let (sun_mod, emissive_mod) = (ratio(fnv_world::imagespace::HDR_SUNLIGHT_DIMMER), ratio(fnv_world::imagespace::HDR_EMISSIVE_MULT));
     let Ok((cam_t, mut fog)) = cam.single_mut() else { return };
     let cam_pos = cam_t.translation;
     let to_bevy = game_to_bevy();
@@ -1470,8 +1584,9 @@ pub fn update_sky(
             t.scale = Vec3::ZERO;
         }
         clear.0 = c(l.fog_color);
-        ambient.color = c(l.ambient);
-        ambient.brightness = unit;
+        let shown = |v: [u8; 3]| v.map(|b| b as f32 / 255.0);
+        ambient.color = crate::lights::display_ambient(shown(l.ambient));
+        ambient.brightness = unit * INTERIOR_AMBIENT_SHARE;
         if let Ok((mut light, mut t)) = sun.single_mut() {
             // XCLL directional rotation: xy = azimuth about z, z = elevation, in degrees
             // [hypothesis].
@@ -1479,12 +1594,12 @@ pub fn update_sky(
             let from_game = Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin());
             let from = game_to_bevy().rotation * from_game;
             *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-            light.color = c(l.directional);
-            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0);
+            light.color = crate::lights::display_color(shown(l.directional));
+            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
         }
         fog.color = c(l.fog_color);
-        fog.falloff = FogFalloff::Linear { start: l.fog_near.max(0.0), end: l.fog_far.max(l.fog_near + 1.0) };
-        info!("interior lighting: fog {:.0}..{:.0}", l.fog_near, l.fog_far);
+        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
+        info!("interior lighting: fog {:.0}..{:.0} power {:.2}", l.fog_near, l.fog_far, l.fog_power);
         return;
     }
     let (h, c) = (sky.hour, &sky.climate);
@@ -1514,19 +1629,20 @@ pub fn update_sky(
     for id in ids {
         if let Some(mut m) = materials.get_mut(id) {
             let p = m.extension.light.params;
-            m.extension.light = SkyLight { params: light.params.with_z(p.z).with_w(p.w), ..light };
+            m.extension.light = SkyLight { params: light.params.with_y(p.y).with_z(p.z).with_w(p.w), ..light };
         }
     }
     let upper = sky.color(ColorType::SkyUpper);
     let lower = sky.color(ColorType::SkyLower);
     let horizon = sky.color(ColorType::Horizon);
+    let twilight = sky.twilight();
     if let Ok((m, weights, _)) = dome.single() {
         if let Some(mut mesh) = meshes.get_mut(&m.0) {
             let cols: Vec<[f32; 4]> = weights
                 .0
                 .iter()
                 .map(|wt| {
-                    let c = dome_color(wt[0], wt[1], lower, horizon, upper);
+                    let c = dome_color(wt[0], wt[1], twilight, lower, horizon, upper);
                     [c[0], c[1], c[2], 1.0]
                 })
                 .collect();
@@ -1541,29 +1657,45 @@ pub fn update_sky(
         // the weather's night "sunlight") [hypothesis].
         let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
         *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-        light.color = to_color(sunlight);
+        light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
         // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
         // switch between the two does not flip shadows at full strength [interim].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0);
+        // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
+        // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * sun_mod * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
     }
     let amb = sky.color(ColorType::Ambient);
-    ambient.color = to_color([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z]);
-    ambient.brightness = unit;
+    ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
+    ambient.brightness = unit * AMBIENT_SHARE;
 
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
     fog.color = to_color(sky.fog_color()).with_alpha(strength);
-    fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
+    let power = sky.fog_power();
+    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale() * emissive_mod);
     // A lightning flash changes the light each frame it lasts: not worth a line each.
     let flashing = std::mem::replace(&mut *flashed, flash != Vec3::ZERO);
     if sky.time_scale <= 0.0 && flash == Vec3::ZERO && !flashing {
         let desc = match range {
-            Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} x{strength:.2}"),
-            Some(_) => format!("{near:.0}..{far:.0}"),
+            Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} power {power:.2} x{strength:.2}"),
+            Some(_) => format!("{near:.0}..{far:.0} power {power:.2} ({:.0} % at 1,000 units)", 100.0 * crate::fog::share(near.max(0.0), far, power, 1_000.0)),
             None => "none".into(),
         };
-        info!("sky: {}  fog {desc}", sky.describe());
+        let g = sky.cinematic();
+        info!(
+            "sky: {}  fog {desc}  sun x{:.2}  grade: saturation {:.2} contrast {:.2} around {:.2} brightness {:.2} tint ({:.2}, {:.2}, {:.2}) x{:.2}",
+            sky.describe(),
+            sky.sun_scale(),
+            g.saturation,
+            g.contrast,
+            g.contrast_avg_lum,
+            g.brightness,
+            g.tint[0],
+            g.tint[1],
+            g.tint[2],
+            g.tint_amount
+        );
     }
 }
 
@@ -1577,31 +1709,41 @@ mod tests {
 
     #[test]
     fn horizon_weight_falls_with_elevation() {
-        assert!((horizon_weight(0.0) - 1.0).abs() < 1e-6);
-        assert!((horizon_weight(-5.0) - 1.0).abs() < 1e-6);
+        assert!((horizon_weight(0.0, 1.0) - 1.0).abs() < 1e-6);
+        assert!((horizon_weight(-5.0, 1.0) - 1.0).abs() < 1e-6);
         // The dusk fit (world.md §6 "Sky colours"): about 0.86 at 7°, 0.55 at 15°, 0.3 at 25°.
-        assert!((horizon_weight(6.8) - 0.86).abs() < 0.03);
-        assert!((horizon_weight(14.7) - 0.55).abs() < 0.05);
-        assert!((horizon_weight(26.6) - 0.28).abs() < 0.04);
+        assert!((horizon_weight(6.8, 1.0) - 0.86).abs() < 0.03);
+        assert!((horizon_weight(14.7, 1.0) - 0.55).abs() < 0.05);
+        assert!((horizon_weight(26.6, 1.0) - 0.28).abs() < 0.04);
         let mut last = 2.0;
         for e in 0..=90 {
-            let w = horizon_weight(e as f32);
+            let w = horizon_weight(e as f32, 1.0);
             assert!(w <= last && w >= 0.0);
             last = w;
         }
     }
 
     #[test]
+    fn night_sky_loses_the_horizon_floor() {
+        // Near the horizon the weight is the same day and night; high up only the floor
+        // differs, and in full night it is gone.
+        assert!((horizon_weight(5.0, 1.0) - horizon_weight(5.0, 0.0)).abs() < 0.3);
+        assert!(horizon_weight(30.0, 0.0) < 0.02);
+        assert!(horizon_weight(30.0, 1.0) > 0.2);
+        assert!(horizon_weight(30.0, 0.5) > horizon_weight(30.0, 0.0) && horizon_weight(30.0, 0.5) < horizon_weight(30.0, 1.0));
+    }
+
+    #[test]
     fn dome_mixes_display_values() {
         let (lower, horizon, upper) = ([0.1, 0.2, 0.3], [0.7, 0.8, 0.9], [0.03, 0.06, 0.25]);
         // Well below the horizon: sky-lower.
-        let c = dome_color(-20.0, 0.0, lower, horizon, upper);
+        let c = dome_color(-20.0, 0.0, 1.0, lower, horizon, upper);
         assert!(c.iter().zip(lower).all(|(a, b)| (a - b).abs() < 1e-4));
         // At the horizon with no upper weight: the horizon colour.
-        let c = dome_color(0.0, 0.0, lower, horizon, upper);
+        let c = dome_color(0.0, 0.0, 1.0, lower, horizon, upper);
         assert!(c.iter().zip(horizon).all(|(a, b)| (a - b).abs() < 1e-4));
         // Half of a colour as display values is darker than half in linear light.
-        let half = dome_color(90.0, 0.5, lower, horizon, upper)[2];
-        assert!(half < 0.5 * upper[2] + 0.5 * horizon_weight(90.0) * horizon[2]);
+        let half = dome_color(90.0, 0.5, 1.0, lower, horizon, upper)[2];
+        assert!(half < 0.5 * upper[2] + 0.5 * horizon_weight(90.0, 1.0) * horizon[2]);
     }
 }

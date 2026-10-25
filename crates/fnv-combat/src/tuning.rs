@@ -91,6 +91,8 @@ pub struct Rules {
     /// `fActionPointsRestoreRate`: spent AP comes back at this share of the maximum a
     /// second [hypothesis, vats-mode.md §7.2].
     pub ap_restore_rate: f32,
+    /// The VATS settings of VATS mode's hit chance (docs/design/vats-mode.md §17.1).
+    pub vats_hit: crate::vats::HitTuning,
     /// Settings not found in the load order (their defaults were used).
     pub defaulted: Vec<&'static str>,
 }
@@ -165,6 +167,15 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fActionPointsAttackGrenade", 35.0),
     ("fActionPointsAttackMine", 10.0),
     ("fActionPointsRestoreRate", 0.06),
+    // VATS mode's hit chance (docs/design/vats-mode.md §17.1): the GECK wiki's defaults
+    // (VATS Settings); FalloutNV.esm sets fVATSDistanceFactor 2 and fVATSSpreadMult 1.1
+    // [observed] and none of the others.
+    ("fVATSMaxChance", 95.0),
+    ("fVATSHitChanceMult", 1.0),
+    ("fVATSSkillFactor", 1.0),
+    ("fVATSDistanceFactor", 2.0),
+    ("fVATSSpreadMult", 0.5),
+    ("iVATSConcentratedFireBonus", 5.0),
 ];
 
 impl Rules {
@@ -255,6 +266,14 @@ impl Rules {
                 mine: n(),
             },
             ap_restore_rate: n(),
+            vats_hit: crate::vats::HitTuning {
+                max_chance: n(),
+                hit_chance_mult: n(),
+                skill_factor: n(),
+                distance_factor: n(),
+                spread_mult: n(),
+                concentrated_fire_bonus: n(),
+            },
             defaulted,
         }
     }
@@ -267,19 +286,31 @@ pub struct CombatTuning {
     pub dt_floor: f32,
     /// A headshot on a target that is unaware of the attacker is always a critical.
     pub headshot_unaware_crit: bool,
-    /// Spread added per shot, as a share of the weapon's Min Spread (in spread units).
+    /// Spread added per shot (spread units): this, plus [`Self::bloom_per_min_spread`]
+    /// times the weapon's Min Spread, times [`Self::bloom_auto_mult`] for automatics.
     pub bloom_per_shot: f32,
-    /// Bloom (spread units) recovered per second.
+    pub bloom_per_min_spread: f32,
+    pub bloom_auto_mult: f32,
+    /// Bloom (spread units) recovered per second once the weapon settles.
     pub bloom_recovery: f32,
     /// Bloom cap (spread units).
     pub bloom_max: f32,
+    /// Seconds of rest, beyond the weapon's own time between shots, before bloom starts
+    /// to shrink and a new burst's recoil pattern starts; closer shots build on each other.
+    pub settle_delay: f32,
     /// Actor-spread penalty while airborne (spread units, like the documented penalties).
     pub jump_spread: f32,
-    /// View kick per shot in degrees: base plus per point of damage per shot.
+    /// View kick up per shot in degrees: base plus per point of damage per shot, times
+    /// [`Self::recoil_auto_mult`] for automatics.
     pub recoil_base_deg: f32,
     pub recoil_per_damage_deg: f32,
-    /// View kick recovery, degrees per second.
-    pub recoil_recovery_deg: f32,
+    pub recoil_auto_mult: f32,
+    /// Each kick up is this share bigger or smaller at random.
+    pub recoil_jitter: f32,
+    /// The sideways kick as a share of the kick up, at most.
+    pub recoil_side_share: f32,
+    /// The chance per shot that the climb's lean swaps sides.
+    pub recoil_lean_flip: f32,
     /// Melee damage window after the `Hit` key, seconds.
     pub melee_window: f32,
     /// Rays across a melee swing, and the swing's half-angle in degrees.
@@ -340,13 +371,19 @@ impl Default for CombatTuning {
         CombatTuning {
             dt_floor: 0.2,
             headshot_unaware_crit: true,
-            bloom_per_shot: 0.03,
-            bloom_recovery: 1.0,
-            bloom_max: 0.25,
+            bloom_per_shot: 0.08,
+            bloom_per_min_spread: 0.04,
+            bloom_auto_mult: 0.5,
+            bloom_recovery: 2.0,
+            bloom_max: 1.0,
+            settle_delay: 0.3,
             jump_spread: 0.3,
-            recoil_base_deg: 0.4,
-            recoil_per_damage_deg: 0.03,
-            recoil_recovery_deg: 12.0,
+            recoil_base_deg: 0.6,
+            recoil_per_damage_deg: 0.04,
+            recoil_auto_mult: 0.5,
+            recoil_jitter: 0.25,
+            recoil_side_share: 0.4,
+            recoil_lean_flip: 0.3,
             melee_window: 0.1,
             melee_rays: 5,
             melee_arc_deg: 35.0,

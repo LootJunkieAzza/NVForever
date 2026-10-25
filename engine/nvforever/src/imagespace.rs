@@ -51,6 +51,7 @@ use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::ShaderRef;
 use fnv_world::image_modifier::{combine, graded, image_modifier, Dof, ImageModifier, ScreenEffect, DOF_BACK, DOF_FRONT, DOF_NO_SKY};
+use fnv_world::imagespace::Hdr;
 
 /// Grade parameters on the main camera.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
@@ -156,6 +157,12 @@ pub struct ScreenModifiers {
     dof_shown: String,
     /// The motion blur logged last.
     motion_shown: String,
+    /// The HDR values on the screen now: the image space's (with the weather's adapters)
+    /// and the same with the modifiers on it ([`ScreenModifiers::hdr_ratio`]).
+    hdr: Option<(Hdr, Hdr)>,
+    /// The modifiers whose intro sound was played and that are still on the screen
+    /// ([`modifier_sounds`]).
+    sounded: Vec<u32>,
 }
 
 impl ScreenModifiers {
@@ -173,6 +180,22 @@ impl ScreenModifiers {
         if on {
             self.held.push(form);
         }
+    }
+
+    /// How much the modifiers on the screen change HDR value `i` (`fnv_world::imagespace::
+    /// HDR_*`): the value with them over the value without; 1 when they leave it alone or
+    /// the image space has none (image-modifiers.md §11).
+    pub fn hdr_ratio(&self, i: usize) -> f32 {
+        match &self.hdr {
+            Some((base, graded)) if base.v[i] > 0.0 && graded.v[i].is_finite() => (graded.v[i] / base.v[i]).max(0.0),
+            _ => 1.0,
+        }
+    }
+
+    /// The HDR values on the screen now, modifiers included (the image space's own before
+    /// the first frame is graded).
+    pub fn graded_hdr(&self) -> Option<Hdr> {
+        self.hdr.map(|(_, g)| g)
     }
 
     fn record(&mut self, world: &WorldData, form: u32) -> Option<&ImageModifier> {
@@ -268,6 +291,36 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         }
     }
     (combine(&effects), forms, dof_source, motion_source)
+}
+
+/// The modifiers' sounds (image-modifiers.md §10): a modifier that comes on the screen
+/// plays its intro sound (RDSD) and one that leaves it its outro sound (RDSI), at the
+/// listener [hypothesis: the xEdit names "Sound - Intro" and "Sound - Outro"; the data
+/// fits, NVDLC03BattleBrewDrinkISFX starts a heartbeat and ends with
+/// NVDLC03RedMistWearOff, the stealth suit's ON and OFF modifiers have UIRadioSignalFound
+/// and UIRadioSignalLost as intro]. Logged as "image space modifier sound: …".
+fn modifier_sounds(mods: &mut ScreenModifiers, world: &WorldData, forms: &[u32], mut sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>) {
+    let came: Vec<u32> = forms.iter().copied().filter(|f| !mods.sounded.contains(f)).collect();
+    let went: Vec<u32> = mods.sounded.iter().copied().filter(|f| !forms.contains(f)).collect();
+    if came.is_empty() && went.is_empty() {
+        return;
+    }
+    let mut play = |mods: &mut ScreenModifiers, form: u32, intro: bool| {
+        let Some(m) = mods.record(world, form) else { return };
+        let Some(sound) = (if intro { m.intro_sound } else { m.outro_sound }) else { return };
+        info!("image space modifier sound: {} {} 0x{sound:08X}", m.edid, if intro { "intro" } else { "outro" });
+        if let Some(s) = sounds.as_deref_mut() {
+            s.write(nvf_play::sfx::PlaySound { sound: fnv_sim::FormId(sound), at: None });
+        }
+    };
+    for f in came {
+        play(mods, f, true);
+        mods.sounded.push(f);
+    }
+    for f in went {
+        play(mods, f, false);
+        mods.sounded.retain(|&x| x != f);
+    }
 }
 
 /// The game settings of the engine's own depth of field (image-modifiers.md §8.2, §8.4)
@@ -452,6 +505,7 @@ fn update_grade(
     (sim, aim): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<&mut ImageSpaceGrade>,
+    sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
 ) {
     let now = time.elapsed_secs();
     let (mut effect, forms, dof_source, motion_source) = match &world {
@@ -478,7 +532,7 @@ fn update_grade(
             let names: Vec<String> = forms.iter().map(|&f| mods.record(w, f).map_or_else(|| format!("{f:#010x}"), |m| m.edid.clone())).collect();
             info!("image space modifiers on the screen: {}", if names.is_empty() { "none".to_string() } else { names.join(", ") });
         }
-        mods.shown = forms;
+        mods.shown = forms.clone();
     }
     // The world behind the Pip-Boy is blurred, the Pip-Boy is not.
     let camera = projections.single().ok();
@@ -514,7 +568,12 @@ fn update_grade(
         Some(n) if pipboy > 0.0 => (PIPBOY_BLUR * pipboy, n / PIPBOY_SHARP),
         _ => (0.0, 0.0),
     };
-    let c = graded(&sky.cinematic(), &effect);
+    let base = sky.cinematic();
+    let c = graded(&base, &effect);
+    mods.hdr = Some((base.hdr, c.hdr));
+    if let Some(w) = &world {
+        modifier_sounds(&mut mods, w, &forms, sounds);
+    }
     let r = &effect.radial;
     let g = ImageSpaceGrade {
         tint: Vec4::new(c.tint[0], c.tint[1], c.tint[2], c.tint_amount),
@@ -552,9 +611,10 @@ pub(crate) struct BlurPipelines {
     by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 3]>,
 }
 
-/// The blur pipelines of a view, and whether its depth is multisampled.
+/// The blur pipelines of a view, whether its depth is multisampled, and the picture's
+/// format they were built for.
 #[derive(Component)]
-pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool);
+pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool, TextureFormat);
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
@@ -602,7 +662,7 @@ fn prepare_blur(
                 ids
             }
         };
-        commands.entity(entity).insert(BlurPipelineIds(ids, multi));
+        commands.entity(entity).insert(BlurPipelineIds(ids, multi, format));
     }
 }
 
@@ -619,7 +679,7 @@ pub(crate) fn blur_pass(
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
     let (smear, blur) = (grade.motion.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
-    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) {
+    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };

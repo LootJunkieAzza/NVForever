@@ -480,6 +480,31 @@ impl Animator {
         }
     }
 
+    /// Node `i`'s local transform from the layers `pick` accepts alone, at their times,
+    /// shared by weight × fade whatever their priorities (what those clips would give the
+    /// node by themselves); `None` when none of them has a track for it.
+    pub fn local_from(&self, i: usize, pick: impl Fn(&Layer) -> bool) -> Option<Transform> {
+        let bind = self.skel.locals.get(i).copied()?;
+        let (mut t, mut q, mut s, mut sum) = (Vec3::ZERO, Vec4::ZERO, 0.0f32, 0.0f32);
+        let mut first: Option<Vec4> = None;
+        for l in self.layers.iter().filter(|l| l.ease > 0.0 && pick(l)) {
+            let w = (l.weight * l.ease).max(1e-4);
+            for &(_, track, _) in l.bound.iter().filter(|b| b.0 as usize == i) {
+                let track = &l.clip.tracks[track as usize].1;
+                let time = l.sample_time(self.phase);
+                t += w * track.translation.sample(time).map_or(bind.translation, Vec3::from_array);
+                let mut v = Vec4::from(track.rotation_at(time).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w)));
+                if v.dot(*first.get_or_insert(v)) < 0.0 {
+                    v = -v;
+                }
+                q += w * v;
+                s += w * track.scale.sample(time).map_or(bind.scale.x, |[x]| x);
+                sum += w;
+            }
+        }
+        (sum > 0.0 && q.length_squared() > 1e-12).then(|| Transform { translation: t / sum, rotation: Quat::from_vec4(q).normalize(), scale: Vec3::splat(s / sum) })
+    }
+
     /// Write the pose to the skeleton's node entities (the root excluded) and to the
     /// extra nodes.
     pub fn apply(&self, transforms: &mut Query<&mut Transform>) {
@@ -553,6 +578,8 @@ mod tests {
             visibility: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
+            free_visibility: Vec::new(),
+            lights: Vec::new(),
         })
     }
 

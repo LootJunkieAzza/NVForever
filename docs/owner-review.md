@@ -7732,7 +7732,12 @@ saying their AvoidThreat line (unless Ignore Threats). Spec:
   within reach × (1 + Distance Mult); a rush's first melee decision on arrival is an
   attack, no hold or block.
 - *Guess:* the combat radius is measured from where the fighter stood when its fight began,
-  moved to where it stands each time it loses health; 0 is no limit.
+  moved to where it stands each time it loses health; 0 is no limit. (2026-10-23: it
+  limits how far the fighter itself goes out from there, not where its target may stand:
+  it pursues up to the radius, then holds. VCG02's geckos stand 3,600–3,950 units from
+  Sunny's sneak marker with a 3000 radius, so the old reading kept them from ever coming
+  at the player who shoots from there. *Check:* shot from Sunny's marker, do the first
+  well's geckos run all the way to the player, or stop about 3000 units out?)
 - *Guess:* Max Targeting FOV 0 is no limit (83 of 84 styles); only a new target is held
   back, and the fighter still turns to it, so the limit delays a fight.
 - *Guess:* iAvoidHurtingNonTargetsResponsibility (in no master) is 30: a fighter with less
@@ -8234,6 +8239,20 @@ Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10
   categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
   (*guess*).
 
+## Logic: the low-impact fields (2026-10-23, ESM audit low-impact list "Logic", branch claude/em12-logic)
+
+Bean bag shells now take 250 fatigue a hit (their ammo effect's Fatigue Mod), which can
+knock the target out; a script whose "Enabled" flag is clear does not run (one master
+script, on an unplaced gun-rack upgrade). Spec: [logic-fields](spec-notes/logic-fields.md).
+Decisions and guesses:
+
+- *Decision:* globals keep fractions whatever their type: GameHour, TimeScale and the
+  date globals are typed Short.
+- *Guess:* the fatigue is taken once a hit, from 0.
+- *Decision:* not built: repeated topics (the player's dialogue never removes a said
+  topic), Low/High Intelligence, the speech challenge roll, info order, log entries, MESG
+  Auto Display, the MGEF/SPEL/ENCH flags (reasons in the spec).
+- *Check:* does a bean bag knock a Powder Ganger down in one or two hits in the original?
 ## Actors: the low-impact fields (2026-10-23, ESM audit low-impact list "Actors", branch claude/em11-actors)
 
 Creatures flagged Not Pushable are not pushed aside; an actor flagged No Rotating To
@@ -8242,7 +8261,8 @@ loses that part; a creature's own bite or claw shows its CREA CNAM impact (bite,
 ghoul) instead of the player's fists'. Spec: [actor-fields](spec-notes/actor-fields.md).
 Decisions and guesses:
 
-- *Guess:* CREA bit 27 ("Not Pushable / Allow Pickpocket") is Not Pushable for creatures.
+- *Settled 2026-10-24:* CREA bit 27 is Not Pushable; Allow Pickpocket is bit 28 (GECK wiki
+  ActorHasBaseFlag; actor-flags.md §3).
 - *Guess:* No Rotating To Head-track acts as a package's HeadTracking Off.
 - *Decision:* nothing to build for RACE skill boosts, HAIR Fixed, LVLI owners and No
   Shadow (no master record uses them); the rest left with reasons in the spec.
@@ -8261,3 +8281,331 @@ it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
   (item-fields.md gives each reason).
 - *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
 
+## Objects: the low-impact fields (2026-10-23, ESM audit low-impact list "Objects", branch claude/em14-objects)
+
+A placed explosive is disarmable only when its projectile has "Can Be Disabled"; every
+master mine has it, so nothing in the master changes (a mod's explosive without it shows
+no Disarm prompt). The audit's "ARMA not drawn" and "EXPL knockdown unused" were already
+built. Spec: [object-fields](spec-notes/object-fields.md).
+
+- *Decision:* "Can Be Picked Up" is not used: a disarmed mine is a loose item.
+- *Decision:* the rest (door, water, header, tree, explosion and impact flags) left with
+  reasons in the spec.
+## World: the low-impact fields (2026-10-23, ESM audit low-impact list "World", branch claude/em13-world)
+
+The three placed weapons that name their ammo (REFR XAMT/XAMC: the varmint rifle in
+Primm's sheriff station, a BB gun at Nellis, a 9mm at Bison Steve) come with it when taken
+by hand. Every other field of the sub-list is used by at most a few records or has no
+documented effect; the spec lists each. Spec: [world-fields](spec-notes/world-fields.md).
+
+- *Guess:* the ammo comes the first time the weapon is taken by hand.
+- *Check:* does picking up Primm's varmint rifle give 10 5.56mm rounds in the original?
+
+
+## REPCONN catwalk stairs (2026-10-23, owner's playtest, branch claude/repconn-steps)
+
+The stairs up to Chris Haversam's and Jason Bright's intercom in the REPCONN Facility climb
+without a jump, walking or running. They are 24-unit steps; the player's cone-shaped bottom
+came to rest on a step's edge, and the step-up refused the few tenths of a unit it gained
+there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/physics.md).
+
+- *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
+  the feet (was 0.5 above the feet themselves).
+- *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+## Actors and logic: ESM full audit gaps (2026-10-24, branch claude/esm-actors-bec8d0)
+
+The creature flag bits 28–31 were named one bit off in the schema: Mr. House, Yes Man,
+Festus, ARCHIMEDES and the Dead Money holograms are now invulnerable, and the tumbleweeds
+and CG02Andy no longer are. Creatures flagged Is Ghost (the tumbleweeds, Festus, the Gun
+Runners' protectron, the Dead Money holograms) let shots pass and take no damage. NPCs
+move at their Speed Mult (Legion raiders 130–150, Lanius 180). Sneaking, E on an NPC (or a
+creature flagged Allow Pickpocket) shows Steal and opens its pocket; each take or
+placement rolls the wiki's chance; a live grenade placed in a pocket goes off after 2 s.
+A completed quest's Next Quest becomes the active quest. An NPC that dies holding its
+weapon drops it (iDeathDropWeaponChance 100). Flee packages without a distance read
+fFleeDistanceExterior/Interior; leveled actors read fLeveledActorMult*; Dead Money's West
+Town spares NPCs fall damage. Specs: [actor-flags §3](spec-notes/actor-flags.md),
+[pickpocket](spec-notes/pickpocket.md).
+
+- *Guess:* SetGhost 0 clears a base Is Ghost flag for that reference.
+- *Guess:* NPC clips play faster with their Speed Mult so the feet keep up (the wiki says
+  the original's do not: "the animations only sync up with a speed of 100%"). Say if
+  you would rather have the original's sliding feet.
+- *Guess:* the pickpocket prompt reads "Steal"; the menu's line shows the chance for one
+  unit of the selected row; a stack's value counts all the units moved.
+- *Guess:* a take or placement is one roll each; Take All is refused while stealing; a
+  stack with one equipped unit is hidden whole.
+- *Guess:* caught: the victim says Pickpocket and attacks as a seen thief's victim does;
+  no karma for the failed try; an unseen take costs karma as theft does.
+- *Guess:* companions and unconscious actors cannot be pickpocketed.
+- *Guess:* the planted explosive's blast is the player's and hurts others nearby.
+- *Guess:* iDeathDropWeaponChance is the chance a dying actor drops its weapon; corpses
+  laid out dead keep theirs.
+- *Guess:* fFleeDistanceExterior (5000) / Interior (3000) are the Flee package's
+  distances (before: 2048).
+- *Guess:* WRLD "Don't Allow NPC Fall Damage" spares NPCs only; the player still falls.
+- *Decision:* iLevelUpSkillPointsBase / Interval are not read: the wiki's Skill Rate page
+  says both are unused in New Vegas (the audit's §3 item was wrong).
+- *Check:* sneak up to someone in the original: does the prompt say "Steal"? Does a caught
+  attempt make them attack, or only talk?
+- *Check:* do the Gun Runners' protectron and Festus let bullets through in the original?
+## Cloud scroll, emittance weather, default objects (2026-10-24, ESM full audit §3/§7, branch claude/esm-world)
+
+The clouds scroll by each weather's own per-layer speeds (WTHR ONAM), and a weather fade
+blends the two weathers' layers each moving at its own rate. Glowing beams and lights that
+name a region (REFR XEMI) now follow the weather on screen when that region lists it.
+The companion wheel's stimpak and Paralyzing Palm's spell come from the default-object
+list (DOBJ places 0 and 5; the same forms as before with the shipped data). Specs:
+[world §6 "Cloud scroll", §8 "External emittance"](spec-notes/world.md),
+[default-objects](spec-notes/default-objects.md).
+
+- *Guess:* cloud speed scale. No source gives ONAM's unit; one speed unit is 1/25,600 of
+  a texture width per second (the old placeholder, kept), so NVWastelandClear's top layer
+  (speed 65) drifts one texture width in about 6.6 minutes.
+- *Guess:* a region the camera is not in shows its highest-chance weather for emittance.
+- *Check:* two screenshots of the same sky in the original, 30 s apart in clear weather:
+  how far do the clouds move? That fixes the scale.
+
+## VATS kill cameras (2026-10-24, ESM full audit gap 10, branch claude/esm-world)
+
+When the last mark of a VATS-mode run kills its actor, the game's own camera paths (CPTH)
+pick camera shots (CAMS), and each shot's camera model plays around the kill in slow
+motion with its screen effect. Earlier kills in the run get no camera. Spec:
+[vats-mode §19](design/vats-mode.md).
+
+- *Guess:* how the path tree is walked: the first passing path in order, then its first
+  passing child, else its own shots.
+- *Guess:* what the eight VATS area functions measure: free room beside the player, and
+  how far from the target a camera still sees it, on each side.
+- *Guess:* where a shot's camera stands: the model's camera about the actor the shot is
+  held by, facing along the line from the player to the target.
+- *Guess:* each shot plays for its Max Time in real seconds.
+- *Design:* a kill camera plays on every such kill, with no chance roll and no setting
+  to turn it off. The HUD stays up and movement keys still work while it plays.
+- *Decision for you:* the masters' death cameras are loaded but not played, because your
+  own death camera plays instead. Should the game's death camera replace yours?
+- *Check:* kill the last marked actor, a dog or a raider. Does the camera frame the kill
+  from the front or side, and not from inside a wall?
+
+## World items from the ESM audit (2026-10-24, ESM full audit gaps 16, 22, 24, 25, 26, 30, branch claude/esm-world)
+
+The world map's markers show their reputation; the local map leaves out doors marked
+hidden and doors that are switched off; the STATS hints read the default-object list;
+leveled locks get harder with level; the main menu shows only the flagged loading screens;
+sandbags, force fields and similar objects block NPC paths while they are switched on;
+the "No Alarm" doors excuse trespassing. Specs: [pipboy §5.3](spec-notes/pipboy.md),
+[simulation §5](spec-notes/simulation.md), [loading-screens §5](spec-notes/loading-screens.md),
+[navmesh §4c](spec-notes/navmesh.md), [crime-karma §3.3](spec-notes/crime-karma.md).
+
+- *Guess:* a marker's reputation shows on a second line under the name, as
+  "Goodsprings: Neutral" (the reputation's name, then your standing's title). The wiki only
+  says the reputation "is shown" on hover.
+- *Guess:* a door whose base is flagged Hidden is not drawn on the local map. The three such
+  doors in the base game are secret doors (CG04SecretDoor, a Lucky 38 wall door, a sewer
+  lid), and none leads elsewhere, so nothing on screen changes with the shipped data.
+- *Guess:* leveled locks get one step harder (Very Easy → Easy → …) for every 10 levels
+  past level 1, up to Very Hard, never needing a key. The level is fixed the first time the
+  lock is met, from the area's level (else yours). Only the add-ons use them (Dead Money 22,
+  Old World Blues 3, Honest Hearts 1), so at level 21 a Dead Money "Easy" locker shows Hard.
+- *Guess:* only obstacles that can be switched on and off (Initially Disabled or with an
+  enable parent: 149 in the base game) cut the navmesh, by their bounding box. The other
+  59,000 (rocks, cliffs) are already holes in the navmesh.
+- *Guess:* coming through a "No Alarm" door, you are not trespassing in the room you arrive
+  in until you leave it (5 doors: Dead Money 2, Lonesome Road 3).
+- *Design:* if no loading screen is flagged for the main menu (a mod's load order), the
+  menu falls back to the screens with no location.
+- *Check:* hover Goodsprings on the world map in the original: what does the text under
+  the name say? And does a Dead Money locker show a harder lock at level 30 than at 20?
+
+## Sound, projectiles and weapons from the ESM audit (2026-10-24, branch claude/esm-sound-weapons-6c6657)
+
+Placed sounds now follow their SOUN attenuation curve and reverb send; bullets whiz from
+the nearest point of their path; thrown knives, hatchets, spears and tomahawks land and
+can be picked up; power armour helmets and intercoms filter the voice; weapons play their
+hand grip (third person), power attack override and Hide Backpack; creatures' built-in
+guns shoot from their gun node. Specs: [audio §15.5](spec-notes/audio.md),
+[combat-rules §11b](spec-notes/combat-rules.md), [weapon-data-fields §7](spec-notes/weapon-data-fields.md).
+
+- *Guess:* the curve's three middle points stand evenly between the inner and outer
+  radius, with straight lines between them; the percentages are of the amplitude.
+  *Check:* walk away from a loud placed sound (a campfire, a generator): does it fade like
+  the original?
+- *Guess:* the reverb send is linear (control 80 sends a fifth). Most sounds now reverb
+  much less than before. *Check:* gunshots in the Goodsprings cave: too dry, too wet?
+- *Guess:* projectiles that are not supersonic (plasma, pulse, sonic) loop their sound
+  while they fly. *Check:* does a plasma bolt hum on its way in the original?
+- *Guess:* a thrown weapon that strikes an actor goes into its inventory; one that
+  strikes the ground lies there. The GECK wiki says "Can be Picked Up" "doesn't appear to
+  work with Missile type projectiles", and the masters' thrown weapons are Missiles.
+  *Check:* in the original, after throwing a knife at a wall or a gecko, is it there to
+  pick up (on the ground, on the body)?
+- *Guess:* the voice filter's sound (a radio band, a mild saturation, a short ring), and
+  that every talking activator without "No Voice Filter" is filtered (85 of 87, intercoms
+  and speakers). *Check:* a Brotherhood paladin in a helmet, and an intercom (Lucky 38,
+  the Sierra Madre): too thin, or filtered twice where the file is already filtered?
+- *Guess:* the power attack override replaces only the standing power attack.
+  *Check:* a standing power attack with the Machete Gladius or Chance's knife: a
+  different swing from a plain machete's?
+- *Guess:* the hand grip plays in third person only (the wiki says so; the first-person
+  files exist). *Check:* the plasma rifle and the throwing spear in third person: does the
+  left hand sit right?
+- *Guess:* a creature fires its built-in gun (sentry bot, eyebot) only when its skeleton
+  has the gun's node; before, embedded guns were never fired at all. *Check:* a sentry bot
+  at REPCONN or Nellis: does it shoot from its gun arms now, and do creatures whose gun
+  node is in a body part (protectrons, fire geckos) still only strike?
+- *Question:* VATS special attacks (the Machete's "Back Slash", AP and damage multiplier
+  per weapon) need a choice per mark, which NVForever's VATS mode does not have. Wanted,
+  and how would you pick one (a key cycling the mark's attack)?
+## Area effects, screen-effect HDR and sounds, explosions' orientation, water edges (2026-10-24, ESM audit gaps 3, 8, 9, 27, 28, branch claude/esm-effects-5fb7c5)
+
+Spells and weapon effects with an area now reach the actors around where they land (the
+Legion explorers' aura, the EvaluatePackage pulses at Hoover Dam, the disguise pulse,
+Lanius's and Meanie's knockdowns, the Glowing One's attack burst). Scripted screen effects
+play their HDR keys (the poison stings' brightening, the camera flash's glow) and their
+intro and outro sounds (the poison sting, the stealth suit's on and off, Battle Brew's
+heartbeat, the cave wind). Explosions without "Always Uses World Orientation" turn to the
+ground under them. Water fades in at the shore over its depth falloff. Specs:
+[area effects](spec-notes/area-effects.md), [image modifiers §10-11](spec-notes/image-modifiers.md),
+[explosion effects §10](spec-notes/explosion-effects.md), [world §6 water](spec-notes/world.md).
+
+- *Settled by a capture:* an area is in feet (21.3 units each; the explorer's aura reached
+  Doc Mitchell at 899 units and not Chet at 1,170), and the caster gets the spell too.
+- *Guess:* a pair the detection never measured counts as in sight (the disguise pulse
+  needs sight).
+- *Guess:* a modifier that doubles Target LUM makes the picture one EV brighter; a lower
+  Bright Clamp makes the light glow stronger (the camera flash reaches full glow).
+- *Guess:* Eye Adapt Speed is a speed (higher is faster), 3 EV a second at the usual 0.9;
+  interiors with 0.3 adapt three times slower than before, those with 5 or 8 at once.
+- *Guess:* the intro sound plays when a screen effect starts, the outro when it ends;
+  weather adapters' sounds (thunder, birds) are not played.
+- *Guess:* an explosion without the world-orientation flag lines up with the ground under
+  it (a grenade against a wall still uses the floor).
+- *Guess:* a water type's depth falloff is a fraction of its above-water fog far distance
+  (Lake Mead: the surface fades in over the first 9 units of water).
+- *Check:* at Boulder Beach, is the shoreline's reflection edge soft over a few units in
+  the game, or hard? A frame at noon from a few metres up would show it.
+- *Check:* a Bark Scorpion sting at noon: does the picture brighten for a moment?
+- *Open:* the "Actor Effect" spells in actors' lists (Tunnelers' DT, Ruthless, spore
+  carriers' regeneration) are still not applied; two captures could not ask the game
+  about placed actors (area-effects.md §3-4).
+# Owner review: open gameplay decisions
+
+Only decisions that change how the game plays and that need **you**: design choices,
+feel, and places where NVForever chose to differ from the original. Most important first.
+Anything that asks "what does the original do here?" is not here: the observer can
+answer it, and it is in [observer-checks.md](handoff/observer-checks.md).
+
+Condensed 2026-10-24 from the full running log (8,300 lines, 2026-10-09 to 2026-10-23).
+Merge records, tooling, look-only guesses and items already ruled were dropped. The full
+log is in git history: `git show 85dcaace:docs/owner-review.md`. Each spec note still
+lists its own guesses.
+
+**Adding an item:** one bullet in the right tier, what was chosen and what changes if you
+rule otherwise, with its spec link. If the original game can answer it, add it to
+observer-checks.md instead. **Ruling on one:** delete the bullet and note the ruling in
+the spec it links to.
+
+## Tier 1: felt in every fight or every session
+
+1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
+   any hit (3 s cooldown), which goes further than your "crippling hit and later hits
+   to that part" rule. The player flinches the same way: the view jumps up to 4°, the
+   swing breaks, and there is no attack for 0.6 s. This happens even in god mode.
+   If you rule otherwise, torso crippling stops causing repeated staggers.
+   ([crippled-limbs](spec-notes/crippled-limbs.md), [combat-ai §18](design/combat-ai.md))
+2. **NPC gunfire is maybe too deadly.** NPCs react in 0.6 s, their first shots are 4°
+   wider, and the spread settles over 3 s. They aim from the eyes. Violet hit 12 of 15
+   shots at 1,600 units. If you rule otherwise, openers get slower or less accurate.
+   ([combat-ai](design/combat-ai.md))
+3. **Combat AI tuning, all our own numbers.** Combat is not a parity target, so play and
+   say which of these feels wrong ([combat-ai §12–§17](design/combat-ai.md)):
+   - Crouch beyond 600 units, rolled every 1.5–4 s at 25–90 % by temperament. Up to
+     40 % extra cover chance.
+   - Melee block 80 %/40 % with a 0.12–0.35 s reaction. A blocked blow does 60 % less
+     damage and the attacker recoils for 1 s.
+   - Dodges about half the time while holding, about 87 units. Combos run 2–3 blows
+     (55 % chance to chain).
+   - Gunmen stop at 80 % of their reach (400–2,500 units). Flamers stop at 320, shotguns
+     at about 480, and launchers just clear of their own blast; launchers never fire into
+     it. Cover is at most 1,024 units away.
+   - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
+     searches give up after two sweeps.
+   - Fire only with the target within 30° ahead, turning at 240°/s.
+   - Creatures start blows on the run from up to 200 units beyond reach (minimum
+     closing speed 100 units/s).
+   - Comrades and the player block an NPC's shot; animals in the way do not.
+   - A fighter in cover hides from whoever shoots at it but fires at its own target.
+   - Combat barks: only the 5–30 s timer, no group cooldown (a pack of dogs all yelp).
+4. **Melee with a crippled arm.** Uses the game formula's numbers: 40 % less damage
+   with a fully crippled arm, 20 % at half. Your notes said −10 % / −5 %. Which one?
+   ([crippled-limbs](spec-notes/crippled-limbs.md))
+5. **Crippled arms and head, the player's side.** Aim sways in a figure-eight: 1.5° with
+   one crippled arm, 3° with both, every 2.5 s. A crippled head adds 0.2 spread on top of
+   Perception −4. All numbers are mine. ([crippled-limbs](spec-notes/crippled-limbs.md))
+6. **Weapon jamming.** Below 75 % condition a gun may jam: up to 4 % per shot at 0 %
+   (0.77 % at 50 %), on a 1.5-power curve. NPCs never jam. More, less, or NPCs too?
+   (`crates/fnv-combat/src/tuning.rs`)
+7. **Lockpicking and Force Lock tuning.** The sweet spot is 30/20/12/8/5° from Very Easy
+   to Very Hard, +1 % per skill point over the lock's need. A pin lasts 1 s of strain
+   (+0.02 s per point over). The sweet spot is rolled again each time the menu opens.
+   Force Lock succeeds 3 % per point over the need, at most 95 %; failing breaks the lock
+   for good, and forcing gives no XP. ([lockpicking](spec-notes/lockpicking.md))
+8. **Melee controls.** Holding Use for 0.4 s makes a power attack (you described "about
+   a second"). During a round-by-round reload, a press only closes the weapon; a press
+   during closing is kept for 0.25 s and fires if closing ends in time.
+   ([combat-rules §4, §10](spec-notes/combat-rules.md))
+9. **Every bullet is drawn.** The original draws only the record's tracer share (minigun
+   30 %, 10mm 0 %). Ours draws every projectile at the record's speed, plus a 0.08 s line.
+   Should the original's shares come back? ([combat §5.6](design/combat.md))
+10. **True iron sights on by default.** Guns with a sight node aim down the real sights,
+    and the crosshair is hidden while aiming. A Gameplay switch gives the original aim.
+    ([camera §4.1](spec-notes/camera.md))
+11. **Scope sway.** Sways by `scopewobble.nif`, at most half of spread × 5.955°, halved
+    unless you fired in the last 0.5 s (about 1° for a new character's sniper rifle).
+    The scope comes up 0.25 s after Block. ([weapon-scopes](spec-notes/weapon-scopes.md))
+12. **Blood on the screen when hurt.** ceil(lost/max × 25) splats for 20 s, at most 25,
+    and it can cover the view in fights. Less? ([screen-splatter §4](spec-notes/screen-splatter.md))
+
+## Tier 2: movement and controls feel
+
+13. **Grab.** Z held, or E held for 0.4 s, picks up an object or a corpse. It drops when
+    lagging 90 units and is thrown at up to 600 units/s. Nothing over 100 kg can be
+    picked up, and you can only walk while holding over 25 kg. All guessed.
+    ([grab](spec-notes/grab.md))
+14. **Steps.** Body and view lag over a step (95 % in 0.19 s, up to 24 units; over 48
+    counts as a teleport). A step-up counts from 0.25 units of rise. Smooth enough?
+    ([physics §6.8.1, §6.9.1](spec-notes/physics.md))
+15. **Third-person aim.** Shots and the activate prompt go to what is under the
+    third-person crosshair, but the shot still leaves from the eye, so cover near you
+    blocks it. Shoot from the camera's line instead?
+16. **Releasing camera pan.** Letting go of the free-look key returns you straight to
+    first person if you were in it. Did your item mean "stay in third person"?
+17. **Controller.** Grab is on the right-stick press, Toggle POV on LB, and the D-pad is
+    Hotkey 1 / Ammo Swap / Hotkey 3 / Hotkey 4. Look speed is 1.5/1.2 rad/s, squared, and
+    you walk under 0.6 stick push. Keyboard and mouse are off when Controller is chosen:
+    should both work? Rumble strengths are guesses. ([controller](design/controller.md))
+18. **Seated view limits.** With "Body in first person" on, a seated view turns at most
+    80° to each side and 75° down; with it off, all the way round. Limit both?
+    ([player-body §1.5](design/player-body.md))
+
+## Tier 3: rules where we chose to differ, or that the original has no answer for
+
+19. **Walking away from a conversation.** The world freezes while you talk, as in the
+    original, and walking off does not end it. Should walking off end it where the line
+    allows leaving? ([dialogue](design/dialogue.md))
+20. **NPCs opening scripted doors don't run the door's OnActivate.** The original does.
+    Ours skips it so door scripts don't hold NPCs up. Keep the difference?
+21. **Hidden Valley intercom.** Ours says Ramos's "[You hear nothing.]" and waits; the
+    original says nothing and ends the conversation. Keep ours?
+    ([talking-activators §3](spec-notes/talking-activators.md))
+22. **Character revision traits.** Traits the script does not name (Skilled, add-on
+    traits) stay, so the trait menu can grant up to two more. Clear them instead?
+    ([chargen §9](spec-notes/chargen.md))
+23. **Difficulty is an NVForever setting, not saved per game.** Companions are not
+    scaled by it. ([difficulty](spec-notes/difficulty.md))
+24. **Loading a save with missing plugins.** It loads with a notice and drops the
+    missing content. It is refused only when you stand in a missing plugin's cell. Prompt
+    first? ([save-load §4.1](design/save-load.md))
+25. **Delete-save key.** Delete on the load page asks Yes/No. Which key do you want?
+    ([save-load §6.1](design/save-load.md))

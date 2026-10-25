@@ -29,7 +29,7 @@
 
 use crate::anim_blend::Animator;
 use crate::anim_play::{cycle_time, BlendPlayer, MaterialTarget, MaterialTrack, Playing};
-use crate::nif_material::{multiply_emissive, NifMaterial};
+use crate::nif_material::{display_emissive, emissive_in_display, NifMaterial};
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use std::sync::Arc;
@@ -146,15 +146,17 @@ impl Driven {
 /// [hypothesis, effects-animation-audit.md §2: the Securitron idle's screen glow keys
 /// average 0.032 × multiplier 30 ≈ 1 and its screen-change flash reaches 0.99 × 30,
 /// while an unlit shape here otherwise draws its texture as it is, so its emissive light
-/// would not show].
+/// would not show]. An additive or multiply-blended shape forms its light in display
+/// values, so the value is raised to the display gamma (nif_material
+/// `display_emissive`).
 pub fn pose_material(m: &mut NifMaterial, look: &Look, driven: Driven, unlit_glow: bool) {
     let Look { colour, mult, alpha, .. } = *look;
     if driven.emissive {
+        let value = |c: f32| if emissive_in_display(m.base.alpha_mode) { display_emissive(c * mult) } else { c * mult };
         if unlit_glow && m.base.unlit && !matches!(m.base.alpha_mode, AlphaMode::Multiply) {
             let a = m.base.base_color.alpha();
-            m.base.base_color = Color::LinearRgba(LinearRgba::new(colour[0] * mult, colour[1] * mult, colour[2] * mult, a));
+            m.base.base_color = Color::LinearRgba(LinearRgba::new(value(colour[0]), value(colour[1]), value(colour[2]), a));
         } else {
-            let value = |c: f32| if matches!(m.base.alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * mult) } else { c * mult };
             m.base.emissive = LinearRgba::rgb(value(colour[0]), value(colour[1]), value(colour[2]));
         }
     }
@@ -392,6 +394,12 @@ mod tests {
         pose_material(&mut m, &l, Driven { emissive: true, ..default() }, true);
         assert!((m.base.base_color.to_linear().red - 0.96).abs() < 1e-5);
         assert_eq!(m.base.emissive, LinearRgba::BLACK);
+        // An additive shape forms it in display values: 0.96 raised to the display gamma.
+        let mut added = NifMaterial::default();
+        added.base.unlit = true;
+        added.base.alpha_mode = AlphaMode::Add;
+        pose_material(&mut added, &l, Driven { emissive: true, ..default() }, true);
+        assert!((added.base.base_color.to_linear().red - 0.96f32.powf(2.2)).abs() < 1e-5);
         // Without the rule, and on a lit shape, it is emissive light.
         l.colour = [0.1; 3];
         let mut lit = NifMaterial::default();
@@ -414,7 +422,7 @@ mod tests {
             cycle: Some(crate::anim_play::OwnCycle { start: 0.0, stop, frequency: 1.0, phase: 0.0, cycle_type: 0 }),
         };
         let tracks = [track(1, 36.666668), track(0, 44.1)];
-        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec(), Vec::new());
+        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec(), Vec::new(), Vec::new());
         assert!((clip.stop - 44.1).abs() < 1e-4);
         let slots = [slot("WispsGeo:0")];
         // 50 s of play: V is 13.33 s into its second cycle, U 5.9 s into its second,

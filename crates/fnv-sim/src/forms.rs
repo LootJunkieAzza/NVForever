@@ -140,6 +140,11 @@ pub struct Item {
     /// of `fnv.sim.items/1`.
     #[serde(skip)]
     pub not_for_npcs: bool,
+    /// A weapon thrown or laid rather than held: its animation type is one of
+    /// [`THROWN_ANIM_TYPES`]. An actor's own choice holds one only when it carries no other
+    /// weapon it can draw (docs/spec-notes/actors.md §9.3). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub thrown: bool,
     /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
     /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
     /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
@@ -175,6 +180,12 @@ pub struct Item {
     /// ([`crate::World::activate`]; skill-books.md §4). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub cant_be_taken: bool,
+    /// ARMO DNAM flag "Modulates Voice" (bit 0): "the item modulates the actor's voice"
+    /// [documented: xEdit wbDefinitionsFNV.pas ARMO DNAM; GECK wiki Armor, ArmorAddon
+    /// ("like Power Armor helmets do")]. Its wearer's lines play through the voice filter
+    /// (nvf-play `voice_filter`). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub modulates_voice: bool,
 }
 
 impl Item {
@@ -301,7 +312,10 @@ pub enum BaseData {
     LeveledItem(LeveledList),
     /// PROJ, the base of a placed explosive (PGRE). `item` is the weapon that fires
     /// this projectile, when exactly one does (what disarming yields).
-    Projectile { item: Option<FormId> },
+    /// `item`: the weapon that fires it, the loose item a disarmed one becomes; linked
+    /// only when the PROJ's DATA flag "Can Be Disabled" is set (or it has no DATA)
+    /// [documented: xEdit PROJ flags] (docs/spec-notes/object-fields.md §1).
+    Projectile { item: Option<FormId>, can_be_disabled: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -316,9 +330,20 @@ pub struct BaseForm {
     /// XATO comes first. Not written to JSON.
     #[serde(skip)]
     pub prompt: Option<String>,
+    /// A talking activator (TACT) without the record header flag "No Voice Filter"
+    /// ([`NO_VOICE_FILTER`]): its lines play through the voice filter (nvf-play
+    /// `voice_filter`) [hypothesis: the flag's name says the filter is the rule for
+    /// talking activators; 2 of FalloutNV.esm's 87 set it, both radios]. Not written to
+    /// JSON.
+    #[serde(skip)]
+    pub voice_filter: bool,
     #[serde(flatten)]
     pub data: BaseData,
 }
+
+/// Record header bit 13 of a TACT, "No Voice Filter" (8192) [documented: GECK wiki
+/// GetFormFlag bit table, adapted from FNVEdit; owner export].
+pub const NO_VOICE_FILTER: u32 = 1 << 13;
 
 pub(crate) fn ser_sig<S: serde::Serializer>(sig: &[u8; 4], s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&String::from_utf8_lossy(sig))
@@ -495,9 +520,10 @@ fn link_projectiles(mut loaded: Vec<(FormId, Loaded, Issues)>) -> Vec<(FormId, L
     }
     for (_, l, issues) in &mut loaded {
         if let Loaded::Base(b) = l {
-            if let BaseData::Projectile { item } = &mut b.data {
+            if let BaseData::Projectile { item, can_be_disabled } = &mut b.data {
                 match firing.get(&b.id).map(Vec::as_slice) {
-                    Some([w]) => *item = Some(*w),
+                    Some([w]) if *can_be_disabled => *item = Some(*w),
+                    Some([_]) => {}
                     Some(ws) => issues.note("PROJ fired by several weapons", || format!("{} {:?}", b.id, ws)),
                     None => {}
                 }
@@ -532,6 +558,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     name: None,
                     script: None,
                     prompt: None,
+                    voice_filter: false,
                     data: BaseData::Item(Item {
                         kind,
                         value: None,
@@ -548,12 +575,13 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         armor_dt: None,
                         weapon_damage: None,
                         weight_mods: [0.0; 3],
-                        drawable: false, not_for_npcs: false,
+                        drawable: false, not_for_npcs: false, thrown: false,
                         quest_item: quest_flag(schema, r),
                         icon: None,
                         placed_count: None,
                         teaches: None,
                         cant_be_taken: false,
+                        modulates_voice: false,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -660,12 +688,16 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
             b"ACTI" | b"TACT" | b"TERM" => BaseData::Activator,
             b"FURN" => BaseData::Furniture,
             b"LVLI" => BaseData::LeveledItem(leveled(lo, pi, id, &d, issues)),
-            b"PROJ" => BaseData::Projectile { item: None },
+            b"PROJ" => BaseData::Projectile {
+                item: None,
+                can_be_disabled: first(&d, b"DATA").and_then(|v| v.get("flags")).is_none_or(|f| has_flag(f, "Can Be Disabled")),
+            },
             _ => return Loaded::Skip,
         }
     };
     let prompt = if &sig == b"ACTI" { first(&d, b"XATO").and_then(text).filter(|t| !t.trim().is_empty()) } else { None };
-    Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, prompt, data }))
+    let voice_filter = &sig == b"TACT" && r.header.flags & NO_VOICE_FILTER == 0;
+    Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, prompt, voice_filter, data }))
 }
 
 /// Whether the record's header carries the flag the schema names "Quest Item" for its
@@ -764,6 +796,8 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         },
         not_for_npcs: kind == ItemKind::Weapon
             && first(d, b"DNAM").and_then(|v| v.get("flags2")).is_some_and(|f| has_flag(f, "Player Only") || has_flag(f, "Not Used In Normal Combat")),
+        thrown: kind == ItemKind::Weapon
+            && first(d, b"DNAM").and_then(|v| v.get("animation_type")).and_then(text).is_some_and(|a| THROWN_ANIM_TYPES.contains(&a.as_str())),
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
         money: match kind {
@@ -785,6 +819,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             _ => None,
         },
         cant_be_taken: kind == ItemKind::Book && data.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Can't be Taken")),
+        modulates_voice: kind == ItemKind::Armor && first(d, b"DNAM").and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Modulates Voice")),
     })
 }
 

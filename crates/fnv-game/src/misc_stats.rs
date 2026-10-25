@@ -72,6 +72,8 @@ pub const CHEMS_TAKEN: u16 = 9;
 pub const TIMES_ADDICTED: u16 = 10;
 pub const MINES_DISARMED: u16 = 11;
 pub const SPEECH_SUCCESSES: u16 = 12;
+pub const POCKETS_PICKED: u16 = 13;
+pub const PANTS_EXPLODED: u16 = 14;
 pub const BOOKS_READ: u16 = 15;
 pub const HEALTH_FROM_STIMPAKS: u16 = 16;
 pub const HEALTH_FROM_FOOD: u16 = 18;
@@ -93,7 +95,7 @@ pub const BLACKJACK_GAMES_PLAYED: u16 = 41;
 pub const SLOTS_GAMES_PLAYED: u16 = 42;
 
 /// The codes the rules or the engine count (the others only ModPCMiscStat changes).
-pub const COUNTED: [u16; 32] = [
+pub const COUNTED: [u16; 34] = [
     QUESTS_COMPLETED,
     LOCATIONS_DISCOVERED,
     PEOPLE_KILLED,
@@ -107,6 +109,8 @@ pub const COUNTED: [u16; 32] = [
     TIMES_ADDICTED,
     MINES_DISARMED,
     SPEECH_SUCCESSES,
+    POCKETS_PICKED,
+    PANTS_EXPLODED,
     BOOKS_READ,
     HEALTH_FROM_STIMPAKS,
     HEALTH_FROM_FOOD,
@@ -238,7 +242,7 @@ mod tests {
     use crate::aid::ValueChange;
 
     fn applied(code: u16, kind: ChangeKind, amount: f64, duration: f64) -> Applied {
-        let change = ValueChange { code, kind, amount, parts: false, applied: 0.0, permanent_pool: false, suspended: false };
+        let change = ValueChange { code, kind, amount, parts: false, limb: None, applied: 0.0, permanent_pool: false, suspended: false };
         Applied { id: 0, effect: FormId(0), change: Some(change), duration, extended: false }
     }
 

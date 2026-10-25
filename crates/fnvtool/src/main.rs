@@ -4,6 +4,7 @@
 
 mod activator_models;
 mod actor_anims;
+mod actor_creature_weapons;
 mod ai_choice;
 mod ai_cmd;
 mod ai_packages;
@@ -30,6 +31,7 @@ mod dds_cmd;
 mod dialogue_cmd;
 mod spt_cmd;
 mod esm_cmd;
+mod esm_fields;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
@@ -430,6 +432,20 @@ pub enum ActorCmd {
         /// Skeleton folder (VFS path).
         #[arg(long, default_value = r"meshes\characters\_male")]
         folder: String,
+    },
+    /// Creature weapons (docs/spec-notes/actors.md §10.4): for every creature base placed
+    /// creatures stand for, every weapon it can carry (template inventory sources and
+    /// leveled lists followed through all entries) and whether it can be drawn in its
+    /// hands: model, not embedded, stance clips in its skeleton folder, a `Weapon` node
+    /// (fnv.actor.creature_weapons/1).
+    CreatureWeapons {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
     },
     /// Furniture (FURN): the entry points of each model (`BSFurnitureMarker`), marker
     /// flags, how many references place it, and the clips the IDLE tree names for
@@ -946,6 +962,15 @@ pub enum EsmCmd {
         /// Only survey this plugin (case-insensitive name).
         #[arg(long)]
         plugin: Option<String>,
+    },
+    /// Every schema field and flag bit the records of a load order carry: per record
+    /// type, subrecord and field path, how often present, how often non-zero, the most
+    /// common values and each flag bit's count (fnv.esm.fields/1).
+    Fields {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
     },
 }
 

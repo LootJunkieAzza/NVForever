@@ -87,6 +87,8 @@ const GET_AV: u16 = 0x100E;
 const GET_IN_FACTION: u16 = 0x1047;
 const GET_FACTION_RANK: u16 = 0x1049;
 const GET_FACTION_RELATION: u16 = 0x11C2;
+const ADD_TO_FACTION: u16 = 0x117F;
+const SET_ENEMY: u16 = 0x1078;
 
 /// Template flags: Factions (bit 2), AI Data (bit 4) and AI Packages (bit 5).
 const FACTIONS: u16 = 0x4;
@@ -308,6 +310,27 @@ fn the_template_supplies_the_factions_it_is_flagged_for() {
     assert_eq!(call(&mut g, GET_FACTION_RELATION, MEMBER_REF, &[form(PLAYER)]), 1.0);
     assert_eq!(call(&mut g, GET_FACTION_RELATION, PLAYER, &[form(MEMBER_REF)]), 0.0);
     assert_eq!(call(&mut g, GET_FACTION_RELATION, OWN_REF, &[form(PLAYER)]), 0.0);
+}
+
+#[test]
+fn factions_kept_for_a_combat_ai_frame_follow_the_scripts_that_change_them() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.begin_faction_frame();
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, OWN_REF, &[form(PLAYER)]), 0.0);
+    assert_eq!(call(&mut g, GET_IN_FACTION, OWN_REF, &[form(RAIDERS)]), 0.0);
+    // Kept, then forgotten when a script adds the actor to the raiders.
+    call(&mut g, ADD_TO_FACTION, OWN_REF, &[form(RAIDERS), ArgValue::Value(Value::Num(0.0))]);
+    assert_eq!(call(&mut g, GET_IN_FACTION, OWN_REF, &[form(RAIDERS)]), 1.0);
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, OWN_REF, &[form(PLAYER)]), 1.0);
+    // And when a script makes the raiders neutral to the player's faction.
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, MEMBER_REF, &[form(PLAYER)]), 1.0);
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode: SET_ENEMY, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[form(RAIDERS), form(PLAYER_FACTION), n(1.0), n(1.0)]);
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, MEMBER_REF, &[form(PLAYER)]), 0.0);
+    g.end_faction_frame();
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, MEMBER_REF, &[form(PLAYER)]), 0.0);
 }
 
 #[test]
@@ -788,4 +811,29 @@ fn a_mine_spares_its_owners_side() {
     assert!(spares(&g, Some(0x14), 0x14));
     assert!(!spares(&g, Some(0x14), LOAFER_REF));
     assert!(!spares(&g, None, BANDIT_REF));
+}
+
+#[test]
+fn a_planted_explosive_goes_off_after_the_timer() {
+    // GECK wiki Projectile notes: GetPlantedExplosive is true after
+    // fProjectileInventoryGrenadeFreakoutTime; after fProjectileInventoryGrenadeTimer the
+    // explosive goes off, "always killing it regardless of its HP".
+    let f = fixture();
+    let mut g = game(&f);
+    let (victim, grenade) = (FormId(OWN_REF), FormId(0x0000_4330));
+    let rules = fnv_game::pickpocket::Rules::default();
+    let start = g.time;
+    g.plant_explosive(victim, grenade);
+    assert!(!g.has_planted_explosive(victim), "not before the freak-out time");
+    g.time = start + rules.freakout_time + 0.01;
+    assert!(g.has_planted_explosive(victim));
+    assert!(g.tick_planted().is_empty(), "not before the timer");
+    g.time = start + rules.grenade_timer + 0.01;
+    let blasts = g.tick_planted();
+    assert_eq!(blasts, vec![fnv_game::pickpocket::Blast { victim, item: grenade }]);
+    assert!(g.is_dead(victim));
+    assert!(!g.has_planted_explosive(victim), "gone off");
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+    // A dead actor cannot be pickpocketed.
+    assert_eq!(g.pickpocket_refusal(victim), Some(fnv_game::pickpocket::Refusal::NotAllowed));
 }

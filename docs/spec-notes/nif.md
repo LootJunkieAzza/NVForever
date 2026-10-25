@@ -439,6 +439,61 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **Emissive multiplier of unlit shapes** (2026-10-23). Gomorrah's neon
+  (`architecture\strip\gomorrahlights.nif`, `gomorrahlightslowerlevel.nif` [observed,
+  `crates/fnv-nif/examples/fx_audit.rs`]) is BSShaderNoLightingProperty shapes on
+  `StripLights01.dds`, SRC_ALPHA / INV_SRC_ALPHA, emissive white × multiplier 25
+  (`LightsNeon`, `GamorrahLowLights`), 15 (`OverHangGlow`), 5 or 3. In the original's
+  night frames of the Strip (owner's HDR on) such neon burns white at the core and
+  throws large coloured halos; drawn at its surface colour it was a dim strip. Rule in
+  the renderers [hypothesis from those frames; engineering choice where it goes beyond
+  them]: in an HDR view (the light glow, docs/design/graphics-enhanced.md §3.11) an
+  unlit shape is drawn as bright as its emissive light, surface colour × emissive colour
+  × multiplier, and never darker than its surface colour (so the 2,663 unlit shapes with
+  a black emissive colour keep their look). Multiply shapes are left alone. Without the
+  light glow (LDR view, tonemapped in the shader) nothing changes.
+- **Emissive colour of unlit shapes** (2026-10-23). Dead Money's wall lantern
+  (`nvdlc01\clutter\lights\nvdlc01_sconceon.nif`) has an additive glow card
+  (`SconceON:4`, `fxsoftglowspot01.dds`, SRC_ALPHA / ONE, view-angle falloff, 58 units
+  across around the 14-unit glass) whose NiMaterialProperty emissive is warm (0.85, 0.65,
+  0.47) × 1. Drawn by the rule above (never darker than the surface colour) the white
+  texture won and the glow was white beside an orange lamp; the owner: "the lamp is
+  orange but the light beam is white, it does not match". Survey of the unlit
+  (BSShaderNoLightingProperty) shapes [observed, `fx_audit.rs`]: `Fallout - Meshes.bsa` and
+  `Update.bsa` 7,147 (3,305 black emissive, 2,514 at or over 1 in every channel after
+  the multiplier, 291 grey under 1, 1,037 coloured under 1); `DeadMoney - Main.bsa` 356
+  (174, 153, 7, 22). Among the grey ones Lucky 38's base and stair lights store 0.1 ×
+  1.25, yet are bright in game, so the colour cannot simply multiply the texture. Rule
+  in the renderers [hypothesis]: a non-black emissive colour tints an unlit shape by its
+  hue (the colour over its brightest channel, a display colour, raised to the display
+  gamma), and its brightness is max(1, multiplier × brightest channel); a black colour
+  leaves the surface colour. The lantern's card turns warm orange, Dead Money's
+  holograms ((0, 0.87, 1) × 6) cyan, grey colours change nothing, Gomorrah's white × 25
+  is as before. Without the light glow the result is held to the surface colour. An
+  additive shape takes the brightness in display values (raised to the display gamma
+  like its hue; "Additive blend"), as does the image space's Emissive Mult on it.
+
+  Until 2026-10-23 neither rule reached unlit shapes: Bevy's
+  `pbr_input_from_standard_material` fills the emissive light in only for lit materials
+  [observed: bevy_pbr 0.19 `pbr_fragment.wgsl`], so an unlit shape's stayed black. The
+  shader now reads the material's emissive light for unlit shapes itself.
+- **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
+  (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
+  centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
+  [observed, `fnvtool nif decode`]. Each disc comes out of two opposite panes at their
+  middle, so the half-disc in front of a pane showed against the pane with a hard
+  vertical edge where it leaves the glass (owner's screenshots, twice: "the base game's
+  is seamless"). Two causes, both fixed by rule: the shape's shader flags (0xAE000148)
+  set both decal bits, and decals were left out of the soft intersections; and the
+  160-unit fade is far larger than such a shape. Now decal-flagged shapes fade like the
+  others (a decal laid on a surface lies along it and keeps its look; 738 unlit blended
+  base-game shapes and 32 in Dead Money carry the decal bits [observed, `fx_audit.rs`],
+  mostly light pools and grime cards on walls), and the fade distance is a quarter of the
+  shape's largest side when that is less than 160 units (`nif_material.rs`
+  `soft_distance`; 14.6 for the lantern glow) [engineering choice]; particle systems
+  keep 160 (their mesh is a unit quad). In the original's frame the glass also burns
+  near white ((255, 252, 235)), which hides any step; ours does since the image space's
+  Emissive Mult is applied (world.md §6 "Emissive mult").
 - **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
   destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
   colour, channel by channel, and the shape adds no light of its own [documented:
@@ -542,12 +597,62 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   reading as "Multiply blend"). Bevy adds to linear light, where 0.1 added to black
   shows as 0.35 on the screen. The linear light a display-value sum needs depends on the
   frame behind the shape: for a white ray of 0.1, 0.1^2.2 on black, 0.032 on a wall of
-  display value 0.15, 0.1 on one of about 0.45. A fixed blend cannot read the frame, so
-  the engine raises the alpha of additive shapes to a single power, 1.5
-  (`nif_material.wgsl` `add_alpha`, CPU mirror `nif_material::add_alpha`,
-  `ADD_ALPHA_POWER`); the colour is already linear. A ray of 0.1 then adds 0.21 on black
-  (game 0.1) and 0.05 on a wall of 0.3 (game 0.1). Power 2.2 would be exact on black but
-  add 0.01 on that wall.
+  display value 0.15, 0.1 on one of about 0.45.
+
+  Rule (2026-10-23, replacing the fixed power below): an additive shape reads the opaque
+  frame behind it, `behind` (Bevy's view transmission texture: the copy of the frame
+  after the opaque pass that water and refracting shapes already read), and adds
+  `(behind^(1/2.2) + colour^(1/2.2) × alpha)^2.2 − behind`: the display-value sum, as
+  linear light (`nif_material.wgsl` `add_display`, CPU mirror `nif_material::add_display`).
+  The colour is fogged first (at alpha 1). The emissive colour × multiplier of an additive
+  shape counts in display values (raised to 2.2 before the shader, as for "Multiply
+  blend"; `display_emissive`; for an unlit shape its brightness under "Emissive colour of
+  unlit shapes"), so the texture × multiplier × alpha is the game's term.
+  The sum is held to display 2.0 (`ADD_DISPLAY_MAX`) or the frame's own value if
+  brighter [engineering choice: it lets the Big MT's sky beams, display 1.5 at the core,
+  through whole and keeps a multiplier of 30 (the Securitron's screen flash) from adding
+  thousands of times white in the HDR view]. Bevy copies the frame only for a view with
+  something in its transmissive phase, so the engine keeps a material that reads the
+  copy on a triangle of no area in every render layer (`TransmissionAnchor`); otherwise
+  the shader would read a white stand-in. Cost: one copy of the frame per view and frame.
+
+  Why the fixed power (alpha^1.5, `ADD_ALPHA_POWER`, fitted in the Saloon) was replaced
+  [observed, `nvforever` against the original's frames, `C:\fnv-private\references\owb`
+  and `fx_audit`, 2026-10-23]:
+  - The Big MT's sky beams (`nvdlc03\clutter\imposters\nvdlc03imposterbeamblue.nif`:
+    two crossed planes, SRC_ALPHA / ONE, texture `NVDLC03glowbeamblue.dds` 32 × 4 of
+    colour (0, 207, 255) with alpha 16 to 255 across the beam, vertex alpha 0.15 on the
+    centre line and 0 at the edges, emissive white × 10, view-angle falloff) are broad
+    bright cyan beams in the original: over a sky of (17, 17, 33) the core reads (102,
+    171, 204) halfway up. The power took 0.15 to 0.058 and the multiplier did not reach
+    the shader at all ("Emissive multiplier of unlit shapes"): the beams added about (8,
+    20, 20). With the display-value sum they are bright cyan beams as in the original.
+  - The Strip's lamp beams (`effects\ambient\fxlightbeamnvstrip.nif`: white, vertex
+    alpha 0.25 at most, multiplier 1) on the night sky: the game adds 0.25 at most, the
+    power added 0.39 (fx-lighting-audit-2026-10-23.md item 4, "too strong at night").
+    Now 0.25; in the frames of the Strip the beams are the faint haze of the original.
+  - X-13's door lamps (`fxlightbeambrt03`) show as two beams, as in the original; Primm
+    and the Strip's other effects are otherwise unchanged.
+  - The Prospector Saloon's window rays, from the camera of the table below (shown minus
+    `--hide indfxlightrays --hide fxbasicglow`): mean 2.8 grey levels added, 8 or more
+    on 14 % of the frame, the display-value-sum target's own numbers (alpha^1.5: 2.0 and
+    10 %).
+
+  Open: overlapping additive shapes. Each is summed with the opaque frame alone, so
+  where several overlap (crossed beam planes) the sum falls short of the game's: n equal
+  faint shapes on black add n × d^2.2 instead of (n × d)^2.2 (the Saloon's rays, which
+  overlap little over lit walls, did not show it). Exact would
+  be adding every additive shape into a buffer of display values of its own and adding
+  that to the frame once. The Sink's balcony force fields
+  (`nvdlc03x13fxforcefield01.nif`, emissive × 1.2 and 2.0, animated alpha) are brighter
+  than before but still faint panels where the original shows a solid cyan band; the
+  original's frame was taken from above the ring and ours from the balcony, so they have
+  not been compared from the same place.
+
+  The fitted power it replaced, kept for the record: the engine raised the alpha of
+  additive shapes to a single power, 1.5; a ray of 0.1 then added 0.21 on black (game
+  0.1) and 0.05 on a wall of 0.3 (game 0.1). Power 2.2 would be exact on black but add
+  0.01 on that wall.
 
   The 182 ONE / ONE shapes (source factor ONE) add their colour whole: their alpha is
   not part of the blend [documented: nif.xml AlphaFlags source blend mode 0 ONE], so the
@@ -576,7 +681,8 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the table, the edge of its texture's faint tail; with power 1.5 the streaks are there, and the lantern keeps a small halo on its
   glass with no ring. Pictures: `C:\fnv-private\references\light_rays\`.
 
-  Open: an exact display-value sum (drawing additive shapes into a buffer of their own
+  Open in 2026-10-11 (the display-value sum against the opaque frame, above, now covers
+  one shape at a time): an exact display-value sum (drawing additive shapes into a buffer of their own
   and adding it to the frame in display values afterwards; additive shapes commute, so
   the sum would be exact up to the blended shapes in front of them); whether the
   game's streaks are as strong as ours (the owner's frame and ours differ in field of
@@ -595,7 +701,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 
   The Bison Steve Hotel's lobby (`BisonSteve01`, the main entrance) [observed, `fnvtool
   world refs`, `fnvtool nif decode`]: 2 `FXMistLow01` and 1 `FXSmokeWisps01`
-  (`effectsmbientxmistlow01.nif`, `fxsmokewisps01.nif`), unlit, SRC_ALPHA /
+  (`effects\ambient\fxmistlow01.nif`, `fxsmokewisps01.nif`), unlit, SRC_ALPHA /
   INV_SRC_ALPHA, texture `SmokeWispsTile.dds`, vertex alpha flag, vertex colours grey
   0.5 with alpha 0 to 0.5 (mean 0.11 and 0.17). Owner's screenshots of the same view
   (2026-10-23): the game shows the room clearly with almost no haze; `nvforever` drew a
@@ -613,6 +719,37 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   0.036. The same power as additive shapes; the share behind is kept so smoke still
   hides as much of the room as before. Lit blended shapes (glass, hair edges) are not
   changed. Open: no frame was measured against the game's yet.
+- **Soft intersections** (unlit effect shapes that meet an opaque surface). The Strip's
+  street lamp beam `effects\ambient\fxlightbeamnvstrip.nif` [observed, `fnvtool nif
+  decode`, `fnvtool world refs --world TheStripWorldNew`] is two crossed vertical panels
+  (normals -Y and -X), 1,800 units from the lamp head down, plus a glow disc under the
+  head and a glow shell around it; BSShaderNoLightingProperty, SRC_ALPHA / ONE, flags
+  0xA2000148 (vertex alpha, falloff bit 6, external emittance, z test), vertex alpha 0.25
+  at the top falling to 0 at the bottom. Its 32 references (`StripLightBeamAct`) are
+  placed at scale 0.6, about 460 units above the road, so the panels pass about 620
+  units into the road while still a third as bright as at the top. Drawn with a plain
+  depth test, the road cuts them along a straight line (a "+" seen from above). The
+  owner's game frame of the same street at night (2026-10-23) shows a faint haze above the
+  bulb and a soft pool on the road with no line where the panels meet road or pavement
+  [observed]. How the game hides it is not known (no depth-fade setting is documented for
+  this shader).
+
+  What the renderers do [engineering choice, nif_material.rs module notes "Soft
+  intersections"]: every unlit shape that adds or blends (additive SRC_ALPHA / ONE and
+  ONE / ONE, SRC_ALPHA / INV_SRC_ALPHA; light beams, glows, smoke and dust sheets and all
+  particle systems, and since 2026-10-23 decal-flagged ones; not multiply shapes or
+  refracting shells) fades out linearly
+  over `SOFT_DISTANCE` (160 units, view depth) in front of the opaque surface behind it,
+  read from the view's depth prepass. Where the shape lies along that surface (the
+  shape's and the surface's facings, both from screen derivatives, within about 25°;
+  full fade-out from 18° to 32°) it is not faded, so light spots and haze cards laid on
+  a floor or a wall stay. The rule is by blend and shader only: no model is named. Survey
+  of the shapes it covers in the placed models of `FalloutNV.esm` [observed,
+  `crates/fnv-nif/examples/fx_audit.rs` over `Fallout - Meshes.bsa` and `Update.bsa`,
+  joined with `fnvtool world refs` of every worldspace and interior]: 316 additive
+  shapes in 145 models (7,624 references), 1,129 unlit SRC_ALPHA / INV_SRC_ALPHA shapes
+  in 819 models (editor markers among them, which are not drawn), 1,262 particle
+  systems.
 - **Decal flags** (BSShaderFlags bit 26 `decal_single_pass` and bit 27
   `dynamic_decal_single_pass`; BSShaderFlags2 bit 21 `alpha_decal` [documented: nif.xml,
   schemas/nif/scene.json]). Survey of the visible shapes in `Fallout - Meshes.bsa`
@@ -787,10 +924,51 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the sequences' offset tracks (activators.md §2); with the ground smoke's UVs (V about
   0.84–1.0 at the foot) the pattern rises. Effect models (explosions, impacts,
   muzzle flashes) play all of these, active or not: explosion-effects.md §2. Placed
-  objects do not play transform, visibility and
-  colour controllers outside sequences (e.g. `fxdustmeshtube01.nif`'s
-  `NiVisController`), and particle systems inside ordinary models (`fxlightsmoke.nif`,
-  `dlc03fxdarksmoke.nif`, `fxtiresmoke.nif`, `ashtray03smoke.nif`; particles.md).
+  objects play moving transform controllers (effects-animation-audit.md §3) and
+  visibility controllers ("Visibility controllers" below) outside sequences too;
+  particle systems inside ordinary models: particles.md.
+- **Visibility controllers.** A `NiVisController` on a node, with a `NiBoolInterpolator`
+  whose `NiBoolData` keys say shown (1) or hidden (0) over time [documented: nif.xml],
+  shows and hides that node and everything under it. Two kinds on placed models
+  [observed, `fnvtool nif decode` over `Fallout - Meshes.bsa`, refs from `fnvtool world
+  refs` over FalloutNV.esm]:
+  - **In the Idle sequence**: `effects\ambient\fxelectricarc01.nif` (25 placed, in vault
+    interiors: 11 in Vault22d, 5 in 2EOVault21, …) and `02.nif` (4 placed) hold an Idle
+    (loop, 8.77 s and 8.03 s) whose controlled blocks include a `NiVisController` on the
+    node `BrightSpots01`/`02` (the controller's flags 108: manager controlled), with 265
+    and 243 keys one frame (1/30 s) apart, 25 and 29 of them shown: the bright spots at
+    the arc's ends blink on about one frame in ten. The same Idle moves `Electricity01`
+    and scrolls its texture. `gomorrahlightslowerlevel.nif` (1 placed) has an Idle visibility track
+    of the same kind [observed by the effect-animation audit of 2026-10-23; not decoded
+    again here].
+  - **Running by themselves**: `effects\ambient\fxdustmeshtube01.nif` (1 placed,
+    FXDustMeshTube01 ref 0017175D in WastelandNV south of Goodsprings) holds one
+    `NiVisController` on its node `DustTube`, flags 72 (Active, loop), start 0, stop
+    56.67 s, frequency 1, phase 0, no sequence; its 14 keys show the tube, hide it from
+    4.03 s to 7.43 s, show it to 17.47 s, hide it from 17.53 s to 29.8 s, show it to
+    43.93 s, hide it from 43.97 s to 50.47 s and show it to the loop's end: about 60 %
+    of the time shown.
+
+  How `nvf_assets` plays them: every clip a model plays (`anim_play::Playing`) carries
+  the visibility tracks of its sequence, sampled at the sequence time, and those of the
+  Active, not manager-controlled `NiVisController`s outside sequences
+  (`model::free_visibility_tracks`, `Clip::free_visibility`), each on its own cycle from
+  the clip's start (`OwnCycle`, as the free material and transform tracks); a model
+  with only these gets a clip of its own. `anim_play::advance_instances` writes the
+  node's `Visibility` when a track's value changes (`Playing::show`); between keys the
+  last key holds and before the first key the first holds [hypothesis: keys step, they
+  do not blend; `BoolTrack::at`]. A node the file hides that a track shows is built
+  and starts hidden (`vis_nodes` in `model.rs`). Random Anim Start bases start the
+  free tracks at the same phase as the clip [hypothesis]. An item lying in the world
+  whose only animation is such controllers (a gun's `##` parts, its slide) stays as
+  stored (`Clip::only_free_motion`, effects-animation-audit.md §3 "Items"); a reference
+  a script enables (`nvf_play::script_draw`) does not apply that item rule yet, for free
+  transform or visibility tracks. Before this, only
+  `object_anims` (script groups, needing the script runtime) and `shot_fx` (effects)
+  applied the sequence tracks, and nothing applied the free ones: the arcs' spots
+  were always on in world-only runs and the dust tube never hid. Those two appliers are
+  now this one. The original's timing of the blink was not compared with game frames
+  [hypothesis: the keys play at the sequence's rate, as the transform keys do].
 - **Unlit vertex colours as display values.** An unlit shape (BSShaderNoLightingProperty)
   draws texture × vertex colour; its vertex colours are taken as display values and
   converted to linear before the renderer's linear product (`nif_spawn::unlit_vertex_colors`)

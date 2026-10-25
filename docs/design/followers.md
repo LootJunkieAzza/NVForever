@@ -67,7 +67,16 @@ are not built.
   brought a teammate on a Patrol package along, on the player's own spot, by MoveTo and
   through a door (npc-behaviour-compare.md §13), so the rule is no longer "only those
   following"]. It is a MoveTo for the AI (`Game::teleported`): the walker starts
-  again there. Log: `ai [h] CraigBooneREF: put at (x, y, z) in <cell> with the player
+  again there. Fast travel brings them too.
+- **Followers that are not teammates come along too.** An actor whose current package is
+  a Follow or Accompany package with the player as its target (`Game::follows_player`),
+  standing in the cell the player left (indoors) or within 4,096 units of the player's
+  old place in the same worldspace (`FOLLOW_REACH`), is put beside the player in the same
+  way, after the teammates [owner decision 2026-10-23: Deputy Beagle, following on his
+  Follow package in the Primm hotel, took about 5 seconds to appear outside, walking to
+  the door; he should arrive with the player. The original's own timing for such
+  followers was not measured; the reach is a design guess]. Log: `… with the player
+  (follower): goes on from there`. Log: `ai [h] CraigBooneREF: put at (x, y, z) in <cell> with the player
   (teammate): goes on from there`.
 - **"The actor will act and react as if he is in the player faction for the purposes of
   combat. Other actors will treat the actor as if he were in the player faction."**

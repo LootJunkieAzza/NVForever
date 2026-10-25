@@ -11,12 +11,15 @@
 //!   documented in the masters), so the larger number is the slower need: a number of
 //!   seconds per point]. Dehydration's rate is in no master [observed]: the code reads
 //!   `fHCDehydrationRate` if a plugin has it [hypothesis: the name, by analogy] and else
-//!   takes [`DEHYDRATION_RATE_GUESS`].
+//!   takes [`DEHYDRATION_RATE`], 10 s [documented: the owner's Hardcore table,
+//!   2026-10-23, "~12/h (1 every 10s)"; the same table gives hunger "1 every 25s" and
+//!   sleep "1 every 50s", which the two settings agree with].
 //! - **Waiting and sleeping** "will also affect your needs" [documented: the help
 //!   message]: an hour waited counts as the seconds of play in which an hour passes at
 //!   the TimeScale (3600 / 30 = 120 s) for the effects' timers and the needs
 //!   [hypothesis]; an hour slept also lowers sleep deprivation by
-//!   [`SLEEP_RECOVERY_PER_HOUR`] instead of raising it [guess].
+//!   [`SLEEP_RECOVERY_PER_HOUR`] instead of raising it [documented: the owner's Hardcore
+//!   table, 2026-10-23, "~ -60/h Sleep"].
 //! - **Stages**: RADS, DEHY, HUNG and SLPD records give from which value each stage holds
 //!   and its actor effect (200 Minor … 1000 Fatal). The player has the effect of the
 //!   highest stage reached, added as AddSpell adds it, and loses it when the value drops
@@ -38,17 +41,19 @@ use crate::game::Game;
 use crate::trace::EventKind;
 use fnv_sim::FormId;
 
-/// Seconds of play per point of dehydration when no plugin sets the rate [guess: twice
-/// as fast as starvation's 25, as the help message says it is the fastest need].
-pub const DEHYDRATION_RATE_GUESS: f64 = 12.5;
+/// Seconds of play per point of dehydration when no plugin sets the rate [documented:
+/// the owner's Hardcore table, 2026-10-23, "1 every 10s", about 12 an hour; no master
+/// has the setting. Before, a guess of 12.5]. The fastest need, as the help message says.
+pub const DEHYDRATION_RATE: f64 = 10.0;
 
-/// Points of sleep deprivation an hour of sleep takes away [guess: nothing in the
-/// masters says; ten hours from the fatal stage to none].
-pub const SLEEP_RECOVERY_PER_HOUR: f64 = 100.0;
+/// Points of sleep deprivation an hour of sleep takes away [documented: the owner's
+/// Hardcore table, 2026-10-23, "~ -60/h Sleep"; nothing in the masters says. Before, a
+/// guess of 100].
+pub const SLEEP_RECOVERY_PER_HOUR: f64 = 60.0;
 
 /// The needs, their rate settings and the rates used without them.
 pub const NEEDS: [(u16, &str, f64); 3] = [
-    (DEHYDRATION, "fHCDehydrationRate", DEHYDRATION_RATE_GUESS),
+    (DEHYDRATION, "fHCDehydrationRate", DEHYDRATION_RATE),
     (HUNGER, "fHCStarvationRate", 25.0),
     (SLEEP_DEPRIVATION, "fHCSleepDeprivationRate", 50.0),
 ];
@@ -73,6 +78,17 @@ impl Game<'_> {
     /// Whether Hardcore mode is on (SetHardcore, else the configuration).
     pub fn hardcore(&self) -> bool {
         self.player.hardcore.unwrap_or(self.world.config().hardcore)
+    }
+
+    /// Turn Hardcore mode on or off (SetHardcore): the needs, and the weight of
+    /// ammunition, which the simulation counts by its own switch
+    /// (`fnv_sim::World::set_hardcore`) [observed: FalloutNV.esm's Hardcore help text,
+    /// "ammunition has weight"]. Turning it off marks the game as not always Hardcore
+    /// (IsAlwaysHardcore).
+    pub fn set_hardcore(&mut self, on: bool) {
+        self.player.hardcore = Some(on);
+        self.player.hardcore_was_off |= !on;
+        self.world.set_hardcore(on);
     }
 
     /// Seconds of play per point of a need.

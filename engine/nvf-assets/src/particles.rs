@@ -1011,7 +1011,11 @@ impl ModelCtx<'_> {
                 props.material_alpha = Some(1.0);
             }
             let mut template = particle_mesh();
-            let (material, _missing) = shape_material(&props, &mut template, &mut self.textures, &self.data, &mut self.images, self.formats.as_deref());
+            let (mut material, _missing) = shape_material(&props, &mut template, &mut self.textures, &self.data, &mut self.images, self.formats.as_deref());
+            // The template is one unit across; particles keep the full soft distance.
+            if material.extension.soft.x > 0.0 {
+                material.extension.soft.x = crate::nif_material::SOFT_DISTANCE;
+            }
             let material = self.materials.add(material);
             let data = ps.block_ref("data").and_then(|r| dec.get(r));
             let mut def = ParticleSystemDef {

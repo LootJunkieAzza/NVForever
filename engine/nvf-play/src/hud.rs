@@ -39,7 +39,7 @@ use nvf_assets::GameData;
 // ---- the interface files' numbers [documented: hud.md §2, §3] -------------------------
 
 /// The two corner pieces (`HitPoints`, `ActionPoints`): width and height.
-const HP_PANEL: Vec2 = Vec2::new(369.0, 127.0);
+pub(crate) const HP_PANEL: Vec2 = Vec2::new(369.0, 127.0);
 const AP_PANEL: Vec2 = Vec2::new(386.0, 127.0);
 /// The bracket pictures' room; the pictures are drawn texel for unit.
 const BRACKET: Vec2 = Vec2::new(512.0, 256.0);
@@ -110,8 +110,8 @@ const ENEMY_MARKS: (f32, f32) = (56.0, 307.0);
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
 
 /// From the view's side and bottom edges to the pieces.
-const MARGIN_X: f32 = 40.0;
-const MARGIN_Y: f32 = 30.0;
+pub(crate) const MARGIN_X: f32 = 40.0;
+pub(crate) const MARGIN_Y: f32 = 30.0;
 /// The bars stand this far above the long line.
 const METER_GAP: f32 = 4.0;
 /// Room between a label and what it labels.
@@ -141,8 +141,8 @@ const AP_METER_SHIFT: f32 = 2.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
 /// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
 /// the earlier 33 and 362].
-const UPPER_BASE: f32 = 33.0;
-const HP_LABEL_X: f32 = 23.0;
+pub(crate) const UPPER_BASE: f32 = 33.0;
+pub(crate) const HP_LABEL_X: f32 = 23.0;
 const AP_LABEL_END: f32 = 355.0;
 /// The condition bar ends this far before the divider, and its bottom stands this far
 /// above the line "CND" stands on; "CND" ends this far before the bar [observed: on the
@@ -156,18 +156,22 @@ const CND_LABEL_GAP: f32 = 11.0;
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
 const ENEMY_NAME_BASE: f32 = 53.0;
+/// Living Anatomy's "HP:… DT:…" line stands on this y of the enemy's piece, a line under
+/// the name [observed: the owner's screenshot 2026-10-24 of the original, the two lines
+/// about 20 of 528 rows apart: 36 interface units].
+const ENEMY_STATS_BASE: f32 = ENEMY_NAME_BASE + 36.0;
 /// The sneak word: the line it stands on, from the view's top, centred.
 const SNEAK_BASE: f32 = 51.0;
 
 /// The labels [hypothesis: the game takes them from its settings (`sStats…`); the
 /// owner's screenshot shows these words].
-const HP: &str = "HP";
+pub(crate) const HP: &str = "HP";
 const AP: &str = "AP";
 const CND: &str = "CND";
 
 /// The font of every text on the HUD: font 7 [documented: `hudtemplates.xml`;
 /// Fallout_default.ini `sFontFile_7`].
-const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
+pub(crate) const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
 const HUD_TEXTURES: &str = "textures\\interface\\hud\\";
 
@@ -373,6 +377,7 @@ fn gather(
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
     vats: Option<Res<crate::vats_mode::VatsMode>>,
+    driven: Option<Res<crate::player::ViewDriven>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -381,7 +386,10 @@ fn gather(
     // leaves the game in [owner 2026-10-17: "hide the UI so no health bar or AP or
     // dialogue"].
     let creating = control.as_ref().is_some_and(|c| c.portrait.is_some());
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating, ..view.clone() };
+    // Nor while an idle holds the camera (the opening's wake-up, `ViewDriven`), whatever
+    // the scripts' locks: only subtitles then [owner 2026-10-24].
+    let posed = driven.is_some_and(|d| d.0);
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed, ..view.clone() };
     if let Some(p) = &player {
         now.heading = p.heading.to_degrees();
     }
@@ -438,7 +446,7 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
-            .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin))
+            .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin))
             .add_systems(Update, (gather, draw, pips, texts).chain().in_set(HudSet).in_set(PlaySet::Ui));
     }
 }
@@ -516,6 +524,9 @@ struct AmmoText;
 struct EnemyPiece;
 #[derive(Component)]
 struct EnemyName;
+/// Holds Living Anatomy's line under the name (`crate::hud_target::TargetHealth::anatomy_line`).
+#[derive(Component)]
+struct EnemyStats;
 
 /// Holds the sneak word's letters.
 #[derive(Component)]
@@ -635,6 +646,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
             let (from, to) = (bx + ENEMY_MARKS.0, bx + ENEMY_MARKS.1);
             spawn_row(p, Bar::Enemy, from, by + ENEMY_LINE_Y - ENEMY_METER_GAP - TICK.y, to - from, ENEMY_PIPS, red);
             p.spawn((EnemyName, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
+            p.spawn((EnemyStats, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
         });
         // The sneak word, top middle.
         let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };
@@ -777,9 +789,10 @@ fn texts(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut face_: Local<Option<Face>>,
-    mut shown: Local<(Option<String>, Option<String>, Option<Sneak>)>,
+    mut shown: Local<(Option<String>, Option<String>, Option<Sneak>, Option<String>)>,
     ammo: Query<Entity, With<AmmoText>>,
     name: Query<Entity, With<EnemyName>>,
+    stats: Query<Entity, With<EnemyStats>>,
     sneak: Query<Entity, With<SneakText>>,
 ) {
     if !view.shown || ammo.is_empty() {
@@ -808,6 +821,18 @@ fn texts(
                 }
             });
             shown.1 = enemy;
+        }
+    }
+    // Living Anatomy: "HP:… DT:…" centred under the name, in its colour.
+    let anatomy = target.0.as_ref().and_then(|t| t.anatomy_line());
+    if shown.3 != anatomy {
+        if let Ok(e) = stats.single() {
+            commands.entity(e).despawn_related::<Children>().with_children(|p| {
+                if let Some(line) = anatomy.as_deref().and_then(|n| font.lines(n, None).into_iter().next()) {
+                    set_line(p, face_, &line, (ENEMY.x - line.width) / 2.0, ENEMY_STATS_BASE, crime_colour());
+                }
+            });
+            shown.3 = anatomy;
         }
     }
     if shown.2 != view.sneak {

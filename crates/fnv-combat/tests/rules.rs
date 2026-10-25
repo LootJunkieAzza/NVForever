@@ -248,6 +248,32 @@ fn crippled_head_and_arms_widen_the_spread() {
 }
 
 #[test]
+fn spread_perks_cut_the_strength_and_moving_penalties() {
+    let (r, t) = (Rules::defaults(), CombatTuning::default());
+    assert!(r.strength_req_penalty > 0.0);
+    // A weapon wanting Strength 8 in the hands of Strength 5: three points short.
+    let heavy = WeaponStats { strength_req: 8, ..gun(20) };
+    let weak = Stance { skill: 0.0, strength: 5.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    let plain = spread::actor_spread(&r, &t, &heavy, &weak);
+    // Weapon Handling takes 2 off the requirement: one point short.
+    let handled = Stance { strength_req_cut: 2.0, ..weak.clone() };
+    assert!(close(plain - spread::actor_spread(&r, &t, &heavy, &handled), 2.0 * r.strength_req_penalty));
+    // Never below no shortfall.
+    let more = Stance { strength_req_cut: 9.0, ..weak.clone() };
+    assert!(close(plain - spread::actor_spread(&r, &t, &heavy, &more), 3.0 * r.strength_req_penalty));
+    // Run 'n Gun halves the running penalty; a divisor under 1 counts as 1.
+    let w = gun(20);
+    let hip = Stance { skill: 0.0, strength: 10.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    let running = Stance { moving: true, running: true, ..hip.clone() };
+    let base = spread::actor_spread(&r, &t, &w, &hip);
+    let run = spread::actor_spread(&r, &t, &w, &running);
+    let gunning = Stance { aiming_move_divisor: 2.0, ..running.clone() };
+    assert!(close(spread::actor_spread(&r, &t, &w, &gunning) - base, (run - base) / 2.0));
+    let slow = Stance { aiming_move_divisor: 0.5, ..running.clone() };
+    assert!(close(spread::actor_spread(&r, &t, &w, &slow), run));
+}
+
+#[test]
 fn spread_formula_cone_bloom_recoil() {
     let r = Rules::defaults();
     let t = CombatTuning::default();
@@ -259,16 +285,87 @@ fn spread_formula_cone_bloom_recoil() {
     let running = Stance { moving: true, running: true, ..hip.clone() };
     assert!(close(spread::actor_spread(&r, &t, &w, &running), 0.5));
     assert!(close(spread::deviation_deg(1.0, 0.0), 5.955));
+    // The deviation is a diameter: the cone's half-angle is half of it.
+    assert!(close(spread::cone_deg(1.0, 0.0, &fnv_combat::data::WeaponStats::default(), &[]), 5.955 / 2.0));
     assert_eq!(spread::spread_dir([1.0, 0.0, 0.0], 0.0, 0.5, 0.5), [1.0, 0.0, 0.0]);
     for k in 0..20 {
         let d = spread::spread_dir([1.0, 0.0, 0.0], 10.0, k as f32 / 20.0, 0.37);
         assert!(d[0].acos().to_degrees() <= 10.0 + 1e-3);
     }
     let mut kick = Kick::default();
-    let up = kick.shot(&t, 1.0, 20.0);
-    assert!(up > 0.0 && kick.bloom > 0.0);
+    let mut rng = fnv_combat::rng::SplitMix(7);
+    let mut rnd = || rng.next_f32();
+    let up = kick.shot(&t, &gun(20), 0.5, &mut rnd);
+    assert!(up.pitch_deg > 0.0 && kick.bloom > 0.0);
     kick.recover(&t, 5.0);
-    assert_eq!((kick.bloom, kick.recoil_deg), (0.0, 0.0));
+    assert!(kick.settled());
+}
+
+/// Shots closer together than the settle delay build bloom and climb; once the trigger
+/// rests, bloom waits for the delay and then shrinks away. The climb never comes back
+/// by itself: pulling the view down is the player's.
+#[test]
+fn continuous_fire_blooms_and_climbs_then_settles() {
+    let t = CombatTuning::default();
+    let w = gun(20);
+    let mut kick = Kick::default();
+    let mut rng = fnv_combat::rng::SplitMix(11);
+    let mut rnd = || rng.next_f32();
+    let dt = 1.0 / 60.0;
+    let (mut climb, mut side) = (0.0f32, 0.0f32);
+    let mut blooms = Vec::new();
+    for _ in 0..8 {
+        let k = kick.shot(&t, &w, 0.5, &mut rnd);
+        climb += k.pitch_deg;
+        side += k.yaw_deg;
+        blooms.push(kick.bloom);
+        // 0.55 s between shots, a pistol at its fastest: longer than the bare settle
+        // delay, shorter than the weapon's interval plus it.
+        for _ in 0..33 {
+            kick.recover(&t, dt);
+        }
+    }
+    assert!(blooms.windows(2).all(|p| p[1] >= p[0]), "bloom only grows during the burst: {blooms:?}");
+    assert!(blooms[7] > 4.0 * blooms[0], "eight shots bloom well past one: {blooms:?}");
+    assert!(spread::deviation_deg(kick.bloom, 0.0) > 3.0, "the burst widens the cone by degrees");
+    assert_eq!(kick.burst, 8);
+    assert!(climb > 8.0, "the view climbs over the burst: {climb}");
+    assert!(side.abs() < climb, "mostly up: {side} sideways for {climb} up");
+    assert!((kick.climb_deg - climb).abs() < 1e-3 && (kick.climb_yaw_deg - side).abs() < 1e-3);
+    // Resting: the delay first, then bloom shrinks away; the climb stays.
+    let before = kick.bloom;
+    kick.recover(&t, kick.settle_after - kick.since_shot - 0.01);
+    assert_eq!(kick.bloom, before);
+    for _ in 0..120 {
+        kick.recover(&t, dt);
+    }
+    assert!(kick.settled(), "settled within two seconds: {kick:?}");
+    assert!((kick.climb_deg - climb).abs() < 1e-3, "nothing pulls the view back");
+    // The next burst starts from nothing.
+    kick.shot(&t, &w, 0.5, &mut rnd);
+    assert_eq!(kick.burst, 1);
+    assert!(kick.climb_deg < climb / 4.0);
+}
+
+/// Two bursts climb differently (the lean and jitter are random); automatics kick and
+/// bloom less per shot than a semi-automatic of the same damage.
+#[test]
+fn recoil_patterns_differ_and_automatics_kick_less() {
+    let t = CombatTuning::default();
+    let burst = |seed: u64, w: &WeaponStats| {
+        let mut kick = Kick::default();
+        let mut rng = fnv_combat::rng::SplitMix(seed);
+        let mut rnd = || rng.next_f32();
+        (0..6).map(|_| kick.shot(&t, w, 0.5, &mut rnd).yaw_deg).collect::<Vec<_>>()
+    };
+    assert_ne!(burst(1, &gun(20)), burst(2, &gun(20)));
+    let semi = gun(20);
+    let auto = WeaponStats { automatic: true, ..gun(20) };
+    let (mut a, mut b) = (Kick::default(), Kick::default());
+    let mut rnd = || 0.5;
+    let ka = a.shot(&t, &semi, 0.5, &mut rnd);
+    let kb = b.shot(&t, &auto, 0.1, &mut rnd);
+    assert!(kb.pitch_deg < ka.pitch_deg && b.bloom < a.bloom);
 }
 
 fn run(c: &mut Cycle, t: &CombatTuning, ticks: usize, dt: f32, trigger: impl Fn(usize) -> bool, carried: u32) -> Vec<Event> {
@@ -768,8 +865,16 @@ fn melee_swing_and_blast() {
     // A wall between the blast and the actor shields it, unless the EXPL ignores LOS.
     let walled = Toy { actors: vec![(7, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: Some(100.0) };
     assert!(blast(&walled, &t, &e, [0.0, 0.0, 30.0]).is_empty());
-    let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e };
+    let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e.clone() };
     assert_eq!(blast(&walled, &t, &ignore, [0.0, 0.0, 30.0]).len(), 1);
+    // A pack in a line: the ones behind are not shielded by the bodies in front.
+    let pack = Toy { actors: vec![(7, [60.0, 0.0, 30.0], 30.0), (8, [130.0, 0.0, 30.0], 30.0), (9, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: None };
+    let mut ids: Vec<_> = blast(&pack, &t, &e, [0.0, 0.0, 30.0]).iter().map(|b| b.actor).collect();
+    ids.sort();
+    assert_eq!(ids, vec![7, 8, 9]);
+    // A wall still shields the pack behind it.
+    let behind = Toy { wall: Some(100.0), ..pack };
+    assert_eq!(blast(&behind, &t, &e, [0.0, 0.0, 30.0]).iter().map(|b| b.actor).collect::<Vec<_>>(), vec![7]);
 }
 
 #[test]
@@ -899,4 +1004,55 @@ fn perk_entry_points_change_the_hit() {
     let two = ops(&[(entry::CALCULATE_WEAPON_DAMAGE, PerkOp::Add(2.0)), (entry::CALCULATE_WEAPON_DAMAGE, PerkOp::Mul(2.0))]);
     assert!(close(two.weapon_damage(20.0), 44.0));
     assert!(close(PerkOp::Abs.apply(-3.0), 3.0) && close(PerkOp::NegAbs.apply(3.0), -3.0));
+}
+
+/// Reload speed from Agility: 0.5 + 0.1 × Agility times the clip's speed, so a reload
+/// takes 5/3 as long at Agility 1 and 2/3 as long at 10 [documented: Fallout Wiki,
+/// Agility (Fallout: New Vegas)]; a round-by-round reload's parts all scale.
+#[test]
+fn reload_time_follows_agility() {
+    use fnv_combat::attack::reload_rate;
+    assert!(close(reload_rate(5.0), 1.0) && close(reload_rate(1.0), 0.6) && close(reload_rate(10.0), 1.5));
+    assert!(close(reload_rate(0.0), 0.6) && close(reload_rate(14.0), 1.5), "Agility read within 1 to 10");
+    let w = gun(10);
+    let t = CombatTuning::default();
+    let clips = ClipTiming { reload_len: Some(2.0), reload_hit: Some(0.5), reload_open_len: Some(0.6), ..ClipTiming::default() };
+    let base = Timing::of(&w, &clips, &t);
+    let slow = base.with_reload_rate(reload_rate(1.0));
+    assert!(close(slow.reload, 2.0 / 0.6), "{slow:?}");
+    let fast = base.with_reload_rate(reload_rate(10.0) * 1.25);
+    assert!(close(fast.reload, 2.0 / 1.875), "Rapid Reload's 1.25 on top: {fast:?}");
+    let r = fast.rounds.expect("round by round");
+    assert!(close(r.open, 0.6 / 1.875) && close(r.round, 0.5 / 1.875) && close(r.close, 1.5 / 1.875));
+    // Nothing else changes; a rate of 0 or below is read as 1.
+    assert!(close(fast.interval, base.interval) && close(fast.fire_delay, base.fire_delay));
+    assert!(close(base.with_reload_rate(0.0).reload, 2.0));
+}
+
+/// The Modify Attack Speed perks: the shot cycle runs `rate` times as fast; the reload
+/// does not change (perk-entry-points.md §10).
+#[test]
+fn attack_rate_shortens_the_cycle_not_the_reload() {
+    let base = Timing { interval: 0.6, fire_delay: 0.2, reload: 2.0, spin_up: 0.0, rounds: None, attach: Some(0.4) };
+    let fast = base.with_attack_rate(1.2);
+    assert!(close(fast.interval, 0.5) && close(fast.fire_delay, 0.2 / 1.2) && close(fast.attach.unwrap(), 0.4 / 1.2), "{fast:?}");
+    assert!(close(fast.reload, 2.0));
+    let slow = base.with_attack_rate(0.8);
+    assert!(close(slow.interval, 0.75));
+    assert!(close(base.with_attack_rate(0.0).interval, 0.6), "0 is read as 1");
+}
+
+/// Companion Nerve: a teammate's hits do 5 % more per point of the player's Charisma
+/// and its DT and DR go up by the same share [documented: Fallout Wiki, Charisma (Fallout:
+/// New Vegas), "+5% to their damage and armor"].
+#[test]
+fn companion_nerve_raises_damage_and_armour() {
+    let w = gun(20);
+    let plain = hit(&w, 1, &skilled(), &Target::default(), &[], HitPart::default(), 0.99);
+    let nerve = hit(&w, 1, &Attacker { nerve: 0.25, ..skilled() }, &Target::default(), &[], HitPart::default(), 0.99);
+    assert!(close(plain.dealt, 20.0) && close(nerve.dealt, 25.0), "{nerve:?}");
+    // DT 8 at Charisma 5 (+25 %) is 10; DR 10 % is 12.5 %.
+    let t = Target { dt: 8.0, dr: 10.0, nerve: 0.25, ..Target::default() };
+    let d = hit(&w, 1, &skilled(), &t, &[], HitPart::default(), 0.99);
+    assert!(close(d.dt, 10.0) && close(d.dr, 12.5) && close(d.dealt, 10.0 * 0.875), "{d:?}");
 }

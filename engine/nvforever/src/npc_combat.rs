@@ -25,7 +25,12 @@
 //!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
-//!   [design].
+//!   [design]. As the trigger is pulled, a gun fires only with a clear line from its
+//!   eyes and muzzle to the target's chest, else its head (`combat_tactics`: a wall in
+//!   the way), whatever detection says; held, it steps aside or closes in [design].
+//!   Test aid `NVF_PLAY_TEST_SEE_THROUGH_WALLS=1`: fighters count their targets as seen
+//!   whatever detection says, standing in for detection that says "seen" while a wall
+//!   stops the shot (smoke `combat-wall-hold`).
 //! - **Reloading**: its gun's magazine (WEAP Clip Size) empties as it fires, and it
 //!   reloads as soon as it is empty, whether it can fire then or not, playing its
 //!   weapon's reload clips (`attack_anims`, [`Move::Reload`]) for as long as they run in
@@ -39,7 +44,15 @@
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
-//!   were coming from Violet's face, not the gun"); without a muzzle node, from the eyes.
+//!   were coming from Violet's face, not the gun"). A creature's embedded weapon (a
+//!   sentry bot's minigun, an eyebot's laser) shoots from the node of the creature's
+//!   skeleton its WEAP `NNAM` names ("Node that the weapon is attached to" [documented:
+//!   GECK wiki Weapons, Embedded Weapon]; `ProjectileNode_RGatling`,
+//!   `ProjectileNode_HeadLaser`); a node only in a body part's model is not found
+//!   [design: the skeleton's nodes are the ones spawned]. Without either, from the eyes. A
+//!   creature with no weapon drawn in its hands fights with such an embedded gun when its
+//!   skeleton has the gun's node (before 2026-10-24 embedded guns were never fired: the
+//!   sentry bot only struck) [design: which of several; the first equipped or carried].
 //!   Inside its spread: the documented actor
 //!   spread for its weapon skill, standing, plus an aim that settles over
 //!   [`SETTLE_SECONDS`] of firing at the same target [design].
@@ -186,6 +199,12 @@ use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use std::collections::{BTreeMap, HashMap};
 
+/// Test aid `NVF_PLAY_TEST_SEE_THROUGH_WALLS=1` (module notes).
+fn sees_through_walls() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_SEE_THROUGH_WALLS").is_ok_and(|v| v == "1"))
+}
+
 /// Seconds between first seeing the target in a fight and the first attack [design].
 pub const REACTION_SECONDS: f32 = 0.6;
 /// Extra spread when an actor starts firing at a target, degrees, gone after
@@ -253,13 +272,9 @@ pub const CREATURE_BODY_REACH: f32 = 59.0;
 /// to another spot, at most [`HIDE_MOVES`] times a flight (§12.2.1) [design].
 pub const HIDE_SEEN_SECONDS: f32 = 4.0;
 pub const HIDE_MOVES: u8 = 2;
-/// Within this distance of its target an actor fires from the hip, beyond it down its
-/// sights: 20 m at 70 units per metre [owner's playtest list 2026-10-11; the units per
-/// metre: observed, gravity fits 9.81 m/s² at 70 units/m, physics.md §6.3].
-pub const HIP_FIRE_WITHIN: f32 = 1400.0;
-/// Once aiming down its sights, an actor keeps them up until its target is this much
-/// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
-pub const SIGHTS_HYSTERESIS: f32 = 50.0;
+/// The 20 m sights rule (hip fire within, sights beyond) is shared with the player's VATS
+/// mode shots in third person: `nvf_play::combat`.
+pub use nvf_play::combat::{aims_down_sights, HIP_FIRE_WITHIN};
 /// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
 pub(crate) const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
@@ -622,6 +637,22 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// Whether a creature's blow is a power attack, and which with its hit time (module
 /// notes): `have`, the power attacks it has clips for; `u` and `v`, rolls in [0, 1).
 /// Also says whether the chance was the fallback.
+/// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
+/// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
+/// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
+fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+    if !g.is_teammate(me) {
+        return 1.0;
+    }
+    let (v, applied) = g.entry_point_with(me, fnv_game::perks::MODIFY_ATTACK_SPEED, &[weapon], 1.0);
+    let v = (v as f32).clamp(0.1, 10.0);
+    if !applied.is_empty() {
+        let by: Vec<String> = applied.iter().map(|a| g.data.name(a.perk)).collect();
+        debug!("npc combat: {} {me} attacks at x{v:.2} ({})", g.data.name(me), by.join(", "));
+    }
+    v
+}
+
 fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f32)], fatigue: f32, u: f32, v: f32) -> (Option<(Power, f32)>, bool) {
     let own = style.filter(|s| s.power_attack_chance > 0.0).map(|s| creature_power_chance(s, fatigue));
     if have.is_empty() || u * 100.0 >= own.unwrap_or(FALLBACK_POWER_CHANCE) {
@@ -957,13 +988,6 @@ pub fn engage(arm_reach: Option<f32>, gun: Option<GunReach>) -> (f32, f32) {
     }
 }
 
-/// Whether an actor fires down its sights at a target `distance` away (module notes):
-/// only a gun with sights (`sight_fov` above 0), beyond [`HIP_FIRE_WITHIN`]; `was`: it
-/// aimed down them last frame (they stay up to [`SIGHTS_HYSTERESIS`] nearer).
-pub fn aims_down_sights(was: bool, distance: f32, sight_fov: f32) -> bool {
-    sight_fov > 0.0 && distance > if was { HIP_FIRE_WITHIN - SIGHTS_HYSTERESIS } else { HIP_FIRE_WITHIN }
-}
-
 /// The extra spread of an actor that has fired at its target for `firing` seconds.
 pub fn settling(firing: f32) -> f32 {
     SETTLE_DEGREES * (1.0 - firing / SETTLE_SECONDS).clamp(0.0, 1.0)
@@ -999,6 +1023,21 @@ fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
     }
 }
 
+/// The embedded gun (WEAP Embedded Weapon, a projectile) among `me`'s items whose NNAM
+/// node is in its skeleton (`names`): the one it shoots with.
+fn embedded_gun(c: &Combat, world: &fnv_sim::World, me: FormId, names: &[Option<String>]) -> Option<FormId> {
+    let usable = |id: &FormId| c.forms.weapons.get(id).is_some_and(|ws| ws.embedded && is_gun(c, ws, *id) && ws.embedded_node.as_deref().is_some_and(|n| embedded_node_index(names, n).is_some()));
+    let equipped = world.equipment(me).unwrap_or_default();
+    let carried: Vec<FormId> = world.peek(me).and_then(|s| s.inventory.as_ref()).map(|inv| inv.iter().map(|(id, _)| id).collect()).unwrap_or_default();
+    equipped.into_iter().chain(carried).find(usable)
+}
+
+/// The index of the skeleton node named `node` (an embedded weapon's NNAM), matched
+/// without regard to case.
+pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize> {
+    names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(node)))
+}
+
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fight(
@@ -1012,7 +1051,7 @@ pub(crate) fn fight(
     (nav, location, mut battle, residents): Where,
     actors: Query<Fought>,
     held: Query<&HeldWeapon>,
-    muzzles: Query<(&Muzzle, &GlobalTransform)>,
+    (muzzles, nodes): (Query<(&Muzzle, &GlobalTransform)>, Query<&GlobalTransform>),
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
     mut times: ResMut<AttackTimes>,
     (cstats, control): (Option<Res<CombatStats>>, Option<Res<PlayerControl>>),
@@ -1030,6 +1069,15 @@ pub(crate) fn fight(
     let c = &*combat;
     let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).collect();
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
+    // A creature's embedded weapon shoots from the node its WEAP names (NNAM), where its
+    // skeleton has it (module notes).
+    let rigs: HashMap<u32, &ActorRig> = actors.iter().map(|(rig, ..)| (rig.reference, rig)).collect();
+    let embedded_at = |id: u32, ws: &WeaponStats| -> Option<V3> {
+        let node = ws.embedded_node.as_deref().filter(|_| ws.embedded)?;
+        let rig = rigs.get(&id)?;
+        let i = embedded_node_index(&rig.skel.names, node)?;
+        nodes.get(*rig.nodes.get(i)?).ok().map(|g| bevy_to_game(g.translation()).to_array())
+    };
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
     for (rig, g, vis, _, dying, corpse, _) in &actors {
@@ -1085,6 +1133,9 @@ pub(crate) fn fight(
     f.player_swings = swings;
     let player_close = matches!(player_arm(c), Arm::Melee(_));
     let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
+    // Each actor's factions, read by every comrade and hostility check below, are kept
+    // for the frame (`Game::begin_faction_frame`).
+    rt.game.begin_faction_frame();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
         // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
@@ -1152,7 +1203,10 @@ pub(crate) fn fight(
                 continue;
             }
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
-            let arm = arm_of(c, g, weapons.get(&id).copied(), me, scale, melee_only);
+            // A creature with nothing in its hands fights with an embedded gun whose node its
+            // skeleton has (WEAP NNAM; module notes).
+            let held = weapons.get(&id).copied().or_else(|| rigs.get(&id).and_then(|rig| embedded_gun(c, &g.world, me, &rig.skel.names)));
+            let arm = arm_of(c, g, held, me, scale, melee_only);
             // Its strength, and its target's, for the threat ratios.
             let (health, full) = g.health_now_and_full(me);
             // How spent it is, for its dodges and power attacks (§17.1, §17.3).
@@ -1211,7 +1265,11 @@ pub(crate) fn fight(
                     (_, Some((cy, timed))) => (Some(cy), timed),
                     (Arm::Gun(w), None) => (
                         c.forms.weapons.get(w).map(|ws| {
-                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
+                            let rate = teammate_attack_rate(g, me, Some(*w));
+                            if rate != 1.0 {
+                                info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
+                            }
+                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
                             Cycle::new(ws, timing, false, ws.clip_size.max(1))
                         }),
                         false,
@@ -1416,29 +1474,41 @@ pub(crate) fn fight(
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
-            // Its Combat Radius (§17.4): a hit moves where it measures from; beyond it, no
-            // pursuit.
+            // Its Combat Radius (§17.4): a hit moves where it measures from; it pursues a
+            // target beyond the radius only until it has come that far itself, then holds.
             if health < fighter.anchor_health - 0.5 {
                 fighter.anchor = feet;
             }
             fighter.anchor_health = health;
             let from_anchor = flat(fighter.anchor, tfeet);
-            let leashed = !fleeing && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor));
+            let own_from_anchor = flat(fighter.anchor, feet);
+            let leashed = !fleeing
+                && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor) && own_from_anchor >= s.combat_radius);
             if leashed != fighter.leashed {
                 fighter.leashed = leashed;
                 if leashed {
                     f.stats.leashes += 1;
-                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
+                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
                 } else {
-                    info!("npc combat: {me_name} pursues {target_name} again: within its combat radius ({from_anchor:.0} units)");
+                    info!("npc combat: {me_name} pursues {target_name} again: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come");
                 }
             }
             if leashed {
                 g.awareness.engage.remove(&me);
             }
-            // Can it see its target?
-            let sees = g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
+            // Can it see its target? (Test aid: it does, whatever detection says.)
+            let sees = sees_through_walls() || g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
             fighter.seen_for = if sees { fighter.seen_for + dt } else { 0.0 };
+            // A wall that stopped its shot (`combat_tactics`): forgotten for a target it
+            // no longer sees or no longer fights; with no step aside that clears it, it
+            // closes in as on a target it does not see.
+            if !sees || fighter.tactic.wall.is_some_and(|w| w.target != target.0) {
+                fighter.tactic.wall = None;
+            }
+            if !leashed && fighter.tactic.wall.is_some_and(|w| w.step.is_none()) {
+                let near = away * fnv_ai::alert::BLIND_CLOSE_SHARE;
+                g.awareness.engage.insert(me, (near, near));
+            }
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
             // Its gun's reach (§16): no shot at a target beyond it, nor within its own blast.
             let shot_distance = vec::len(vec::sub(tchest, eyes));
@@ -1558,12 +1628,14 @@ pub(crate) fn fight(
                                     battle.cover_from_shooter += 1;
                                 }
                                 info!(
-                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}",
+                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}; room round its cover spot {:.0}, its peek {:.0}",
                                     if cv.low { "low " } else { "" },
                                     (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
                                     (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
                                     (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1]),
-                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) }
+                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) },
+                                    cv.room[0],
+                                    cv.room[1]
                                 );
                                 t.cover = Some(cv);
                             }
@@ -1578,6 +1650,7 @@ pub(crate) fn fight(
                         Phase::Going => {
                             if near(cv.behind) {
                                 cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                                log_room(phys.as_deref_mut(), name, "reaches", feet, cv.behind);
                             }
                         }
                         Phase::Hiding { until } => {
@@ -1585,6 +1658,7 @@ pub(crate) fn fight(
                             if clock >= until {
                                 cv.phase = Phase::WaitToFire { until: timer(&mut f.rng, wait_fire) };
                                 battle.peeks += 1;
+                                log_room(phys.as_deref_mut(), name, "hid", feet, cv.behind);
                             }
                         }
                         Phase::WaitToFire { until } => {
@@ -1650,6 +1724,25 @@ pub(crate) fn fight(
                         }
                     }
                     None => t.blocked_by = None,
+                }
+                // A wall stops its shot (`combat_tactics` module notes): out at a peek
+                // point, that cover is no good; else it steps aside to a clear line, and
+                // once there (or with no way there) it closes in.
+                if let Some(mut w) = t.wall {
+                    if let Some(cv) = t.cover.filter(|cv| matches!(cv.phase, Phase::WaitToFire { .. } | Phase::Firing { .. })) {
+                        t.cover = None;
+                        t.bad_cover.push(cv.behind);
+                        if want_post.is_some_and(|p| p.kind == PostKind::Peek) {
+                            want_post = None;
+                        }
+                        info!("npc combat: {name} gives up its cover: a wall stops its shot at {target_name} from the peek point");
+                    }
+                    match w.step {
+                        Some(at) if flat(at, feet) < tactics::AT_POST || barred(t, PostKind::Sidestep) => w.step = None,
+                        Some(at) if want_post.is_none() => want_post = Some(Post { at, kind: PostKind::Sidestep, run: false }),
+                        _ => {}
+                    }
+                    t.wall = Some(w);
                 }
                 // A shift sideways it decided on (§14.2), until it is there.
                 if let Some(at) = t.shift {
@@ -2044,7 +2137,8 @@ pub(crate) fn fight(
                     // (between reloads, so one under way runs to its end).
                     if !fighter.reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
                         if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
-                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning);
+                            let rate = teammate_attack_rate(g, me, Some(*w));
+                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning).with_attack_rate(rate);
                             fighter.reload_timed = true;
                         }
                     }
@@ -2054,7 +2148,58 @@ pub(crate) fn fight(
                     // the cycle is ready and the style's firing delay has passed. Not while
                     // it reloads: a pull would stop a round-by-round reload after a round.
                     fighter.pull_in = (fighter.pull_in - dt).max(0.0);
-                    let trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    let mut trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    // A wall in the way holds the shot (`combat_tactics` module notes),
+                    // looked at as the trigger is pulled, not every frame; the shot goes
+                    // at the point the line is clear to.
+                    let mut aim_at = tchest;
+                    if trigger {
+                        let t = &mut fighter.tactic;
+                        let line = t.shot_line.filter(|(k, until, _)| *k == target.0 && clock < *until).map(|l| l.2);
+                        if let Some(p) = line {
+                            aim_at = p;
+                        } else if t.wall.is_some_and(|w| clock < w.recheck_at) {
+                            trigger = false;
+                        } else {
+                            match tactics::shot_clear(phys.as_deref_mut(), eyes, muzzle_at.get(&id).copied(), tchest, teyes) {
+                                Some(p) => {
+                                    aim_at = p;
+                                    t.shot_line = Some((target.0, clock + tactics::LINE_CLEAR_FOR, p));
+                                    if let Some(w) = t.wall.take() {
+                                        battle.wall_clears += 1;
+                                        info!("npc combat: {me_name} has a clear shot at {target_name} again after {:.1} s (at its {})", clock - w.since, if p == tchest { "chest" } else { "head" });
+                                    }
+                                }
+                                None => {
+                                    trigger = false;
+                                    t.shot_line = None;
+                                    match t.wall {
+                                        Some(w) => t.wall = Some(tactics::Wall { recheck_at: clock + tactics::WALL_RECHECK, ..w }),
+                                        None => {
+                                            // Standing eyes: a crouched fighter steps aside standing.
+                                            let eye = (eyes[2] - feet[2]) / if crouched { stance::CROUCH_EYE } else { 1.0 };
+                                            let step = tactics::wall_step(phys.as_deref_mut(), feet, eye, tfeet, tchest, id % 2 == 0);
+                                            battle.wall_holds += 1;
+                                            if step.is_some() {
+                                                battle.wall_steps += 1;
+                                            }
+                                            info!(
+                                                "npc combat: {me_name} holds fire: a wall stands between it and {target_name} ({shot_distance:.0} units); {}",
+                                                match step {
+                                                    Some(at) => format!("steps aside {:.0} units to a clear line", flat(at, feet)),
+                                                    None => "no clear line a step aside: closes in".to_string(),
+                                                }
+                                            );
+                                            t.wall = Some(tactics::Wall { target: target.0, since: clock, recheck_at: clock + tactics::WALL_RECHECK, step });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !trigger {
+                            fighter.firing_for = 0.0;
+                        }
+                    }
                     fighter.pulled = trigger;
                     // An empty magazine is reloaded at once, whether it can fire or not;
                     // it carries what it loads (module notes).
@@ -2072,14 +2217,16 @@ pub(crate) fn fight(
                                 }
                                 // Aimed from the eyes, drawn from the muzzle when the weapon
                                 // has one (module notes).
-                                let muzzle = muzzle_at.get(&id).copied();
-                                let to = vec::sub(tchest, eyes);
+                                let embedded = if muzzle_at.contains_key(&id) { None } else { embedded_at(id, ws) };
+                                let muzzle = muzzle_at.get(&id).copied().or(embedded);
+                                let to = vec::sub(aim_at, eyes);
                                 let len = vec::len(to).max(1.0);
                                 let aim = vec::scale(to, 1.0 / len);
                                 let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
                                 if !fighter.opened_fire {
                                     fighter.opened_fire = true;
-                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0})", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
+                                    let node = embedded.and(ws.embedded_node.as_deref()).map_or(String::new(), |n| format!(", shooting from its embedded weapon's node {n}"));
+                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0}){node}", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
                                 }
                                 let first = f.stats.from_muzzle + f.stats.from_eyes == 0 || fighter.firing_for <= dt;
                                 match muzzle {
@@ -2108,7 +2255,7 @@ pub(crate) fn fight(
                                 // crippled-limbs.md §3].
                                 use fnv_game::combat::{HEAD, LEFT_ARM, RIGHT_ARM};
                                 let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled, head_crippled };
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, strength_req_cut: 0.0, left_arm_crippled, right_arm_crippled, head_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
@@ -2318,7 +2465,14 @@ pub(crate) fn fight(
                     }
                     if attack {
                         let speed = match &arm {
-                            Arm::Melee(w) => w.or(c.fists_id()).and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)),
+                            Arm::Melee(w) => {
+                                let id = w.or(c.fists_id());
+                                let rate = teammate_attack_rate(g, me, id);
+                                if rate != 1.0 {
+                                    info!("npc combat: {} {me} strikes at x{rate:.2} (the teammate perks)", g.data.name(me));
+                                }
+                                id.and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)) * rate
+                            }
                             _ => 1.0,
                         };
                         fighter.strike_in = STRIKE_SECONDS / speed;
@@ -2418,6 +2572,7 @@ pub(crate) fn fight(
             g.awareness.crouching.remove(&FormId(id));
         }
     });
+    rt.game.end_faction_frame();
     // Who blocks now, for the blows dealt this frame (`nvf_play::combat`).
     combat.guarding = guarding;
 }
@@ -2547,9 +2702,35 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     }
 }
 
+/// Where a fighter in cover stands, `what` it did there (reaches its cover, hid behind
+/// it): the room its body has (`combat_tactics::room`), for the log; under the capsule's
+/// radius it is inside something (docs/design/combat-ai.md §12.6.2).
+fn log_room(phys: Option<&mut PhysState>, name: &str, what: &str, feet: [f32; 3], spot: [f32; 3]) {
+    let Some(p) = phys else { return };
+    let r = tactics::room(p, feet);
+    info!(
+        "npc combat: {name} in cover at ({:.0}, {:.0}, {:.0}) ({what}), {:.0} units from its cover spot: room {:.0} ({})",
+        feet[0],
+        feet[1],
+        feet[2],
+        (spot[0] - feet[0]).hypot(spot[1] - feet[1]),
+        r.nearest,
+        if r.nearest < tactics::BODY_RADIUS { "inside geometry" } else { "clear" }
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_weapon_node_by_name() {
+        // The sentry bot's skeleton names its gun node so (meshes\creatures\sentrybot).
+        let names = vec![Some("Bip01".to_string()), None, Some("ProjectileNode_RGatling".to_string())];
+        assert_eq!(embedded_node_index(&names, "ProjectileNode_RGatling"), Some(2));
+        assert_eq!(embedded_node_index(&names, "projectilenode_rgatling"), Some(2));
+        assert_eq!(embedded_node_index(&names, "ProjectileNode_HeadLaser"), None);
+    }
 
     #[test]
     fn melee_keeps_its_reach_from_the_target() {

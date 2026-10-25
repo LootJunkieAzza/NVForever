@@ -200,6 +200,7 @@ const R_DOG: u32 = 0x889;
 const R_COMPANION: u32 = 0x89B;
 const R_LONER: u32 = 0x89C;
 const R_SHOOTER: u32 = 0x89D;
+const R_DOG2: u32 = 0x89E;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -293,6 +294,9 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"REFR", L1, "L1", STAT, [250.0, 50.0, 0.0], Some(L2)),
         placed(b"REFR", L2, "L2", STAT, [250.0, 250.0, 0.0], Some(L3)),
         placed(b"REFR", L3, "L3", STAT, [50.0, 250.0, 0.0], Some(L1)),
+        // The door the graph's door link names, placed so the game can lock it (away
+        // from everything the tests walk to).
+        placed(b"REFR", DOOR_A, "DoorA", STAT, [-2000.0, -2000.0, 0.0], None),
         placed(b"ACHR", R_TRAVEL, "TravellerRef", N_TRAVEL, START, None),
         placed(b"ACHR", R_IN, "LodgerRef", N_IN, START, None),
         placed(b"ACHR", R_RADIUS, "VisitorRef", N_RADIUS, START, None),
@@ -303,6 +307,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_RUN, "RunnerRef", N_RUN, START, None),
         placed(b"ACHR", R_STEADY, "CourierRef", N_STEADY, START, None),
         placed(b"ACHR", R_DOG, "DogRef", N_DOG, [150.0, 50.0, 0.0], None),
+        placed(b"ACHR", R_DOG2, "SecondDogRef", N_DOG, [150.0, 250.0, 0.0], None),
         placed(b"ACHR", R_COMPANION, "CompanionRef", N_COMPANION, [250.0, 50.0, 0.0], None),
         placed(b"ACHR", R_LONER, "LonerRef", N_LONER, [350.0, 50.0, 0.0], None),
         placed(b"ACHR", R_SHOOTER, "ShooterRef", N_SHOOTER, START, None),
@@ -603,6 +608,34 @@ fn a_place_that_cannot_be_reached_sets_the_package_aside() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A door the game locks (a script's Lock) shuts the way: the actor sets its package
+/// aside. Unlocked again (a script's Unlock, a key, a picked lock), the graph learns it,
+/// the package is chosen again at once and the actor gets through
+/// (`Ai::apply_door_locks`; docs/handoff/project-audit-2026-10-23.md §4.1 item 3).
+#[test]
+fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // Nothing changed yet: nothing to apply, and once applied nothing again.
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), None);
+    s.game.world.lock(FormId(DOOR_A), Some(50)).unwrap();
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), Some(vec![]));
+    assert!(s.nav.door_locks.contains_key(&DOOR_A));
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), None, "applied once");
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_TRAVEL));
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Unlocked: within the hour, the package is chosen again and the way is open.
+    s.game.world.unlock(FormId(DOOR_A)).unwrap();
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), Some(vec![actor]));
+    assert!(!s.nav.door_locks.contains_key(&DOOR_A));
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?}", s.feet(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 #[test]
 fn an_in_cell_location_is_met_on_entering_the_cell() {
     let f = fixture();
@@ -712,8 +745,45 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
     assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
 }
 
+/// Two actors following one target walk after it in a line: the one nearer the target
+/// at first after the target, the other after it, nearer than the package's distance
+/// (`Ai::ahead_in_column`, `COLUMN_GAP`; the owner's playtest of 2026-10-24).
+#[test]
+fn two_actors_following_one_target_walk_in_a_line() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG, R_DOG2]);
+    s.run(40.0);
+    let first = s.events(R_DOG);
+    assert!(first.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_TRAVEL)), "{first:?}");
+    let second = s.events(R_DOG2);
+    assert!(second.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_DOG)), "{second:?}");
+    assert!(!second.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_TRAVEL)), "{second:?}");
+    // Both went through to cell B and stand there in a line.
+    for d in [R_DOG, R_DOG2] {
+        assert_eq!(s.ai.agents[&FormId(d)].walker.space, B);
+        assert_eq!(s.ai.agents[&FormId(d)].activity, Activity::There);
+    }
+    let (t, d1, d2) = (s.feet(R_TRAVEL), s.feet(R_DOG), s.feet(R_DOG2));
+    assert!(dist(d1, t) <= 128.0 + 64.0 + 1.0, "{d1:?} {t:?}");
+    assert!(dist(d2, d1) <= fnv_ai::carry::COLUMN_GAP + 64.0 + 1.0, "{d2:?} {d1:?}");
+    assert!(dist(d2, t) > dist(d1, t), "{d2:?} {d1:?} {t:?}");
+}
+
+/// A follower far behind goes faster than it runs to catch up, more the farther it is,
+/// up to half as fast again (`carry::catch_up`; the owner's playtest of 2026-10-24).
+#[test]
+fn a_follower_far_behind_catches_up_faster_than_it_runs() {
+    use fnv_ai::carry::{catch_up, CATCH_UP_BOOST, CATCH_UP_SPAN, FOLLOW_RUN_FROM};
+    assert_eq!(catch_up(100.0), 1.0);
+    assert_eq!(catch_up(FOLLOW_RUN_FROM), 1.0);
+    assert!((catch_up(FOLLOW_RUN_FROM + CATCH_UP_SPAN / 2.0) - (1.0 + CATCH_UP_BOOST / 2.0)).abs() < 1e-6);
+    assert_eq!(catch_up(FOLLOW_RUN_FROM + CATCH_UP_SPAN), 1.0 + CATCH_UP_BOOST);
+    assert_eq!(catch_up(f32::INFINITY), 1.0 + CATCH_UP_BOOST);
+}
+
 /// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,
-/// "Changing cells will teleport the teammate to the player"; docs/design/followers.md).
+/// "Changing cells will teleport the teammate to the player"; docs/design/followers.md), and
+/// so is an actor following the player on a Follow package (owner decision 2026-10-23).
 #[test]
 fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
     let f = fixture();
@@ -730,10 +800,16 @@ fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
         let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(player), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
         s.game.call_function(&ctx, &[fnv_script::vm::ArgValue::Value(fnv_script::vm::Value::Ref(marker))]);
     };
-    // Not a teammate: it stays (and its package sends it after the player on foot).
+    // Not a teammate, but following the player on its Follow package from the player's
+    // cell: it comes along at once too (owner decision 2026-10-23, Deputy Beagle).
     move_to(&mut s, MARK_B);
-    assert_eq!(s.game.world.peek(mate).map_or(Some(FormId(CELL_A)), |m| m.cell), Some(FormId(CELL_A)));
-    assert!(s.game.brought_along.is_empty());
+    assert_eq!(s.game.world.peek(mate).and_then(|m| m.cell), Some(FormId(CELL_B)));
+    assert!(s.game.brought_along.contains(&mate));
+    assert!(!s.game.is_teammate(mate));
+    s.game.brought_along.clear();
+    s.ai.moved_by_scripts(&mut s.game);
+    s.run(1.0);
+    assert!(s.game.follows_player(mate));
     // A teammate: put beside the player in cell B, and the AI takes it up from there.
     s.game.extra.entry(mate).or_default().teammate = true;
     move_to(&mut s, MARK_B);

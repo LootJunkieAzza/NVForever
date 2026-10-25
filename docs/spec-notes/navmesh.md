@@ -150,6 +150,47 @@ the actor jumps or drops over them (actor-jumps.md §3).
   the walkable stretch of navmesh along the door's line is taken as the opening instead
   (docs/design/navmesh.md §4).
 
+## 4b. Levels stacked over each other
+
+Navmesh runs over itself wherever a catwalk, a stairway or an upper floor stands over a
+lower floor (REPCONN's rocket hall, Hoover Dam's towers and power plants, HELIOS One,
+vaults, sewers, two-storey houses). Seen from above, a point there lies on several
+triangles at different heights, so nothing in the graph may treat "inside a triangle"
+as a 2D test alone.
+
+- **RocketLabMid** (0x00081D1F): the floor at z −128 and the catwalks at −6, 66, 194,
+  250, 320, 450 and 506 are joined by flights of 24-unit steps (`UtlCatStairs*`), and
+  the navmesh runs up every flight with its triangles linked: A* from the floor at
+  (1000, 3400, −120) to Jason Bright's intercom 0x000CD684 finds a 62-triangle corridor
+  up the stairs [observed: `fnvtool nav path`]. The navmesh data and the graph build are
+  sound there.
+- **What went wrong was ours** [observed, fixed 2026-10-23]: the shortcut pass
+  (docs/design/navmesh.md §3, step 6) asked `walkable_line` whether the straight line
+  from the floor to a catwalk corner could be walked. The line runs across floor
+  triangles and was accepted as soon as it came to a triangle containing the corner
+  *seen from above*: the floor triangle under the catwalk. The path then went
+  (1077, 3758, −128) → (1246, 3888, 448), 576 units up in one segment, and walkers
+  stuck on the floor under the catwalk. A straight walk stays on one surface, so where
+  it reaches the end point's spot, the end point must be on that surface: within
+  `LEVEL_GAP` (40 units) of its height, else the line is not walkable [engine choice].
+  Where the line crosses a seam, the triangle beyond is now found at the surface's
+  height there rather than the line's (which runs through the air between levels).
+- **How far apart levels are** [observed: every usable triangle of FalloutNV.esm, the
+  nearest other surface above or below its centre]: 14,788 triangle centres have
+  another surface more than 120 units away, 23 between 80 and 120, 4 between 60 and 80,
+  4 between 40 and 60, and 31 within 40. Those 31 are overlaps where neighbouring
+  navmeshes meet on a slope (WastelandNV seams, e.g. near (74496, 65400)), one surface in
+  effect. 40 units is under every gap between distinct levels seen.
+- **How common it was** [observed: 40 random paths in each of the 88 interiors with
+  stacked levels, before and after the fix]: 148 of 3,297 paths in 47 interiors had a
+  segment rising or falling more than 1.5 times its length (more than 40 units)
+  before; none after. Among them HiddenValley01 (11), HELIOSOneTower (12),
+  NorthVegasHouseTools (9), 1ESteelMill (9), HooverDamIntTower01Interior (8).
+- **Walking it** [observed: `fnvtool nav walk`, NPC capsule]: from the floor to
+  0x000CD684 the walker now arrives at 86.8 and 340 units/s. At 340 it falls off a
+  catwalk turn three times and climbs back (4 replans) until the character step-up of
+  physics.md §6.9.1 is in; with it, the walk has no detour or replan.
+
 ## 4a. Checked against NPCs recorded in the game [observed]
 
 `fnvtool nav observed` on the AI observer captures of 2026-10-08 (Goodsprings town by day,
@@ -218,6 +259,32 @@ All commands take `<data_dir> <plugins>... --schema <dir>` and print one JSON do
   (per walk: actor, space, ends, recorded and planned length, deviation mean / 90th
   percentile / max; overall counts, median and 90th percentile deviation, median length
   ratio). FormIDs in captures are in the game's load order and are mapped by plugin name.
+
+## 4c. Obstacles cut the navmesh
+
+The record header's bit 25 "Obstacle" on STAT, MSTT, ACTI, SCOL, CONT and LIGH
+[documented: xEdit wbDefinitionsFNV.pas flag lists; schemas/fnv `header_flags`]: "the
+object will dynamically cut the navmesh in game preventing actors from walking into it"
+[documented: GECK wiki Activator, Flags; the same page: it "only works with NIFs that have
+the correct collision layer set"]. FalloutNV.esm places 59,925 references of obstacle
+bases: rocks (`NVNRockCanyon12` alone 10,747), cliffs whose bounds run to 2,400 units,
+yuccas, Joshua trees with empty bounds; 149 of them can come and go (Initially Disabled
+or with an enable parent): sandbags (55), guard rails, toxic barrels, fences, the Hoover
+Dam force fields, box cars and car hulks [observed 2026-10-24, private survey script, not
+committed].
+
+As built (`fnv_nav::obstacles`): the navmesh, made in the editor, already has holes for
+what is always there, so only references that can be enabled or disabled cut it, and
+only while enabled [hypothesis]. A reference cuts the triangles under its bounds (OBND,
+placed, rotated, scaled) seen from above whose heights meet the bounds from 64 under the
+base to 32 under the top [engine choice: a floor near the top is on the object]; a cut
+triangle takes no part in paths (`NavGraph::usable`). The graph learns the obstacles
+when it is built, enabled as placed; the engine brings them in line with the game's
+enabled state every frame (`fnv_ai::Ai::apply_obstacles`) and actors whose way crosses a
+newly cut triangle plan again, as for a navmesh switched off. Log lines: `nav: N
+obstacles that can be enabled or disabled stand on the navmesh …` at the start, `nav:
+obstacles switched […]` on a change. Not done: the collision-layer condition (fnv-nav
+reads no models), cutting by the shape rather than the bounds.
 
 ## 7. Open questions
 

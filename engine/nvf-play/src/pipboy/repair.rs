@@ -226,8 +226,10 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
     let r = m.list(Side::Player).rows.get(m.selected[Side::Player as usize])?;
     let forms = sim.forms;
-    let list = script.and_then(|s| s.rt.as_ref()).map(|rt| fnv_game::functions::repair_list(&rt.game, r.item)).unwrap_or_default();
     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
+    // The item's repair list, and with Jury Rigging the like items carried
+    // (`fnv_game::Game::player_repair_list`, perk-entry-points.md §9).
+    let list = script.and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(r.item, groups.iter().map(|g| g.0))).unwrap_or_default();
     offer(&groups, forms, &list, r.item, r.pick(), r.equipped)
 }
 
@@ -314,8 +316,8 @@ pub fn keys(
                     }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
-                    let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| fnv_game::functions::repair_list(&rt.game, o.item)).unwrap_or_default();
                     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
+                    let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(o.item, groups.iter().map(|g| g.0))).unwrap_or_default();
                     let after = after_repair(&groups, sim.forms, &list, o, to);
                     match &after {
                         Some(n) => info!("pipboy repair: stays open: {} at {}%, {} part(s) left", n.name, fnv_combat::condition::percent(n.condition), n.parts.len()),
@@ -350,7 +352,7 @@ pub fn draw_hint(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Option<&Offer>) {
     let label = format!("{} R)", hint(o.gear, o.condition));
     info!("pipboy items: {} {label}{}", o.name, if o.usable() { "" } else { " (dim)" });
     let color = amber(if o.usable() { TEXT } else { frame::DIMMED });
-    c.text(p, 2, &label, MAIN.min.x + HINT.x - 10.0, MAIN.min.y + HINT.y, Align::Right, color);
+    c.text(p, 2, &label, MAIN.min.x + HINT.x - 10.0, MAIN.min.y + HINT.y + frame::BUTTON_TEXT_Y, Align::Right, color);
 }
 
 /// The figure a card shows for an item at a condition: damage or DT by our condition
@@ -374,9 +376,10 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading(p, c, Page::Items.title(), &[Card::new(MAIN.width() - SKILL_W, SKILL_W, "Repair Skill", format!("{:.0}", s.skill.max(0.0).floor()))]);
-    c.text(p, 2, "Cancel E)", MAIN.min.x + BUTTONS.x - 10.0, MAIN.min.y + BUTTONS.y, Align::Right, bright);
+    let by = MAIN.min.y + BUTTONS.y + frame::BUTTON_TEXT_Y;
+    c.text(p, 2, "Cancel E)", MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
     let cw = c.width(2, "Cancel E)");
-    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - cw, MAIN.min.y + BUTTONS.y - 5.0, cw + 10.0, 40.0), RepairCancel, Pickable::default())).observe(on_cancel_click);
+    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - cw, by - 5.0, cw + 10.0, 40.0), RepairCancel, Pickable::default())).observe(on_cancel_click);
     // The rows: the item, then its parts.
     let rows: Vec<(&str, f32, bool)> = std::iter::once((o.name.as_str(), o.condition, o.extra.equipped)).chain(o.parts.iter().map(|q| (q.name.as_str(), q.condition, q.extra.equipped))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
@@ -440,8 +443,8 @@ mod tests {
     fn store(items: &[(u32, ItemKind)]) -> FormStore {
         let mut f = FormStore::default();
         for &(id, kind) in items {
-            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, quest_item: false, icon: None, placed_count: None, teaches: None, cant_be_taken: false };
-            f.bases.insert(FormId(id), BaseForm { id: FormId(id), sig: *b"ARMO", edid: None, name: Some(format!("Item {id}")), script: None, prompt: None, data: BaseData::Item(it) });
+            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, thrown: false, quest_item: false, icon: None, placed_count: None, teaches: None, cant_be_taken: false, modulates_voice: false };
+            f.bases.insert(FormId(id), BaseForm { id: FormId(id), sig: *b"ARMO", edid: None, name: Some(format!("Item {id}")), script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
         }
         f
     }

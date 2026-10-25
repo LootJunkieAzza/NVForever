@@ -39,9 +39,7 @@
 #import bevy_pbr::forward_io::{Vertex, VertexOutput, FragmentOutput}
 #import bevy_pbr::mesh_view_bindings::globals
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
-#import bevy_pbr::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing}
-#import bevy_pbr::lighting::{EnvBRDFApprox, F_AB}
-#import bevy_pbr::mesh_view_bindings::lights
+#import bevy_pbr::pbr_functions::{nvf_apply_pbr_lighting, main_pass_post_lighting_processing}
 #ifdef VISIBILITY_RANGE_DITHER
 #import bevy_pbr::pbr_functions::visibility_range_dither
 #endif
@@ -154,13 +152,11 @@ fn fragment(
     pbr_input.material.base_color.a = 1.0;
     var out: FragmentOutput;
     // Grass weighs the ambient light and the sun differently from other surfaces
-    // (grass.md §5): the ambient part of Bevy's result, as bevy_pbr::ambient adds it for a
-    // surface without specular reflection, is taken out and both parts are scaled.
-    let lit = apply_pbr_lighting(pbr_input).rgb;
-    let n_dot_v = max(dot(pbr_input.N, pbr_input.V), 0.0001);
-    let ambient = EnvBRDFApprox(pbr_input.material.base_color.rgb, F_AB(1.0, n_dot_v)) * lights.ambient_color.rgb * view.exposure;
-    let direct = max(lit - ambient, vec3(0.0));
-    out.color = vec4(grass.light.x * ambient + grass.light.y * direct, 1.0);
+    // (grass.md §5): the two parts of the display-value lighting sum (nvforever lights.rs
+    // DISPLAY_HELPERS) are scaled, each by its factor's display value, so that either part
+    // alone is scaled by the factor as light.
+    let lit = nvf_apply_pbr_lighting(pbr_input, pow(max(grass.light.xy, vec2(0.0)), vec2(1.0 / 2.2))).rgb;
+    out.color = vec4(lit, 1.0);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     out.color.a = coverage;
     return out;

@@ -167,16 +167,28 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     hypothesis: WG].
   - Added 2026-10-19 (`items.rs`):
     - **DPS** [documented: `item_stats_display.xml` `DPSInfo`, `sInventoryDamagePerSecond`;
-      hypothesis: formula and place]: a card "DPS" over DAM, as STR stands over VAL. The
-      file puts DPSInfo and DAMInfo both at the first card's place and sets which shows in
-      code; NVForever keeps DAM there (the owner's screenshots show DAM) and puts DPS in
-      the free place above it. The figure: the damage a shot does at the item's condition
+      hypothesis: formula]: the damage a shot does at the item's condition
       (combat-rules.md §17) times its shots a second (an automatic weapon's fire rate,
       else its attack shots a second, else one), rounded [hypothesis: the GECK wiki's
-      Weapons page names damage and fire rate as the DPS calculator's inputs].
-    - **The ammunition's badge** [documented: `IM_ItemIconBadge` at (390, 260), 64
-      square; hypothesis: the picture is the ammunition's own ICON, of the ammunition the
-      ammo card names].
+      Weapons page names damage and fire rate as the DPS calculator's inputs]. Shown in
+      the container and barter figures only: the original's ITEMS page has no DPS card
+      (2026-10-24, below) [observed: the owner's ITEMS screenshots].
+    - **The weapon's skill badge** (2026-10-24; replaces the ammunition's picture and
+      the DPS card guessed on 2026-10-19) [documented: `IM_ItemIconBadge` at (390, 260),
+      64 square, and the text `IM_StrReq` at (440, 300), font 7, left-justified;
+      `textures\interface\icons\typeicons\weap_skill_icon_*.dds` (sm_arms, big_guns,
+      energy, explosives, melee, unarmed), 64 square, a boxed picture in the lower left
+      48; observed: the owner's screenshots show the bullets picture with 0, 25 and 50
+      for the Single Shotgun, Service Rifle and Sawed-Off Shotgun (their Guns skill
+      requirements, WEAP DNAM) and the knife picture with 25 for the Throwing Spear
+      (Melee Weapons 25)]: the picture of the skill the weapon uses and, beside it, the
+      skill it needs, "0" too. A weapon of another skill (binoculars: Barter) shows
+      neither [hypothesis].
+    - **The buttons' text** (Repair/Maintain R), Mod X), the repair and mod lists'
+      Cancel/Exit) [documented: `text_box.xml`: the text sits half the box's 15 spare
+      height plus 10 under the button's y; observed: "Maintain R)" clear of the heading's
+      cards on the owner's screenshot]. Before 2026-10-24 it was drawn at the button's y
+      and touched the Caps card (the owner's report).
     - **"Mod X)"** [documented: `IM_ModButton`, 47 under the Repair hint, `sInventoryMod`,
       PC key X; hypothesis: shown for weapons with mod slots (WMI1–3), bright when the
       player carries a mod that fits a free slot, dim otherwise]. X on a bright hint opens
@@ -221,7 +233,23 @@ is the top left 85 × 92 of `head.dds`) [observed].
     the controller's healing mode's slot empty, "(3) Doctor's Bag E)"; on RAD "RadAway
     A)", "Rad-X X)" [documented: places, `_PCButton_*`; observed: the words; hypothesis:
     the count is left out at 0 (the RAD screenshot has none), dim unless pointed at].
-    Using the items from here is not built (the keys are logged).
+    The four items are the DOBJ list's Stimpak (place 0), Doctor's Bag (21), RadAway (3)
+    and RadX (2) (default-objects.md §1), else the Editor IDs `Stimpak`, `NVDoctorBag`,
+    `RadAway`, `RadX` [observed: FalloutNV.esm's list names those four, so nothing changes
+    with the shipped data; ESM full audit 2026-10-24].
+    **Using them on CND** (built 2026-10-23, owner's request) [design]: S or a click
+    on the Stimpak hint uses one on the body, or on the limb chosen (keys 1-6: head,
+    torso, left arm, right arm, left leg, right leg; the same key again the body; the
+    pointer on a limb's bar chooses it while there, and a click on the bar uses a
+    Stimpak on that limb); E or the Doctor's Bag hint uses one on every limb. An item is
+    not used when it would not heal: a Stimpak on the body at full health, on a limb
+    that is whole, a Stimpak on a limb in Hardcore mode (it mends no limb there
+    [observed: FalloutNV.esm help text, "In Hardcore Mode, a Doctor's Bag or an actual
+    doctor is required"]), a Doctor's Bag with no limb hurt, or none carried
+    (`model::refusal`). The chosen or pointed-at limb's bracket is boxed. The item is
+    taken, its consume sound plays and the runtime uses it as the inventory does
+    (`stats::use_hints`); what it does to the limbs: aid-items.md §3. RadAway and Rad-X
+    are not used from here (A also switches the tab; the keys are logged).
   - CND: the Vault Boy at zoom 145, head 40 down and centred, face, torso, arms and legs
     placed from it as the file gives; a bracket (`vats_*_divider.dds`, 38 high) with a
     solid bar (77 × 14 at 25 or 51, 24) at each of six body parts, the bar as long as the
@@ -231,6 +259,8 @@ is the top left 85 × 92 of `head.dds`) [observed].
     is `face_00.dds` always [hypothesis; when 01–04 and 10 show is not known]. Under him
     "<name> - Level <n>" centred on the area's foot [observed: "Loot - Level 1"].
     Limb damage comes from combat's actor value damage; a new run's parts are whole.
+    The bars read the same actor values combat lowers and cripples by
+    (`Game::damage_limb`, `PlayerLimbs`) [observed: smoke `pipboy-stats-heal`].
   - RAD (zoom 130): "RAD RESIST" and the value (actor value 20, "8%") in a window
     showing the right end of `rad_effects_bracket.dds`, 360 down; the meter
     (`rad_meter_bracket.dds`) beside it, its 0 at 186 and full at 482 of the picture,
@@ -422,7 +452,12 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     dot of 8 (`waypoint_node.dds`) at its middle, the name in font 1 centred 180 down. It
     follows the pointer over the map and takes a marker's place and name within 40
     [hypothesis: the screenshots show it away from the middle, once round a door with
-    the door's place name]; at first it is at the window's middle.
+    the door's place name]; at first it is at the window's middle. A World Map marker
+    with a reputation (REFR `WMI1`, 36 in FalloutNV.esm [observed]) shows, on the line
+    under its name, the reputation's name and the player's standing title with it,
+    "Goodsprings: Neutral" ("The reputation that is shown when the player hovers over the
+    icon on the world map" [documented: GECK wiki Reference, Map Marker]; the wording and
+    the second line are a hypothesis, owner-review.md).
   - A click on a marker (the button pressed and let go without the pointer moving
     more than 6 units [design]) asks whether to travel there: fast travel,
     `fast-travel.md`.
@@ -432,7 +467,13 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   zoom then is not known]. Doors leading elsewhere (`XTEL`) in the 7 × 5 cells round the
   view (or the interior) show `interface\icons\local map\icon_local_door.dds`, named by the
   place their destination door stands in [observed: the screenshot's door is named
-  "Goodsprings Gas Station", the cell `GSGasStation`]. Under them an outline of the place
+  "Goodsprings Gas Station", the cell `GSGasStation`]. Left out: a door reference flagged
+  Hidden From Local Map (header bit 6, "The reference will not be displayed on the local
+  map" [documented: GECK wiki Reference]; 4 teleport doors, all in Dead Money
+  [observed]), a door whose base DOOR is flagged Hidden (`FNAM` bit 2 [documented: xEdit];
+  3 in FalloutNV.esm, all secret doors, none a teleport door [observed]; what the flag does
+  is a hypothesis, owner-review.md), and a door disabled now [hypothesis, as a disabled
+  marker]. Under them an outline of the place
   (`data/outline.rs`) [design: the original renders the area from above, its screenshot
   dark save a few shapes; the owner asked for an outline]: a grid of rays straight down
   through the physics world's collision (not actors, triggers or loose clutter), 96

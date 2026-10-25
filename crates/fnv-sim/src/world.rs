@@ -273,6 +273,12 @@ pub type DeathItemRoll = (u16, Vec<(FormId, i32)>);
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
 
+/// A starting [`World::lock_serial`] no other world of this process used.
+fn next_world_serial() -> u64 {
+    static WORLDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    WORLDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32
+}
+
 pub struct World<'a> {
     pub forms: &'a FormStore,
     pub placed: &'a RefTable,
@@ -290,6 +296,8 @@ pub struct World<'a> {
     /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
     /// ([`World::set_carry_bonus`]).
     carry_bonus: BTreeMap<FormId, f64>,
+    /// The game layer's weight rules of a carrier (its perks, [`World::set_weight_rules`]).
+    weight_rules: BTreeMap<FormId, crate::inventory::WeightRules>,
     /// Placed actors whose carried items are another base's than their own (an actor
     /// template's, [`World::set_inventory_sources`]).
     inventory_sources: BTreeMap<FormId, FormId>,
@@ -306,6 +314,11 @@ pub struct World<'a> {
     /// Death items owed to dead actors not read yet, rolled into the inventory when it is
     /// first made ([`World::add_death_item`]).
     death_items: BTreeMap<FormId, FormId>,
+    /// Counts lock changes ([`World::lock`], [`World::unlock`]) so the AI can bring its
+    /// nav graph's door locks in line when one changed ([`World::lock_serial`]). Not
+    /// saved: every world made (a new or a restored one) starts from a number no other
+    /// world of this process used, so a reader sees the change of world as a change.
+    lock_serial: u64,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -322,12 +335,14 @@ impl<'a> World<'a> {
             quest_objects: BTreeMap::new(),
             leveled_added: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
+            weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
             zone_levels: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
             death_items: BTreeMap::new(),
+            lock_serial: next_world_serial(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -335,6 +350,12 @@ impl<'a> World<'a> {
 
     pub fn config(&self) -> SimConfig {
         self.cfg
+    }
+
+    /// Hardcore mode turned on or off while the game runs (`fnv_game::Game::set_hardcore`,
+    /// SetHardcore): ammunition weighs from then on, or no longer.
+    pub fn set_hardcore(&mut self, on: bool) {
+        self.cfg.hardcore = on;
     }
 
     /// Whether the player may wear power armour (ARMO BMDT "Power Armor"): without it
@@ -362,6 +383,15 @@ impl<'a> World<'a> {
         self.refs.iter().map(|(&k, v)| (k, v))
     }
 
+    /// The lock `id` has: its state's once it has one, else the lock it would start with
+    /// (its placed XLOC, a leveled lock at the reference's level as `initial` sets it).
+    pub fn lock_of(&self, id: FormId) -> Option<LockState> {
+        match self.peek(id) {
+            Some(s) => s.lock,
+            None => self.placed.get(id).and_then(|p| p.lock).map(|l| LockState { level: l.level_at(self.item_level(id)), key: l.key, locked: true }),
+        }
+    }
+
     /// The current state of `id`, creating it from the placement data on first use.
     pub fn get(&mut self, id: FormId) -> Result<&mut RefState, SimError> {
         if !self.refs.contains_key(&id) {
@@ -380,6 +410,7 @@ impl<'a> World<'a> {
             None => return Err(SimError::UnknownRef(id)),
         };
         let mut inventory = self.roll_inventory(self.inventory_base(id, base), self.item_level(id))?;
+        let lock_level = self.item_level(id);
         if let Some(list) = self.death_items.remove(&id) {
             let level = self.item_level(id);
             let inv = inventory.get_or_insert_with(Inventory::new);
@@ -411,8 +442,9 @@ impl<'a> World<'a> {
             deleted: false,
             count: self.forms.placed_count(base, placed.and_then(|p| p.count)),
             inventory,
-            // A reference with lock data starts locked. [hypothesis]
-            lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),
+            // A reference with lock data starts locked. [hypothesis] A leveled lock's
+            // level is set now, from the reference's level (`Lock::level_at`).
+            lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level_at(lock_level), key: l.key, locked: true }),
             // A door flagged Open by Default starts open. [hypothesis from the flag's
             // name; a gate so flagged let the player drop through it, physics.md §4]
             open: placed.is_some_and(|p| p.open_by_default),
@@ -482,8 +514,8 @@ impl<'a> World<'a> {
     /// An actor other than the player starts with the armour it wears and the weapon it
     /// draws equipped, chosen from its carried items: armour by DT, then DR, then carried
     /// order, each piece worn unless one already chosen shares a body slot (pieces with no
-    /// slot are not worn); the drawable weapon with the highest damage as the weapon
-    /// choice counts it (`forms::weapon_choice_damage`: a gun's explosion counts), the
+    /// slot are not worn); a drawable weapon held in the hands before one thrown or laid
+    /// (`Item::thrown`), then the one with the highest damage as the weapon choice counts it (`forms::weapon_choice_damage`: a gun's explosion counts), the
     /// first on ties. These are the rules the engine dresses and arms NPCs by (`fnv_actor::resolve`,
     /// docs/spec-notes/actors.md §2.3 and §9.3) [observed rule for armour: the owner's
     /// statement of 2026-10-08; the weapon rule is the engine's choice standing in for the
@@ -524,12 +556,13 @@ impl<'a> World<'a> {
                 wear.push(id);
             }
         }
-        let mut weapon: Option<(f32, FormId)> = None;
+        // A weapon held in the hands before one thrown or laid, then the highest damage.
+        let mut weapon: Option<((bool, f32), FormId)> = None;
         for &i in &carried {
             let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable && !it.not_for_npcs) else { continue };
-            let d = it.weapon_damage.unwrap_or(0.0);
-            if weapon.is_none_or(|(best, _)| d > best) {
-                weapon = Some((d, i));
+            let key = (!it.thrown, it.weapon_damage.unwrap_or(0.0));
+            if weapon.is_none_or(|(best, _)| (key.0 && !best.0) || (key.0 == best.0 && key.1 > best.1)) {
+                weapon = Some((key, i));
             }
         }
         Some(wear.into_iter().chain(weapon.map(|w| w.1)).collect())
@@ -1126,7 +1159,8 @@ impl<'a> World<'a> {
     pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
         let capacity = self.formula_capacity(actor)? + self.carry_bonus.get(&actor).copied().unwrap_or(0.0) as f32;
         let (forms, hardcore) = (self.forms, self.cfg.hardcore);
-        let t = self.inventory(actor)?.totals(forms, hardcore);
+        let rules = self.weight_rules(actor);
+        let t = self.inventory(actor)?.totals_with(forms, hardcore, &rules);
         Ok(Encumbrance {
             weight: t.weight,
             capacity: capacity as f64,
@@ -1155,7 +1189,22 @@ impl<'a> World<'a> {
     /// The weight a reference carries, as [`World::encumbrance`] counts it.
     pub fn carried_weight(&mut self, actor: FormId) -> Result<f64, SimError> {
         let (forms, hardcore) = (self.forms, self.cfg.hardcore);
-        Ok(self.inventory(actor)?.totals(forms, hardcore).weight)
+        let rules = self.weight_rules(actor);
+        Ok(self.inventory(actor)?.totals_with(forms, hardcore, &rules).weight)
+    }
+
+    /// What a carrier's perks do to the weight it carries (none: every item its own weight).
+    pub fn set_weight_rules(&mut self, actor: FormId, rules: crate::inventory::WeightRules) {
+        if rules.is_none() {
+            self.weight_rules.remove(&actor);
+        } else {
+            self.weight_rules.insert(actor, rules);
+        }
+    }
+
+    /// A carrier's weight rules ([`World::set_weight_rules`]).
+    pub fn weight_rules(&self, actor: FormId) -> crate::inventory::WeightRules {
+        self.weight_rules.get(&actor).copied().unwrap_or_default()
     }
 
     /// The worldspace a reference is in now: that of its cell (`None` in an interior).
@@ -1330,6 +1379,7 @@ impl<'a> World<'a> {
     }
 
     pub fn lock(&mut self, id: FormId, level: Option<u8>) -> Result<(), SimError> {
+        self.lock_serial += 1;
         let s = self.get(id)?;
         match &mut s.lock {
             Some(l) => {
@@ -1346,8 +1396,15 @@ impl<'a> World<'a> {
     pub fn unlock(&mut self, id: FormId) -> Result<(), SimError> {
         if let Some(l) = &mut self.get(id)?.lock {
             l.locked = false;
+            self.lock_serial += 1;
         }
         Ok(())
+    }
+
+    /// Goes up with every lock change ([`World::lock`], [`World::unlock`]): a reader that
+    /// saw the same number has nothing new to learn about locks.
+    pub fn lock_serial(&self) -> u64 {
+        self.lock_serial
     }
 
     /// The access state of a door or container lock, as the in-game `GetLocked` reports
@@ -1514,7 +1571,13 @@ impl<'a> World<'a> {
                 return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
             }
             let count = if scripted { t.count.min(1) } else { t.count };
+            // A placed weapon's own ammo (XAMT, XAMC) comes with it the first time it is
+            // taken by hand [hypothesis: the rounds in it; world-fields.md §1].
+            let ammo = (!scripted && !t.deleted).then(|| self.placed.get(target).and_then(|p| p.ammo)).flatten();
             self.inventory(actor)?.add_extra(t.base, count, t.extra);
+            if let Some((a, n)) = ammo {
+                self.inventory(actor)?.add(a, n);
+            }
             let s = self.get(target)?;
             s.deleted = true;
             if scripted {
@@ -1592,7 +1655,7 @@ impl<'a> World<'a> {
             // it you can then pick it up like any other loose item"; every mine needs
             // Explosives 1, so no skill check]. Its owner, unless the player, owns the
             // item [hypothesis].
-            BaseData::Projectile { item: Some(item) } => {
+            BaseData::Projectile { item: Some(item), .. } => {
                 let owner = self.placed.get(target).and_then(|p| p.owner);
                 let s = self.get(target)?;
                 s.deleted = true;
@@ -1601,7 +1664,7 @@ impl<'a> World<'a> {
                 self.get(placed)?.extra.owner = owner;
                 Outcome::Disarmed { item: *item, placed: Some(placed) }
             }
-            BaseData::Projectile { item: None } => Outcome::NoDefault { sig: "PROJ".into() },
+            BaseData::Projectile { item: None, .. } => Outcome::NoDefault { sig: "PROJ".into() },
         };
         Ok(done(outcome, unlocked_with))
     }

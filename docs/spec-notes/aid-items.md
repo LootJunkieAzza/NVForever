@@ -100,10 +100,26 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   wiki's GetRadiationLevel reads the player's rads with GetAV]. The change goes to the
   value's base, where SetActorValue would put it [hypothesis].
 - **Value And Parts** ("Restore Health & Conditions", the normal Stimpak and Super
-  Stimpak) restores the value and every limb condition by the same amount [hypothesis from
-  the effect's name].
+  Stimpak) restores the value by the whole amount and each limb condition by
+  `fnv_game::aid::PARTS_LIMB_SHARE` (1/6) of it [design: owner's request 2026-10-23, "a
+  small amount of limb health across all limbs"; the share is in no record or setting of
+  FalloutNV.esm, so the number stands until the formula is found]. Used on one limb from
+  the Pip-Boy's CND page (pipboy.md §5.1, `Game::ingest_on`), that limb gets the whole
+  amount and the others nothing [design]. (Before 2026-10-23 every limb got the whole
+  amount [hypothesis from the effect's name].)
 - **Limb Condition** ("NVRestoreLimbs": Doctor's Bag at once, Hydra 10 a second for 60 s)
-  names no actor value: it restores every limb condition [hypothesis].
+  names no actor value: it restores every limb condition [hypothesis]. The Doctor's Bag
+  outside Hardcore also runs `RestoreAllBodyPartsSCRIPT` (effect `RestoreAllLimbs`): with
+  it every limb is whole after the use; in Hardcore its limbs get 36 × potency
+  [observed: `fnvtool actor aid --use NVDoctorBag`, 2026-10-23, Medicine 15: a left arm
+  at 0 went to 100, and to 46.8 with `--hardcore`].
+- **Hardcore on and off while the game runs** (SetHardcore, `Game::set_hardcore`):
+  the needs and the weight of ammunition follow it; the simulation counts ammunition's
+  weight by its own switch (`fnv_sim::World::set_hardcore`), which SetHardcore now
+  sets too (before 2026-10-23 only the start's configuration set it, so ammunition
+  stayed weightless after Doc Mitchell's question turned Hardcore on). RadAway is
+  6.5 rads a second for 10 s in Hardcore, 65 at once otherwise [observed: `fnvtool
+  actor aid --use RadAway`, Medicine 15].
 - The value changes of the masters' aid items [observed]: 257 at once, 173 modifiers while
   they last, 138 by the second.
 
@@ -343,11 +359,16 @@ Rules (`crates/fnv-game/src/needs.rs`):
   setting [hypothesis: the unit; the larger setting is the slower need, so it is time
   per point]. At TimeScale 30: hunger 4.8 an hour (Minor after 42 hours), sleep
   deprivation 2.4 an hour (Minor after 83 hours). Dehydration: `fHCDehydrationRate` if a
-  plugin sets it [hypothesis: the name], else 12.5 [guess: twice starvation's pace],
-  9.6 an hour.
+  plugin sets it [hypothesis: the name], else 10 s a point, 12 an hour [documented: the
+  owner's Hardcore table, 2026-10-23, "~12/h (1 every 10s)"; it gives hunger ~4.75/h and
+  sleep ~2.4/h as the settings do; before, a guess of 12.5].
 - An hour waited raises them by an hour's worth (120 s of play at TimeScale 30); an hour
-  slept does the same for dehydration and hunger and lowers sleep deprivation by 100
-  [guess] (§6).
+  slept does the same for dehydration and hunger and lowers sleep deprivation by 60
+  [documented: the owner's Hardcore table, "~ -60/h Sleep"; before, a guess of 100] (§6).
+- The stage effects are the records' [observed: FalloutNV.esm SPEL Dehydration200 …
+  SleepDeprivation1000, 2026-10-23]; they agree with the owner's table but for Deadly
+  Dehydration (800), whose record has Endurance −3, Agility −2, Perception −2 and no
+  Intelligence −1 (the table lists −1 INT). The record is what is applied.
 - Restore / Damage on a need lowers / raises it (items, and the script functions
   RestoreActorValue and DamageActorValue, e.g. the Cannibal perk's `RestoreActorValue
   Hunger 50`), never below 0 (§3).
@@ -356,7 +377,8 @@ Rules (`crates/fnv-game/src/needs.rs`):
   and the lower stage's comes [hypothesis]. Rads' stages hold in every mode; the needs'
   only in Hardcore, and go when Hardcore is turned off [hypothesis].
 - Only the player has needs [design].
-- Not done: the refusal of a wait or sleep that would kill; the HUD codes; the messages
+- The HUD's words H2O, FOD and SLP show each need's stage (hud.md §13).
+- Not done: the refusal of a wait or sleep that would kill; the messages
   `sDehydrationIncrease` and the like (the log says the stage instead).
 
 ## 12. Carry weight

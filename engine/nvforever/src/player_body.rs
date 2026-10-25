@@ -102,6 +102,7 @@ const TAG_TURN: u32 = 20;
 const TAG_JUMP: u32 = 30;
 const TAG_LAND: u32 = 31;
 const TAG_AIM: u32 = 40; // + 0 level, + 1 up, + 2 down
+const TAG_GRIP: u32 = 45;
 const TAG_HOLSTER: u32 = 50;
 const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
@@ -290,6 +291,9 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
+    /// Weapon prefix and hand grip number: the grip clip (`1lmhandgrip1.kf`,
+    /// `2hahandgrip1_plasmarifle.kf`).
+    Grip(&'static str, u8),
 }
 
 impl ClipKey {
@@ -316,6 +320,7 @@ impl ClipKey {
             ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
+            ClipKey::Grip(p, n) => vec![format!("{p}handgrip{n}.kf")],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -376,6 +381,8 @@ struct WeaponPart {
     /// Whether it hangs from a bone of its own (the minigun's backpack) rather than
     /// from the `Weapon` node.
     on_bone: bool,
+    /// Never shown: a mine's lit light while the mine is a held weapon.
+    never: bool,
     /// The visibility last written to the entity.
     shown: Option<bool>,
 }
@@ -414,6 +421,9 @@ struct Rig {
     /// The weapon is in the hand with no draw, attack or reload clip playing, and the
     /// parts' pose then was logged ([`pose_rig`]).
     idle_logged: bool,
+    /// Down the sights: the most the spine was turned back to the sights clip's facing
+    /// since the sights went up ([`keep_sights_facing`]; logged as they come down).
+    sights_turned: Option<f32>,
     /// The way from the `Weapon` node down to the weapon model's `ProjectileNode`, when
     /// it has one: each node's place in the animator's extra nodes (a named node; the
     /// clips may move it) and its transform in the model [hypothesis: the node marks
@@ -477,6 +487,17 @@ fn loop_time(time: f32, start: f32, end: f32) -> f32 {
 }
 
 impl Rig {
+    /// Whether the rig plays the down-the-sights clips (`…aimis…`, `…attack…is`) while
+    /// Block is held. The third-person body always does; the arms rig only with a weapon
+    /// model that has a sighting node (`iron_sights::SIGHTING_NODES`). Without one the
+    /// original keeps the hip pose and only narrows the view [observed: the owner's
+    /// screenshots, 2026-10-24, Laser Rifle in first person at the hip and aimed: same
+    /// pose, the view zoomed; the owner: "base game has no aim animation it literally
+    /// just zooms the screen in", "third person is still animated"].
+    fn sights_clips(&self, aiming: bool) -> bool {
+        aiming && (self.view != View::First || self.sighting.is_some())
+    }
+
     /// Where the weapon's muzzle is in the last pose with the rig at `root` (game
     /// space): under the node the `Weapon` node hangs from, down the weapon model to its
     /// `ProjectileNode`, each node where the clips have it.
@@ -531,12 +552,21 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        let found = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)).and_then(|path| {
+        let mut path = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p));
+        // A grip clip may carry the weapon's name after its number
+        // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
+        if let (None, ClipKey::Grip(p, n)) = (&path, key) {
+            let stem = format!("{}{p}handgrip{n}_", self.folder);
+            path = ctx.models.data.vfs.paths(|x| x.starts_with(&stem) && x.ends_with(".kf") && !x[self.folder.len()..].contains('\\')).into_iter().min();
+        }
+        let found = path.and_then(|path| {
             let clip = ctx.clip(&path)?;
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Move(..)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
@@ -589,6 +619,8 @@ struct Motion {
     /// docs/spec-notes/weapon-mods.md §2).
     weapon_mods: u8,
     prefix: &'static str,
+    /// The weapon's DNAM Hand Grip ([`Frame::grip`]).
+    grip: Option<u8>,
     hands: WeaponHands,
     events: Vec<HandEvent>,
     speed: f32,
@@ -631,6 +663,8 @@ struct Motion {
     sway: ViewSway,
     /// The true iron sights were last reported on the eye (a smoke check).
     sights_told: bool,
+    /// How far the gun is on its way up to the eye (0–1, not eased; `iron_sights::step`).
+    sights_share: f32,
 }
 
 impl Motion {
@@ -650,6 +684,7 @@ impl Default for Motion {
             weapon: None,
             weapon_mods: 0,
             prefix: UNARMED,
+            grip: None,
             hands: WeaponHands::default(),
             events: Vec::new(),
             speed: 0.0,
@@ -676,6 +711,7 @@ impl Default for Motion {
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
             sights_told: false,
+            sights_share: 0.0,
         }
     }
 }
@@ -815,8 +851,11 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
 fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>, u8) {
     let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return (Vec::new(), None, 0) };
     let eq = inv.equipped();
-    let worn = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
+    let mut worn: Vec<FormId> = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
     let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
+    // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
+    // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
+    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack)));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
 
@@ -933,6 +972,7 @@ fn ensure_body(
     m.weapon_mods = weapon_mods;
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
+    m.grip = w.and_then(|w| w.grip);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
     if weapon.is_some() {
         info!("player weapon: mods {weapon_mods} on, models {:?} and {:?} (first person)", w.and_then(|w| w.model_for(false, weapon_mods)), w.and_then(|w| w.model_for(true, weapon_mods)));
@@ -967,6 +1007,8 @@ fn ensure_body(
                 let bones = models.node_strings(&path, "UPB");
                 let skel = rig.animator.skel.clone();
                 let in_hand = m.hands.in_hand;
+                // A mine's lit light shows only on a live mine, never in the hand.
+                let mine = matches!(m.prefix, "1lm" | "1md");
                 // The model's nodes keep their tree and their names, so the clips can
                 // move its parts [observed: the clips' tracks on `##Slide`, `##Clip`,
                 // `##MinigunBarrel` name nodes of the weapon models; animation.md §9.8].
@@ -994,6 +1036,9 @@ fn ensure_body(
                 rig.casing_entity = casing.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.casing = casing.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                if rig.view == View::First {
+                    info!("player weapon model (First person): {}", if rig.sighting.is_some() { "a sighting node: aimed with the down-the-sights clips" } else { "no sighting node: aimed with the hip clips, the view zoomed" });
+                }
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -1002,7 +1047,8 @@ fn ensure_body(
                     }
                     let tags: Vec<(String, bool)> =
                         s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
-                    let shown = tags.is_empty() || in_hand;
+                    let never = mine && nvf_play::mines::lit_part(s.name.as_deref(), &s.ancestors);
+                    let shown = !never && (tags.is_empty() || in_hand);
                     let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
                     // On a bone of its own the shape keeps its place in the whole model;
                     // else it sits under its node, which the clips may move.
@@ -1029,7 +1075,7 @@ fn ensure_body(
                     if let (None, Some(name)) = (bone, &s.name) {
                         extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
                     }
-                    rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
+                    rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), never, shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
                 rig.seen = None;
@@ -1055,6 +1101,16 @@ const LOOK_REBUILD: f32 = 0.1;
 
 fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>) -> Result<Body, String> {
     let a = world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn), look)?;
+    // The armour pieces drawn (an addon in the Backpack slot is left out while a weapon
+    // with Hide Backpack is held).
+    let mut drawn: Vec<String> = Vec::new();
+    for p in a.parts.iter().filter(|p| p.role == "armor") {
+        let name = world.actors.armors.get(&p.form).and_then(|x| x.edid.clone()).unwrap_or_else(|| p.form.to_string());
+        if !drawn.contains(&name) {
+            drawn.push(name);
+        }
+    }
+    info!("player body: armour drawn {drawn:?}");
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
@@ -1174,6 +1230,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_model: None,
         weapon_parts: Vec::new(),
         idle_logged: false,
+        sights_turned: None,
         muzzle: None,
         muzzle_entity: None,
         casing: None,
@@ -1202,6 +1259,8 @@ struct Frame {
     limping: bool,
     /// The weapon prefix, and whether the weapon is out.
     prefix: &'static str,
+    /// The weapon's DNAM Hand Grip (1 to 6), `None` for the default.
+    grip: Option<u8>,
     drawn: Option<&'static str>,
     hands: WeaponHands,
     airborne: f32,
@@ -1225,6 +1284,12 @@ struct Frame {
     reload_now: bool,
     /// A round-by-round reload starts on a round: the reload clip plays from its start.
     reload_round_now: bool,
+    /// How fast the reload clips play (`nvf_play::combat::WeaponAnim::reload_rate`).
+    reload_rate: f32,
+    /// How fast the attack and the draw and holster clips play
+    /// (`nvf_play::combat::WeaponAnim::attack_rate`, `equip_rate`).
+    attack_rate: f32,
+    equip_rate: f32,
     /// The weapon starts to spin up this frame: its attack clip plays from the start.
     spin_now: bool,
     /// A pull starts a shot that leaves at the clip's `Hit` key (a throw's release): the
@@ -1249,6 +1314,13 @@ struct Posed<'a> {
     sights: Option<(f32, Vec3)>,
 }
 
+/// The turn and offset (in the hand's frame, game units) a Land Mine weapon is given in
+/// the first-person hand over what its clips say [observed: fitted to the game's frames of
+/// the frag mine, docs/spec-notes/animation.md §9.11].
+fn land_mine_grip() -> (Quat, Vec3) {
+    (Quat::from_rotation_x(240f32.to_radians()), Vec3::new(4.4, -3.9, 4.5))
+}
+
 /// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
 /// eye (game space): the camera node in first person, between the eyes in third. With
 /// it, in first person while an idle drives the camera node, the node's rotation (game
@@ -1268,14 +1340,17 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let bone = |name: &str| skel.by_name.get(name).copied();
     for ev in events {
         match ev {
+            // At the Equip Speed perks' rate (Quick Draw), as the hands time it.
             HandEvent::StartDraw => {
                 if let Some(c) = &draw {
-                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    rig.animator.layers[l].rate = f.equip_rate;
                 }
             }
             HandEvent::StartHolster => {
                 if let Some(c) = &put_away {
-                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    rig.animator.layers[l].rate = f.equip_rate;
                 }
             }
             HandEvent::ToHand => rig.animator.cut(TAG_HOLSTER),
@@ -1346,6 +1421,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     // First person pitches the whole arms rig instead of bending the body.
+    let sights_clips = rig.sights_clips(f.aiming);
     let aim_w = match rig.view {
         View::Third if !f.upright => aim_weights(f.pitch),
         _ => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
@@ -1364,9 +1440,26 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 if w <= 0.0 && aim != Aim::Level {
                     continue;
                 }
-                if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, f.aiming)) {
+                if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, sights_clips)) {
                     want.push((c, TAG_AIM + i as u32, w, Mode::Loop));
                 }
+            }
+            // The weapon's hand grip clip over the aim: WEAP DNAM Hand Grip, "a hand pose
+            // animation for 3rd person" [documented: GECK wiki Weapons], so the body rig
+            // only (the arms rig's folder has the same files: whether the game plays them
+            // in first person is not known). A Land Mine weapon with the default grip is
+            // held with its type's grip clip in both views: it puts the left hand out of
+            // view and the right thumb over the mine's rim [observed: the game's
+            // first-person frames of the frag mine (owner 2026-10-23), which show no left
+            // hand; `1lmhandgrip1.kf` is the type's only grip clip; hypothesis: the game
+            // plays it for the weapon's default grip].
+            let grip = match (f.grip, rig.view) {
+                (Some(n), View::Third) => Some(n),
+                _ if f.prefix == "1lm" => Some(1),
+                _ => None,
+            };
+            if let Some(c) = grip.and_then(|n| rig.clip(ctx, ClipKey::Grip(f.prefix, n))) {
+                want.push((c, TAG_GRIP, 1.0, Mode::Loop));
             }
         }
     }
@@ -1376,7 +1469,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     if f.hands.in_hand && (f.attack_now || f.spin_now || f.wind_now) {
-        if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
+        if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, sights_clips))) {
             // A clip with a `Loop` key plays on through the shots that follow while it
             // runs (a minigun's spin) instead of starting again at each, going round from
             // its `Fire` key to its `Loop` key [documented: GECK wiki NiTextKeyExtraData,
@@ -1394,7 +1487,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 info!("player {:?} rig: {} starts at the pull; the shot leaves at its Hit key", rig.view, c.path);
             }
             if !going {
-                rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                // At the attack's rate: the weapon's multipliers and the Modify Attack Speed
+                // perks, as combat times the shot.
+                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                rig.animator.layers[l].rate = f.attack_rate;
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
                 // The attack's own up and down forms keep the body bent with the pitch while
                 // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
@@ -1402,7 +1498,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     let tag = TAG_ATTACK + i as u32;
                     rig.animator.cut(tag);
                     if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
-                        rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        rig.animator.layers[l].rate = f.attack_rate;
                     }
                 }
             }
@@ -1424,8 +1521,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             // fade back through the held pose [hypothesis: the clips are made to chain,
             // the opening's end and the round's `Hit` close to its start pose].
             let fade = if f.reload_round_now { 0.0 } else { c.fade() };
-            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
-            info!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
+            let layer = rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
+            // At the player's reload rate, as the cycle times it (Agility, Rapid Reload).
+            rig.animator.layers[layer].rate = f.reload_rate;
+            info!("player {:?} rig: {} moves the weapon's {:?} (reload at x{:.2})", rig.view, c.path, rig.animator.extra_driven(&c.clip), f.reload_rate);
         }
     }
     // A jam: the weapon's jam clip (`1hpjama.kf`), played once on the reload layer as a
@@ -1447,7 +1546,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let covered = special.covers();
     for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
-        a.want(&c.clip, *tag, *w, *mode, fade);
+        let l = a.want(&c.clip, *tag, *w, *mode, fade);
+        if *tag == TAG_EQUIP {
+            a.layers[l].rate = f.equip_rate;
+        }
     }
     // Clips that play once to their end once started: landing, attack, reload.
     for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
@@ -1507,6 +1609,27 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     a.pose();
+    // A Land Mine weapon sits turned in the first-person hand: the clips leave the frag
+    // mine on its edge, underside to the view, where the game shows its top tilted back
+    // with the handle in the hand [observed: the game's first-person frames (owner
+    // 2026-10-23); our pose of `1lmaim.kf` matches NifSkope's; the turn and offset are
+    // fitted to those frames, the game's own rule is unknown; animation.md §9.11].
+    if rig.view == View::First && f.prefix == "1lm" {
+        if let Some(w) = rig.weapon_node {
+            let (turn, offset) = land_mine_grip();
+            a.locals[w].rotation = turn * a.locals[w].rotation;
+            a.locals[w].translation = turn * a.locals[w].translation + offset;
+        }
+    }
+    let turned = (rig.view == View::Third && f.aiming && f.hands.in_hand && !blocks(f.prefix)).then(|| bone("Bip01 Spine").map_or(0.0, |s| keep_sights_facing(a, s)));
+    match (turned, rig.sights_turned) {
+        (Some(t), m) => rig.sights_turned = Some(m.unwrap_or(0.0).max(t)),
+        (None, Some(m)) => {
+            info!("player sights: upper body turned back to the sights clip's facing by up to {m:.1}° while down the sights");
+            rig.sights_turned = None;
+        }
+        (None, None) => {}
+    }
     // Each time the weapon comes to rest in the hand, the parts it holds away from their
     // place in the model (the 9mm pistol's cocked hammer; smoke `weapon-parts-rest`).
     let busy = |t: u32| t == TAG_EQUIP || t == TAG_RELOAD || (TAG_ATTACK..TAG_ATTACK + 3).contains(&t);
@@ -1546,6 +1669,41 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }),
         View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
+}
+
+/// Down the sights in third person the body stays square to the view, whatever way the
+/// legs step. The sights clips (`2hraimis.kf`, `1hpaimis.kf`) take the spine, arms and
+/// head (priority 50) but leave `Bip01 NonAccum`, the body's node that the pelvis and
+/// `Bip01 Spine` both hang from, to the movement clips (26 under 30). The unarmed
+/// `male\mtleft.kf` and `mtfastleft.kf`, which a rifle (no `2hrleft.kf`) strafes left
+/// with, turn that node a further 90° (yaw 177.5° against 87.5–90° in every other move
+/// and in the weapons' own side-steps), so strafing left swung the body and the rifle a
+/// quarter turn off the crosshair [observed: `kf_pose_compare` and `fnvtool actor
+/// locomotion --samples`, animation.md §9.6; the owner's playtest 2026-10-23].
+///
+/// The aim clips' own rotation of the nodes above the spine is taken in place of the
+/// blend's, faded with the aim clips; the movement clip keeps their translation (the
+/// bob) and the legs below the pelvis. In the original, strafing left down the sights
+/// the hips stay square to the camera and the legs step as in a backpedal [observed:
+/// the owner's capture 2026-10-23], which is that [hypothesis: the game's rule is not
+/// known]. Turning only the spine instead wrung the skin at the waist a quarter turn.
+/// Standing still the aim clip holds those nodes itself and nothing changes. Returns
+/// the largest turn, degrees.
+fn keep_sights_facing(a: &mut Animator, spine: usize) -> f32 {
+    let aim = |l: &nvf_assets::anim_blend::Layer| (TAG_AIM..TAG_AIM + 3).contains(&l.tag);
+    let ease = a.layers.iter().filter(|l| aim(l)).map(|l| l.ease).fold(0.0f32, f32::max).min(1.0);
+    let mut most = 0.0f32;
+    let mut cur = a.skel.parents.get(spine).copied().flatten();
+    while let Some(n) = cur.filter(|&n| n > 0 && ease > 0.0) {
+        if let Some(own) = a.local_from(n, aim) {
+            let posed = a.locals[n].rotation;
+            let r = posed.slerp(own.rotation, ease).normalize();
+            most = most.max(posed.angle_between(r).to_degrees());
+            a.locals[n].rotation = r;
+        }
+        cur = a.skel.parents[n];
+    }
+    most
 }
 
 /// Draw the first-person rig `k` times as big across the view about the eye (along the
@@ -1962,6 +2120,10 @@ fn drive_body(
         _ => &mut body.third,
     };
     let (draw_t, away_t) = timing_rig.transitions(&mut ctx, stance, prefix);
+    // The Equip Speed perks (Quick Draw): the draw and holster take 1 ÷ the rate as long.
+    let eq = if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 };
+    let quick = |t: fnv_actor::player_clips::Transition| fnv_actor::player_clips::Transition { length: t.length / eq, switch_at: t.switch_at / eq };
+    let (draw_t, away_t) = (quick(draw_t), quick(away_t));
     let want_out = control.weapon_out && stance != Stance::Swim;
     let mut events = std::mem::take(&mut m.events);
     m.hands.update(want_out, dt, draw_t, away_t, &mut events);
@@ -1975,7 +2137,7 @@ fn drive_body(
         None => m.intern(attack_stem(anim.attack.as_deref())),
     };
     let reload = anim.reload.clone().map(|r| m.intern(r));
-    let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
+    let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, timing_rig.sights_clips(control.aiming)));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
     let reload_open = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::ReloadOpen(stance, prefix, r)));
     let jam = anim.jam.clone().map(|j| m.intern(j));
@@ -2057,6 +2219,7 @@ fn drive_body(
         female: body.female,
         limping: limbs.as_deref().is_some_and(|l| l.limping()),
         prefix,
+        grip: m.grip,
         drawn: (m.hands.phase == WeaponPhase::Drawn).then_some(prefix),
         hands: m.hands,
         airborne: if m.falling { m.airborne } else { 0.0 },
@@ -2076,6 +2239,9 @@ fn drive_body(
         attack_now,
         reload_now,
         reload_round_now,
+        reload_rate: if anim.reload_rate > 0.0 { anim.reload_rate } else { 1.0 },
+        attack_rate: if anim.attack_rate > 0.0 { anim.attack_rate } else { 1.0 },
+        equip_rate: if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 },
         spin_now,
         wind_now,
     };
@@ -2105,14 +2271,14 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
-    // True iron sights: eased in with the zoom, for the guns whose model has a sighting
-    // node, while the
-    // player looks through the arms rig by themself.
-    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()))
-        .then(|| zoom.as_deref().map_or(0.0, |z| z.blend))
-        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()));
+    // True iron sights: brought up at their own pace while the view zooms in, for the
+    // guns whose model has a sighting node, while the player looks through the arms rig
+    // by themself.
+    let sights_can = state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()) && combat.as_deref().is_some_and(|c| c.sight_fov().is_some());
+    m.sights_share = if sights_can { crate::iron_sights::step(m.sights_share, zoom.as_deref().is_some_and(|z| z.aimed), dt) } else { 0.0 };
+    let sights_in = Some(m.sights_share).filter(|s| *s > 0.0);
     // The view's direction in the arms rig's own frame (turned by the heading only).
-    let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
+    let sights = sights_in.map(|s| (crate::iron_sights::ease(s), Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {
@@ -2196,7 +2362,7 @@ fn drive_body(
                     *on = v;
                 }
             }
-            let shown = p.tags.iter().all(|(_, on)| *on);
+            let shown = !p.never && p.tags.iter().all(|(_, on)| *on);
             if p.shown != Some(shown) {
                 if let Ok(mut v) = visibility.get_mut(p.entity) {
                     *v = if shown { Visibility::Inherited } else { Visibility::Hidden };

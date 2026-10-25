@@ -349,7 +349,9 @@ pub fn reveal(
                     h.held.push(e);
                 }
             }
-            let world_in = streamer.settled && phys.is_none_or(|p| p.loading_done()) && !restoring.busy();
+            // The start's own loading screen (nvf_play::loading::StartCover) waits for the
+            // actors and scripts too: shown once it is down, the window opens on the world.
+            let world_in = streamer.settled && phys.is_none_or(|p| p.loading_done()) && !restoring.busy() && !loading.starting();
             let Some(late) = settle(&mut h, world_in, Instant::now()) else { return };
             info!("handoff: window shown after {:.2} s{}", h.started.elapsed().as_secs_f64(), if late { ", before the world was in" } else { "" });
             window.visible = true;

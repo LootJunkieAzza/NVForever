@@ -25,7 +25,8 @@
 //!   where the object is (anim_sounds.rs, [`ObjectSound`]), keys at the group's very
 //!   start included (a tripwire's sound key is 0.00001 s into its Forward).
 //! - **Shown and hidden nodes**: the visibility tracks (`NiVisController`) of the clip
-//!   playing show and hide the rig's nodes; its alpha tracks fade its shapes
+//!   playing show and hide the rig's nodes, as on every playing clip
+//!   (`nvf_assets::anim_play::Playing::show`); its alpha tracks fade its shapes
 //!   (`nvf_assets::material_anim`) [activators.md §6].
 //! - **Actors**: a request for an actor (a reference to an NPC or a creature) is handed
 //!   to `actor_groups.rs`.
@@ -62,13 +63,11 @@ pub struct GroupRig {
     next: Option<(u16, usize)>,
     /// Sequence time and cycle count last seen, to find passed keys and cycle ends.
     last: Option<(f32, i64)>,
-    /// The visibility last written per node of the clip's visibility tracks.
-    shown: HashMap<String, bool>,
 }
 
 impl GroupRig {
     pub fn new(form_id: u32, model: Arc<PreparedModel>, source: &str, nodes: HashMap<String, Entity>) -> GroupRig {
-        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None, shown: HashMap::new() }
+        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None }
     }
 
     fn clip(&self, i: usize) -> Option<&Clip> {
@@ -148,7 +147,6 @@ pub fn drive(
     actors: Query<&ActorRig>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     mut for_actors: ResMut<ActorGroups>,
-    mut vis: Query<&mut Visibility>,
 ) {
     let st = &mut *st;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -277,24 +275,6 @@ pub fn drive(
             }
         }
         rig.last = Some((t, cycles));
-        // Visibility tracks of the clip playing (the group, else the object's own idle).
-        let ci = rig.current.map(|(_, i)| i).or_else(|| rig.find(&p.name));
-        if let Some(clip) = ci.and_then(|i| rig.clip(i)).filter(|c| !c.visibility.is_empty()) {
-            let mut changes: Vec<(String, bool)> = Vec::new();
-            for (node, _, track) in &clip.visibility {
-                if let Some(on) = track.at(t) {
-                    if rig.shown.get(node) != Some(&on) {
-                        changes.push((node.clone(), on));
-                    }
-                }
-            }
-            for (node, on) in changes {
-                if let Some(mut v) = rig.nodes.get(&node).and_then(|e| vis.get_mut(*e).ok()) {
-                    *v = if on { Visibility::Inherited } else { Visibility::Hidden };
-                }
-                rig.shown.insert(node, on);
-            }
-        }
         if let Some((g, i)) = rig.next {
             if ended || wrapped {
                 start(&mut commands, root, &mut rig, g, i, false, mats.map(|m| m.into_inner()));

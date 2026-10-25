@@ -286,7 +286,7 @@ fn barter_skill(script: Option<&mut crate::script::ScriptState>, sim: &mut SimSt
 /// opens over a conversation.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn open_menus(
-    mut containers: MessageReader<OpenContainer>,
+    (mut containers, mut steals): (MessageReader<OpenContainer>, MessageReader<crate::pickpocket::OpenPickpocket>),
     mut inventory: MessageReader<OpenInventory>,
     mut barters: MessageReader<OpenBarter>,
     state: Res<State<PlayState>>,
@@ -301,7 +301,8 @@ pub(crate) fn open_menus(
     animated: (Option<ResMut<crate::doors::Doors>>, Option<ResMut<crate::container_anim::ContainerOpening>>),
 ) {
     let mut script = script.map(|s| s.into_inner());
-    let container = containers.read().last().copied();
+    let steal = steals.read().last().copied();
+    let container = containers.read().last().copied().or(steal.map(|s| OpenContainer { container: s.victim }));
     let barter = barters.read().last().copied();
     let mut inv = inventory.read().count() > 0;
     if inv && locks.is_some_and(|l| l.pipboy) {
@@ -345,6 +346,17 @@ pub(crate) fn open_menus(
                     let list: Vec<String> = held.iter().map(|(i, c)| format!("{} ({c})", model::display_name(sim.world.forms, *i))).collect();
                     info!("barter: {merchant} holds back {} item(s) outside its services: {}", held.len(), if list.is_empty() { "none".into() } else { list.join(", ") });
                 }
+                Ok(m)
+            })
+        }
+        (None, Some(c)) if steal.is_some() => {
+            let victim = FormId(c.container);
+            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim))));
+            let (rules, (thief, target)) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0)));
+            info!("pickpocket: open on {victim}: Sneak {thief:.0} against {target:.0}");
+            MenuModel::open_container(&mut sim.world, victim).and_then(|mut m| {
+                m.steal = Some(model::Steal::new(victim, rules, thief, target, u64::from(victim.0) ^ 0x5EED));
+                m.refresh(&mut sim.world)?;
                 Ok(m)
             })
         }
@@ -645,7 +657,7 @@ fn apply_input(
     mut used: MessageWriter<ItemUsed>,
     script: Option<ResMut<crate::script::ScriptState>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
-    mut taken: MessageWriter<crate::crime::ItemsTaken>,
+    (mut taken, mut stolen): (MessageWriter<crate::crime::ItemsTaken>, MessageWriter<crate::pickpocket::Pickpocketed>),
     mut held: ResMut<PromptKeys>,
 ) {
     let mut script = script.map(|s| s.into_inner());
@@ -669,7 +681,7 @@ fn apply_input(
             }
         }
         if let Some(item) = a.used {
-            used.write(ItemUsed { item: item.0 });
+            used.write(ItemUsed { item: item.0, limb: None });
         }
         // Power armour without the training: the game's message, once the Pip-Boy is
         // closed (`fnv_game::functions::refuse_power_armor`).
@@ -684,8 +696,13 @@ fn apply_input(
                 rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
             }
         }
-        // Taking owned items is theft (`crate::crime`).
-        if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
+        // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`).
+        if let Some(victim) = m.steal.as_ref().map(|s| s.victim) {
+            if !a.taken.is_empty() || !a.given.is_empty() || a.caught.is_some() {
+                stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), caught: a.caught });
+            }
+        } else if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
+            // Taking owned items is theft (`crate::crime`).
             taken.write(crate::crime::ItemsTaken { container: c, items: a.taken.clone() });
         }
         // A dropped item starts turned as its holder faces (GetAngle Z of the new reference
@@ -720,6 +737,12 @@ fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
     let refused = m.status.as_deref().filter(|s| s.ends_with("enough caps.") || s.starts_with("Cannot"));
     if let Some(s) = refused {
         return Some(s.to_string());
+    }
+    // Picking a pocket: the selected row's chance [design: the original's display is not
+    // captured; docs/spec-notes/pickpocket.md].
+    if let (Some(st), Some(r)) = (m.steal.as_ref(), m.selected_row(m.focus)) {
+        let verb = if m.focus == Side::Container { "steal" } else { "place" };
+        return Some(format!("Chance to {verb} {}: {}%", r.name, st.chance(r, 1)));
     }
     let Mode::Container(c) = m.mode else { return None };
     let base = sim.world.peek(c).map(|s| s.base)?;

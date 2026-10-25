@@ -107,7 +107,9 @@ pub struct Weather {
     pub cloud_textures: [Option<String>; 4],
     /// PNAM `cloud_colors[layer][time]` as RGB bytes; 4 or 6 times per layer, like NAM0.
     pub cloud_colors: Vec<Vec<[u8; 3]>>,
-    /// ONAM cloud speed per layer (raw bytes).
+    /// ONAM cloud speed per layer, 0-255 [documented: xEdit wbWeatherCloudSpeed, one byte
+    /// per layer; GECK wiki GetWeatherTraitNumeric, traits 0-3 "Layer N Cloud Speed"]. The
+    /// unit is not documented: [`Weather::cloud_scroll`].
     pub cloud_speeds: [u8; 4],
     /// LNAM maximum cloud layers.
     pub max_cloud_layers: Option<u32>,
@@ -168,7 +170,26 @@ impl WeatherSoundKind {
     }
 }
 
+/// Cloud texture scroll per real second per ONAM speed unit, in texture repeats
+/// [hypothesis: neither xEdit nor the GECK wiki gives the unit. 1/25,600 is the first sky
+/// pass's placeholder, kept: at it NVWastelandClear's top layer (speed 65) drifts one
+/// texture width in about 6.6 minutes. To be measured from two game screenshots of the
+/// same view some seconds apart (docs/owner-review.md)].
+pub const CLOUD_SCROLL_PER_UNIT: f32 = 1.0 / 25_600.0;
+
 impl Weather {
+    /// Texture repeats per real second that cloud layer `layer` (0-3) scrolls by: its ONAM
+    /// speed times [`CLOUD_SCROLL_PER_UNIT`] [hypothesis: linear in the byte, 0 still].
+    pub fn cloud_scroll(&self, layer: usize) -> f32 {
+        self.cloud_speeds.get(layer).map_or(0.0, |&s| f32::from(s) * CLOUD_SCROLL_PER_UNIT)
+    }
+
+    /// The layer's texture offset (0..1 repeats) `secs` real seconds after the clock's
+    /// start. Worked in f64 so that a long session keeps a smooth drift.
+    pub fn cloud_offset(&self, layer: usize, secs: f64) -> f32 {
+        (secs * f64::from(self.cloud_scroll(layer))).rem_euclid(1.0) as f32
+    }
+
     /// Real seconds a change to this weather takes: 30 × Trans Delta ÷ 255, at most the
     /// documented 30 s; 0 is at once [hypothesis: the time grows with the byte;
     /// docs/spec-notes/world.md §6 "Weather transitions and glare"].
@@ -527,6 +548,23 @@ impl Weather {
         let d = day_factor(c, hour);
         Some((night.0 + (day.0 - night.0) * d, night.1 + (day.1 - night.1) * d))
     }
+
+    /// Fog power at `hour` (FNAM day and night power, blended like [`Self::fog_at`]; an
+    /// unset range takes the other range's power, and a power that is not above 0 reads
+    /// as 1, a linear fog). The renderers' fog share is ((distance − near) / (far −
+    /// near))^power [hypothesis, fitted to Dead Money's frames: docs/spec-notes/world.md
+    /// §6 "Fog power"]. Stored powers: 0.2 to 1.0 in the masters' 98 weathers [observed].
+    pub fn fog_power_at(&self, c: &Climate, hour: f32) -> f32 {
+        let set = |near: f32, far: f32| far > near;
+        let p = |v: f32| if v > 0.0 { v } else { 1.0 };
+        let (day, night) = (p(self.fog[4]), p(self.fog[5]));
+        let (day, night) = match (set(self.fog[0], self.fog[1]), set(self.fog[2], self.fog[3])) {
+            (true, false) => (day, day),
+            (false, true) => (night, night),
+            _ => (day, night),
+        };
+        night + (day - night) * day_factor(c, hour)
+    }
 }
 
 /// A per-time colour set blended at `hour`, linear RGB (bytes treated as sRGB). Only the
@@ -631,6 +669,12 @@ pub struct Water {
     pub under_fog: [f32; 3],
     pub noise_normals_scale: f32,
     pub noise_normals_uv_scale: f32,
+    /// DNAM "Depth Falloff Start" and "End": "where the alpha fadeoff begins (used for
+    /// edges of the water, to blend it smoothly with the land)" and ends [documented:
+    /// GECK wiki WaterType; xEdit files them under the noise normals]. The masters store
+    /// fractions (0 to 0.8; NVCleanWater 0 to 0.0109) [observed]; what they are fractions
+    /// of is not documented ([`Water::edge_falloff`]).
+    pub depth_falloff: [f32; 2],
     pub noise_layers: [NoiseLayer; 3],
     pub rain: RippleParams,
     pub displacement: RippleParams,
@@ -660,6 +704,7 @@ pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
         w.under_fog = [n("under_fog_near"), n("under_fog_far"), n("under_fog_amount")];
         w.noise_normals_scale = n("noise_normals_scale");
         w.noise_normals_uv_scale = n("noise_normals_uv_scale");
+        w.depth_falloff = [n("noise_depth_falloff_start"), n("noise_depth_falloff_end")];
         let ripple = |p: &str, size: &str| RippleParams {
             starting_size: n(size),
             force: n(&format!("{p}_force")),
@@ -682,6 +727,23 @@ pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
     Some(w)
 }
 
+impl Water {
+    /// The depth falloff in game units of water the view ray crosses: start and end of
+    /// the ramp over which the surface fades in from the shore. The stored fractions are
+    /// taken as fractions of the above-water fog's far distance [hypothesis: the masters'
+    /// fractions give ramps of a few units to a few tens (NVCleanWater 9, the Potomac's
+    /// 37, the Goodsprings blood pools' 5), an edge; game units outright would be
+    /// hundredths of a unit]. `None` when there is no ramp.
+    pub fn edge_falloff(&self) -> Option<(f32, f32)> {
+        let far = self.above_fog[1];
+        let [a, b] = self.depth_falloff;
+        if far.is_nan() || far <= 0.0 || !a.is_finite() || !b.is_finite() || b <= a {
+            return None;
+        }
+        Some((a.max(0.0) * far, b * far))
+    }
+}
+
 /// The water type (WATR) of a placeable water (PWAT): its `DNAM` "Water" [documented:
 /// xEdit PWAT; observed: `WaterBlood` (the Goodsprings cave's pools) names
 /// `WaterTypeBlood`].
@@ -700,6 +762,32 @@ mod tests {
 
     fn clim() -> Climate {
         Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() }
+    }
+
+    #[test]
+    fn cloud_scroll_from_onam() {
+        let w = Weather { cloud_speeds: [52, 0, 0, 65], ..Default::default() };
+        assert_eq!(w.cloud_scroll(0), 52.0 / 25_600.0);
+        assert_eq!(w.cloud_scroll(1), 0.0);
+        assert_eq!(w.cloud_scroll(4), 0.0);
+        // A still layer stays put; a moving one wraps at one repeat.
+        assert_eq!(w.cloud_offset(1, 1.0e6), 0.0);
+        assert!((w.cloud_offset(3, 100.0) - 6_500.0 / 25_600.0).abs() < 1e-6);
+        let one_repeat = 25_600.0 / 65.0;
+        assert!(w.cloud_offset(3, one_repeat) < 1e-4 || w.cloud_offset(3, one_repeat) > 1.0 - 1e-4);
+        // Hours into a session the offset still moves smoothly.
+        let (a, b) = (w.cloud_offset(3, 36_000.0), w.cloud_offset(3, 36_001.0));
+        assert!(((b - a).rem_euclid(1.0) - 65.0 / 25_600.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn water_edge_falloff() {
+        let w = Water { above_fog: [-80.0, 850.0, 1.0], depth_falloff: [0.0, 0.0109], ..Default::default() };
+        let (a, b) = w.edge_falloff().unwrap();
+        assert_eq!(a, 0.0);
+        assert!((b - 9.265).abs() < 1e-3);
+        assert_eq!(Water { depth_falloff: [0.0, 0.0], ..w.clone() }.edge_falloff(), None);
+        assert_eq!(Water { above_fog: [0.0, 0.0, 1.0], ..w }.edge_falloff(), None);
     }
 
     #[test]
@@ -772,6 +860,13 @@ mod tests {
         assert_eq!(storm.fog_at(&c, 2.0), Some((510.0, 55_000.0)));
         // All zero: no fog.
         assert_eq!(w([0.0, 0.0, 0.0, 0.0, 1.0, 1.0]).fog_at(&c, 12.0), None);
+        // Powers blend like the ranges; an unset range takes the other's power.
+        assert_eq!(clear.fog_power_at(&c, 12.0), 0.6);
+        assert!((clear.fog_power_at(&c, 7.0) - 0.55).abs() < 1e-6);
+        assert_eq!(clear.fog_power_at(&c, 23.0), 0.5);
+        let storm = w([0.0, 0.0, 510.0, 55_000.0, 0.3, 0.8]);
+        assert_eq!(storm.fog_power_at(&c, 12.0), 0.8);
+        assert_eq!(w([0.0, 1.0, 0.0, 1.0, 0.0, -1.0]).fog_power_at(&c, 12.0), 1.0);
     }
 
     #[test]

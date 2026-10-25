@@ -333,6 +333,8 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   Sight FOV above 0 [documented: GECK wiki Weapons, Sight FOV 0 "essentially disables
   iron sights"]) at a target beyond 1,400 units aims down them; nearer it fires from the
   hip; once up, the sights stay up to 1,350 units [design: no switching at the edge].
+  The rule lives in `nvf_play::combat::aims_down_sights`; the player's VATS mode shots
+  in third person follow it too (owner 2026-10-23, docs/design/vats-mode.md §11.5).
 - Aimed shots lose the unaimed spread penalty, fUnaimedSpreadPenalty [documented: Gun
   Spread Formula (New Vegas)].
 - It plays the stance's iron-sights clips: `2hraimis.kf` with `2hraimisup/down.kf` in
@@ -659,6 +661,26 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   brahmin stand among them: with them counted, the troopers held fire 126 times in one
   fight). Log:
   `holds fire: … stands in its line of fire to …`.
+- **A wall in the way** [design: owner 2026-10-23, NPCs in combat shooting at walls]:
+  a gun fires only when the shot can reach. Detection does not decide it: it says whom
+  an actor knows about and where, and it can say "seen" while a wall stops the shot
+  (between its measurements, over the landscape alone where the collision world is not
+  built, or with the muzzle below the eyes behind low cover). As the trigger is pulled,
+  rays go from the eyes and, where the weapon has a muzzle node, from the muzzle (a shot
+  leaves the eye line and, with something between the muzzle and the aim point, the
+  muzzle: combat.md §5.1) to the target's chest, else its head; the world's solid
+  shapes block them, actors' capsules do not (`detection::clear_sight`). The shot goes
+  at the point that is clear. A clear line holds 0.25 s (`LINE_CLEAR_FOR`, an
+  automatic's burst); a blocked one holds fire 0.5 s (`WALL_RECHECK`) before the next
+  look, so there are no rays every frame. Held, the fighter steps 128 units aside to
+  whichever side its eyes see the target's chest from (`wall_step`, a `Sidestep`
+  post), else (or once there, still blocked) closes in as on a target it does not see
+  (half the distance, `fnv_ai::alert::BLIND_CLOSE_SHARE`); out at a cover's peek point
+  it gives that cover up. Melee is not checked. Log: `holds fire: a wall stands between
+  it and … (… units); steps aside … / closes in`, `has a clear shot at … again after …
+  s`; the battle summary counts `held for a wall (… steps aside, … clear again)`. Test
+  aid `NVF_PLAY_TEST_SEE_THROUGH_WALLS=1` has fighters count their targets as seen
+  whatever detection says (smoke `combat-wall-hold`).
 - **A step back** [design: owner 2026-10-16, "backtracking in order to go backwards"]: a
   gunman whose target is nearer than 256 units (`BACK_OFF_WITHIN`) steps 192 units
   straight back from it, walking, and
@@ -726,6 +748,42 @@ is meant to hide a fighter from the fire coming at it, not only from the one it 
 - The player firing at an NPC is not counted as a gunman firing at it unless the player is
   its target (the player is not a combat-AI fighter); cover from the player comes through
   the target, as before [design].
+
+### 12.6.2 Room round cover spots (2026-10-23)
+
+The owner saw an NCR trooper in cover in Goodsprings stand half inside a house's wall
+and drainpipe [observed: owner's screenshot 2026-10-23]. Two things let that happen:
+
+- **The spot** [observed, code]: the spot behind a cover edge was the edge's middle
+  `COVER_STANDOFF` (40) units in, and a peek point 64 past an end of the edge, each put on
+  the navmesh, and never checked against the collision. Navmesh cover edges are not drawn
+  a capsule's width off the wall [hypothesis: some run along a wall or under what stands
+  out of it (a drainpipe, a porch post), and a navmesh's outline only follows its
+  triangles]; snapping a peek point that falls off the navmesh puts it on the outline
+  itself.
+- **The walk** [observed, code]: the last 64 units of every walk (`residents::LAST_STRETCH`)
+  were the navmesh walker's, which keeps to the navmesh and not the collision (it is there
+  for chairs, beds and markers, which the character cannot stand in). A fighter went the
+  last stretch to its cover spot through whatever stood there.
+
+The fix [design]:
+
+- `combat_tactics::room` measures the room round a spot: 16 horizontal rays at 32, 64 and
+  100 units above the feet (above a step, up to the head), out to 48 units, not counting
+  actors or the terrain. A spot inside a solid shape has none (the ray hits at once).
+- `combat_tactics::spot_with_room` keeps a cover, peek or bound spot only with
+  `SPOT_ROOM` (26: the capsule's 22 and a little) round it. Short of that it is pushed
+  out of what is too near once, and failing that tried again up to 4 times 16 units
+  farther in from the edge; with none, the edge is not used.
+- People in combat (`Core::aims`) are walked by physics to the end of their walks.
+- The log says the room round each spot chosen (`takes cover …; room round its cover
+  spot N, its peek N`), the room where a fighter stands when it reaches its cover and when
+  its wait behind it ends (`in cover at … (reaches|hid) …: room N (clear)`, or `(inside
+  geometry)` under the capsule's radius), and in the battle summary how many spots had
+  room, were moved to have it, or had none. Smoke `combat-cover-room` expects every spot
+  to have room and nobody inside; its fight's cover edges are in the open [observed: all
+  25 spots of a run of 2026-10-23 had full room], so the unit tests in `combat_tactics`
+  check a wall beside a spot, a spot inside a wall and a kerb below the knee.
 
 ### 12.7 Watching fights: the test aids and the summary
 
@@ -1381,11 +1439,19 @@ points higher than before.
 "The radius around the combat start location/last hit location that the actor should
 not pursue their targets beyond" [documented]. [hypothesis: whose location]: where the
 fighter stood when its fight began, moved to where it stands each time it loses health.
-While its target stands farther than the radius from that place, the fighter does not
-close in and takes no flank, bound or guard post: it holds where it is (a gun still fires
-when in reach). 0 means no limit [hypothesis: two styles, both for non-fighters]. Log:
-`npc combat: … stops pursuing …: … units from where its fight began or it was last hit
-(combat radius …)`.
+[hypothesis: what is limited] the fighter's own way out from that place, not where its
+target may stand: it pursues a target farther than the radius from that place until it
+has itself come the radius from it; there, while its target is still beyond the radius,
+it does not close in further and takes no flank, bound or guard post: it holds where it
+is (a gun still fires when in reach). 0 means no limit [hypothesis: two styles, both for
+non-fighters]. Until 2026-10-23 a target beyond the radius stopped the fighter where it
+began, so a creature shot or set on from farther than its radius never came at all; VCG02
+places Sunny's sneak marker, where she and the player take aim at the first well's two
+geckos, 3,600 to 3,950 units from them (VCG02CrGecko's style: radius 3000)
+[observed: fnvtool world refs, VCG02SunnySneakMarkerREF 0010A1FF, VCG02Gecko1REF/2REF;
+smoke npc-sneak-sunny], which made the quest's own shot useless. Log: `npc combat: …
+stops pursuing …: … units from where its fight began or it was last hit, … come (combat
+radius …)`.
 
 ### 17.5 Max Targeting FOV
 

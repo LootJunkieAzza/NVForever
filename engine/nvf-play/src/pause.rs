@@ -139,10 +139,17 @@ pub enum MenuPause {
     Original,
 }
 
-/// Whether the picture stands still: always under the pause menu; under any other menu
-/// (every state but `Playing`) with [`MenuPause::Original`].
+/// Whether the picture stands still: always under the pause menu and under a loading
+/// screen (`crate::loading`: nothing happens in the world behind it); under any other
+/// menu (every state but `Playing`) with [`MenuPause::Original`].
+///
+/// The loading screen's own pause of the clock once lasted a frame in `living`: the pause
+/// menu or the main menu closing under it (a load from them) cleared [`Paused`], so this
+/// let the clock run again, and the world behind the screen went on while the next run
+/// loaded the save — from the main menu, the new game's opening in Doc Mitchell's house,
+/// heard as his footsteps and his sitting down [owner 2026-10-23].
 pub fn picture_held(mode: MenuPause, paused: bool, state: PlayState) -> bool {
-    paused || (mode == MenuPause::Original && state != PlayState::Playing)
+    paused || state == PlayState::Loading || (mode == MenuPause::Original && state != PlayState::Playing)
 }
 
 /// Real time spent while the virtual clock stood still, and this frame's share of it.
@@ -261,8 +268,13 @@ impl WorldAidClock {
     }
 }
 
-fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, mut clock: ResMut<PlayClock>) {
+/// The start's loading screen (`crate::loading::StartCover`) counts on neither clock: the
+/// test aids count from when it comes down, as if the run began then.
+pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, loading: Option<Res<crate::loading::Loading>>, mut clock: ResMut<PlayClock>) {
     clock.frame = virt.is_paused().then(|| real.delta_secs().min(0.25));
+    if loading.is_some_and(|l| l.starting()) {
+        return;
+    }
     clock.stopped += clock.frame.unwrap_or(0.0);
 }
 
@@ -275,6 +287,8 @@ fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<Pl
     if clock.is_paused() != stop {
         let why = if paused.0 {
             "the pause menu"
+        } else if *state.get() == PlayState::Loading {
+            "a loading screen"
         } else if held_by_cam {
             "the free camera"
         } else {
@@ -2317,6 +2331,15 @@ mod tests {
         assert!(!picture_held(MenuPause::Living, false, Dialogue));
         assert!(picture_held(MenuPause::Original, false, Menu));
         assert!(picture_held(MenuPause::Original, false, Dialogue));
+    }
+
+    #[test]
+    fn a_loading_screen_holds_the_picture_in_both_modes() {
+        // A load from the main menu or the pause menu clears `Paused` as the menu closes
+        // under the screen; the world behind it must still stand still.
+        for mode in [MenuPause::Living, MenuPause::Original] {
+            assert!(picture_held(mode, false, PlayState::Loading));
+        }
     }
 
     #[test]

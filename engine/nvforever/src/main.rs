@@ -51,6 +51,8 @@ mod fade;
 mod face_morphs;
 mod facegen;
 mod flashlight;
+mod eye_adapt;
+mod fog;
 mod fly;
 mod foot_ik;
 mod frame_pace;
@@ -105,6 +107,7 @@ mod iron_sights;
 mod view_sway;
 mod setup;
 mod shadow_probe;
+mod shadow_thin;
 mod shafts;
 mod imagespace;
 mod imposters;
@@ -280,6 +283,11 @@ struct Args {
     /// turned on from the settings page; 0 keeps them off.
     #[arg(long, default_value_t = sky::DEFAULT_SHADOW_DISTANCE)]
     shadow_distance: f32,
+    /// Test aid: beyond 1,000 units of the camera a placed object casts no shadow when its
+    /// bounding radius is under this part of its distance (its angular size in radians;
+    /// shadow_thin.rs); 0, the default, lets everything cast as far as the shadows reach.
+    #[arg(long, default_value_t = shadow_thin::DEFAULT_RATIO)]
+    shadow_thin: f32,
     /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
     /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
     /// the game's transparency multisampling; with 1 they are tested per pixel.
@@ -300,7 +308,7 @@ struct Args {
     grass_density: f32,
     /// Factors on the ambient light and on the sun's light for grass, "ambient,sun"
     /// (docs/spec-notes/grass.md §5).
-    #[arg(long, default_value = "1.67,0.55")]
+    #[arg(long, default_value = "1.3,0.25")]
     grass_light: String,
     /// Edge of the squares that each get one candidate plant per grass type, in game units
     /// (the game's iMinGrassSize; larger: sparser grass).
@@ -389,7 +397,8 @@ struct Args {
     /// Test aid with --log-frame-times: after each logged period switch to the next of
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
     /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
-    /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`).
+    /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`);
+    /// `shadow-distance=<units>`, `cascades=<n>` and `shadow-thin=<ratio>` change them.
     #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
     graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
@@ -1119,7 +1128,7 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
@@ -1131,6 +1140,8 @@ fn main() -> AppExit {
         generate: fnv_world::grass::GrassSettings { min_size: args.grass_min_size, density_scale: args.grass_density.max(0.0), ..Default::default() },
     }))
     .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
+    // Small objects far away cast no sun shadows (shadow_thin.rs).
+    .add_plugins(shadow_thin::ShadowThinPlugin(args.shadow_thin))
     // Interiors draw the rooms seen through portals only (rooms.rs).
     .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
@@ -1244,6 +1255,10 @@ fn main() -> AppExit {
     }
     if args.menu {
         app.insert_resource(nvf_play::main_menu::MainMenuStart);
+    } else if args.play {
+        // A run that starts in the world: held behind a loading screen until its cells,
+        // actors and scripts are ready (nvf_play::loading::StartCover).
+        app.insert_resource(nvf_play::loading::StartCover);
     }
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
@@ -1428,7 +1443,11 @@ fn main() -> AppExit {
             // While a menu holds the picture (the virtual clock is paused: --menu-pause
             // original, the Esc pause menu) the limit counts real time, so a run always
             // ends.
-            t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+            // The start's loading screen does not count: the run's seconds are counted
+            // from when it comes down (nvf_play::loading::StartCover).
+            if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
+                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+            }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with
             // NVF_PLAY_AIDS_FROM_SCRIPTS, `nvf_play::pause::WorldAidClock`) are added, so
@@ -1446,10 +1465,11 @@ fn main() -> AppExit {
                 info!("distant LOD at the end: {}", lod.describe());
                 info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
-                    "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame",
+                    "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame, {} switches of nodes shown and hidden by visibility tracks",
                     anim.peak,
                     anim.total.as_secs_f64() * 1e3 / f64::from(anim.frames.max(1)),
-                    anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
+                    anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64,
+                    anim.switched
                 );
                 let c = &*actor_anim;
                 if c.actor_frames == 0 {
@@ -1772,7 +1792,7 @@ fn timelapse(
 
 /// The `--run-seconds` limit's clocks: the virtual and the real one, and how long the
 /// world test aids were held back (`nvf_play::pause::WorldAidClock`).
-type RunClocks<'w> = (Res<'w, Time<Virtual>>, Res<'w, Time<Real>>, Option<Res<'w, nvf_play::pause::WorldAidClock>>);
+type RunClocks<'w> = (Res<'w, Time<Virtual>>, Res<'w, Time<Real>>, Option<Res<'w, nvf_play::pause::WorldAidClock>>, Option<Res<'w, nvf_play::loading::Loading>>);
 
 /// Time spent advancing single clips (animated models; actors are timed by
 /// `locomotion::ActorAnimCost`), for the `--run-seconds` summary.
@@ -1783,17 +1803,20 @@ struct AnimCost {
     /// Clips advanced, summed over frames, and the most at once.
     clip_frames: u64,
     peak: usize,
+    /// Nodes switched between shown and hidden by the clips' visibility tracks (`Playing::show`).
+    switched: u64,
 }
 
 fn advance_animations(
     time: Res<Time>,
     playing: Query<&mut nvf_assets::anim_play::Playing>,
     transforms: Query<&mut Transform>,
+    visibility: Query<&mut Visibility>,
     mut cost: ResMut<AnimCost>,
 ) {
     let t0 = std::time::Instant::now();
     let n = playing.iter().len();
-    nvf_assets::anim_play::advance_instances(time, playing, transforms);
+    cost.switched += nvf_assets::anim_play::advance_instances(time, playing, transforms, visibility) as u64;
     cost.total += t0.elapsed();
     cost.frames += 1;
     cost.clip_frames += n as u64;

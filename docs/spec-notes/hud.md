@@ -227,8 +227,8 @@ the compass the eight directions' letters in Bevy's font.
 - The XP meter is built: experience.md (`xp_meter.rs`).
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
 - The messages at the top left with their icons, subtitles, the breath meter,
-  the armour-piercing icons, the ammo type's label, Hardcore mode's words. The crippled-limb
-  picture is built (§12).
+  the armour-piercing icons, the ammo type's label. The crippled-limb
+  picture is built (§12), and Hardcore mode's words (§13).
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `script_hud.rs`) are
   unchanged.
@@ -319,6 +319,11 @@ menu's (`dialogue_menu.rs`).
   Perception × 2048, while outdoors. No game setting for these ranges is in the masters.
   Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
   player's heading at 1024 units for 360 degrees, the strip's scale.
+- [observed: the owner, 2026-10-23] An actor that sneaks gets no tick. NVForever's
+  "sneaks" is IsSneaking's (`fnv_game::Game::is_sneaking`: the engine's measure, else
+  SetForceSneak, an Always Sneak package, a crouch to fire or reload, a teammate
+  sneaking with the player); whether the original also hides the crouch-to-fire case
+  is not known [hypothesis].
 - [observed: the owner's screenshot "Discovered"] Finding a place shows "You have
   discovered" over its name in large capitals, where and as "Quest added" is drawn
   (quest-messages.md), and "+10 XP" (`iXPRewardDiscoverMapMarker` is 10 in
@@ -335,7 +340,7 @@ menu's (`dialogue_menu.rs`).
   the player's cell to the target's cell, else to its worldspace or that of the door into
   its interior [hypothesis: one step of doors; the original may walk further].
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
-  Perception <p>` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
+  Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
   `compass: <n> quest target(s) placed, <m> on the compass` when those change.
 
 ## 12. The crippled-limb picture (owner 2026-10-17)
@@ -370,3 +375,49 @@ menu's (`dialogue_menu.rs`).
 - Log: `hud: crippled limbs shown, flashing <pieces> (crippled: <limbs>)`,
   `hud: crippled limbs hidden`. The stand-in line of words ("crippled: …", `combat.rs`)
   is gone.
+
+## 13. Hardcore's need words, the radiation word and the limb word (owner 2026-10-23)
+
+`engine/nvf-play/src/hud_needs.rs`; smoke `hud-needs-words`.
+
+- [documented: `hud_main_menu.xml`, `HardcoreMode`] A rect 386 x 20 with no place (set in
+  code), holding five texts, each font 7, right-justified, in the HUD's colour, visible,
+  "Set it code!": `Dehydration` (`sStatsH20Abbrev`), `Hunger` (`sStatsFODAbbrev`), `Sleep`
+  (`sStatsSLPAbbrev`), `Rads` (`sStatsRADAbbrev`) and `LMBs` (`sStatsLMBAbbrev`). So the
+  original's file already has a limb word in the Hardcore row.
+- [observed: FalloutNV.esm and the five add-on masters] None of the five settings is in a
+  master; the game's own defaults are not readable here. The words drawn are a plugin's
+  setting if one sets it, else `H2O`, `FOD`, `SLP`, `RAD`, `LMB` [hypothesis: the words on
+  the owner's screenshot; `RAD` and `LMB` from the settings' names]. `RAD` stands in the
+  file's order, between SLP and LMB [owner 2026-10-23: RAD with the other indicators,
+  whether or not the original drew it].
+- [observed: the owner's screenshot, not measured] The words stand on the "HP" label's
+  line above the health bar, starting a little right of "HP". Here: on `UPPER_BASE`, the
+  first word two spaces of the font after "HP", one space between words [hypothesis].
+- **Looks** [design: owner 2026-10-23]: faded (the HUD's amber at 0.3 opacity), normal
+  amber, red (the enemy bar's red), flashing red (the crippled-limb picture's pulse,
+  §12). A word with nothing to say is not drawn [design: owner 2026-10-24].
+- **A need's look** follows the stage the game holds for it (aid-items.md §11: the
+  DEHY/HUNG/SLPD records' thresholds 200 … 1000, Minor, Advanced, Critical, Deadly,
+  Fatal) [design: owner 2026-10-23, "none/lowest faded, then normal, red, flashing for the
+  last ones"; owner 2026-10-24: "faded, not faded, red, red flashing starting at the 200
+  mark"]: no stage (under 200) hidden, Minor faded, Advanced normal, Critical red, Deadly
+  and Fatal flashing. Counted from the worst stage, so a plugin's shorter list loses the
+  faded stage first.
+- **The radiation word** follows the radiation sickness stage the game holds (the RADS
+  records' thresholds 200 … 1000, Minor … Fatal; held in every mode, aid-items.md §11)
+  by the needs' rule [design: owner 2026-10-23, "same rules"; owner 2026-10-24]: under
+  200 rads hidden, Minor faded, Advanced normal, Critical red, Deadly and Fatal flashing.
+- **The limb word** follows how many of the six limbs (conditions 25–30) are crippled
+  [design: owner 2026-10-23; owner 2026-10-24: hidden with none]: 0 hidden, 1 normal,
+  2 red, 3 or more flashing. The brain (31) is not counted [design: not a limb; the
+  picture of §12 has no piece for it].
+- **When they show**: H2O, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
+  [design: radiation sickness is not a Hardcore rule]. LMB in every mode
+  [design: crippled limbs matter in every mode and the §12 picture goes after 5 s; the
+  original's file puts `LMBs` in the Hardcore rect, so the original may show it only in
+  Hardcore — to be checked in a capture]. Outside Hardcore RAD and LMB take H2O's and
+  FOD's places.
+- Log: `hud needs: <word> <hidden|faded|normal|red|flashing> (<why>)` when a word's look
+  changes, the why being `stage <n> of <count>, <stage effect>`, `no stage`, `Hardcore
+  off` or `<n> limbs crippled`.

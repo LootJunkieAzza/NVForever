@@ -567,9 +567,30 @@ impl Game<'_> {
         !self.is_ghost(other) && self.hostile_to(actor, other)
     }
 
-    /// Whether `r` is a ghost now (SetGhost 1).
+    /// Whether `r` is a ghost now: SetGhost 1, or its base is flagged Is Ghost (CREA ACBS
+    /// bit 29, from the definition supplying its base data) and no SetGhost 0 cleared it
+    /// (docs/spec-notes/actor-flags.md §3).
     pub fn is_ghost(&self, r: FormId) -> bool {
-        self.extra.get(&r).is_some_and(|e| e.ghost)
+        let e = self.extra.get(&r);
+        if e.is_some_and(|e| e.ghost) {
+            return true;
+        }
+        if e.is_some_and(|e| e.ghost_off) {
+            return false;
+        }
+        crate::functions::base_of(self, r).is_some_and(|b| self.base_is_ghost(b, r))
+    }
+
+    /// Whether `base` (of the reference `r`) is flagged Is Ghost, through the definition
+    /// supplying its base data. For callers that know the base while the game's world
+    /// does not hold the reference (the engine, outside `with_world`).
+    pub fn base_is_ghost(&self, base: FormId, r: FormId) -> bool {
+        // Only creatures carry the flag: an NPC base skips the template walk (detection
+        // asks this for every pair of actors).
+        if self.data.actors.get(&base).is_some_and(|d| &d.sig == b"NPC_") {
+            return false;
+        }
+        self.template_source(base, r, |d| d.template_base).is_some_and(|(_, d)| d.is_ghost)
     }
 
     /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not
@@ -580,8 +601,20 @@ impl Game<'_> {
         self.is_ghost(target) && self.hostile_to(detector, target)
     }
 
-    /// [`Game::would_attack`] without the ghost rule.
+    /// [`Game::would_attack`] without the ghost rule; kept for the rest of a detection
+    /// round while one runs ([`Game::begin_detection_round`]).
     fn hostile_to(&mut self, actor: FormId, other: FormId) -> bool {
+        if let Some(&h) = self.detection_round.as_ref().and_then(|r| r.hostile.as_ref()?.get(&(actor, other))) {
+            return h;
+        }
+        let h = self.hostile_to_now(actor, other);
+        if let Some(kept) = self.detection_round.as_mut().and_then(|r| r.hostile.as_mut()) {
+            kept.insert((actor, other), h);
+        }
+        h
+    }
+
+    fn hostile_to_now(&mut self, actor: FormId, other: FormId) -> bool {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
             return false;
         }

@@ -254,9 +254,10 @@ fn open_at_start(
     let list = cfg.dir.as_deref().map(fnv_save::list).unwrap_or_default();
     menu.saves = list.len();
     menu.newest = list.first().map(|(p, _)| p.clone());
-    let mut slides: Vec<String> = fnv_world::loadscreen::load_screens(play.0.lo, play.0.schema).into_iter().filter(|s| s.locations.is_empty()).filter_map(|s| s.texture).collect();
-    slides.sort();
-    slides.dedup();
+    // The screens flagged Displays In Main Menu (docs/spec-notes/loading-screens.md §5).
+    let screens = fnv_world::loadscreen::load_screens(play.0.lo, play.0.schema);
+    let mut slides = fnv_world::loadscreen::main_menu_pictures(&screens);
+    info!("main menu: {} loading screens flagged Displays In Main Menu of {}", screens.iter().filter(|s| s.main_menu).count(), screens.len());
     shuffle(&mut slides);
     menu.slides = slides;
     menu.slide = 0;

@@ -150,6 +150,8 @@ pub(crate) struct ShaftsView {
     source: CachedRenderPipelineId,
     composite: CachedRenderPipelineId,
     multi: bool,
+    /// The picture's format the composite pipeline was built for.
+    format: TextureFormat,
     a: CachedTexture,
     b: CachedTexture,
 }
@@ -268,7 +270,7 @@ fn prepare(
         };
         let a = quarter("shafts_a");
         let b = quarter("shafts_b");
-        commands.entity(entity).insert(ShaftsView { source, composite, multi, a, b });
+        commands.entity(entity).insert(ShaftsView { source, composite, multi, format, a, b });
     }
 }
 
@@ -300,7 +302,7 @@ pub(crate) fn shafts_pass(
     if shafts.sun.z <= 0.0 {
         return;
     }
-    if crate::ssao::depth_multisampled(prepass) != Some(sv.multi) {
+    if crate::ssao::depth_multisampled(prepass) != Some(sv.multi) || !crate::ssao::format_matches(target, sv.format) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };

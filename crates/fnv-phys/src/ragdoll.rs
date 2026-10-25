@@ -367,8 +367,12 @@ impl PhysWorld {
     /// push ([`PhysWorld::push_ragdoll`]) or a blast ([`PhysWorld::push_dynamic`]) makes
     /// it a ragdoll again [design: the engine's own sleep is not used for this; a body
     /// just added wakes up, and joints resting on their limits can keep one from
-    /// sleeping].
+    /// sleeping]. A ragdoll the player holds ([`PhysWorld::ragdoll_held`]) is not: its
+    /// held body would stop following the grip. Returns whether it is at rest.
     pub fn set_ragdoll_at_rest(&mut self, form_id: u32) -> bool {
+        if self.ragdoll_held(form_id) {
+            return false;
+        }
         match self.ragdolls.get(&form_id).map(|r| r.at_rest) {
             Some(true) => true,
             Some(false) => self.rebuild_ragdoll(form_id, true),
@@ -398,6 +402,11 @@ impl PhysWorld {
             self.remove_body(b);
         }
         true
+    }
+
+    /// Whether the player's grab holds a body of this actor's ragdoll.
+    pub fn ragdoll_held(&self, form_id: u32) -> bool {
+        self.grip.as_ref().is_some_and(|g| g.on == crate::GripOn::Ragdoll(form_id))
     }
 
     pub fn has_ragdoll(&self, form_id: u32) -> bool {

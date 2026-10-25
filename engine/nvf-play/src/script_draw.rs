@@ -48,6 +48,14 @@ struct Dormant {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ScriptDrawnRoot(pub u32);
 
+/// A shape drawn here whose colour an external emittance source drives (its shader sets
+/// "External_Emittance" and its reference names an XEMI source): the renderer swaps in
+/// the driven material (nvforever `emittance.rs`), as render streaming does for
+/// references enabled from the start. Without it the Strip's street lamp beams, enabled
+/// by script at night, drew white instead of the stripStreetLight colour.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct WantsEmittance(pub u32);
+
 /// The model a [`ScriptDrawnRoot`] draws (archive path): the engine puts the model's
 /// particle emitters under the root (`nvforever::particles`, particles.md §7.4).
 #[derive(Component, Clone, Debug)]
@@ -200,6 +208,9 @@ fn sync(
                         None => {
                             for s in &model.shapes {
                                 let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), RefVisual(id), ChildOf(root))).id();
+                                if let Some(x) = d.placement.emittance.filter(|_| s.external_emittance) {
+                                    commands.entity(e).insert(WantsEmittance(x));
+                                }
                                 if let Some(l) = crate::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
                                     commands.entity(e).insert(l);
                                 }

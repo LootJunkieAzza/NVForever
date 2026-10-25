@@ -31,6 +31,14 @@ fn label(v: Option<&Value>) -> Option<String> {
     }
 }
 
+/// The clip stem of a WEAP DNAM power attack override (`AttackCustom1Power` …
+/// `AttackCustom5Power`); `None` for DEFAULT, `0?` and anything else.
+pub fn power_override_stem(name: Option<&str>) -> Option<String> {
+    let n = name?.to_ascii_lowercase();
+    let k = n.strip_prefix("attackcustom")?.strip_suffix("power")?;
+    matches!(k, "1" | "2" | "3" | "4" | "5").then_some(n)
+}
+
 fn f(v: Option<&Value>, key: &str) -> f32 {
     v.and_then(|v| num(v, key)).unwrap_or(0.0) as f32
 }
@@ -139,6 +147,11 @@ pub struct WeaponStats {
     pub semi_auto_fire_delay: [f32; 2],
     pub strength_req: u32,
     pub skill_req: u32,
+    /// DNAM Base VATS To-Hit Chance: the chance to hit the weapon in another actor's
+    /// hands, percent [documented: GECK wiki Weapons] (VATS mode, vats-mode.md §17.2). Not
+    /// part of any report.
+    #[serde(skip)]
+    pub base_vats_to_hit: u32,
     pub regen_rate: f32,
     pub kill_impulse: f32,
     pub impulse_dist: f32,
@@ -148,6 +161,17 @@ pub struct WeaponStats {
     /// §2). Not part of any report.
     #[serde(skip)]
     pub reload_anim_mod: Option<String>,
+    /// DNAM "Power Attack Animation Override" as a clip stem (`AttackCustom3Power` →
+    /// `attackcustom3power`), `None` for DEFAULT (255) and 0 [documented: xEdit
+    /// wbDefinitionsFNV.pas WEAP DNAM; the clips `1hmattackcustom1power.kf` …
+    /// `2hmattackcustom5power.kf` are in the base meshes, observed]. Not part of any report.
+    #[serde(skip)]
+    pub power_attack_override: Option<String>,
+    /// `NNAM` "Embedded Weapon Node": the node of a creature's body an embedded weapon is
+    /// attached to [documented: GECK wiki Weapons, Embedded Weapon "Node"]; its shots leave
+    /// from there (nvforever `npc_combat`). Not part of any report.
+    #[serde(skip)]
+    pub embedded_node: Option<String>,
     pub mods: Vec<WeaponMod>,
     /// From the mods on ([`WeaponStats::modded`]): the projectile's speed multiplier
     /// ("Increase Projectile Speed", `None` for 1) and every fourth shot using no ammunition
@@ -353,6 +377,17 @@ impl WeaponStats {
 impl ProjectileStats {
     pub fn has(&self, flag: &str) -> bool {
         self.flags.iter().any(|f| f == flag)
+    }
+
+    /// Whether what this projectile was lands as its weapon, to be picked up again: DATA
+    /// flag "Can Be Picked Up" ("can be picked up by the player character after it has
+    /// been disabled, or regardless of it if Can be Disabled isn't enabled" [documented:
+    /// GECK wiki Projectile]) without "Can Be Disabled" (mines and C-4, which
+    /// `fnv_combat::mine` and the disarming keep) and without an explosion. The masters'
+    /// throwing knife, hatchet, spear and tomahawk (and the trap baseball and Old World
+    /// Blues' meat) [observed].
+    pub fn lands_as_weapon(&self) -> bool {
+        self.has("Can Be Picked Up") && !self.has("Can Be Disabled") && !self.has("Explosion")
     }
 
     /// The explosion this projectile sets off, if it sets one off.
@@ -947,12 +982,15 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         semi_auto_fire_delay: [f(dn, "semi_automatic_fire_delay_min"), f(dn, "semi_automatic_fire_delay_max")],
         strength_req: u(dn, "strength_req"),
         skill_req: u(dn, "skill_req"),
+        base_vats_to_hit: u(dn, "base_vats_to_hit_chance"),
         regen_rate: f(dn, "regen_rate"),
         kill_impulse: f(dn, "kill_impulse"),
         impulse_dist: f(dn, "impulse_dist"),
         reload_anim: label(dn.and_then(|v| v.get("reload_animation"))),
         attack_anim: label(dn.and_then(|v| v.get("attack_animation"))),
         reload_anim_mod: label(dn.and_then(|v| v.get("reload_animation_mod"))),
+        power_attack_override: power_override_stem(label(dn.and_then(|v| v.get("power_attack_animation_override"))).as_deref()),
+        embedded_node: label(first(d, b"NNAM")).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
         mods,
         projectile_speed_mult: None,
         free_fourth_shot: false,
@@ -1173,6 +1211,24 @@ fn effect_form(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> EffectForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thrown_weapons_land_and_mines_do_not() {
+        let p = |flags: &[&str]| ProjectileStats { flags: flags.iter().map(|f| f.to_string()).collect(), ..Default::default() };
+        // NVThrowingKnifeProjectile and the frag mine's flags (FalloutNV.esm).
+        assert!(p(&["Alt. Trigger", "Can Be Picked Up", "Pins Limbs", "Rotation"]).lands_as_weapon());
+        assert!(!p(&["Explosion", "Alt. Trigger", "Can Be Disabled", "Can Be Picked Up"]).lands_as_weapon());
+        assert!(!p(&["Hitscan", "Supersonic"]).lands_as_weapon());
+    }
+
+    #[test]
+    fn power_attack_override_stems() {
+        assert_eq!(power_override_stem(Some("AttackCustom3Power")).as_deref(), Some("attackcustom3power"));
+        assert_eq!(power_override_stem(Some("DEFAULT")), None);
+        assert_eq!(power_override_stem(Some("0?")), None);
+        assert_eq!(power_override_stem(Some("AttackCustom9Power")), None);
+        assert_eq!(power_override_stem(None), None);
+    }
 
     #[test]
     fn debris_data_bytes() {

@@ -30,10 +30,28 @@ const TOUGHNESS: u32 = 0x702;
 const DECK: u32 = 0x703;
 const BLOODY: u32 = 0x704;
 const VENGEANCE: u32 = 0x705;
+const SNIPER: u32 = 0x706;
+const CONCENTRATED: u32 = 0x707;
+const STRANGER: u32 = 0x708;
+const FORTUNE: u32 = 0x709;
+const FRIENDLY: u32 = 0x70A;
+const REAPER: u32 = 0x70B;
+const NERVES: u32 = 0x70C;
+const PACK_RAT: u32 = 0x70D;
+const HEAVY: u32 = 0x70E;
+const HOARDER: u32 = 0x70F;
+const SILENT: u32 = 0x710;
+const INFILTRATOR: u32 = 0x711;
+const WHIZ: u32 = 0x712;
+const LIGHT_STEP: u32 = 0x713;
+const SPLASH: u32 = 0x714;
+const HEAVE: u32 = 0x715;
+const TRAVEL: u32 = 0x716;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_IS_ID: u16 = 72;
 const IS_IN_LIST: u16 = 372;
+const GET_VATS_VALUE: u16 = 0x198;
 const EQ: u8 = 0x00;
 
 fn ctda(value: f32, function: u16, p1: u32) -> Subrecord {
@@ -43,6 +61,18 @@ fn ctda(value: f32, function: u16, p1: u32) -> Subrecord {
     d.extend([0, 0]);
     d.extend(p1.to_le_bytes());
     d.extend([0; 12]);
+    sub(b"CTDA", d)
+}
+
+/// A condition with two parameters (GetVATSValue's query and its parameter).
+fn ctda2(value: f32, function: u16, p1: u32, p2: u32) -> Subrecord {
+    let mut d = vec![EQ, 0, 0, 0];
+    d.extend(value.to_le_bytes());
+    d.extend(function.to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(p1.to_le_bytes());
+    d.extend(p2.to_le_bytes());
+    d.extend([0; 8]);
     sub(b"CTDA", d)
 }
 
@@ -98,6 +128,30 @@ fn plugin_bytes() -> Vec<u8> {
         perk(BLOODY, "BloodyMess", 1, vec![entry(perks::CALCULATE_WEAPON_DAMAGE, perks::MULTIPLY_VALUE, 1.05, vec![(0, ctda(1.0, GET_IS_ID, 0x7))])]),
         // A teammate perk (as Hand of Vengeance): × 1.15 for one companion (owner tab).
         perk(VENGEANCE, "HandOfVengeance", 1, vec![entry(perks::CALCULATE_WEAPON_DAMAGE, perks::MULTIPLY_VALUE, 1.15, vec![(0, ctda(1.0, GET_IS_ID, NPC))])]),
+        // Sniper: to hit × 1.25 when the mark is the head (GetVATSValue 5, Perception
+        // Condition 25, on the owner's tab), as FalloutNV.esm's.
+        perk(SNIPER, "Sniper", 1, vec![entry(perks::CALCULATE_TO_HIT_CHANCE, perks::MULTIPLY_VALUE, 1.25, vec![(0, ctda2(1.0, GET_VATS_VALUE, 5, 25))])]),
+        // Concentrated Fire: Has Concentrated Fire, Set 1.
+        perk(CONCENTRATED, "ConcentratedFire", 1, vec![entry(fnv_game::vats::HAS_CONCENTRATED_FIRE, perks::SET_VALUE, 1.0, vec![])]),
+        // The VATS helpers and VATS mode's AP, with FalloutNV.esm's numbers.
+        perk(STRANGER, "MysteriousStranger", 1, vec![entry(fnv_game::vats::MYSTERIOUS_STRANGER, perks::SET_VALUE, 1.0, vec![])]),
+        perk(FORTUNE, "MissFortunePerk", 1, vec![entry(fnv_game::vats::MISS_FORTUNE, perks::SET_VALUE, 1.0, vec![])]),
+        perk(FRIENDLY, "VATSHelperChallengePerk", 1, vec![entry(fnv_game::vats::VATS_HELPER_CHANCE, perks::MULTIPLY_VALUE, 2.0, vec![])]),
+        perk(REAPER, "GrimReaperSprint", 1, vec![entry(fnv_game::vats::PLAYER_KILL_AP_REWARD, perks::ADD_VALUE, 20.0, vec![])]),
+        perk(NERVES, "NervesOfSteel", 1, vec![entry(fnv_game::vats::ACTION_POINT_REGEN, perks::MULTIPLY_VALUE, 1.2, vec![])]),
+        // Locks, terminals, sneaking, weight (perk-entry-points.md §7), FalloutNV.esm's and
+        // the add-ons' numbers.
+        perk(PACK_RAT, "PackRat", 1, vec![entry(perks::MODIFY_LIGHT_ITEMS, perks::SET_VALUE, 1.0, vec![])]),
+        perk(HEAVY, "NVDLC01HeavyWeight", 1, vec![entry(perks::ADJUST_HEAVY_WEAPON_WEIGHT, perks::MULTIPLY_VALUE, 0.5, vec![])]),
+        perk(HOARDER, "NVDLC03TraitHoarder", 1, vec![entry(perks::GET_MAX_CARRY_WEIGHT, perks::ADD_VALUE, 25.0, vec![])]),
+        perk(SILENT, "SilentRunning", 1, vec![entry(perks::IGNORE_RUNNING_DURING_DETECTION, perks::SET_VALUE, 1.0, vec![])]),
+        perk(INFILTRATOR, "Infiltrator", 1, vec![entry(perks::IGNORE_BROKEN_LOCK, perks::SET_VALUE, 1.0, vec![])]),
+        perk(WHIZ, "ComputerWhiz", 1, vec![entry(perks::IGNORE_LOCKED_TERMINAL, perks::SET_VALUE, 1.0, vec![])]),
+        // Mines, explosions, throws and movement (perk-entry-points.md §8).
+        perk(LIGHT_STEP, "LightStep", 1, vec![entry(perks::CALCULATE_MINE_EXPLODE_CHANCE, perks::SET_VALUE, 0.0, vec![])]),
+        perk(SPLASH, "SplashDamage", 1, vec![entry(perks::ADJUST_EXPLOSION_RADIUS, perks::MULTIPLY_VALUE, 1.25, vec![])]),
+        perk(HEAVE, "HeaveHo", 1, vec![entry(perks::MODIFY_THROWING_VELOCITY, perks::MULTIPLY_VALUE, 1.5, vec![])]),
+        perk(TRAVEL, "TravelLight", 1, vec![entry(perks::MODIFY_RUN_SPEED, perks::MULTIPLY_VALUE, 1.1, vec![])]),
     ]
     .concat();
     let npcs = [
@@ -241,4 +295,128 @@ fn entry_functions_resolve_to_numbers() {
     // Not a number function (Add Activate Choice), or no number.
     assert_eq!(r(&ep(9, None, vec![]), &mut av, &mut roll), None);
     assert_eq!(r(&ep(perks::SET_VALUE, None, vec![]), &mut av, &mut roll), None);
+}
+
+/// VATS mode's to-hit perks (docs/design/vats-mode.md §17.3): a GetVATSValue condition
+/// sees the mark being worked out, and Concentrated Fire is read; the VATS state is left
+/// as it was.
+#[test]
+fn vats_to_hit_perks_see_the_mark() {
+    use fnv_game::vats::VatsShot;
+    let f = fixture();
+    let mut g = game(&f);
+    let shot = |condition| VatsShot { weapon: FormId(REVOLVER), target: FormId(NPC_REF), distance: 500.0, condition, success: false };
+    assert_eq!(g.vats_hit_perks(shot(Some(25))).apply(40.0), 40.0, "no perks");
+    g.player.perks.insert(FormId(SNIPER), 1);
+    let head = g.vats_hit_perks(shot(Some(25)));
+    assert!((head.apply(40.0) - 50.0).abs() < 1e-6, "the head: × 1.25");
+    assert_eq!(head.ops.len(), 1);
+    assert_eq!(g.vats_hit_perks(shot(Some(26))).apply(40.0), 40.0, "the torso: no Sniper");
+    assert!(!head.concentrated_fire);
+    g.player.perks.insert(FormId(CONCENTRATED), 1);
+    assert!(g.vats_hit_perks(shot(None)).concentrated_fire);
+    assert_eq!(g.vats.shot, None, "the shot is not left behind");
+}
+
+/// The VATS helpers' odds (docs/design/vats-mode.md §18.1), Friendly Help doubling them,
+/// the Stranger only for a target at most iVATSStrangerMaxHP; Grim Reaper's Sprint's AP
+/// and Nerves of Steel's regeneration.
+#[test]
+fn vats_helpers_and_ap_perks() {
+    use fnv_game::vats::HelperOdds;
+    let f = fixture();
+    let mut g = game(&f);
+    let t = FormId(NPC_REF);
+    assert_eq!(g.vats_helper_odds(t), HelperOdds::default(), "no perks, no helpers");
+    assert_eq!((g.vats_kill_ap_reward(), g.ap_regen_mult()), (0.0, 1.0));
+    g.player.perks.insert(FormId(STRANGER), 1);
+    g.player.perks.insert(FormId(FORTUNE), 1);
+    fnv_game::functions::set_actor_value_current(&mut g, t, fnv_game::actor_values::HEALTH, 100.0).unwrap();
+    let o = g.vats_helper_odds(t);
+    assert!((o.stranger - 0.1).abs() < 1e-9 && (o.fortune - 0.1).abs() < 1e-9, "{o:?}");
+    // Above 150 health the Stranger does not come; Miss Fortune still may.
+    fnv_game::functions::set_actor_value_current(&mut g, t, fnv_game::actor_values::HEALTH, 400.0).unwrap();
+    let o = g.vats_helper_odds(t);
+    assert_eq!(o.stranger, 0.0);
+    assert!((o.fortune - 0.1).abs() < 1e-9);
+    g.player.perks.insert(FormId(FRIENDLY), 1);
+    assert!((g.vats_helper_odds(t).fortune - 0.2).abs() < 1e-9, "Friendly Help doubles the odds");
+    g.player.perks.insert(FormId(REAPER), 1);
+    g.player.perks.insert(FormId(NERVES), 1);
+    assert_eq!(g.vats_kill_ap_reward(), 20.0);
+    assert!((g.ap_regen_mult() - 1.2).abs() < 1e-6);
+}
+
+/// Pack Rat and Heavyweight become the player's weight rules, Hoarder's + 25 the carry
+/// capacity (perk-entry-points.md §7).
+#[test]
+fn weight_perks_change_the_players_load() {
+    use fnv_sim::inventory::WeightRules;
+    let f = fixture();
+    let mut g = game(&f);
+    g.sync_perk_weights();
+    assert_eq!(g.world.weight_rules(P), WeightRules::default());
+    let before = g.world.encumbrance(P).map(|e| e.capacity);
+    g.player.perks.insert(FormId(PACK_RAT), 1);
+    g.player.perks.insert(FormId(HEAVY), 1);
+    g.player.perks.insert(FormId(HOARDER), 1);
+    g.sync_perk_weights();
+    assert_eq!(g.world.weight_rules(P), WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((perks::HEAVY_WEAPON_WEIGHT, 0.5)) });
+    let after = g.world.encumbrance(P).map(|e| e.capacity);
+    if let (Ok(b), Ok(a)) = (before, after) {
+        assert!((a - b - 25.0).abs() < 1e-6, "Hoarder: {b} -> {a}");
+    }
+    g.player.perks.clear();
+    g.sync_perk_weights();
+    assert_eq!(g.world.weight_rules(P), WeightRules::default(), "the rules go with the perks");
+}
+
+/// Silent Running: the player's running is ignored when it is the one detected.
+#[test]
+fn silent_running_ignores_the_players_running() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(!g.detection_pair(FormId(NPC_REF), P).ignore_running);
+    g.player.perks.insert(FormId(SILENT), 1);
+    assert!(g.detection_pair(FormId(NPC_REF), P).ignore_running);
+    assert!(!g.detection_pair(P, FormId(NPC_REF)).ignore_running, "only for the player as the target");
+}
+
+/// Infiltrator and Computer Whiz's one more try: spent when the lock breaks again or the
+/// terminal locks out again.
+#[test]
+fn a_second_failure_spends_the_extra_try() {
+    let f = fixture();
+    let mut g = game(&f);
+    let r = FormId(OTHER_REF);
+    fnv_game::lockpick::broke(&mut g, r);
+    assert!(g.locks.broken.contains(&r) && !g.locks.retried.contains(&r), "broken once: the try is still there");
+    fnv_game::lockpick::broke(&mut g, r);
+    assert!(g.locks.retried.contains(&r), "broken again: spent");
+    fnv_game::terminal::hacked(&mut g, r, false);
+    assert!(!g.terminals.retried.contains(&r));
+    fnv_game::terminal::hacked(&mut g, r, false);
+    assert!(g.terminals.retried.contains(&r));
+    g.player.perks.insert(FormId(INFILTRATOR), 1);
+    g.player.perks.insert(FormId(WHIZ), 1);
+    assert!(g.player_has_entry(perks::IGNORE_BROKEN_LOCK) && g.player_has_entry(perks::IGNORE_LOCKED_TERMINAL));
+}
+
+/// Light Step's mine chance 0, Splash Damage's radius, Heave Ho!'s throw and Travel
+/// Light's speed as their entry points give them (perk-entry-points.md §8).
+#[test]
+fn mine_blast_throw_and_speed_perks() {
+    let f = fixture();
+    let mut g = game(&f);
+    let at = |g: &mut Game, point: u8, v: f64| g.entry_point(P, point, v).0;
+    assert_eq!(at(&mut g, perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0), 1.0);
+    for p in [LIGHT_STEP, SPLASH, HEAVE, TRAVEL] {
+        g.player.perks.insert(FormId(p), 1);
+    }
+    assert_eq!(at(&mut g, perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0), 0.0, "Light Step: no mine goes off");
+    assert!((at(&mut g, perks::ADJUST_EXPLOSION_RADIUS, 200.0) - 250.0).abs() < 1e-6);
+    assert!((at(&mut g, perks::MODIFY_THROWING_VELOCITY, 1.0) - 1.5).abs() < 1e-6);
+    assert!((at(&mut g, perks::MODIFY_RUN_SPEED, 1.0) - 1.1).abs() < 1e-6);
+    // Another actor's mine chance is its own (no perks).
+    assert_eq!(g.entry_point(FormId(NPC_REF), perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0, 1.0);
 }

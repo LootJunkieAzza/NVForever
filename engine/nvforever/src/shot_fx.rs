@@ -40,11 +40,15 @@
 //!   still world alone ([`casing_filter`]), so it never lands on the player or anyone
 //!   else and nothing (the camera, movement, shots) ever meets it (the owner,
 //!   2026-10-22).
-//! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, upright, emitting
+//! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, emitting
 //!   its own particle systems (flash, sparks, smoke, shrapnel: `crate::particles::
 //!   ModelEmitter`) for as long as its sequence runs (else [`EXPLOSION_SECS`]), and the
 //!   EXPL's light (LIGH) fading out over [`EXPLOSION_LIGHT_SECS`] [design: the LIGH's
-//!   time is -1, no duration of its own]. The dirt thrown up is the impact of the EXPL's
+//!   time is -1, no duration of its own]. The model stands upright when the EXPL has
+//!   "Always Uses World Orientation", else its +z along the normal of the ground under
+//!   the blast ([`explosion_rotation`]) [documented: the xEdit flag name; hypothesis:
+//!   that the other orientation is the surface's, the audit's reading, and that the
+//!   ground below stands for the surface hit]. The dirt thrown up is the impact of the EXPL's
 //!   data set on the ground below (`nvf_play::combat`), shown as any impact. Seen from
 //!   within the EXPL's image-space radius, its image space modifier plays on the screen
 //!   (`crate::imagespace::ScreenModifiers::play`).
@@ -69,9 +73,8 @@
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use fnv_nif::anim::BoolTrack;
 use fnv_phys::{layers, Filter};
-use nvf_assets::anim_play::{MaterialTarget, Playing};
+use nvf_assets::anim_play::MaterialTarget;
 use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisual, ShotVisuals};
@@ -144,11 +147,6 @@ struct Flash {
     left: f32,
 }
 
-/// The nodes an effect model's clip shows and hides (`NiVisController` tracks), on the
-/// model's root with its [`Playing`].
-#[derive(Component)]
-struct EffectVisibility(Vec<(Entity, BoolTrack)>);
-
 /// How long an explosion's model stays and emits when it has no sequence, and how long
 /// its light takes to fade, seconds [design: about the grenade explosion's sequence,
 /// 5.03 s, and its flash's emitter, on for 0.33 s]. A model with a sequence stays for its
@@ -191,6 +189,8 @@ struct ShotFx {
     /// Impacts not shown on an actor flagged No Blood Spray.
     no_spray: u32,
     explosions: u32,
+    /// Explosions turned to the ground under them (no "Always Uses World Orientation").
+    explosions_aligned: u32,
     /// Effect models spawned playing their own clip, and of those, explosions whose
     /// image space modifier went on the screen.
     animated: u32,
@@ -205,7 +205,7 @@ pub struct ShotFxPlugin;
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotFx>()
-            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera, effect_visibility).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -287,10 +287,6 @@ fn spawn_rig(commands: &mut Commands, parent: Entity, pm: &PreparedModel, rig: &
             commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
         }
     }
-    let shown: Vec<(Entity, BoolTrack)> = clip.visibility.iter().filter_map(|(n, _, t)| Some((*by_name.get(n)?, t.clone()))).collect();
-    if !shown.is_empty() {
-        commands.entity(root).insert(EffectVisibility(shown));
-    }
     (holder, root, drawn)
 }
 
@@ -328,25 +324,6 @@ fn fade_beam(fx: &mut ShotFx, m: &mut RigMaterials, v: &ShotVisual) {
     }
     if m.fade != v.strength {
         m.fade = v.strength;
-    }
-}
-
-/// Show and hide the nodes of effect models as their clips' visibility tracks say.
-fn effect_visibility(effects: Query<(&Playing, &EffectVisibility)>, mut visibility: Query<&mut Visibility>) {
-    for (p, ev) in &effects {
-        let t = p.sequence_time();
-        for (e, track) in &ev.0 {
-            let want = match track.at(t) {
-                Some(true) => Visibility::Inherited,
-                Some(false) => Visibility::Hidden,
-                None => continue,
-            };
-            if let Ok(mut v) = visibility.get_mut(*e) {
-                if *v != want {
-                    *v = want;
-                }
-            }
-        }
     }
 }
 
@@ -473,8 +450,7 @@ fn flash(
         // The flash's light: the LIGH's colour, brightness and radius.
         let light = p.muzzle_flash_light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
-            let lin = l.color.map(fnv_world::sky::srgb_to_linear);
-            let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+            let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
             commands.entity(holder).with_child((PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() }, Transform::IDENTITY));
             fx.lights += 1;
@@ -706,7 +682,11 @@ fn explosions(
     let eye = camera.single().ok().map(|c| root_place.compute_affine().inverse().transform_point3(c.translation()));
     for b in boom.read() {
         let Some(x) = sfx.forms.explosions.get(&b.explosion) else { continue };
-        let place = Transform::from_translation(Vec3::from_array(b.point));
+        let world_up = combat.forms.explosions.get(&b.explosion).is_some_and(|s| s.flags.iter().any(|f| f == WORLD_ORIENTATION));
+        let place = Transform::from_translation(Vec3::from_array(b.point)).with_rotation(explosion_rotation(world_up, b.normal));
+        if !world_up && b.normal.is_some() {
+            fx.explosions_aligned += 1;
+        }
         let (holder, length) = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
             Some((m, pm)) => {
                 let (h, length) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, m, false);
@@ -730,8 +710,7 @@ fn explosions(
         }
         let light = x.light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
-            let lin = l.color.map(fnv_world::sky::srgb_to_linear);
-            let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+            let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
             // Above the point, so the ground it went off on is lit [design].
             commands.spawn((
@@ -741,6 +720,19 @@ fn explosions(
                 ChildOf(world_root),
             ));
         }
+    }
+}
+
+/// EXPL DATA flag 1 [documented: schema combat.json, xEdit EXPL].
+pub const WORLD_ORIENTATION: &str = "Always Uses World Orientation";
+
+/// How an explosion's model is turned (game space): upright when it always uses the
+/// world's orientation or no ground was found, else its +z along the ground's normal
+/// (the shortest turn from up).
+pub fn explosion_rotation(world_up: bool, normal: Option<[f32; 3]>) -> Quat {
+    match normal.map(Vec3::from_array).filter(|n| !world_up && n.length_squared() > 1e-6) {
+        Some(n) => Quat::from_rotation_arc(Vec3::Z, n.normalize()),
+        None => Quat::IDENTITY,
     }
 }
 
@@ -790,6 +782,9 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
             fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
         info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
+        if fx.explosions > 0 {
+            info!("shot fx: {} explosions turned to the ground under them, {} upright", fx.explosions_aligned, fx.explosions - fx.explosions_aligned);
+        }
         if fx.no_spray > 0 {
             info!("shot fx: {} impacts on actors flagged No Blood Spray not shown", fx.no_spray);
         }

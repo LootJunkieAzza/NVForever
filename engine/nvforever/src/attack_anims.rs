@@ -520,7 +520,12 @@ struct Stats {
     /// Shots that went on with a looping clip already playing.
     kept: usize,
     missing: BTreeMap<String, usize>,
+    /// Clips started, by file name (the summary).
     clips: BTreeMap<String, usize>,
+    /// Clip paths logged once when first played: by path, not file name, as creatures
+    /// share file names (a ghoul's and a deathclaw's `h2hattackforwardpower.kf`) and the
+    /// one whose clip happened to start first in a frame hid the other's line.
+    logged: std::collections::HashSet<String>,
     /// Blows that went on a combo from the last one's `a:` key.
     chained: usize,    /// Reload clips started (an opening clip and each round count once).
     reloads: usize,
@@ -670,11 +675,15 @@ fn start(
             let w = fighters.weapon(id);
             if times.people_powers.get(&id).is_none_or(|(had, _)| *had != w) {
                 let prefix = weapon_prefix(w);
+                // The weapon's power attack override stands in for the standing one where
+                // the rig has its clip (`fnv_combat::melee::MeleeInput::power_override`).
+                let over = w.and_then(|w| combat.as_deref()?.forms.weapons.get(&w)?.power_attack_override.clone());
                 let found: Vec<PowerClip> = if matches!(prefix, "h2h" | "1hm" | "2hm") {
                     Power::ALL
                         .into_iter()
                         .filter_map(|p| {
-                            let c = clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{}.kf", p.dir().stem()))?;
+                            let custom = over.as_deref().filter(|_| p == Power::Normal).and_then(|o| clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{o}.kf")));
+                            let c = custom.or_else(|| clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{}.kf", p.dir().stem())))?;
                             let len = c.clip.length().max(0.05);
                             Some(PowerClip { power: p, hit: hit_time(&c).unwrap_or(DEFAULT_HIT).min(len), len })
                         })
@@ -731,7 +740,10 @@ fn start(
                         let stem = attack_stem(attack.as_deref());
                         match (a.power, a.swing) {
                             // A person's power attack: its own clip, crouched first.
-                            (Some(p), _) => attack_clips(stance, prefix, p.dir().stem(), false),
+                            (Some(p), _) => {
+                                let over = a.weapon.and_then(|w| combat.as_deref()?.forms.weapons.get(&w)?.power_attack_override.clone()).filter(|_| p == Power::Normal);
+                                attack_clips(stance, prefix, over.as_deref().unwrap_or(p.dir().stem()), false)
+                            }
                             // A swing: the group named (or the weapon's own), its `_a` or `_b` form.
                             (None, Some(p)) => attack_clips(stance, prefix, &swing_stem(&p.next.map_or(stem, |n| n.stem(p.rolls[1])), p.rolls[0]), false),
                             (None, None) => attack_clips(stance, prefix, &stem, a.sights),
@@ -786,7 +798,7 @@ fn start(
             let name = path.rsplit('\\').next().unwrap_or(&path).to_string();
             // The opening clips are named `<stem>reloadxstart.kf` [observed: base archives].
             let opening = a.kind == Move::Reload && name.to_ascii_lowercase().ends_with("start.kf");
-            if !st.clips.contains_key(&name) {
+            if st.logged.insert(path.to_ascii_lowercase()) {
                 info!("attack anims: {id:08X} plays {path} ({len:.2} s{})", hit_time(&clip).map_or(String::new(), |h| format!(", hit at {h:.2} s")));
             }
             *st.clips.entry(name).or_default() += 1;
@@ -906,7 +918,7 @@ mod tests {
     #[test]
     fn a_shot_is_held_at_full_weight_between_shots() {
         // The 9mm SMG's `2haattackloop.kf` is 0.17 s long.
-        let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new());
+        let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
         clip.stop = 0.167;
         let clip = Arc::new(BoundClip::bind(Arc::new(clip), |_| None));
         let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0 };

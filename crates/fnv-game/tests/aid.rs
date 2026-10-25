@@ -275,10 +275,27 @@ fn a_stimpak_restores_at_once_with_medicine_potency() {
     let r = g.ingest(P, FormId(STIM));
     assert!(near(r.potency, 1.3));
     assert!(near(av(&mut g, HEALTH), 79.0));
-    assert!(near(av(&mut g, PERCEPTION_CONDITION), 100.0));
+    // On the body each limb gets a share of the 39 (fnv_game::aid::PARTS_LIMB_SHARE).
+    let share = 39.0 * fnv_game::aid::PARTS_LIMB_SHARE;
+    assert!(near(av(&mut g, PERCEPTION_CONDITION), 80.0 + share));
     // Never past the permanent value.
     g.ingest(P, FormId(STIM));
     assert!(near(av(&mut g, HEALTH), 100.0));
+}
+
+/// A Stimpak on one limb (the Pip-Boy's CND page) gives that limb the whole amount and
+/// the other limbs nothing.
+#[test]
+fn a_stimpak_on_a_limb_gives_it_the_whole_amount() {
+    let f = fixture();
+    let mut g = game(&f);
+    add_actor_value_damage(&mut g, P, HEALTH, 60.0);
+    add_actor_value_damage(&mut g, P, PERCEPTION_CONDITION, 50.0);
+    add_actor_value_damage(&mut g, P, PERCEPTION_CONDITION + 1, 50.0);
+    g.ingest_on(P, FormId(STIM), Some(PERCEPTION_CONDITION));
+    assert!(near(av(&mut g, HEALTH), 79.0));
+    assert!(near(av(&mut g, PERCEPTION_CONDITION), 89.0));
+    assert!(near(av(&mut g, PERCEPTION_CONDITION + 1), 50.0));
 }
 
 /// Without Recover and with a duration the magnitude is restored every second while
@@ -423,7 +440,7 @@ fn waiting_advances_effect_timers() {
 }
 
 /// In Hardcore the needs rise one point every `rate` seconds of play (hunger 25, sleep
-/// 50, dehydration the 12.5 guess), in play and while waiting; sleep lowers sleep
+/// 50, dehydration 10 from the owner's table), in play and while waiting; sleep lowers sleep
 /// deprivation (aid-items.md §11).
 #[test]
 fn hardcore_needs_rise_with_time() {
@@ -434,7 +451,7 @@ fn hardcore_needs_rise_with_time() {
     g.player.hardcore = Some(true);
     g.frames(25 * 60);
     assert!((av(&mut g, HUNGER) - 1.0).abs() < 1e-6, "{}", av(&mut g, HUNGER));
-    assert!((av(&mut g, DEHYDRATION) - 2.0).abs() < 1e-6);
+    assert!((av(&mut g, DEHYDRATION) - 2.5).abs() < 1e-6);
     assert!((av(&mut g, SLEEP_DEPRIVATION) - 0.5).abs() < 1e-6);
     let passed = g.pass_hours(10.0, false);
     assert_eq!(passed.needs.len(), 3);
@@ -448,6 +465,19 @@ fn hardcore_needs_rise_with_time() {
     assert!((av(&mut g, HUNGER) - 23.8).abs() < 1e-6);
     g.ingest(P, FormId(BREAD));
     assert_eq!(av(&mut g, HUNGER), 0.0);
+}
+
+/// SetHardcore turns on the simulation's switch too (ammunition weighs), and turning it
+/// off marks the game as not always Hardcore.
+#[test]
+fn set_hardcore_reaches_the_ammunition_weight() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(!g.world.config().hardcore);
+    g.set_hardcore(true);
+    assert!(g.hardcore() && g.world.config().hardcore && !g.player.hardcore_was_off);
+    g.set_hardcore(false);
+    assert!(!g.hardcore() && !g.world.config().hardcore && g.player.hardcore_was_off);
 }
 
 /// A need past a stage's threshold gives the stage's effect; below it, or with

@@ -52,6 +52,7 @@ pub mod intro;
 pub mod levelup;
 pub mod hud;
 pub mod hud_limbs;
+pub mod hud_needs;
 pub mod hud_target;
 pub mod knockouts;
 pub mod loading;
@@ -66,12 +67,14 @@ pub mod challenges;
 pub mod poker;
 pub mod menu;
 pub mod mines;
+pub mod thrown;
 pub mod message_menu;
 pub mod moved;
 pub mod music;
 pub mod pad;
 pub mod pause;
 pub mod phys;
+pub mod pickpocket;
 pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
@@ -97,10 +100,13 @@ pub mod terminal;
 pub mod tutorial_menu;
 mod test_aid;
 pub mod sfx;
+pub mod sneak_gauges;
 pub mod ui_sounds;
 pub mod stress;
 pub mod vats_mode;
+pub mod kill_cam;
 pub mod voice;
+pub mod voice_filter;
 pub mod wait;
 pub mod world_sounds;
 pub mod xp_meter;
@@ -263,6 +269,9 @@ pub struct RefChanged {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ItemUsed {
     pub item: u32,
+    /// Used on one limb (its condition code, 25-30): the Pip-Boy's CND page puts a
+    /// Stimpak on the limb chosen (`fnv_game::Game::ingest_on`).
+    pub limb: Option<u16>,
 }
 
 pub struct PlayPlugin(pub PlayData);
@@ -290,7 +299,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
-            .add_plugins(levelup::LevelUpPlugin)
+            .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
@@ -312,10 +321,13 @@ impl Plugin for PlayPlugin {
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(mines::MinesPlugin)
+            .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)
+            .add_plugins(pickpocket::PickpocketPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(kill_cam::KillCamPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin);
         test_aid::setup(app);

@@ -40,6 +40,14 @@ pub const SLEEP_DEPRIVATION: u16 = 75;
 /// Perception Condition to Brain Condition.
 pub const LIMB_CONDITIONS: std::ops::RangeInclusive<u16> = 25..=31;
 
+/// The share of a Value And Parts restore (the Stimpak's "Restore Health & Conditions")
+/// that each limb gets when the item is used on the whole body: Health gets the whole
+/// amount, each limb this share of it [design: owner's request 2026-10-23, "a small
+/// amount of limb health across all limbs"; the share is not in the data (no setting in
+/// FalloutNV.esm names it), so this number stands until the formula is found]. Used on
+/// one limb from the Pip-Boy (`Mods::limb`), that limb gets the whole amount.
+pub const PARTS_LIMB_SHARE: f64 = 1.0 / 6.0;
+
 /// The settings of potency and addiction, with the GECK wiki's defaults [documented:
 /// Ingestible Settings, Addiction Formula].
 pub const SETTINGS: [(&str, f64); 5] = [
@@ -72,6 +80,10 @@ pub struct ValueChange {
     /// Value And Parts: the limb conditions are restored with the value.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub parts: bool,
+    /// Value And Parts aimed at one limb (its condition code): that limb alone gets the
+    /// whole amount (see [`PARTS_LIMB_SHARE`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub limb: Option<u16>,
     /// What is in its pool now (Modifier), or what was applied so far (Once, PerSecond).
     #[serde(default)]
     pub applied: f64,
@@ -81,6 +93,21 @@ pub struct ValueChange {
     /// Held back: an addiction whose chem is active.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub suspended: bool,
+}
+
+/// What a restore of `amount` to `code` with the limbs too ("parts") gives the limbs,
+/// besides `code` itself: a Limb Condition effect (`code` a limb, the Doctor's Bag) gives
+/// every other limb the same amount [hypothesis: "NVRestoreLimbs" names no actor value;
+/// aid-items.md §3]; a Value And Parts one (the Stimpak) gives each limb
+/// [`PARTS_LIMB_SHARE`] of it, or the limb it is aimed at the whole of it.
+pub fn parts_restore(code: u16, amount: f64, limb: Option<u16>) -> Vec<(u16, f64)> {
+    if LIMB_CONDITIONS.contains(&code) {
+        return LIMB_CONDITIONS.filter(|&l| l != code).map(|l| (l, amount)).collect();
+    }
+    match limb {
+        Some(l) => vec![(l, amount)],
+        None => LIMB_CONDITIONS.map(|l| (l, amount * PARTS_LIMB_SHARE)).collect(),
+    }
 }
 
 /// The values that grow as needs grow (rads, and Hardcore's dehydration, hunger and
@@ -126,7 +153,7 @@ pub fn value_change(m: &MagicEffectDef, e: &EffectItem, potency: f64, permanent:
     } else {
         ChangeKind::PerSecond
     };
-    Some(ValueChange { code, kind, amount, parts, applied: 0.0, permanent_pool: false, suspended: false })
+    Some(ValueChange { code, kind, amount, parts, limb: None, applied: 0.0, permanent_pool: false, suspended: false })
 }
 
 /// The potency of an ingestible's beneficial effects for an actor with these Medicine
@@ -179,11 +206,17 @@ pub struct Mods {
     pub hit: bool,
     /// A worn enchantment: the equipped item it comes from (`crate::abilities`).
     pub worn: Option<FormId>,
+    /// Used on one limb (its condition code, 25-30) from the Pip-Boy's CND page: a Value
+    /// And Parts restore gives that limb the whole amount ([`PARTS_LIMB_SHARE`]).
+    pub limb: Option<u16>,
+    /// Only this effect of the item (an area effect reaching an actor around the target,
+    /// `crate::area_effects`).
+    pub only: Option<usize>,
 }
 
 impl Default for Mods {
     fn default() -> Mods {
-        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false, worn: None }
+        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false, worn: None, limb: None, only: None }
     }
 }
 
@@ -211,6 +244,9 @@ impl Mods {
     pub fn on_change(&self, mut c: ValueChange) -> ValueChange {
         if c.code == RAD_LEVEL && c.amount < 0.0 {
             c.amount *= self.rads;
+        }
+        if c.parts && !LIMB_CONDITIONS.contains(&c.code) {
+            c.limb = self.limb;
         }
         c
     }
@@ -296,6 +332,13 @@ impl Game<'_> {
     /// effects apply with the item's potency, its usage monitor counts the use, and the
     /// addiction roll is made. docs/spec-notes/aid-items.md §4–§5.
     pub fn ingest(&mut self, actor: FormId, item: FormId) -> Ingested {
+        self.ingest_on(actor, item, None)
+    }
+
+    /// [`Game::ingest`] on one limb (its condition code, 25-30), as the Pip-Boy's CND
+    /// page uses a Stimpak on the limb chosen: a Value And Parts restore gives that limb
+    /// its whole amount and the other limbs nothing ([`PARTS_LIMB_SHARE`]).
+    pub fn ingest_on(&mut self, actor: FormId, item: FormId, limb: Option<u16>) -> Ingested {
         let def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
@@ -310,7 +353,7 @@ impl Game<'_> {
         // take"; the GECK wiki's entry point says "any ingestible"].
         let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
         let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
-        let mods = Mods { potency, duration, rads, ..Mods::default() };
+        let mods = Mods { potency, duration, rads, limb, ..Mods::default() };
         self.emit(EventKind::Ingested { actor, item, potency });
         let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
         if actor == FormId::PLAYER_REF {
@@ -385,7 +428,7 @@ impl Game<'_> {
 
     /// Change an actor value at once by `amount` (positive restores, negative damages);
     /// a value that grows (rads) moves the other way (see [`grows`]).
-    fn change_value(&mut self, actor: FormId, code: u16, amount: f64, parts: bool, caster: Option<FormId>) {
+    fn change_value(&mut self, actor: FormId, code: u16, amount: f64, parts: bool, limb: Option<u16>, caster: Option<FormId>) {
         if code == crate::actor_values::HEALTH && amount < 0.0 {
             // Health damage can kill (a burn, a poison; hit-effects.md §4).
             self.effect_health_damage(actor, -amount, caster);
@@ -396,10 +439,8 @@ impl Game<'_> {
         } else if amount >= 0.0 {
             fa::restore(self, actor, code, amount);
             if parts {
-                // [hypothesis: the limbs get the same amount; MGEF "Restore Health &
-                // Conditions"].
-                for limb in LIMB_CONDITIONS.filter(|&l| l != code) {
-                    fa::restore(self, actor, limb, amount);
+                for (l, a) in parts_restore(code, amount, limb) {
+                    fa::restore(self, actor, l, a);
                 }
             }
         } else {
@@ -465,7 +506,7 @@ impl Game<'_> {
             }
             ChangeKind::Once => {
                 let caster = self.effects.iter().find(|e| e.id == id).and_then(|e| e.caster);
-                self.change_value(target, c.code, c.amount, c.parts, caster);
+                self.change_value(target, c.code, c.amount, c.parts, c.limb, caster);
                 c.applied = c.amount;
             }
             ChangeKind::PerSecond => {}
@@ -496,7 +537,7 @@ impl Game<'_> {
         }
         let caster = e.caster;
         let amount = c.amount * seconds;
-        self.change_value(target, c.code, amount, c.parts, caster);
+        self.change_value(target, c.code, amount, c.parts, c.limb, caster);
         c.applied += amount;
         self.set_change(id, c);
     }
@@ -589,6 +630,26 @@ mod tests {
         // The EFIT's actor value, else the MGEF's.
         assert_eq!(value_change(&mgef(0, 0, Some(16)), &item(1, 0, None), 1.0, false).unwrap().code, 16);
         assert_eq!(value_change(&mgef(0, 0, Some(16)), &item(1, 0, Some(20)), 1.0, false).unwrap().code, 20);
+    }
+
+    #[test]
+    fn a_stimpak_spreads_a_share_over_the_limbs_unless_aimed() {
+        // On the whole body: each limb a share of the amount.
+        let spread = parts_restore(16, 39.0, None);
+        assert_eq!(spread.len(), 7);
+        assert!(spread.iter().all(|&(_, a)| (a - 39.0 * PARTS_LIMB_SHARE).abs() < 1e-9));
+        // Aimed at the left arm (27): that limb alone, the whole amount.
+        assert_eq!(parts_restore(16, 39.0, Some(27)), vec![(27, 39.0)]);
+        // Limb Condition (the Doctor's Bag): every other limb the whole amount, aimed or not.
+        let bag = parts_restore(25, 46.8, Some(27));
+        assert_eq!(bag.len(), 6);
+        assert!(bag.iter().all(|&(l, a)| l != 25 && a == 46.8));
+        // The aim reaches only Value And Parts changes.
+        let m = Mods { limb: Some(27), ..Mods::default() };
+        let stim = value_change(&mgef(34, 0, Some(16)), &item(30, 0, Some(16)), 1.0, false).unwrap();
+        assert_eq!(m.on_change(stim).limb, Some(27));
+        let hydra = value_change(&mgef(35, 0, None), &item(10, 60, None), 1.0, false).unwrap();
+        assert_eq!(m.on_change(hydra).limb, None);
     }
 
     #[test]

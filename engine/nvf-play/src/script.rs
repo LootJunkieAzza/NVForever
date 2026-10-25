@@ -237,7 +237,7 @@ pub struct ScriptState {
     start: GameStart,
     /// Aid items the player used that the runtime has not taken yet (used before the
     /// scripts were ready, or under a loading screen or the pause menu).
-    used: Vec<FormId>,
+    used: Vec<(FormId, Option<u16>)>,
     /// Console lines for the next script frame (`crate::console`).
     pub console: Vec<crate::console::ConsoleCall>,
     /// What the script frame answered to them.
@@ -422,6 +422,10 @@ fn secs(since: Instant) -> f64 {
 pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
         rt.game.open_menu(menu_code(mode));
+        // The container's OnOpen, next frame with the world in place (`Game::queue_ref_event`).
+        if let Mode::Container(c) = mode {
+            rt.game.queue_ref_event(c, event::ON_OPEN, Some(FormId::PLAYER_REF));
+        }
     }
 }
 
@@ -432,6 +436,9 @@ pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
 pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
         rt.game.engine_menu_closed(menu_code(mode));
+        if let Mode::Container(c) = mode {
+            rt.game.queue_ref_event(c, event::ON_CLOSE, Some(FormId::PLAYER_REF));
+        }
     }
 }
 
@@ -631,7 +638,7 @@ impl Runtime {
             g.item_event(FormId::PLAYER_REF, *item, event::ON_ADD, player);
         }
         for item in &changes.equipped {
-            g.item_event(FormId::PLAYER_REF, *item, event::ON_EQUIP, player);
+            g.equip_events(FormId::PLAYER_REF, *item, false);
         }
         for item in &changes.unequipped {
             g.item_event(FormId::PLAYER_REF, *item, event::ON_UNEQUIP, player);
@@ -752,12 +759,20 @@ impl Runtime {
             g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
             Ok(ByHand::Default(a))
         } else {
+            let from = g.world.peek(player).map(|p| (p.cell, p.pos));
             match g.world.activate(player, target) {
                 Ok(mut a) => {
                     self.skip.insert(g.events.len());
                     g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
                     // Its activate children go off (`fnv_game::traps`).
                     g.set_off_children(target);
+                    // An activator that gives water: the player drinks it, as
+                    // `Game::default_activation` has it drunk (its actor effect, the
+                    // Adjust Drinking Radiation perks); this path (the player's hand) never
+                    // did (perk-entry-points.md §9).
+                    if matches!(a.outcome, Outcome::Activated) && g.drink_water(target).is_some() {
+                        g.drink_from(player, target);
+                    }
                     if let Outcome::PickedUp { item, count, .. } = a.outcome {
                         self.skip.insert(g.events.len());
                         g.emit(EventKind::ItemAdded { to: player, item, count, silent: false });
@@ -771,12 +786,12 @@ impl Runtime {
                         let x = fnv_game::experience::mine_disarm_xp(g);
                         fnv_game::experience::award(g, fnv_game::experience::Source::DisarmMine, x);
                     }
-                    // Through a load door: the player's teammates come along
-                    // (`fnv_game::followers`).
+                    // Through a load door: the player's teammates and followers come
+                    // along (`fnv_game::followers`).
                     if matches!(a.outcome, Outcome::Teleported { .. }) {
-                        let brought = g.bring_teammates();
+                        let brought = g.bring_teammates(from);
                         if !brought.is_empty() {
-                            info!("script: {} teammate(s) come along through the door", brought.len());
+                            info!("script: {} teammate(s) or follower(s) come along through the door", brought.len());
                         }
                     }
                     // A script without OnActivate does not run on activation; the
@@ -1095,7 +1110,7 @@ impl Runtime {
                 info!("test aid: {} {value} set to {v}", g.data.name(r));
             }
             ScriptAid::Hardcore(on) => {
-                g.player.hardcore = Some(*on);
+                g.set_hardcore(*on);
                 info!("test aid: Hardcore mode {}", if *on { "on" } else { "off" });
             }
             ScriptAid::Perk(p) => {
@@ -1355,7 +1370,8 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// and they follow the multiplier itself].
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
-/// (`crate::vats_mode`, docs/design/vats-mode.md §4), and so does the player's Turbo
+/// (`crate::vats_mode`, docs/design/vats-mode.md §4; a kill camera's shot in its place,
+/// `crate::kill_cam`), and so does the player's Turbo
 /// ([`PlayerTimeScale`] keeps the player at full speed); those also slow sound
 /// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
 #[allow(clippy::too_many_arguments)]
@@ -1363,6 +1379,7 @@ fn time_multiplier(
     mut script: ResMut<ScriptState>,
     scale: Option<Res<ClockScale>>,
     vats: Option<Res<crate::vats_mode::VatsMode>>,
+    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
     mut player_scale: ResMut<PlayerTimeScale>,
@@ -1385,7 +1402,9 @@ fn time_multiplier(
         }
         player_scale.0 = exempt;
     }
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats.map_or(1.0, |v| v.time_scale()) * turbo;
+    // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
+    let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
+    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * turbo;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
@@ -1511,7 +1530,7 @@ pub(crate) fn run_scripts(
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
     let st = &mut *script;
-    st.used.extend(used.read().map(|u| FormId(u.item)));
+    st.used.extend(used.read().map(|u| (FormId(u.item), u.limb)));
     if st.rt.is_none() {
         let Some(rx) = st.loader.as_ref() else { return };
         let got = rx.lock().ok().and_then(|r| r.try_recv().ok());
@@ -1634,12 +1653,12 @@ pub(crate) fn run_scripts(
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
         let aid_from = rt.game.events.len();
-        for &item in &used {
+        for &(item, limb) in &used {
             // A skill book is read (`fnv_game::books`); anything else is an aid item.
             if crate::aid::read_book(rt, item) {
                 continue;
             }
-            let r = crate::aid::use_item(rt, item);
+            let r = crate::aid::use_item(rt, item, limb);
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
         rt.follow_player();

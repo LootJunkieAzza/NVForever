@@ -336,9 +336,10 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);
-    c.text(p, 2, EXIT, MAIN.min.x + BUTTONS.x - 10.0, MAIN.min.y + BUTTONS.y, Align::Right, bright);
+    let by = MAIN.min.y + BUTTONS.y + frame::BUTTON_TEXT_Y;
+    c.text(p, 2, EXIT, MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
     let ew = c.width(2, EXIT);
-    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, MAIN.min.y + BUTTONS.y - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
+    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, by - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
     // The rows: the weapon, then the mods.
     let rows: Vec<(String, bool)> = std::iter::once((o.name.clone(), o.extra.equipped)).chain(o.choices.iter().map(|ch| (if ch.count > 1 { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, false))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
@@ -420,8 +421,8 @@ mod tests {
     fn store() -> FormStore {
         let mut f = FormStore::default();
         for (id, kind, name) in [(GUN, ItemKind::Weapon, "10mm Pistol"), (MAGS, ItemKind::ItemMod, "10mm Pistol Extended Mags"), (SIGHT, ItemKind::ItemMod, "10mm Pistol Laser Sight"), (SILENCER, ItemKind::ItemMod, "10mm Pistol Silencer")] {
-            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: None, non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, quest_item: false, icon: Some(format!("{name}.dds")), placed_count: None, teaches: None, cant_be_taken: false };
-            f.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: Some(name.into()), script: None, prompt: None, data: BaseData::Item(it) });
+            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: None, non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, thrown: false, quest_item: false, icon: Some(format!("{name}.dds")), placed_count: None, teaches: None, cant_be_taken: false, modulates_voice: false };
+            f.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: Some(name.into()), script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
         }
         f
     }

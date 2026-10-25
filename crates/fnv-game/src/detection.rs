@@ -23,8 +23,13 @@
 //!   fSneakLightRunMult; blindness is always 1 in New Vegas; stealth boy =
 //!   fSneakStealthboyMult when the target's Invisibility or Chameleon is at least 1;
 //! - **Detector skill** = falloff · Perception skill · (1 + alert · fSneakAlertMod + asleep
-//!   · fSneakSleepBonus + busy · fSneakCombatMod), Perception skill = fSneakPerceptionSkillMin
-//!   + (Max − Min) · Perception / 10;
+//!   · fSneakSleepBonus + combat target · fSneakCombatMod), Perception skill =
+//!   fSneakPerceptionSkillMin + (Max − Min) · Perception / 10; "combat target" is
+//!   IsCombatTarget: the target is one the detector fights, so a fighter perceives its own
+//!   foes at 0.8 and anyone else at 1.2 [documented: the page's formula and the Fallout
+//!   Wiki's Sneak (New Vegas) page agree; the page's one-line description of
+//!   fSneakCombatMod says "against someone else", the other way round:
+//!   docs/design/detection.md §9];
 //! - **Target skill** (New Vegas) = sneaking · (Sneak + iSneakLevelBonus · (target level −
 //!   detector level) + max(iSneakStartBonus − iSneakStartBonusLevelPenatly · target level,
 //!   0) − armour penalty), the penalty iMediumArmorStealthPenalty or
@@ -47,7 +52,7 @@ use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::forms::{ArmorClass, ItemKind};
 use fnv_sim::FormId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub const INVISIBILITY: u16 = 48;
 pub const CHAMELEON: u16 = 49;
@@ -219,23 +224,31 @@ impl Settings {
         }
     }
 
+    /// The sound the target makes, as the sound term counts it before the distance
+    /// falloff: fSneakSoundsMult · (movement + action), movement 0 standing still, else
+    /// (fSneakBootWeightBase + fSneakBootWeightMult · body armour weight) × fSneakRunningMult
+    /// when running (not with Ignore Running During Detection), a creature's by its sound
+    /// level; action = the loudest action sound × fSneakActionMult.
+    pub fn noise(&self, p: &Pair, moving: bool, running: bool, action_sound: f64) -> f64 {
+        let movement = if moving || running {
+            let run = if running && !p.ignore_running { self.running_mult } else { 1.0 };
+            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
+            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
+            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * run * level
+        } else {
+            0.0
+        };
+        self.sounds_mult * (movement + action_sound * self.action_mult)
+    }
+
     /// The detection value of a pair in a situation, with its parts.
     pub fn evaluate(&self, p: &Pair, s: &Situation) -> Detection {
         let a = self.attenuation(s.distance, s.exterior);
         let moving = s.moving || s.running;
 
         // Sound.
-        let movement = if moving {
-            let running = if s.running && !p.ignore_running { self.running_mult } else { 1.0 };
-            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
-            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
-            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * running * level
-        } else {
-            0.0
-        };
-        let action = s.action_sound * self.action_mult;
         let sound_falloff = if s.line_of_sight { a } else { a * self.sound_los_mult };
-        let sound = sound_falloff * self.sounds_mult * (movement + action);
+        let sound = sound_falloff * self.noise(p, moving, s.running, s.action_sound);
 
         // Visual.
         let seen = s.line_of_sight && s.in_view;
@@ -251,7 +264,7 @@ impl Settings {
         let state = 1.0
             + if s.detector_alert { self.alert_mod } else { 0.0 }
             + if s.detector_asleep { self.sleep_bonus } else { 0.0 }
-            + if s.detector_busy { self.combat_mod } else { 0.0 };
+            + if s.combat_target { self.combat_mod } else { 0.0 };
         let detector_skill = a * perception_skill * state;
         let target_skill = if s.sneaking {
             let penalty = match p.target_armor_class {
@@ -270,6 +283,31 @@ impl Settings {
         let value = self.base_value + sound + visual + self.skill_mult * (detector_skill - target_skill);
         Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen: s.camera_sight.unwrap_or(seen), clear: s.line_of_sight }
     }
+}
+
+/// What a detection round keeps ([`Game::begin_detection_round`]).
+#[derive(Debug, Default)]
+pub struct Round {
+    sides: HashMap<FormId, Side>,
+    /// `hostile_to(actor, other)` by (actor, other), until [`Game::end_detection_hostility`].
+    pub(crate) hostile: Option<HashMap<(FormId, FormId), bool>>,
+    /// Each actor's factions and how it stands towards others by them, for the whole
+    /// round: they change only by script (AddToFaction and the like) and crimes, which
+    /// forget them (`functions::actor::FactionKeep`).
+    pub(crate) kept: crate::functions::actor::FactionKeep,
+}
+
+/// One actor's detection inputs ([`Pair`]'s detector and target fields).
+#[derive(Debug, Clone, Copy)]
+struct Side {
+    perception: f64,
+    night_eye: bool,
+    sneak: f64,
+    invisible: bool,
+    armor_weight: f64,
+    armor_class: ArmorClass,
+    level: f64,
+    sound_level: Option<SoundLevel>,
 }
 
 /// What the two actors' records and actor values say, for one detector and one target.
@@ -356,8 +394,9 @@ pub struct Situation {
     /// The detector is in a combat state (Alert, Combat or Lost).
     pub detector_alert: bool,
     pub detector_asleep: bool,
-    /// The detector is fighting someone other than the target.
-    pub detector_busy: bool,
+    /// The target is one of the detector's combat targets, the detector in Combat
+    /// (IsCombatTarget; fSneakCombatMod applies).
+    pub combat_target: bool,
     /// What GetLineOfSight reads when it differs from the sight above: the player's is the
     /// camera's, its detection the body's [observed: capture detection-2 det4, 2026-10-17,
     /// third person: player.GetDetected Ringo 1 to 90° off the facing on both sides, 0
@@ -482,24 +521,85 @@ impl Game<'_> {
 
     /// What the records and actor values say for `detector` perceiving `target`.
     pub fn detection_pair(&mut self, detector: FormId, target: FormId) -> Pair {
-        let av = |g: &mut Game, r: FormId, code: u16| actor_value(g, r, code).unwrap_or(0.0);
-        let detector_perception = capped(PERCEPTION, av(self, detector, PERCEPTION));
-        let detector_night_eye = av(self, detector, NIGHT_EYE) != 0.0;
-        let target_sneak = capped(SNEAK, av(self, target, SNEAK));
-        let target_invisible = av(self, target, INVISIBILITY) >= 1.0 || av(self, target, CHAMELEON) >= 1.0;
-        let (target_armor_weight, target_armor_class) = self.body_armor(target).unwrap_or((0.0, ArmorClass::Light));
+        let (d, t) = (self.detection_side(detector), self.detection_side(target));
+        // Silent Running: the player's running does not count against it
+        // (perk-entry-points.md §7).
+        let ignore_running = target == FormId::PLAYER_REF && self.player_has_entry(crate::perks::IGNORE_RUNNING_DURING_DETECTION);
         Pair {
-            detector_perception,
-            detector_level: self.actor_level(detector),
-            detector_night_eye,
-            target_sneak,
-            target_level: self.actor_level(target),
-            target_invisible,
-            target_armor_weight,
-            target_armor_class,
-            ignore_running: false,
-            target_sound_level: self.stats_def(target).filter(|d| &d.sig == b"CREA").and_then(|d| d.sound_level.as_deref()).and_then(SoundLevel::parse),
+            detector_perception: d.perception,
+            detector_level: d.level,
+            detector_night_eye: d.night_eye,
+            target_sneak: t.sneak,
+            target_level: t.level,
+            target_invisible: t.invisible,
+            target_armor_weight: t.armor_weight,
+            target_armor_class: t.armor_class,
+            ignore_running,
+            target_sound_level: t.sound_level,
         }
+    }
+
+    /// One actor's part of a [`Pair`], as detector and as target: worked out once per
+    /// detection round ([`Game::begin_detection_round`]), else each time.
+    fn detection_side(&mut self, r: FormId) -> Side {
+        if let Some(s) = self.detection_round.as_ref().and_then(|round| round.sides.get(&r)) {
+            return *s;
+        }
+        let av = |g: &mut Game, code: u16| actor_value(g, r, code).unwrap_or(0.0);
+        let (armor_weight, armor_class) = self.body_armor(r).unwrap_or((0.0, ArmorClass::Light));
+        let s = Side {
+            perception: capped(PERCEPTION, av(self, PERCEPTION)),
+            night_eye: av(self, NIGHT_EYE) != 0.0,
+            sneak: capped(SNEAK, av(self, SNEAK)),
+            invisible: av(self, INVISIBILITY) >= 1.0 || av(self, CHAMELEON) >= 1.0,
+            armor_weight,
+            armor_class,
+            level: self.actor_level(r),
+            sound_level: self.stats_def(r).filter(|d| &d.sig == b"CREA").and_then(|d| d.sound_level.as_deref()).and_then(SoundLevel::parse),
+        };
+        if let Some(round) = self.detection_round.as_mut() {
+            round.sides.insert(r, s);
+        }
+        s
+    }
+
+    /// Start a detection round: until [`Game::end_detection_round`], each actor's
+    /// detection inputs (its actor values, level and armour) and who would attack whom are
+    /// worked out once and kept. The engine measures every pair of the loaded actors four
+    /// times a second; worked out per pair, these were most of a 50-a-side battle's frame
+    /// time, and each actor's factions, read for every hostility check, more [observed: CPU
+    /// profiles, 2026-10-23, docs/design/streaming-hitches.md §4]. Within a round nothing
+    /// they read changes: the pairs only record detections and awareness.
+    pub fn begin_detection_round(&mut self) {
+        self.detection_round = Some(Round { hostile: Some(HashMap::new()), ..Default::default() });
+    }
+
+    /// Who would attack whom is worked out afresh from here on in the round: hits that
+    /// provoke and allies taking up a fight change it. Each actor's factions stay kept.
+    pub fn end_detection_hostility(&mut self) {
+        if let Some(r) = self.detection_round.as_mut() {
+            r.hostile = None;
+        }
+    }
+
+    /// End the detection round: what it kept is dropped.
+    pub fn end_detection_round(&mut self) {
+        self.detection_round = None;
+    }
+
+    /// Start a frame of the combat AI: until [`Game::end_faction_frame`], each actor's
+    /// factions and faction relations are worked out once and kept, as in a detection
+    /// round (`functions::actor::FactionKeep`). Its comrade and hostility checks asked
+    /// them afresh for every pair [observed: CPU profile of a 50-a-side battle,
+    /// 2026-10-23, `Game::comrades` → `factions_of` in `npc_combat::fight`]. Scripts and
+    /// crimes that change them forget them, so what is read is always what is current.
+    pub fn begin_faction_frame(&mut self) {
+        self.faction_frame = Some(Default::default());
+    }
+
+    /// End the combat AI's frame: the factions it kept are dropped.
+    pub fn end_faction_frame(&mut self) {
+        self.faction_frame = None;
     }
 
     /// The weight and class of the armour an actor wears in the torso slot.
@@ -720,8 +820,11 @@ mod tests {
         assert_eq!(s.evaluate(&boy, &sit).visual, 0.0);
         let asleep = s.evaluate(&Pair::default(), &Situation { detector_asleep: true, ..sit });
         assert!(near(asleep.detector_skill, 0.81 * 50.0 * 0.8));
-        let alert_busy = s.evaluate(&Pair::default(), &Situation { detector_alert: true, detector_busy: true, ..sit });
-        assert!(near(alert_busy.detector_skill, 0.81 * 50.0 * 0.8));
+        // In Combat: its own foe at 1 + 0.2 − 0.4, anyone else at 1 + 0.2.
+        let foe = s.evaluate(&Pair::default(), &Situation { detector_alert: true, combat_target: true, ..sit });
+        assert!(near(foe.detector_skill, 0.81 * 50.0 * 0.8));
+        let other = s.evaluate(&Pair::default(), &Situation { detector_alert: true, ..sit });
+        assert!(near(other.detector_skill, 0.81 * 50.0 * 1.2));
     }
 
     #[test]

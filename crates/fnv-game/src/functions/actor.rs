@@ -170,14 +170,17 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
 /// temporary modifiers included (Buffout's +2), and Carry Weight's own modifiers add to
 /// it [documented: GECK wiki GetCalculatedMaxCarryWeight, "CarryWeight … Actor Values";
 /// hypothesis: the current, not the permanent, Strength; aid-items.md §12]. Called when
-/// Strength or Carry Weight changes.
-fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
+/// Strength or Carry Weight changes, and every frame for the player (its Get Max Carry
+/// Weight perks: Hoarder + 25 [documented: GECK wiki Entry Point, "run when the actor's max
+/// carry weight is calculated"], `Game::sync_perk_weights`).
+pub(crate) fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
     use crate::actor_values::{CARRY_WEIGHT, STRENGTH};
     if code != STRENGTH && code != CARRY_WEIGHT {
         return;
     }
     let Ok(formula) = g.world.formula_capacity(actor) else { return };
     let Ok(capacity) = actor_value(g, actor, CARRY_WEIGHT) else { return };
+    let capacity = if actor == FormId::PLAYER_REF { g.entry_point(actor, crate::perks::GET_MAX_CARRY_WEIGHT, capacity).0 } else { capacity };
     g.world.set_carry_bonus(actor, capacity - formula as f64);
 }
 
@@ -332,6 +335,18 @@ pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// Rads and Hardcore's needs grow the other way: damage raises them, restoring lowers
 /// them, never below 0 [hypothesis: as their aid effects, aid-items.md §3; the Cannibal
 /// perk's script restores Hunger 50 with the health it gives].
+/// Take `amount` from `actor`'s Fatigue, as DamageAV Fatigue does: at 0 it is knocked
+/// out (an ammo effect's Fatigue Mod, logic-fields.md §3; [`Game::damage_fatigue`]).
+pub(crate) fn damage_fatigue(g: &mut Game, actor: FormId, amount: f64) {
+    if amount <= 0.0 {
+        return;
+    }
+    let code = crate::actor_values::FATIGUE;
+    let d = damage(g, actor, code) + amount;
+    set_damage(g, actor, code, d);
+    g.fatigue_changed(actor);
+}
+
 pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;
@@ -542,13 +557,25 @@ pub fn add_to_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
     let f = a.form(0)?;
     let rank = (a.num_or(1, 0.0) as i8).max(-1);
     g.extra.entry(r).or_default().factions.insert(f, rank);
+    forget_factions(g, r);
     none()
 }
 
 pub fn remove_from_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.extra.entry(r).or_default().factions.insert(a.form(0)?, -1);
+    forget_factions(g, r);
     none()
+}
+
+/// A script changed `r`'s factions: the kept lists of them go ([`FactionKeep`]).
+fn forget_factions(g: &Game, r: FormId) {
+    for keep in keeps(g) {
+        if let Ok(mut k) = keep.factions.lock() {
+            k.remove(&r);
+        }
+    }
+    forget_relations(g);
 }
 
 /// The voice type can be given directly or as a form list of voice types.
@@ -619,7 +646,31 @@ macro_rules! flag {
     };
 }
 
-flag!(set_ghost, get_ghost, ghost);
+/// `SetGhost flag`: projectiles pass, no damage, enemies ignore it (`Game::is_ghost`).
+/// SetGhost 0 also clears a base Is Ghost flag (actor-flags.md §3).
+pub fn set_ghost(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let on = a.num_or(0, 1.0) != 0.0;
+    let e = g.extra.entry(r).or_default();
+    (e.ghost, e.ghost_off) = (on, !on);
+    none()
+}
+
+/// `GetPlantedExplosive`: "Returns whether a live explosive has been planted on an
+/// actor" [documented: GECK wiki GetPlantedExplosive]; true once
+/// `fProjectileInventoryGrenadeFreakoutTime` has passed [documented: GECK wiki Projectile
+/// notes] (`crate::pickpocket`).
+pub fn get_planted_explosive(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.has_planted_explosive(r))
+}
+
+/// `GetIsGhost`: SetGhost or the base's Is Ghost flag.
+pub fn get_ghost(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.is_ghost(r))
+}
+
 flag!(set_restrained, get_restrained, restrained);
 flag!(set_unconscious_flag, get_unconscious, unconscious);
 
@@ -717,6 +768,41 @@ pub fn is_killer(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// The factions an actor is in now: the records' ([`base_factions`]) unless removed, and
 /// those added at run time.
 pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
+    // Kept while asked again and again ([`FactionKeep`]).
+    let kept = keep(g).map(|k| &k.factions);
+    if let Some(f) = kept.and_then(|k| k.lock().ok()?.get(&r).cloned()) {
+        return f;
+    }
+    let out = factions_now(g, r);
+    if let Some(mut k) = kept.and_then(|k| k.lock().ok()) {
+        k.insert(r, out.clone());
+    }
+    out
+}
+
+/// Each actor's factions ([`factions_of`]) and how it stands towards others by them
+/// ([`faction_relation`]), kept while something asks them again and again: a detection
+/// round (`Game::begin_detection_round`) and a frame of the combat AI
+/// (`Game::begin_faction_frame`). They change only by script (AddToFaction, SetEnemy and
+/// the like) and crimes (SetPCEnemyOfFaction's rule), which forget them
+/// ([`forget_factions`], [`forget_relations`]).
+#[derive(Debug, Default)]
+pub struct FactionKeep {
+    factions: std::sync::Mutex<std::collections::HashMap<FormId, Vec<FormId>>>,
+    relations: std::sync::Mutex<std::collections::HashMap<(FormId, FormId), i64>>,
+}
+
+/// The keep in use: the detection round's while one runs, else the combat AI frame's.
+fn keep<'a>(g: &'a Game) -> Option<&'a FactionKeep> {
+    g.detection_round.as_ref().map(|round| &round.kept).or(g.faction_frame.as_ref())
+}
+
+/// Every keep there is, for forgetting.
+fn keeps<'a>(g: &'a Game) -> impl Iterator<Item = &'a FactionKeep> {
+    g.detection_round.as_ref().map(|round| &round.kept).into_iter().chain(g.faction_frame.as_ref())
+}
+
+fn factions_now(g: &Game, r: FormId) -> Vec<FormId> {
     let mut out: Vec<FormId> = base_factions(g, r).iter().map(|f| f.0).collect();
     if let Some(e) = g.extra.get(&r) {
         out.extend(e.factions.keys().copied());
@@ -749,7 +835,26 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// enemy first, then friend, then ally; the player counts as an enemy of an actor in a
 /// faction the player is a crime enemy of.
 pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
-    factions_relation(g, &factions_of(g, r), o)
+    // Kept while asked again and again ([`FactionKeep`]).
+    let kept = keep(g).map(|k| &k.relations);
+    if let Some(v) = kept.and_then(|k| k.lock().ok()?.get(&(r, o)).copied()) {
+        return v;
+    }
+    let v = factions_relation(g, &factions_of(g, r), o);
+    if let Some(mut k) = kept.and_then(|k| k.lock().ok()) {
+        k.insert((r, o), v);
+    }
+    v
+}
+
+/// Factions, faction reactions or the player's faction enemies changed: the kept faction
+/// relations go ([`FactionKeep`]).
+pub(crate) fn forget_relations(g: &Game) {
+    for keep in keeps(g) {
+        if let Ok(mut k) = keep.relations.lock() {
+            k.clear();
+        }
+    }
 }
 
 /// How the factions `mine` together stand towards actor `o`, combined as
@@ -805,6 +910,7 @@ pub fn set_enemy(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let (r12, r21) = (v(a.num_or(2, 0.0)), v(a.num_or(3, 0.0)));
     g.forms.faction_reactions.entry(f1).or_default().insert(f2, r12);
     g.forms.faction_reactions.entry(f2).or_default().insert(f1, r21);
+    forget_relations(g);
     none()
 }
 
@@ -816,6 +922,7 @@ pub fn set_ally(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let (r12, r21) = (v(a.num_or(2, 0.0)), v(a.num_or(3, 0.0)));
     g.forms.faction_reactions.entry(f1).or_default().insert(f2, r12);
     g.forms.faction_reactions.entry(f2).or_default().insert(f1, r21);
+    forget_relations(g);
     none()
 }
 
@@ -825,6 +932,7 @@ pub fn remove_from_all_factions(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Va
     for f in factions_of(g, r) {
         g.extra.entry(r).or_default().factions.insert(f, -1);
     }
+    forget_factions(g, r);
     none()
 }
 
@@ -845,6 +953,7 @@ pub fn set_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
     } else {
         g.player.enemy_of.remove(&f);
     }
+    forget_relations(g);
     none()
 }
 
@@ -854,6 +963,7 @@ pub fn get_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 
 pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.player.enemy_of.remove(&a.form(0)?);
+    forget_relations(g);
     none()
 }
 

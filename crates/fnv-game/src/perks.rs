@@ -108,6 +108,56 @@ pub const MODIFY_DAMAGE_THRESHOLD_ATTACKER: u8 = 58;
 pub const MODIFY_THROWING_VELOCITY: u8 = 59;
 pub const MODIFY_ITEM_DAMAGE: u8 = 68;
 
+/// The entry points of locks, terminals, sneaking, weight and travel
+/// (docs/spec-notes/perk-entry-points.md §7) [documented: GECK wiki
+/// GetNthPerkEntryFunction, the codes; Entry Point, what each does; observed: the perks'
+/// entries]: Ignore Locked Terminal (Computer Whiz, Set 1), Ignore Running During
+/// Detection (Silent Running, Set 1), Ignore Broken Lock (Infiltrator, Set 1), Get Max
+/// Carry Weight (Hoarder, Add 25), Has Fast Travel Always (Long Haul, Set 1), Modify Light
+/// Items (Pack Rat, Set 1), Adjust Heavy Weapon Weight (Heavyweight, Multiply 0.5).
+pub const IGNORE_LOCKED_TERMINAL: u8 = 20;
+pub const GET_MAX_CARRY_WEIGHT: u8 = 22;
+pub const IGNORE_RUNNING_DURING_DETECTION: u8 = 31;
+pub const IGNORE_BROKEN_LOCK: u8 = 32;
+pub const HAS_FAST_TRAVEL_ALWAYS: u8 = 51;
+pub const MODIFY_LIGHT_ITEMS: u8 = 55;
+pub const ADJUST_HEAVY_WEAPON_WEIGHT: u8 = 73;
+
+/// The entry points of mines, explosions, throws and movement (docs/spec-notes/
+/// perk-entry-points.md §8) [documented: GECK wiki GetNthPerkEntryFunction, the codes;
+/// Entry Point, what each does; observed: the perks' entries]: Calculate Mine Explode
+/// Chance (Light Step Set 0; In My Footsteps Set 0; ED-E's Light Step Set 0 under GetIsID
+/// conditions), Modify Run Speed (Travel Light × 1.1, Tunnel Runner × 1.25, Implant M-5 ×
+/// 1.2, Atomic! × 1.25, Stealth Suit Mk II × 1.2, each with its own conditions), Adjust
+/// Explosion Radius (Splash Damage × 1.25).
+pub const CALCULATE_MINE_EXPLODE_CHANCE: u8 = 4;
+pub const MODIFY_RUN_SPEED: u8 = 42;
+pub const ADJUST_EXPLOSION_RADIUS: u8 = 72;
+
+/// The entry points of kills, the HUD, repair and drinking (docs/spec-notes/
+/// perk-entry-points.md §9) [documented: GECK wiki GetNthPerkEntryFunction, the codes;
+/// Entry Point, what each does; observed: the perks' one entry each, no conditions]:
+/// Adjust Drinking Radiation (Implant Y-3 × 0.01), Has Meltdown (Meltdown Set 1), See Enemy
+/// Health (Living Anatomy Set 1), Has Jury Rigging (Jury Rigging Set 1).
+pub const ADJUST_DRINKING_RADIATION: u8 = 26;
+pub const HAS_MELTDOWN: u8 = 46;
+pub const SEE_ENEMY_HEALTH: u8 = 47;
+pub const HAS_JURY_RIGGING: u8 = 48;
+
+/// The unarmed special moves (docs/spec-notes/perk-entry-points.md §11) [documented: GECK
+/// wiki GetNthPerkEntryFunction, codes 61–66; observed: Legion Assault 61, Ranger Takedown
+/// 62, Scribe Counter 64, Khan Trick 65 and 66, each Set 1 with no conditions].
+pub const HAS_UNARMED_FORWARD_POWER_ATTACK: u8 = 61;
+pub const HAS_UNARMED_BACK_POWER_ATTACK: u8 = 62;
+pub const HAS_UNARMED_CROUCHED_POWER_ATTACK: u8 = 63;
+pub const HAS_UNARMED_COUNTER_ATTACK: u8 = 64;
+pub const HAS_UNARMED_LEFT_POWER_ATTACK: u8 = 65;
+pub const HAS_UNARMED_RIGHT_POWER_ATTACK: u8 = 66;
+
+/// The weight Adjust Heavy Weapon Weight starts at: "a Weapon which weighs 10.0 lbs or more
+/// (after the DecreaseWeight Weapon Mod effect)" [documented: GECK wiki Entry Point].
+pub const HEAVY_WEAPON_WEIGHT: f32 = 10.0;
+
 /// What one entry does to the value, its parameters resolved for this use (an actor
 /// value read, a range rolled).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -336,6 +386,48 @@ impl Game<'_> {
         }
     }
 
+    /// Whether `actor` holds a perk with an entry of `point` at the rank it has, its
+    /// conditions not asked: for flag entry points whose entries have none (Jury Rigging),
+    /// where only a shared borrow of the game is at hand.
+    pub fn holds_entry_point(&self, actor: FormId, point: u8) -> bool {
+        let data = self.data;
+        self.held_perks(actor).into_iter().any(|(perk, rank)| {
+            data.perks.get(&perk).is_some_and(|d| d.entries.iter().any(|e| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1)))
+        })
+    }
+
+    /// Whether the player's entries of a flag entry point (Set 1: Silent Running, Long
+    /// Haul, Infiltrator, Computer Whiz) are on now.
+    pub fn player_has_entry(&mut self, point: u8) -> bool {
+        self.entry_point(FormId::PLAYER_REF, point, 0.0).0 != 0.0
+    }
+
+    /// The player's weight perks and carry capacity brought up to date (every frame, with
+    /// the abilities): Pack Rat's Modify Light Items halves units of at most
+    /// `fPackRatThreshold` (× `fPackRatModifier`) [documented: GECK wiki Entry Point, the
+    /// settings' names; observed: FalloutNV.esm sets neither; the perk's text, "items with
+    /// a weight of 2 or less weigh half as much", gives the defaults 2 and 0.5]; Adjust
+    /// Heavy Weapon Weight multiplies weapons of [`HEAVY_WEAPON_WEIGHT`] or more
+    /// (Heavyweight × 0.5); Get Max Carry Weight changes the capacity (Hoarder + 25,
+    /// `crate::functions::actor::sync_carry`). Logged `perks: the player's item weights: …`
+    /// when they change.
+    pub fn sync_perk_weights(&mut self) {
+        use fnv_sim::inventory::WeightRules;
+        let p = FormId::PLAYER_REF;
+        let light = self.player_has_entry(MODIFY_LIGHT_ITEMS).then(|| {
+            (crate::combat::setting(self, "fPackRatThreshold", 2.0) as f32, crate::combat::setting(self, "fPackRatModifier", 0.5) as f32)
+        });
+        let heavy = self.entry_point(p, ADJUST_HEAVY_WEAPON_WEIGHT, 1.0).0 as f32;
+        let rules = WeightRules { light, heavy_weapons: ((heavy - 1.0).abs() > 1e-6).then_some((HEAVY_WEAPON_WEIGHT, heavy)) };
+        if self.world.weight_rules(p) != rules {
+            let light = rules.light.map_or("light items as they are".to_string(), |(w, m)| format!("items of {w} or less x {m}"));
+            let heavy = rules.heavy_weapons.map_or("heavy weapons as they are".to_string(), |(w, m)| format!("weapons of {w} or more x {m}"));
+            tracing::info!("perks: the player's item weights: {light}, {heavy}");
+            self.world.set_weight_rules(p, rules);
+        }
+        crate::functions::actor::sync_carry(self, p, crate::actor_values::CARRY_WEIGHT);
+    }
+
     /// The entries of `point` that apply to `actor` now, in the order they apply. `tabs`:
     /// the forms of the entry point's argument tabs 1 and 2 (`None`: none known here);
     /// `other`: the actor the owner's conditions take as their target.
@@ -404,9 +496,15 @@ impl Game<'_> {
     /// The value after the perk entries of `point` the actor has (no argument tabs); the
     /// perks that changed it, in order.
     pub fn entry_point(&mut self, actor: FormId, point: u8, value: f64) -> (f64, Vec<Applied>) {
+        self.entry_point_with(actor, point, &[], value)
+    }
+
+    /// [`Self::entry_point`] with the argument tabs `tabs` (a weapon's entry points: the
+    /// weapon at tab 1).
+    pub fn entry_point_with(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], value: f64) -> (f64, Vec<Applied>) {
         let mut v = value;
         let mut applied = Vec::new();
-        for (perk, op) in self.entry_ops(actor, point, &[], None) {
+        for (perk, op) in self.entry_ops(actor, point, tabs, None) {
             v = op.apply(v);
             applied.push(Applied { perk, value: v });
         }

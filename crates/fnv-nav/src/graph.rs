@@ -182,6 +182,11 @@ pub struct NavGraph {
     pub in_place: HashMap<u32, crate::doors::InPlaceDoor>,
     /// The doors that open in place standing on each triangle.
     pub door_tris: HashMap<u32, Vec<u32>>,
+    /// Obstacles that can come and go, by reference ([`crate::obstacles`]).
+    pub obstacles: HashMap<u32, crate::obstacles::ObstacleCut>,
+    /// How many enabled obstacles cut each triangle; empty when none does. A cut
+    /// triangle takes no part in paths ([`NavGraph::usable`]).
+    pub cut: Vec<u16>,
     /// Triangle lists of each space's buckets ([`BUCKET`]-unit squares).
     buckets: HashMap<Space, HashMap<(i32, i32), Vec<u32>>>,
     pub stats: BuildStats,
@@ -194,6 +199,21 @@ pub struct DoorLock {
     pub level: u8,
     /// The key that opens it.
     pub key: Option<u32>,
+}
+
+/// What [`NavGraph::sync_door_locks`] changed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DoorLockChanges {
+    /// Doors no longer locked.
+    pub unlocked: Vec<u32>,
+    /// Doors locked now, or locked differently (level, key).
+    pub locked: Vec<u32>,
+}
+
+impl DoorLockChanges {
+    pub fn is_empty(&self) -> bool {
+        self.unlocked.is_empty() && self.locked.is_empty()
+    }
 }
 
 /// A door reference's lock data, if any.
@@ -260,6 +280,7 @@ impl NavGraph {
             }
         }
         g.learn_in_place_doors(lo, schema, ix);
+        g.learn_obstacles(lo, schema, ix);
         g
     }
 
@@ -476,6 +497,41 @@ impl NavGraph {
         };
     }
 
+    /// Every door reference the graph knows: the load doors leaving its triangles and
+    /// the doors that open in place, in order.
+    pub fn door_refs(&self) -> Vec<u32> {
+        let mut v: Vec<u32> = self.doors.values().flatten().map(|d| d.door).chain(self.in_place.keys().copied()).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    /// Bring door locks in line with the game's: `states` gives doors whose state the
+    /// game holds (each `Some` while locked: a script's Lock or Unlock, a key used, a
+    /// lock picked); doors it does not name keep the lock they have. Doors the graph does
+    /// not know ([`NavGraph::door_refs`]) are passed over. Returns the doors that are no
+    /// longer locked and those that became locked or changed their lock.
+    pub fn sync_door_locks(&mut self, states: impl IntoIterator<Item = (u32, Option<DoorLock>)>) -> DoorLockChanges {
+        let known = self.door_refs();
+        let mut out = DoorLockChanges::default();
+        for (d, now) in states {
+            if known.binary_search(&d).is_err() || self.door_locks.get(&d) == now.as_ref() {
+                continue;
+            }
+            match now {
+                Some(l) => {
+                    self.door_locks.insert(d, l);
+                    out.locked.push(d);
+                }
+                None => {
+                    self.door_locks.remove(&d);
+                    out.unlocked.push(d);
+                }
+            }
+        }
+        out
+    }
+
     /// The three corners of a triangle.
     pub fn corners(&self, t: u32) -> [[f32; 3]; 3] {
         self.tris[t as usize].v.map(|v| self.vertices[v as usize])
@@ -494,10 +550,11 @@ impl NavGraph {
         &self.meshes[self.tris[t as usize].mesh as usize]
     }
 
-    /// Whether paths may cross triangle `t`.
+    /// Whether paths may cross triangle `t`: not deleted, its navmesh enabled, and no
+    /// enabled obstacle cuts it ([`crate::obstacles`]).
     pub fn usable(&self, t: u32) -> bool {
         let tri = &self.tris[t as usize];
-        !tri.has(tri_flags::DELETED) && self.meshes[tri.mesh as usize].enabled
+        !tri.has(tri_flags::DELETED) && self.meshes[tri.mesh as usize].enabled && self.cut.get(t as usize).is_none_or(|&c| c == 0)
     }
 
     /// Enable or disable a navmesh (`EnableNavMesh` / `DisableNavmesh`). Returns false

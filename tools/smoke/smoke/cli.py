@@ -16,6 +16,10 @@ killed (Windows; `python -m smoke.stacks PID` takes them from a game that hangs 
 Every `--play` launch runs with NVF_PLAY_AIDS_FROM_SCRIPTS=1: the world test aids wait
 for the scripts' first frame, so a late start on a busy machine cannot run them first
 (scenarios.toml's header; engine/nvf-play/src/pause.rs WorldAidClock).
+Up to NVF_SMOKE_SLOTS (default 3) games run on the machine at once, across every
+runner (smoke/slots.py), dealt first come, first served; --slots N / --jobs N let this
+run use at most N of them. Launches sharing an NVFOREVER_HOME run in order.
+--exclusive takes both game locks per launch, one game on the machine at a time.
 """
 from __future__ import annotations
 
@@ -24,10 +28,12 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import choose, integrity
+from . import choose, integrity, slots
 from .expect import ScenarioError
 from .plan import Launch, plan
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
@@ -70,6 +76,16 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument("--fnvtool", type=Path, default=None, help="fnvtool (default NVF_FNVTOOL or <repo>/target/release)")
             q.add_argument("--lock-poll", type=float, default=30.0)
             q.add_argument("--no-locks", action="store_true", help="for machines where nobody else runs the game")
+            q.add_argument("--slots", type=int, default=None,
+                           help="nvforever smoke games this machine runs at once, across all runners "
+                                f"(default NVF_SMOKE_SLOTS or {slots.DEFAULT_SLOTS}; 1 = the machine to itself, "
+                                "as --exclusive)")
+            q.add_argument("--jobs", type=int, default=None,
+                           help="this run's launches at once (default: --slots or the machine's slots; "
+                                "the queue's share caps it)")
+            q.add_argument("--exclusive", action="store_true",
+                           help="the old way: both game locks per launch, one game on the machine at a time "
+                                "(for a check that needs the screen to itself)")
             q.add_argument("--context", type=int, default=3, help="log lines shown per failed expectation")
     return p
 
@@ -223,25 +239,97 @@ def cmd_run(a, suite: Suite, say) -> int:
     if any(x.kind != GAME for x in launches) and not env.fnvtool.exists():
         say(f"warning: no fnvtool at {env.fnvtool}; tool scenarios will fail (build it or pass --fnvtool)")
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
-    locks = None if a.no_locks else Locks(default_lock_paths(a.repo), poll=a.lock_poll, say=say)
-    verdicts: list[Verdict] = []
+    locks, jobs = game_gate(a, say, game_groups(launches))
+    if jobs > 1 and len(launches) > 1:
+        say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
     started = time.monotonic()
     try:
-        for x in launches:
-            missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
-            if missing:
-                for s in x.scenarios:
-                    v = Verdict(s.name, "SKIP", reason=f"set {', '.join(missing)}")
-                    verdicts.append(v)
-                    report(v, x, None, env.out, say)
-                continue
-            code, err, secs = run_launch(x, env, locks)
-            judge_launch(x, env, code, err, secs, a, say, verdicts)
+        verdicts = run_launches(launches, env, locks, jobs, a, say)
     finally:
         if locks:
             locks.finish()
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True
     return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
+
+
+def game_gate(a, say, groups: int | None = None):
+    """What a game launch waits for, and how many launches this run starts at once.
+    `groups`: the run's game launch groups (`chains`), the most slots it can use."""
+    paths = default_lock_paths(a.repo)
+    if a.no_locks or not paths:
+        return None, max(1, a.jobs or 1)
+    count = a.slots or slots.default_count()
+    if a.exclusive or count == 1:
+        # One game on the machine: both locks, as before the slots. A one-slot pool would
+        # only cap this runner, and other runners' games could still run beside it.
+        return Locks(paths, poll=a.lock_poll, say=say), 1
+    jobs = max(1, a.jobs or count)
+    pool = slots.Slots(paths[-1], paths[:-1], count=count, poll=min(a.lock_poll, 10.0), say=say,
+                       want=min(jobs, groups or jobs))
+    return pool, jobs
+
+
+def game_groups(launches: list[Launch]) -> int:
+    """The groups of `chains` with a game launch in them (each holds one slot at a time)."""
+    return sum(1 for g in chains(launches) if any(launches[i].kind == GAME for i in g))
+
+
+def chains(launches: list[Launch]) -> list[list[int]]:
+    """The launches (by index) in groups that run in order on one worker: game launches
+    with the same NVFOREVER_HOME (one writes the save or the settings the next reads,
+    e.g. save-write then save-load); every other launch is a group of its own."""
+    out: list[list[int]] = []
+    home_at: dict[str, int] = {}
+    for i, x in enumerate(launches):
+        home = x.env.get("NVFOREVER_HOME") if x.kind == GAME else None
+        if home is None:
+            out.append([i])
+        elif home in home_at:
+            out[home_at[home]].append(i)
+        else:
+            home_at[home] = len(out)
+            out.append([i])
+    return out
+
+
+def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> list[Verdict]:
+    """Run every launch, up to `jobs` at once; the verdicts in plan order (each launch's
+    lines are printed as it ends)."""
+    results: list[list[Verdict]] = [[] for _ in launches]
+    out = threading.Lock()
+
+    def one(i: int) -> None:
+        x = launches[i]
+        missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
+        if missing:
+            with out:
+                for s in x.scenarios:
+                    v = Verdict(s.name, "SKIP", reason=f"set {', '.join(missing)}")
+                    results[i].append(v)
+                    report(v, x, None, env.out, say)
+            return
+        code, err, secs = run_launch(x, env, locks)
+        with out:
+            judge_launch(x, env, code, err, secs, a, say, results[i])
+
+    def chain(ix: list[int]) -> None:
+        for i in ix:
+            one(i)
+
+    groups = chains(launches)
+    if jobs <= 1 or len(groups) <= 1:
+        for g in groups:
+            chain(g)
+    else:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            futures = [pool.submit(chain, g) for g in groups]
+            try:
+                for f in futures:
+                    f.result()
+            except BaseException:
+                pool.shutdown(wait=True, cancel_futures=True)  # games in flight end on their own
+                raise
+    return [v for r in results for v in r]
 
 
 def cmd_check(a, suite: Suite, say) -> int:

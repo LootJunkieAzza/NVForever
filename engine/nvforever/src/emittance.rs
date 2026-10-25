@@ -1,5 +1,6 @@
 //! External emittance (docs/spec-notes/world.md §8): references can name an emittance
-//! source (REFR XEMI): a region whose weather's sunlight colour at the current hour, or a
+//! source (REFR XEMI): a region whose weather's sunlight colour at the current hour (the
+//! weather on screen when the region lists it, else its likeliest one), or a
 //! light's colour times its fade (the tutorials: emittance carries the light's colour and
 //! brightness, level-design.md §2), drives them [hypothesis]. It scales:
 //! - shapes whose shader property sets BSShaderFlags bit 29 "External_Emittance": the
@@ -16,7 +17,7 @@
 //! moves; references without XEMI keep the shared material.
 
 use bevy::prelude::*;
-use fnv_world::lighting::{emittance, Emittance};
+use fnv_world::lighting::{emittance, Emittance, RegionEmittance};
 use fnv_world::sky::{srgb_to_linear, weather, ColorType, Weather};
 use nvf_assets::NifMaterial;
 use std::collections::HashMap;
@@ -28,7 +29,8 @@ pub struct EmittancePlugin;
 
 impl Plugin for EmittancePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EmittanceState>().add_systems(Update, update_emittance.after(crate::sky::update_sky));
+        app.init_resource::<EmittanceState>()
+            .add_systems(Update, (script_drawn_emittance, update_emittance.after(crate::sky::update_sky)).chain());
     }
 }
 
@@ -50,14 +52,19 @@ pub struct EmittanceState {
     sources: HashMap<u32, Option<Source>>,
     /// Hour of the last update; `None` forces the next one.
     hour: Option<f32>,
+    /// The weather on screen (and the fade's progress) at the last update.
+    shown: Option<(u32, Option<u32>, f32)>,
 }
 
 enum Source {
-    Weather(Box<Weather>),
-    Color(LinearRgba),
+    /// A region's weathers by form ID (those that load), and which one shows.
+    Weather(RegionEmittance, HashMap<u32, Weather>),
+    /// A light's colour × fade, linear (for materials) and as display values (for lights).
+    Color(LinearRgba, LinearRgba),
 }
 
-/// A light whose colour an emittance source scales.
+/// A light whose colour (display values, lights.rs `display_color`) an emittance source
+/// scales.
 #[derive(Component)]
 pub struct LightEmittance {
     pub source: u32,
@@ -69,10 +76,15 @@ impl EmittanceState {
         self.sources
             .entry(xemi)
             .or_insert_with(|| match emittance(world.lo, world.schema, xemi)? {
-                Emittance::Weather(w) => weather(world.lo, world.schema, w).map(|w| Source::Weather(Box::new(w))),
+                Emittance::Weather(r) => {
+                    let ws: HashMap<u32, Weather> =
+                        r.listed.iter().filter_map(|&f| Some((f, weather(world.lo, world.schema, f)?))).collect();
+                    ws.contains_key(&r.best).then_some(Source::Weather(r, ws))
+                }
                 Emittance::Light { color: c, fade } => {
                     let f = fade.max(0.0);
-                    Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f)))
+                    let shown = c.map(|b| b as f32 / 255.0 * f);
+                    Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f), LinearRgba::rgb(shown[0], shown[1], shown[2])))
                 }
             })
             .is_some()
@@ -103,14 +115,53 @@ impl EmittanceState {
     }
 }
 
-/// The emittance colour of a source at the sky's hour (linear).
-fn color(source: &Source, sky: &SkyState) -> LinearRgba {
-    match source {
-        Source::Weather(w) => {
-            let c = w.color(&sky.climate, ColorType::Sunlight, sky.hour);
-            LinearRgba::rgb(c[0], c[1], c[2])
+/// Shapes drawn by scripts (`nvf_play::script_draw`) whose colour an emittance source
+/// drives get their driven material copy, as streamed references do (world.rs).
+fn script_drawn_emittance(
+    mut commands: Commands,
+    world: Option<Res<WorldData>>,
+    mut state: ResMut<EmittanceState>,
+    mut materials: ResMut<Assets<NifMaterial>>,
+    mut shapes: Query<(Entity, &mut MeshMaterial3d<NifMaterial>, &nvf_play::script_draw::WantsEmittance)>,
+    mut logged: Local<std::collections::HashSet<u32>>,
+) {
+    let Some(world) = world else { return };
+    for (e, mut m, w) in &mut shapes {
+        if let Some(copy) = state.material(&world, &mut materials, &m.0, w.0) {
+            m.0 = copy;
+            if logged.insert(w.0) {
+                info!("emittance: shapes drawn by scripts take source {:#010x}", w.0);
+            }
         }
-        Source::Color(c) => *c,
+        commands.entity(e).remove::<nvf_play::script_draw::WantsEmittance>();
+    }
+}
+
+/// The emittance colour of a source at the sky's hour: linear, and as display values for
+/// lights (a light's colour × fade, as the display-value lighting sum takes a light's,
+/// world.md §8) [hypothesis]. A region's colour is its shown weather's sunlight; while
+/// the sky fades between weathers it fades from the outgoing weather's pick to the
+/// incoming one's by the same progress [hypothesis, as the sky's own colours fade].
+fn color(source: &Source, sky: &SkyState) -> (LinearRgba, LinearRgba) {
+    match source {
+        Source::Weather(r, ws) => {
+            let sun = |current: Option<u32>| {
+                let w = ws.get(&r.shown(current)).or_else(|| ws.get(&r.best));
+                w.map_or([0.0; 3], |w| w.color(&sky.climate, ColorType::Sunlight, sky.hour))
+            };
+            let now = sun(Some(sky.weather.form_id));
+            let c = match &sky.prev {
+                Some(p) => {
+                    let before = sun(Some(p.form_id));
+                    let t = sky.fade.clamp(0.0, 1.0);
+                    [0, 1, 2].map(|i| before[i] + (now[i] - before[i]) * t)
+                }
+                None => now,
+            };
+            let d = c.map(crate::lights::linear_to_display);
+            (LinearRgba::rgb(c[0], c[1], c[2]), LinearRgba::rgb(d[0], d[1], d[2]))
+        }
+        Source::Color(c, d) => (*c, *d),
     }
 }
 
@@ -126,14 +177,17 @@ fn update_emittance(
     added: Query<(), Added<LightEmittance>>,
 ) {
     let moved = state.hour.is_none_or(|h| (h - sky.hour).abs() > 1.0 / 60.0);
-    if !moved && added.is_empty() {
+    let shown = (sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id), if sky.prev.is_some() { sky.fade } else { 1.0 });
+    let weather_moved = state.shown.is_none_or(|(w, p, f)| w != shown.0 || p != shown.1 || (f - shown.2).abs() > 0.01);
+    if !moved && !weather_moved && added.is_empty() {
         return;
     }
     state.hour = Some(sky.hour);
-    let colors: HashMap<u32, LinearRgba> =
+    state.shown = Some(shown);
+    let colors: HashMap<u32, (LinearRgba, LinearRgba)> =
         state.sources.iter().filter_map(|(&k, s)| Some((k, color(s.as_ref()?, &sky)))).collect();
     for d in &state.driven {
-        let Some(&e) = colors.get(&d.source) else { continue };
+        let Some(&(e, _)) = colors.get(&d.source) else { continue };
         let Some(mut m) = materials.get_mut(&d.copy) else { continue };
         if d.unlit {
             m.base.base_color = Color::LinearRgba(scale(d.base_color, e));
@@ -142,7 +196,7 @@ fn update_emittance(
         }
     }
     for (l, point, spot) in &mut lights {
-        let Some(&e) = colors.get(&l.source) else { continue };
+        let Some(&(_, e)) = colors.get(&l.source) else { continue };
         let c = Color::LinearRgba(scale(l.color, e));
         if let Some(mut p) = point {
             p.color = c;

@@ -249,12 +249,14 @@ fn sort_rows(rows: &mut [Row]) {
 pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimError> {
     let forms = world.forms;
     let hardcore = world.config().hardcore;
+    // The holder's perks (Pack Rat, Heavyweight) in the total (perk-entry-points.md §7).
+    let rules = world.weight_rules(holder);
     let s = world.get(holder)?;
     if s.deleted {
         return Err(SimError::Deleted(holder));
     }
     let inv = s.inventory.as_ref().ok_or(SimError::NoInventory(holder))?;
-    let totals = inv.totals(forms, hardcore);
+    let totals = inv.totals_with(forms, hardcore, &rules);
     let mut rows: Vec<Row> = Vec::new();
     let mut hidden = 0;
     for (item, extra, count) in inv.groups() {
@@ -574,6 +576,8 @@ pub struct MenuModel {
     pub quantity: Option<Quantity>,
     /// The amount the prompt chose, for the command it does on Ok.
     amount: Option<i32>,
+    /// The container menu is picking a living actor's pocket ([`Steal`]).
+    pub steal: Option<Steal>,
     /// Inventory: the Misc folder open, if any ([`Folder`]).
     pub folder: Option<Folder>,
     /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
@@ -602,6 +606,43 @@ pub struct Applied {
     /// Power armour the player has no training for was refused: the runtime shows the
     /// game's message (`fnv_game::functions::refuse_power_armor`).
     pub power_armor_refused: bool,
+    /// Pickpocketing: items the player put into the victim's pocket, with their counts.
+    pub given: Vec<(FormId, i32)>,
+    /// Pickpocketing: the roll for this item failed, the victim noticed (the menu closes).
+    pub caught: Option<FormId>,
+}
+
+/// The container menu on a living actor's inventory while the player sneaks: each take
+/// or placement rolls against its chance ([`Steal::chance`], `fnv_game::pickpocket`);
+/// a failed roll moves nothing and closes the menu ([`Applied::caught`]). Equipped items
+/// are not listed ("By default, the player cannot pickpocket equipped items"
+/// [documented: GECK wiki SetPlayerCanPickpocketEquippedItems]; hypothesis: a stack with
+/// one unit equipped is hidden whole), and Take All is refused [design].
+#[derive(Debug, Clone)]
+pub struct Steal {
+    pub victim: FormId,
+    pub rules: fnv_game::pickpocket::Rules,
+    /// The player's and the victim's Sneak.
+    pub thief: f64,
+    pub target: f64,
+    rng: fnv_combat::rng::SplitMix,
+}
+
+impl Steal {
+    pub fn new(victim: FormId, rules: fnv_game::pickpocket::Rules, thief: f64, target: f64, seed: u64) -> Steal {
+        Steal { victim, rules, thief, target, rng: fnv_combat::rng::SplitMix(seed) }
+    }
+
+    /// The chance, percent, of moving `count` units of `row` either way.
+    pub fn chance(&self, row: &Row, count: i32) -> i32 {
+        let value = f64::from(row.value.unwrap_or(0).max(0)) * f64::from(count.max(1));
+        self.rules.chance(self.thief, self.target, value)
+    }
+
+    /// Roll against `chance`: whether the move goes unnoticed.
+    fn unnoticed(&mut self, chance: i32) -> bool {
+        (self.rng.next_f32() * 100.0) < chance as f32
+    }
 }
 
 const PLAYER: FormId = FormId::PLAYER_REF;
@@ -673,6 +714,7 @@ impl MenuModel {
             trade: None,
             quantity: None,
             amount: None,
+            steal: None,
             folder: None,
             cards: Vec::new(),
         }
@@ -724,6 +766,9 @@ impl MenuModel {
                 let mut l = listing(world, holder)?;
                 let forms = world.forms;
                 l.rows.retain(|r| self.category[side as usize].holds_item(r.kind, forms.item(r.item)));
+                if side == Side::Container && self.steal.is_some() {
+                    l.rows.retain(|r| !r.equipped);
+                }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
                     self.fold(&mut l, forms);
                 }
@@ -1049,6 +1094,7 @@ impl MenuModel {
         let sel = self.selected_row(self.focus).cloned();
         let name = |r: &Row| r.name.clone();
         match (self.mode, cmd) {
+            (Mode::Container(_), Command::TakeAll) if self.steal.is_some() => Ok("Take items one at a time to steal them".into()),
             (Mode::Container(c), Command::TakeAll) => {
                 // The listed stacks only: non-playable items stay hidden in the container.
                 let mut moved = Vec::new();
@@ -1072,10 +1118,21 @@ impl MenuModel {
                     Side::Player => (PLAYER, c),
                 };
                 let want = self.want(cmd == Command::One, &r);
+                if let Some(st) = self.steal.as_mut() {
+                    let chance = st.chance(&r, want);
+                    if !st.unnoticed(chance) {
+                        out.caught = Some(r.item);
+                        out.close = true;
+                        return Ok(format!("Caught! ({} x{want}, {chance}%)", name(&r)));
+                    }
+                }
                 let n = world.transfer_at(from, to, r.item, want, r.pick())?;
                 out.changed = n > 0;
                 if self.focus == Side::Container && n > 0 {
                     out.taken.push((r.item, n));
+                }
+                if self.focus == Side::Player && n > 0 && self.steal.is_some() {
+                    out.given.push((r.item, n));
                 }
                 let verb = if self.focus == Side::Container { "Took" } else { "Stored" };
                 Ok(format!("{verb} {} x{n}", name(&r)))

@@ -650,6 +650,15 @@ impl PhysState {
         self.world.queries().ray(origin, dir, max_distance, &filter)
     }
 
+    /// Every hit of a ray (game space), nearest first, never the player's own capsule.
+    pub fn ray_all(&mut self, origin: [f32; 3], dir: [f32; 3], max_distance: f32, mut filter: Filter) -> Vec<RayHit> {
+        if let Some(c) = &self.player {
+            filter.exclude.push(c.key());
+        }
+        self.world.update_queries();
+        self.world.queries().ray_all(origin, dir, max_distance, &filter)
+    }
+
     /// What stands under `at`, from `up` above it to `down` below, ignoring the layers
     /// the character passes through and actor hit volumes.
     pub fn ground_below(&mut self, at: [f32; 3], up: f32, down: f32) -> Option<RayHit> {

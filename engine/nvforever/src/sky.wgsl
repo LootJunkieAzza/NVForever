@@ -18,7 +18,8 @@
 
 // sky.rs SkyLight: daylight on the sky's colours, and the sun.
 struct SkyLight {
-    // x scale, z 1 if the light applies to this part, w 2 sun disc and glare, 1 glare.
+    // x scale, y 1 additive weighted by texture alpha, z 1 if the light applies to this
+    // part, w 2 sun disc and glare, 1 glare.
     params: vec4<f32>,
     glow: vec4<f32>,
     sun_dir: vec4<f32>,
@@ -61,8 +62,12 @@ const N: u32 = 24u;
 var<private> TONY_IN: array<f32, 24> = array<f32, 24>(0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0);
 var<private> TONY_OUT: array<f32, 24> = array<f32, 24>(0.0, 0.0056, 0.0113, 0.0222, 0.0437, 0.0723, 0.0999, 0.1470, 0.1812, 0.2542, 0.3140, 0.3663, 0.4125, 0.4910, 0.5457, 0.6172, 0.6867, 0.7454, 0.8070, 0.8796, 0.9216, 0.9473, 0.9771, 0.9875);
 
-// Linear input that the tonemapper maps to the linear output `y`.
+// Linear input that the tonemapper maps to the linear output `y`; `y` itself when the
+// view shows display values clipped (sky.glow.w 1, nvforever lights.rs GAME_CLIP).
 fn tony_inverse(y: f32) -> f32 {
+    if sky.glow.w > 0.5 {
+        return y;
+    }
     for (var i = 1u; i < N; i++) {
         if y <= TONY_OUT[i] {
             let t = (y - TONY_OUT[i - 1u]) / max(TONY_OUT[i] - TONY_OUT[i - 1u], 1e-6);
@@ -92,8 +97,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var out: FragmentOutput;
     let alpha_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     if alpha_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
-        // Additive parts: map what is added (colour × alpha), not the colour.
-        let a = c.rgb * c.a;
+        // Additive parts: map what is added (colour, × alpha when params.y is 1), not the colour.
+        let a = c.rgb * select(1.0, c.a, sky.params.y > 0.5);
         out.color = vec4(tony_inverse(a.r), tony_inverse(a.g), tony_inverse(a.b), 1.0);
     } else {
         out.color = vec4(tony_inverse(c.r), tony_inverse(c.g), tony_inverse(c.b), c.a);

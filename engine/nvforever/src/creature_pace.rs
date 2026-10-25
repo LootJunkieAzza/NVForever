@@ -98,6 +98,8 @@ struct PacedCreature;
 #[derive(Resource, Default)]
 struct PaceStats {
     paced: usize,
+    /// People whose Speed Mult is not 100 (among `paced`).
+    npcs: usize,
     alerted: usize,
     calmed: usize,
     /// Frames of paced creatures playing a movement clip, and changes between a walk
@@ -138,14 +140,19 @@ fn give_speeds(
         };
         for (e, rig, mut lo, global) in &mut actors {
             commands.entity(e).insert(Paced);
-            if game.data.actors.get(&FormId(rig.base)).is_none_or(|d| &d.sig != b"CREA") {
+            let Some(def) = game.data.actors.get(&FormId(rig.base)) else { continue };
+            if &def.sig != b"CREA" {
+                if let Some(s) = npc_speeds(game, FormId(rig.base), FormId(rig.reference), default, &mut lo) {
+                    given.push((FormId(rig.reference), s));
+                    stats.npcs += 1;
+                }
                 continue;
             }
             commands.entity(e).insert(PacedCreature);
             let id = FormId(rig.reference);
             // Speed Mult as GetBaseAV gives it: through the template chain (Stats), as the
             // leveled cazadors at the Tribal Village take theirs.
-            let mult = game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok().filter(|v| *v > 0.0).map_or(100.0, |v| v as f32);
+            let mult = speed_mult(game, FormId(rig.base), id);
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
             // Its type's own share (feral ghouls), as if its Speed Mult were that much higher.
             let mult = mult * type_pace(game.creature_type(id));
@@ -168,6 +175,41 @@ fn give_speeds(
         res.set_speeds(id, s);
         stats.paced += 1;
     }
+}
+
+/// An actor's Speed Mult (percent) as GetBaseAV gives it, through the template chain
+/// (Stats). A reference a script made (PlaceAtMe) is not in the game's world outside
+/// `with_world`: its base's stats source is read instead.
+fn speed_mult(game: &mut fnv_game::Game<'_>, base: FormId, id: FormId) -> f32 {
+    let v = if fnv_game::functions::base_of(game, id).is_some() {
+        game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok()
+    } else {
+        game.template_source(base, id, |d| d.template_stats).map(|(_, d)| d.speed_mult as f64)
+    };
+    v.filter(|v| *v > 0.0).map_or(100.0, |v| v as f32)
+}
+
+/// A person's speeds: the configured walking and running speeds × its Speed Mult
+/// (percent, NPC_ ACBS through the template chain as GetBaseAV gives it): "A Speed actor
+/// value is used as a multiplier times a standard movement speed. The Player Character
+/// would have a Speed of 100%" [documented: GECK wiki Stats Tab - NPC]. Its clips play
+/// that much faster so its feet keep up, as a creature's do [design: the wiki says the
+/// original's do not ("the animations only sync up with a speed of 100%"); the owner's
+/// pick between the two is asked in docs/owner-review.md]. `None` at 100 (most people):
+/// they keep the defaults.
+fn npc_speeds(game: &mut fnv_game::Game<'_>, base: FormId, id: FormId, default: Speeds, lo: &mut Locomotion) -> Option<ActorSpeeds> {
+    if id == FormId::PLAYER_REF {
+        return None;
+    }
+    let mult = speed_mult(game, base, id);
+    if (mult - 100.0).abs() < 0.5 {
+        return None;
+    }
+    let f = mult / 100.0;
+    lo.pace = f;
+    let calm = Speeds { walk: default.walk * f, run: default.run * f };
+    info!("npc pace: {} {id} walks {:.0} and runs {:.0} units/s (Speed Mult {mult:.0})", game.data.name(id), calm.walk, calm.run);
+    Some(ActorSpeeds { calm, alert: calm, turn_rate: None, spot_turn_start: None })
 }
 
 /// Creatures with an alert stance take it outside the Normal detection state.
@@ -211,8 +253,8 @@ fn stance(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut L
 fn report(mut exit: MessageReader<AppExit>, stats: Res<PaceStats>) {
     if exit.read().next().is_some() {
         info!(
-            "creature pace summary: {} creatures given their own speeds; alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
-            stats.paced, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
+            "creature pace summary: {} creatures given their own speeds ({} people by Speed Mult); alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
+            stats.paced - stats.npcs, stats.npcs, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
         );
     }
 }
@@ -247,6 +289,8 @@ mod tests {
                 visibility: Vec::new(),
                 materials: Vec::new(),
                 free: Vec::new(),
+                free_visibility: Vec::new(),
+                lights: Vec::new(),
             }),
             tracks: Vec::new(),
             root: None,

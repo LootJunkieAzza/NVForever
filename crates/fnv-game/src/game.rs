@@ -74,6 +74,29 @@ pub mod event {
     pub const ON_RESET: u16 = 0x1E;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
+    /// On the reference a magic effect reached; its parameter is the base effect (MGEF)
+    /// [documented: GECK wiki event handler table, OnMagicEffectHit "Target, BaseEffect"].
+    pub const ON_MAGIC_EFFECT_HIT: u16 = 0x16;
+    /// Never fired, as in the original: the GECK wiki notes that this event "never ran
+    /// prior to xNVSE v6.2.8", so the two shipped OnSell blocks (Lonesome Road's
+    /// Blood-Nap, Gun Runners' Arsenal's Esther) never ran in the game either
+    /// [documented: GECK wiki event handler table, OnSell].
+    pub const ON_SELL: u16 = 0x17;
+    /// On the actor's own script when it equips an item; the parameter is the item
+    /// (base form). It runs for an aid item an EquipItem uses up too: the Legate's
+    /// script waits for his healing powder this way [documented: GECK wiki event handler
+    /// table, OnActorEquip "Equipper, Equipped (item Base Form)", "runs before the item is
+    /// considered as equipped"; observed: VLegateScript `Begin OnActorEquip
+    /// NVHealingPowderLegate` answers its own `EquipItem` of the powder].
+    pub const ON_ACTOR_EQUIP: u16 = 0x1C;
+    /// On a door or container that opens: a door's open flag turning on (by anyone), a
+    /// container's menu opening [documented: GECK wiki event handler table, OnOpen
+    /// "Opened"; hypothesis: the moments, and that an NPC opening a door counts].
+    pub const ON_OPEN: u16 = 0x1F;
+    /// On a door or container that closes: the door's open flag turning off, the
+    /// container's menu closing [documented: GECK wiki event handler table, OnClose
+    /// "Closed"; hypothesis: the moments].
+    pub const ON_CLOSE: u16 = 0x20;
 }
 
 /// Nested script runs allowed (a stage result script setting another stage, an
@@ -186,6 +209,15 @@ pub struct RefExtra {
     pub destroyed: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub ghost: bool,
+    /// SetGhost 0 on an actor whose base is flagged Is Ghost: it stops being one
+    /// (actor-flags.md §3) [hypothesis: SetGhost overrides the base flag].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub ghost_off: bool,
+    /// It caught the player picking its pocket: it cannot be pickpocketed again
+    /// (`crate::pickpocket`; the flag SetCaughtPCPickpocketting sets [documented: GECK
+    /// wiki]).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub caught_pickpocket: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub restrained: bool,
     /// The player woke it by talking to it while it slept: until this game time it stays
@@ -1010,6 +1042,10 @@ pub struct Game<'a> {
     /// (`crate::detection`); GetDetected and GetDetectionLevel read it. Not part of the
     /// saved state: the engine measures again.
     pub detection: crate::detection::Detections,
+    /// What a detection round has worked out so far ([`Game::begin_detection_round`]).
+    pub(crate) detection_round: Option<crate::detection::Round>,
+    /// Factions kept for a frame of the combat AI ([`Game::begin_faction_frame`]).
+    pub(crate) faction_frame: Option<crate::functions::actor::FactionKeep>,
     /// Every actor's detection state (Normal, Alert, Combat, Lost), its alert and target
     /// lists, and detection events waiting to be heard (`crate::awareness`). Not part of
     /// the saved state: the engine measures again.
@@ -1052,6 +1088,8 @@ pub struct Game<'a> {
     /// Crimes being reported, trespass warnings and karma changes for the engine
     /// (`crate::crime`); what lasts is in [`PlayerState`]. Not part of the saved state.
     pub crimes: crate::crime::Crimes,
+    /// Pickpocketing: who caught the player, planted explosives (`crate::pickpocket`).
+    pub pickpocket: crate::pickpocket::State,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -1156,6 +1194,14 @@ pub struct Game<'a> {
     /// next one [observed: OnLoad after Enable had not run on the line after Enable and
     /// had run by the next frame, layer5-captures.md §8.3 d].
     pub pending_onload: Vec<FormId>,
+    /// Reference events the engine reported outside a script run (a container menu
+    /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
+    /// world in place ([`Game::queue_ref_event`]).
+    pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// The open flag last seen on each scripted door with OnOpen or OnClose blocks
+    /// ([`Game::watch_doors`]). Not saved: a door first seen after a load is taken as
+    /// it stands.
+    door_open_seen: BTreeMap<FormId, bool>,
     pub events: Vec<Event>,
     /// Calls per opcode that have no implementation.
     pub unhandled: BTreeMap<u16, u64>,
@@ -1240,6 +1286,9 @@ pub struct GameSnapshot {
     /// Terminals scripts locked or unlocked (`crate::terminal::Terminals::script_locks`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub terminal_locks: BTreeMap<FormId, crate::terminal::ScriptLock>,
+    /// Terminals whose Computer Whiz try was spent (`crate::terminal::Terminals::retried`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub terminal_retries: std::collections::BTreeSet<FormId>,
     /// The Pip-Boy radio as scripts and the player left it: on, and the station tuned.
     #[serde(default)]
     pub pipboy_radio_on: bool,
@@ -1387,6 +1436,8 @@ impl<'a> Game<'a> {
             package_door_notes: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),
+            detection_round: None,
+            faction_frame: None,
             awareness: Default::default(),
             provocations: Default::default(),
             nav_switches: Default::default(),
@@ -1401,6 +1452,7 @@ impl<'a> Game<'a> {
             ui: Default::default(),
             console_requests: Vec::new(),
             crimes: Default::default(),
+            pickpocket: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -1439,6 +1491,8 @@ impl<'a> Game<'a> {
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
+            queued_ref_events: Vec::new(),
+            door_open_seen: BTreeMap::new(),
             events: Vec::new(),
             unhandled: BTreeMap::new(),
             stubbed: BTreeMap::new(),
@@ -1585,6 +1639,14 @@ impl<'a> Game<'a> {
                 if !s.completed {
                     s.completed = true;
                     self.quest_completed(q);
+                }
+                // The entry's Next Quest (NAM0) "will automatically become the player's
+                // active quest" [documented: GECK wiki Quest Stages], as ForceActiveQuest
+                // makes it (the Pip-Boy takes `UiRequests::active_quest`).
+                if let Some(next) = e.next_quest.filter(|n| data.quests.contains_key(n)) {
+                    tracing::info!("quest: {q} stage {stage} completes it; its Next Quest {next} becomes the active quest");
+                    self.ui.active_quest = Some(next);
+                    self.ui.active_quest_count += 1;
                 }
             }
             if e.flags & STAGE_FAIL != 0 {
@@ -1819,6 +1881,60 @@ impl<'a> Game<'a> {
         ran
     }
 
+    /// Run `event` on `r`'s script at the start of the next frame, with `r` as its
+    /// subject and `by` as the action ref: for an engine that reports something outside a
+    /// script run (the container menu opened or closed: OnOpen, OnClose).
+    pub fn queue_ref_event(&mut self, r: FormId, event: u16, by: Option<FormId>) {
+        self.queued_ref_events.push((r, event, by));
+    }
+
+    /// OnOpen and OnClose of the scripted doors among `refs`: a door's open flag that
+    /// changed since the last look runs the block (the player's activation, a script's
+    /// SetOpenState, an NPC opening it on its way). The first look at a door only notes
+    /// its state.
+    fn watch_doors(&mut self, refs: &[FormId]) {
+        let data = self.data;
+        for &r in refs {
+            let Some(script) = self.ref_script(r) else { continue };
+            let Some(unit) = data.script(script) else { continue };
+            if !unit.has_block(event::ON_OPEN) && !unit.has_block(event::ON_CLOSE) {
+                continue;
+            }
+            if functions::base_of(self, r).and_then(|b| data.sig(b)).as_ref() != Some(b"DOOR") {
+                continue;
+            }
+            let Some(open) = self.world.peek(r).map(|s| s.open).or_else(|| self.world.get(r).ok().map(|s| s.open)) else { continue };
+            if self.door_open_seen.insert(r, open).is_some_and(|was| was != open) {
+                self.ref_event(r, if open { event::ON_OPEN } else { event::ON_CLOSE }, Some(Value::Ref(r.0)), None);
+            }
+        }
+    }
+
+    /// OnMagicEffectHit on `target` for each base effect of the magic `items` that reach
+    /// it (a weapon's or a blast's object effect on an object it hits, a spell on an
+    /// actor), the effect as the block's parameter. Returns whether a block ran.
+    pub fn magic_effect_hits(&mut self, target: FormId, items: &[FormId], caster: Option<FormId>) -> bool {
+        let Some(script) = self.ref_script(target) else { return false };
+        if !self.data.script(script).is_some_and(|u| u.has_block(event::ON_MAGIC_EFFECT_HIT)) {
+            return false;
+        }
+        let effects: Vec<FormId> = items.iter().filter_map(|i| self.data.effect_items.get(i)).flatten().map(|e| e.effect).collect();
+        let mut ran = false;
+        for e in effects {
+            ran |= self.ref_event(target, event::ON_MAGIC_EFFECT_HIT, Some(Value::Ref(e.0)), caster);
+        }
+        ran
+    }
+
+    /// An actor equipped `item`: OnActorEquip on the actor's own script, then, unless the
+    /// item was used up (an aid item), OnEquip on the item's script.
+    pub fn equip_events(&mut self, actor: FormId, item: FormId, consumed: bool) {
+        self.ref_event(actor, event::ON_ACTOR_EQUIP, Some(Value::Ref(item.0)), Some(actor));
+        if !consumed {
+            self.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
+        }
+    }
+
     // ---- frames ------------------------------------------------------------------
 
     /// One frame. Nothing runs during a loading screen ([`Game::loading`]). Otherwise:
@@ -1903,6 +2019,9 @@ impl<'a> Game<'a> {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
+        for (r, ev, by) in std::mem::take(&mut self.queued_ref_events) {
+            self.ref_event(r, ev, Some(Value::Ref(r.0)), by);
+        }
         self.combat_blocks();
         // Activate children whose delay passed (`crate::traps`).
         self.activate_due_children();
@@ -1945,7 +2064,10 @@ impl<'a> Game<'a> {
             }
             self.run_event(key, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
         }
-        for r in if scripts { self.active_refs() } else { Vec::new() } {
+        let active = if scripts { self.active_refs() } else { Vec::new() };
+        // Doors opened or closed since the last frame, by anyone (OnOpen, OnClose).
+        self.watch_doors(&active);
+        for r in active {
             if held(self) {
                 break;
             }
@@ -2056,6 +2178,23 @@ impl<'a> Game<'a> {
         let inst = self.instance(key, script);
         inst.run_prev = inst.run_last;
         inst.run_last = Some(now);
+    }
+
+    /// A trigger is about to run its OnTrigger block for the actors inside it this frame:
+    /// call once per frame, before those runs. OnTrigger runs every frame an actor is
+    /// inside, so for a script without a GameMode block it is the per-frame run that
+    /// GetSecondsPassed counts from [documented: GECK wiki GetSecondsPassed, the time
+    /// since the script last ran; hypothesis: an OnTrigger run counts as one]. Without
+    /// this, GetSecondsPassed read 0 there: VMS15's detonator spot (FalloutNV SCPT
+    /// 0x0014F50D) adds it to a timer and beeps when the timer is 0, resetting it after
+    /// 0.5 s, and beeped every frame. A script with a GameMode block is marked by its
+    /// GameMode run already.
+    pub fn trigger_frame(&mut self, trigger: FormId) {
+        let Some(script) = self.ref_script(trigger) else { return };
+        let per_frame = self.data.script(script).is_some_and(|u| u.has_block(event::ON_TRIGGER) && !u.has_block(event::GAME_MODE));
+        if per_frame && !self.paused() {
+            self.mark_run(InstKey::Ref { reference: trigger }, Some(script));
+        }
     }
 
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
@@ -2653,6 +2792,9 @@ impl<'a> Game<'a> {
     /// have its inventory accessed by the player until the actor gets up again"].
     pub fn default_activation(&mut self, actor: FormId, target: FormId, by_hand: bool) -> Result<serde_json::Value, String> {
         let base = functions::base_of(self, target);
+        // Where the player was, for whoever follows them through a door
+        // (`Game::bring_teammates`).
+        let from = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
         let pushed = self.knockout(target).is_some_and(|k| k.pushed && k.lying());
         let dead_actor = (self.extra.get(&target).is_some_and(|e| e.dead) || pushed)
             && base.and_then(|b| self.data.sig(b)).is_some_and(|s| &s == b"NPC_" || &s == b"CREA");
@@ -2678,8 +2820,9 @@ impl<'a> Game<'a> {
                 self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
+                self.arrived_through(target, cell);
                 self.player_entered(cell);
-                self.bring_teammates();
+                self.bring_teammates(from);
             }
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
@@ -2701,10 +2844,24 @@ impl<'a> Game<'a> {
     /// the healing and the rads) applies to the drinker, as from the water itself
     /// [hypothesis: drinking applies the effect the water names; activators.md §9].
     /// Whether the activator's script ran too is the activation's business.
-    fn drink_from(&mut self, actor: FormId, target: FormId) {
+    ///
+    /// The drinker's Adjust Drinking Radiation perks multiply the rads (Implant Y-3 ×
+    /// 0.01; perk-entry-points.md §9) [documented: GECK wiki Entry Point, "run when the
+    /// player drinks from a placed water source; modifies the radiation from placed water
+    /// sources"].
+    pub fn drink_from(&mut self, actor: FormId, target: FormId) {
         let Some(water) = self.drink_water(target) else { return };
-        let Some(&spell) = self.data.water_effects.get(&water) else { return };
-        self.apply_magic_item(actor, spell, Some(actor), false);
+        let (rads, by) = self.entry_point(actor, crate::perks::ADJUST_DRINKING_RADIATION, 1.0);
+        if !by.is_empty() {
+            let names: Vec<String> = by.iter().map(|a| self.data.name(a.perk)).collect();
+            tracing::info!("perks: drinking from {target}: rads x {rads:.4} ({})", names.join(", "));
+        }
+        let Some(&spell) = self.data.water_effects.get(&water) else {
+            tracing::info!("drink: {target}'s water {water} has no actor effect");
+            return;
+        };
+        let mods = crate::aid::Mods { rads: rads.max(0.0), ..crate::aid::Mods::default() };
+        self.apply_magic_item_with(actor, spell, Some(actor), false, &mods);
     }
 
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
@@ -2834,6 +2991,9 @@ impl<'a> Game<'a> {
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         for (index, e) in items.iter().enumerate() {
+            if mods.only.is_some_and(|o| o != index) {
+                continue;
+            }
             let label = format!("{} effect {index}", data.name(source));
             // A lasting effect (an ability, a worn enchantment) whose conditions fail is
             // listed inactive, to take hold when they pass (`crate::abilities`).
@@ -2910,6 +3070,15 @@ impl<'a> Game<'a> {
             self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
             if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
                 self.finish_effect(id, true);
+            }
+        }
+        // The target's OnMagicEffectHit for each effect that took (not abilities and worn
+        // enchantments, which are not hits) [hypothesis: after the effects start].
+        if !permanent {
+            let mut hit: Vec<FormId> = started.iter().map(|a| a.effect).collect();
+            hit.dedup();
+            for e in hit {
+                self.ref_event(target, event::ON_MAGIC_EFFECT_HIT, Some(Value::Ref(e.0)), caster);
             }
         }
         started
@@ -3172,6 +3341,10 @@ impl<'a> Game<'a> {
         if c.function == crate::idles::IS_LAST_IDLE_PLAYED {
             return crate::idles::is_last_idle_played(self, on, &c.params);
         }
+        // The VATS area functions have condition indices only, too (`crate::vats`).
+        if crate::vats::is_area_function(c.function) {
+            return crate::vats::area_value(self, c.function);
+        }
         self.call_function(&ctx, &c.params).num()
     }
 
@@ -3253,6 +3426,7 @@ impl<'a> Game<'a> {
             image_modifiers: self.image_modifiers.clone(),
             locks: self.locks.clone(),
             terminals: self.terminals.access.clone(),
+            terminal_retries: self.terminals.retried.clone(),
             terminal_locks: self.terminals.script_locks.clone(),
             pipboy_radio_on: self.radio.pipboy.on,
             pipboy_station: self.radio.pipboy.station,
@@ -3296,6 +3470,7 @@ impl<'a> Game<'a> {
         g.image_modifiers = s.image_modifiers.clone();
         g.locks = s.locks.clone();
         g.terminals.access = s.terminals.clone();
+        g.terminals.retried = s.terminal_retries.clone();
         g.terminals.script_locks = s.terminal_locks.clone();
         g.radio.pipboy.on = s.pipboy_radio_on;
         g.radio.pipboy.station = s.pipboy_station;

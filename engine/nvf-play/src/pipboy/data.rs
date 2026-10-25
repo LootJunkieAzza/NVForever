@@ -37,7 +37,7 @@
 
 mod model;
 mod outline;
-mod read;
+pub(crate) mod read;
 pub mod travel;
 
 use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
@@ -296,7 +296,7 @@ pub struct DataState {
     /// square without land), kept while one outline is made.
     outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
     /// How many markers the world map showed when last logged.
-    world_logged: Option<usize>,
+    world_logged: Option<(usize, usize)>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
     /// Where the left button went down on the World Map, and how far the pointer has
@@ -352,7 +352,7 @@ struct MapMark {
 impl MapMark {
     fn picture(&self) -> String {
         match self.icon {
-            Some((kind, found)) => model::marker_icon(kind, found, self.highlighted),
+            Some((kind, found)) => model::marker_icon(kind, found),
             None => DOOR_ICON.into(),
         }
     }
@@ -372,6 +372,9 @@ struct MapShown {
     /// The highlight box's middle and the name it shows.
     cursor: Vec2,
     label: Option<String>,
+    /// The line under the name: a World Map marker's reputation and the player's
+    /// standing with it ([`model::reputation_line`]).
+    detail: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -574,7 +577,7 @@ fn markers<'a>(st: &'a mut DataState, game: &Game) -> Option<&'a Vec<read::Marke
     if st.markers.is_none() {
         let (w, sim) = (game.world.as_ref()?, game.sim.as_ref()?);
         let ms = read::markers(w.lo, w.schema, sim.refs);
-        info!("pipboy data: {} map markers", ms.len());
+        info!("pipboy data: {} map markers ({} with a reputation)", ms.len(), ms.iter().filter(|m| m.reputation.is_some()).count());
         st.markers = Some(ms);
     }
     st.markers.as_ref()
@@ -1059,14 +1062,23 @@ fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &m
     }
 }
 
-/// Whether the player knows a marker (`Some`), and has been there (`true`): found within
-/// its radius, or shown by ShowMap, ShowAllMapMarkers (which leaves out markers flagged
-/// "Show All" Hidden, FNAM bit 4 [documented: xEdit's flag names, schemas/fnv/world.json],
-/// when asked to) or by its Visible flag [hypothesis].
+/// Whether the player knows a marker (`Some`), and whether it is drawn as discovered
+/// (`true`): found within its radius, or made a travel target by ShowMap's or
+/// ShowAllMapMarkers' canTravel (owner 2026-10-23: `tmm 1` shows every marker with its own
+/// icon). Known also when shown by ShowMap, ShowAllMapMarkers (which leaves out markers
+/// flagged "Show All" Hidden, FNAM bit 4 [documented: xEdit's flag names,
+/// schemas/fnv/world.json], when asked to) or by its Visible flag [hypothesis]; those
+/// keep the undiscovered icon.
 fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
     let hidden = m.flags & 4 != 0;
-    let shown = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.map_marker_shown(FormId(m.form), hidden));
-    let found = st.discovered.contains(&m.form);
+    let rt = game.script.as_ref().and_then(|s| s.rt.as_ref());
+    let shown = rt.is_some_and(|rt| rt.game.map_marker_shown(FormId(m.form), hidden));
+    let by_script = shown
+        && rt.is_some_and(|rt| {
+            let p = &rt.game.player;
+            p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
+        });
+    let found = st.discovered.contains(&m.form) || by_script;
     let enabled = game.sim.as_ref().is_none_or(|s| s.present(m.form));
     (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
 }
@@ -1086,23 +1098,30 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let mut marks = Vec::new();
     let mut names = Vec::new();
     let mut forms = Vec::new();
+    let mut details = Vec::new();
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in all.iter().filter(|mk| mk.world == world) {
         let Some(found) = known(st, game, mk) else { continue };
         marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(mk.pos[0], mk.pos[1]) });
         names.push(mk.name.clone());
         forms.push(mk.form);
+        details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
     }
     let quests = quest_targets(st, game)
         .into_iter()
         .filter(|t| t.interior.is_none() && t.world == world)
         .map(|t| quest_corner(on_map(t.pos[0], t.pos[1])))
         .collect();
-    if st.world_logged != Some(marks.len()) {
-        st.world_logged = Some(marks.len());
-        info!("pipboy data: world map shows {} of {} markers of this worldspace", marks.len(), all.iter().filter(|mk| mk.world == world).count());
+    let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
+    if st.world_logged != Some((marks.len(), drawn_found)) {
+        st.world_logged = Some((marks.len(), drawn_found));
+        info!("pipboy data: world map shows {} of {} markers of this worldspace, {drawn_found} as discovered", marks.len(), all.iter().filter(|mk| mk.world == world).count());
     }
     let (cursor, label, under) = place_cursor(st, WORLD, pointer, &mut marks, &names);
+    let detail = under.and_then(|i| details[i].clone());
+    if let Some(i) = under.filter(|&i| st.cursor_marker != Some(forms[i])) {
+        info!("pipboy data: world map highlights {} ({}){}", names[i], FormId(forms[i]), detail.as_ref().map(|d| format!(", reputation line \"{d}\"")).unwrap_or_default());
+    }
     st.cursor_marker = under.map(|i| forms[i]);
     MapShown {
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
@@ -1112,11 +1131,20 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         quests,
         cursor,
         label,
+        detail,
     }
 }
 
+/// The player's standing with reputation `rep` (its title), when the scripts' game runs.
+fn standing(game: &Game, rep: u32) -> Option<&'static str> {
+    let rt = game.script.as_ref().and_then(|s| s.rt.as_ref())?;
+    let [infamy, fame] = rt.game.player.reputation.get(&FormId(rep)).copied().unwrap_or_default();
+    let scale = rt.game.data.reputations.get(&FormId(rep)).copied().unwrap_or(0.0) as f64;
+    Some(crate::reputation::title(fnv_game::functions::reputation_level(fame, scale), fnv_game::functions::reputation_level(infamy, scale)))
+}
+
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None }
+    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None, detail: None }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -1221,7 +1249,10 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     }
     let mut marks = Vec::new();
     let mut names = Vec::new();
-    for d in st.doors.get(&key).into_iter().flatten() {
+    // A door disabled now (a script's Disable, an enable parent off) is not drawn
+    // [hypothesis: as a disabled marker is not, `known`].
+    let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
+    for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         if inside(at) {
             marks.push(MapMark { icon: None, highlighted: false, at });
@@ -1251,7 +1282,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         })
         .collect();
     let (cursor, label, _) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label }
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label, detail: None }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -1650,14 +1681,16 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         for mk in m.marks.iter().filter(|mk| mk.highlighted) {
             marker(p, c, mk);
         }
-        highlight(p, c, m.cursor, m.label.as_deref());
+        highlight(p, c, m.cursor, m.label.as_deref(), m.detail.as_deref());
         p.spawn((at(0.0, 0.0, MAP.width(), MAP.height()), MapHit, Pickable::default()));
     });
 }
 
 /// The highlight box round `centre`: four corners of two arms each with fading tips, the
-/// dot at its middle and the name under it.
-fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Option<&str>) {
+/// dot at its middle and the name under it; `detail` (a marker's reputation) on the line
+/// under the name [hypothesis: map_menu.xml has one text, `MM_HighlightLocationName`, its
+/// string set in code; where the original puts the reputation is not documented].
+fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Option<&str>, detail: Option<&str>) {
     let line = amber(LINE);
     let o = centre - Vec2::splat(HBOX / 2.0);
     let (arm, tip, t) = (HBOX_ARM, HBOX_TIP, THICK);
@@ -1676,5 +1709,9 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
     c.image(p, "Interface\\Worldmap\\waypoint_node.dds", at(centre.x - DOT / 2.0, centre.y - DOT / 2.0, DOT, DOT), line);
     if let Some(name) = label {
         c.text(p, 1, name, centre.x, o.y + HBOX_NAME_Y, Align::Centre, amber(TEXT));
+        if let Some(d) = detail {
+            let below = o.y + HBOX_NAME_Y + c.line_height(1);
+            c.text(p, 1, d, centre.x, below, Align::Centre, amber(TEXT));
+        }
     }
 }

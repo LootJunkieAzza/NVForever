@@ -20,9 +20,12 @@ them.
 |---|---|---|
 | `dt_floor` | 0.2 | DT never removes more than 80 % of a hit |
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
-| `bloom_per_shot`, `bloom_recovery`, `bloom_max` | 0.03 × Min Spread, 1.0 /s, 0.25 | spread added per shot (spread units) |
+| `bloom_per_shot`, `bloom_per_min_spread`, `bloom_auto_mult` | 0.08 + 0.04 × Min Spread, × 0.5 for automatics | spread added per shot (spread units) |
+| `bloom_max`, `bloom_recovery` | 1.0 (about 6° of deviation, 3° of cone), 2.0 /s | bloom cap; how fast it shrinks once settling |
+| `settle_delay` | 0.3 s | rest beyond the weapon's own time between shots before bloom shrinks; closer shots build on each other |
 | `jump_spread` | 0.3 | actor-spread penalty while airborne |
-| `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_recovery_deg` | 0.4°, 0.03°/damage, 12°/s | view kick |
+| `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_auto_mult` | 0.6°, 0.04°/damage, × 0.5 for automatics | view kick up per shot |
+| `recoil_jitter`, `recoil_side_share`, `recoil_lean_flip` | ±25 %, up to 0.4 × the kick up, 30 % per shot | the climb's random pattern |
 | `melee_window`, `melee_rays`, `melee_arc_deg` | 0.1 s, 5, 35° | melee swing |
 | `explosion_edge` | 0.25 | blast damage at the edge of the radius |
 | `default_bounce` | 0.3 | lobbers whose PROJ has no bounce value |
@@ -32,8 +35,12 @@ them.
 
 The bloom values were lowered after the first `combat sim` runs: at 0.15 × Min Spread
 with a cap of 1.0, the 10mm SMG hit 2 of 60 shots at 1000 units from the hip [observed
-with `fnvtool combat sim`]. With the current values it hits about 19 %, and every shot
-aimed at 600 units.
+with `fnvtool combat sim`]. That went too far: with 0.03 × Min Spread recovering at
+1.0 /s from the first frame, a pistol's bloom was gone before its next shot and the
+crosshair never opened, and the 1° kick was back in under 0.1 s (owner, 2026-10-24).
+The values above (2026-10-24) let a run of shots build, shrink only after a rest, and
+keep automatics at half the per-shot growth and kick, so the SMG's long-range hip fire
+stays poor but not hopeless.
 
 ## 2. Damage (`damage.rs`)
 
@@ -55,7 +62,11 @@ For one projectile (or one swing) that hits [documented unless marked]:
      settings are unused in New Vegas [documented: Weapon Damage Formula].
 2. **Miss.** A base of 0 is a miss: no critical, no damage.
 3. **Modifiers.** Ammo Damage Mod effects (add, multiply, subtract, in list order), then
-   the "Calculate Weapon Damage" perk hook.
+   the "Calculate Weapon Damage" perk hook, then × (1 + Companion Nerve) when the
+   attacker is one of the player's teammates: 0.05 per point of the player's Charisma
+   [documented: Fallout Wiki, Charisma (Fallout: New Vegas), "+5% to their damage and
+   armor"; hypothesis: the place in the order] (`Attacker::nerve`,
+   `Game::companion_nerve`).
 4. **Sneak attacks.** × `fCombatDamageBonusSneakingMult` for guns,
    × `fCombatDamageBonusMeleeSneakingMult` for melee and unarmed.
 5. **Body part.** × the part's damage multiplier [design: placed after the documented
@@ -78,6 +89,9 @@ For one projectile (or one swing) that hits [documented unless marked]:
    - After DT, at least `dt_floor` of the hit remains [design].
    - DR (after ammo DR Mod effects, capped at `fMaxArmorRating`) then takes its
      percentage.
+   - A teammate's DT and DR are × (1 + Companion Nerve) before the ammo effects and
+     perks [documented: as step 3, "armor"; hypothesis: that armour means both, and
+     the order] (`Target::nerve`). Its energy and fire resistances are not changed.
 8. **Child flag.** A target whose race has the Child flag takes nothing.
 
 Also in `damage.rs`:
@@ -105,11 +119,27 @@ each the identity by default. Reading PERK records is a later step.
 - **Degrees** [documented as the page authors' in-game measurement]:
   (actor + 0.0125·W² + 0.125·W) × 5.955, where W is Min Spread. Ammo Spread Mod effects
   multiply the result.
-- **Cone** [design]:
+- **Cone**:
+  - The degrees are the full width of the circle the shots fall in: the authors measured
+    "the diameter of the sway circle" for the actor spread and fitted "the diameters of
+    those circles" of shot impacts for the weapon spread [documented: the page's Testing
+    Methods]. So the cone's half-angle is half the degrees (`spread::half_angle`; until
+    2026-10-24 the whole figure was used as the half-angle, which made every gun's
+    spread twice as wide as measured).
   - The shot leaves inside a cone of that half-angle around the view direction, uniform
-    over the cone's disc, so the crosshair is always the centre.
-  - Bloom adds to the actor spread per shot and recovers; recoil kicks the view up per
-    shot (more for harder-hitting weapons) and recovers.
+    over the cone's disc, so the crosshair is always the centre [design].
+  - Bloom adds to the actor spread per shot, up to its cap. It recovers only after the
+    weapon has rested for its own time between shots plus `settle_delay`, so fire as
+    fast as the weapon allows keeps widening the cone, whatever its rate, and a short
+    pause lets it close again. (A bare 0.35 s delay reset the 10mm Pistol, about 0.5 s
+    between shots, after every shot [observed: smoke run 2026-10-24].)
+  - Recoil kicks the view up per shot (more for harder-hitting weapons, ±`recoil_jitter`)
+    and sideways by up to `recoil_side_share` of that. The sideways part leans to one
+    side for a few shots and swaps with `recoil_lean_flip` per shot, so each burst
+    climbs in a different pattern. Nothing brings the view back: pulling it down is the
+    player's (owner, 2026-10-24; a 70 % automatic return was tried first).
+  - VATS mode's shots, throws and the `NVF_PLAY_TEST_NO_SPREAD` test aid's shots kick
+    nothing and grow no bloom. The recoil's rolls have their own random stream.
 
 ## 4. Attack cycle (`attack.rs`)
 
@@ -140,6 +170,19 @@ each the identity by default. Reading PERK records is a later step.
   body's clip (docs/spec-notes/animation.md §9.8).
 - **Reload.** Takes the reload clip's length; the animation multiplier does not speed
   it up [documented]. Without a clip length, `fallback_reload`.
+  - **Reload speed** (`attack::reload_rate`, `Timing::with_reload_rate`). The player's
+    reload clips play at 0.5 + 0.1 × Agility (1 at Agility 5, 0.6 at 1, 1.5 at 10)
+    times the "Reload Speed" entry point of the player's perks with the weapon's tab
+    (Rapid Reload multiplies by 1.25), and the reload, or each part of a round-by-round
+    one, takes 1 ÷ that as long [documented: Fallout Wiki, Agility (Fallout: New Vegas):
+    the weapon's reload time ÷ ((0.5 + Agility × 0.1) × Rapid Reload); observed: Rapid
+    Reload's entry, Multiply Value 1.25, as its description's "25% faster"]. Agility is
+    the current value within 1 to 10 [hypothesis: current, as the other derived
+    statistics]. The body sets the reload layer's rate (`WeaponAnim::reload_rate`), so
+    the clip and the cycle end together. Logged `combat: reloads at x<rate> (Agility
+    <n>)` when the rate changes. The page also has Agility change draw and holster
+    times; not built (Equip Speed, perk-entry-points.md). NPCs reload at their clips'
+    own speed.
 - **Round by round** (`Timing::rounds`, `RoundReload`). Some reloads load one round at
   a time and can be stopped:
   - The clips [observed: the base meshes archive, 2026-10-11]. Three reload
@@ -229,7 +272,10 @@ each the identity by default. Reading PERK records is a later step.
   long as the reach. Each actor counts once [design]. The reach is `fCombatDistance` ×
   scale × weapon reach [documented formula; placeholder setting].
 - **Blast.** Every actor within the radius takes damage, unless a ray from the centre
-  is blocked first and the EXPL does not ignore line of sight [documented]. The damage
+  is blocked first and the EXPL does not ignore line of sight [documented]. Only the
+  world blocks that ray (walls, ground, doors); another body, living or dead, does not,
+  or the front of a pack shielded all behind it (`CombatWorld::cover_ray`) [design;
+  owner's playtest 2026-10-23, a grenade into a mantis swarm killed half]. The damage
   falls off [design]; the push is away from the centre with the EXPL force. In play the
   player counts, at the middle of its capsule (design/combat.md §5.8).
 
@@ -732,6 +778,33 @@ the player puts down. Code: `fnv_combat::mine` (rules), `nvf_play::mines` (in pl
   marker, mines owned by an actor base (XOWN naming an NPC_), `DisableAllMines`. Also the
   Light Step perk (mines do not go off for the player), and the Explosives chance of
   setting one off while disarming, which the owner's rule leaves out.
+
+## 11b. Thrown weapons land (2026-10-24)
+
+From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_weapon`,
+`nvf_play::thrown`.
+
+- **The records** [observed: FalloutNV.esm and the add-ons, PROJ `DATA` flags]: "Can Be
+  Picked Up" without "Can Be Disabled" on `NVThrowingKnifeProjectile` (Missile; Pins
+  Limbs, Rotation), `NVHatchetProjectile`, `NVSpearProjectile`,
+  `NVDLC02WeapTomahawkProjectile` (and Honest Hearts' `NVdlc02tomahawkrProjectiletest`),
+  `TrapBaseballProjectile` (Lobber) and Old World Blues' `NVDLC03MineMeat`. The
+  mines and C-4 carry both flags.
+- **What they mean** [documented: GECK wiki Projectile]: "Can be Picked Up: If checked,
+  projectile can be picked up by the player character after it has been disabled, or
+  regardless of it if Can be Disabled isn't enabled." "Default Weapon Source: Projectile
+  references store whichever weapon they fired from/as, and if they can be picked up by
+  an NPC or the player they will be added to inventory as that weapon." The same page's
+  notes say the flag "doesn't appear to work with Missile type projectiles": the
+  masters' thrown weapons are Missiles that set it; what the original does with them is
+  an owner question.
+- **As built** [hypothesis: where a landed weapon goes]: a projectile with the flag, no
+  "Can Be Disabled" and no explosion becomes its weapon where its flight ends: in the
+  inventory of the actor it struck (taken from the body), else as a loose reference at
+  the point it struck, 4 units out from the surface, turned the way it flew (or where it
+  ran out of range), in the thrower's cell; `crate::dropped` draws it and lets it settle.
+  The weapon is the one thrown, else the PROJ's Default Weapon Source. Log lines
+  `thrown: … landed at …` and `thrown summary` at the end.
 
 ## 12. Limb hits (step C8)
 

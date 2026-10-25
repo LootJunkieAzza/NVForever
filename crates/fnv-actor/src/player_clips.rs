@@ -99,6 +99,19 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
         Stance::Stand => {
             if let Some(p) = drawn {
                 out.push(format!(r"locomotion\{p}{f}{d}.kf"));
+                // A weapon with no walk left of its own (`2hr`, `2ha`) side-steps as the
+                // fists do (`h2hleft.kf`), body square, not with the unarmed walk left,
+                // which turns the whole body a quarter turn to face the way it walks
+                // (`Bip01 NonAccum` yaw 177.5° against 87.5° in every weapon side-step)
+                // [observed: `fnvtool actor locomotion --samples`, animation.md §9.6; the
+                // owner's capture of the original, a rifle down the sights strafing left
+                // with the body yawed right and the legs stepping back across, matches
+                // `h2hleft.kf` and `1hpleft.kf` and not `mtleft.kf`, 2026-10-23;
+                // hypothesis: which side-step the game takes]. The first-person folder has
+                // no `h2hleft.kf`, so the arms rig keeps `mtleft.kf`.
+                if dir == Dir::Left && !fast && p != "h2h" {
+                    out.push(r"locomotion\h2hleft.kf".to_string());
+                }
             }
             if female {
                 out.push(format!(r"locomotion\female\mt{f}{d}.kf"));
@@ -288,7 +301,10 @@ pub fn attack_clips(stance: Stance, prefix: &str, attack: &str, sights: bool) ->
         }
         _ => attack,
     };
-    for a in [group, "attackright"] {
+    // A power attack override (`attackcustom3power`) falls back on the standing power
+    // attack where the folder lacks it (`h2h` has no `attackcustom3power`).
+    let custom = group.starts_with("attackcustom").then_some("attackpower");
+    for a in std::iter::once(group).chain(custom).chain(["attackright"]) {
         for is in if sights { &["is", ""][..] } else { &[""][..] } {
             if stance == Stance::Sneak {
                 out.push(format!("sneak{prefix}{a}{is}.kf"));
@@ -558,6 +574,8 @@ mod tests {
         assert_eq!(c[..3], ["h2hattack5_b.kf".to_string(), "h2hattack5.kf".to_string(), "h2hattack5_a.kf".to_string()]);
         assert_eq!(attack_clips(Stance::Stand, "1hm", "attackforwardpower", false)[0], "1hmattackforwardpower.kf");
         assert_eq!(attack_clips(Stance::Sneak, "h2h", "attackpower", false)[..2], ["sneakh2hattackpower.kf".to_string(), "h2hattackpower.kf".to_string()]);
+        let custom = attack_clips(Stance::Stand, "1hm", "attackcustom3power", false);
+        assert_eq!(custom[..3], ["1hmattackcustom3power.kf".to_string(), "1hmattackcustom3power_a.kf".to_string(), "1hmattackpower.kf".to_string()]);
         let c = attack_clips(Stance::Sneak, "2hr", "attack3", false);
         assert_eq!(c[0], "sneak2hrattack3.kf");
         assert!(c.contains(&"2hrattackright.kf".to_string()));
@@ -586,8 +604,13 @@ mod tests {
         assert_eq!(move_clips(Stance::Stand, false, true, Dir::Forward, None), [r"locomotion\male\mtfastforward.kf", r"locomotion\mtfastforward.kf"]);
         assert_eq!(
             move_clips(Stance::Stand, true, false, Dir::Left, Some("1hp")),
-            [r"locomotion\1hpleft.kf", r"locomotion\female\mtleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]
+            [r"locomotion\1hpleft.kf", r"locomotion\h2hleft.kf", r"locomotion\female\mtleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]
         );
+        // A rifle (no `2hrleft.kf`) side-steps left as the fists do; running left and
+        // the fists themselves are as before.
+        assert_eq!(move_clips(Stance::Stand, false, false, Dir::Left, Some("2hr"))[..2], [r"locomotion\2hrleft.kf", r"locomotion\h2hleft.kf"]);
+        assert_eq!(move_clips(Stance::Stand, false, true, Dir::Left, Some("2hr"))[1], r"locomotion\male\mtfastleft.kf");
+        assert_eq!(move_clips(Stance::Stand, false, false, Dir::Left, Some("h2h")), [r"locomotion\h2hleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]);
         assert_eq!(move_clips(Stance::Sneak, false, false, Dir::Backward, Some("2hh")), ["sneak2hhbackward.kf", "sneakmtbackward.kf"]);
         assert_eq!(move_clips(Stance::Swim, false, true, Dir::Right, None), ["swimmtfastright.kf", "swimmtright.kf"]);
         assert_eq!(idle_clips(Stance::Sneak), ["sneakmtidle.kf", r"locomotion\mtidle.kf", "mtidle.kf"]);

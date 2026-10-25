@@ -26,6 +26,7 @@ use crate::sim::SimState;
 use crate::{space, PlaySet, PlayState, PlayWorld, Travel};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::tasks::{ComputeTaskPool, ParallelSliceMut};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use fnv_phys::{CharacterInput, CharacterStep, Owner, Stroke};
 use fnv_sim::FormId;
@@ -353,6 +354,8 @@ impl Plugin for PlayerPlugin {
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
             .init_resource::<RunPace>()
+            .init_resource::<PerkSpeed>()
+            .init_resource::<Lunge>()
             .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
@@ -527,6 +530,12 @@ fn read_input(
     }
 }
 
+/// Actors walked by another system whose moves are planned on the compute pool when at
+/// least this many move, in chunks of [`MOVE_CHUNK`] [engineering choice: fewer are
+/// cheaper on this thread].
+const PARALLEL_MOVES: usize = 8;
+const MOVE_CHUNK: usize = 4;
+
 /// While the player aims (Block held with a weapon out) they move at walking speed, not
 /// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
 /// to walk speed while aiming"; the original's rule is not captured]. Sneaking still
@@ -596,6 +605,54 @@ pub struct RunPace(pub f32);
 impl Default for RunPace {
     fn default() -> Self {
         RunPace(1.0)
+    }
+}
+
+/// What slows or speeds the player's steps: crippled legs, a two-handed weapon's run, the
+/// Modify Run Speed perks.
+type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>);
+
+/// The player's Modify Run Speed perks' factor on its movement, walking, running and
+/// sneaking (`crate::combat`'s `perk_speed`; perk-entry-points.md §8).
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct PerkSpeed(pub f32);
+
+impl Default for PerkSpeed {
+    fn default() -> Self {
+        PerkSpeed(1.0)
+    }
+}
+
+/// A lunge the player's attack carries them through: Legion Assault's
+/// (`crate::combat::LUNGE`). `step` moves the character forward along its heading at
+/// `speed` while `left` lasts, as well as where the player walks; walls stop it as they
+/// stop walking.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub struct Lunge {
+    /// Units per second.
+    pub speed: f32,
+    /// Seconds left.
+    pub left: f32,
+    /// Where the feet were when it started, for the log at its end.
+    from: Option<[f32; 3]>,
+}
+
+impl Lunge {
+    /// Lunge `far` units forward over `secs` seconds.
+    pub fn start(&mut self, far: f32, secs: f32) {
+        if secs > 0.0 {
+            *self = Lunge { speed: far / secs, left: secs, from: None };
+        }
+    }
+
+    /// The speed for a step of `dt` seconds, using that time up.
+    fn take(&mut self, dt: f32) -> f32 {
+        if self.left <= 0.0 {
+            return 0.0;
+        }
+        let share = (self.left / dt).min(1.0);
+        self.left -= dt;
+        self.speed * share
     }
 }
 
@@ -911,11 +968,11 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
-    (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
+    (limbs, pace, perk_pace): Paces,
     turbo: Option<Res<crate::script::PlayerTimeScale>>,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
-    (mut falls, mut fell): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>),
+    (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -1023,8 +1080,16 @@ fn step(
             let k = limbs.as_deref().map_or(1.0, crate::combat::PlayerLimbs::speed_mult);
             // Running with a two-handed weapon drawn is slower (`RunPace`).
             let k = if intent.walk { k } else { k * pace.as_deref().map_or(1.0, |p| p.0) };
+            // The Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …).
+            let k = k * perk_pace.as_deref().map_or(1.0, |p| p.0);
             let [x, y] = velocity(&intent, player.heading, *speeds);
-            [x * k, y * k, 0.0]
+            // An attack's lunge carries the player forward (`Lunge`).
+            if lunge.left > 0.0 && lunge.from.is_none() {
+                lunge.from = Some(c.feet);
+            }
+            let l = lunge.take(dt);
+            let (s, co) = player.heading.sin_cos();
+            [x * k + s * l, y * k + co * l, 0.0]
         };
         // Turbo slows the world's clock, not the player: its own movement goes faster by
         // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md
@@ -1105,11 +1170,25 @@ fn step(
                 b.player_held = crate::blocking::HELD_STEPS;
             }
         }
-        // The actors another system walks, by the velocity it gave each.
-        for ((&id, b), v) in p.npcs.iter_mut().zip(walking) {
+        // The actors another system walks, by the velocity it gave each: their moves
+        // planned at once on the compute pool (`PhysWorld::plan_move`, which only reads the
+        // world), then put into the world in turn, as each would have been alone.
+        p.world.update_queries();
+        let world = &p.world;
+        let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = p.npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
+        let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
             b.prev_feet = b.ch.feet;
             let was_on_ground = b.ch.grounded && !b.ch.swimming;
-            let s = p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            let (s, push) = world.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            (was_on_ground, s, push)
+        };
+        let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
+            moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
+        } else {
+            moving.par_chunk_map_mut(ComputeTaskPool::get(), MOVE_CHUNK, |_, chunk| chunk.iter_mut().map(|(_, b, v)| plan(b, *v)).collect::<Vec<_>>()).into_iter().flatten().collect()
+        };
+        for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+            p.world.apply_move(&b.ch, push);
             let (f, from) = (b.ch.feet, b.prev_feet);
             b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
             if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
@@ -1121,6 +1200,10 @@ fn step(
     }
     if n > 0 {
         intent.jump = false;
+    }
+    if let Some(from) = lunge.from.filter(|_| lunge.left <= 0.0) {
+        lunge.from = None;
+        info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
     let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
     player.feet = lerp3(p.prev_feet, c.feet, alpha);
@@ -1222,6 +1305,28 @@ mod tests {
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
+    }
+
+    #[test]
+    fn lunge_covers_its_distance_in_its_time() {
+        let mut l = Lunge::default();
+        l.start(332.0, 1.6);
+        let dt = 1.0 / 60.0;
+        let mut far = 0.0;
+        while l.left > 0.0 {
+            far += l.take(dt) * dt;
+        }
+        assert!((far - 332.0).abs() < 0.01, "{far}");
+        assert_eq!(l.take(dt), 0.0);
+    }
+
+    #[test]
+    fn lunge_ends_part_way_through_a_step() {
+        let mut l = Lunge::default();
+        l.start(100.0, 0.25);
+        let dt = 0.1;
+        let far: f32 = (0..4).map(|_| l.take(dt) * dt).sum();
+        assert!((far - 100.0).abs() < 0.01, "{far}");
     }
 
     #[test]

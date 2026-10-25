@@ -649,6 +649,12 @@ pub fn loading_gate(streamer: Res<Streamer>, mut loading: ResMut<nvf_play::loadi
     if loading.render_busy != busy {
         loading.render_busy = busy;
     }
+    // Actors around the player not drawn yet: a loading screen waits for them too, so
+    // they are not seen appearing after it comes down (`readahead::actors_waiting`).
+    let actors = crate::readahead::actors_waiting() > 0;
+    if loading.actors_busy != actors {
+        loading.actors_busy = actors;
+    }
 }
 
 /// Turn every tree billboard about its vertical (game Z) axis so that its face (local
@@ -1029,6 +1035,12 @@ pub fn spawn_model(
             if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
                 crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
             }
+        }
+        // A light whose model's sequences drive it: the reference's light hangs from the
+        // node holding it and takes its keys (lights.rs, docs/spec-notes/model-lights.md).
+        if let Some(l) = model.light.as_ref().filter(|_| &base.sig == b"LIGH") {
+            let anchor = l.parent.as_ref().and_then(|n| nodes.get(n)).copied().unwrap_or(root);
+            commands.entity(root).insert(crate::lights::LightRig { reference: r, anchor });
         }
         if !rig.groups.is_empty() {
             commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
