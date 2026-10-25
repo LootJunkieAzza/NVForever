@@ -594,13 +594,19 @@ pub fn free_transform_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Arc<
 /// controllers (Active, not manager controlled). The dust tube placed near Goodsprings
 /// (`effects\ambient\fxdustmeshtube01.nif`) is built so: one such controller, looping,
 /// that shows its mesh for part of a 56.7 s cycle [observed: `fnvtool nif decode`,
-/// docs/spec-notes/effects-animation-audit.md §6]. A track whose value never changes
-/// over its keys is kept: it holds a node the file hides shown, or the reverse.
+/// docs/spec-notes/nif.md §6 "Visibility controllers"]. A track whose value never
+/// changes over its keys is kept: it holds a node the file hides shown, or the reverse.
+///
+/// Left out: controllers on `##` nodes, the weapon parts the holder's clips show and hide
+/// (animation.md §9.7, effects-animation-audit.md §1). A placed frag mine
+/// (`weapons\1handminedrop\minefrag.nif`) holds one on `##FMine` (shown from 0 s,
+/// clamped) [observed]; played, it made the mine an animated rig, whose shapes lost the
+/// light parts `nvf_play::mines` shows from the mine's state.
 pub fn free_visibility_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, BoolTrack, OwnCycle)> {
     node_tracks_of_own(file, dec, false)
         .into_iter()
         .filter_map(|(node, t, cycle)| match t {
-            NodeTrack::Visibility(t) if !t.keys.is_empty() || t.value.is_some() => Some((node, t, cycle)),
+            NodeTrack::Visibility(t) if !node.starts_with("##") && (!t.keys.is_empty() || t.value.is_some()) => Some((node, t, cycle)),
             _ => None,
         })
         .collect()

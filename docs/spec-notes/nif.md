@@ -961,8 +961,12 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   and starts hidden (`vis_nodes` in `model.rs`). Random Anim Start bases start the
   free tracks at the same phase as the clip [hypothesis]. An item lying in the world
   whose only animation is such controllers (a gun's `##` parts, its slide) stays as
-  stored (`Clip::only_free_motion`, effects-animation-audit.md §3 "Items"); a reference
-  a script enables (`nvf_play::script_draw`) does not apply that item rule yet, for free
+  stored (`Clip::only_free_motion`, effects-animation-audit.md §3 "Items"). Free
+  controllers on `##` nodes are not played at all: they are the parts the holder's clips
+  show and hide (animation.md §9.7), and a placed frag mine's one on `##FMine`
+  (`minefrag.nif`, Active, clamped, shown from 0 s [observed]) turned the mine into an
+  animated rig that lost the light parts `nvf_play::mines` shows from its armed state. A reference
+  a script enables (`nvf_play::script_draw`) does not apply the item rule yet, for free
   transform or visibility tracks. Before this, only
   `object_anims` (script groups, needing the script runtime) and `shot_fx` (effects)
   applied the sequence tracks, and nothing applied the free ones: the arcs' spots
