@@ -112,9 +112,15 @@ each the identity by default. Reading PERK records is a later step.
 - **Degrees** [documented as the page authors' in-game measurement]:
   (actor + 0.0125·W² + 0.125·W) × 5.955, where W is Min Spread. Ammo Spread Mod effects
   multiply the result.
-- **Cone** [design]:
+- **Cone**:
+  - The degrees are the full width of the circle the shots fall in: the authors measured
+    "the diameter of the sway circle" for the actor spread and fitted "the diameters of
+    those circles" of shot impacts for the weapon spread [documented: the page's Testing
+    Methods]. So the cone's half-angle is half the degrees (`spread::half_angle`; until
+    2026-10-24 the whole figure was used as the half-angle, which made every gun's
+    spread twice as wide as measured).
   - The shot leaves inside a cone of that half-angle around the view direction, uniform
-    over the cone's disc, so the crosshair is always the centre.
+    over the cone's disc, so the crosshair is always the centre [design].
   - Bloom adds to the actor spread per shot and recovers; recoil kicks the view up per
     shot (more for harder-hitting weapons) and recovers.
 

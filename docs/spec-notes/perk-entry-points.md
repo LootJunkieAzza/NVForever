@@ -76,8 +76,8 @@ Not wired yet, with why:
 |---|---|---|---|
 | 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
 | 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
-| 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
-| 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
+| 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | built 2026-10-25 (§12) |
+| 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | built 2026-10-25 (§12) |
 
 ## 3. Conditions by tab
 
@@ -241,8 +241,7 @@ layer has a rate, and the reload already used it.
   Weapons, "Animation Multiplier", "Animation Attack Multiplier" scale the animation];
   before, the cycle was timed by them while the clip played at its own speed. For a
   weapon with both at 1 nothing changes.
-- Not built: the teammates' attack speed (Old Vaquero, Causeless Rebel), which needs the
-  NPCs' fire and swing rates to ask the entry point (§6).
+- The teammates' attack speed (Old Vaquero, Causeless Rebel): §12.
 
 Checks: `fnv-combat` `rules` `attack_rate_shortens_the_cycle_not_the_reload`; smoke
 `perk-fast-shot-quick-draw`, `perk-slayer`.
@@ -291,8 +290,95 @@ NVForever:
   blow begun within `COUNTER_WINDOW` (1 s) of the player's block stopping one is a
   standing power attack (its damage bonus, breaking a block), without the power attack's
   hold; logged `combat: Scribe Counter: the blow after the block is a power attack`.
-- Not built: the moves' own clips (they play the direction's power clip), Khan Trick's
-  need for dirt or sand underfoot (the fandom wiki), the crouched move (no perk), the
-  moves in VATS mode.
+- Not built: Khan Trick's need for dirt or sand underfoot (the fandom wiki), the crouched
+  move (no perk), the moves in VATS mode. Khan Trick's forced hit reaction and Legion
+  Assault's lunge: §11.4.
 
-Checks: smoke `perk-unarmed-moves`, `perk-super-slam`, `perk-and-stay-back`.
+### 11.3 The moves' clips (2026-10-24)
+
+Owner 2026-10-24: "the animations should exist so lets add them". They do, in both rigs'
+folders (`meshes\characters\_male`, `_1stperson`) of Fallout - Meshes.bsa [observed]:
+
+| Move | Clip (prefix `h2h`) | Why this one |
+|---|---|---|
+| Legion Assault (forward) | `attackcustom1power` (AttackCustom1Power, 1.6 s) | [observed: its Bip01 goes 332 units straight ahead over the clip, a running lunge] |
+| Ranger Takedown (back) | `attackcustom2power` (AttackCustom2Power, 1.43 s) | [hypothesis: by elimination; its motion is in compressed splines not read here] |
+| Khan Trick (left, right) | `attackcustom4power`, `attackcustom5power` (1.83 s) | [documented: GECK wiki GetForceHitReaction, "Khan Trick (AttackCustom4Power and AttackCustom5Power)"; hypothesis: 4 left and 5 right, the entry points' order] |
+| crouched (no perk) | `sneakh2hattackcustom3power` | not used |
+| Scribe Counter | `counter` (`h2hcounter.kf`, its `a:L` key chains a swing) | [hypothesis: by the name] |
+
+The move is chosen as its swing starts (`combat::melee`, `MeleeEvent::Started`): the
+swing's stem becomes the move's, so the body plays the move's clip and the strike comes at
+that clip's `Hit` key; Scribe Counter's swing becomes a standing power attack then. Logged
+`combat: <move> (<dir> power attack, unarmed): clip <stem>`.
+
+Khan Trick in the original also sets the target's forced hit reaction (GetForceHitReaction
+1, which plays its crippled-limb hit idles) [documented: the same page]; built in §11.4.
+
+### 11.4 Khan Trick's stun, Legion Assault's lunge (2026-10-24)
+
+Owner 2026-10-24: "Add Khan Trick's forced hit reaction (the stun) and move the player
+forward during Legion Assault's lunge."
+
+- Khan Trick: GetForceHitReaction is 1 on the target of AttackCustom4Power and
+  AttackCustom5Power [documented: GECK wiki GetForceHitReaction]. FalloutNV.esm's IDLE
+  `3rdPersonHitReactionsForce` (0014CC29, condition GetForceHitReaction == 1) and
+  `3rdPCrouchedHitForce` (0014CC2A) hold one child per hit location
+  (`3rdPHitTorsoForce` 0014CC2B for location 0, `…HeadForce` 1–2, `…ArmLeftForce` 3–4,
+  `…ArmRightForce` 5–6, `…LegLeftForce` 7–9, `…LegRightForce` 10–12, by GetHitLocation),
+  whose model is the IdleAnims folder alone: they play the actor's hit reaction for that
+  location [observed: the records; hypothesis: the same clips as the stagger's]. So a Khan
+  Trick blow that leaves its target alive and conscious sends `combat::ForcedHitReaction`
+  (logged `combat: Khan Trick: <target> is forced into its hit reaction (location <n>)`),
+  and the body plays the reaction for the location at once, without the stagger rule's
+  crippling or wait (nvforever `deaths`; logged `hit reaction: <ref> staggers for <s> s
+  (location <n>, forced: Khan Trick)`). The condition function itself stays a stub: no
+  idle picker here asks it.
+- Legion Assault: its clip `h2hattackcustom1power.kf` moves `Bip01` 332 units straight
+  ahead over 1.6 s [observed: 18 keys]. The body holds `Bip01` still, so the swing's start
+  sets `player::Lunge` (`combat::LUNGE`): the player moves forward along their heading at
+  332 / 1.6 units a second for the clip's length, both scaled by the swing's speed (the
+  attack-speed perks), on top of walking; walls and actors stop it as they stop walking
+  [design: an even speed, not the clip's key by key]. Logged `combat: Legion Assault: the
+  player lunges 332 units over <s> s` and, at its end, `player: lunge done: <d> units from
+  where it started`.
+
+Checks: smoke `perk-unarmed-moves` (with frames of each move; the stun and the lunge), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`; `player::tests::lunge_*`.
+
+## 12. The spread perks, the teammates' attack speed (2026-10-25)
+
+Owner 2026-10-24: "can you continue on with the rest of the perks".
+
+- 53 Modify Weapon Strength Req: "Add Value of 1 means a reduction of 1 point from the
+  requirement" [documented: GECK wiki Perk entry points]; the requirement counts in the
+  gun spread's Strength penalty [documented: GECK wiki Gun Spread Formula (New Vegas),
+  "StrReqPenalty"]. Weapon Handling sets it to 2 [observed: DATA 35 01 02, EPFD 2.0]. The
+  player's entries of 53, from 0 with the weapon at tab 1, are points taken off the
+  requirement (`Stance::strength_req_cut`, no shortfall below none).
+- 54 Modify Aiming Move Speed: the walking or running penalty is divided by it, "it
+  cannot divide below 1" [documented: the same page]. Run 'n Gun multiplies it by 2
+  [observed: EPFD 2.0, with a weapon-type condition on tab 0, value 4]. From 1, into
+  `Stance::aiming_move_divisor`. Both go into every spread of the player's
+  (`combat::spread_perks`, the crosshair, the shot, VATS mode's hit chance), logged
+  `combat: spread perks for <weapon>: Strength requirement -<n>, moving penalty / <d>
+  (<perks>)` when they change. Not built: the Strength requirement in the throwing distance
+  (the same page says it shortens throws); the Pip-Boy still shows the record's
+  requirement.
+- 43 Modify Attack Speed on teammates: Old Vaquero (× 1.33, GetIsID RaulTejada on tab 0,
+  IsInList OldVaqueroWeapons on tab 1) and Causeless Rebel (× 1.3, GetIsID Veronica)
+  [observed: FalloutNV.esm]. A teammate holds the teammate perks (§6), so an NPC fighter
+  that is a teammate asks the entry point for its weapon (`npc_combat::teammate_attack_rate`):
+  its gun's shot cycle (`Timing::with_attack_rate`, also when its reload is re-timed) and
+  its blows' strike time take the rate; logged `npc combat: <name> <ref> fires its
+  <weapon> at x<r> (the teammate perks)` or `strikes at x<r>`. The NPC's clips still play at
+  their own speed [not built].
+- 3 Calculate Weapon Attack AP Cost (Ain't Like That Now × 0.8): "run when the player
+  attacks outside of VATS" [documented: GECK wiki Perk entry points]; attacks outside VATS
+  cost no AP in the game, so from 0 the entry gives 0 [hypothesis: no base cost]. Nothing to
+  build.
+- NVDLC03LobotimiteReduceSpeedPERK (× 0.75 run speed): a player perk, added by the effect
+  script NVDLC03LobotomiteReduceSpeedSCRIPT (`Player.AddPerk` at its start, `RemovePerk` at
+  its finish) [observed: OldWorldBlues.esm], so §8's run speed already applies it.
+
+Checks: `fnv-combat` `rules` `spread_perks_cut_the_strength_and_moving_penalties`; smoke
+`perk-spread-perks`, `perk-teammate-attack-speed`.
