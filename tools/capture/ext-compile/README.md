@@ -49,4 +49,4 @@ page shows that form as working script [documented: the page named]; everything 
 | [20_inline_expression_arg.txt](20_inline_expression_arg.txt) | `ExtCase20` | an inline expression as a function argument | compiles | `Inline Expression` |  |
 | [21_and_or_precedence.txt](21_and_or_precedence.txt) | `ExtCase21` | `&&` and `\|\|` without parentheses | compiles | `NVSE Expressions`, `Eval` |  |
 | [22_error_let_without_variable.txt](22_error_let_without_variable.txt) | `ExtCase22` | deliberate error: `let` with no variable | to observe | none |  |
-| [23_begin_underscore_gamemode.txt](23_begin_underscore_gamemode.txt) | `ExtCase23` | `Begin _GameMode` | to observe | none |  |
+| [23_begin_underscore_gamemode.txt](23_begin_underscore_gamemode.txt) | `ExtCase23` | `Begin _GameMode` (the deprecated compiler override) | compiles | `Script Compiler Override` |  |

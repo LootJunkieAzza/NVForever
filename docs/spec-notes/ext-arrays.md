@@ -247,6 +247,6 @@ empty array, and whether they stop at the first decisive element: open.
 Ar Dump]. **Ar_DumpID** `Ar_DumpID id`: the same, for the array with that number
 (ShowQuestVars lists them) [documented: Ar DumpID]. **Ar_DumpF** `Ar_DumpF a, file[,
 append]` (xNVSE 6.1 and later): the same, into a file in the game folder; appends unless
-`append` is 0 [documented: Ar DumpF]. The print format: open. NVForever never writes
-into the game folder (install-layout.md), so where Ar_DumpF writes here is a decision
-for B1–B3, not a parity question.
+`append` is 0 [documented: Ar DumpF]. The print format: open. NVForever writes the file
+under the engine home's logs folder (`fnv_install::EngineHome::logs`) instead and logs
+where it went [decision: install-layout.md, never the game folder].
