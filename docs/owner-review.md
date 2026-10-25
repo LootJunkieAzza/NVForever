@@ -8686,3 +8686,7 @@ the spec it links to.
     first? ([save-load §4.1](design/save-load.md))
 25. **Delete-save key.** Delete on the load page asks Yes/No. Which key do you want?
     ([save-load §6.1](design/save-load.md))
+26. **Cloaked actors in VATS mode.** A Stealth Boy user or a cloaked Nightkin
+    (Invisibility or Chameleon at least 1) can no longer be marked in VATS mode unless
+    you have Enhanced Sensors (ED-E), which the perk's entry point names. Before, VATS
+    mode marked them like anyone. Keep the refusal? ([perk-entry-points §13](spec-notes/perk-entry-points.md))

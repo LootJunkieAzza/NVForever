@@ -905,6 +905,27 @@ fn mark(
         info!("vats mode: {actor:08X} is dead: not marked");
         return;
     }
+    // A cloaked actor (Invisibility or Chameleon at least 1: a Stealth Boy, a Nightkin's
+    // cloak) is not marked unless the player has Enhanced Sensors, whose entry point 69 Has
+    // Improved Detection gives "VATS targeting of cloaked enemies" [documented: GECK wiki
+    // Perk entry points; hypothesis: the actor values are what "cloaked" reads]
+    // (perk-entry-points.md §13).
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        let (cloaked, sensors) = crate::script::with_world(rt, sim, |rt| {
+            let g = &mut rt.game;
+            let av = |g: &mut fnv_game::Game, v: u16| fnv_game::functions::actor_value_capped(g, FormId(actor), v);
+            let cloaked = av(g, fnv_game::detection::INVISIBILITY) >= 1.0 || av(g, fnv_game::detection::CHAMELEON) >= 1.0;
+            (cloaked, cloaked && g.player_has_entry(fnv_game::perks::HAS_IMPROVED_DETECTION))
+        });
+        if cloaked && !sensors {
+            v.stats.refused += 1;
+            info!("vats mode: {actor:08X} is cloaked: not marked (Enhanced Sensors would let the player mark it)");
+            return;
+        }
+        if cloaked {
+            info!("vats mode: {actor:08X} is cloaked: marked through Enhanced Sensors");
+        }
+    }
     // "The player cannot go into VATS with this NPC if he has a melee weapon equipped"
     // [documented: GECK wiki Category:NPC, No VATS Melee] (actor-flags.md §1).
     let melee = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Melee);
