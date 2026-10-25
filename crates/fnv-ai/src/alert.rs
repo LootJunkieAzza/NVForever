@@ -134,6 +134,9 @@ pub enum Search {
     Fleeing { from: FormId, to: [f32; 3], since: f64 },
     /// At its flee spot (or cornered), facing `from`.
     Fled { from: FormId, at: [f32; 3] },
+    /// Running to `from` (a weapon, a body, ammunition) at `to` to take up a better
+    /// weapon (`crate::rearm`), since `since`.
+    Fetching { from: FormId, to: [f32; 3], since: f64 },
 }
 
 fn midway(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -150,6 +153,7 @@ impl Ai {
     pub(crate) fn alert_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
         let state = game.awareness.state(actor);
         if !state.in_combat() || game.continues_during_combat(actor) {
+            game.rearms.calm(actor);
             if let Some(target) = game.warning_to(actor).filter(|_| !state.in_combat()) {
                 if self.warn_step(game, actor, target, dt) {
                     return true;
@@ -175,6 +179,10 @@ impl Ai {
         // Fleeing comes first, in every combat state.
         if let Some(flight) = game.awareness.tactics.flights.get(&actor).copied() {
             self.flee_step(game, nav, actor, flight, dt);
+            return true;
+        }
+        // Then a better weapon (`crate::rearm`).
+        if self.rearm_step(game, nav, actor, dt) {
             return true;
         }
         let Some(aw) = game.awareness.get(actor) else { return true };

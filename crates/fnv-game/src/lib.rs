@@ -80,6 +80,7 @@ pub mod misc_stats;
 pub mod needs;
 pub mod npc_doors;
 pub mod npc_stimpaks;
+pub mod rearm;
 pub mod package;
 pub mod perks;
 pub mod pickpocket;

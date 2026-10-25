@@ -94,6 +94,39 @@ trap models read with `fnvtool nif decode`, the placed references read from the 
 - Not built: the chain needs the placed object's bodies simulated on their constraints
   (the ragdoll code drives skeletons only). `trapUpdate` stays a stub; the swinging traps
   are activated (and their children logic runs) but do not swing or hit.
+- Found 2026-10-25 [observed: `fnvtool nif decode`, decoded TrapMaceSCRIPT, a scan of
+  FalloutNV.esm]:
+  - Where: six bases (TrapSwingingLog01, -IBeam01, -IBeam02, -Engine01,
+    TrapBrahminCorpse01, -02). Only two references stand in the playable game, both
+    TrapSwingingIBeam01: `000EA80D` in Vault11c and `000EBA75` in NorthVegasHouseTools;
+    the other six are in the developer cell `TestTraps` (`0016521E`), a ready test scene.
+  - The log model: 15 bodies, 14 bhkRagdollConstraints. The anchors are keyframed
+    (motion system 7, mass 0); the log (80) and the six links each side (10 down to 5)
+    are dynamic (motion system 4, deactivator 2). The log's body sits about 243 units to
+    one side of the anchors and 157 up: the log is drawn pulled back, held until it is
+    let go [hypothesis: asleep until the activation wakes it].
+  - `Unequip` controls no block (only the text keys start and end): playing it changes
+    nothing on the nodes [hypothesis: playing a group is what wakes the bodies].
+  - The script calls `trapUpdate` every frame only after its OnActivate ran (`isactive`
+    > 0); for 6 s damage 40 and push 800, then 5 and 100; when `bTrapHasHit` turns 1 it
+    plays 000B28C4 and sets it back to 0.
+- What building it needs (plan):
+  1. fnv-phys: a placed reference's collision objects joined by the model's constraints
+     (`fnv_collide::ragdoll::ragdoll` reads them from any NIF), keyframed bodies fixed,
+     dynamic ones asleep until woken; today a placed object's dynamic bodies are loose
+     and unjoined.
+  2. fnv-game: `trapUpdate` marks the trap live (the engine wakes its bodies on the first
+     call), reads `fTrapDamage`, `fTrapPushBack`, `fTrapMinVelocity`, `bTrapContinuous`
+     (`Game::ref_var_named`) and, for each contact the engine reported, hits the actor
+     once (or again with `bTrapContinuous`) and sets `bTrapHasHit`.
+  3. nvforever: each woken trap's node poses written from its bodies through its
+     `ActivatorRig` node map (as `ragdoll.rs` writes bones); contacts measured as bodies
+     moving faster than the minimum velocity overlapping an actor's hit volume (or the
+     player's character); the hit through `nvf_play::combat::apply_hit` with the push
+     through `Game::push_actor_away` at `fTrapPushBack / PUSH_SPEED` [hypothesis: the
+     push is a speed in game units a second].
+  4. A smoke scenario in `TestTraps`: activate each trap, the log swings, an actor in
+     its way is hit once.
 
 ## 5. Checked
 

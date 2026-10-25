@@ -816,3 +816,45 @@ fn an_obstacle_cuts_only_floor_within_its_height() {
     // Beside the floor, seen from above.
     assert!(!sandbags(0.0, 90.0).cuts([[600.0, 0.0, 0.0], [700.0, 0.0, 0.0], [650.0, 100.0, 0.0]]));
 }
+
+#[test]
+fn places_to_avoid_cost_more_and_are_gone_round() {
+    let g = graph(&[(grid(1, [0.0, 0.0], 10, 10, 100.0, &[], flat), W)]);
+    let (from, to) = (Place { space: W, pos: [150.0, 150.0, 0.0] }, Place { space: W, pos: [850.0, 150.0, 0.0] });
+    // Radiated ground round (500, 150), radius 220: straight through without the cost,
+    // round its north edge with it.
+    let straight = g.find_path(from, to, &PathParams::default()).unwrap();
+    assert!(straight.length < 720.0, "{}", straight.length);
+    let p = PathParams { avoid: vec![([500.0, 150.0, 0.0], 220.0)], avoid_cost: 8.0, ..Default::default() };
+    let round = g.find_path(from, to, &p).unwrap();
+    assert!(round.length > 760.0, "{}", round.length);
+    assert!(round.legs[0].points.iter().any(|q| q[1] > 300.0), "{:?}", round.legs[0].points);
+}
+
+#[test]
+fn water_triangles_close_to_actors_that_do_not_swim() {
+    // A strip of water across x = 400..500 from y = 0 to 800; land round it at the north.
+    let mut m = grid(1, [0.0, 0.0], 10, 10, 100.0, &[], flat);
+    for i in 0..m.triangles.len() {
+        let t = &m.triangles[i];
+        let c = t.v.iter().fold([0.0f32; 2], |c, &v| [c[0] + m.vertices[v as usize][0] / 3.0, c[1] + m.vertices[v as usize][1] / 3.0]);
+        if (400.0..500.0).contains(&c[0]) && c[1] < 800.0 {
+            m.triangles[i].flags |= tri_flags::WATER;
+        }
+    }
+    let g = graph(&[(m, W)]);
+    let (from, to) = (Place { space: W, pos: [150.0, 150.0, 0.0] }, Place { space: W, pos: [850.0, 150.0, 0.0] });
+    let wet = |p: &crate::path::Path| p.legs[0].corridor.iter().filter(|&&t| g.tris[t as usize].has(tri_flags::WATER)).count();
+    // A swimmer crosses the strip (three times the cost of land, still shorter).
+    let swim = g.find_path(from, to, &PathParams::default()).unwrap();
+    assert!(wet(&swim) > 0 && swim.length < 900.0, "{} {:?}", swim.length, swim.legs[0].points);
+    // One that does not swim goes round it by land.
+    let dry = g.find_path(from, to, &PathParams { water: false, ..Default::default() }).unwrap();
+    assert_eq!(wet(&dry), 0, "{:?}", dry.legs[0].points);
+    assert!(dry.length > 1400.0, "{}", dry.length);
+    // A goal in the water is out of its reach at once; standing in it, it walks out.
+    let pond = Place { space: W, pos: [450.0, 150.0, 0.0] };
+    let no_swim = PathParams { water: false, ..Default::default() };
+    assert!(matches!(g.find_path(from, pond, &no_swim), Err(PathError::Unreachable { expanded: 0 })));
+    assert!(g.find_path(pond, to, &no_swim).is_ok());
+}

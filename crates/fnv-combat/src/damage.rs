@@ -162,7 +162,8 @@ pub struct Attacker {
     /// Arm condition as the formula uses it: 1 healthy … 0 crippled (two-handed: 0.5 with
     /// one arm crippled).
     pub arm_condition: f32,
-    /// Attacking unseen (sneak attack).
+    /// Attacking unseen (sneak attack): the sneak multiplier, and always a critical
+    /// (docs/spec-notes/combat-rules.md §4).
     pub sneaking: bool,
     pub in_vats: bool,
     /// Companion Nerve when the attacker is one of the player's teammates: the share its
@@ -287,21 +288,9 @@ pub fn skill_bonus(r: &Rules, skill: f32) -> f32 {
     r.damage_skill_base + r.damage_skill_mult * skill.clamp(0.0, 100.0) / 100.0
 }
 
-/// Weapon condition at and above which a weapon deals all its damage
-/// [documented: GECK wiki SetConditionDamagePenalty (JIP), "the 75% threshold"].
-pub const CONDITION_DAMAGE_THRESHOLD: f32 = 0.75;
-/// How fast damage falls below [`CONDITION_DAMAGE_THRESHOLD`]: the engine's hard-coded
-/// multiplier [documented: GECK wiki SetConditionDamagePenalty, "0.67, by default"].
-pub const CONDITION_DAMAGE_PENALTY: f32 = 0.67;
-
-/// The damage multiplier of a weapon at `condition` (0..=1): 1 at or above 75 %, below it
-/// `1 − (0.75 − condition) × 0.67`, 0.4975 at zero [documented: GECK wiki
-/// SetConditionDamagePenalty, the formula the JIP function overrides; observed: troopers'
-/// Service Rifles at 30, 45 and 50 % dealt 0.698, 0.799 and 0.832 of the full-condition
-/// hit, AI observer campaign fight_stats_round 2026-10-19, npc-behaviour-compare.md §9].
-pub fn condition_mult(condition: f32) -> f32 {
-    1.0 - (CONDITION_DAMAGE_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * CONDITION_DAMAGE_PENALTY
-}
+/// The weapon condition rule lives with the carried items' condition (`fnv_sim::inventory`),
+/// where the rules' weapon choices read it too (`fnv_game::rearm`).
+pub use fnv_sim::inventory::{condition_mult, CONDITION_DAMAGE_PENALTY, CONDITION_DAMAGE_THRESHOLD};
 
 /// The MeleeDamage actor value's base: Strength × mult + offset [documented].
 pub fn melee_damage_av(r: &Rules, strength: f32) -> f32 {
@@ -362,7 +351,7 @@ pub fn hit(
     let crit_chance = crit_chance(r, w, a, attacker_perks, target_perks);
     let critical = !miss
         && w.crit_mult > 0.0
-        && ((t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
+        && (a.sneaking || (t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
     // Critical damage is added before armour [documented]; shared among projectiles
     // like the base damage [design].
     let crit_bonus = if critical { attacker_perks.crit_damage(w.crit_damage as f32) / n } else { 0.0 };

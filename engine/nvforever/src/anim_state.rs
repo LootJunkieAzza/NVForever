@@ -128,7 +128,7 @@ type Body = (&'static ActorRig, &'static InheritedVisibility, Option<&'static Lo
 
 /// The idles that are GetAnimAction 13 (module notes).
 fn special(source: IdleSource) -> bool {
-    matches!(source, IdleSource::Script | IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange | IdleSource::Cower | IdleSource::Picked | IdleSource::Stimpak)
+    matches!(source, IdleSource::Script | IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange | IdleSource::Cower | IdleSource::Picked | IdleSource::Stimpak | IdleSource::PickUp)
 }
 
 /// The movement group of a way and pace (`fnv_actor::locomotion::Move::group`).

@@ -999,6 +999,11 @@ pub struct Queries<'a> {
 }
 
 impl Queries<'_> {
+    /// The surface of the water a point is in or over ([`PhysWorld::water_surface_for`]).
+    pub fn water_surface_for(&self, p: [f32; 3]) -> Option<f32> {
+        self.world.water_surface_for(p)
+    }
+
     fn with_filter<R>(&self, filter: &Filter, f: impl FnOnce(QueryFilter) -> R) -> R {
         let w = &self.world.w;
         let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies);

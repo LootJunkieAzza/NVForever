@@ -255,6 +255,13 @@ pub fn remove_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+impl Game<'_> {
+    /// The weapon `actor` has equipped ([`equipped_weapon`]).
+    pub fn weapon_equipped(&mut self, actor: FormId) -> Option<FormId> {
+        equipped_weapon(self, actor)
+    }
+}
+
 /// The weapon an actor has equipped, if any.
 pub fn equipped_weapon(g: &mut Game, actor: FormId) -> Option<FormId> {
     let forms = g.world.forms;
