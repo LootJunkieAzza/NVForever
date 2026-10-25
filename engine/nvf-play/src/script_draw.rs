@@ -56,6 +56,15 @@ pub struct ScriptDrawnRoot(pub u32);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct WantsEmittance(pub u32);
 
+/// On a [`ScriptDrawnRoot`] whose model is drawn with its own node hierarchy (an idle, a
+/// door or script groups): the rig's root, which carries the clip playing, and its nodes
+/// by name (the engine's particle emitters follow them, the rising B-29's).
+#[derive(Component, Clone, Debug)]
+pub struct ScriptDrawnRig {
+    pub root: Entity,
+    pub nodes: HashMap<String, Entity>,
+}
+
 /// The model a [`ScriptDrawnRoot`] draws (archive path): the engine puts the model's
 /// particle emitters under the root (`nvforever::particles`, particles.md §7.4).
 #[derive(Component, Clone, Debug)]
@@ -198,8 +207,9 @@ fn sync(
                     // mine's light parts (`crate::mines::MineLight`).
                     let shapes = match model.rig.as_ref().filter(|rig| rig.idle.is_some() || rig.door.is_some() || !rig.groups.is_empty()) {
                         Some(rig) => {
-                            let (r, drawn) = rig.spawn(&mut commands, root, Transform::IDENTITY, &d.path);
+                            let (r, drawn, nodes) = rig.spawn_nodes(&mut commands, root, Transform::IDENTITY, &d.path, 0.0);
                             commands.entity(r).insert(RefVisual(id));
+                            commands.entity(root).insert(ScriptDrawnRig { root: r, nodes });
                             for e in &drawn {
                                 commands.entity(*e).insert(RefVisual(id));
                             }

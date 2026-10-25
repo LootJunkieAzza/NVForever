@@ -1022,7 +1022,7 @@ pub fn spawn_model(
         }
         // Its particle systems and add-on nodes emit from its own nodes.
         if model.particles {
-            commands.entity(root).insert(crate::particles::ModelEmitter::placed(path.clone(), r));
+            commands.entity(root).insert(crate::particles::ModelEmitter::placed(path.clone(), r).with_nodes(&nodes));
         }
         for (i, n) in model.nodes.iter().enumerate() {
             if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {

@@ -19,6 +19,9 @@
 //! - **What the rules see**: the engine tells `fnv_game` (`ObjectAnims::set_playing`)
 //!   when a group cannot be played (no such sequence, the object not drawn) and when one
 //!   played once ends; `IsAnimPlaying` answers from that.
+//! - **Script-drawn objects** (`nvf_play::script_draw`, references enabled after the
+//!   start: the rising B-29) get a [`GroupRig`] on their rig's root too
+//!   ([`script_drawn_rigs`]), so a script's group plays on them once they are drawn.
 //! - **Not drawn**: the request is kept and shown when the object is drawn: a group
 //!   played once at its end, a loop from its start [design].
 //! - **Sounds**: the `Sound: <editor ID>` text keys the playing group passes are played
@@ -76,6 +79,22 @@ impl GroupRig {
 
     fn find(&self, name: &str) -> Option<usize> {
         self.model.rig.as_ref()?.groups.iter().position(|c| c.name.eq_ignore_ascii_case(name))
+    }
+}
+
+/// A reference a script enabled, drawn with its own node hierarchy by nvf-play
+/// (`ScriptDrawnRig`): a [`GroupRig`] on the rig's root when its model has groups, as
+/// render streaming gives one (world.rs).
+fn script_drawn_rigs(
+    mut commands: Commands,
+    mut models: nvf_assets::model::ModelCtx,
+    added: Query<(&nvf_play::script_draw::ScriptDrawnRoot, &nvf_play::script_draw::ScriptDrawnModel, &nvf_play::script_draw::ScriptDrawnRig), Added<nvf_play::script_draw::ScriptDrawnRig>>,
+) {
+    for (root, path, rig) in &added {
+        let Some(model) = models.model(&path.0) else { continue };
+        if model.rig.as_ref().is_some_and(|r| !r.groups.is_empty()) {
+            commands.entity(rig.root).insert(GroupRig::new(root.0, model.clone(), &path.0, rig.nodes.clone()));
+        }
     }
 }
 
@@ -347,7 +366,7 @@ impl Plugin for ObjectAnimsPlugin {
         app.init_resource::<ObjectAnims>()
             .init_resource::<ActorGroups>()
             .add_message::<ObjectSound>()
-            .add_systems(Update, drive.after(nvf_play::PlaySet::Scripts).before(crate::advance_animations))
+            .add_systems(Update, (script_drawn_rigs, drive).chain().after(nvf_play::PlaySet::Scripts).before(crate::advance_animations))
             // Actors' groups (actor_groups.rs): before their idles advance and they are posed.
             .add_systems(Update, crate::actor_groups::drive.after(drive).before(crate::idles::drive).before(crate::locomotion::walk_test))
             .add_systems(Last, (report, crate::actor_groups::report));
