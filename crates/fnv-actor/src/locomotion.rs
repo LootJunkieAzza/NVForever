@@ -167,10 +167,26 @@ impl LocomotionSet {
 /// (`1hpturnleft.kf`) [observed]. Moves a stance has no clip for keep the unarmed clip
 /// with the aim clip over it [design, as the player's body]. No idle: the drawn weapon's
 /// standing pose is its aim clip [design, as the player's body; `1hmidle.kf` and
-/// `h2hidle.kf` exist but are not used].
+/// `h2hidle.kf` exist but are not used]. A standing stance with no side-step to the left
+/// of its own (`2hr`, `2ha` walking) takes the fists' (`locomotion\h2hleft.kf`,
+/// `h2hfastleft.kf`), body square, rather than the unarmed one: `mtleft.kf` and
+/// `mtfastleft.kf` turn `Bip01 NonAccum` 76° and 90° from the rifle's run, the whole body
+/// a quarter turn to the way it walks, against 14–16° for the right and back side-steps and
+/// `h2hleft.kf` [observed: kf_pose_compare, base meshes archive, 2026-10-25], so a Fiend
+/// strafing left while shooting turned side-on to its target [observed in NVForever:
+/// owner's video 2026-10-25]. The player's body does the same (`player_clips::move_clips`,
+/// PR #620) [hypothesis: which side-step the game takes].
 pub fn weapon_moves(folder: &str, prefix: &str, exists: impl Fn(&str) -> bool) -> LocomotionSet {
-    let mut set = LocomotionSet::find(folder, Body::Male, prefix, exists);
+    let mut set = LocomotionSet::find(folder, Body::Male, prefix, &exists);
     set.clips.remove(&Move::Idle);
+    if !prefix.starts_with("sneak") && prefix != "h2h" {
+        let fists = LocomotionSet::find(folder, Body::Male, "h2h", &exists);
+        for m in [Move::Left, Move::FastLeft] {
+            if let (false, Some(c)) = (set.clips.contains_key(&m), fists.clips.get(&m)) {
+                set.clips.insert(m, c.clone());
+            }
+        }
+    }
     set
 }
 
@@ -704,6 +720,10 @@ mod tests {
             r"locomotion\2hhforward.kf",
             r"locomotion\2hhturnleft.kf",
             r"locomotion\h2hfastforward.kf",
+            r"locomotion\h2hleft.kf",
+            r"locomotion\h2hfastleft.kf",
+            r"locomotion\male\mtleft.kf",
+            r"locomotion\male\mtfastleft.kf",
             r"h2hturnleft.kf",
             r"h2hidle.kf",
             r"1hmidle.kf",
@@ -727,6 +747,10 @@ mod tests {
         // Rifles, two-handed melee, heavy weapons, fists, one-handed melee.
         assert_eq!(pick("2hr", Move::FastLeft).as_deref(), Some(r"locomotion\2hrfastleft.kf"));
         assert_eq!(pick("2hr", Move::Backward), None);
+        // No walk left of its own: the fists' side-step, body square, not the unarmed
+        // one that turns the body a quarter turn; its own run left stays.
+        assert_eq!(pick("2hr", Move::Left).as_deref(), Some(r"locomotion\h2hleft.kf"));
+        assert_eq!(pick("2hm", Move::FastLeft).as_deref(), Some(r"locomotion\h2hfastleft.kf"));
         assert_eq!(pick("2hm", Move::FastForward).as_deref(), Some(r"locomotion\2hmfastforward.kf"));
         assert_eq!(pick("2hm", Move::Forward), None);
         assert_eq!(pick("2hh", Move::TurnLeft).as_deref(), Some(r"locomotion\2hhturnleft.kf"));
@@ -741,8 +765,10 @@ mod tests {
         assert_eq!(pick("sneak2hh", Move::Forward).as_deref(), Some(r"sneak2hhforward.kf"));
         assert_eq!(pick("sneak2hh", Move::FastLeft).as_deref(), Some(r"sneak2hhfastleft.kf"));
         assert!(weapon_moves(f, "sneak1hp", exists).clips.is_empty());
-        // A stance without movement clips has none.
-        assert!(weapon_moves(f, "1gt", exists).clips.is_empty());
+        assert_eq!(pick("sneak2hh", Move::Left), None);
+        // A stance without movement clips has only the fists' side-steps left.
+        let lone = weapon_moves(f, "1gt", exists);
+        assert_eq!(lone.clips.keys().copied().collect::<Vec<_>>(), [Move::Left, Move::FastLeft]);
         // Limping with the weapon: its own `hurt\` clips (`1hpfastforward_hurt.kf`), not
         // the unarmed ones.
         assert_eq!(hurt_move_in("1hpfastforward_hurt", Some("FastForward_Hurt"), "1hp"), Some(Move::FastForward));

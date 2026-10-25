@@ -1,0 +1,11 @@
+scn ExtCase11
+ref rItem
+ref rActor
+Begin GameMode
+    let rActor := PlayerREF
+    foreach rItem <- rActor
+        if rItem.IsEquipped
+            let rActor := PlayerREF
+        endif
+    loop
+End

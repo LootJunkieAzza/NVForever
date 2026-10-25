@@ -745,6 +745,30 @@ fn console_functions_are_opcodeless_console_functions_of_the_catalogue() {
 }
 
 #[test]
+fn extender_functions_are_extender_rows_of_the_catalogue_and_names_are_unique() {
+    let (_, j) = catalogue();
+    let rows = j["functions"].as_array().unwrap();
+    let family = |name: &str| {
+        rows.iter().find(|f| f["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name))).map(|f| f["family"].as_str().unwrap_or_default())
+    };
+    for (name, _) in fnv_game::functions::ext_registry() {
+        assert_eq!(family(name), Some("extender"), "{name}: not an extender function of functions.json");
+    }
+    let f = fnv_game::functions::registry().iter().map(|r| r.1);
+    let named = fnv_game::functions::console_registry().iter().chain(fnv_game::functions::ext_registry()).map(|r| r.0);
+    let mut names: Vec<String> = f.chain(named).map(str::to_ascii_lowercase).collect();
+    let n = names.len();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), n, "a name is registered twice");
+    // By name, any case, reaches the same entry as by opcode.
+    let by_name = fnv_game::functions::lookup_name("setstage").map(|k| k as *const _);
+    assert_eq!(by_name, fnv_game::functions::lookup(0x1039).map(|k| k as *const _));
+    assert!(fnv_game::functions::lookup_name("ToggleGrass").is_some());
+    assert!(fnv_game::functions::lookup_name("NoSuchFunction").is_none());
+}
+
+#[test]
 fn menus_and_loading_screens_stop_game_time_for_scripts() {
     // The quest timer of the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage,
     // with a long menu and a loading screen in the middle: neither counts.
