@@ -152,6 +152,11 @@ const AP_LABEL_END: f32 = 355.0;
 const CND_BEFORE_DIVIDER: f32 = 10.0;
 const CND_RAISE: f32 = 2.0;
 const CND_LABEL_GAP: f32 = 11.0;
+/// The ammo type's abbreviation starts here, just right of the divider, whatever the
+/// counter's length [observed: the owner's screenshot 2026-10-25 of the original marks
+/// its room at about x 1680-1765 of 1920 at 1080 lines, the divider at 1672: 214-290
+/// units; owner 2026-10-25: anchored to the divider, not against the counter].
+const AMMO_LABEL_X: f32 = 214.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -431,6 +436,9 @@ fn gather(
             Some(s) => info!("hud: sneak {}", s.word()),
             None => info!("hud: sneak off"),
         }
+    }
+    if now.weapon.abbrev != view.weapon.abbrev && now.shown {
+        info!("hud: ammo label {}", now.weapon.abbrev.as_deref().unwrap_or("(none)"));
     }
     view.set_if_neq(now);
 }
@@ -801,15 +809,21 @@ fn texts(
     let face_ = face_.get_or_insert_with(|| face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
     let font = &face_.font;
     let text = ammo_text(view.weapon.ammo);
-    if shown.0.as_deref() != Some(text.as_str()) {
+    let abbrev = view.weapon.abbrev.as_deref().unwrap_or("");
+    // Both texts make the key: swapping ammo of the same count changes only the label.
+    let key = format!("{abbrev}|{text}");
+    if shown.0.as_deref() != Some(key.as_str()) {
         if let Ok(e) = ammo.single() {
             let places = Places::new(font);
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
                 if let Some(line) = font.lines(&text, None).into_iter().next() {
                     set_line(p, face_, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
+                    if let Some(label) = font.lines(abbrev, None).into_iter().next().filter(|_| !abbrev.is_empty()) {
+                        set_line(p, face_, &label, AMMO_LABEL_X, LOWER_BASE, amber(255.0));
+                    }
                 }
             });
-            shown.0 = Some(text);
+            shown.0 = Some(key);
         }
     }
     let enemy = target.0.as_ref().map(|t| t.name.clone());
@@ -943,6 +957,11 @@ mod tests {
         assert_eq!(ammo_text(Some((0, 0))), "0/0");
         assert_eq!(ammo_text(Some((6, 42))), "6/42");
         assert_eq!(ammo_text(None), "");
+    }
+
+    #[test]
+    fn the_ammo_label_stands_right_of_the_divider() {
+        const { assert!(AMMO_LABEL_X > DIVIDER && AMMO_LABEL_X < DIVIDER + 2.0 * LABEL_GAP) };
     }
 
     #[test]

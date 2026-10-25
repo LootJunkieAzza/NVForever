@@ -636,6 +636,36 @@ fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A scripted door that does not let the actor through (its OnActivate block called no
+/// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
+/// actor comes near, it plans again without the door and, with no other way, sets the
+/// package aside. The refusal lapses and the way is open again.
+#[test]
+fn a_door_whose_script_refuses_the_actor_shuts_its_way() {
+    use fnv_game::npc_doors::{DoorAnswer, Gate};
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // The door's answer, as its block would give it (the fixture's door has no script).
+    let until = s.game.time + 60.0;
+    s.game.door_gates.insert((actor, FormId(DOOR_A)), Gate { answer: DoorAnswer::Refused, until });
+    s.run(20.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::DoorRefused { door } if door.0 == DOOR_A)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Door { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+    // Another actor's paths are not touched by it.
+    assert!(s.game.refused_doors(FormId(R_IN)).is_empty());
+    // Lapsed (and the package's hour over): through the door.
+    s.game.door_gates.clear();
+    s.game.world.set_global(FormId(G_DAYS), 5.0 + 1.1 / 24.0).unwrap();
+    s.run(40.0);
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 #[test]
 fn an_in_cell_location_is_met_on_entering_the_cell() {
     let f = fixture();
@@ -683,6 +713,55 @@ fn a_patrol_walks_its_linked_references_in_order_once() {
     assert_eq!(s.ai.agents[&actor].activity, Activity::There);
     assert!(dist(s.feet(R_PATROL), [50.0, 350.0, 0.0]) < 5.0);
     assert!(s.game.extra[&actor].package_goal_met);
+}
+
+/// After a load (a new AI from the same game state) a patrol that does not repeat goes
+/// on to the point the save had it walk to, instead of starting again at its first
+/// (`fnv_ai::progress`, docs/design/save-load.md §5 item 4).
+#[test]
+fn a_loaded_patrol_goes_on_from_the_saved_point() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_PATROL]);
+    let actor = FormId(R_PATROL);
+    let arrivals = |s: &Sim| -> Vec<u32> {
+        s.events(R_PATROL).iter().filter_map(|e| match e {
+            AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+            _ => None,
+        }).collect()
+    };
+    while arrivals(&s).len() < 2 {
+        s.run(0.5);
+    }
+    assert_eq!(arrivals(&s), vec![M1, M2]);
+    // Once it has set off for M3 (after its wait at M2), save.
+    let point = |s: &Sim| s.ai.progress().iter().find(|p| p.actor == actor).and_then(|p| p.patrol_point);
+    while point(&s) == Some(1) {
+        s.run(0.5);
+    }
+    s.run(1.0);
+    let saved = s.ai.progress();
+    let p = saved.iter().find(|p| p.actor == actor).expect("a patroller has progress");
+    assert_eq!(p.patrol_point, Some(2));
+    let json = serde_json::to_string(&saved).unwrap();
+    // Loaded: a new AI over the same game, the progress put back.
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&s.game, actor).unwrap();
+    ai.restore(serde_json::from_str(&json).unwrap());
+    s.ai = ai;
+    s.run(60.0);
+    assert_eq!(arrivals(&s), vec![M3], "no walk back to M1");
+    assert!(dist(s.feet(R_PATROL), [50.0, 350.0, 0.0]) < 5.0);
+    // Without the progress it starts again at M1.
+    let mut s = sim(&f, &[R_PATROL]);
+    while arrivals(&s).len() < 2 {
+        s.run(0.5);
+    }
+    s.run(1.0);
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&s.game, actor).unwrap();
+    s.ai = ai;
+    s.run(60.0);
+    assert_eq!(arrivals(&s)[0], M1);
 }
 
 #[test]
@@ -1120,6 +1199,34 @@ fn a_sandboxer_walking_up_to_a_conversation_partner_walks_the_whole_way() {
     s.run(6.0);
     assert_eq!(s.ai.agents[&a].activity, Activity::There);
     assert!(dist(s.feet(R_SB_NOTHING), to) < 20.0, "{:?}", s.feet(R_SB_NOTHING));
+}
+
+/// After a load a sandboxer keeps the day's sleep and meal times it had and rolls the
+/// next days as it would have (`fnv_ai::progress`); started afresh it rolls them anew.
+#[test]
+fn a_loaded_sandbox_keeps_its_days_times() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_ALL]);
+    let actor = FormId(R_SB_ALL);
+    s.game.world.set_global(FormId(G_HOUR), 2.0).unwrap();
+    s.run(30.0);
+    // A day later: the times rolled again, from numbers further on.
+    s.game.world.set_global(FormId(G_DAYS), 6.1).unwrap();
+    s.run(20.0);
+    let times = s.ai.agents[&actor].sandbox.as_ref().unwrap().times();
+    let json = serde_json::to_string(&s.ai.progress()).unwrap();
+    let fresh = |s: &mut Sim, restore: Option<&str>| {
+        let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+        ai.add(&s.game, actor).unwrap();
+        if let Some(j) = restore {
+            ai.restore(serde_json::from_str(j).unwrap());
+        }
+        s.ai = ai;
+        s.run(30.0);
+        s.ai.agents[&actor].sandbox.as_ref().unwrap().times()
+    };
+    assert_eq!(fresh(&mut s, Some(&json)), times);
+    assert_ne!(fresh(&mut s, None), times, "a fresh sandbox rolls the day from its first numbers");
 }
 
 #[test]

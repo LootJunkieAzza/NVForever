@@ -31,7 +31,7 @@ use fnv_game::package::{furniture, type_flags, PackageDef};
 use fnv_nav::graph::NONE;
 use fnv_nav::{NavGraph, Place};
 use fnv_sim::FormId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Reach of a sandbox whose location has no radius of its own, game units [our choice;
@@ -167,6 +167,17 @@ pub struct Sandbox {
     pub(crate) got_up: bool,
 }
 
+/// A sandbox's day as a save keeps it ([`crate::progress`]): where its random numbers
+/// stand, the day its sleep and meal times were rolled for, those times, and its energy.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Schedule {
+    pub rng: u64,
+    pub day: i32,
+    pub sleep: (f32, f32),
+    pub meals: [(f32, f32); 3],
+    pub energy: f32,
+}
+
 fn setting(game: &Game, name: &str, default: f32) -> f32 {
     game.world.forms.setting_f32(name).unwrap_or(default)
 }
@@ -226,6 +237,21 @@ impl Sandbox {
             let hours = self.rng.range(setting(game, "fSandboxMealDurationMin", 0.5), setting(game, "fSandboxMealDurationMax", 2.0));
             self.meals[i] = (start, hours);
         }
+    }
+
+    /// The day as a save keeps it ([`crate::progress`]).
+    pub fn schedule(&self) -> Schedule {
+        Schedule { rng: self.rng.0, day: self.day, sleep: self.sleep, meals: self.meals, energy: self.energy }
+    }
+
+    /// Put back the day a save kept: the same times today, and the same rolls on the
+    /// days after ([`crate::progress`]).
+    pub fn set_schedule(&mut self, s: &Schedule) {
+        self.rng = Rng(s.rng);
+        self.day = s.day;
+        self.sleep = s.sleep;
+        self.meals = s.meals;
+        self.energy = s.energy;
     }
 
     /// The day's sleep window (start hour, hours) and meals, for reports and tests.

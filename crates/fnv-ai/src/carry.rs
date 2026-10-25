@@ -140,6 +140,12 @@ pub enum AiEvent {
     /// Already where the package wants it.
     AlreadyThere { package: FormId },
     Door { door: FormId, to_door: FormId },
+    /// After a load, the package goes on where the save had it (`crate::progress`): at
+    /// this patrol point, or with the sandbox's day as it was.
+    Resumed { package: FormId, patrol_point: Option<FormId>, sandbox: bool },
+    /// The script of the next door on the way did not let the actor through
+    /// (`fnv_game::npc_doors`): it plans again without that door.
+    DoorRefused { door: FormId },
     /// The walk ended at the package's place, after `seconds` and `travelled` units.
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
     /// No way to the package's location: the package is set aside.
@@ -364,6 +370,10 @@ pub fn keep_step_speed(target_pace: f32, away: f32, keep: f32, walk: f32, run: f
 const REPLAN_DISTANCE: f32 = 64.0;
 const REPLAN_SECONDS: f64 = 0.5;
 
+/// A walking actor is asked by the next door of its way when that door is within this
+/// many units beyond the step it takes (`fnv_game::npc_doors`) [design].
+const DOOR_ASK_MARGIN: f32 = 96.0;
+
 /// An actor pushed aside goes back to where its package has it once nothing has pushed
 /// it for this long, seconds [our choice; whether and when the game's actors go back is
 /// the capture `pc_actor_push`].
@@ -424,7 +434,7 @@ pub struct Agent {
     pub(crate) package: Option<FormId>,
     pub(crate) goal: Option<Goal>,
     /// Index of the patrol point being walked to.
-    route_at: usize,
+    pub(crate) route_at: usize,
     pub(crate) trip_started: f64,
     pub(crate) trip_from: f32,
     /// The door that opens in place the actor is standing at, waiting for it to open.
@@ -508,6 +518,9 @@ pub struct Ai {
     /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
     /// or the line clears.
     unseen_greets: std::collections::BTreeSet<FormId>,
+    /// Progress a loaded save kept, by actor, until the actor takes up that package again
+    /// ([`crate::progress`]).
+    pub(crate) restored: BTreeMap<FormId, crate::progress::Progress>,
     /// Restrained actors, whose package begins again once they are released
     /// ([`Ai::begin_in_place`]).
     restrained: std::collections::BTreeSet<FormId>,
@@ -534,7 +547,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), restored: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -1608,7 +1621,11 @@ impl Ai {
         let Some(def) = game.data.package_defs.get(&package) else { return };
         let at = Place { space: a.walker.space, pos: a.walker.feet };
         if matches!(def.ty, PackageType::Sandbox | PackageType::Wander) {
-            let sandbox = Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at);
+            let mut sandbox = Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at);
+            if let Some(s) = self.restored_schedule(actor, package) {
+                sandbox.set_schedule(&s);
+                self.log(game, actor, AiEvent::Resumed { package, patrol_point: None, sandbox: true });
+            }
             self.agents.get_mut(&actor).expect("listed").sandbox = Some(sandbox);
         } else if let Some(f) = goal::package_furniture(game, &self.taken, actor, def, at) {
             self.set_using(game, actor, Some(f));
@@ -1644,7 +1661,34 @@ impl Ai {
         if game.cant_open_doors(actor) {
             params.opens_doors = false;
         }
+        // Scripted doors that did not let it through lately (`fnv_game::npc_doors`).
+        params.refused_doors = game.refused_doors(actor);
         params
+    }
+
+    /// Before `actor` reaches the next door of its way, the door's OnActivate block runs
+    /// for it (`fnv_game::npc_doors`): one that refuses it is closed to its paths and it
+    /// takes up its package afresh from where it stands, as when a door on its way is
+    /// locked ([`Ai::apply_door_locks`]). `reach`: how near the door the actor is asked.
+    /// Whether it may walk on.
+    fn ask_door(&mut self, game: &mut Game, actor: FormId, reach: f32) -> bool {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let Some(door) = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach)) else { return true };
+        if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
+            return true;
+        }
+        a.walker.follower = None;
+        a.walker.tri = fnv_nav::graph::NONE;
+        a.walker.moving = false;
+        a.activity = Activity::None;
+        a.package = None;
+        a.goal = None;
+        a.sandbox = None;
+        a.errand = None;
+        a.following = None;
+        a.waiting_at = None;
+        self.log(game, actor, AiEvent::DoorRefused { door: FormId(door) });
+        false
     }
 
     /// A sandboxing actor whose behaviour is over chooses the next one and sets off.
@@ -1747,7 +1791,15 @@ impl Ai {
             Goal::Route(route) => {
                 // A repeatable patrol starts at the nearest point, another at the first
                 // [documented: GECK wiki, Patrol Package].
-                let start = if route.repeatable { nearest_point(route, feet) } else { 0 };
+                // After a load, where the save had it ([`crate::progress`]).
+                let start = match self.restored_patrol(actor, package, route.points.len()) {
+                    Some(i) => {
+                        self.log(game, actor, AiEvent::Resumed { package, patrol_point: Some(route.points[i].0), sandbox: false });
+                        i
+                    }
+                    None if route.repeatable => nearest_point(route, feet),
+                    None => 0,
+                };
                 self.agents.get_mut(&actor).expect("listed").route_at = start;
                 let (point, place) = route.points[start];
                 self.plan(game, nav, actor, package, place, Some(point));
@@ -1984,6 +2036,11 @@ impl Ai {
     }
 
     fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, mover: &mut dyn Mover) {
+        // Within this step's reach of the next door, and a margin [design].
+        let reach = self.agents[&actor].walker.moving_speed() * dt + DOOR_ASK_MARGIN;
+        if !self.ask_door(game, actor, reach) {
+            return;
+        }
         let a = self.agents.get_mut(&actor).expect("listed");
         a.face_to = None;
         let ev = match mover.walk(actor, &mut a.walker, nav, dt) {

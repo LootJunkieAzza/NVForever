@@ -164,9 +164,9 @@ plugin version 9 (ai-observer.md §12) in the original game [observed unless sai
   run inside a door's own script, but xNVSE's OnActivate event, whose second argument is
   the action reference [documented: NVSE Event Handling], named NPCs opening scripted
   doors (HVLevel1To2Door, vCCHQDoor) all over the world while the player stood on the
-  Strip, in unloaded cells too. NVForever opens doors for walking NPCs without running the
-  door's OnActivate: a difference left for later (running it could hold NPCs at doors
-  whose scripts do not let them through).
+  Strip, in unloaded cells too. Since 2026-10-25 NVForever runs the door's OnActivate for
+  an NPC walking through it, with the NPC as the action reference, and lets it through
+  only when the block activates the door (doors.md §5).
 - **Not readable**: whether cashing chips counts for GetCasinoWinningsLevel, and GetSleeping
   while the player sleeps: both need a menu entry chosen (the cashier's dialogue, the
   sleep menu's hours), which the plugin cannot do: it taps controls and keys, but has no
@@ -373,7 +373,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ForceSave | 0x1217 | 2 / 0 | match | saves from scripts | - | A new save as by hand (spec-notes/script-saves-and-reticle.md). |
 | ForceTerminalBack | 0x1223 | 80 / 0 | match | - | - |  |
 | ForceWeather | 0x112D | 13 / 0 | match | - | - |  |
-| GetActionRef | 0x10CD | 328 / 0 | open | NPCs activating doors | - | Correct for scripts and the player; whether an NPC opening a door fires its OnActivate is not captured (attended). |
+| GetActionRef | 0x10CD | 328 / 0 | fixed (2026-10-25) | NPCs activating doors | - | Correct for scripts and the player; an NPC walking through a scripted door runs its OnActivate as the action reference since 2026-10-25 (`fnv_game::npc_doors`, doors.md §5; whether the original holds a refused NPC is a hypothesis). |
 | GetActorFactionPlayerEnemy | 0x11CC | 3 / 2 | match | - | - |  |
 | GetActorValue | 0x100E | 431 / 2074 | match | - | same 2 |  |
 | GetAlarmed | 0x103D | 1 / 0 | match | - | same 1 | 0 at rest [observed: probes]; meaning still hypothesis. |
@@ -506,7 +506,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | HasPerk | 0x11C1 | 126 / 493 | match | - | - |  |
 | IgnoreCrime | 0x10AB | 196 / 0 | match | - | - |  |
 | IncrementScriptedChallenge | 0x1275 | 134 / 0 | match | - | - |  |
-| IsActionRef | 0x1069 | 578 / 0 | open | NPCs activating doors | - | As GetActionRef. |
+| IsActionRef | 0x1069 | 578 / 0 | fixed (2026-10-25) | NPCs activating doors | - | As GetActionRef. |
 | IsActor | 0x1161 | 1 / 0 | match | - | - |  |
 | IsActorRefEssential | 0x1272 | 2 / 0 | match | - | - |  |
 | IsActorTalkingThroughActivator | 0x11AE | 0 / 92 | built | talking activators | same 1 | 0 at rest matches [observed: probes]; 1 on the talking actor while its lines are chosen and said through the activator (docs/spec-notes/talking-activators.md; smoke `talking-activator-intercom`; probe ac6). |

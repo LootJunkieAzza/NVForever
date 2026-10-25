@@ -1434,6 +1434,10 @@ fn main() -> AppExit {
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(nvf_play::PlaySet::Scripts).before(nav::drive))
                 .add_systems(Last, residents::report);
+            // Patrols and sandboxes go on after a load where the save had them.
+            if play.is_some() {
+                nvf_play::save::add_save_hook(&mut app, residents::SAVE_HOOK);
+            }
             // Load doors: bodies fade out and in, the doors sound (door_fade.rs).
             app.init_resource::<door_fade::DoorFades>()
                 .add_message::<nvf_play::world_sounds::DoorPassed>()

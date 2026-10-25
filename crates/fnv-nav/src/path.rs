@@ -50,6 +50,10 @@ pub struct PathParams {
     /// Doors") uses no teleport door; doors that open in place are left to how it is
     /// walked (docs/spec-notes/packages.md §7.1).
     pub opens_doors: bool,
+    /// Doors whose script did not let this actor through when it last tried (a door's
+    /// OnActivate block that called no `Activate` for it): closed to its paths as a
+    /// locked door without the key is (`fnv_game::npc_doors`).
+    pub refused_doors: Vec<u32>,
 }
 
 impl Default for PathParams {
@@ -69,6 +73,7 @@ impl Default for PathParams {
             keys: Vec::new(),
             open_doors: Vec::new(),
             opens_doors: true,
+            refused_doors: Vec::new(),
         }
     }
 }
@@ -327,7 +332,7 @@ impl NavGraph {
     /// Whether a path may go through door `d`: its arrival is usable and the door is not
     /// locked, or the traveller holds its key, or may open locks.
     pub fn door_open(&self, d: &DoorEdge, p: &PathParams) -> bool {
-        if !self.usable(d.to) || !p.opens_doors {
+        if !self.usable(d.to) || !p.opens_doors || p.refused_doors.contains(&d.door) {
             return false;
         }
         match self.door_locks.get(&d.door) {

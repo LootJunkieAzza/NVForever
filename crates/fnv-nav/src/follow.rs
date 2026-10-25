@@ -125,6 +125,19 @@ impl Follower {
         Steer::Walk { target, dir, to_target, remaining }
     }
 
+    /// The next door on the way, when the actor at `feet` is within `reach` (horizontal
+    /// units) of it: the current leg's next door that opens in place (its stop), else the
+    /// door that ends the leg. Held at a stop, that stop's door whatever the distance.
+    /// For whoever has to ask the door first (`fnv_game::npc_doors`).
+    pub fn door_ahead(&self, feet: [f32; 3], reach: f32) -> Option<u32> {
+        let leg = self.path.legs.get(self.leg)?;
+        if let Some(s) = leg.door_stops.get(self.stop) {
+            return (self.holding || hdist(feet, leg.points[s.point]) <= reach).then_some(s.door);
+        }
+        let d = leg.door?;
+        (hdist(feet, *leg.points.last()?) <= reach).then_some(d.door)
+    }
+
     /// The door that ended the current leg was used: go on with the next leg.
     pub fn door_used(&mut self) {
         self.leg += 1;

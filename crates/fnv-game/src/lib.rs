@@ -77,6 +77,7 @@ pub mod lockpick;
 pub mod magic_archetypes;
 pub mod misc_stats;
 pub mod needs;
+pub mod npc_doors;
 pub mod package;
 pub mod perks;
 pub mod pickpocket;

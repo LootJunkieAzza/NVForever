@@ -7,6 +7,7 @@
 //! - [`goal`]: where a package sends its actor
 //! - [`carry`]: the actors the AI moves: reachability, the walk, arrival
 //! - [`errand`]: Escort, Find, Use Item At, Ambush and Flee Not Combat packages
+//! - [`progress`]: what of an actor's package progress a save keeps
 //! - [`process`]: process levels: full updates in the loaded area, a cheap one now and
 //!   then outside it
 //! - [`sandbox`]: what a sandboxing actor does in its area
@@ -19,6 +20,7 @@ pub mod carry;
 pub mod errand;
 pub mod goal;
 pub mod process;
+pub mod progress;
 pub mod sandbox;
 pub mod social;
 
