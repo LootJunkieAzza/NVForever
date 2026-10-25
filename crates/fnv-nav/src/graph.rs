@@ -18,6 +18,18 @@ use std::collections::HashMap;
 pub const NONE: u32 = u32::MAX;
 /// Side of the square buckets of the point index, game units [engine choice].
 pub const BUCKET: f32 = 512.0;
+/// Farthest a navmesh vertex may lie from the origin on any axis: far past any worldspace
+/// (cells are 4,096 units square, docs/spec-notes/world.md, so this is over 2,000
+/// cells out), so a vertex past it is broken data [engine choice].
+pub const MAX_COORD: f32 = 1.0e7;
+/// Widest a triangle may be on any axis: 16 exterior cells (docs/spec-notes/world.md);
+/// a navmesh belongs to one cell, so a triangle this wide is broken data [engine
+/// choice]. Without the limit its point-index buckets could number in the billions.
+pub const MAX_TRI_SPAN: f32 = 65_536.0;
+/// Largest radius a point-index query searches ([`NavGraph::triangles_near`],
+/// [`NavGraph::nearest`]); larger ones (a huge scale on an obstacle, a mod's game
+/// setting) are cut to this [engine choice].
+pub const MAX_QUERY_RADIUS: f32 = 65_536.0;
 
 /// A worldspace or an interior cell (load-order FormIDs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
@@ -144,6 +156,9 @@ pub struct BuildStats {
     pub boundary_edges: usize,
     /// Linked edges whose NVEX entry, navmesh or triangle is missing.
     pub unresolved_links: usize,
+    /// Triangles left out because their corners are not finite, lie past [`MAX_COORD`]
+    /// or spread wider than [`MAX_TRI_SPAN`].
+    pub bad_triangles: usize,
     pub navmeshes_without_space: usize,
     pub doors: usize,
     /// Door links whose door has no teleport, or whose destination has no triangle.
@@ -299,12 +314,17 @@ impl NavGraph {
             let first_tri = g.tris.len() as u32;
             for t in &m.triangles {
                 let ok = t.v.iter().all(|&v| (v as u32) < nv);
+                // Corners not finite, far out or spread over many cells: broken data.
+                let sane = ok && sane_corners(t.v.map(|v| m.vertices[v as usize]));
+                g.stats.bad_triangles += (ok && !sane) as usize;
+                let ok = ok && sane;
                 g.tris.push(NavTri {
                     mesh: mi,
                     v: if ok { t.v.map(|v| first_vertex + v as u32) } else { [first_vertex; 3] },
                     next: [NONE; 3],
                     kind: [EdgeKind::Boundary; 3],
-                    // A triangle with a bad vertex index is left out of paths.
+                    // A triangle with a bad vertex index or broken corners is left out
+                    // of paths (and of the point index).
                     flags: if ok { t.flags } else { t.flags | tri_flags::DELETED },
                     cover: false,
                 });
@@ -632,8 +652,14 @@ impl NavGraph {
 
     /// Triangles of `space` whose bounds may come within `radius` (horizontally) of
     /// (x, y), each once, in index order.
+    /// A radius past [`MAX_QUERY_RADIUS`] is cut to it; a point or radius that is not
+    /// finite finds nothing.
     pub fn triangles_near(&self, space: Space, x: f32, y: f32, radius: f32) -> Vec<u32> {
         let Some(b) = self.buckets.get(&space) else { return Vec::new() };
+        if !(x.is_finite() && y.is_finite() && radius.is_finite()) {
+            return Vec::new();
+        }
+        let radius = radius.clamp(0.0, MAX_QUERY_RADIUS);
         let mut out = Vec::new();
         for by in bucket(y - radius)..=bucket(y + radius) {
             for bx in bucket(x - radius)..=bucket(x + radius) {
@@ -698,18 +724,23 @@ impl NavGraph {
 
     /// The usable triangle of `space` nearest to `p` within `radius` (horizontal distance
     /// to the triangle, with vertical distance counted double so that a floor above or
-    /// below loses to one at the right height), and the nearest point on it.
+    /// below loses to one at the right height), and the nearest point on it. A radius
+    /// past [`MAX_QUERY_RADIUS`] is cut to it; a point that is not finite finds nothing.
     pub fn nearest(&self, space: Space, p: [f32; 3], radius: f32) -> Option<(u32, [f32; 3])> {
+        if !p.iter().all(|c| c.is_finite()) || radius.is_nan() {
+            return None;
+        }
         if let Some(t) = self.locate(space, p, 64.0) {
             return Some((t, [p[0], p[1], self.height_on(t, p[0], p[1])]));
         }
+        let radius = radius.clamp(0.0, MAX_QUERY_RADIUS);
         let mut best: Option<(f32, u32, [f32; 3])> = None;
         let r = (radius / BUCKET).ceil() as i32;
         let (bx, by) = (bucket(p[0]), bucket(p[1]));
         let b = self.buckets.get(&space)?;
         let mut seen = std::collections::HashSet::new();
-        for y in by - r..=by + r {
-            for x in bx - r..=bx + r {
+        for y in by.saturating_sub(r)..=by.saturating_add(r) {
+            for x in bx.saturating_sub(r)..=bx.saturating_add(r) {
                 for &t in b.get(&(x, y)).map_or(&[][..], |v| v.as_slice()) {
                     if !seen.insert(t) || !self.usable(t) {
                         continue;
@@ -774,6 +805,15 @@ pub fn slope_cos([a, b, c]: [[f32; 3]; 3]) -> f32 {
     } else {
         (n[2] / l).abs()
     }
+}
+
+/// Whether a triangle's corners are usable data: finite, within [`MAX_COORD`] of the
+/// origin and within [`MAX_TRI_SPAN`] of each other on every axis.
+fn sane_corners(c: [[f32; 3]; 3]) -> bool {
+    (0..3).all(|k| {
+        let (lo, hi) = (c.iter().map(|q| q[k]).fold(f32::INFINITY, f32::min), c.iter().map(|q| q[k]).fold(f32::NEG_INFINITY, f32::max));
+        c.iter().all(|q| q[k].is_finite() && q[k].abs() <= MAX_COORD) && hi - lo <= MAX_TRI_SPAN
+    })
 }
 
 fn bucket(v: f32) -> i32 {
