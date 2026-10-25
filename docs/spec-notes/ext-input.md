@@ -8,9 +8,9 @@ tests GetGameLoaded and GetGameRestarted.
 Written for task D6 of the extender plan ([extender-core-tasks.md](../handoff/extender-core-tasks.md))
 from the GECK wiki export. Everything the pages state is tagged `[documented: <page>]`;
 what they leave out is **open (to observe)**. All of these come from FOSE1 [observed:
-`schemas/script/functions.json`]. **The DirectX scancode table (`Template:DirectX
-Scancodes`) and the controller button table are not in the export**; the owner adds
-them to the next `Special:Export`, since D6 needs the full key list.
+`schemas/script/functions.json`]. The DirectX scancode table is in the appendix
+[documented: Template:DirectX Scancodes, pasted by the owner from geckwiki.com, 2026-10-25]; the controller button table
+(Template:Controller Button Codes) is still missing.
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -19,9 +19,12 @@ from a cited document or from compiling our own test scripts with xNVSE,
 
 ## 1. Codes
 
-**Keys** are named by DirectX scancodes: IsKeyPressed's example uses **28 for Enter**
-[documented: IsKeyPressed]. The rest of the table: open until exported. Mouse buttons
-are scancodes too [documented: GetAltControl; GetControl's control types].
+**Keys** are named by DirectX scancodes (the appendix): 28 is Enter, 41 the console key,
+57 the spacebar [documented: Template:DirectX Scancodes; IsKeyPressed]. **Mouse buttons
+continue the same numbering from 256** (256 left, 257 right, 258 middle, 264/265 the
+wheel), so one scancode argument covers keyboard and mouse [documented: Template:DirectX
+Scancodes; GetAltControl]. The page calls its list a sample; codes it does not list
+(84-86, 89-155 and others): open.
 
 **Controls** are numbered 0–27 [documented: IsControlPressed; TapControl;
 EnableControl; DisableControl]:
@@ -92,6 +95,20 @@ Open (to observe): whether a disabled key still reaches scripts that do not pass
 across a save and load (ext-save.md lists only DisablePlayerControlsAlt as cleared on
 load); TapKey on a disabled key; whether a tap shows in IsKeyPressed the same frame.
 
+## 3a. Controller buttons (plugin functions; table still missing)
+
+GetControl's type 3 returns a controller button code [documented: GetControl]. The
+controller functions themselves (IsButtonPressed, GetPressedButtons, Disable/Enable/Tap/
+Hold/ReleaseButton, the trigger and stick functions) come from the LU and JIP plugins,
+not the extender core [documented: their pages, `Controller.xml`, 2026-10-25]. What their
+pages show of the codes: **buttons are bits of one bitmask**, so several can be named at
+once; 4 is D-pad left; 15 the whole D-pad; 768 both shoulder buttons; 63487 every button;
+GetPressedButtons returns the bitfield of the buttons held [documented: IsButtonPressed;
+DisableButton; GetPressedButtons]. Triggers are 0 (left) and 1 (right) for TapTrigger and
+the trigger handlers [documented: TapTrigger; SetOnTriggerDownEventHandler]. The full
+bit table (Template:Controller Button Codes, and Controller Trigger Codes for the
+Hold/Disable/IsTrigger functions) is not in the export: open.
+
 ## 4. Session tests
 
 **GetGameLoaded** and **GetGameRestarted** are ext-save.md §1's: true once per script
@@ -101,6 +118,25 @@ GetGameRestarted].
 
 ## 5. Open (to observe), collected
 
-The scancode and controller tables (export them); unbound controls in GetControl and
+The controller button table (export it); scancodes the sample omits; unbound controls in GetControl and
 GetAltControl; GetKeyPress order; disabled keys without `ignoreStatus`; DisableKey and
 DisableControl across saves; TapKey on disabled keys and its timing.
+
+## Appendix: DirectX scancodes
+
+Decimal code, then key [documented: Template:DirectX Scancodes, pasted by the owner from geckwiki.com, 2026-10-25; the page calls it
+a sample list]:
+
+1 Escape; 2-11 the digit keys 1-9 then 0; 12 Minus; 13 Equals; 14 Backspace; 15 Tab;
+16-25 Q W E R T Y U I O P; 26 Left Bracket; 27 Right Bracket; 28 Enter; 29 Left Control;
+30-38 A S D F G H J K L; 39 Semicolon; 40 Apostrophe; 41 ~ (console); 42 Left Shift;
+43 Back Slash; 44-50 Z X C V B N M; 51 Comma; 52 Period; 53 Forward Slash; 54 Right Shift;
+55 Num *; 56 Left Alt; 57 Spacebar; 58 Caps Lock; 59-68 F1-F10; 69 Num Lock;
+70 Scroll Lock; 71 Num 7; 72 Num 8; 73 Num 9; 74 Num -; 75 Num 4; 76 Num 5; 77 Num 6;
+78 Num +; 79 Num 1; 80 Num 2; 81 Num 3; 82 Num 0; 83 Num .; 87 F11; 88 F12;
+156 Num Enter; 157 Right Control; 181 Num /; 184 Right Alt; 199 Home; 200 Up Arrow;
+201 Page Up; 203 Left Arrow; 205 Right Arrow; 207 End; 208 Down Arrow; 209 Page Down;
+210 Insert; 211 Delete.
+
+Mouse (above the keyboard range): 256 left button; 257 right button; 258 middle/wheel
+button; 259-263 buttons 3-7; 264 wheel up; 265 wheel down.

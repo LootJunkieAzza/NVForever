@@ -35,8 +35,12 @@ form. An NPC gives 42, armor 24, ammo 41 [documented: GetObjectType, exported in
 and `let` over `set` so a bad call reports an error [documented: GetObjectType]. The
 catalogue already has it under GetObjectType with GetType as its alias [observed:
 `schemas/script/functions.json`]; an earlier version of this note missed the alias. The
-full table of codes is the "Form Type IDs" page, not yet exported; until then only the
-three codes above are documented.
+codes 0-120 follow the plugin record types (appendix) [documented: Form Type IDs,
+pasted by the owner from geckwiki.com, 2026-10-25]. Points the page makes: aid items and magazines are ALCH (47) and skill books
+BOOK (25), whatever the Pip-Boy tab; armor addons report ARMO (24), not ARMA (96), and
+IsArmorAddon tells them apart; CLOT (26), INGR (29) and TLOD (68) are unused; 200
+(actors) and 201 (inventory objects) exist only as filters for reference walking
+(GetFirstRef).
 
 **TypeOf** `TypeOf expr` (NVSE): the kind of a value as a string, one of "Number",
 "Form", "String", "Array", "Map", "StringMap" [documented: TypeOf]. A form of any type is
@@ -103,6 +107,137 @@ module (C2's split).
 
 ## 5. Open (to observe), collected
 
-the form-type code table (page "Form Type IDs" not exported); GetFormIDString's case and padding; GetModIndex's
+whether GetType on a placed reference ever reports 58-60 rather than its base form's code; GetFormIDString's case and padding; GetModIndex's
 matching rules; GetSourceModIndex for run-time forms; GetFormFromMod for an unloaded
 plugin.
+
+## Appendix: form type codes
+
+[documented: Form Type IDs, pasted by the owner from geckwiki.com, 2026-10-25]. Inventory items are 24, 25, 31, 40, 41, 46, 47, 49,
+103, 108, 115 and 116.
+
+| Code | Record | Form type |
+|---|---|---|
+| 0 | `NONE` | none |
+| 1 | `TES4` | file header |
+| 2 | `GRUP` | group |
+| 3 | `GMST` | game setting |
+| 4 | `TXST` | texture set |
+| 5 | `MICN` | menu icon |
+| 6 | `GLOB` | global |
+| 7 | `CLAS` | class |
+| 8 | `FACT` | faction |
+| 9 | `HDPT` | head part |
+| 10 | `HAIR` | hair |
+| 11 | `EYES` | eyes |
+| 12 | `RACE` | race |
+| 13 | `SOUN` | sound |
+| 14 | `ASPC` | acoustic space |
+| 15 | `SKIL` | skill |
+| 16 | `MGEF` | base effect |
+| 17 | `SCPT` | script |
+| 18 | `LTEX` | land texture |
+| 19 | `ENCH` | object effect |
+| 20 | `SPEL` | actor effect |
+| 21 | `ACTI` | activator |
+| 22 | `TACT` | talking activator |
+| 23 | `TERM` | terminal |
+| 24 | `ARMO` | armor (armor addons too) |
+| 25 | `BOOK` | book |
+| 26 | `CLOT` | clothing (unused) |
+| 27 | `CONT` | container |
+| 28 | `DOOR` | door |
+| 29 | `INGR` | ingredient (unused) |
+| 30 | `LIGH` | light |
+| 31 | `MISC` | miscellaneous item |
+| 32 | `STAT` | static |
+| 33 | `SCOL` | static collection |
+| 34 | `MSTT` | moveable static |
+| 35 | `PWAT` | placeable water |
+| 36 | `GRAS` | grass |
+| 37 | `TREE` | tree |
+| 38 | `FLOR` | flora |
+| 39 | `FURN` | furniture |
+| 40 | `WEAP` | weapon |
+| 41 | `AMMO` | ammo |
+| 42 | `NPC_` | NPC |
+| 43 | `CREA` | creature |
+| 44 | `LVLC` | leveled creature |
+| 45 | `LVLN` | leveled character |
+| 46 | `KEYM` | key |
+| 47 | `ALCH` | ingestible (aid items, magazines) |
+| 48 | `IDLM` | idle marker |
+| 49 | `NOTE` | note |
+| 50 | `COBJ` | constructible object |
+| 51 | `PROJ` | projectile |
+| 52 | `LVLI` | leveled item |
+| 53 | `WTHR` | weather |
+| 54 | `CLMT` | climate |
+| 55 | `REGN` | region |
+| 56 | `NAVI` | navmesh info map |
+| 57 | `CELL` | cell |
+| 58 | `REFR` | reference |
+| 59 | `ACHR` | character reference |
+| 60 | `ACRE` | creature reference |
+| 61 | `PMIS` | missile projectile |
+| 62 | `PGRE` | grenade projectile |
+| 63 | `PBEA` | beam projectile |
+| 64 | `PFLA` | flame projectile |
+| 65 | `WRLD` | worldspace |
+| 66 | `LAND` | land |
+| 67 | `NAVM` | navmesh |
+| 68 | `TLOD` | unknown (unused) |
+| 69 | `DIAL` | dialogue topic |
+| 70 | `INFO` | dialogue topic info |
+| 71 | `QUST` | quest |
+| 72 | `IDLE` | idle |
+| 73 | `PACK` | package |
+| 74 | `CSTY` | combat style |
+| 75 | `LSCR` | load screen |
+| 76 | `LVSP` | leveled spell |
+| 77 | `ANIO` | animated object |
+| 78 | `WATR` | water |
+| 79 | `EFSH` | effect shader |
+| 80 | `TOFT` | offset table |
+| 81 | `EXPL` | explosion |
+| 82 | `DEBR` | debris |
+| 83 | `IMGS` | imagespace |
+| 84 | `IMAD` | imagespace adapter |
+| 85 | `FLST` | form list |
+| 86 | `PERK` | perk |
+| 87 | `BPTD` | body part data |
+| 88 | `ADDN` | addon node |
+| 89 | `AVIF` | actor value info |
+| 90 | `RADS` | radiation stage |
+| 91 | `CAMS` | camera shot |
+| 92 | `CPTH` | camera path |
+| 93 | `VTYP` | voice type |
+| 94 | `IPCT` | impact data |
+| 95 | `IPDS` | impact data set |
+| 96 | `ARMA` | armor addon (unused: addons report 24) |
+| 97 | `ECZN` | encounter zone |
+| 98 | `MESG` | message |
+| 99 | `RGDL` | ragdoll |
+| 100 | `DOBJ` | default object manager |
+| 101 | `LGTM` | lighting template |
+| 102 | `MUSC` | music |
+| 103 | `IMOD` | weapon mod |
+| 104 | `REPU` | reputation |
+| 105 | `PCBE` | continuous beam projectile |
+| 106 | `RCPE` | recipe |
+| 107 | `RCCT` | recipe category |
+| 108 | `CHIP` | casino chip |
+| 109 | `CSNO` | casino |
+| 110 | `LSCT` | load screen type |
+| 111 | `MSET` | media set |
+| 112 | `ALOC` | media location controller |
+| 113 | `CHAL` | challenge |
+| 114 | `AMEF` | ammo effect |
+| 115 | `CCRD` | caravan card |
+| 116 | `CMNY` | caravan money (faction currency too) |
+| 117 | `CDCK` | caravan deck |
+| 118 | `DEHY` | dehydration stage |
+| 119 | `HUNG` | hunger stage |
+| 120 | `SLPD` | sleep deprivation stage |
+| 200 | — | actor (reference walking only) |
+| 201 | — | inventory object (reference walking only) |
