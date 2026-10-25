@@ -1220,6 +1220,41 @@ fn continue_during_combat_keeps_the_package_going() {
 }
 
 #[test]
+fn an_actor_warning_the_player_stops_faces_it_then_walks_on() {
+    // `fnv_game::aggro` "The look" / `crate::alert` Warnings: in Normal, warning the
+    // player, a walker stops and turns to the player; once the warning is over it goes
+    // back to its package.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::Travelling);
+    let (me, player) = (FormId(R_TRAVEL), FormId::PLAYER_REF);
+    let at = s.feet(R_TRAVEL);
+    let cell = s.game.world.peek(me).and_then(|m| m.cell);
+    {
+        let p = s.game.world.get(player).unwrap();
+        (p.cell, p.pos) = (cell, [at[0] + 300.0, at[1], at[2]]);
+    }
+    s.game.provocations.aggro_inside.insert(me);
+    assert!(s.game.draws_weapon(me));
+    s.run(3.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Warn { target, .. } if *target == player)), "{:?}", s.events(R_TRAVEL));
+    let a = &s.ai.agents[&me];
+    assert_eq!(a.activity, Activity::There);
+    assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
+    // Facing the player (east of it: heading 0 or π/2 by the walker's convention, so
+    // measured as the heading towards the player).
+    let want = fnv_nav::follow::heading_of([300.0, 0.0]);
+    assert!(fnv_nav::follow::heading_delta(a.walker.heading, want).abs() < 0.05, "{} vs {want}", a.walker.heading);
+    // The warning is over: back to its package.
+    s.game.provocations.aggro_inside.clear();
+    s.run(2.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("warning"))), "{ev:?}");
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+}
+
+#[test]
 fn an_actor_in_combat_stops_and_faces_its_target() {
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL]);

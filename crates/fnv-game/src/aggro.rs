@@ -27,6 +27,41 @@
 //!   An actor that has started warning also keeps counting while the player is only in
 //!   its alert band (Noticed: it knows where the player is but does not see them, e.g.
 //!   walking past with its back turned) [decision, same reason].
+//! - **The look** [hypothesis: the idle tree; owner's playtest 2026-10-24, "baby geckos
+//!   were not showing the aggressive stay away from me warnings"]: while it warns (from
+//!   its first warning until it attacks or the player is out of its radius or unwatched
+//!   at an aggro tick) the actor draws (`Game::draws_weapon`): a person its weapon, a
+//!   creature its unarmed stance; the AI stops it and turns it to the player
+//!   (`fnv_ai::alert`); GetCurrentAIPackage reads 35 and GetCurrentAIProcedure 44
+//!   (GUARD). It is not alerted: GetIsAlerted stays 0, so the gecko's combat idles
+//!   (NVGeckoCombatIdles 0x0011D9E9: IsMoving != 1 and GetIsAlerted 1 or the combat or
+//!   flee procedure) wait for the fight [observed, original game, capture `warnings`
+//!   young_gecko 2026-10-24: Young Gecko VERGSGecko6REF stopped and turned to the player
+//!   (within 1 degree) in the sample after the player came inside 500 units; package a
+//!   form made at run time, type 35, procedure 44; GetAnimAction 0 "equip weapon",
+//!   IsWeaponOut 0 and GetIsAlerted 0 until it fought, then IsWeaponOut 1 and procedure
+//!   13]. Without the look a creature warned in silence while it walked on, and the
+//!   player saw nothing before the attack.
+//! - **The timing** [observed, original game, captures `warnings` and `warnings2`
+//!   2026-10-24/25, TimeScale 30, the player standing still]: a creature attacks 15 s
+//!   after its warning began (Young Gecko Hunters 15.0 / 16.7 s at 607-618 of 650; a
+//!   Young Gecko 15 s at 387-393 of 500; the coyote VERGSCoyote6REF 15 s at 727 of 1024),
+//!   a person 21-22 s (Gomorrah's cash-room guard, four runs at 66-90 of his 128):
+//!   [`CREATURE_ATTACK_SECONDS`], [`PERSON_ATTACK_SECONDS`] from the first warning, the
+//!   second warning one timer after the first [hypothesis: the split; setgs of
+//!   fAITrespassWarningTimer and iGuardWarnings showed no difference in `warnings2`,
+//!   whose start distances varied too much to tell]. Inside half the aggro radius
+//!   ([`AGGRO_ATTACK_SHARE`]) the attack comes at once [observed: the young gecko at
+//!   196 and 217 of 500 at once; the guard at 32 and 62 of 128 after about 3 s]. Open: the
+//!   cash-room guard warned at 98-121 units (inside his 128) and never attacked in 68 s,
+//!   while the geckos at 0.78 of their radius did; not built.
+//! - **Guard packages do not warn** [observed: `warnings2` g_room*, Gomorrah's room
+//!   guards on vGomorrahGuardPackage, with no aggro radius of their own, neither warned
+//!   nor fought a player 15 units from the door each guards or 60 units from them;
+//!   their package allows warnings (no "No Warn/Attack Behavior")]. The wiki's Guard
+//!   package summary ("warn intruders near the guarded reference", packages.md section 3)
+//!   is not built: a guard's GuardTrespass lines come with an aggro radius, as the
+//!   cash-room guard's did. Built on 2026-10-24, taken out on 2026-10-25.
 //! - **Who**: the player only [design: other actors' aggro radii are not measured];
 //!   never an actor that is the player's ally or friend or teammate, one already hostile
 //!   by its records, a dead, unconscious or restrained one.
@@ -41,6 +76,20 @@ use crate::game::Game;
 use crate::package::{fallout, flags};
 use crate::provocation::{Grudge, Note, Why, ALLY, FRIEND};
 use fnv_sim::FormId;
+
+/// After an aggro attack begins, how long the actor still counts as warning while it is
+/// not yet in Combat ([`Game::warning_to`]), seconds [design].
+pub const AGGRO_TURN_SECONDS: f64 = 2.0;
+
+/// A creature attacks this long after its first warning (module notes, "The timing").
+pub const CREATURE_ATTACK_SECONDS: f64 = 15.0;
+
+/// A person attacks this long after its first warning (module notes, "The timing").
+pub const PERSON_ATTACK_SECONDS: f64 = 21.0;
+
+/// Inside this share of its aggro radius an actor attacks without warning (module notes,
+/// "The timing").
+pub const AGGRO_ATTACK_SHARE: f64 = 0.5;
 
 impl Game<'_> {
     /// `actor`'s aggro radius in game units when its AI data turns the behaviour on.
@@ -83,14 +132,15 @@ impl Game<'_> {
         // after a grace of two warning timers (module notes).
         let mut inside = Vec::new();
         let mut turned = 0;
+        let at = |g: &Game, r: FormId| g.world.peek(r).map(|p| p.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos));
+        let gap = |a: [f32; 3]| (0..3).map(|i| (a[i] - player[i]).powi(2)).sum::<f32>().sqrt() as f64;
         for w in watchers {
-            let Some(radius) = self.aggro_radius(w) else { continue };
             let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained || e.teammate);
             if out(self, w) || !self.present(w) || self.provocations.holds(w, FormId::PLAYER_REF) {
                 continue;
             }
-            let Some(pos) = self.world.peek(w).map(|p| p.pos).or_else(|| self.world.placed.get(w).map(|p| p.pos)) else { continue };
-            let distance = (0..3).map(|i| (pos[i] - player[i]).powi(2)).sum::<f32>().sqrt() as f64;
+            let Some(radius) = self.aggro_radius(w) else { continue };
+            let Some(distance) = at(self, w).map(gap) else { continue };
             if distance > radius || matches!(self.reaction_to(w, FormId::PLAYER_REF), ALLY | FRIEND) || !self.package_allows_aggro(w) {
                 continue;
             }
@@ -99,10 +149,18 @@ impl Game<'_> {
             }
             inside.push(w);
             let (level, last) = self.provocations.aggro_warnings.get(&w).copied().unwrap_or((0, f64::NEG_INFINITY));
-            if now - last < s.warning_timer {
+            // Inside a share of its aggro radius it attacks at once (module notes, "The
+            // timing").
+            let close = distance <= radius * AGGRO_ATTACK_SHARE;
+            let warned_out = (level as f64) >= s.guard_warnings;
+            // The attack comes so long after the first warning: the time left after the
+            // warnings already given.
+            let attack_after = if self.creature_type(w).is_some() { CREATURE_ATTACK_SECONDS } else { PERSON_ATTACK_SECONDS };
+            let due = if warned_out { (attack_after - (s.guard_warnings - 1.0).max(0.0) * s.warning_timer).max(s.warning_timer) } else { s.warning_timer };
+            if !close && now - last < due {
                 continue;
             }
-            if (level as f64) < s.guard_warnings {
+            if !close && !warned_out {
                 self.provocations.aggro_warnings.insert(w, (level + 1, now));
                 self.detection_bark(w, Some(FormId::PLAYER_REF), "GuardTrespass");
                 self.provocations.notes.push(Note::AggroWarned { actor: w, level: level + 1, distance, radius });
@@ -114,6 +172,21 @@ impl Game<'_> {
         }
         let grace = 2.0 * s.warning_timer;
         self.provocations.aggro_warnings.retain(|w, (_, last)| inside.contains(w) || now - *last < grace);
+        // One that turned on the player fights now; it no longer warns.
+        self.provocations.aggro_inside = inside.into_iter().filter(|w| !self.provocations.holds(*w, FormId::PLAYER_REF)).collect();
         turned
+    }
+
+    /// Whom `actor` is warning now (module notes, "The look"): the player while it stands
+    /// inside its aggro radius between its first warning and its attack, or while it
+    /// sees the player trespass after warning it (`crate::crime`) [hypothesis: the same
+    /// look; the owner, 2026-10-24: "guards that are alerted/warning are supposed to draw
+    /// their weapon"].
+    pub fn warning_to(&self, actor: FormId) -> Option<FormId> {
+        // Just turned on the player and not yet in Combat (detection settles a moment
+        // later): still the warning, so the stance is not put away and drawn again
+        // [design; observed in NVForever: 0.23 s, smoke `aggro-warning-look`].
+        let turning = self.provocations.grudges.get(&(actor, FormId::PLAYER_REF)).is_some_and(|g| g.why == Why::Aggro && self.time - g.since < AGGRO_TURN_SECONDS) && !self.awareness.state(actor).in_combat();
+        (self.provocations.aggro_inside.contains(&actor) || turning || self.crimes.warning_now.contains(&actor)).then_some(FormId::PLAYER_REF)
     }
 }

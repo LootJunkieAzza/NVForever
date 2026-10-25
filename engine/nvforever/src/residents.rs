@@ -1412,6 +1412,7 @@ impl Core {
                 | AiEvent::LookOver { .. }
                 | AiEvent::Search { .. }
                 | AiEvent::Hold { .. }
+                | AiEvent::Warn { .. }
                 | AiEvent::Close { .. }
                 | AiEvent::Pace { .. }
                 | AiEvent::Post { .. }
@@ -1584,6 +1585,10 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::SearchLook { seconds, .. } => format!("looks about for {seconds:.0}s"),
         AiEvent::Hold { target, away } => format!(
             "stops and faces {}, {away:.0} units away",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
+        ),
+        AiEvent::Warn { target, away } => format!(
+            "stops and faces {} to warn it, {away:.0} units away",
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
         ),
         AiEvent::Close { target, away, length, aiming, .. } => format!(
