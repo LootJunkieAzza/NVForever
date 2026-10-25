@@ -643,3 +643,29 @@ broken-header run: ignore it).
 
 What NVForever does with it: `fnv_ai::process` (module notes) and
 docs/design/actor-behaviour.md §5.9.
+
+## 14. Creatures charging on open ground: the airport runway [observed 2026-10-25, plugin version 7]
+
+Campaign `tools/capture/observe/creature_runs.campaign.json` (save `nvfstrip`); what it
+measured is in actors.md §8.10.
+
+- **Where**: the Searchlight Airport runway (cow WastelandNV 9 −29, then MoveTo the runway
+  piece 0013DA13 at +851, +228): flat at z 6056 for over 9,000 units, 15° north of east,
+  navmeshed. `killall` on arrival clears the area's radscorpions (the owner's tip). The
+  first session saves there as `nvfairport` (console `save`, the owner's request) for
+  later tests that need flat open ground.
+- **Not a test room**: in TestJoshWeapons (`creature_pace_room`) spawned creatures froze in
+  combat beside a target they saw and wandered in short bursts (the owner: the room has
+  no navmesh); a standing player 1,500 units off is also out of an interior's detection
+  reach (actor-behaviour.md §2.1). Outdoors the range doubles and every creature spawned
+  1,500 units up the runway and set on the player detected it and charged.
+- **A creature that attacks at once** (the bark scorpion: aggro radius 500) is in combat
+  before `place`'s `offset` move, which skips actors in combat, so it stays beside the
+  player. Spawn it there, wait until it has engaged and move the player away instead
+  (the owner: wait for it to aggro). Do items for that: `{"frames": n}` waits n game
+  loops, `{"until_spawned": [expression, ...], "max_frames": n}` waits until a living
+  reference created at run time meets every expression (e.g. `IsInCombat`, `GetDetected
+  player`). The player is moved with MoveTo (in the room both SetPos and MoveTo left the
+  creature standing, which the missing navmesh explains).
+- Walks: the player in the creature's faction (`AddToFaction`, no `tdetect`), the base
+  spawned 600 units off on its own package, 0.6 game hours.
