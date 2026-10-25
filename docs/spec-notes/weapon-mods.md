@@ -201,7 +201,8 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
 ## 6. Not built
 
 - A modded weapon's value; an NPC's modded figures in combat.
-- Projectile speed, ammo regeneration, equip time, VATS bonus.
+- Equip time (no master mod has it) and VATS bonus (unused in game). Increase Projectile
+  Speed and both Regenerate Ammo effects are built (weapon-data-fields.md, 2026-10-21).
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not
   built; GetMenuTargetRef 1061 is not answered.
 

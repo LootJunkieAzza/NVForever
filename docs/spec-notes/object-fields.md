@@ -43,9 +43,12 @@ like any other (owner 2026-10-19).
   gap 22]): not a LOD matter, as this list once said. An Obstacle object "will dynamically
   cut the navmesh in game preventing actors from walking into it", and only with a model of
   the right collision layer [documented: GECK wiki Activator and Container, "Obstacle"].
-  fnv-nav cuts no navmesh at run time; see gap 22 of esm-full-audit-2026-10-24.
+  Since 2026-10-24 objects flagged Obstacle that can be enabled or disabled cut the navmesh
+  under their bounds while enabled (`fnv-nav` obstacles.rs, navmesh.md §4c).
 - **ACTI "Dangerous"**, **GRAS "Vertex Lighting"**, **TREE seeds, leaf angles, shadow
-  radius**, **PROJ Supersonic, Pins Limbs, Rotation**, **EXPL world orientation and push
-  flags**, **IPCT angle threshold**, **ADDN particle cap**, **DEBR collision**, **TERM
+  radius**, **PROJ Pins Limbs, Rotation**, **EXPL push flags**, **IPCT angle threshold**, **ADDN particle cap**, **DEBR collision**, **TERM
   Alternate Colors** (1 terminal): no consumer, or what they change is not documented.
+  (PROJ Supersonic and EXPL Always Uses World Orientation have been read since 2026-10-24:
+  the bullet whiz, `fx.rs` / `own_sounds.rs`, audio.md §15; explosions aligned with the
+  ground, `shot_fx.rs`.)
 - **INGR and COBJ as items**: no CNTO names them in the master.

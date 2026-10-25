@@ -139,7 +139,8 @@ ESPs can set these, and NVForever would ignore them:
 These subrecords show as "unknown" in `esm coverage`. Most have hand-written readers:
 
 - **Read by hand:** NAVM and NAVI (fnv-nav); PERK DATA and EPFD; RCPE; AVIF ANAM; CDCK; DEBR; RADS, DEHY, HUNG and SLPD; VTYP DNAM; CREA NIFT (editor hashes).
-- **Not read by anything:** IMAD RDSD and RDSI (gap 9), REGN RDMP and RDOT, RGDL RAFB, RAFD, RAPS and ANAM, LSCT DATA, INGR (one record).
+- **Not read by anything:** IMAD RDSD and RDSI (gap 9; played since #671), REGN RDOT (RDMP
+  is read, `pipboy/data/read.rs`), RGDL RAFB, RAFD, RAPS and ANAM, LSCT DATA, INGR (one record).
 - **Fails to decode:** QUST DATA, on 2 records [observed: `esm coverage`].
 
 ## 6. Checked, no gaps

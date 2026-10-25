@@ -134,8 +134,8 @@ under active work.
   objects are not spawned. Destruction-stage DEBR debris is never spawned. ACTI WNAM water
   activators draw as plain models. Negative lights are skipped instead of darkening, and
   LIGH Spot Shadow and falloff exponent are not applied. EFSH holes and add-on models are
-  not drawn. Fog power and clip distance (WTHR, XCLL, LGTM) are stored only, so all fog is
-  linear. There is no HDR or bloom pass, so the IMGS HDR block and the IMAD HDR and bloom
+  not drawn. Fog power and clip distance (WTHR, XCLL, LGTM) were stored only, so all fog was
+  linear (both applied since: `sky.rs`, esm-audit-2026-10-25 §5). There is no HDR or bloom pass, so the IMGS HDR block and the IMAD HDR and bloom
   tracks are unused. WTHR transition speed and sun glare are hard-coded. IDLE animation
   group section (upper body or whole body) is stored only.
 - **Unparsed record types** (claude/em9-records, [default-objects](../spec-notes/default-objects.md): all four now in the schema; DOBJ read, its Death Music and Drug Wears Off Image Space used; REGN RDSD region sounds played; CAMS/CPTH (no kill camera) and RGDL (no feedback or pose matching) decoded only, RGDL's RAFD/RAFB/RAPS/ANAM left raw). Was: CAMS/CPTH (kill, VATS and death cameras); DOBJ (default

@@ -156,7 +156,7 @@ Category:Dialogue for the meanings]:
 | 0x0100 | Say Once a Day | once per actor per `fSayOncePerDayInfoTimer` (12 game hours) | 194 |
 | 0x0200 | Always Darken | the prompt is always shaded | 6 |
 | 0x0400, 0x0800 | Unknown 2, 3 | not documented | 0 |
-| 0x1000 | Low Intelligence | named by xEdit only; meaning not documented, not used | 33 |
+| 0x1000 | Low Intelligence | named by xEdit only; meaning not documented, not used. Lead: GMST `iDialogueDummySpeakThisIntOrBelow` is 3 in FalloutNV.esm [observed]; that it gates these lines and TDUM is a [hypothesis] | 33 |
 | 0x2000 | High Intelligence | as above | 22 |
 
 ### 2.2 Counts [observed: the summary of `fnvtool dialogue lines`]
