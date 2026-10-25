@@ -163,6 +163,8 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<crate::world_sounds::Activated>()
         .add_message::<crate::terminal::OpenTerminal>()
         .add_message::<crate::lockpick::OpenLockpick>()
+        .add_message::<crate::pickpocket::OpenPickpocket>()
+        .add_message::<crate::pickpocket::Pickpocketed>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
 }
