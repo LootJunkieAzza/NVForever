@@ -284,15 +284,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     - Does their count drop?
     Setup: Powder Gangers with dynamite at NCRCF, or a Legion squad.
     ([combat-ai §20](../design/combat-ai.md))
-21. **NPCs at scripted doors** (P2). Some door scripts never call Activate for an NPC:
-    VStripGate (the Strip gates), V22ElevatorDoor, GomorraElevatorDoor.
-    To check:
-    - Does an NPC whose package path goes through one stop and wait there, take another
-      way, or never plan through it?
-    - Is the refusal remembered?
-    Test: AddScriptPackage a Freeside NPC onto a Strip travel package and watch it at
-    the gate. ([doors §5.2](../spec-notes/doors.md))
-22. **Combat answer lines and companion complaints** (P2). To check:
+21. **Combat answer lines and companion complaints** (P2). To check:
     - When a group-mate says NormalToAlert or NormalToCombat, does a nearby mate answer
       with NormalToAlertResponse or StartCombatResponse?
     - Are AttackResponse (BoS: "On it!") and FleeResponse (super mutants: "Coward!")
@@ -307,7 +299,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
-23. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
+22. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
     goes on to its next point after a reload.
     To check: save while it is half-way along its route, reload, and see whether it
     goes on or starts again from the first point.
