@@ -815,6 +815,25 @@ fn a_lines_choices_are_offered_and_nothing_else_and_a_topic_without_a_line_is_hi
     assert!(g.choose(0).is_err());
 }
 
+/// A choice listed for a dim player shows its topic's Dumb Response (`Game::player_dim`,
+/// checked against the master in dialogue_data.rs); the fixture's player has no record,
+/// so it is not dim.
+#[test]
+fn a_dim_players_choice_shows_the_topics_dumb_response() {
+    let mut f = fixture();
+    f.data.topic_defs.get_mut(&FormId(T_ASK)).unwrap().dumb_response = Some("Me ask".into());
+    let mut g = game(&f);
+    assert!(!g.player_dim(), "no Intelligence to read: not dim");
+    g.start_dialogue(actor(), None).unwrap();
+    listen(&mut g);
+    let c = g.dialogue_choices().to_vec();
+    assert_eq!((c[0].topic, c[0].dumb, g.choice_text(&c[0])), (FormId(T_ASK), false, "Tell me"));
+    let dim = fnv_game::dialogue::Choice { dumb: true, ..c[0].clone() };
+    assert_eq!(g.choice_text(&dim), "Me ask");
+    // A topic without one keeps its text whatever the flag.
+    assert_eq!(g.choice_text(&fnv_game::dialogue::Choice { dumb: true, ..c[1].clone() }), "Bye");
+}
+
 #[test]
 fn a_choice_with_only_a_shared_line_is_offered_and_says_that_line() {
     let f = fixture();

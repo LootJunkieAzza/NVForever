@@ -66,6 +66,27 @@ fn the_masters_dialogue() {
     doc_mitchells_lines(&l.data);
     the_intro_walk_through_talks_its_way_to_the_end(&l);
     sunny_opens_conversations_with_conversation_lines(&l);
+    a_dim_player_gets_the_dumb_responses_and_lines(&l);
+}
+
+/// The player's Intelligence against iDialogueDummySpeakThisIntOrBelow (3): the new game's
+/// 5 is not dim, 2 is; a Low Intelligence line is said to a dim player only, a High
+/// Intelligence one only to one who is not (`Game::player_dim`).
+fn a_dim_player_gets_the_dumb_responses_and_lines(l: &Loaded) {
+    use fnv_game::game::{Game, GameConfig};
+    use fnv_sim::{SimConfig, World};
+    let world = World::new(&l.forms, &l.refs, SimConfig::default());
+    let mut g = Game::new(&l.data, world, GameConfig::default());
+    g.new_game();
+    assert!(!g.player_dim());
+    let int = fnv_game::actor_values::INTELLIGENCE;
+    let five = fnv_game::functions::actor_value_capped(&mut g, FormId::PLAYER_REF, int);
+    assert_eq!(five, 5.0);
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode: 0x100F, on: Some(FormId::PLAYER_REF), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[fnv_script::vm::ArgValue::Enum(int), fnv_script::vm::ArgValue::Value(fnv_script::vm::Value::Num(2.0))]);
+    assert!(g.player_dim());
+    // 135 topics carry a Dumb Response (observed; dialogue.md §1).
+    assert_eq!(l.data.topic_defs.values().filter(|t| t.dumb_response.is_some()).count(), 135);
 }
 
 /// Sunny Smiles opening a conversation with each Goodsprings resident takes a

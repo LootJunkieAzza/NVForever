@@ -40,7 +40,7 @@ group, the summary's `with_topic` = `lines`].
 | QSTR | Removed Quest | FormID (QUST) | xEdit notes that New Vegas has none; none in the masters [observed: the summary's `subrecords`] | `removed_quests` |
 | FULL | Name | string | the text the player sees for the topic when the line has no prompt [documented: Category:Dialogue, "Prompt"] | `name` |
 | PNAM | Priority | float, xEdit default 50 | the topic's place in the list offered to the player; higher is nearer the top [documented: Category:Dialogue, "Priority"] | `priority` |
-| TDUM | Dumb Response | string | not described in our sources beyond its name; not used | `dumb_response` |
+| TDUM | Dumb Response | string | the player's line as a dim character says it ("Peace." is "Pizza.") [observed: the texts]; shown for a player at or below `iDialogueDummySpeakThisIntOrBelow` (3) Intelligence since 2026-10-25 [hypothesis: the setting's name] (`Game::player_dim`) | `dumb_response` |
 | DATA | Data | type (u8), flags (u8, optional) | type: 0 Topic, 1 Conversation, 2 Combat, 3 Persuasion, 4 Detection, 5 Service, 6 Miscellaneous, 7 Radio (the quest window's tabs [documented: Category:Dialogue]); flags: bit 0 Rumors ("not used" [documented: Category:Dialogue]), bit 1 Top-level | `topic_type`, `flags` |
 | INOM, INOA | INFO Order | FormID arrays | xEdit's own bookkeeping; absent in the masters | ignored |
 
@@ -156,8 +156,8 @@ Category:Dialogue for the meanings]:
 | 0x0100 | Say Once a Day | once per actor per `fSayOncePerDayInfoTimer` (12 game hours) | 194 |
 | 0x0200 | Always Darken | the prompt is always shaded | 6 |
 | 0x0400, 0x0800 | Unknown 2, 3 | not documented | 0 |
-| 0x1000 | Low Intelligence | named by xEdit only; meaning not documented, not used. Lead: GMST `iDialogueDummySpeakThisIntOrBelow` is 3 in FalloutNV.esm [observed]; that it gates these lines and TDUM is a [hypothesis] | 33 |
-| 0x2000 | High Intelligence | as above | 22 |
+| 0x1000 | Low Intelligence | said to a dim player only (Intelligence at or below `iDialogueDummySpeakThisIntOrBelow`, 3 [observed]) since 2026-10-25 [hypothesis: the lines' acting notes say "{Dummy}", "realizing the player is not very smart", observed] | 33 |
+| 0x2000 | High Intelligence | said only to a player who is not dim, as above [hypothesis: their acting notes say "{Non-Dummy}", observed] | 22 |
 
 ### 2.2 Counts [observed: the summary of `fnvtool dialogue lines`]
 

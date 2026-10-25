@@ -94,6 +94,10 @@ pub struct Choice {
     pub darkened: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub challenge: Option<Challenge>,
+    /// The text is the topic's Dumb Response: the player's Intelligence is at or below
+    /// `iDialogueDummySpeakThisIntOrBelow` ([`Game::player_dim`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dumb: bool,
 }
 
 /// A conversation between the player and an actor: the actor is saying a line
@@ -214,6 +218,12 @@ impl<'a> Game<'a> {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return false };
         if def.say_once && self.said.contains(&(speaker, info)) {
+            return false;
+        }
+        // Low / High Intelligence lines: for a dim player, and for one who is not
+        // ([`Game::player_dim`]).
+        let (low, high) = (def.has(info_flag::LOW_INTELLIGENCE), def.has(info_flag::HIGH_INTELLIGENCE));
+        if (low || high) && self.player_dim() != low {
             return false;
         }
         if def.has(info_flag::SAY_ONCE_A_DAY) {
@@ -728,6 +738,8 @@ impl<'a> Game<'a> {
     /// in that order.
     fn offer(&mut self, actor: FormId, links: &[Link]) -> Vec<Choice> {
         let data = self.data;
+        // A dim player's lines read as their topics' Dumb Responses ([`Game::player_dim`]).
+        let dim = self.player_dim();
         let listener = Some(FormId::PLAYER_REF);
         let mut out: Vec<Choice> = Vec::new();
         for &link in links {
@@ -749,10 +761,12 @@ impl<'a> Game<'a> {
                 Challenge { form, difficulty: def.challenge_difficulty, needed, have }
             });
             let said = self.said.contains(&(actor, info));
+            let dumb = dim && data.topic_defs.get(&topic).is_some_and(|t| t.dumb_response.is_some());
             out.push(Choice {
                 topic,
                 info,
-                chars: data.choice_text(topic, info).chars().count(),
+                chars: if dumb { data.topic_defs[&topic].dumb_response.as_deref().unwrap_or("").chars().count() } else { data.choice_text(topic, info).chars().count() },
+                dumb,
                 prompt: def.prompt.is_some(),
                 goodbye: def.goodbye,
                 darkened: def.has(info_flag::ALWAYS_DARKEN) || (said && !def.has(info_flag::INFO_REFUSAL)),
@@ -780,10 +794,31 @@ impl<'a> Game<'a> {
         self.dialogue.as_ref().map_or(&[], |c| c.choices.as_slice())
     }
 
-    /// The text of a choice: the line's prompt, else the topic's name
-    /// [documented: Category:Dialogue, "Prompt"].
+    /// The text of a choice: the topic's Dumb Response for a dim player, else the line's
+    /// prompt, else the topic's name [documented: Category:Dialogue, "Prompt"; for the
+    /// Dumb Response see [`Game::player_dim`]].
     pub fn choice_text(&self, c: &Choice) -> &'a str {
-        self.data.choice_text(c.topic, c.info)
+        let data = self.data;
+        match data.topic_defs.get(&c.topic).and_then(|t| t.dumb_response.as_deref()).filter(|_| c.dumb) {
+            Some(d) => d,
+            None => data.choice_text(c.topic, c.info),
+        }
+    }
+
+    /// Whether the player is dim: Intelligence at or below
+    /// `iDialogueDummySpeakThisIntOrBelow` (3 in FalloutNV.esm [observed]). A dim player's
+    /// lines show their topic's Dumb Response (DIAL TDUM: "Peace." is "Pizza.", "Where
+    /// should I route the power?" is "Where me send shiny juice?" [observed: the 135
+    /// topics that have one]), and lines flagged Low Intelligence are said to it only, those
+    /// flagged High Intelligence only to a player who is not [observed: the masters' Low
+    /// Intelligence lines carry the acting note "{Dummy}", "realizing the player is not very
+    /// smart", their High Intelligence twins "{Non-Dummy}"]. That the setting is the bound
+    /// for all three is a [hypothesis] from its name (dialogue.md §2).
+    /// A player whose Intelligence cannot be read (no player record) is not dim.
+    pub fn player_dim(&mut self) -> bool {
+        let bound = crate::combat::setting(self, "iDialogueDummySpeakThisIntOrBelow", 3.0);
+        let int = crate::functions::actor::actor_value(self, FormId::PLAYER_REF, crate::actor_values::INTELLIGENCE);
+        int.is_ok_and(|v| crate::actor_values::capped(crate::actor_values::INTELLIGENCE, v) <= bound)
     }
 
     /// The player picks entry `index` of the offered list: the actor says its line.
