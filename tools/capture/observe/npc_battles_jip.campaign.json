@@ -1,0 +1,89 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "npc_battles_jip",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q21): npc_battles three_party and ncr_fiends with each fighter's combat targets and allies (who the game counts on whose side) and the hit details",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 10,
+  "depth": 1,
+  "settle_frames": 120,
+  "jip": true,
+  "events": "fight"
+ },
+ "sessions": [
+  {
+   "name": "three_party",
+   "hours": 0.75,
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 3,
+     "distance": 1500,
+     "direction": 0
+    },
+    {
+     "base": "LvlLegionRaiderMelee",
+     "count": 3,
+     "distance": 2300,
+     "direction": 0
+    },
+    {
+     "base": "VCrTier2GiantMantisMed",
+     "count": 3,
+     "distance": 1900,
+     "direction": 2
+    }
+   ],
+   "console_first": [
+    "killall",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  },
+  {
+   "name": "ncr_fiends",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1,
+   "do": [
+    [
+     "{0}.MoveTo player -400 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -200 650 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 0 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 200 650 0",
+     "0x0015CE08"
+    ],
+    [
+     "{0}.MoveTo player 400 600 0",
+     "0x000FCEB1"
+    ],
+    [
+     "{0}.MoveTo player 600 550 0",
+     "0x000FD572"
+    ]
+   ],
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  }
+ ]
+}

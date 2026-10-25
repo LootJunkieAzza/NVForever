@@ -142,26 +142,58 @@ MORE_HEADER = ([("player_karma", "num", "player.GetAV Karma"), ("player_last_act
 
 # The JIP tier (session "jip": true; docs/spec-notes/ai-observer-jip.md): state no
 # base-game or xNVSE function reports, read with JIP LN NVSE functions, so a session that
-# asks for it needs that plugin installed (the run refuses otherwise). Scalar functions
-# only (the array ones, GetCombatTargets and the like, need a probe shape of their own).
+# asks for it needs that plugin installed (the run refuses otherwise).
 # [documented: GECK wiki, the JIP page of each] GetActorProcessingLevel 0 high, 1
 # mid-high, 2 mid-low, 3 low, -1 no process; GetCurrentStablePackage the package under
 # any interrupt package; GetInterruptPackage the interrupt package; GetDetectionValue
 # below 0 not detected, above 0 detected; IsFleeing combat flight or a Flee package;
 # GetIsRagdolled; IsInAir; GetActorMovementFlags a bitmask (1 forward ... 256 walking,
 # 512 running, 1024 sneaking, 4096 jumping, 16384 falling); GetActorVelocity with no
-# axis the total velocity; IsInCombatWith player.
+# axis the total velocity; IsInCombatWith player; GetTargetUnreachable 1 when the actor
+# is stuck, unable to find a path to its target.
 JIP_PART = [("proc_level", "num", "GetActorProcessingLevel"), ("stable_package", "ref", "GetCurrentStablePackage"),
             ("interrupt_package", "ref", "GetInterruptPackage"), ("detection_value", "num", "GetDetectionValue player"),
             ("fleeing", "num", "IsFleeing"), ("ragdolled", "num", "GetIsRagdolled"), ("in_air", "num", "IsInAir"),
             ("move_flags", "num", "GetActorMovementFlags"), ("velocity", "num", "GetActorVelocity"),
-            ("combat_with_player", "num", "IsInCombatWith player")]
+            ("combat_with_player", "num", "IsInCombatWith player"), ("unreachable", "num", "GetTargetUnreachable")]
 # Probed for tracked actors too, loaded or not: the processing level is what tells an
 # unloaded actor's state (the page says -1 when the actor has no process, e.g. disabled).
 JIP_TRACKED_PART = [("proc_level", "num", "GetActorProcessingLevel"),
                     ("stable_package", "ref", "GetCurrentStablePackage")]
-# GetPCDetectionState: -1 menu or loading, 0 hidden, 1 caution, 2 detected, 3 danger.
-JIP_HEADER = [("pc_detection", "num", "GetPCDetectionState")]
+# Array fields (kind "arr"): the function returns an array of actors, recorded as its
+# size (`<name>_n`, Ar_Size: -1 when the array was not set [documented: GECK wiki Ar_Size])
+# and its first ARRAY_REFS elements (`<name>_1` ...). [documented: GECK wiki (JIP)]
+# GetCombatTargets / GetCombatAllies: for an actor in combat, the actors the game
+# considers its potential targets / its allies at that moment; GetDetectedActors: the
+# actors it detects; GetDetectingActors: the actors detecting it.
+# Two arrays per part: four in one part made a return expression longer than the
+# compiler allows (MAX_EXPRESSION).
+ARRAY_REFS = 4
+JIP_ARRAY_PARTS = [[("combat_targets", "arr", "GetCombatTargets"), ("combat_allies", "arr", "GetCombatAllies")],
+                   [("detected", "arr", "GetDetectedActors"), ("detecting", "arr", "GetDetectingActors")]]
+# GetPCDetectionState: -1 menu or loading, 0 hidden, 1 caution, 2 detected, 3 danger;
+# GetActorLightAmount: the light falling on the player, 0.0 complete darkness to 100.0
+# very bright.
+JIP_HEADER = [("pc_detection", "num", "GetPCDetectionState"), ("player_light", "num", "player.GetActorLightAmount")]
+# Hit details added to the probe of OnHit and OnHitWith in JIP sessions, after
+# EVENT_FIELDS, read from the target (the first argument) [documented: GECK wiki (JIP)
+# GetHitAttacker, GetHitHealthDamage, GetHitLimbDamage, GetHitFatigueDamage, GetHitWeapon,
+# GetHitProjectile: valid "when called from ... the corresponding NVSE event handlers";
+# GetHitLocation (GECK1) "available in a UDF event handler script for OnHit"; GetHitProjectile
+# can see one hit as up to three OnHit events]. `hit_flags` is a bitmask of
+# GetHitExtendedFlag 0-8: 1 target was blocking, 2 critical, 4 fatal, 8 limb dismembered,
+# 16 limb exploded, 32 limb crippled, 64 target's weapon broke, 128 sneak attack, 256
+# explosion hit.
+HIT_FIELDS = [("hit_attacker", "ref", "GetHitAttacker"), ("hit_health", "num", "GetHitHealthDamage"),
+              ("hit_limb", "num", "GetHitLimbDamage"), ("hit_fatigue", "num", "GetHitFatigueDamage"),
+              ("hit_weapon", "ref", "GetHitWeapon"), ("hit_projectile", "ref", "GetHitProjectile"),
+              ("hit_location", "num", "GetHitLocation")]
+HIT_FLAGS = 9
+HIT_EVENTS = ("OnHit", "OnHitWith")
+# The longest expression the runtime compiler takes inside parentheses [observed
+# 2026-10-25, jip_check: "Max script expression length inside parenthesis (512
+# characters)", the four-array part's return of about 560].
+MAX_EXPRESSION = 512
 # How a run tells that JIP LN NVSE is installed: a DLL in Data\NVSE\Plugins whose name
 # starts with "jip" [observed 2026-10-25: the plugin's file is jip_nvse.dll].
 JIP_DLL_PREFIX = "jip"
@@ -234,6 +266,10 @@ def probe_part(part, decls, setup, select, skip_disabled):
     0 when there is no actor (or it is disabled, if skip_disabled)."""
     refs = [f"ref rX{k}" for k, (_, kind, expr) in enumerate(part) if kind == "ref" and expr]
     nums = [f"float fV{k}" for k, (_, kind, _) in enumerate(part) if kind == "num"]
+    for k, (_, kind, _) in enumerate(part):
+        if kind == "arr":
+            nums += [f"array_var aX{k}", f"float fN{k}"]
+            refs += [f"ref rY{k}_{j}" for j in range(ARRAY_REFS)]
     body = list(setup) + list(select) + ["let fS := 0", "if rA", "  let fS := 1"]
     if skip_disabled:
         body += ["  if rA.GetDisabled", "    let fS := 0", "  endif"]
@@ -245,10 +281,19 @@ def probe_part(part, decls, setup, select, skip_disabled):
         elif kind == "ref":
             body.append(f"  let rX{k} := rA.{expr}")
             pieces.append(f"(GetFormIDString rX{k})")
+        elif kind == "arr":
+            body += [f"  let aX{k} := rA.{expr}", f"  let fN{k} := Ar_Size aX{k}"]
+            for j in range(ARRAY_REFS):
+                body += [f"  if fN{k} > {j}", f"    let rY{k}_{j} := aX{k}[{j}]", "  endif"]
+            pieces += [f"($ fN{k})"] + [f"(GetFormIDString rY{k}_{j})" for j in range(ARRAY_REFS)]
         else:
             body.append(f"  let fV{k} := rA.{expr}")
             pieces.append(f"($ fV{k})")
-    body += ["  SetFunctionValue (" + ' + "|" + '.join(pieces) + ")", "endif"]
+    returned = ' + "|" + '.join(pieces)
+    if len(returned) > MAX_EXPRESSION:
+        raise InputError(f"a probe part returns an expression of {len(returned)} characters (the compiler allows "
+                         f"{MAX_EXPRESSION}): split it, fields {[name for name, _, _ in part]}")
+    body += ["  SetFunctionValue (" + returned + ")", "endif"]
     return cs.function(list(decls) + ["ref rA"] + refs + ["int iN", "float fS"] + nums, body)
 
 
@@ -277,20 +322,39 @@ def event_names(spec):
     return out
 
 
-def event_probe():
+def event_fields(hits=False):
+    return [[name, kind] for name, kind in EVENT_FIELDS] + (
+        [[name, kind] for name, kind, _ in HIT_FIELDS] + [["hit_flags", "num"]] if hits else [])
+
+
+def event_probe(hits=False):
     """The function the plugin runs for each event heard, on the event's two arguments
     (EVENT_FIELDS joined with '|'). IsFormValid (FOSE1) guards an empty argument,
-    IsReference (FOSE1) and IsActor (GECK1) the actor fields (-1 when not an actor)."""
+    IsReference (FOSE1) and IsActor (GECK1) the actor fields (-1 when not an actor).
+    With `hits` (OnHit and OnHitWith in a JIP session) the HIT_FIELDS of the target and
+    `hit_flags` follow."""
     rest = ' + "|" + ($ fD) + "|" + ($ fH) + "|" + ($ fA) + "|" + ($ fK) + "|" + ($ fX)'
-    body = ["let fD := GameDaysPassed", "let fH := GameHour", "let fA := -1", "let fK := -1", "let fX := -1",
-            "let fV := 0", "if IsFormValid rEa", "  let fV := 1", "  if IsReference rEa", "    if rEa.IsActor",
-            "      let fA := rEa.GetAV Health", "      let fK := rEa.GetKnockedState", "      let fX := rEa.GetDead",
-            "    endif", "  endif", "endif", "if IsFormValid rEb", "  let fV := fV + 2", "endif"]
+    decls = ["ref rEa", "ref rEb", "float fD", "float fH", "float fA", "float fK", "float fX", "float fV"]
+    body = ["let fD := GameDaysPassed", "let fH := GameHour", "let fA := -1", "let fK := -1", "let fX := -1"]
+    if hits:
+        decls += ["float fF", "float fT"] + [f"ref rH{k}" if kind == "ref" else f"float fH{k}"
+                                             for k, (_, kind, _) in enumerate(HIT_FIELDS)]
+        body += ["let fF := -1"] + [f"let fH{k} := -1" for k, (_, kind, _) in enumerate(HIT_FIELDS) if kind == "num"]
+    body += ["let fV := 0", "if IsFormValid rEa", "  let fV := 1", "  if IsReference rEa", "    if rEa.IsActor",
+             "      let fA := rEa.GetAV Health", "      let fK := rEa.GetKnockedState", "      let fX := rEa.GetDead"]
+    if hits:
+        for k, (_, kind, expr) in enumerate(HIT_FIELDS):
+            body.append(f"      let {'rH' if kind == 'ref' else 'fH'}{k} := rEa.{expr}")
+        body.append("      let fF := 0")
+        for j in range(HIT_FLAGS):
+            body += [f"      let fT := rEa.GetHitExtendedFlag {j}", f"      let fF := fF + fT * {1 << j}"]
+        rest += "".join(f' + "|" + (GetFormIDString rH{k})' if kind == "ref" else f' + "|" + ($ fH{k})'
+                        for k, (_, kind, _) in enumerate(HIT_FIELDS)) + ' + "|" + ($ fF)'
+    body += ["    endif", "  endif", "endif", "if IsFormValid rEb", "  let fV := fV + 2", "endif"]
     a, b = "(GetFormIDString rEa)", "(GetFormIDString rEb)"
     for k, (x, y) in enumerate([('"0"', '"0"'), (a, '"0"'), ('"0"', b), (a, b)]):
         body += [f"{'if' if k == 0 else 'elseif'} fV == {k}", f'  SetFunctionValue ({x} + "|" + {y}{rest})']
     body.append("endif")
-    decls = ["ref rEa", "ref rEb", "float fD", "float fH", "float fA", "float fK", "float fX", "float fV"]
     return "\n".join(decls + ["Begin Function {rEa, rEb}"] + body + ["End"]) + "\n"
 
 
@@ -392,6 +456,18 @@ def groups(depth, max_actors, tracked, ctx, fields="full", extra_parts=(), track
     return out
 
 
+def recorded(part):
+    """The (name, kind) fields a probe part returns: an "arr" field is its size and its
+    first ARRAY_REFS elements."""
+    out = []
+    for name, kind, _ in part:
+        if kind == "arr":
+            out += [[f"{name}_n", "num"]] + [[f"{name}_{j + 1}", "ref"] for j in range(ARRAY_REFS)]
+        else:
+            out.append([name, kind])
+    return out
+
+
 def tracked_parts(fields="full", tracked_extra=()):
     parts = FIELD_SETS[fields]
     return (parts[:TRACKED_PARTS] if fields == "full" else parts) + list(tracked_extra)
@@ -412,7 +488,7 @@ def session_extras(s):
         parts.append(MORE_PART)
         header += MORE_HEADER
     if s.get("jip"):
-        parts.append(JIP_PART)
+        parts += [JIP_PART] + JIP_ARRAY_PARTS
         header += JIP_HEADER
     for key, out in (("extra", None), ("extra_header", header)):
         items = s.get(key) or []
@@ -430,17 +506,18 @@ def session_extras(s):
     return parts, header
 
 
-def fields_doc(tracked, fields="full", extra_parts=(), extra_header=(), events=(), tracked_extra=()):
+def fields_doc(tracked, fields="full", extra_parts=(), extra_header=(), events=(), tracked_extra=(), hits=False):
     parts = FIELD_SETS[fields] + list(extra_parts)
     doc = {"header": [[name, kind] for name, kind, _ in header_fields(extra_header)],
-           "parts": [[[name, kind] for name, kind, _ in part] for part in parts],
+           "parts": [recorded(part) for part in parts],
            "tracked": list(tracked), "set": fields}
     if tracked_extra:
         # the named actors' parts differ from the nearby ones' beyond the set's own
-        doc["tracked_parts"] = [[[name, kind] for name, kind, _ in part] for part in tracked_parts(fields, tracked_extra)]
+        doc["tracked_parts"] = [recorded(part) for part in tracked_parts(fields, tracked_extra)]
     if events:
         doc["events"] = list(events)
-        doc["event_fields"] = [[name, kind] for name, kind in EVENT_FIELDS]
+        # with hits, OnHit and OnHitWith return the hit fields after the common ones
+        doc["event_fields"] = event_fields(hits)
     return doc
 
 
@@ -665,14 +742,16 @@ def session_job(campaign, session, ctx):
     extra_parts, extra_header = session_extras(s)
     tracked_extra = [JIP_TRACKED_PART] if s.get("jip") else []
     events = event_names(s.get("events"))
-    obs = {"label": s["name"], "fields": fields_doc(tracked, fields, extra_parts, extra_header, events, tracked_extra),
+    hits = bool(s.get("jip")) and any(e in HIT_EVENTS for e in events)
+    obs = {"label": s["name"], "fields": fields_doc(tracked, fields, extra_parts, extra_header, events, tracked_extra,
+                                                    hits),
            "header": [header_script(k, e) for _, k, e in header_fields(extra_header)],
            "groups": groups(s["depth"], s["max_actors"], tracked, ctx, fields, extra_parts, tracked_extra),
            "every": every,
            "until": until_hours_script("t0", hours), "max_samples": int(math.ceil(loops / every)) + 10}
     if events:
-        probe = event_probe()
-        obs["events"] = [{"name": e, "probe": probe} for e in events]
+        probe, hit_probe = event_probe(), event_probe(hits=True)
+        obs["events"] = [{"name": e, "probe": hit_probe if hits and e in HIT_EVENTS else probe} for e in events]
     hooks = []
     close_after = s.get("close_menus_after")
     if close_after:
@@ -1069,6 +1148,9 @@ def timeline(sources, names=None):
             "package_types": PACKAGE_TYPES, "procedures": PROCEDURES}
 
 
+SERIES_FIELDS = [name for part in [JIP_PART] + JIP_ARRAY_PARTS for name, _ in recorded(part) if name not in STATE_FIELDS]
+
+
 def add_sample(actors, events, aid, groups_, t, rec, label):
     a = actors.get(aid)
     if a is None:
@@ -1079,6 +1161,11 @@ def add_sample(actors, events, aid, groups_, t, rec, label):
             a["groups"].append(g)
     a["samples"] += 1
     a["last"] = max(a["last"], t)
+    # the JIP tier's per-sample values (detection value, movement, the arrays), which change
+    # too often to start segments: [game time, session, {field: value}] per sample
+    series = {k: rec[k] for k in SERIES_FIELDS if rec.get(k) is not None}
+    if series:
+        a.setdefault("series", []).append([t, label, series])
     state = {k: rec.get(k) for k in STATE_FIELDS}
     pos = [rec.get("x"), rec.get("y"), rec.get("z")]
     seg = a["_open"]

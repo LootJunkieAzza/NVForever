@@ -1,0 +1,55 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "goodsprings_ab_ts120",
+ "title": "Plain run (docs/handoff/observer-jip-audit-2026-10-25.md Q18): goodsprings_ab at TimeScale 120 instead of 30, compared with observe_compare.py against the goodsprings_ab base runs of 2026-10-25: does a raised TimeScale change what NPCs do in game time",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "track": [
+   "DocMitchellREF",
+   "SunnyRef",
+   "TrudyRef",
+   "RingoRef",
+   "EasyPeteRef",
+   "GSChetRef",
+   "GSJoeCobbRef",
+   "CheyenneREF",
+   "GSVictorRef",
+   "GoodspringsSettler01Ref",
+   "GoodspringsSettler02Ref",
+   "GoodspringsSettler03Ref",
+   "GoodspringsSettler04Ref"
+  ],
+  "timescale": 120
+ },
+ "sessions": [
+  {
+   "name": "town_bedtime",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 20,
+   "hours": 3,
+   "note": "spans 22:00, when several residents' sleep packages begin (GSChetSleep22x8, GSRingoSleepPackage22x8, GSSettler04SleepPackage22x8)"
+  },
+  {
+   "name": "saloon_evening",
+   "go": {
+    "coc": "GSProspectorSaloonInterior"
+   },
+   "hour": 18,
+   "hours": 2,
+   "every": 30
+  },
+  {
+   "name": "meet_sunny",
+   "go": {
+    "moveto": "SunnyRef"
+   },
+   "hour": 10,
+   "hours": 1,
+   "every": 15
+  }
+ ]
+}

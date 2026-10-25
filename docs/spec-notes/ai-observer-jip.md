@@ -54,7 +54,41 @@ JIP].
 | `move_flags` | GetActorMovementFlags | bitmask: 1 forward, 2 backward, 4 left, 8 right, 16/32 turn left/right, 256 walking, 512 running, 1024 sneaking, 2048 swimming, 4096 jumping, 8192 flying, 16384 falling, 32768 sliding |
 | `velocity` | GetActorVelocity | total velocity (no axis given) |
 | `combat_with_player` | IsInCombatWith player | in combat with the player |
+| `unreachable` | GetTargetUnreachable | 1 when the actor is stuck, unable to find a path to its package's target |
+| `combat_targets_*` | GetCombatTargets | for an actor in combat, the actors the game considers its potential targets at that moment |
+| `combat_allies_*` | GetCombatAllies | for an actor in combat, the actors the game considers its allies at that moment |
+| `detected_*` | GetDetectedActors | the actors it detects |
+| `detecting_*` | GetDetectingActors | the actors detecting it |
 | header `pc_detection` | GetPCDetectionState | -1 menu or loading, 0 hidden, 1 caution, 2 detected, 3 danger |
+| header `player_light` | player.GetActorLightAmount | the light falling on the player, 0.0 complete darkness to 100.0 very bright |
+
+An array field is recorded as its size, `<name>_n` (Ar_Size, -1 when the array was not
+set [documented: GECK wiki Ar_Size]), and its first four elements, `<name>_1` to
+`<name>_4`. In the game, an actor not in combat reads -1 for its targets and allies
+[observed 2026-10-25, jip_check]. Each pair of arrays is its own probe part: four arrays
+in one part made a return expression of about 560 characters, and the compiler refused
+it with "Max script expression length inside parenthesis (512 characters)" [observed
+2026-10-25, jip_check]. The job builder now refuses any part over 512.
+
+**Hits.** In a JIP session that listens to OnHit or OnHitWith, those events' probe also
+reads, from the target [documented: the JIP pages; valid "when called from ... the
+corresponding NVSE event handlers"]:
+- `hit_attacker` (GetHitAttacker), `hit_health`, `hit_limb` and `hit_fatigue` (the damage
+  of this hit), `hit_weapon` (the base weapon), `hit_projectile` (the projectile or
+  explosion reference; the page says one hit can come as up to three OnHit events);
+- `hit_location` (GetHitLocation, GECK1; "available in a UDF event handler script for
+  OnHit");
+- `hit_flags`, a bitmask of GetHitExtendedFlag 0-8: 1 target blocking, 2 critical,
+  4 fatal, 8 limb dismembered, 16 limb exploded, 32 limb crippled, 64 target's weapon
+  broke, 128 sneak attack, 256 explosion hit.
+
+In the gunfight of `jip_check` these answered for every hit [observed 2026-10-25]. Hits on
+non-actors read -1, and the player under god mode reads 0 damage. Flag values seen
+include 2, 4, 32, 38 and 46.
+
+The timeline keeps the fields that change too often to start segments
+(`detection_value`, movement, velocity, the arrays) as a per-actor `series` of [game
+time, session, {field: value}] per sample.
 
 Actors in the loaded area get all of these. Tracked (named) actors, loaded or not, get
 `proc_level` and `stable_package`: the processing level matters most for actors out of
@@ -65,12 +99,11 @@ not documented [hypothesis: safe; a crash would show in the run report].
 timeline segments like the other state fields. The rest are recorded per sample.
 
 **Not in the tier yet:**
-- Functions that return arrays (GetCombatTargets, GetCombatAllies, GetDetectedActors,
-  GetDetectingActors). The probe shape returns one `|`-joined record of scalars per
-  actor, and an array needs a shape of its own.
-- The hit getters (GetHitAttacker, GetHitHealthDamage, GetHitLimbDamage, ...). They
-  answer only inside an OnHit handler [documented: their pages], so they belong in the
-  event probe, not the samples.
+- GetBufferedCells / GetCellBuffered (which cells the game keeps buffered): an array in
+  the header, which the header scripts do not support yet.
+- JIP's SetOnDialogTopicEventHandler (a script handler run when a topic or info is
+  said): it would name the topic of each combat line, but the plugin only registers
+  native handlers for xNVSE's events, so it needs a handler script compiled at run time.
 - ClickMenuButton (choosing menu entries: dialogue, sleep/wait, cashiers). It makes the
   bot act, not just observe, and needs its own owner decision.
 - JohnnyGuitar's SetOnProcessLevelChangeEventHandler. That is a second plugin, and it
