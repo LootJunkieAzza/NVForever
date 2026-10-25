@@ -10025,3 +10025,18 @@ expect = [
   { re = 'dismember: .* 0x00157B3F: Head exploded \(KillActor\)', label = "KillActor explodes gecko 4's head" },
 ]
 manual = "geckos_head.png, geckos_severed.png and geckos_after.png: gecko 2 headless with a neck cap and bits about; gecko 3's head and a foreleg lying apart, capped; gecko 4 headless"
+
+[[scenario]]
+name = "combat-npc-range-swap"
+source = "owner request 2026-10-25: \"the incinerator would be better at a distance and the flamer up close\" (docs/design/combat-ai.md §22, the target's distance)"
+note = "Cook-Cook (FiendCookCookRef) is moved 900 units from the player and set on the player at 3.5 s, god mode: he fights with his Incinerator (it fires from 276 to 1,500 units). At 10 s he is moved 100 units from the player, inside the Incinerator's blast: he takes up his Flamer. At 18 s he is moved 1,100 units off, beyond the flame's 640: he takes up the Incinerator again"
+areas = ["combat"]
+paths = ["crates/fnv-game/src/rearm.rs", "crates/fnv-ai/src/rearm.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:FiendCookCookRef:player:0:900:0,3.5:combat:FiendCookCookRef:player,10:moveto:FiendCookCookRef:player:0:100:0,18:moveto:FiendCookCookRef:player:0:1100:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 28
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapNVIncinerator \(gun\)', label = "he starts with his Incinerator" },
+  { re = 'FiendCookCookRef: rearm: takes up WeapFlamer for its target (?P<n>\d+) units away', range = [0, 276], label = "up close, inside the Incinerator's blast, the Flamer" },
+  { re = 'FiendCookCookRef: rearm: takes up WeapNVIncinerator for its target (?P<n>\d+) units away', range = [640, 1500], label = "far off, beyond the flame, the Incinerator again" },
+]
