@@ -562,7 +562,7 @@ PLACE_AMMO = 500
 def place_steps(items, ctx):
     """`place`: [{"base": form, "count": n, "distance": units, "direction": d, "arm":
     weapon | "none", "ammo": form, "give": [[form, count], ...], "offset": [x, y, z],
-    "attack": ref, "av": [[actor value, value], ...]}]: spawn actors near the player with PlaceAtMe
+    "attack": ref, "av": [[actor value, value], ...], "package": form}]: spawn actors near the player with PlaceAtMe
     (count, distance, direction 0 front, 1 back, 2 left, 3 right [documented: GECK wiki
     PlaceAtMe]). Its result cannot be kept: `let`/`set` of PlaceAtMe's return did not
     compile in the runtime compiler [observed 2026-10-17, aa_obs_place_test], so `arm`
@@ -581,12 +581,15 @@ def place_steps(items, ctx):
     2026-10-19 runs [observed: melee_holdoff, melee_holdoff_npc, radroach_spacing; the
     MoveTo dropping the StartCombat is a hypothesis]. `av` sets actor values on them
     before that (SetAV, e.g. ["Confidence", 0]: a cowardly creature set on the player
-    flees at a run). Spawned actors are found by the nearby scan only (FormIDs 0xFF...)."""
+    flees at a run). `package` gives them a package with AddScriptPackage (a script
+    statement: the console form did nothing [observed 2026-10-17, package_kinds]), e.g.
+    an Always Run travel to the player for a creature's run. Spawned actors are found by
+    the nearby scan only (FormIDs 0xFF...)."""
     out = []
     for p in items or []:
-        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm", "ammo", "give", "offset", "attack_late", "av"}
+        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm", "ammo", "give", "offset", "attack_late", "av", "package"}
         if unknown or "base" not in p or ("ammo" in p and p.get("arm") in (None, "none")):
-            raise InputError(f"a place item takes base, count, distance, direction, arm, ammo (with an arm), give, offset, attack, attack_late (with an attack), av; got {sorted(p)}")
+            raise InputError(f"a place item takes base, count, distance, direction, arm, ammo (with an arm), give, offset, attack, attack_late (with an attack), av, package; got {sorted(p)}")
         avs = p.get("av") or []
         if not all(isinstance(a, list) and len(a) == 2 and isinstance(a[0], str) and a[0].isidentifier()
                    and isinstance(a[1], (int, float)) and not isinstance(a[1], bool) for a in avs):
@@ -602,7 +605,7 @@ def place_steps(items, ctx):
         stmt = (f"player.PlaceAtMe {{0}} {int(p.get('count', 1))} {cs.number(p.get('distance', 600))} "
                 f"{int(p.get('direction', 0))}")
         out += [{"script": cs.run_script([stmt], ctx, [p["base"]])}, {"frames": DO_FRAMES}]
-        if p.get("arm") or p.get("attack") or give or off is not None or avs:
+        if p.get("arm") or p.get("attack") or give or off is not None or avs or p.get("package"):
             n = cs.Names(*ctx)
             act = []
             if p.get("arm"):
@@ -617,6 +620,8 @@ def place_steps(items, ctx):
                 act.append(f"    rA.AddItem {n.operand(form)} {int(count)}")
             for av, value in avs:
                 act.append(f"    rA.SetAV {av} {cs.number(value)}")
+            if p.get("package"):
+                act.append(f"    rA.AddScriptPackage {n.operand(p['package'])}")
             if off is not None:
                 act.append("    rA.MoveTo player " + " ".join(cs.number(v) for v in off))
             late = []
