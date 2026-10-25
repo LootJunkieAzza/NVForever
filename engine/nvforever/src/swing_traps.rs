@@ -22,6 +22,7 @@
 //! Log: `swing traps: <ref> let go: <n> bodies (<m> moving), <j> joints`.
 
 use crate::ragdoll::{bevy_affine, game_iso};
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_collide::ragdoll::Ragdoll;
 use fnv_collide::{Iso, Motion};
@@ -57,6 +58,7 @@ pub struct TrapRig {
 /// A trap let go.
 struct Swinging {
     root: Entity,
+    data: Arc<Ragdoll>,
     /// Per body, the node entity it moves (dynamic bodies only).
     nodes: Vec<Option<Entity>>,
     /// Per body, its bounding sphere in its node's frame (centre, radius), unscaled.
@@ -181,12 +183,15 @@ fn let_go(
             }
         };
         let moving = rag.bodies.iter().filter(|b| b.object.motion == Motion::Dynamic).count();
-        info!("swing traps: {:08X} let go: {} bodies ({moving} moving), {} joints", t.0, r.bodies, r.joints);
+        let name = |i: usize| rag.bodies.get(i).and_then(|b| b.object.node.clone()).unwrap_or_default();
+        let freed: Vec<String> = r.freed.iter().filter_map(|&k| rag.joints.get(k)).map(|j| format!("{} - {}", name(j.a), name(j.b))).collect();
+        let freed = if freed.is_empty() { String::new() } else { format!(" ({} started outside its limits and swings free of them: {})", freed.len(), freed.join(", ")) };
+        info!("swing traps: {:08X} let go: {} bodies ({moving} moving), {} joints{freed}", t.0, r.bodies, r.joints);
         traps.let_go += 1;
         let nodes = rag.bodies.iter().map(|b| node(b).filter(|_| b.object.motion == Motion::Dynamic)).collect();
         let spheres = rag.bodies.iter().map(sphere).collect();
         let weight = rag.bodies.iter().enumerate().filter(|(_, b)| b.object.motion == Motion::Dynamic).max_by(|a, b| a.1.object.mass.total_cmp(&b.1.object.mass)).map_or(0, |(i, _)| i);
-        traps.swinging.insert(t.0, Swinging { root, nodes, spheres, scale, weight, log_in: 0.0, logs: SWING_LOGS });
+        traps.swinging.insert(t.0, Swinging { root, data: rag.clone(), nodes, spheres, scale, weight, log_in: 0.0, logs: SWING_LOGS });
     }
 }
 
@@ -218,25 +223,40 @@ fn swing(
         if s.logs > 0 && s.log_in <= 0.0 {
             if let Some(Some(b)) = bodies.get(s.weight) {
                 let v = (b.linvel[0].powi(2) + b.linvel[1].powi(2) + b.linvel[2].powi(2)).sqrt();
-                info!("swing traps: {id:08X} swings: body {} at ({:.0}, {:.0}, {:.0}), {v:.0} units/s", s.weight, b.translation[0], b.translation[1], b.translation[2]);
+                // How far each joint's two pivots have come apart (its stretch).
+                let iso = |i: usize| bodies.get(i).copied().flatten().map(|b| Iso { translation: b.translation, rotation: b.rotation });
+                let gaps: Vec<(f32, usize)> = s.data.joints.iter().enumerate().filter_map(|(k, j)| Some((j.pivot_gap(&iso(j.a)?, &iso(j.b)?), k))).collect();
+                let (worst, wj) = gaps.iter().copied().fold((0.0f32, 0), |a, b| if b.0 > a.0 { b } else { a });
+                let name = |i: usize| s.data.bodies.get(i).and_then(|b| b.object.node.clone()).unwrap_or_default();
+                let wj = s.data.joints.get(wj).map(|j| format!("{} - {}", name(j.a), name(j.b))).unwrap_or_default();
+                info!("swing traps: {id:08X} swings: body {} at ({:.0}, {:.0}, {:.0}), {v:.0} units/s; joints apart by at most {worst:.1} units ({wj})", s.weight, b.translation[0], b.translation[1], b.translation[2]);
             }
             s.log_in = 1.0;
             s.logs -= 1;
         }
-        for (i, b) in bodies.iter().enumerate() {
-            let Some(b) = b else { continue };
-            // The node follows its body.
-            if let Some(e) = s.nodes.get(i).copied().flatten() {
-                let g = bevy_affine(b.translation, &b.rotation, s.scale);
-                let parent = parents.get(e).ok().and_then(|p| globals.get(p.parent()).ok()).map(|g| g.affine());
-                if let (Some(parent), Ok(mut t)) = (parent, transforms.get_mut(e)) {
-                    let (_, rotation, translation) = (parent.inverse() * g).to_scale_rotation_translation();
-                    if rotation.is_finite() && translation.is_finite() {
-                        t.translation = translation;
-                        t.rotation = rotation.normalize();
-                    }
+        // The nodes follow their bodies. A chain's links can be nodes inside each other:
+        // each one's place under its parent is taken from where the parent is put this
+        // frame, not from its drawn place of the last frame (which lags a frame, and the
+        // lags add up down the chain).
+        let wanted: HashMap<Entity, Affine3A> = bodies
+            .iter()
+            .enumerate()
+            .filter_map(|(i, b)| Some((s.nodes.get(i).copied().flatten()?, bevy_affine(b.as_ref()?.translation, &b.as_ref()?.rotation, s.scale))))
+            .collect();
+        let mut placed: HashMap<Entity, Affine3A> = HashMap::new();
+        for (&e, &g) in &wanted {
+            let Some(parent) = parents.get(e).ok().map(|p| p.parent()) else { continue };
+            let Some(pg) = global_now(parent, s.root, &wanted, &mut placed, &parents, &globals, &transforms, 0) else { continue };
+            if let Ok(mut t) = transforms.get_mut(e) {
+                let (_, rotation, translation) = (pg.inverse() * g).to_scale_rotation_translation();
+                if rotation.is_finite() && translation.is_finite() {
+                    t.translation = translation;
+                    t.rotation = rotation.normalize();
                 }
             }
+        }
+        for (i, b) in bodies.iter().enumerate() {
+            let Some(b) = b else { continue };
             // A moving body meets actors.
             if s.nodes.get(i).copied().flatten().is_none() {
                 continue;
@@ -269,6 +289,32 @@ fn swing(
         }
     }
     traps.hits += found;
+}
+
+/// Where node `e` is this frame (Bevy space): a node a body moves where the body puts
+/// it, the trap's root where it is drawn, any other node under its parent's place this
+/// frame by its own transform.
+#[allow(clippy::too_many_arguments)]
+fn global_now(
+    e: Entity,
+    root: Entity,
+    wanted: &HashMap<Entity, Affine3A>,
+    placed: &mut HashMap<Entity, Affine3A>,
+    parents: &Query<&ChildOf>,
+    globals: &Query<&GlobalTransform>,
+    transforms: &Query<&mut Transform>,
+    depth: u32,
+) -> Option<Affine3A> {
+    if let Some(&g) = wanted.get(&e).or(placed.get(&e)) {
+        return Some(g);
+    }
+    let parent = parents.get(e).ok().map(|p| p.parent());
+    let g = match parent {
+        Some(p) if e != root && depth < 64 => global_now(p, root, wanted, placed, parents, globals, transforms, depth + 1)? * transforms.get(e).ok()?.compute_affine(),
+        _ => globals.get(e).ok()?.affine(),
+    };
+    placed.insert(e, g);
+    Some(g)
 }
 
 /// How far `p` is from the surface of an upright capsule standing on `feet` (negative

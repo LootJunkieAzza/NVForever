@@ -518,7 +518,7 @@ args = ["--cell", "TestTraps", "--pos=2960,6004,8700", "--heading", "90", "--pla
 run_seconds = 16
 expect = [
   { re = 'swing traps: 00165273 is let go', label = "the first trapUpdate lets the log go" },
-  { re = 'swing traps: 00165273 let go: 16 bodies \(13 moving\), 14 joints', label = "its 16 bodies on 14 constraints, the 3 anchors fixed" },
+  { re = 'swing traps: 00165273 let go: 16 bodies \(13 moving\), 14 joints \(1 started outside its limits and swings free of them: LinkR06 - Ram\)', label = "its 16 bodies on 14 constraints, the 3 anchors fixed; the rear chain's last joint, past its limits at rest, free of them" },
   { re = 'swing traps: 00165273 hits 00000014 at \d+ units/s: 40 damage', label = "the log hits the player standing under it, at the script's first damage (40)" },
 ]
 
@@ -527,8 +527,8 @@ name = "swing-trap-look"
 source = "docs/spec-notes/traps.md §4: the swinging log 00165273 of TestTraps watched from the west, end on: frames swing_look_0 (held back), swing_look_1..3 (swinging) in target/smoke"
 areas = ["physics"]
 paths = ["engine/nvforever/src/swing_traps.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:0x00165273", NVF_PLAY_TEST_SHOTS = "5.5:swing_look_0.png,6.5:swing_look_1.png,7:swing_look_2.png,7.6:swing_look_3.png" }
-args = ["--cell", "TestTraps", "--pos=2500,6004,8700", "--heading", "90", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:0x00165273", NVF_PLAY_TEST_SHOTS = "5.5:swing_look_0.png,6.5:swing_look_1.png,7:swing_look_2.png,7.6:swing_look_3.png,6.00:swing_close_00.png,6.15:swing_close_01.png,6.30:swing_close_02.png,6.45:swing_close_03.png,6.60:swing_close_04.png,6.75:swing_close_05.png,6.90:swing_close_06.png,7.05:swing_close_07.png,7.20:swing_close_08.png,7.35:swing_close_09.png,7.50:swing_close_10.png,7.65:swing_close_11.png,7.80:swing_close_12.png,7.95:swing_close_13.png,8.10:swing_close_14.png,8.25:swing_close_15.png" }
+args = ["--cell", "TestTraps", "--pos=2700,6004,8700", "--heading", "90", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [{ re = 'swing traps: 00165273 swings: body 1 at .* (1\d\d|[2-9]\d\d) units/s', label = "the log swings" }, "Screenshot saved to swing_look_3.png"]
 
