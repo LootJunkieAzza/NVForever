@@ -240,6 +240,15 @@ fn open_door(doors: &mut nvf_play::doors::Doors, door: u32) -> bool {
     doors.is_open(door) == Some(true)
 }
 
+/// A held actor's physics body (if it has one) stands still; the speed it had.
+fn stop_body(phys: Option<&mut PhysState>, id: u32) -> f32 {
+    phys.and_then(|p| p.npcs.get_mut(&id)).map_or(0.0, |b| {
+        let was = b.velocity[0].hypot(b.velocity[1]);
+        b.velocity = [0.0, 0.0];
+        was
+    })
+}
+
 impl Mover for PhysMover<'_> {
     fn open(&mut self, _actor: FormId, door: u32) -> bool {
         open_door(self.doors, door)
@@ -248,6 +257,14 @@ impl Mover for PhysMover<'_> {
     fn walk(&mut self, actor: FormId, walker: &mut Walker, _nav: &NavGraph, dt: f32) -> Option<WalkEvent> {
         let id = actor.0;
         if self.held.contains(&id) {
+            // Its body stops too: the character keeps the last velocity it was given, and
+            // an actor staggering mid-walk slid on at its walking speed [observed: Cook-Cook
+            // in a smoke run, 2026-10-25].
+            let was = stop_body(self.phys.as_deref_mut(), id);
+            if was > 0.0 {
+                info!("actor {id:08X} held (staggering, seated or talking): its character stops (was walking at {was:.0} units/s)");
+            }
+            walker.moving = false;
             return Some(WalkEvent::Moved);
         }
         let phys = self.phys.as_deref_mut()?;
@@ -398,6 +415,7 @@ impl Mover for PhysMover<'_> {
     fn coast(&mut self, actor: FormId, walker: &mut Walker, _dt: f32) -> bool {
         let id = actor.0;
         if self.held.contains(&id) {
+            let _ = stop_body(self.phys.as_deref_mut(), id);
             return false;
         }
         let Some(phys) = self.phys.as_deref_mut() else { return false };
@@ -1303,6 +1321,14 @@ impl Core {
             for id in idle {
                 p.remove_npc(id);
                 self.unstuck.remove(&id);
+            }
+            // Nor does one go on while it staggers, whether or not the AI walked it this
+            // frame.
+            for &id in &self.staggering {
+                let was = stop_body(Some(&mut *p), id);
+                if was > 0.0 {
+                    info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
+                }
             }
         }
         if own {
