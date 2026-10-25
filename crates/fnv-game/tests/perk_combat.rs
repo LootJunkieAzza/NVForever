@@ -305,7 +305,7 @@ fn vats_to_hit_perks_see_the_mark() {
     use fnv_game::vats::VatsShot;
     let f = fixture();
     let mut g = game(&f);
-    let shot = |condition| VatsShot { weapon: FormId(REVOLVER), target: FormId(NPC_REF), distance: 500.0, condition, success: false };
+    let shot = |condition| VatsShot { weapon: FormId(REVOLVER), target: FormId(NPC_REF), distance: 500.0, condition, success: false, height: 0.0 };
     assert_eq!(g.vats_hit_perks(shot(Some(25))).apply(40.0), 40.0, "no perks");
     g.player.perks.insert(FormId(SNIPER), 1);
     let head = g.vats_hit_perks(shot(Some(25)));
