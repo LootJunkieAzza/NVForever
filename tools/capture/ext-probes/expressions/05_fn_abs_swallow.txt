@@ -1,0 +1,17 @@
+scn ExtProbeExpr05
+; one probe that may not compile (tools/capture/ext-probes/expressions/README.md)
+int x
+int y
+int r
+float f
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr05|begin"
+    let r := Abs -3 + 1
+    Print "EXTPROBE|fn.abs_swallow|" + $(r)
+    Print "EXTPROBE|expressions/ExtProbeExpr05|end"
+End

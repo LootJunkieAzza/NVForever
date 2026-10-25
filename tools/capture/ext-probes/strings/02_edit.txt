@@ -1,0 +1,63 @@
+scn ExtProbeStrings02
+; Sv_Replace, Sv_Insert, Sv_Erase, Sv_SubString, slices, Sv_GetChar (tools/capture/ext-probes/strings/README.md)
+string_var s
+string_var t
+array_var a
+int i
+float f
+ref r
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/02_edit|begin"
+    let s := "a-b-c"
+    Print "EXTPROBE|replace.count|" + $(Sv_Replace "-|+", s)
+    let s := "a-b-c"
+    Sv_Replace "-|+", s
+    Print "EXTPROBE|replace.result|[" + (s) + "]"
+    let s := "a-b-c"
+    Sv_Replace "-|+", s, 0, 5, 0, 1
+    Print "EXTPROBE|replace.max1|[" + (s) + "]"
+    let s := "AbAb"
+    Sv_Replace "ab|x", s
+    Print "EXTPROBE|replace.nocase|[" + (s) + "]"
+    let s := "abc"
+    Sv_Replace "|x", s
+    Print "EXTPROBE|replace.empty_old|[" + (s) + "]"
+    let s := "lo"
+    Sv_Insert "Hel", s, 0
+    Print "EXTPROBE|insert.start|[" + (s) + "]"
+    let s := "Hel"
+    Sv_Insert "lo", s, 3
+    Print "EXTPROBE|insert.end|[" + (s) + "]"
+    let s := "abc"
+    Sv_Insert "x", s, 99
+    Print "EXTPROBE|insert.past_end|[" + (s) + "]"
+    let s := "abcdef"
+    Sv_Erase s, 1, 2
+    Print "EXTPROBE|erase.count|[" + (s) + "]"
+    let s := "abcdef"
+    Sv_Erase s, 2
+    Print "EXTPROBE|erase.to_end|[" + (s) + "]"
+    let s := "abcdef"
+    Sv_Erase s, 4, 99
+    Print "EXTPROBE|erase.past_end|[" + (s) + "]"
+    let s := "abcdef"
+    Print "EXTPROBE|substring|[" + (Sv_SubString s, 1, 3) + "]"
+    let s := "abcdef"
+    Print "EXTPROBE|slice.inclusive|[" + (s[1:3]) + "]"
+    let s := "abcdef"
+    Print "EXTPROBE|slice.negative|[" + (s[-3:-1]) + "]"
+    let s := "abcdef"
+    Print "EXTPROBE|slice.out_of_range|[" + (s[4:10]) + "]"
+    let s := "abcdef"
+    Print "EXTPROBE|subscript|[" + (s[0]) + "]"
+    let s := "Abc"
+    Print "EXTPROBE|getchar|" + $(Sv_GetChar s, 0)
+    let s := "Abc"
+    Print "EXTPROBE|getchar.out|" + $(Sv_GetChar s, 9)
+    Print "EXTPROBE|strings/02_edit|end"
+End

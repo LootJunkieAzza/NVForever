@@ -8719,3 +8719,32 @@ Before, the multiplier existed but nothing switched it on.
 - *Not built:* no on-screen message. The game files have no text for one, only the HUD
   icon setting `sCriticalStrikeIcon` (glow_Critical_Chance.dds). What does the original
   show on a sneak attack critical (words, icon, sound)?
+
+## xNVSE baseline: what the extender work needs from you (2026-10-25, sessions "NVSE core functionality tasks" and "NVSE core functionality baseline")
+
+The extender plan (docs/handoff/extender-core-tasks.md, docs/design/extender-compat.md)
+takes its facts only from the wiki and from captures of our own scripts in the original
+game. Nothing here is urgent; each item unblocks part of the work.
+1. **The rest of the wiki export.** `NVSE.xml` (2026-10-25) brought String Formatting,
+   Hexadecimal Notation, User Defined Function, String/Array Variable, NVSE Error, the
+   event priority and filtering pages and User-Defined Event: thank you. Still missing,
+   for the next `Special:Export` into `C:\fnv-private\geckwiki\`: **GetType** (no page
+   and no catalogue row; ext-forms.md), **Template:DirectX Scancodes** and
+   **Template:Controller Button Codes** (the key and button tables; ext-input.md),
+   **GetCurrentEventName** and **DispatchEventAlt** (ext-events.md), **sUActn**
+   (ext-format.md, minor).
+2. **The GECK with xNVSE loaded**, to compile, in a private test plugin of yours:
+   `tools/capture/ext-compile/` (23 cases; note what the GECK says for each) and the
+   probe sets in `tools/capture/ext-probes/` (strings, expressions, arrays, loops, udf;
+   each README says how). Then load a save, keep the console text, and run
+   `python tools/capture/ext_probes.py collect <console text> --set <name>`: it writes
+   the private golden, and `compare` checks it against the README. The runaway loop
+   (loops/09) and deep recursion (udf/05) are run last, by hand: they may crash the game.
+3. **`ExtProbeList`**: a form list in that test plugin with three or more forms of your
+   choice, for the form-list `foreach` probe (loops/02).
+4. **Which xNVSE version to target.** The captures so far ran under 6.4.9; the wiki
+   marks many features by version (6.1 through 6.4.9). *Default if you don't say:* match
+   6.4.9, the version installed.
+5. **Your mod list for the N2 scan** (`fnvtool ext scan`): the plugins you want to play
+   with, so the scan can rank which extender functions they use. Only counts and names
+   leave your machine.

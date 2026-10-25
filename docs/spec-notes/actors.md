@@ -1351,9 +1351,13 @@ stopped and started, as Victor's walk had before #258). Code:
   Speed Mult / 100, the whole of it: every creature measured on open ground above,
   walking and running, is within 6 % of it, flyers (eyebots, Mister Gutsy, bloatflies)
   as much as walkers, robots told to run as much as animals. A creature with no run clip
-  runs at its walk's pace (ghost people, both kinds of hologram); the lakelurk, with no
-  run clip either, is the exception and runs 358 (`Share::bare_run`). Before, NVForever
-  gave such creatures the people's 344. Exceptions to the share: cazadors 0.70 (the
+  runs at its walk's pace (ghost people, both kinds of hologram); before, NVForever gave
+  such creatures the people's 344. The lakelurk does have a run clip, which the table
+  above misses: `mirelurkking\locomotion\mtfastforward.kf`, sequence `Fastforward`, 355.95
+  units/s [observed: `fnvtool actor locomotion`, 2026-10-25; observed in NVForever: its
+  log loads it as FastForward 355.9 u/s], so its 358 is the whole run clip pace (1.01)
+  and the special run built for it on 2026-10-25 (`Share::bare_run`, 358) is gone.
+  Exceptions to the share: cazadors 0.70 (the
   Tribal Village, above; why is open, and the runway's young cazador flew at its whole
   `h2h` walk pace in three sessions, which the one share does not cover), and
   protectrons 0.88 walking (three sessions) but 1.01 running. The shares built from
@@ -1365,6 +1369,20 @@ stopped and started, as Victor's walk had before #258). Code:
   creatures not measured the rule is a [hypothesis]. The nightstalker's misspelt walk
   and run (`mtfoward.kf`, `mtfastfoward.kf`) are found as the deathclaw's walk is
   (`fnv_actor::locomotion::clip_candidates`); before, it ran at the people's 344.
+- **Clip coverage** [observed: `fnvtool actor locomotion` over every creature skeleton
+  folder `fnvtool actor creatures --all` gives for FalloutNV, DeadMoney, HonestHearts,
+  OldWorldBlues, LonesomeRoad and GunRunnersArsenal, 2026-10-25, against the engine's
+  lookup `clip_candidates`]: every skeleton that moves gets a walk and a run clip (or, with
+  none, runs at its walk's pace: ghost people, both holograms) but the alien
+  (`dlc05\creatures\alien`), whose walk and run have no stance prefix:
+  `locomotion\forwardwalk.kf` (89.89 units/s) and `locomotion\fastforward.kf` (419.9),
+  `locomotion\1hmforwardwalk.kf` with its weapon. It walked and ran at the people's 85.3
+  and 344; `clip_candidates` now looks for those names last (the `mt` walk and run;
+  `<stance>forwardwalk.kf` for a weapon stance), so it walks 90 and runs 420, as the
+  original's 86–91 and 420.8. Folders with an idle only (no movement clips): the raven,
+  both turrets, the spore plant, Mr. House, his computer, Festus, the brain tanks and
+  `nvvoid` (431 placed); they keep the people's speeds, unmeasured. Smoke
+  `creature-pace-skeletons` checks the logged speeds of seven skeletons.
 - **Brahmin following** [observed: the AI observer in the original game, 2026-10-24, the
   Novac caravan's pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its
   merchant on its route, 2,909 samples over 243 s]: it walked at a median 78 units/s over
@@ -1437,7 +1455,15 @@ stopped and started, as Victor's walk had before #258). Code:
   [observed: the meshes and Update archive listings]. Rule [design on the owner's
   observation]: outside the Normal detection state (Alert, Combat, Lost) such a creature
   moves on its `h2h` clips (missing moves taken from the `mt` set) at their speeds by the
-  rule above; the change of set is not cross-faded.
+  rule above; the change of set is not cross-faded. Not the sonic-bark cyberdog
+  (`dog\skeleton_sonicbark.nif`, NVDLC03CrCyberDogMilitary01Ranged 03015800, a ranged
+  attacker), which keeps its `mt` clips when alert (`creature_pace::has_alert_stance`)
+  [observed: it charged at 333.1 on the `mt` run (333.07) in campaign
+  `creature_runs_all`, where the plain dog charges on the dog folder's `h2hfastforward`
+  (454.75 × 0.8 = 363); hypothesis, not built: that every creature attacking with a
+  ranged weapon keeps its `mt` clips (no other skeleton with `h2h` movement clips was
+  measured with one; the lakelurk's sonic attack is ranged, but its `h2hforward` is its
+  `mtforward`'s pace and it has no `h2h` run)].
 - **Clip rate** [hypothesis: the movement comes from the clips, §8.2]: the clips play
   Speed Mult × 0.70 faster (`Locomotion::pace`) and the walk or run is chosen for the
   velocity divided by that, so a medium cazador walking at 379 units/s plays its walk
