@@ -303,7 +303,7 @@ pub struct PhysWorld {
     pub(crate) gore: BTreeMap<u32, RigidBodyHandle>,
     /// Per-triangle material codes of triangle-mesh colliders; one code for a convex
     /// collider.
-    materials: HashMap<ColliderHandle, Vec<u32>>,
+    pub(crate) materials: HashMap<ColliderHandle, Vec<u32>>,
     /// Contact shells (game units) of reference colliders that have one
     /// (`CollisionObject::shell` times the reference's scale).
     shells: HashMap<ColliderHandle, f32>,

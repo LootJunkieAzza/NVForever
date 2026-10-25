@@ -328,34 +328,77 @@ Observational (not a lab scenario), like `collide survey`.
 5. Templates (§6): how the original pairs a template's constraints with the skeleton's,
    and what their entities point at. A mod's `.rdt` made in NifSkope, opened next to the
    skeleton, would show it.
-6. Bodies in water (§8): whether corpses float in the original at all, how high they
-   ride, how fast they rise, and whether loose clutter floats too. A capture could kill an
-   NPC swimming in Lake Mead and read its bones' heights for 30 s.
+6. Bodies in water (§8): how high the original's items ride (their reference origin
+   read 0-2 units under the surface; their tops were not read), the materials not yet
+   captured (organic, grass, heavy wood, barrel, rubber ball and the others), why the hot
+   plate sank much slower than the toaster, and whether the original's corpse lies on
+   the bed or only its reference position is read there.
 
-## 8. Bodies in water [design unless tagged]
+## 8. Bodies in water
 
 The owner asked (2026-10-25) that anything ragdolled float to the surface in water, so
-that a drowned or killed swimmer comes up. No game facts were gathered for this: every
-number below is a [design] choice, and §7 item 6 lists the questions a capture could
-answer.
+that a drowned or killed swimmer comes up, and then that loose items do the same.
+Captures of the original were run first for the items (`tools/capture/jobs/make_float_jobs.py`,
+jobs `fl_items_lake` and `fl_heavy_lake`, save nvfstrip, 2026-10-25): fifteen items
+dropped by the player and moved by `SetPos` 150 units under Lake Mead's surface (2600)
+over a bed 350-660 units down, and an NCR trooper placed there and killed, their
+heights read for 30 s.
 
-- **What floats.** Ragdoll bodies and gore pieces (`crates/fnv-phys/src/buoyancy.rs`).
-  Loose clutter does not (not asked for; a heavy object should sink, and the data gives no
-  densities).
+### What the original does [observed]
+
+| Floated to the surface (reference origin 2597-2600) | Sank to the bed |
+|---|---|
+| pencil, sledgehammer (wood, 9) | sensor module, toaster (metal, 5) |
+| teddy bear, Pre-War book, Wonderglue (cloth, 1) | hot plate (glass, 3) |
+| cigarette carton (dirt, 2) | the killed NCR trooper (three runs) |
+| empty and full whiskey bottles, Nuka-Cola (bottle, 24) | |
+| tin can (soda can, 25) | |
+
+- The numbers are the Havok material of the item's collision shape (nif.xml's
+  `Fallout3HavokMaterial`). Neither the stored Havok mass over the shape's volume (the
+  toaster, 3 over a large hull, sank; the pencil, 2 over a tiny box, floated) nor the
+  record's Weight (bat 3 floated, sensor module 2 sank) separates the two columns; the
+  material does.
+- Rising took 1-5 s from 150 under (about 20-60 units a second). The sensor module and
+  toaster sank at about 170 units a second; the hot plate at about 45.
+- The trooper's reference position was on the bed (2160-2200) 1 s after the kill and
+  stayed there: the original does not float corpses. Whether its bones lay there too
+  was not read (§7 item 6).
+- The first run's lead pipe and sledgehammer readings, and the second run's bat and
+  lead pipe, were references the save already held or lost from the scan; they are not
+  used. The bat read at the surface in the first run (likely ours, not certain).
+- Trap for later jobs: scans for created items must keep to the player's surroundings
+  (`GetDistance player`); the save holds dropped weapons of the same bases kilometres away.
+
+### What NVForever does
+
+- **What floats** (`crates/fnv-phys/src/buoyancy.rs`): ragdoll bodies and gore pieces,
+  the owner's choice, unlike the original; a loose item (a dynamic placed or dropped
+  reference) whose first collision shape's Havok material is in `FLOATING_MATERIALS`:
+  cloth, dirt, wood, bottle and soda can [observed], organic, grass, baby rattle and
+  rubber ball [hypothesis: light by their names]. Every other item sinks.
 - **Where.** In the water the character swims in (`crates/fnv-phys/src/water.rs`): an
   exterior cell's surface, or a placed water volume. A body is in water when the water
   surface above its centre of mass is above the bottom of its colliders.
-- **How much.** Before each physics step, each awake body gets an upward change of
-  velocity of `FLOAT_RATIO` (1.2) × gravity × the share of its height under the surface,
-  and its velocity and spin die out at `WATER_DRAG` and `WATER_SPIN_DRAG` (2 per second)
-  times that share. A body all under water rises at 0.2 g, at most about 70 units a
-  second, and floats with about a sixth of its height above the surface. Every body
-  counts as equally dense.
+- **How much.** Before each physics step, each awake dynamic body in water gets an upward
+  change of velocity of `lift` × gravity × the share of its height under the surface, and
+  its velocity and spin die out at `WATER_DRAG` and `WATER_SPIN_DRAG` (2 per second) times
+  that share. `lift` is `FLOAT_RATIO` (1.2) for a body that floats: all under water it
+  rises at 0.2 g, at most about 70 units a second, and floats with about a sixth of its
+  height above the surface [design]. For one that sinks it is `SINK_LIFT` (0.5): it sinks
+  at about 170 units a second [fitted to the sensor module and toaster].
 - **Rest.** A ragdoll that is still moving 3 s after it started is held at rest where it
   is (§4); one in water gets 30 s (`MAX_AWAKE_IN_WATER`, engine/nvforever/src/ragdoll.rs)
   so that it reaches the surface first. Once it is calm there it is held at rest at the
   surface as on land. A corpse put back at rest, or laid in the pose its reference stores
   (`XRGD`), stays where it lies, under water too, until a hit or a blast rouses it: the
-  designers placed those bodies there.
-- Log: `ragdoll: actor X floats at (x, y, z), its trunk N units under the surface at S`
-  when a ragdoll in water comes to rest; smoke `ragdoll-floats`.
+  designers placed those bodies there. Items asleep on a lake bed when their cell loads
+  stay there until something wakes them.
+- **Script-made items.** An item a script drops or places (`Drop`, `DropMe`,
+  `PlaceAtMe`) now gets its collision as one dropped from the inventory menu does
+  (`engine/nvf-play/src/script_events.rs`, the `Placed` event); before, it hung where it
+  appeared.
+- Logs: `ragdoll: actor X floats at (x, y, z), its trunk N units under the surface at S`
+  when a ragdoll in water comes to rest; at exit `physics: N loose item bodies in water at
+  exit: <ref> (floats|sinks, its top N units from the surface), ...`. Smoke
+  `ragdoll-floats`, `loose-items-float`.

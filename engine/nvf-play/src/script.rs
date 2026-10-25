@@ -1203,6 +1203,10 @@ impl EffectCtx for PlayCtx<'_> {
         self.display(form)
     }
 
+    fn is_actor_base(&self, base: FormId) -> bool {
+        fnv_game::ai::is_actor_base(self.sim.world.forms, base)
+    }
+
     fn setting_text(&self, name: &str) -> Option<String> {
         match self.sim.forms.settings.get(&name.to_ascii_lowercase()) {
             Some(fnv_sim::settings::Setting::Str(s)) => Some(s.clone()),

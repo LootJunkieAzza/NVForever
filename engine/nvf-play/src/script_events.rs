@@ -137,6 +137,10 @@ pub trait EffectCtx {
     fn pops_in(&self, _r: FormId) -> bool {
         false
     }
+    /// Whether `base` is an actor base (`fnv_game::ai::is_actor_base`).
+    fn is_actor_base(&self, _base: FormId) -> bool {
+        false
+    }
     /// The player's compass heading in degrees (kept across a scripted MoveTo).
     fn player_heading_deg(&self) -> f32;
     fn destination(&self, cell: Option<FormId>) -> Destination;
@@ -259,6 +263,10 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             continue;
         }
         match &e.kind {
+            // An item a script made (Drop, DropMe, PlaceAtMe) gets its collision
+            // (`crate::phys`), as one dropped from the inventory menu does; created actors
+            // get theirs from the residents.
+            EventKind::Placed { reference, base, .. } if !ctx.is_actor_base(*base) => out.push(ScriptEffect::RefChanged(reference.0)),
             // A new scale changes the reference's collision too (`crate::phys`).
             // Enable fades its reference in when asked (its default) and every enable child
             // too unless the child has "Pop In": the parent's flag is not passed on, the
