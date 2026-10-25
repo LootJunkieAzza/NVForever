@@ -927,6 +927,10 @@ pub fn drive(
         if let Some(mut p) = pose {
             p.layers(&mut player, drawn, dt);
         }
+        // A stimpak's upper-body idle over the fight's pose too (`npc_stimpaks.rs`).
+        if let Some(i) = idle.filter(|i| i.over_pose()) {
+            i.layers(&mut player);
+        }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;
         cost.blend_frames += u64::from(layers > 1);

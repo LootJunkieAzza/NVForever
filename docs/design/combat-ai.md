@@ -1710,3 +1710,53 @@ whatever stances their folders have).
 
 **Checks**: unit tests (`fnv_combat::body_weapon`, `fnv_actor::anims`,
 `attack_anims::body_attack_names`); smoke `body-weapons-handy-gutsy`.
+
+## 20. NPCs use their stimpaks (owner request 2026-10-25)
+
+The owner's request: an NPC that takes damage uses a stimpak it carries, never one that
+would heal "only 1 hp if they have almost full health"; and the original's stimpak
+animation, which holds the NPC still for five seconds, is played on the top half of the
+body only, "so that they can still move and stimpak animation at the same time". Combat
+is not a parity target; the rules are **[design]** unless tagged. Rules:
+`fnv_game::npc_stimpaks`; animation: `engine/nvforever/src/npc_stimpaks.rs`.
+
+- **When.** A living NPC (not a creature, not the player), not knocked out, on furniture
+  or in a conversation, in Combat or within 15 s of its health last falling (an NPC
+  hurt before anyone watched it, a quest's wounded, is left alone), with no stimpak in
+  use and none used in the last 3 s (or the last one's effect duration: Hardcore's heal
+  over 6 s). The engine starts one only while no scripted, package or dialogue idle plays
+  on it, it is not staggered, not reloading, with no blow on its way.
+- **Which, not wasteful.** Its carried ingestibles of equip type Stimpak (ETYP 11
+  [documented: xEdit]; the Stimpak and Super Stimpak [observed: FalloutNV.esm]), each
+  with the health using it would give it now (`Game::aid_preview`: its Medicine's
+  potency, perks). One is used only if at most 25 % of its heal would go past full health;
+  of those, the one that heals most. Below 35 % health it uses the smallest even with
+  more waste.
+- **The animation.** The children of the idle tree's `ActStimpakSource` (0x00023035), the
+  first whose conditions pass: `3rdP2HHStimpak` (GetWeaponAnimType 7, `3rdP_2HH_Stimpak.kf`,
+  3.83 s) else `3rdPSpecialIdleStimpak` (`3rdP_SpecialIdle_Stempak.kf`, 5.0 s), the
+  syringe `AnimStempax` (`stempax.nif`, on `Bip01 L Hand`) with the latter [observed:
+  FalloutNV.esm, the base meshes archive]. `ActStimpakSource`'s own condition
+  (GetIsUsedItem Stimpak) is not asked, so the Super Stimpak has an idle too; the NPC's
+  used item is the stimpak while it plays (GetIsUsedItem answers 1). The clip's tracks for
+  `Bip01`, `Bip01 NonAccum`, the pelvis and the legs are left out and the rest raised to
+  priority 57, above the armed run (36), the aim (35, 50) and a held shot (55/56); the
+  idle is laid over the fight's pose. So the legs walk, run and strafe while the arms
+  inject. The stempak clip itself drives the left arm at 30 [observed], which the run
+  would beat.
+- **The injection** at half the clip [hypothesis: the clips carry only `start` and `end`
+  keys, observed]: one stimpak leaves the inventory and is used (`Game::ingest`, so the
+  potency, the trace and the addiction rules are the player's), and the sound
+  `NPCHumanUsingStimpak` (0x000296B9) plays at the NPC [hypothesis: its use, by its
+  name]. Stopped before then (killed, knocked out, a scripted idle), nothing is used.
+- **Fire held** for as long as the idle plays (`npc_combat`'s `ready`).
+
+**Checks**: unit tests `fnv_game::npc_stimpaks` (the waste rule) and
+`npc_stimpaks::the_upper_body_keeps_spine_arms_and_head_above_the_run`; smoke
+`combat-npc-stimpak` (Chet at 63/65 uses none; at 23/65 one, healed 39 to 62).
+Observed 2026-10-25 in a trial run: Violet with a service rifle at 110/170 injected
+while backing off at 85 units/s, rifle in her right hand and the syringe in her left.
+
+**Not built**: a syringe for the two-handed heavy idle (no ANIO names it); the clip's
+visibility track of the syringe (it shows for the whole idle); NPCs not drawn do not
+heal; companions are treated as any NPC (the wheel's Use Stimpak gives the player's).

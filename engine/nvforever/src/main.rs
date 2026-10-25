@@ -79,6 +79,7 @@ mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod npc_stimpaks;
 mod use_weapon;
 mod provoked;
 mod weapons;
@@ -1381,6 +1382,8 @@ fn main() -> AppExit {
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // NPCs heal with the stimpaks they carry (npc_stimpaks.rs).
+            app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).

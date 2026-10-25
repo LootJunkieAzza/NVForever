@@ -1031,6 +1031,8 @@ pub struct Game<'a> {
     /// The companion wheel's state: the open wheel, back-up orders, who sneaks with the
     /// player (`crate::companion_wheel`). Not saved.
     pub companions: crate::companion_wheel::Companions,
+    /// NPCs using the stimpaks they carry (`crate::npc_stimpaks`). Not saved.
+    pub npc_stimpaks: crate::npc_stimpaks::NpcStimpaks,
     /// Teammates brought to the player when the player changed cells
     /// (`crate::followers`), for the engine's log; they are in [`Game::teleported`] too.
     /// Not part of the saved state.
@@ -1440,6 +1442,7 @@ impl<'a> Game<'a> {
             caravan_requests: Vec::new(),
             teammate_containers: Vec::new(),
             companions: Default::default(),
+            npc_stimpaks: Default::default(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
             rest: Default::default(),

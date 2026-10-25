@@ -4236,6 +4236,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-npc-stimpak"
+source = "owner request 2026-10-25: NPCs hurt use a stimpak they carry, not one that would mostly go to waste, playing the game's stimpak idle on the upper body only so they keep moving (docs/design/combat-ai.md §20)"
+note = "Chet (GSChetRef) in the general store is given a .357 and three Stimpaks and set on the player, who cannot die (GOD). At 6 s (scripts' clock) he loses 2 health: nearly all of a stimpak would be wasted, so he uses none. At 14 s he loses 40: he plays 3rdP_SpecialIdle_Stempak.kf with the syringe (stempax.nif) on his upper body, holds his fire, and halfway through one Stimpak heals him; with health near full again he uses no second one"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_stimpaks.rs", "crates/fnv-game/src/npc_stimpaks.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.2:call:GSChetRef:AddItem:Stimpak:3,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player,6:damage:GSChetRef:Health:2,14:damage:GSChetRef:Health:40" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'npc stimpak: \S+ \S+ uses Stimpak \(health \d+/\d+\): 3rdPSpecialIdleStimpak', count = 1, label = "he uses one stimpak, after the big hit only (not after losing 2)" },
+  { re = 'idle: \S+ plays 3rdPSpecialIdleStimpak .*\(Stimpak\)', label = "the game's stimpak idle plays" },
+  { re = '(?i)anim object: \S+ holds \S*stempax\.nif', label = "the syringe is in his hand" },
+  { re = 'npc stimpak: \S+ \S+ injects Stimpak: health \d+ -> \d+, moving at (?P<n>\d+) units/s', range = [0, 1000], label = "the stimpak takes effect (his speed then is logged: he is not held still)" },
+  { re = 'npc stimpaks summary: 1 stimpak idles started, 1 injected \((?P<n>\d+) health restored\), 0 stopped', range = [20, 100], label = "one stimpak used, its heal not wasted" },
+]
+
+[[scenario]]
 name = "npc-muzzle-flash-rifle"
 source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
 note = "Violet (FiendVioletRef 0x000F570B) is given and made to equip a service rifle (WeapNVServiceRifle) and set on the player at 4 s (scripts' clock), god mode; at 12 s the player is put 100 units in front of her. Her flashes go under the rifle's muzzle marker. Frames npc_flash_rifle_00..39.png in target/smoke (14 to 16 s, every 0.05 s, the flash lasting 0.04 s) catch some of her flashes at the rifle's muzzle"
