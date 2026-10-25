@@ -1,0 +1,17 @@
+scn ExtProbeExpr09
+; Abs -3 + 1 under the compiler override (tools/capture/ext-probes/expressions/README.md)
+int x
+int y
+int r
+float f
+int iDone
+Begin _GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr09|begin"
+    let r := Abs -3 + 1
+    Print "EXTPROBE|override.abs_swallow|" + $(r)
+    Print "EXTPROBE|expressions/ExtProbeExpr09|end"
+End
