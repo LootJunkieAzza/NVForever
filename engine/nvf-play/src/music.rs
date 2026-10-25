@@ -124,9 +124,13 @@ pub fn game_hour(sim: &SimState) -> f32 {
 type Stem = rodio::Decoder<Cursor<Arc<[u8]>>>;
 
 /// A panic opening a broken file (a WAV of rate 0) is that file's failure, not the game's
-/// (nvf_assets::guard).
+/// (nvf_assets::guard); one of a rate or channels the mixer cannot take is not opened
+/// (crate::sfx::format_ok).
 fn open(bytes: &Arc<[u8]>) -> Option<Stem> {
-    nvf_assets::guard::guarded(|| Ok(rodio::Decoder::builder().with_byte_len(bytes.len() as u64).with_data(Cursor::new(bytes.clone())).build().ok())).ok().flatten()
+    nvf_assets::guard::guarded(|| Ok(rodio::Decoder::builder().with_byte_len(bytes.len() as u64).with_data(Cursor::new(bytes.clone())).build().ok()))
+        .ok()
+        .flatten()
+        .filter(|d| crate::sfx::format_ok(d.channels().get(), d.sample_rate().get()).is_ok())
 }
 
 /// Up to three music files of one format played in step, each at its own level, which

@@ -125,7 +125,8 @@ pub const PAN_DEPTH: f32 = 0.7;
 pub fn pan_gains(eye: [f32; 3], heading: f32, at: [f32; 3]) -> [f32; 2] {
     let d = [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
     let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-    if len < 1.0 {
+    // A broken place (NaN, infinite) is heard in the middle, not as NaN gains.
+    if len < 1.0 || !len.is_finite() || !heading.is_finite() {
         return [1.0, 1.0];
     }
     // The listener's right: the heading turned a quarter clockwise.
@@ -362,12 +363,35 @@ pub fn playable(bytes: &[u8]) -> Result<(), String> {
     let data = std::io::Cursor::new(bytes.to_vec());
     nvf_assets::guard::guarded(|| {
         let d = rodio::Decoder::builder().with_byte_len(bytes.len() as u64).with_data(data).build().map_err(|e| e.to_string())?;
-        let rate = d.sample_rate().get();
-        if !(1_000..=384_000).contains(&rate) {
-            return Err(format!("sample rate {rate} out of range"));
-        }
-        Ok(())
+        format_ok(d.channels().get(), d.sample_rate().get())
     })
+}
+
+/// Sample rates a sound file may have; one outside is a broken header. rodio's rate
+/// converter steps through the file rate's ratio to the output's for every frame, so a
+/// rate of billions stalls the audio thread [observed: rodio 0.22.2
+/// `conversions/sample_rate.rs`].
+pub const RATES: std::ops::RangeInclusive<u32> = 1_000..=384_000;
+
+/// The most channels a sound file may have [engineering choice: 7.1; the game's files
+/// are mono or stereo].
+pub const MAX_CHANNELS: u16 = 8;
+
+/// The most samples a sound effect decoded whole keeps: 128 MB, over six minutes of
+/// 44.1 kHz stereo [engineering choice: a broken Ogg file's packets can each unpack to a
+/// whole block, so its decoded size is not bounded by its length].
+pub const MAX_DECODED_SAMPLES: usize = 32 << 20;
+
+/// `Err` naming what is wrong when a file's channels or sample rate cannot be played
+/// ([`RATES`], [`MAX_CHANNELS`]).
+pub fn format_ok(channels: u16, rate: u32) -> Result<(), String> {
+    if !RATES.contains(&rate) {
+        return Err(format!("sample rate {rate} out of range"));
+    }
+    if !(1..=MAX_CHANNELS).contains(&channels) {
+        return Err(format!("{channels} channels"));
+    }
+    Ok(())
 }
 
 /// `bytes` of the file at `path` when [`playable`]; otherwise a warning, and `None` (the
@@ -395,7 +419,9 @@ impl PcmSound {
     pub fn from_encoded(bytes: Vec<u8>) -> Result<PcmSound, String> {
         let d = rodio::Decoder::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
         let (channels, rate) = (d.channels().get(), d.sample_rate().get());
-        Ok(PcmSound { samples: d.collect::<Vec<f32>>().into(), channels, rate, pan: None, reverb: None })
+        format_ok(channels, rate)?;
+        let samples: Vec<f32> = d.take(MAX_DECODED_SAMPLES).map(|x| if x.is_finite() { x } else { 0.0 }).collect();
+        Ok(PcmSound { samples: samples.into(), channels, rate, pan: None, reverb: None })
     }
 
     /// Decode a WAV file: the `fmt ` and `data` chunks of a RIFF/WAVE file [documented:
@@ -428,12 +454,11 @@ impl PcmSound {
                         (1, 8) => body.iter().map(|&b| (b as f32 - 128.0) / 128.0).collect(),
                         (1, 16) => body.as_chunks::<2>().0.iter().map(|c| i16::from_le_bytes(*c) as f32 / 32768.0).collect(),
                         (1, 24) => body.as_chunks::<3>().0.iter().map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0).collect(),
-                        (3, 32) => body.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect(),
+                        // A garbled float (NaN, infinite) is silence, not a NaN through the mix.
+                        (3, 32) => body.as_chunks::<4>().0.iter().map(|c| Some(f32::from_le_bytes(*c)).filter(|x| x.is_finite()).unwrap_or(0.0)).collect(),
                         _ => return Err(format!("format tag {tag} with {bits} bits is not decoded")),
                     };
-                    if channels == 0 || rate == 0 {
-                        return Err("no channels or sample rate".into());
-                    }
+                    format_ok(channels, rate)?;
                     return Ok(PcmSound { samples: samples.into(), channels, rate, pan: None, reverb: None });
                 }
                 _ => {}
@@ -447,6 +472,10 @@ impl PcmSound {
 /// The gain of a sound `distance` units from the listener: its attenuation curve between
 /// the minimum and the maximum distance (see the module notes).
 pub fn distance_gain(s: &Sound, distance: f32) -> f32 {
+    // A sound at a broken place (NaN, infinite) is not heard.
+    if !distance.is_finite() {
+        return 0.0;
+    }
     let curve = s.attenuation_curve.unwrap_or(DEFAULT_ATTENUATION_CURVE).map(|p| (p / 100.0).clamp(0.0, 1.0));
     let (min, max) = (s.min_distance.max(1.0), s.max_distance);
     if distance <= min {
@@ -981,5 +1010,113 @@ mod tests {
         // No span: the inner level, then min ÷ distance.
         let point = Sound { min_distance: 200.0, max_distance: 0.0, ..Sound::default() };
         assert!((distance_gain(&point, 400.0) - 0.5).abs() < 1e-6);
+    }
+
+    /// A RIFF/WAVE file of `fmt ` fields as given (no arithmetic on them, so any value
+    /// goes in) and `data` declaring `data_len` bytes with `data` after it.
+    fn raw_wav(tag: u16, channels: u16, rate: u32, bits: u16, data_len: u32, data: &[u8]) -> Vec<u8> {
+        let mut v = b"RIFF\xFF\xFF\xFF\xFFWAVEfmt ".to_vec();
+        v.extend(16u32.to_le_bytes());
+        v.extend(tag.to_le_bytes());
+        v.extend(channels.to_le_bytes());
+        v.extend(rate.to_le_bytes());
+        v.extend(0u32.to_le_bytes());
+        v.extend(0u16.to_le_bytes());
+        v.extend(bits.to_le_bytes());
+        v.extend(b"data");
+        v.extend(data_len.to_le_bytes());
+        v.extend(data);
+        v
+    }
+
+    #[test]
+    fn broken_wav_headers_are_refused_not_played() {
+        // Zero, absurd and too many channels or rates: refused, never a panic or a
+        // rate the mixer cannot convert.
+        for (channels, rate) in [(1, 0), (0, 44100), (1, 1), (1, u32::MAX), (1, 999), (1, 384_001), (9, 44100), (u16::MAX, 44100)] {
+            let e = PcmSound::from_wav(&raw_wav(1, channels, rate, 16, 4, &[0; 4])).unwrap_err();
+            assert!(e.contains("rate") || e.contains("channels"), "{channels} ch {rate} Hz: {e}");
+            assert!(format_ok(channels, rate).is_err());
+        }
+        assert!(format_ok(2, 44100).is_ok() && format_ok(1, 1_000).is_ok() && format_ok(8, 384_000).is_ok());
+        // A data chunk declaring 4 GB holds what the file has, no more.
+        let s = PcmSound::from_wav(&raw_wav(1, 1, 22050, 16, u32::MAX, &[0, 0x40, 0, 0xC0, 7])).unwrap();
+        assert_eq!(&s.samples[..], &[0.5, -0.5]);
+    }
+
+    #[test]
+    fn broken_wav_bodies_do_not_panic() {
+        // Cut anywhere, a WAV is refused or holds less; no index runs past the end.
+        let whole = raw_wav(1, 2, 44100, 16, 8, &[1, 2, 3, 4, 5, 6, 7, 8]);
+        for n in 0..whole.len() {
+            let _ = PcmSound::from_wav(&whole[..n]);
+        }
+        assert!(PcmSound::from_wav(b"").is_err());
+        assert!(PcmSound::from_wav(b"RIFF\0\0\0\0WAVE").unwrap_err().contains("no data"));
+        // A chunk claiming 4 GB before the data ends the walk; a zero-sized one moves on.
+        let mut big = b"RIFF\0\0\0\0WAVEjunk".to_vec();
+        big.extend(u32::MAX.to_le_bytes());
+        big.extend([0; 64]);
+        assert!(PcmSound::from_wav(&big).is_err());
+        let mut zero = b"RIFF\0\0\0\0WAVE".to_vec();
+        for _ in 0..1000 {
+            zero.extend(b"junk\0\0\0\0");
+        }
+        assert!(PcmSound::from_wav(&zero).unwrap_err().contains("no data"));
+        // A fmt chunk too short to read, then data: "data before fmt".
+        let mut short = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        short.extend(4u32.to_le_bytes());
+        short.extend([1, 0, 1, 0, b'd', b'a', b't', b'a', 2, 0, 0, 0, 0, 0]);
+        assert!(PcmSound::from_wav(&short).is_err());
+        // Garbled floats are silence, not NaN through the mix.
+        let mut floats = Vec::new();
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.25] {
+            floats.extend(x.to_le_bytes());
+        }
+        let s = PcmSound::from_wav(&raw_wav(3, 1, 44100, 32, 16, &floats)).unwrap();
+        assert_eq!(&s.samples[..], &[0.0, 0.0, 0.0, 0.25]);
+    }
+
+    #[test]
+    fn broken_encoded_files_are_refused() {
+        // Empty, garbage, a cut Ogg and a WAV of rate 0 through rodio: an error, never a
+        // panic out of the guard the play path runs it in ([`source`]; symphonia-core
+        // 0.5.5 itself panics opening a WAV of rate 0 [observed: units.rs:150]).
+        let ogg = fnv_voice::length::synth::ogg_vorbis(2, 44100, 44100, 4);
+        let mut garbage = Vec::new();
+        let mut x = 0x1234_5678u32;
+        for _ in 0..4096 {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            garbage.push(x as u8);
+        }
+        let mut ogg_garbage = b"OggS".to_vec();
+        ogg_garbage.extend(&garbage);
+        for bytes in [Vec::new(), garbage.clone(), ogg_garbage, ogg[..ogg.len() / 2].to_vec(), ogg.clone(), raw_wav(1, 1, 0, 16, 4, &[0; 4]), raw_wav(1, 1, u32::MAX, 16, 4, &[0; 4])] {
+            if let Ok(s) = nvf_assets::guard::guarded(|| PcmSound::from_encoded(bytes.clone())) {
+                assert!(format_ok(s.channels, s.rate).is_ok() && s.samples.len() <= MAX_DECODED_SAMPLES);
+                assert!(s.samples.iter().all(|x| x.is_finite()));
+            }
+            if playable(&bytes).is_ok() {
+                assert!(!bytes.is_empty());
+            }
+        }
+        assert!(playable(&raw_wav(1, 1, 0, 16, 4, &[0; 4])).is_err());
+        assert!(playable(&raw_wav(1, 1, 5_000_000, 16, 4, &[0; 4])).is_err());
+    }
+
+    #[test]
+    fn broken_places_are_not_nan() {
+        let eye = [0.0, 0.0, 0.0];
+        for at in [[f32::NAN, 0.0, 0.0], [f32::INFINITY, 0.0, 0.0], [f32::MAX, f32::MAX, 0.0]] {
+            assert_eq!(pan_gains(eye, 0.0, at), [1.0, 1.0], "{at:?}");
+        }
+        assert_eq!(pan_gains(eye, f32::NAN, [500.0, 0.0, 0.0]), [1.0, 1.0]);
+        let s = Sound { min_distance: 100.0, max_distance: 1000.0, ..Sound::default() };
+        assert_eq!(distance_gain(&s, f32::NAN), 0.0);
+        assert_eq!(distance_gain(&s, f32::INFINITY), 0.0);
+        let point = Sound { min_distance: 100.0, max_distance: 0.0, ..Sound::default() };
+        assert_eq!(distance_gain(&point, f32::NAN), 0.0);
     }
 }
