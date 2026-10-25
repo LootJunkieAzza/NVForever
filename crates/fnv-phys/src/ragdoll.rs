@@ -106,6 +106,10 @@ pub(crate) struct RagdollBodies {
     /// Joints cut by dismemberment ([`PhysWorld::cut_ragdoll`]), by stored index: never
     /// built again.
     cut: Vec<usize>,
+    /// A placed object's jointed bodies (a swinging trap, [`PhysWorld::add_object_ragdoll`]),
+    /// not an actor's: its colliders report the reference ([`Owner::Ref`]) and its
+    /// keyframed and static bodies are fixed.
+    object: bool,
 }
 
 /// Contact filtering for ragdoll colliders (see the module notes).
@@ -247,13 +251,24 @@ impl PhysWorld {
     /// at its bone's pose, joined by the ragdoll's constraints.
     pub fn add_ragdoll(&mut self, s: &RagdollStart) -> RagdollReport {
         let nodes: Vec<Option<Iso>> = (0..s.ragdoll.bodies.len()).map(|i| s.nodes.get(i).copied()).collect();
-        self.build_ragdoll(s.form_id, s.ragdoll.clone(), s.scale, s.parts.to_vec(), Vec::new(), &nodes, s.velocity, s.asleep)
+        self.build_ragdoll(s.form_id, s.ragdoll.clone(), s.scale, s.parts.to_vec(), Vec::new(), &nodes, s.velocity, s.asleep, false)
+    }
+
+    /// Add the jointed bodies of placed object `s.form_id` (a swinging trap,
+    /// docs/spec-notes/traps.md §4): as [`PhysWorld::add_ragdoll`], `nodes` the poses of
+    /// the bodies' nodes, but its keyframed and static bodies (the anchors) are fixed
+    /// where they are, its dynamic ones hang on them by the model's constraints, and its
+    /// colliders are the reference's ([`Owner::Ref`], each body's own layer). `parts` is
+    /// not used.
+    pub fn add_object_ragdoll(&mut self, s: &RagdollStart) -> RagdollReport {
+        let nodes: Vec<Option<Iso>> = (0..s.ragdoll.bodies.len()).map(|i| s.nodes.get(i).copied()).collect();
+        self.build_ragdoll(s.form_id, s.ragdoll.clone(), s.scale, Vec::new(), Vec::new(), &nodes, s.velocity, s.asleep, true)
     }
 
     /// Build a ragdoll: dynamic bodies and joints, or fixed bodies alone when `at_rest`.
     /// The joints in `cut` are left out.
     #[allow(clippy::too_many_arguments)]
-    fn build_ragdoll(&mut self, form_id: u32, data: Arc<Ragdoll>, scale: f32, parts: Vec<u8>, cut: Vec<usize>, nodes: &[Option<Iso>], velocity: [f32; 3], at_rest: bool) -> RagdollReport {
+    fn build_ragdoll(&mut self, form_id: u32, data: Arc<Ragdoll>, scale: f32, parts: Vec<u8>, cut: Vec<usize>, nodes: &[Option<Iso>], velocity: [f32; 3], at_rest: bool, object: bool) -> RagdollReport {
         self.remove_ragdoll(form_id);
         let k = self.k;
         let f = scale.max(1e-3);
@@ -261,7 +276,7 @@ impl PhysWorld {
         let start_velocity = Some(vec3(velocity) * k).filter(|v| v.is_finite()).unwrap_or_default();
         let n = data.bodies.len();
         let joints = vec![None; data.joints.len()];
-        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut };
+        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, object };
         // The bodies' shapes in the bind pose, for the self-collision pairs.
         let mut rest: Vec<Vec<(Pose, SharedShape)>> = Vec::with_capacity(n);
         for (i, b) in data.bodies.iter().enumerate() {
@@ -276,8 +291,10 @@ impl PhysWorld {
             rest.push(leaves.iter().map(|l| (rest_pose * l.pose, l.shape.clone())).collect());
             let (Some(pose), false) = (pose, leaves.is_empty()) else { continue };
             let part = rag.parts.get(i).copied().unwrap_or(crate::actors::WHOLE);
-            let owner = Owner::Actor { form_id, layer: layers::DEAD_BIP, part }.encode();
-            let builder = if at_rest {
+            let owner = if object { Owner::Ref { form_id, object: i as u16, layer: o.layer } } else { Owner::Actor { form_id, layer: layers::DEAD_BIP, part } }.encode();
+            // An object's anchors (keyframed or static bodies) do not move.
+            let held = object && o.motion != fnv_collide::Motion::Dynamic;
+            let builder = if at_rest || held {
                 RigidBodyBuilder::fixed().pose(pose).user_data(owner)
             } else {
                 RigidBodyBuilder::dynamic()
@@ -301,7 +318,7 @@ impl PhysWorld {
                     .user_data(owner);
                 self.w.insert_collider(c, Some(body));
             }
-            if !at_rest {
+            if !at_rest && !held {
                 self.set_mass(body, o.mass);
             }
             rag.bodies[i] = Some(body);
@@ -351,8 +368,8 @@ impl PhysWorld {
         let Some(nodes) = self.ragdoll_nodes(form_id) else { return false };
         let nodes: Vec<Option<Iso>> = nodes.iter().map(|b| b.as_ref().map(|b| Iso { translation: b.translation, rotation: b.rotation })).collect();
         let Some(r) = self.ragdolls.get(&form_id) else { return false };
-        let (data, scale, parts, cut) = (r.data.clone(), r.scale, r.parts.clone(), r.cut.clone());
-        self.build_ragdoll(form_id, data, scale, parts, cut, &nodes, [0.0; 3], at_rest);
+        let (data, scale, parts, cut, object) = (r.data.clone(), r.scale, r.parts.clone(), r.cut.clone(), r.object);
+        self.build_ragdoll(form_id, data, scale, parts, cut, &nodes, [0.0; 3], at_rest, object);
         true
     }
 
@@ -469,6 +486,12 @@ impl PhysWorld {
                 })
                 .collect(),
         )
+    }
+
+    /// Whether `form_id`'s ragdoll is a placed object's ([`PhysWorld::add_object_ragdoll`]),
+    /// not an actor's.
+    pub fn is_object_ragdoll(&self, form_id: u32) -> bool {
+        self.ragdolls.get(&form_id).is_some_and(|r| r.object)
     }
 
     /// Whether the ragdoll is at rest: held ([`PhysWorld::set_ragdoll_at_rest`]) or every

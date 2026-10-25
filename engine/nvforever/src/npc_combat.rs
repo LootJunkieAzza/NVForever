@@ -282,9 +282,11 @@ pub(crate) const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
 pub(crate) const CHEST: f32 = 0.75;
 /// A gunman fires only while its target is within this angle of straight ahead,
-/// radians (30°) [design: owner's playtest list 5 item 33, "NPCs must face their target
-/// before shooting"].
-pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
+/// radians (3°) [design: owner's playtest list 5 item 33, "NPCs must face their target
+/// before shooting"; the original's Fiends fired only once turned within about 1.5° of
+/// their target, 0.2 s after a 180° turn ended (observed 2026-10-25, observer campaign
+/// fiend_facing); 30° before let ours fire while turning].
+pub const FIRE_FACING: f32 = 3.0 * std::f32::consts::PI / 180.0;
 
 /// How far off its heading a gunman may have its target and fire (radians): its weapon's
 /// Aim Arc (WEAP DNAM, degrees) when above 0, else [`FIRE_FACING`]
@@ -506,6 +508,10 @@ pub struct Fighters {
     grenade_rng: u64,
     /// Each fighter's pose this frame.
     poses: HashMap<u32, Pose>,
+    /// People locked on their target this frame: they see it and are not running from
+    /// it; where its feet are drawn (`residents` turns them to it and holds them on it,
+    /// [`Fighters::lock_on`]).
+    locks: HashMap<u32, V3>,
     stats: Stats,
     rng: u64,
     /// The crouch, block and approach rolls' own sequence (§14), so fights without them
@@ -608,6 +614,13 @@ struct Stats {
     idle_holds: usize,
     /// Frames in which a fighter that could have attacked waited to face its target.
     unfaced: usize,
+    /// How far off its target a fighter faced (degrees, its drawn body): a gunman at each
+    /// shot, and a person the AI runs locked on its target in each frame after its
+    /// reaction time. The original holds within about
+    /// 1.5° in every phase of the attack [observed 2026-10-25, observer campaign
+    /// fiend_facing].
+    shot_offs: Vec<f32>,
+    seen_offs: Vec<f32>,
     /// Crouching (§14.2): times crouched to fire, behind low cover; stood up, for a
     /// close-combat enemy; shifts.
     crouches: usize,
@@ -1136,6 +1149,7 @@ pub(crate) fn fight(
     };
     let f = &mut *fighters;
     f.poses.clear();
+    f.locks.clear();
     if f.stance_rng == 0 {
         f.stance_rng = 0x2545_F491_4F6C_DD1D;
     }
@@ -2020,6 +2034,21 @@ pub(crate) fn fight(
             if !facing && sees && fighter.seen_for >= REACTION_SECONDS {
                 f.stats.unfaced += 1;
             }
+            // Locked on its target (owner 2026-10-25: "if they have a target in sight they
+            // should be locked on them"; "she still breaks focus to take cover"): a person
+            // that sees its target faces it whatever it does, strafing on its way to cover
+            // or a post and fleeing to cover as well [design]. The original's gunmen held
+            // within about 1.5° of their target through every phase of the attack
+            // [observed 2026-10-25, observer campaign fiend_facing]. Not while it runs from
+            // its target away or by a door.
+            let running_off = flight.is_some_and(|fl| !matches!(fl.spot, Some((_, fnv_game::combat_group::FleeBy::Cover))));
+            // Who the AI does not run stands as it was put (and fires as it stands, above).
+            if person && sees && !running_off && residents.as_deref().is_some_and(|r| r.runs(id)) {
+                f.locks.insert(id, tfeet);
+                if fighter.seen_for >= REACTION_SECONDS {
+                    f.stats.seen_offs.push(off.to_degrees());
+                }
+            }
             // Crouching to fire (§14.2): a person with a gun, by the rules of
             // `combat_stance`, deciding now and then.
             // Hiding at its flee spot (§12.2.1): a person is crouched there by the rules
@@ -2386,6 +2415,7 @@ pub(crate) fn fight(
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;
+                                f.stats.shot_offs.push(off.to_degrees());
                                 if let Some(r) = gun.and_then(|r| r.reach).filter(|r| *r > 0.0) {
                                     let share = shot_distance / r;
                                     f.stats.farthest_share = f.stats.farthest_share.max(share);
@@ -2736,6 +2766,14 @@ fn describe(c: &Combat, arm: &Arm) -> String {
     }
 }
 
+impl Fighters {
+    /// Where the person `reference` is locked on this frame: its target's drawn feet,
+    /// while it sees that target and does not run from it.
+    pub fn lock_on(&self, reference: u32) -> Option<V3> {
+        self.locks.get(&reference).copied()
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Option<Res<CombatStats>>) {
     if exit.read().next().is_none() {
         return;
@@ -2768,6 +2806,15 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.blows_cut,
         s.unfaced,
     );
+    let spread = |v: &[f32]| {
+        let mut v = v.to_vec();
+        v.sort_by(f32::total_cmp);
+        match v.len() {
+            0 => "none".to_string(),
+            n => format!("median {:.1}°, 90th {:.1}°, max {:.1}°, over 10° in {}", v[n / 2], v[n * 9 / 10], v[n - 1], v.iter().filter(|o| **o > 10.0).count()),
+        }
+    };
+    info!("npc combat facing: {} shots, off their target {}; {} frames a person was locked on its target, its body off it {}", s.shot_offs.len(), spread(&s.shot_offs), s.seen_offs.len(), spread(&s.seen_offs));
     if s.idle_holds > 0 {
         info!("npc combat: {} idles flagged No attacking held a fighter's attacks", s.idle_holds);
     }

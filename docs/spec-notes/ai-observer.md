@@ -677,3 +677,29 @@ measured is in actors.md §8.10.
   run; walks set `place`'s `av` (`[["Aggression", 0]]`: actor values set on the spawned
   creature with SetAV before any StartCombat) so creatures without a faction to join
   wander too. Ranged robots and the alien stand off and shoot instead of running.
+
+## 15. A gunman's facing while it fights: Fiends against a standing player [observed 2026-10-25, plugin version 7]
+
+Campaign `fiend_facing` (save `nvftest`, where Violet's dogs roam near Goodsprings, as
+`gun_reach`): `killall` clears the dogs, the player (`tgm`) is turned to heading 0 and one
+Fiend is moved 400 units north of it, then set on the player. Sessions: `violet` (Violet's
+own base, `1EFiendViolet` 0x000F56FD, her own weapon) and `fiend_gun` (`LvlFiendGun`
+0x000F1C7B). The fight field set every game loop; the Fiend's heading (GetAngle Z) against
+the bearing from it to the player:
+
+| GetAnimAction | frames (violet / fiend_gun) | off the player: median | largest |
+|---|---|---|---|
+| 2 attack | 20 / 44 | 0.8° / 0.9° | 1.1° |
+| 3 attack follow | 248 / 12 | 0.8° / 0.9° | 1.2° |
+| 4 attack latency | 173 / 456 | 0.8° / 0.8° | 1.2° |
+| 9 reload | 124 / 136 | 0.8° | 1.5° |
+
+- Through every phase of the attack, and backing off from 400 to 630 units while it fired,
+  the Fiend's heading stayed within 1.5° of the player. The steady ~1° is likely where the
+  weapon is held or the point measured to [hypothesis].
+- Violet started facing away (heading 0, the player at 180°). She turned on the spot
+  about 180° in 0.75 s (roughly 230° a second, GetAnimAction 0), and her first attack
+  (GetAnimAction 2) came 0.2 s after she was within 0.3°. She did not fire while turning.
+
+Our engine since then: a person that sees its target is locked on it
+(design/combat-ai.md §23).

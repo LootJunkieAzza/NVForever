@@ -10,15 +10,15 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 1
-stub_calls = 1
+stubs = 0
+stub_calls = 0
 stub_condition_uses = 0
 unhandled_used = 1
 
 [summary.by_status]  # every status, 0 when no stub has it
 assigned = 0
 implementable = 0
-needs_system = 1
+needs_system = 0
 no_op = 4
 
 # History (moved from scenarios.toml, 2026-10-19; the newest last):
@@ -107,3 +107,4 @@ no_op = 4
 # claude/last-stubs implemented SetVatsTarget (10 calls), GetVATSTargetHeight (7 condition uses),
 # GetForceHitReaction (2) and IsWaterObject (1) (script-stubs.md §3.20): 5 -> 1 stubs (trapUpdate),
 # 11 -> 1 calls, 10 -> 0 condition uses [observed: fnvtool script stubs before the branch, 2026-10-25].
+# claude/swinging-traps implemented trapUpdate (1 call, traps.md §4): 1 -> 0 stubs, 1 -> 0 calls.
