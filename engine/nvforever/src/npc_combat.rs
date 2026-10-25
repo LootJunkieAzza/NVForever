@@ -2145,8 +2145,12 @@ pub(crate) fn fight(
             if fighter.block.is_some() {
                 guarding.insert(me, heading(global));
             }
-            // It holds its fire while it uses a stimpak (`npc_stimpaks.rs`).
+            // It holds its fire while it uses a stimpak (`npc_stimpaks.rs`), and a creature
+            // flagged No Combat in Water while it swims ("will not perform attacks in
+            // water" [documented: GECK wiki Animation Tab]).
+            let in_water_hold = g.no_combat_in_water(me) && g.motion(me).swimming;
             let ready = sees
+                && !in_water_hold
                 && facing
                 && !hold_fire
                 && staggering.is_none()

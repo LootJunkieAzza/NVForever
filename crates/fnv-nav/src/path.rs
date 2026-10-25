@@ -31,6 +31,10 @@ pub struct PathParams {
     pub preferred_cost: f32,
     /// Cost per unit across water triangles.
     pub water_cost: f32,
+    /// Whether water triangles may be used at all: a creature without the Swims flag
+    /// "will avoid using water triangles" [documented: GECK wiki Navmesh Creation
+    /// Workflow], so they are closed to it.
+    pub water: bool,
     /// Fixed cost of using a door, in units of distance.
     pub door_cost: f32,
     /// A* gives up after expanding this many triangles (per leg).
@@ -66,6 +70,7 @@ impl Default for PathParams {
             ledge_rise_max: crate::jump::LEDGE_RISE_MAX,
             preferred_cost: 0.85,
             water_cost: 3.0,
+            water: true,
             door_cost: 256.0,
             max_expanded: 400_000,
             open_locked: false,
@@ -263,6 +268,9 @@ impl NavGraph {
         if p.large && self.tris[n as usize].has(tri_flags::NO_LARGE_CREATURES) {
             return None;
         }
+        if !p.water && self.tris[n as usize].has(tri_flags::WATER) {
+            return None;
+        }
         if p.max_slope_deg.is_some_and(|m| self.up[n as usize] < m.to_radians().cos() - 1e-4) {
             return None;
         }
@@ -428,6 +436,21 @@ impl NavGraph {
     pub fn find_path(&self, from: Place, to: Place, p: &PathParams) -> Result<Path, PathError> {
         let (start, s_at) = self.nearest(from.space, from.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "start", at: from.pos })?;
         let (goal, g_at) = self.nearest(to.space, to.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "goal", at: to.pos })?;
+        // Water closed to it ([`PathParams::water`]): a goal in water is out of reach at
+        // once, not after a search of everything round it; one that stands in water may
+        // walk out through it [design].
+        let wet = |t: u32| self.tris[t as usize].has(tri_flags::WATER);
+        let lifted;
+        let p = if p.water {
+            p
+        } else if wet(start) {
+            lifted = PathParams { water: true, ..p.clone() };
+            &lifted
+        } else if wet(goal) {
+            return Err(PathError::Unreachable { expanded: 0 });
+        } else {
+            p
+        };
         let (chain, expanded) = if p.ledges {
             self.search(start, s_at, goal, g_at, to.space, p, p.doors)?
         } else {
