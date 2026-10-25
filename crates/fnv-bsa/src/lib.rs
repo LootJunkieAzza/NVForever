@@ -38,6 +38,11 @@ pub const SIZE_COMPRESSION_TOGGLE: u32 = 0x4000_0000;
 /// Size field bit 31: meaning undocumented; preserved.
 pub const SIZE_UNKNOWN_BIT31: u32 = 0x8000_0000;
 pub const SIZE_MASK: u32 = 0x3FFF_FFFF;
+/// Largest decompressed size a compressed file may declare: the largest a stored file
+/// can be (`SIZE_MASK`, 1 GiB). The shipped archives' largest file is 11,184,976 bytes
+/// (a Textures2 DDS) [observed]; the cap only stops a small block that claims, or
+/// inflates to, gigabytes (a zip bomb) from being allocated.
+pub const MAX_DECOMPRESSED_FILE: usize = SIZE_MASK as usize;
 
 // Messages embed the inner error, so no variant declares a #[source]: an error
 // chain printer would otherwise repeat it.
@@ -559,6 +564,9 @@ pub fn decode_block_checked(
         return Err(BsaError::Truncated(format!("{label}: compressed block shorter than 4 bytes")));
     }
     let orig = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
+    if orig > MAX_DECOMPRESSED_FILE {
+        return Err(BsaError::Decompress { path: label.to_string(), err: fnv_inflate::InflateError::OutputLimit });
+    }
     if orig == 0 && body.len() == 4 {
         // Observed: Fallout - Misc.bsa, menus\do_not_delete.txt.
         return Ok((Vec::new(), Trailer::Verified));
@@ -1088,5 +1096,26 @@ mod tests {
         std::fs::write(&p, &bytes[..60]).unwrap();
         assert!(matches!(Archive::open(&p), Err(BsaError::Truncated(_))));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn bad_compressed_blocks_are_errors() {
+        let block = |declared: u32, stream: &[u8]| {
+            let mut b = declared.to_le_bytes().to_vec();
+            b.extend_from_slice(stream);
+            decode_block_checked(&b, true, false, "x")
+        };
+        let z = fnv_inflate::zlib_store(b"abc");
+        assert_eq!(block(3, &z).unwrap().0, b"abc");
+        // A declared size over the cap is refused before anything is inflated.
+        let over = block(MAX_DECOMPRESSED_FILE as u32 + 1, &z).unwrap_err();
+        assert!(matches!(over, BsaError::Decompress { err: fnv_inflate::InflateError::OutputLimit, .. }));
+        assert!(block(u32::MAX, &z).is_err());
+        assert!(block(4, &z).is_err());
+        assert!(block(3, b"garbage!").is_err());
+        assert!(block(3, &z[..4]).is_err());
+        assert!(decode_block_checked(&[1, 2], true, false, "x").is_err());
+        // An embedded name longer than the block.
+        assert!(decode_block_checked(&[200, b'a'], false, true, "x").is_err());
     }
 }
