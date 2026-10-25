@@ -1,0 +1,4937 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "creature_flee",
+ "title": "Runs of the creatures that did not charge in creature_runs_all (ranged robots, flyers, the alien ...), taken as flight: Confidence 0 and StartCombat on the player, on the Searchlight Airport runway from the save nvfairport (2026-10-25). Run with JIP LN NVSE and JohnnyGuitar NVSE installed (the owner's choice; ai-observer-jip.md). flee_gecko is the control (its charge: 461.5). Run each session alone (--only).",
+ "save": "nvfairport",
+ "defaults": {
+  "fields": "full",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 200,
+  "hour": 10
+ },
+ "sessions": [
+  {
+   "name": "flee_gecko",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011B9B3"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GeckoMed 0x0014F3FD: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_giant_rat",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E26B"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F3FB"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1GiantRatMed 0x0014F3FF: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_cazador",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F3F7"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F478",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier3CazadorSmall 0x0014F478: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_mantis",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x000E60E2"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F427",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GiantMantisMed 0x0014F427: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_protectron",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001FFB6"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167ED5",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrProtectron 0x00167ED5: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_securitron",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A7D"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00158645"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00177186",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VHDSecuritronBattleMk1East 0x00177186: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_securitron2",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A88"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140713"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011A9F4"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001787EC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VStreetSecuritronMk2 0x001787EC: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_mister_gutsy",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001FFB6"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167ED2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrMisterGutsy 0x00167ED2: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_sentry_bot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001FFB6"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000E8823",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrSentryBotRHQ 0x000E8823: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_bloatfly",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E273"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0009189D"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1BloatFlyMed 0x0014F3FC: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_ant_queen",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E2C7"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021471"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0015E90A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier3GiantAntQueen 0x0015E90A: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_alien",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00174363"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001690AC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrAlien 0x001690AC: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_giant_roboscorpion",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0301365D"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E276"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0300E558"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x03015CE9"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0300E84A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC03RoboScorpionGiant01 0x0300E84A: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_lr_eyebot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400D8C2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04EyebotMedical50 0x0400D8C2: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_ghost_person",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x01010EF1"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x01001198"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x01000BAD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC01CrGhost 0x01000BAD: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_lakelurk",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F446"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F44B",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVCrLakelurk 0x0014F44B: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "flee_brahmin",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E268"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021472"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167EF3",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0Brahmin 0x00167EF3: the player in its factions so it does not attack on spawn; spawned 300 units up the runway at Confidence 0 and set on the player: it flees at a run"
+  },
+  {
+   "name": "chase_cazador_2",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F478",
+     "count": 1,
+     "distance": 200,
+     "attack": "player"
+    }
+   ],
+   "do": [
+    {
+     "until_spawned": [
+      "IsInCombat",
+      "GetDetected player"
+     ],
+     "max_frames": 900
+    },
+    {
+     "frames": 60
+    },
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 30
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier3CazadorSmall 0x0014F478: creature_runs_all's chase again"
+  },
+  {
+   "name": "chase_giant_rat_2",
+   "hours": 0.12,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FF",
+     "count": 1,
+     "distance": 200,
+     "attack": "player"
+    }
+   ],
+   "do": [
+    {
+     "until_spawned": [
+      "IsInCombat",
+      "GetDetected player"
+     ],
+     "max_frames": 900
+    },
+    {
+     "frames": 60
+    },
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 30
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1GiantRatMed 0x0014F3FF: creature_runs_all's chase again"
+  },
+  {
+   "name": "walk_nightkin",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0013F893"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000CD50A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrNightkin 0x000CD50A: creature_runs_all's walk again, longer (it barely moved there)"
+  },
+  {
+   "name": "walk_tunneler",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400AD0E",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04Tunneler 0x0400AD0E: creature_runs_all's walk again, longer (it barely moved there)"
+  },
+  {
+   "name": "walk_securitron2",
+   "hours": 0.6,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A88"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140713"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011A9F4"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001787EC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      580,
+      155,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ]
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VStreetSecuritronMk2 0x001787EC: creature_runs_all's walk again, longer (it barely moved there)"
+  },
+  {
+   "name": "flee2_protectron",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167ED5",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrProtectron 0x00167ED5: flee_protectron without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_securitron",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00177186",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VHDSecuritronBattleMk1East 0x00177186: flee_securitron without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_mister_gutsy",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167ED2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrMisterGutsy 0x00167ED2: flee_mister_gutsy without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_sentry_bot",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x000E8823",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrSentryBotRHQ 0x000E8823: flee_sentry_bot without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_bloatfly",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1BloatFlyMed 0x0014F3FC: flee_bloatfly without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_ant_queen",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0015E90A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier3GiantAntQueen 0x0015E90A: flee_ant_queen without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_alien",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x001690AC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrAlien 0x001690AC: flee_alien without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_giant_roboscorpion",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0300E84A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC03RoboScorpionGiant01 0x0300E84A: flee_giant_roboscorpion without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_lr_eyebot",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400D8C2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04EyebotMedical50 0x0400D8C2: flee_lr_eyebot without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_ghost_person",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x01000BAD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC01CrGhost 0x01000BAD: flee_ghost_person without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_lakelurk",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F44B",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVCrLakelurk 0x0014F44B: flee_lakelurk without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_brahmin",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167EF3",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0Brahmin 0x00167EF3: flee_brahmin without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_mantis",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F427",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GiantMantisMed 0x0014F427: flee_mantis without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "flee2_giant_rat",
+   "hours": 0.2,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "av": [
+      [
+       "Confidence",
+       0
+      ]
+     ],
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1GiantRatMed 0x0014F3FF: flee_giant_rat without the factions (with the player in them StartCombat did not take): spawned 300 units up the runway at Confidence 0 and set on the player"
+  },
+  {
+   "name": "bare_securitron",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00177186",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VHDSecuritronBattleMk1East 0x00177186: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_securitron2",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x001787EC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VStreetSecuritronMk2 0x001787EC: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_mister_gutsy",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167ED2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrMisterGutsy 0x00167ED2: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_protectron",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x00167ED5",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrProtectron 0x00167ED5: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_sentry_bot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x000E8823",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrSentryBotRHQ 0x000E8823: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_robobrain",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0011EBDF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrRobobrainRangerGBRM2kX 0x0011EBDF: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_eyebot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x000E5852",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrEyebotCombat 0x000E5852: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_lr_eyebot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400D8C2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04EyebotMedical50 0x0400D8C2: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_alien",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x001690AC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrAlien 0x001690AC: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_giant_roboscorpion",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0300E84A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC03RoboScorpionGiant01 0x0300E84A: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "bare_cyberdog",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0300E85B",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1449,
+      388,
+      0
+     ],
+     "arm": "none",
+     "attack": "player",
+     "attack_late": true
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC03CyberdogPolice 0x0300E85B: spawned 1,500 units up the runway with its items taken (arm none) and set on the player: unarmed, it has to close in (the owner: the robots only stood and shot)"
+  },
+  {
+   "name": "pkg_gecko",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011B9B3"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GeckoMed 0x0014F3FD: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_dog",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021475"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E26A"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F425",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1DogMed 0x0014F425: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_mantis",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x000E60E2"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F427",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GiantMantisMed 0x0014F427: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_giant_rat",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E26B"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F3FB"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1GiantRatMed 0x0014F3FF: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_cazador",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F3F7"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F478",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier3CazadorSmall 0x0014F478: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_protectron",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001FFB6"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167ED5",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrProtectron 0x00167ED5: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_securitron",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A7D"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00158645"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00177186",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VHDSecuritronBattleMk1East 0x00177186: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_securitron2",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A88"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140713"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011A9F4"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001787EC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VStreetSecuritronMk2 0x001787EC: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_mister_gutsy",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001FFB6"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167ED2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0CrMisterGutsy 0x00167ED2: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_sentry_bot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001FFB6"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000E8823",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrSentryBotRHQ 0x000E8823: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_robobrain",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x000A46E7"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0011EBDF",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrRobobrainRangerGBRM2kX 0x0011EBDF: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_eyebot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0001D3FD"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00025C70"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000E5852",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrEyebotCombat 0x000E5852: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_bloatfly",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E273"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0009189D"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1BloatFlyMed 0x0014F3FC: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_ant_queen",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E2C7"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021471"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0015E90A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier3GiantAntQueen 0x0015E90A: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_alien",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00174363"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001690AC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrAlien 0x001690AC: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_giant_roboscorpion",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0301365D"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E276"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0300E558"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x03015CE9"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0300E84A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC03RoboScorpionGiant01 0x0300E84A: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_lr_eyebot",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400D8C2",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04EyebotMedical50 0x0400D8C2: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_ghost_person",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x01010EF1"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x01001198"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x01000BAD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC01CrGhost 0x01000BAD: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_lakelurk",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0014F446"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F44B",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVCrLakelurk 0x0014F44B: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_brahmin",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0007E268"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021472"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x00167EF3",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier0Brahmin 0x00167EF3: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_centaur",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021473"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F429",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2CentaurMed 0x0014F429: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_nightkin",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0013F893"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000CD50A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrNightkin 0x000CD50A: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_tunneler",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400AD0E",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04Tunneler 0x0400AD0E: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_radroach",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00021478"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F42E",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier1RadroachMed 0x0014F42E: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_owb_hologram",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0301201B"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0301201A"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x030141AB",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC03HologramTemplate 0x030141AB: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "pkg_dm_hologram",
+   "hours": 0.15,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x01009252"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x01009254"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x01010EF1"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0100B044",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0015FB7E"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC01CrHologramVaultMale 0x0100B044: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  }
+ ]
+}
