@@ -1,0 +1,5 @@
+scn ExtUdfReturnValue
+; function script for tools/capture/ext-probes/udf/README.md
+Begin Function { }
+    Return 7
+End

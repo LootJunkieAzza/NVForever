@@ -1,0 +1,7 @@
+scn ExtUdfSetArr
+; function script for tools/capture/ext-probes/udf/README.md
+array_var a
+Begin Function {a}
+    let a[0] := 99
+    SetFunctionValue 1
+End

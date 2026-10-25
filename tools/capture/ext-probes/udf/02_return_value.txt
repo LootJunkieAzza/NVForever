@@ -1,0 +1,19 @@
+scn ExtProbeUdf02
+; Return with a value (may not compile) (tools/capture/ext-probes/udf/README.md)
+int i
+int r
+int iP
+ref rL
+ref rRef
+string_var s
+array_var a
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|udf/ExtProbeUdf02|begin"
+    Print "EXTPROBE|udf.return_value|" + $(Call ExtUdfReturnValue)
+    Print "EXTPROBE|udf/ExtProbeUdf02|end"
+End

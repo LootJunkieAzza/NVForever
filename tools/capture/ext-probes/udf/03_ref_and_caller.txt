@@ -1,0 +1,27 @@
+scn ExtProbeUdf03
+; calling reference, GetSelf, this, GetCallingScript (tools/capture/ext-probes/udf/README.md)
+int i
+int r
+int iP
+ref rL
+ref rRef
+string_var s
+array_var a
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|udf/ExtProbeUdf03|begin"
+    let rRef := PlayerREF.Call ExtUdfSelf
+    Print "EXTPROBE|udf.getself_player|" + $(rRef == PlayerREF)
+    let rRef := PlayerREF.Call ExtUdfThis
+    Print "EXTPROBE|udf.this_player|" + $(rRef == PlayerREF)
+    let rRef := Call ExtUdfSelf
+    Print "EXTPROBE|udf.getself_no_ref|" + $rRef
+    let rRef := Call ExtUdfCaller
+    Print "EXTPROBE|udf.caller_valid|" + $(IsFormValid rRef)
+    Print "EXTPROBE|udf.caller_text|[" + $rRef + "]"
+    Print "EXTPROBE|udf/ExtProbeUdf03|end"
+End
