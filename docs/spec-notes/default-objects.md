@@ -47,7 +47,8 @@ As built (`fnv_game::data::GameData::default_object`, `fnv_world::audio::AudioFo
 - Read and not used: the rest. The level-up's `DefaultSuccess` names no shipped file and
   the level-up keeps `UILevelUp` (xp-meter); the other chems, the factions, the voices, the
   Meltdown explosion (the perk is not built), the unarmed power-attack effects (not built,
-  perk-entry-points.md §2), Spotter and Item Detected.
+  perk-entry-points.md §2). Spotter Effect and Item Detected Effect: played while the
+  player aims by Spotter and Search and Mark (perk-entry-points.md §13).
 - Looked up by Editor ID because no place matches: the SOUN `MUSDeath` (the fallback after
   Death Music, `nvf_play::music`) and the night-vision scope's `NightScopeISFX`
   (`nvforever::scope_view`); the list has no death sound or scope image space.

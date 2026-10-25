@@ -61,6 +61,12 @@ pub const MODIFY_POSITIVE_CHEM_DURATION: u8 = 25;
 /// "Modify Radiation Consumed" [observed: Lead Belly; documented: GECK wiki Entry
 /// Point, "Modifies the radiation from ingestibles"].
 pub const MODIFY_RADIATION_CONSUMED: u8 = 44;
+/// Multiplies the health an ingestible restores (Better Healing × 1.2, Cardiac Arrest
+/// × 1.25) [observed: the original game, captures `pk_better_healing*` 2026-10-25: a
+/// Stimpak's and a Brahmin Wellington's healing × 1.2 at every Medicine and Survival
+/// tried; the GECK wiki's "natural healing rate" has nothing to act on, the player does
+/// not heal by itself] (perk-entry-points.md §14).
+pub const MODIFY_RECOVERED_HEALTH: u8 = 12;
 /// "Add Leveled List On Death": "Adds a leveled list to the target's inventory when the
 /// player kills someone" [documented: GECK wiki Perk, the list of entry points; code 21,
 /// GetNthPerkEntryFunction; tab 1 Target, GetPerkModifier] (`crate::death_items`).
@@ -148,6 +154,11 @@ pub const HAS_JURY_RIGGING: u8 = 48;
 /// wiki GetNthPerkEntryFunction, codes 61–66; observed: Legion Assault 61, Ranger Takedown
 /// 62, Scribe Counter 64, Khan Trick 65 and 66, each Set 1 with no conditions].
 pub const HAS_UNARMED_FORWARD_POWER_ATTACK: u8 = 61;
+/// The companion perks' entry points (Enhanced Sensors, Spotter, Search and Mark)
+/// [documented: GECK wiki Perk entry points] (perk-entry-points.md §13).
+pub const HAS_IMPROVED_DETECTION: u8 = 69;
+pub const HAS_IMPROVED_SPOTTING: u8 = 70;
+pub const HAS_IMPROVED_ITEM_DETECTION: u8 = 71;
 pub const HAS_UNARMED_BACK_POWER_ATTACK: u8 = 62;
 pub const HAS_UNARMED_CROUCHED_POWER_ATTACK: u8 = 63;
 pub const HAS_UNARMED_COUNTER_ATTACK: u8 = 64;

@@ -656,6 +656,8 @@ impl IngestibleDef {
     pub const MEDICINE: u8 = 4;
     /// ETYP Chems [documented: xEdit wbEquipTypeEnum].
     pub const CHEMS: i64 = 10;
+    /// ETYP Stimpak [documented: the same].
+    pub const STIMPAK: i64 = 11;
 }
 
 /// The places in the DOBJ list the game reads [documented: xEdit wbDefinitionsFNV.pas
@@ -680,6 +682,11 @@ pub enum DefaultObject {
     UnarmedRightPa = 28,
     UnarmedCrouchPa = 29,
     UnarmedCounterPa = 30,
+    /// Spotter's and Search and Mark's effect shaders [documented: xEdit DOBJ "Spotter
+    /// Effect", "Item Detected Effect"; observed: FalloutNV.esm names fxSpotterShader
+    /// 0015FF60 and fxSearchAndMark 0015FF61] (perk-entry-points.md §13).
+    SpotterEffect = 31,
+    ItemDetectedEffect = 32,
 }
 
 impl GameData {

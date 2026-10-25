@@ -255,3 +255,12 @@ engine if needed, and delete the item here.
     ([navmesh §7](../design/navmesh.md), [idles](../spec-notes/idles.md),
     [furniture §5, §7](../spec-notes/furniture.md), [packages §7](../spec-notes/packages.md),
     [challenges](../spec-notes/challenges.md))
+
+19. **The companion perks' highlights.** Ours: Spotter (Boone) and Search and Mark
+    (Rex) glow only while the player aims with a weapon out; Spotter marks the actors
+    the compass shows red within its range; Search and Mark marks chems, Stimpaks, guns,
+    energy weapons and ammunition within 1,500 units; Enhanced Sensors (ED-E) sets the
+    compass's actor range to Perception 10's. To check: with each companion hired, a
+    frame before and while aiming near hostiles and near dropped items (a Stimpak, a
+    pistol, a melee weapon, food) at a few distances; the compass with ED-E at low
+    Perception. ([perk-entry-points §13](../spec-notes/perk-entry-points.md))

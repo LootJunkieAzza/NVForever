@@ -3929,6 +3929,76 @@ expect = [
 ]
 
 [[scenario]]
+name = "perk-spotter"
+source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): Spotter, Boone's companion perk, highlights hostile actors while the player aims (docs/spec-notes/perk-entry-points.md §13)"
+note = "the Goodsprings dogs set on the player (god mode) at 3 s, the perk Spotting (Spotter's record) at 3 s, the 10mm Pistol drawn; the player aims (the right button held) from 9 to 12 s: the dogs play fxSpotterShader while it aims, and it ends after"
+areas = ["perks", "effects"]
+paths = ["engine/nvf-play/src/perk_marks.rs", "engine/nvforever/src/effect_shaders.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "3:perk:Spotting,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_CONTROL = "2:weapon,8.2:aimactor,8.95:aimactor", NVF_PLAY_TEST_KEYS = "9:mouse-right:3", NVF_PLAY_TEST_SHOTS = "8.6:spotter_not_aiming.png,10.5:spotter_aiming.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks the dogs while the player aims" },
+  { re = 'effect shader: fxSpotterShader on .* while the player aims', label = "they play the Spotter Effect" },
+  { re = 'perk marks: Spotter marks 0 hostile actors', label = "none once the player stops aiming" },
+]]
+
+[[scenario]]
+name = "perk-search-and-mark"
+source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): Search and Mark, Rex's companion perk, highlights chems, guns and ammunition nearby while the player aims (docs/spec-notes/perk-entry-points.md §13)"
+note = "Doc Mitchell's house (quiet: outdoors the Goodsprings fiend dogs set on the player got in the way of the view), the 10mm Pistol drawn; the perk SearchAndMark at 3 s; a Stimpak (00015169) and a second 10mm Pistol given and dropped at 6 and 8 s (run-time references); the player looks down at them and aims from 11 to 14 s: both play fxSearchAndMark. Frames before and while aiming for the owner"
+areas = ["perks", "effects"]
+paths = ["engine/nvf-play/src/perk_marks.rs", "engine/nvforever/src/effect_shaders.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00015169:1,0000434F:1", NVF_PLAY_TEST_SCRIPT = "3:perk:SearchAndMark", NVF_PLAY_TEST_DROP = "6:00015169,8:0000434F", NVF_PLAY_TEST_CONTROL = "10:weapon", NVF_PLAY_TEST_KEYS = "11:mouse-right:3", NVF_PLAY_TEST_LOOK = "5:0:0,10.3:0:-50", NVF_PLAY_TEST_SHOTS = "10.8:search_and_mark_not_aiming.png,12.5:search_and_mark_aiming.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'perk marks: Search and Mark marks [2-9]\d* items while the player aims', label = "Search and Mark marks the dropped Stimpak and pistol while the player aims" },
+  { re = 'effect shader: fxSearchAndMark on .* while the player aims', label = "they play the Item Detected Effect" },
+]]
+
+[[scenario]]
+name = "perk-vats-cloaked"
+source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): a cloaked actor cannot be marked in VATS mode without Enhanced Sensors (docs/spec-notes/perk-entry-points.md §13)"
+note = "vats-mode-miss's setup (a .357 among the Goodsprings dogs on their packages, god mode; Violetta killed) with the dog 000F573F given Chameleon 1 (set_av) at 3 s; VATS at 10 s and a mark on it"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:set_av:0x000F573F:Chameleon:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 14
+expect = [
+  { re = 'vats mode: 000F573F is cloaked: not marked', label = "the cloaked dog is not marked" },
+]
+forbid = [{ re = 'vats mode: marked Fiend Guard Dog 000F573F', label = "the cloaked dog marked" }]
+
+[[scenario]]
+name = "perk-enhanced-sensors"
+source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): Enhanced Sensors, ED-E's companion perk, lets the player mark cloaked actors in VATS mode (docs/spec-notes/perk-entry-points.md §13)"
+note = "perk-vats-cloaked's setup with the perk EnhancedSensors at 3 s: the cloaked dog is marked"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:set_av:0x000F573F:Chameleon:1,3:perk:EnhancedSensors", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 14
+order = [[
+  { re = 'vats mode: 000F573F is cloaked: marked through Enhanced Sensors', label = "the cloaked dog may be marked" },
+  { re = 'vats mode: marked Fiend Guard Dog 000F573F', label = "and is" },
+]]
+
+[[scenario]]
+name = "perk-better-healing"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24 (the rest of the perks): Better Healing, Arcade's companion perk, multiplies the health an ingestible restores by 1.2, as the original game does (captures pk_better_healing*, docs/spec-notes/perk-entry-points.md §14)"
+note = "aid-items' Stimpak after 60 damage in Doc Mitchell's house with the perk BetterHealing at 3 s: Stimpak 30 x the new player's potency 1.3 x 1.2"
+areas = ["aid", "perks"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015169:1", NVF_PLAY_TEST_SCRIPT = "3:perk:BetterHealing,4:damage:player:Health:60", NVF_PLAY_TEST_DROP = "6:00015169:use" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 24
+expect = [
+  { re = 'aid: the player used Stimpak \(potency 1\.30\): Health \+46\.8 at once', label = "the Stimpak restores 46.8 (39 x 1.2)" },
+]
+
+[[scenario]]
 name = "perk-scribe-counter"
 source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: Scribe Counter, a quick counter-attack after a block, with its clip h2hcounter (docs/spec-notes/perk-entry-points.md §11)"
 note = "perk-unarmed-moves' NCR trooper fist fight with the perk ScribeCounter from 3 s; five times the player holds Block (the right button) for 1.5 s facing the trooper while it punches, then strikes at once: a blow begun within a second of a blocked punch is the counter (a first version with one window saw no punch blocked in one of two runs, one with three 2.6 s windows struck more than a second after the last block in one of three: the block counts against a blow from the front only, and the trooper moves)"

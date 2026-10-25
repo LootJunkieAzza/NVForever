@@ -69,6 +69,9 @@ pub(crate) enum Source {
     Script(u64),
     /// An active magic effect (its id).
     Effect(u32),
+    /// A companion perk's mark while the player aims (`nvf_play::perk_marks`): the
+    /// reference and the shader.
+    Perk(u32, u32),
 }
 
 /// A shader playing on a reference.
@@ -191,7 +194,7 @@ fn play(
         Query<&Children>,
         Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
     ),
-    (combat, mut fades, mut transforms): (Option<Res<nvf_play::combat::Combat>>, Query<&mut RigMaterials>, Query<&mut Transform>),
+    (combat, mut fades, mut transforms, perk_marks): (Option<Res<nvf_play::combat::Combat>>, Query<&mut RigMaterials>, Query<&mut Transform>, Option<Res<nvf_play::perk_marks::PerkMarks>>),
 ) {
     let (Some(rt), Some(world)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), world) else { return };
     let st = &mut *st;
@@ -206,6 +209,9 @@ fn play(
         if let Some(sh) = m.shader {
             want.push((Source::Effect(e.id), e.target.0, sh.0, None, m.has(MagicEffectDef::FX_PERSIST)));
         }
+    }
+    if let Some(marks) = perk_marks.as_deref() {
+        want.extend(marks.0.iter().map(|(r, sh, _)| (Source::Perk(r.0, sh.0), r.0, sh.0, None, true)));
     }
     let wanted: HashSet<Source> = want.iter().map(|w| w.0).collect();
 
@@ -293,6 +299,7 @@ fn play(
                 (Some(u), _) => format!("for {u:.1} s"),
                 (None, Source::Script(_)) => "until stopped".to_string(),
                 (None, Source::Effect(_)) => "while the effect lasts".to_string(),
+                (None, Source::Perk(..)) => "while the player aims (a companion perk)".to_string(),
             }
         );
         st.active.insert(k, Active { on, shader: s, since: now, until, persist, fill, edge, covered: HashMap::new(), holes_texture, holed: HashMap::new(), addons: Vec::new() });
