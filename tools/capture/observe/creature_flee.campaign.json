@@ -4932,6 +4932,566 @@
     ]
    ],
    "note": "NVDLC01CrHologramVaultMale 0x0100B044: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VEFR02NCRBad2MoveToPlayer (Travel, Always Run, to within 1,000 of the player; the owner's idea): it runs about 1,700 units down the runway"
+  },
+  {
+   "name": "wpkg_gecko",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011B9B3"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0016293B"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GeckoMed 0x0014F3FD: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VFSAlleyTrapWalkTowardPlayerPackage (Travel to within 300 of the player, not Always Run; a quest-variable condition): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "wpkg_nightkin",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0013F893"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000CD50A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0016293B"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrNightkin 0x000CD50A: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VFSAlleyTrapWalkTowardPlayerPackage (Travel to within 300 of the player, not Always Run; a quest-variable condition): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "wpkg_tunneler",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400AD0E",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0016293B"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04Tunneler 0x0400AD0E: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VFSAlleyTrapWalkTowardPlayerPackage (Travel to within 300 of the player, not Always Run; a quest-variable condition): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "wpkg_securitron2",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A88"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140713"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011A9F4"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001787EC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x0016293B"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VStreetSecuritronMk2 0x001787EC: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given VFSAlleyTrapWalkTowardPlayerPackage (Travel to within 300 of the player, not Always Run; a quest-variable condition): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "fpkg_gecko",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011B9B3"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0005FF9F"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x0014F3FD",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x001554DC"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VCrTier2GeckoMed 0x0014F3FD: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given DefaultFollowPlayerFar (Follow the player within 512, not Always Run, no conditions): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "fpkg_nightkin",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00000013"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0013F893"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x000CD50A",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x001554DC"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "CrNightkin 0x000CD50A: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given DefaultFollowPlayerFar (Follow the player within 512, not Always Run, no conditions): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "fpkg_tunneler",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "0x0400AD0E",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x001554DC"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "NVDLC04Tunneler 0x0400AD0E: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given DefaultFollowPlayerFar (Follow the player within 512, not Always Run, no conditions): its walk (the owner asked for a package like the run's without Always Run)"
+  },
+  {
+   "name": "fpkg_securitron2",
+   "hours": 0.35,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall",
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140A88"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x00140713"
+    ],
+    [
+     "player.AddToFaction {0} 0",
+     "0x0011A9F4"
+    ]
+   ],
+   "place": [
+    {
+     "base": "0x001787EC",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      2608,
+      699,
+      0
+     ],
+     "av": [
+      [
+       "Aggression",
+       0
+      ]
+     ],
+     "package": "0x001554DC"
+    }
+   ],
+   "extra": [
+    [
+     "los",
+     "num",
+     "GetLOS player"
+    ],
+    [
+     "scale",
+     "num",
+     "GetScale"
+    ]
+   ],
+   "extra_header": [
+    [
+     "psneak",
+     "num",
+     "player.IsSneaking"
+    ],
+    [
+     "prun",
+     "num",
+     "player.IsRunning"
+    ]
+   ],
+   "note": "VStreetSecuritronMk2 0x001787EC: spawned 2,700 units up the runway, Aggression 0 and the player in its factions, given DefaultFollowPlayerFar (Follow the player within 512, not Always Run, no conditions): its walk (the owner asked for a package like the run's without Always Run)"
   }
  ]
 }

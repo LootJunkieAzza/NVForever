@@ -384,7 +384,10 @@ pub const COLUMN_GAP: f32 = 128.0;
 /// A follower more than [`FOLLOW_RUN_BEHIND`] beyond its distance goes faster than it can
 /// run, to catch up: by up to this share more, reached [`CATCH_UP_SPAN`] units beyond
 /// that [our choice: owner's playtest of 2026-10-24, "a speed boost to
-/// allow them to catch up ... faster than their max speed"].
+/// allow them to catch up ... faster than their max speed"; observed since: in the
+/// original, creatures given DefaultFollowPlayerFar 2,700 units from the player ran at
+/// 1.50–1.51 times their own run (AI observer, campaign `creature_flee`, 2026-10-25,
+/// docs/spec-notes/actors.md §8.10); the span over which it grows is our choice].
 pub const CATCH_UP_BOOST: f32 = 0.5;
 /// See [`CATCH_UP_BOOST`]; game units.
 pub const CATCH_UP_SPAN: f32 = 1024.0;
