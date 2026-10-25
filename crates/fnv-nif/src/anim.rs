@@ -1124,7 +1124,9 @@ pub fn geom_morphers(file: &crate::NifFile, dec: &Decoded) -> Vec<GeomMorpher> {
         }
         let Some(c) = dec.get(i as i32) else { continue };
         let Some(data) = c.block_ref("data").and_then(|r| dec.get(r)) else { continue };
-        let num_vertices = data.int("num_vertices").unwrap_or(0).max(0) as usize;
+        // The stored count sizes `positions_at`'s output; a broken file's count (with no
+        // morphs whose vectors bound it) is cut to the longest morph's.
+        let stored_vertices = usize::try_from(data.int("num_vertices").unwrap_or(0)).unwrap_or(0);
         let weights: Vec<(i32, f32)> = c
             .list("interpolator_weights")
             .unwrap_or_default()
@@ -1147,7 +1149,8 @@ pub fn geom_morphers(file: &crate::NifFile, dec: &Decoded) -> Vec<GeomMorpher> {
                 let weight = interpolator_type.as_deref().and_then(|ty| value_track(dec, interp, ty));
                 Some(MorphTarget { name: m.text("frame_name").map(str::to_string), vectors, weight, stored_weight, interpolator_type })
             })
-            .collect();
+            .collect::<Vec<MorphTarget>>();
+        let num_vertices = stored_vertices.min(morphs.iter().map(|m| m.vectors.len()).max().unwrap_or(0));
         out.push(GeomMorpher {
             controller: i,
             target: c.block_ref("target").unwrap_or(-1),
