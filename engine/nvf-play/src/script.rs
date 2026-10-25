@@ -294,6 +294,10 @@ pub struct Runtime {
     /// Enable parent → references that follow it.
     children: HashMap<FormId, Vec<FormId>>,
     started: Instant,
+    /// The scripts have run a frame (`Game::tick`). Under the start's loading screen the
+    /// runtime is made but holds its first frame, so OnLoad has not run and the state
+    /// read from it is the stored one, not yet the scripts' (`crate::loading`).
+    pub ticked: bool,
     pub stats: TickStats,
     /// What the player's aid items did (`crate::aid`).
     pub aid: crate::aid::AidStats,
@@ -507,6 +511,7 @@ impl Runtime {
             triggers: Default::default(),
             children,
             started: Instant::now(),
+            ticked: false,
             stats: TickStats::default(),
             aid: crate::aid::AidStats::default(),
             activate_again: None,
@@ -1698,6 +1703,7 @@ pub(crate) fn run_scripts(
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
+        rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.
         rt.talk_after(from);

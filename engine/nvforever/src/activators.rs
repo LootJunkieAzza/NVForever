@@ -75,7 +75,10 @@ pub fn drive(
     mut materials: ResMut<Assets<NifMaterial>>,
 ) {
     let (Some(places), Some(script)) = (places, script) else { return };
-    let Some(rt) = script.rt.as_ref() else { return };
+    // Not before the scripts' first frame: until then (the start's loading screen) the
+    // runtime holds the stored state, and a receiver its OnLoad switches on would count
+    // as switched on while drawn.
+    let Some(rt) = script.rt.as_ref().filter(|rt| rt.ticked) else { return };
     let dt = time.delta_secs();
     for (mut rig, playing, mut mats) in &mut rigs {
         let Some(receiver) = places.forms.receivers.get(&rig.base) else { continue };
