@@ -107,7 +107,7 @@ fn show_hits_and_deaths(
             if let Some(f) = forcing.iter().rev().find(|f| f.form_id == r.0) {
                 if let Some(c) = lo.set.flinch_for(f.location) {
                     info!("hit reaction: {:08X} staggers for {:.1} s (location {}, forced: {})", r.0, c.clip.length(), f.location, f.by);
-                    commands.entity(e).insert(Flinch { clip: c, at: now });
+                    commands.entity(e).insert(Flinch { clip: c, at: now, forced: true });
                 }
                 continue;
             }
@@ -116,7 +116,7 @@ fn show_hits_and_deaths(
             if mine().any(|h| h.guard_broken) {
                 if let Some(c) = lo.set.flinch_for(0) {
                     info!("hit reaction: {:08X} staggers for {:.1} s (its block broken by a power attack)", r.0, c.clip.length());
-                    commands.entity(e).insert(Flinch { clip: c, at: now });
+                    commands.entity(e).insert(Flinch { clip: c, at: now, forced: false });
                 }
                 continue;
             }
@@ -133,7 +133,7 @@ fn show_hits_and_deaths(
                     "torso crippled"
                 };
                 info!("hit reaction: {:08X} staggers for {:.1} s (location {}, {why})", r.0, c.clip.length(), h.location);
-                commands.entity(e).insert(Flinch { clip: c, at: now });
+                commands.entity(e).insert(Flinch { clip: c, at: now, forced: false });
             }
         }
     }

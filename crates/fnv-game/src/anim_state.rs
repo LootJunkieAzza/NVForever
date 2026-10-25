@@ -167,6 +167,8 @@ pub struct AnimState {
     pub throwing: bool,
     /// The player only: the throw is a mine being laid (IsPlayerActionActive 4).
     pub mine: bool,
+    /// Its hit reaction plays because a power attack forced it (GetForceHitReaction).
+    pub forced_hit: bool,
     /// When ([`Game::time`]) it was told (for traces; it does not expire).
     pub at: f64,
 }
@@ -267,6 +269,19 @@ pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
     let r = ctx.subject()?;
     let code = g.anim_state(r).and_then(|s| s.action).map_or(-1, AnimAction::code);
     Ok(Value::Num(code as f64))
+}
+
+/// `actor.GetForceHitReaction`: 1 while the actor plays a hit reaction a power attack
+/// forced [documented: GECK wiki GetForceHitReaction, "set … to 1 if an actor was hit by
+/// the following power attacks: Khan Trick (AttackCustom4Power and AttackCustom5Power),
+/// and the uppercut (Attack6)"]. The engine tells it with the body's state
+/// ([`AnimState::forced_hit`]: from the hit until the reaction's clip ends) [hypothesis:
+/// how long the original keeps it set]. Its only uses are the conditions of the idles
+/// `3rdPersonHitReactionsForce` and `3rdPCrouchedHitForce` [observed: FalloutNV.esm];
+/// the engine picks the forced reaction's clip itself (`nvforever` deaths.rs).
+pub fn get_force_hit_reaction(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::bool(g.anim_state(r).is_some_and(|s| s.forced_hit)))
 }
 
 /// `IsPlayerActionActive index`: 1 while the player performs the action [documented:

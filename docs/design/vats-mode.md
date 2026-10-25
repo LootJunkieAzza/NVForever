@@ -988,3 +988,23 @@ loaded but not played: the death camera is the owner's own design (`death_cam.rs
   point, length).
 - Smoke: `vats-kill-cam` (one mark on a Goodsprings dog left with 1 health: the shot
   kills it, a path and its shots play, the camera ends).
+
+## 20. Placed objects as targets (2026-10-25)
+
+- A click whose ray first meets a placed object marks it when `Game::vats_targetable`
+  allows: a script's SetVatsTarget for that reference (kept on it, saved), else its
+  base's DEST flag "VATS Targetable" [documented: GECK wiki SetVatsTarget, "turns VATS
+  targeting on or off for a destructible object, overriding the object's base setting";
+  xEdit wbDEST]; never once destroyed. In the masters the flag is on 8 activators
+  (generators, fuse boxes, a fire extinguisher, the Lonesome Road maintenance bots), 16
+  movable statics (the trucks, the motorcycle, the vertibirds, a munition shell) and the
+  thrown weapons' projectiles; the traps' scripts turn it on when they are armed
+  [observed: FalloutNV.esm and the DLC masters].
+- The whole object is marked at the hit point, at the whole-actor base chance
+  (`WHOLE_TO_HIT`) [design]; the point does not move. Shots, bursts, throws and melee
+  swings go at it as at an actor's mark; its damage is the object's destruction
+  (destruction-stages.md).
+- Log `vats mode: marked object <name> <ref>, mark <k>; …`; a click on an object VATS
+  may not target logs `nothing to mark under the crosshair (<ref> is not a VATS target)`.
+- Not built: thrown grenades and placed mines in flight or on the ground (projectiles,
+  not placed objects).
