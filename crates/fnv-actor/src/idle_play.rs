@@ -37,7 +37,7 @@ impl IdleKeys {
         let length = (stop - start).max(0.0);
         let (mut loop_start, mut loop_end) = (None, None);
         let (mut blend_in, mut blend_out) = (None, None);
-        let frames = |rest: &str| rest.trim().parse::<f32>().ok().filter(|n| *n >= 0.0).map(|n| n / KEY_FRAMES_PER_SECOND);
+        let frames = |rest: &str| rest.trim().parse::<f32>().ok().filter(|n| n.is_finite() && *n >= 0.0).map(|n| n / KEY_FRAMES_PER_SECOND);
         for (time, text) in text_keys {
             for line in text.lines() {
                 let l: String = line.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
@@ -110,7 +110,7 @@ impl IdlePlay {
     /// its clip on its last pass): from then on it holds its last pose and fades out,
     /// and whatever follows may start [design: so two idles in a row cross-fade].
     pub fn advance(&mut self, dt: f32) -> bool {
-        let dt = dt.max(0.0);
+        let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.age += dt;
         if let Some(o) = self.out.as_mut() {
             *o += dt;
@@ -123,9 +123,21 @@ impl IdlePlay {
             // Nothing to repeat.
             self.passes = Some(1);
         }
-        while self.t >= to && self.passes != Some(1) {
-            self.t -= span;
-            self.passes = self.passes.map(|n| n - 1);
+        if self.t >= to && self.passes != Some(1) {
+            // Every pass the step went past at once: one turn each would take millions of
+            // turns for a long step over a broken file's tiny loop, and never end where
+            // `t - span` rounds back to `t`.
+            let over = ((self.t - to) / span).floor() + 1.0;
+            match self.passes {
+                Some(n) if over >= (n - 1) as f32 => {
+                    self.t -= (n - 1) as f32 * span;
+                    self.passes = Some(1);
+                }
+                _ => {
+                    self.t = from + (self.t - from).rem_euclid(span);
+                    self.passes = self.passes.map(|n| n - over as u32);
+                }
+            }
         }
         if self.passes == Some(1) && self.t >= self.keys.length + self.hold {
             self.t = self.keys.length;
@@ -287,5 +299,34 @@ mod tests {
         // A clip of no length ends at once instead of looping for ever.
         let mut p = IdlePlay::new(IdleKeys { length: 0.0, loop_range: None, blend_in: 0.0, blend_out: 0.0 }, Some(4));
         assert!(run(&mut p, 1.0).is_some());
+        // Passes counted in one step: three of four used by a step over three loops.
+        let mut p = IdlePlay::new(LOOPED, Some(4));
+        assert!(!p.advance(13.5));
+        assert!((p.time() - 1.5).abs() < 1e-4 && p.passes == Some(1));
+    }
+
+    #[test]
+    fn broken_keys_and_steps_neither_hang_nor_give_nan() {
+        // A broken file's keys: NaN and infinite times, a clip of NaN or infinite length,
+        // fades of `inf` and `NaN` frames.
+        let broken = keys(&[(f32::NAN, "StartLoop"), (f32::INFINITY, "EndLoop"), (0.0, "BlendIn:inf"), (0.0, "BlendOut:NaN"), (0.0, "Blend: 1e40")]);
+        for (start, stop) in [(0.0, f32::NAN), (f32::NAN, 1.0), (0.0, f32::INFINITY), (0.0, 0.0), (1.0, 0.0), (-3.0e38, 3.0e38)] {
+            let k = IdleKeys::read(start, stop, &broken);
+            assert!(k.length.is_finite() || k.length == f32::INFINITY, "{k:?}");
+            assert!(k.blend_in.is_finite() && k.blend_out.is_finite(), "{k:?}");
+            assert_eq!(k.loop_range, None);
+        }
+        // Huge, infinite and NaN steps over the shortest loop the keys allow, at the
+        // start of a clip and far into a long one.
+        let tiny = |at: f32| IdleKeys { length: at + 1.0, loop_range: Some((at, at + 0.0011)), blend_in: 0.0, blend_out: 0.1 };
+        for k in [tiny(0.0), tiny(1.0e6)] {
+            for passes in [None, Some(2), Some(u32::MAX)] {
+                let mut p = IdlePlay::new(k, passes);
+                for dt in [1.0e6, f32::MAX, f32::INFINITY, f32::NAN, -1.0, 1.0 / 60.0] {
+                    p.advance(dt);
+                    assert!(p.time().is_finite() && p.weight().is_finite(), "{k:?} {passes:?} after {dt}");
+                }
+            }
+        }
     }
 }
