@@ -97,6 +97,15 @@ pub struct Function {
     pub encodings: Vec<ParamEnc>,
     pub trailer: Vec<TrailerEnc>,
     pub encoding_source: EncodingSource,
+    /// Parameters the compiler takes when the shipped calls show more than the catalogue
+    /// documents (encodings.json `compiler.param_counts`).
+    pub param_count: Option<usize>,
+    /// Whether a call has a parameter block, where the catalogue's list would say
+    /// otherwise (encodings.json `compiler.block`).
+    pub block: Option<bool>,
+    /// Parameter positions whose numbers are stored as floats (`true`) or integers
+    /// (`false`) against the catalogue's kind (encodings.json `compiler.number_types`).
+    pub number_types: BTreeMap<usize, bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -106,6 +115,9 @@ pub struct FunctionTable {
     pub blocks: BTreeMap<u16, String>,
     /// Enumeration → code → spelling used in shipped source.
     pub enums: BTreeMap<String, BTreeMap<u16, String>>,
+    /// Begin events whose statement has a parameter block (encodings.json
+    /// `compiler.begin_params`).
+    pub begin_params: std::collections::BTreeSet<u16>,
     by_name: HashMap<String, u16>,
 }
 
@@ -191,6 +203,26 @@ impl FunctionTable {
                 }
             }
         }
+        let comp = e.get("compiler");
+        let hex_keys = |k: &str| -> Result<HashMap<u16, Value>, TableError> {
+            comp.and_then(|c| c.get(k))
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .map(|(op, v)| {
+                    parse_hex16(op)
+                        .map(|o| (o, v.clone()))
+                        .ok_or_else(|| TableError::Format(format!("encodings: compiler.{k}: bad opcode {op:?}")))
+                })
+                .collect()
+        };
+        let param_counts = hex_keys("param_counts")?;
+        let blocks = hex_keys("block")?;
+        let number_types = hex_keys("number_types")?;
+        for c in strings(comp.and_then(|c| c.get("begin_params"))) {
+            let code = parse_hex16(&c).ok_or_else(|| TableError::Format(format!("encodings: begin_params: bad code {c:?}")))?;
+            t.begin_params.insert(code);
+        }
         let funcs: Vec<&Value> = f.get("functions").and_then(Value::as_array).into_iter().flatten().collect();
         let mut console: Vec<usize> = (0..funcs.len())
             .filter(|&i| {
@@ -251,6 +283,15 @@ impl FunctionTable {
                     encodings,
                     trailer,
                     encoding_source: source,
+                    param_count: param_counts.get(&op).and_then(Value::as_u64).map(|n| n as usize),
+                    block: blocks.get(&op).and_then(Value::as_bool),
+                    number_types: number_types
+                        .get(&op)
+                        .and_then(Value::as_object)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()? == "float")))
+                        .collect(),
                 };
                 for s in std::iter::once(&fun.name).chain(&fun.aliases).chain(&fun.observed_spellings) {
                     t.by_name.entry(s.to_ascii_lowercase()).or_insert(op);

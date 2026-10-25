@@ -5,7 +5,7 @@
 //! target's chest, drawn from the muzzle), counting them on the game's use.
 //!
 //! - **When it fires**: with its weapon drawn (`alert.rs` draws it for a weapon use),
-//!   facing its target (within `npc_combat::FIRE_FACING`), not restrained (SetRestrained
+//!   facing its target (within [`USE_FACING`]), not restrained (SetRestrained
 //!   "blocks weapon use from Use Weapon packages and UseWeapon" [documented: catalogue
 //!   notes on SetRestrained]), its target where the use wants it (the function's last
 //!   argument, within `fnv_game::use_weapon::TARGET_HERE_RADIUS`), and, with Hold Fire
@@ -43,7 +43,7 @@ use crate::attack_anims::{AttackTimes, Move, PlayAttack, SwingClip, SwingPick, D
 use crate::combat_tactics as tactics;
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
-use crate::npc_combat::{creature_spacing, engage, facing_off, is_gun, melee_spacing, next_unit, CHEST, CREATURE_BODY_REACH, CREATURE_REACH, FIRE_FACING, MUZZLE_AHEAD, STRIKE_SECONDS};
+use crate::npc_combat::{creature_spacing, engage, facing_off, is_gun, melee_spacing, next_unit, CHEST, CREATURE_BODY_REACH, CREATURE_REACH, MUZZLE_AHEAD, STRIKE_SECONDS};
 use crate::ragdoll::Corpse;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
@@ -61,6 +61,11 @@ use nvf_play::player::{Player, EYE_HEIGHT};
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use std::collections::{BTreeMap, HashMap};
+
+/// A scripted weapon use fires and swings only while its target is within this angle of
+/// straight ahead, radians (30°: the combat AI's arc before it held its gunmen to 3°,
+/// kept here, where nothing but the walker turns the actor) [design].
+pub const USE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
 
 pub struct UseWeaponPlugin;
 
@@ -316,7 +321,7 @@ pub(crate) fn shoot(
                 shooter.held = why;
             }
             let drawn = hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
-            let facing = facing_off(global, feet, tfeet) <= FIRE_FACING;
+            let facing = facing_off(global, feet, tfeet) <= USE_FACING;
             let ready = why.is_none() && drawn && facing;
             // No pull while it reloads (a pull would close a round-by-round reload after a
             // round); an empty magazine is reloaded at once, as the combat AI's gunmen do.
@@ -543,7 +548,7 @@ fn swing(
         sw.held = why;
     }
     let drawn = x.hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
-    let facing = facing_off(x.global, x.feet, x.tfeet) <= FIRE_FACING;
+    let facing = facing_off(x.global, x.feet, x.tfeet) <= USE_FACING;
     if why.is_some() || !drawn || !facing || !near || sw.strike_in > 0.0 || (x.feet[2] - x.tfeet[2]).abs() >= 128.0 {
         return;
     }

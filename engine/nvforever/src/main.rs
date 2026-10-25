@@ -98,6 +98,7 @@ mod post;
 mod particles;
 mod shot_fx;
 mod ragdoll;
+mod swing_traps;
 mod readahead;
 mod reflection;
 mod refraction;
@@ -1339,7 +1340,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
