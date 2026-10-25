@@ -79,6 +79,7 @@ mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod destroyed;
 mod npc_grenades;
 mod use_weapon;
 mod provoked;
@@ -1199,6 +1200,7 @@ fn main() -> AppExit {
         buffer: Default::default(),
         centre: None,
         waiting: Vec::new(),
+        model_overrides: Default::default(),
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -1237,6 +1239,7 @@ fn main() -> AppExit {
     )
     .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
+    .add_plugins(destroyed::DestroyedPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
