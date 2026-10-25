@@ -333,8 +333,9 @@ Rules (`crates/fnv-game/src/perks.rs`) [hypothesis unless said]:
   it here.
 - Modify Radiation Consumed multiplies the rads an ingestible's effects give, any
   ingestible [documented: "Modifies the radiation from ingestibles"].
-- Not read: the other entry points (combat's go through `fnv_combat::damage::PerkHooks`
-  without the records yet), ability effects of perks (type 1), quest-stage effects.
+- The other entry points are read where their systems are (combat, VATS, locks, weight,
+  movement: perk-entry-points.md); perks' ability effects and quest-stage effects are held
+  too (levelup.md §9, status.md "Character progression").
 
 ## 11. Rads and Hardcore's needs over time
 

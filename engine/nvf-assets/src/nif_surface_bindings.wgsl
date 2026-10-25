@@ -24,7 +24,8 @@ struct NifSurface {
     // 1: an additive shape with source factor ONE, which adds its colour whole (only the
     // view-angle falloff fades it); 0 otherwise.
     add_whole: f32,
-    // REFRACT: the screen shift (UV) per unit of the view-space normal; 0 otherwise.
+    // REFRACT: the screen shift (UV) per unit of the view-space normal (the strength ×
+    // nif_material.rs REFRACTION_SCREEN); 0 otherwise.
     refraction: f32,
     // REFRACT: seconds for the normal map to scroll once up its texture (fire
     // refraction); 0: it does not move.

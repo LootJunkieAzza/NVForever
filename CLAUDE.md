@@ -11,6 +11,8 @@ What is left after that queue and the ESM gap audit: `docs/handoff/handover-2026
 updated after audit groups 1–4 by `docs/handoff/handover-2026-10-22.md`. **Read first**: the
 code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion, playthrough
 blockers, stale docs; its §7 is the ranked next work) and the owner's `playtest-list-7.md`.
+What ESM data the engine still does nothing with, and the docs that no longer match the code:
+`docs/handoff/esm-audit-2026-10-25.md`.
 
 ## Charter (non-negotiable)
 

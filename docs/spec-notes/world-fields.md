@@ -23,10 +23,11 @@ weapon comes with that ammo [hypothesis: the rounds in it] (`fnv_sim::World::act
   LOD water and parent-use flags beyond Use Map Data, ONAM map offset**: read or stored
   in places; what each changes is not documented closely enough to build (the map is
   calibrated from its own markers, pipboy.md).
-- **REFR XACT, XTRG, XCHG, WMI1, XRMR/XMBO/occlusion planes**: XPOD portals are used for
-  room culling (rooms.rs); the rest have no consumer.
-- **NAVI, NAVM edge cover**: the AI uses cover as yes or no per triangle; NAVI is read by
-  fnvtool only.
+- **REFR XACT, XTRG, XCHG, XRMR/XMBO/occlusion planes**: XPOD portals are used for
+  room culling (rooms.rs); the rest have no consumer. WMI1 (a map marker's reputation) is
+  read since 2026-10-24 (`pipboy/data/read.rs`, the world map's hover).
+- **NAVI, NAVM edge cover**: the AI uses cover as yes or no per triangle; NAVI is loaded by
+  `fnv-nav` (`load.rs`, `info_maps`) and fnvtool, but nothing in the engine reads it.
 - **PMIS, PBEA, PFLA, PCBE**: no master places one.
 - **LSCR "Displays In Main Menu", LSCT**: the main menu picks its slides by having no
   location; the base game has one LSCT, the tip type (loading-screens.md).

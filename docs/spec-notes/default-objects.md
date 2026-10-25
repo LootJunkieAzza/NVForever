@@ -45,9 +45,10 @@ As built (`fnv_game::data::GameData::default_object`, `fnv_world::audio::AudioFo
   else the Editor IDs as before [observed: FalloutNV.esm names `Stimpak`, `RadX`,
   `RadAway` and `NVDoctorBag` there, so nothing changes with the shipped data].
 - Read and not used: the rest. The level-up's `DefaultSuccess` names no shipped file and
-  the level-up keeps `UILevelUp` (xp-meter); the other chems, the factions, the voices, the
-  Meltdown explosion (the perk is not built), the unarmed power-attack effects (not built,
-  perk-entry-points.md §2). Spotter Effect and Item Detected Effect: played while the
+  the level-up keeps `UILevelUp` (xp-meter); the other chems, the factions, the voices. The
+  Meltdown explosion (place 24) is used by the Meltdown perk and the unarmed power-attack
+  effects (25–30) by the unarmed special moves since 2026-10-24 (nvf-play `combat.rs`,
+  perk-entry-points.md §9, §11). Spotter Effect and Item Detected Effect: played while the
   player aims by Spotter and Search and Mark (perk-entry-points.md §13).
 - Looked up by Editor ID because no place matches: the SOUN `MUSDeath` (the fallback after
   Death Music, `nvf_play::music`) and the night-vision scope's `NightScopeISFX`

@@ -1,11 +1,16 @@
-# What is left (2026-10-18)
+# What is left (2026-10-18, brought up to main 2026-10-25)
+
+> Rows below are struck or marked as later PRs closed them, up to #717. The concrete
+> whole-project picture is [outstanding-audit-2026-10-23](handoff/outstanding-audit-2026-10-23.md)
+> and [project-audit-2026-10-23](handoff/project-audit-2026-10-23.md); what ESM data is still
+> unused is [esm-audit-2026-10-25](handoff/esm-audit-2026-10-25.md).
 
 Everything NVForever still lacks, in one place, ranked by what blocks a full playthrough
 of the base game. Drawn from [status.md](status.md) (per system), the script function
 coverage table ([design/script-function-coverage.md](design/script-function-coverage.md),
 every function the shipped scripts use, probed against the original), the open items of
 [owner-review.md](owner-review.md) and the outcome sections of the playtest lists in
-[handoff/](handoff/). It states the project's own state as of PR #417 (release v0.2.0); facts about the
+[handoff/](handoff/). It stated the project's own state as of PR #417 (release v0.2.0) and is kept up since; facts about the
 original game are tagged in the linked notes. Update it when a PR closes an item.
 
 ## 1. Playthrough blockers (systems the quests need)
@@ -51,7 +56,7 @@ six functions still waiting for an in-game capture to settle their answers.
 
 From [status.md](status.md); the playthrough blockers above are not repeated.
 
-- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines; perk AP changes built in claude/e2-perk-combat-entry-points); ~~melee
+- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; smoke scenarios vats-mode-burst, -melee, -thrown, melee run 2026-10-23; hit chances per mark, the VATS perks and kill cameras since 2026-10-23/24, vats-mode.md §17–§19; left: mines, power attacks; perk AP changes built in claude/e2-perk-combat-entry-points); ~~melee
   weapon use through UseWeapon~~ (built 2026-10-20, use-weapon.md §3.1) (the companion wheel, aggressive/passive, sneaking with the
   player and a melee-only companion drawing its melee weapon are built,
   [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books with Comprehension built 2026-10-21, [skill-books](spec-notes/skill-books.md)); ~~traps~~ (built 2026-10-21, [traps](spec-notes/traps.md): model trigger volumes, activate parents, rigged shotguns firing; left: the swinging traps' bodies and `trapUpdate`, §4); ~~grab~~ (built 2026-10-21, [grab](spec-notes/grab.md): Z held or E held picks up loose objects and corpses, carries, drops, throws; OnGrab, OnRelease, IsPlayerGrabbedRef; every constant guessed, the settings' values are not in the plugins); ~~slot machines~~ (built 2026-10-21, [slots](spec-notes/slots.md); the payout rules are guesses); ~~encounter zones~~ (built 2026-10-21, [encounter-zones](spec-notes/encounter-zones.md): zone levels on first entry, leveled actors and carried items at the reference's level, level modifiers, Never Resets; leveled locks not built, no rule documented); ~~death items~~ (built 2026-10-21, [death-items](spec-notes/death-items.md): NPC_/CREA INAM through the Traits template, rolled into the body at the reference's level as it dies, placed corpses owed theirs, and the perk entry point Add Leveled List On Death; JIP GetDeathItem/SetDeathItem not built); ~~vendor services~~ (built 2026-10-21, [vendor-services](spec-notes/vendor-services.md): vendors sell only their AIDT service categories, GetOffersServicesNow follows Offers Services; the ingestible categories and Autocalc Service are guesses); reputation disguises and resets.
@@ -68,14 +73,13 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **Interface**: credits. ~~Weapon scopes~~ (built 2026-10-21, [weapon-scopes](spec-notes/weapon-scopes.md): the MOD3 picture, night-vision scopes and the sway; left: the scope in third person, the original's timing). The weapon mod menu is built (2026-10-20,
   [weapon-mods](spec-notes/weapon-mods.md)): X on a weapon lists the carried mods that
   fit a free slot, attaching one uses it up and sets the weapon's mod flags (kept in
-  saves), the player's figures and model in hand change; MenuMode 1061. Left of it
-  (weapon-mods.md §6): modded models for weapons in the world and NPCs' hands, the
-  carried weight of Decrease Weight, projectile speed, ammo regeneration (the mod shoot sounds are built:
-  claude/e12-silencer-sounds, weapon-mods.md §7), telling a modded and a plain unit at one condition apart when equipping or
-  dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
+  saves), the player's figures and model in hand change; MenuMode 1061. ~~Modded models in the world and NPCs' hands, Decrease Weight's carried weight, rows
+  picking units by mods~~ (#499), ~~projectile speed and ammo regeneration~~ (claude/em3, weapon-data-fields.md),
+  the mod shoot sounds (claude/e12-silencer-sounds, weapon-mods.md §7). Left (weapon-mods.md §6): a modded
+  weapon's value, NPCs' modded figures in combat, equip time, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
   the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
   2026-10-19.)
-- **Audio and video**: spatial sinks; ~~holotapes~~ (built 2026-10-21, [holotapes](spec-notes/holotapes.md); left: subtitles, the JIP note functions, GetNoteRead); reverb's SOUN `GNAM` attenuation and voices in rooms (audio.md §14.6); ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
+- **Audio and video**: spatial sinks; ~~holotapes~~ (built 2026-10-21, [holotapes](spec-notes/holotapes.md); left: subtitles, the JIP note functions, GetNoteRead); ~~reverb's SOUN `GNAM` attenuation~~ (built 2026-10-24, #667, audio.md §15.5), voices in rooms (audio.md §14.6); ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
 - **Magic effect archetypes** (built 2026-10-21, claude/e15-mgef-archetypes,
   [magic-archetypes](spec-notes/magic-archetypes.md)): left are guesses for the owner:
   Turbo's 0.5, what of the player Turbo exempts (movement and its clips; not jumps, fire

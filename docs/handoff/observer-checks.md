@@ -167,16 +167,21 @@ engine if needed, and delete the item here.
     To check: screenshots and video of Ringo, Nash, Red Lucy and Doc Mitchell's stage 40.
     ([dialogue-play](../design/dialogue-play.md), [dialogue](../spec-notes/dialogue.md),
     [voice](../spec-notes/voice.md))
-13. **Speeds and turning.** Ours:
-    - NPCs walk at 86.8 units/s and turn ≤180°/s walking, 120°/s standing.
-    - Creatures move at clip × scale × SpeedMult × 0.70 and turn 300°/s (measured on
-      cazadors only); their Turning Speed field is unused.
+13. **Speeds and turning.** Settled (actors §8.10): people's walk and run with their
+    armour and two-handed weapons, and creatures' walks and runs (clip pace × scale ×
+    Speed Mult × their skeleton's share). Still open, ours:
+    - People turn ≤180°/s walking, 120°/s standing; creatures 300°/s × scale (measured
+      on cazadors only); the CREA Turning Speed field is unused.
+    - Speed Mult on people: one actor (Cook-Cook, 110) ran as if it were 100 (asked in
+      owner-review.md).
+    - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
+      combat) are not built.
     - Follow distances: stand within distance + 64, run beyond 512.
-    - A two-handed weapon cuts run speed by 10 %.
     - Aiming or blocking slows you to a walk.
     - Swimming starts at 115 units deep.
     - The step-up is 24 units with a 45° slope limit.
-    To check: the fight field set at every loop gives positions and headings.
+    To check: the fight field set at every loop gives positions and headings; flat open
+    ground and a cleared area: the `nvfairport` save (campaign `creature_runs`).
     ([actors §8.9–§8.10](../spec-notes/actors.md), [physics §6.4.2](../spec-notes/physics.md))
 14. **Script rules that differ from the wiki.**
     - A call on an empty ref is skipped.

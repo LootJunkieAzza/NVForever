@@ -33,8 +33,9 @@ use std::collections::HashMap;
 /// The Chameleon actor value [documented: xEdit ActorValue, `schemas/fnv/common.json`].
 const CHAMELEON: u16 = 49;
 
-/// The refraction strength of the field: screen UV per unit of view-space normal
-/// [hypothesis, docs/spec-notes/refraction.md §5].
+/// The screen shift of the field: screen UV per unit of view-space normal [hypothesis,
+/// docs/spec-notes/refraction.md §5]; the material's strength is this over
+/// `nif_material::REFRACTION_SCREEN`.
 pub const STRENGTH: f32 = 0.03;
 
 /// Seconds for the normal maps to scroll once, the shimmer [hypothesis].
@@ -79,7 +80,7 @@ pub fn see_through(m: &NifMaterial) -> NifMaterial {
         AlphaMode::Opaque => m.extension.alpha_cut,
         _ => m.extension.alpha_cut.max(BLEND_CUT),
     };
-    nvf_assets::nif_spawn::refraction_material(&mut m, STRENGTH, PERIOD);
+    nvf_assets::nif_spawn::refraction_material(&mut m, STRENGTH / nvf_assets::nif_material::REFRACTION_SCREEN, PERIOD);
     m.extension.alpha_cut = cut;
     m
 }
@@ -141,7 +142,7 @@ mod tests {
         let c = see_through(&m);
         assert!(c.extension.refract);
         assert!(matches!(c.base.alpha_mode, AlphaMode::Opaque));
-        assert!((c.extension.refraction - STRENGTH).abs() < 1e-6);
+        assert!((c.extension.refraction * nvf_assets::nif_material::REFRACTION_SCREEN - STRENGTH).abs() < 1e-6);
         assert!((c.extension.fire_period - PERIOD).abs() < 1e-6);
         assert!((c.extension.alpha_cut - 0.4).abs() < 1e-6);
         let hair = nvf_assets::nif_material::nif_material(StandardMaterial { alpha_mode: AlphaMode::Blend, ..default() });

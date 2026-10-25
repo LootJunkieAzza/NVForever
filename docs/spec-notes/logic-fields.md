@@ -39,7 +39,10 @@ the ammo`.
 - **INFO Low / High Intelligence** (28 and 20 lines): only listed as INFO flags
   [documented: GECK wiki GetDialogueInfoFlags]; the threshold is not documented, and New
   Vegas gates intelligence lines with conditions.
-- **INFO speech challenge** (3 lines in the masters): the roll is not documented.
+- **INFO speech challenge** (3 lines in the masters): the roll is not documented, but its
+  settings are in FalloutNV.esm: `fSpeechChallenge*`, `iSpeechChallengeDifficulty*`
+  (Average 55), `fSpeechAutoSuccessThreshold` (0.9) [observed: `fnvtool esm decode`]. The
+  lines always pass.
 - **INFO PNAM/TPIC and DIAL INOM/INOA order**: file order matches the masters (it
   matters for mods only).
 - **QUST CNAM log entries**: there is no journal page that shows them.

@@ -1574,10 +1574,11 @@ its blows), `crippled-torso-arms` (the player is held).
 
 - **Pace**: a feral ghoul (CrFeralGhoul1A: Speed Mult 100, scale 1) ran at 269 units/s by
   the cazador-fitted 0.70 of its clip pace, below the player's 344, so a running player
-  left it behind [observed in NVForever: smoke `combat-ghoul-lunge`]. The original could
-  not be watched; the owner's own guess, 25 % faster, is built as a type share
-  (`creature_pace::type_pace`, CREA DATA type 5 Feral Ghoul ×1.25: 336 units/s)
-  [design: owner].
+  left it behind [observed in NVForever: smoke `combat-ghoul-lunge`]. The owner's guess,
+  25 % faster (336), was built as a type share until 2026-10-25 [design: owner]; then the
+  original was measured: a feral ghoul runs at its whole clip pace, 384 (charges of 388
+  and 393 on the Searchlight Airport runway, actors.md §8.10) [observed], faster than the
+  guess, so the type share was taken out and ghouls run 384.
 - **Attacks on the run** (`npc_combat::lunge_band`): a creature closing in faster than
   100 units/s may begin a blow before it is within its strike distance, by the ground it
   covers until its clip's `Hit` key (closing speed × hit time, capped at its own running

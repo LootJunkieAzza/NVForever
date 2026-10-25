@@ -478,9 +478,32 @@ DO_FRAMES = 30
 def do_steps(items, ctx):
     """A session's scene actions, run after arrival: a string is a console line; a list
     [statement, name, ...] is a script statement with {0}, {1}, ... replaced by the
-    named references or forms (e.g. ["{0}.MoveTo player -400 600 0", "0x000F36F5"])."""
+    named references or forms (e.g. ["{0}.MoveTo player -400 600 0", "0x000F36F5"]);
+    {"frames": n} waits n game loops; {"until_spawned": [expression, ...], "max_frames": n}
+    waits until some living reference created at run time meets every expression (called
+    on it, e.g. "GetDetected player", "GetDistance player < 250": a creature set on the
+    player has noticed it and closed in), or n game loops have passed."""
     steps = []
     for item in items or []:
+        if isinstance(item, dict) and "until_spawned" in item:
+            conds = item["until_spawned"]
+            if set(item) != {"until_spawned", "max_frames"} or not isinstance(conds, list) or not conds \
+                    or not all(isinstance(c, str) and c for c in conds) or not isinstance(item["max_frames"], int) \
+                    or isinstance(item["max_frames"], bool) or item["max_frames"] < 1:
+                raise InputError(f"a do until_spawned is {{\"until_spawned\": [expression, ...], \"max_frames\": n}}, got {item!r}")
+            test = " && ".join(f"(rA.{c})" for c in conds)
+            body = ["let fV := 0", f"let rA := GetFirstRef {ACTOR_TYPE} 1", "while rA != 0",
+                    f"  if rA.GetSourceModIndex == {cs.CREATED_MOD_INDEX}", "    if rA.GetDead == 0",
+                    f"      if {test}", "        let fV := 1", "      endif", "    endif", "  endif",
+                    "  let rA := GetNextRef", "loop", "SetFunctionValue fV"]
+            steps.append({"until": cs.function(["ref rA", "float fV"], body), "max_frames": item["max_frames"]})
+            continue
+        if isinstance(item, dict):
+            if set(item) != {"frames"} or not isinstance(item["frames"], int) or isinstance(item["frames"], bool) \
+                    or item["frames"] < 1:
+                raise InputError(f"a do wait is {{\"frames\": game loops (>= 1)}}, got {item!r}")
+            steps.append({"frames": item["frames"]})
+            continue
         if isinstance(item, str):
             steps.append({"console": item})
         elif isinstance(item, list) and item and isinstance(item[0], str):

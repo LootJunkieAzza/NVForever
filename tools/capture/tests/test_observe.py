@@ -171,6 +171,21 @@ class ScriptRules(unittest.TestCase):
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(campaign(timed=[{"after": 1, "do": ["x"], "script": {"lines": ["y"]}}]), EDIDS)
 
+    def test_do_waits(self):
+        job = ob.campaign_jobs(campaign(do=["tgm", {"frames": 180}, "player.SetPos y 5850"]), EDIDS)["obs_c1_01_s1"][1]
+        steps = job["steps"]
+        i = steps.index({"console": "tgm"})
+        self.assertEqual(steps[i + 1:i + 4], [{"frames": ob.DO_FRAMES}, {"frames": 180}, {"console": "player.SetPos y 5850"}])
+        job = ob.campaign_jobs(campaign(do=[{"until_spawned": ["GetDetected player", "GetDistance player < 250"],
+                                              "max_frames": 900}]), EDIDS)["obs_c1_01_s1"][1]
+        until = [s for s in job["steps"] if "until" in s and s.get("max_frames") == 900][0]
+        self.assertIn("if (rA.GetDetected player) && (rA.GetDistance player < 250)", until["until"])
+        ScriptRules().check({"steps": [{"until": until["until"]}]})
+        for bad in ({"frames": 0}, {"frames": 1.5}, {"frames": True}, {"frames": 30, "x": 1},
+                    {"until_spawned": [], "max_frames": 9}, {"until_spawned": ["IsInCombat"]}):
+            with self.assertRaises(ob.InputError, msg=bad):
+                ob.campaign_jobs(campaign(do=[bad]), EDIDS)
+
     def test_plugin_parses_generated_jobs(self):
         # The plugin's own parser is checked against the committed diag job by its Rust
         # tests; here only the step keys the plugin knows are used.
