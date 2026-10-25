@@ -468,6 +468,31 @@ expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arriv
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]
+name = "player-fire-comment"
+source = "GECK wiki Topics Tab: PLAYERFIREWEAPON is \"used when the player fires their weapon near an actor\"; the package's Fallout behaviour Reaction To Player Actions allows it (fnv-ai social.rs, packages.md §7.7): the player fires the 10mm pistol into the sky beside Easy Pete, who says one of his PLAYERFIREWEAPON lines (\"What in tarnation?\" or \"What in blazes?\")"
+areas = ["ai", "dialogue"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:200:0:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONTROL = "4:weapon,9:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+run_seconds = 20
+expect = [
+  { re = 'EasyPeteRef: comments on the player \(PLAYERFIREWEAPON, \d+ units away\)', label = "Easy Pete comments on the shot" },
+  { re = 'subtitle: Easy Pete: What in (tarnation|blazes)\?', label = "one of his two lines" },
+]
+
+[[scenario]]
+name = "observe-combat-comment"
+source = "GECK wiki Misc Tab: ObserveCombat is said by \"actors in 'spectator' mode -- watching a combat but not joining in\"; the package's Fallout behaviour Observe Combat allows it (fnv-ai social.rs, packages.md §7.7): a cazador fights the player (god mode) beside Easy Pete, who says one of his ObserveCombat lines (\"Look at 'em go!\" or \"Get 'em! Yeah!\")"
+areas = ["ai", "dialogue"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:300:0:0,4:call:player:PlaceAtMe:NVCrCazador:1:600:0,4.5:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+run_seconds = 25
+expect = [
+  { re = 'EasyPeteRef: comments on the fight of .* \(\d+ units away\)', label = "Easy Pete comments on the fight" },
+]
+
+[[scenario]]
 name = "nav-water-closed"
 kind = "tool"
 source = "GECK wiki Navmesh Creation Workflow: creatures without the Swims flag \"will avoid using water triangles\" (PathParams::water, fnv-ai keeps_out_of_water): from the Boulder Beach shore to a point in Lake Mead a swimmer's path crosses water triangles; for one that does not swim the goal in water is out of reach at once (no search of the area); standing in the water, it walks out"
