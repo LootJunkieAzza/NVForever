@@ -294,6 +294,24 @@ fn greets(game: &Game, actor: FormId) -> bool {
 pub const FOLLOW_SLACK: f32 = 64.0;
 /// A follower whose target is farther than this runs, game units [our choice].
 pub const FOLLOW_RUN_FROM: f32 = 512.0;
+/// In a column of followers ([`Ai::ahead_in_column`]), how near each one after the first
+/// keeps to the one ahead of it, game units, at most the package's own distance [our
+/// choice: the owner's playtest of 2026-10-24 asked for followers of one leader to walk
+/// in a line, three mercenaries a few steps apart behind their leader].
+pub const COLUMN_GAP: f32 = 128.0;
+/// A follower farther behind than [`FOLLOW_RUN_FROM`] goes faster than it can run, to
+/// catch up: by up to this share more, reached [`CATCH_UP_SPAN`] units beyond
+/// [`FOLLOW_RUN_FROM`] [our choice: owner's playtest of 2026-10-24, "a speed boost to
+/// allow them to catch up ... faster than their max speed"].
+pub const CATCH_UP_BOOST: f32 = 0.5;
+/// See [`CATCH_UP_BOOST`]; game units.
+pub const CATCH_UP_SPAN: f32 = 1024.0;
+
+/// How much faster than its own pace a follower `gap` units behind goes
+/// ([`CATCH_UP_BOOST`]): 1 within [`FOLLOW_RUN_FROM`].
+pub fn catch_up(gap: f32) -> f32 {
+    1.0 + CATCH_UP_BOOST * ((gap - FOLLOW_RUN_FROM) / CATCH_UP_SPAN).clamp(0.0, 1.0)
+}
 
 /// A target that has moved this far from where the way to it was planned to is planned
 /// for again, and not more often than every [`REPLAN_SECONDS`] [our choice].
@@ -446,6 +464,9 @@ pub struct Ai {
     restrained: std::collections::BTreeSet<FormId>,
     /// Actors the player woke and who stay up (`Game::woken`).
     woken: std::collections::BTreeSet<FormId>,
+    /// The columns of followers: for each one followed, its followers in their order
+    /// in the line ([`Ai::ahead_in_column`]).
+    columns: BTreeMap<FormId, Vec<FormId>>,
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -464,7 +485,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -1167,13 +1188,31 @@ impl Ai {
     /// says Always Run or the target is more than [`FOLLOW_RUN_FROM`] away, else walks
     /// [our choice]. A target that is gone or dead is not followed: the actor stands.
     /// Without a way to the target the package is set aside like any other that cannot
-    /// be reached.
+    /// be reached. Several actors following one target walk after it in a line, each
+    /// after the one ahead of it ([`Ai::ahead_in_column`]).
     fn follow_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = &self.agents[&actor];
-        let (Some(package), Some(Goal::Follow(f))) = (a.package, a.goal.clone()) else { return };
+        let (Some(package), Some(Goal::Follow(mut f))) = (a.package, a.goal.clone()) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let travelling = a.activity == Activity::Travelling;
-        let target = goal::place_of_ref(game, f.target).filter(|_| game.present(f.target) && !game.extra.get(&f.target).is_some_and(|e| e.dead));
+        let leader = goal::place_of_ref(game, f.target).filter(|_| game.present(f.target) && !game.extra.get(&f.target).is_some_and(|e| e.dead));
+        // In a column: the one ahead is followed instead, nearer than the package says.
+        // It runs when the leader is far, so that the line keeps together.
+        let ahead = leader.and_then(|l| self.ahead_in_column(game, actor, f.target, l));
+        let target = match ahead {
+            Some((one, at, _)) => {
+                (f.target, f.distance) = (one, f.distance.min(COLUMN_GAP));
+                Some(at)
+            }
+            None => leader,
+        };
+        // How far the leader is beyond where this one's place in the line would be.
+        let place = ahead.map_or(0, |(_, _, i)| i) as f32;
+        let lead_away = match leader {
+            Some(l) if l.space == feet.space => hdist(feet.pos, l.pos) - place * (COLUMN_GAP + FOLLOW_SLACK),
+            // In another space: the way to the one ahead decides alone.
+            _ => 0.0,
+        };
         let Some(target) = target else {
             if travelling {
                 let a = self.agents.get_mut(&actor).expect("listed");
@@ -1193,26 +1232,71 @@ impl Ai {
             let Some((to, replan)) = self.agents[&actor].following else { return };
             let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
             if moved && game.time >= replan {
-                self.follow_plan(game, nav, actor, package, f, target, away, false);
+                self.follow_plan(game, nav, actor, package, f, target, away, lead_away, false);
+            } else if away.is_finite() {
+                // The catch-up boost eases off as the gap closes.
+                let (speed, _) = self.follow_speed(game, actor, package, away, lead_away);
+                self.agents.get_mut(&actor).expect("listed").walker.speed = speed;
             }
             return;
         }
         if self.agents[&actor].activity == Activity::There && away > keep + FOLLOW_SLACK {
-            self.follow_plan(game, nav, actor, package, f, target, away, true);
+            self.follow_plan(game, nav, actor, package, f, target, away, lead_away, true);
         }
     }
 
-    /// Plan the way after the one `actor` follows.
+    /// The one `actor` walks after when it follows `leader` (at `leader_at`) along with
+    /// other actors: their column, in which each walks after the one ahead of it, the
+    /// first after the leader: that one, where it is, and `actor`'s place in the line
+    /// (1 for the second). Returns `None` for the first, or when `actor` is not in the
+    /// column. Members are the actors whose package follows `leader`, present and
+    /// alive. One ahead that is neither in the leader's space nor in `actor`'s (left
+    /// behind elsewhere) is passed over. Their order stays as it was; newcomers take
+    /// their places at the end, the nearer the leader the further forward, those in
+    /// another space last [our choice: a line that kept reordering by distance would
+    /// have followers overtake each other].
+    fn ahead_in_column(&mut self, game: &Game, actor: FormId, leader: FormId, leader_at: Place) -> Option<(FormId, Place, usize)> {
+        let member = |id: FormId, a: &Agent| matches!(&a.goal, Some(Goal::Follow(g)) if g.target == leader) && game.present(id) && !game.extra.get(&id).is_some_and(|e| e.dead);
+        let members: Vec<FormId> = self.agents.iter().filter(|(id, a)| member(**id, a)).map(|(id, _)| *id).collect();
+        if !members.contains(&actor) {
+            return None;
+        }
+        let column = self.columns.entry(leader).or_default();
+        column.retain(|id| members.contains(id));
+        let away = |w: &fnv_nav::Walker| if w.space == leader_at.space { hdist(w.feet, leader_at.pos) } else { f32::INFINITY };
+        let mut new: Vec<(f32, FormId)> = members.iter().filter(|id| !column.contains(id)).map(|id| (away(&self.agents[id].walker), *id)).collect();
+        new.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        column.extend(new.into_iter().map(|(_, id)| id));
+        let i = column.iter().position(|id| *id == actor)?;
+        let mine = self.agents[&actor].walker.space;
+        let one = column[..i].iter().rev().copied().find(|id| [leader_at.space, mine].contains(&self.agents[id].walker.space))?;
+        let a = &self.agents[&one];
+        Some((one, Place { space: a.walker.space, pos: a.walker.feet }, i))
+    }
+
+    /// The pace of a follower `away` from the one it walks after (`lead_away`: see
+    /// [`Ai::follow_plan`]), and whether it runs, with the catch-up boost ([`catch_up`]).
+    fn follow_speed(&self, game: &Game, actor: FormId, package: FormId, away: f32, lead_away: f32) -> (f32, bool) {
+        let gap = away.max(lead_away);
+        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || gap > FOLLOW_RUN_FROM;
+        (self.pace(game, actor, running) * catch_up(gap), running)
+    }
+
+    /// Plan the way after the one `actor` follows. It runs when the package says
+    /// Always Run, the one it walks after is far, or the leader of its column is far
+    /// beyond its place in the line (`lead_away`).
     #[allow(clippy::too_many_arguments)]
-    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, first: bool) {
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || away > FOLLOW_RUN_FROM;
+    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, lead_away: f32, first: bool) {
+        let (_, running) = self.follow_speed(game, actor, package, away, lead_away);
+        let pace = self.pace(game, actor, running);
         let params = self.path_params(game, actor);
-        let speed = self.pace(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        a.walker.speed = pace;
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
                 let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
+                // In another space the length of the way is the gap the boost goes by.
+                a.walker.speed = pace * catch_up(if away.is_finite() { away.max(lead_away) } else { length });
                 if a.activity != Activity::Travelling {
                     a.trip_started = game.time;
                     a.trip_from = a.walker.travelled;
