@@ -215,8 +215,11 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
 
 - NPCs and creatures taking rads (feral ghouls' healing in radiation, the Avoid Radiation
   package flag, companions' remarks rest on GetRadiationLevel, which answers for the player).
-- Rads from a radioactive actor's aura (Glowing Ones' `vGlowingOneRadAura` is an
-  ability with an area effect; area effects are not built).
+- Rads from a radioactive actor's aura: area effects are built (area-effects.md, a cast
+  or a weapon hit spreads them; the Glowing One's attack burst reaches 30 feet), but
+  `vGlowingOneRadAuraEffect` itself has no area (its script places
+  vGlowingOneRadiationAuraExplosion) and nothing found casts it; the type-0 actor
+  effects in actors' lists are not cast (area-effects.md §3).
 - The Pip-Boy's own radiation readout beyond the Rads value it lists.
 - Damaging water's camera shake and hurt sound; damaging water for NPCs.
 - Explosions' radiation zones in saves.

@@ -15,8 +15,12 @@
 //! - **What is moved** [design]: `Bip01 Translate`, the node above the arms that the
 //!   sway also moves (`view_sway.rs`), so both hands stay on the gun; the camera node
 //!   beside it stays put. It is turned about the sighting point so the barrel's axis lies
-//!   along the view, then moved so the point lands on the eye, eased in and out with the
-//!   zoom (`nvf_play::aim_zoom::AimZoom::blend`). The sway is laid over it.
+//!   along the view, then moved so the point lands on the eye. The sway is laid over it.
+//! - **Timing** [design: the owner, 2026-10-24, "quite snappy"; not captured]: the gun
+//!   has its own share of the way, apart from the zoom's (`nvf_play::aim_zoom`, 0.25 s):
+//!   it comes up over [`SIGHTS_IN_SECONDS`] and goes down over [`SIGHTS_OUT_SECONDS`]
+//!   while Block is held or let go (`AimZoom::aimed`), and the share is eased
+//!   ([`ease`]) so the gun starts and settles gently instead of at full speed.
 //! - **Which weapons** [design: the owner, 2026-10-20, "laser rifle should not have a
 //!   true iron sight check its nif for the sight node"]: a gun with a Sight FOV whose
 //!   model has a sighting node. The laser rifle, laser pistol and minigun models have
@@ -35,6 +39,27 @@ use bevy::math::{Affine3A, Quat, Vec3};
 /// The weapon model's node that marks the eye's place down the sights.
 /// (matched without regard to case).
 pub const SIGHTING_NODES: [&str; 2] = ["##SightingNode", "SightingNode"];
+
+/// Seconds for the gun to come up onto the eye [design: a little slower than the zoom].
+pub const SIGHTS_IN_SECONDS: f32 = 0.35;
+/// Seconds for the gun to go back down when Block is let go [design].
+pub const SIGHTS_OUT_SECONDS: f32 = 0.3;
+
+/// The share of the way (0–1, not eased) after `dt` seconds, going up while `aimed`.
+pub fn step(share: f32, aimed: bool, dt: f32) -> f32 {
+    let dt = dt.clamp(0.0, 0.25);
+    if aimed {
+        (share + dt / SIGHTS_IN_SECONDS).min(1.0)
+    } else {
+        (share - dt / SIGHTS_OUT_SECONDS).max(0.0)
+    }
+}
+
+/// The share eased at both ends (smootherstep: no speed and no jolt at 0 and at 1).
+pub fn ease(share: f32) -> f32 {
+    let t = share.clamp(0.0, 1.0);
+    t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+}
 
 /// The change (in the rig's model space) that takes the sighting point `sight`, whose
 /// weapon looks along `barrel`, to the eye `eye` looking along `view`, a share `s` (0–1)
@@ -64,6 +89,29 @@ mod tests {
         // A point down the barrel lies on the line of sight.
         let front = m.transform_point3(sight + barrel.normalize() * 40.0);
         assert!((front - eye).normalize().dot(view.normalize()) > 0.99999);
+    }
+
+    #[test]
+    fn the_share_comes_up_and_goes_down_at_its_own_pace() {
+        let mut s = 0.0;
+        for _ in 0..10 {
+            s = step(s, true, SIGHTS_IN_SECONDS / 10.0);
+        }
+        assert!((s - 1.0).abs() < 1e-5);
+        assert_eq!(step(1.0, true, 0.1), 1.0);
+        let down = step(1.0, false, SIGHTS_OUT_SECONDS / 2.0);
+        assert!((down - 0.5).abs() < 1e-5);
+        assert_eq!(step(0.1, false, 1.0), 0.0);
+    }
+
+    #[test]
+    fn the_ease_is_gentle_at_both_ends() {
+        assert_eq!(ease(0.0), 0.0);
+        assert!((ease(1.0) - 1.0).abs() < 1e-6);
+        assert!((ease(0.5) - 0.5).abs() < 1e-6);
+        // Slow at the ends: the first and last tenths cover far less than a tenth.
+        assert!(ease(0.1) < 0.02);
+        assert!(1.0 - ease(0.9) < 0.02);
     }
 
     #[test]

@@ -17,7 +17,10 @@
 //!   height]. A character that enters the water while falling forgets the fall.
 //! - **Who.** The player, and the NPCs whose characters the physics walks
 //!   (`PhysState::npcs`) by the same rule [hypothesis: FalloutNV.esm holds no NPC-specific
-//!   fall setting]. The damage is a hit with no attacker and no body part, through the
+//!   fall setting], except in a worldspace flagged "Don't Allow NPC Fall Damage" (WRLD
+//!   DATA bit 6 [documented: xEdit; GECK wiki GetWorldspaceFlag, 6 "Disallow NPC Fall
+//!   Damage"]; Dead Money's West Town North and South [observed]), where NPCs take none
+//!   and the player still does [hypothesis: the flag names NPCs only]. The damage is a hit with no attacker and no body part, through the
 //!   combat rules' hit path (god mode spares the player); armour does not reduce it
 //!   [hypothesis]. No limb takes damage [hypothesis: unmeasured].
 //! - Not used: `fJumpFallVelocityMin` (2785 in FalloutNV.esm); what it limits is open.
@@ -85,7 +88,12 @@ pub struct Falls {
     /// By character id: the highest feet height of the fall, and where the last step ended.
     open: HashMap<u32, (f32, f32)>,
     rules: Option<FallRules>,
+    /// By worldspace: whether it is flagged "Don't Allow NPC Fall Damage".
+    no_npc_damage: HashMap<u32, bool>,
 }
+
+/// WRLD DATA "Don't Allow NPC Fall Damage" (module notes).
+pub const WORLD_NO_NPC_FALL_DAMAGE: u8 = 0x40;
 
 /// A character landed after falling `height` units (feet to feet).
 #[derive(Message, Clone, Copy, Debug)]
@@ -143,6 +151,7 @@ fn hurt(
     (mut stats, mut feedback): (ResMut<CombatStats>, ResMut<HitFeedback>),
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
+    play: Option<Res<crate::PlayWorld>>,
 ) {
     for f in fell.read() {
         let rules = *falls.rules.get_or_insert_with(|| FallRules::from_world(&sim.world));
@@ -150,6 +159,15 @@ fn hurt(
         if dmg <= 0.0 {
             debug!("falls: {} lands from {:.0} units, no damage (from {:.0})", f.actor, f.height, rules.min);
             continue;
+        }
+        if f.actor != FormId::PLAYER_REF {
+            if let (Some(w), Some(play)) = (sim.world.worldspace_of(f.actor), play.as_deref()) {
+                let spared = *falls.no_npc_damage.entry(w.0).or_insert_with(|| crate::pipboy::data::read::world_flags(play.0.lo, play.0.schema, w.0) & WORLD_NO_NPC_FALL_DAMAGE != 0);
+                if spared {
+                    info!("falls: {} lands from {:.0} units: no damage, worldspace {w} does not allow NPC fall damage ({dmg:.1} spared)", f.actor, f.height);
+                    continue;
+                }
+            }
         }
         let info = fnv_game::combat::HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: None };
         let r = apply_hit(script.as_deref_mut(), &mut sim, f.actor, dmg, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false, None);

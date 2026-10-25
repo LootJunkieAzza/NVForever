@@ -496,9 +496,15 @@ impl Game<'_> {
     /// The value after the perk entries of `point` the actor has (no argument tabs); the
     /// perks that changed it, in order.
     pub fn entry_point(&mut self, actor: FormId, point: u8, value: f64) -> (f64, Vec<Applied>) {
+        self.entry_point_with(actor, point, &[], value)
+    }
+
+    /// [`Self::entry_point`] with the argument tabs `tabs` (a weapon's entry points: the
+    /// weapon at tab 1).
+    pub fn entry_point_with(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], value: f64) -> (f64, Vec<Applied>) {
         let mut v = value;
         let mut applied = Vec::new();
-        for (perk, op) in self.entry_ops(actor, point, &[], None) {
+        for (perk, op) in self.entry_ops(actor, point, tabs, None) {
             v = op.apply(v);
             applied.push(Applied { perk, value: v });
         }
