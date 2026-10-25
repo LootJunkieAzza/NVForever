@@ -412,7 +412,9 @@ Readings used by the player body [hypothesis]:
   9mm pistol sits at the right hip and the varmint rifle across the back [observed:
   screenshots, kept privately].
 - The weapon-out stance is the type's Aim group (looped), with `aimup`/`aimdown` blended
-  in by the view's pitch, and the `AimIS` clips while aiming down the sights (§9.6).
+  in by the view's pitch, and the `AimIS` clips while aiming down the sights (§9.6); in
+  first person only for a gun whose model has a sighting node, else the hip clips go on
+  (camera.md §4.1).
 
 ### 9.4 Blending [hypothesis]
 
