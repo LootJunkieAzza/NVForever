@@ -116,6 +116,11 @@ impl WorldMap {
 /// [documented: map_menu.xml `MM_WorldMap_ParentImage` x between 427.5 − width and
 /// 427.5, y between 250 − height and 250].
 pub fn pan(t: f32, size: f32, mid: f32) -> f32 {
+    // A worldspace's map size comes from its record: a broken mod's negative or NaN size
+    // keeps the picture at the middle (`clamp` would panic).
+    if !(size.is_finite() && size > 0.0 && t.is_finite()) {
+        return mid;
+    }
     (mid - t * size).clamp(mid - size, mid)
 }
 

@@ -156,9 +156,21 @@ SunnyRef at 128 units, stayed behind when Sunny went to the wells and was missin
 the saloon afterwards, because the package type was not carried out). The actor stands
 while its target is within the distance plus 64 units [our choice]; farther, it sets off
 after the target (through the doors between, if the target is in another cell), walking,
-or running when the package says Always Run or the target is more than 512 units away
-[our choice]; the way is planned again when the target has moved 64 units, at most twice
-a second, and the actor stops once within the distance. A target that is gone or dead
+or running when the package says Always Run or it is more than 384 units beyond its
+distance (512 from the target at the usual 128) [our choice]; the way is planned again
+when the target has moved 64 units, at most twice a second. On its way after a target
+that moves it keeps step (`carry::follow_speed`): the target's own pace since the last
+plan plus the gap beyond the distance closed in 3 seconds, between half its walk and its
+run, so the walk clip plays faster or slower and the run clip comes only when it is well
+behind; it stops once within the distance when the target has stopped (no new plan for a
+second, or slower than 20 units/s), else only 64 units inside it [our choice; owner's
+playtest 2026-10-24: the Novac pack brahmin, kept about 450 units back by its package, stood,
+set off running past a fixed 512, caught up and stood again all the way after its
+merchant]. In the original game the same brahmin walked at its merchant's pace 440–530
+units behind it, ran only once it was about 800–1,060 behind, and closed to about 300
+when the merchant stopped [observed: AI observer 2026-10-24, docs/spec-notes/actors.md
+§8.10, Brahmin]: the rule above agrees except for that last stop, which is at the
+distance here. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The
@@ -179,8 +191,9 @@ The order is kept once made; a newcomer joins at the end, the nearer the target 
 further forward, so followers do not overtake each other. Members are present and
 alive; one ahead that is in neither the target's cell nor the follower's own (left
 behind) is passed over, so a follower still goes through a door after the one ahead of
-it. A follower runs when the one ahead is far, or when the target is more than 512
-units beyond where its place in the line would be (192 units per place), so a long
+it. A follower runs when it is more than 384 units beyond its distance from the one ahead,
+or the target is that much beyond where its place in the line would be (192 units per
+place), so a long
 line does not run while its leader walks. The player's companions on Follow packages
 line up behind the player the same way. Combat does not take a fighter out of the line
 (a follower may walk after one ahead that is fighting). Log: the `walks after` line
@@ -188,10 +201,11 @@ names the one ahead.
 
 *Catching up* (`carry::catch_up`; owner playtest 2026-10-24: followers should get a
 speed boost to close the distance, faster than their top speed). A follower more than
-512 units behind (the gap that makes it run, as above; in another cell, the length of
-its way) goes faster than its own pace, by up to half again (`CATCH_UP_BOOST`), rising
+384 units beyond its distance (the gap that makes it run, as above; in another cell,
+the length of its way) goes faster than its own pace, by up to half again (`CATCH_UP_BOOST`), rising
 evenly over the next 1024 units (`CATCH_UP_SPAN`) [our choice]. The boost is worked out
-again at every update while it walks, so it eases off as the gap closes. The engine
+again at every update while it walks, so it eases off as the gap closes; nearer, in
+step with a moving target, the pace is the target's (Follow, above). The engine
 plays the run clip faster to match (up to its 2.5 rate limit), so the feet do not slide.
 
 ### 5.2 Getting there

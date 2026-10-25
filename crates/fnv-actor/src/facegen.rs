@@ -27,6 +27,8 @@
 pub enum FaceGenError {
     Magic(String),
     Truncated { need: usize, have: usize },
+    /// Sizes in the header that no FaceGen file has (a broken file).
+    Sizes(String),
 }
 
 impl std::fmt::Display for FaceGenError {
@@ -34,6 +36,7 @@ impl std::fmt::Display for FaceGenError {
         match self {
             FaceGenError::Magic(m) => write!(f, "unexpected magic {m:?}"),
             FaceGenError::Truncated { need, have } => write!(f, "file too short: need {need} bytes, have {have}"),
+            FaceGenError::Sizes(s) => write!(f, "header sizes out of range: {s}"),
         }
     }
 }
@@ -46,6 +49,12 @@ fn u32_at(b: &[u8], o: usize) -> u32 {
 
 fn f32_at(b: &[u8], o: usize) -> f32 {
     f32::from_le_bytes(b[o..o + 4].try_into().expect("4 bytes"))
+}
+
+/// The size of a file of `s` + `a` modes of `per_mode` bytes after the header, unless it
+/// overflows (a broken header's counts).
+fn file_size(per_mode: usize, s: usize, a: usize) -> Option<usize> {
+    s.checked_add(a)?.checked_mul(per_mode)?.checked_add(HEADER)
 }
 
 fn check(b: &[u8], magic: &[u8; 8], need: usize) -> Result<(), FaceGenError> {
@@ -74,7 +83,8 @@ impl Egm {
         check(b, b"FREGM002", HEADER)?;
         let (v, s, a) = (u32_at(b, 8) as usize, u32_at(b, 12) as usize, u32_at(b, 16) as usize);
         let per_mode = 4 + 6 * v;
-        check(b, b"FREGM002", HEADER + (s + a) * per_mode)?;
+        let need = file_size(per_mode, s, a).ok_or_else(|| FaceGenError::Sizes(format!("{v} vertices, {s} + {a} modes")))?;
+        check(b, b"FREGM002", need)?;
         let modes = (0..s + a)
             .map(|m| {
                 let o = HEADER + m * per_mode;
@@ -127,9 +137,15 @@ impl Egt {
     pub fn parse(b: &[u8]) -> Result<Egt, FaceGenError> {
         check(b, b"FREGT003", HEADER)?;
         let (r, c, s, a) = (u32_at(b, 8) as usize, u32_at(b, 12) as usize, u32_at(b, 16) as usize, u32_at(b, 20) as usize);
+        // A face texture is a few hundred texels a side [observed: 256x256 in the game's
+        // files]; a zero side or one past 4096 is a broken header.
+        if !(1..=4096).contains(&r) || !(1..=4096).contains(&c) {
+            return Err(FaceGenError::Sizes(format!("{r}x{c} texels")));
+        }
         let n = r * c;
         let per_mode = 4 + 3 * n;
-        check(b, b"FREGT003", HEADER + (s + a) * per_mode)?;
+        let need = file_size(per_mode, s, a).ok_or_else(|| FaceGenError::Sizes(format!("{r}x{c} texels, {s} + {a} modes")))?;
+        check(b, b"FREGT003", need)?;
         let modes = (0..s + a)
             .map(|m| {
                 let o = HEADER + m * per_mode;

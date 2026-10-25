@@ -427,6 +427,9 @@ pub struct EntryPoint {
 
 /// The entry points of a reference placed at `pos` with heading `heading` (its Z
 /// rotation; furniture tilted about X or Y is treated as upright) and scale `scale`.
+/// A point that comes out non-finite (a NaN marker offset in a broken model, or a NaN
+/// placement) is left out, so it never becomes a walk target; the others keep their
+/// marker index, which the marker flags are read by.
 pub fn entry_points(markers: &[Marker], pos: [f32; 3], heading: f32, scale: f32) -> Vec<EntryPoint> {
     // A heading of h turns model +Y towards +X (clockwise seen from above).
     let (s, c) = heading.sin_cos();
@@ -442,6 +445,7 @@ pub fn entry_points(markers: &[Marker], pos: [f32; 3], heading: f32, scale: f32)
                 heading: (heading + m.angle()).rem_euclid(std::f32::consts::TAU),
             }
         })
+        .filter(|p| p.pos.iter().all(|v| v.is_finite()) && p.heading.is_finite())
         .collect()
 }
 
@@ -786,6 +790,17 @@ mod tests {
         // GetIsSex Female on a male actor.
         assert!(!Cond { param1_raw: 1, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u, NO_WORLD));
         assert!(Cond { param1_raw: 0, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u, NO_WORLD));
+    }
+
+    #[test]
+    fn non_finite_markers_are_no_entry_points() {
+        let m = [
+            Marker { offset: [f32::NAN, 0.0, 0.0], orientation: 0, ref_1: 11, ref_2: 11 },
+            Marker { offset: [0.0, 54.0, -26.0], orientation: 0, ref_1: 14, ref_2: 14 },
+        ];
+        let p = entry_points(&m, [0.0; 3], 0.0, 1.0);
+        assert_eq!(p.iter().map(|p| (p.index, p.marker_id)).collect::<Vec<_>>(), vec![(1, 14)]);
+        assert!(entry_points(&m, [0.0; 3], f32::NAN, 1.0).is_empty());
     }
 
     #[test]

@@ -177,6 +177,7 @@ use nvf_play::Location;
 use crate::limbs::ActorRig;
 use crate::locomotion::{Dying, Flinch};
 use crate::ragdoll::Corpse;
+use crate::body_weapons::BodyWeapon;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
@@ -488,6 +489,8 @@ struct Pose {
     sights: bool,
     crouched: bool,
     blocking: bool,
+    /// The flat distance from its feet to its target's, units.
+    distance: f32,
 }
 
 #[derive(Resource, Default)]
@@ -542,6 +545,11 @@ impl Fighters {
     /// Whether a fighting actor blocks (§14.3).
     pub fn blocking(&self, actor: u32) -> bool {
         self.poses.get(&actor).is_some_and(|p| p.blocking)
+    }
+
+    /// The flat distance from a fighting actor's feet to its target's, units.
+    pub fn distance(&self, actor: u32) -> Option<f32> {
+        self.poses.get(&actor).map(|p| p.distance)
     }
 }
 
@@ -1050,7 +1058,7 @@ pub(crate) fn fight(
     (blocks, mut phys): (Option<Res<ActorBlocks>>, Option<ResMut<PhysState>>),
     (nav, location, mut battle, residents): Where,
     actors: Query<Fought>,
-    held: Query<&HeldWeapon>,
+    (held, body): (Query<&HeldWeapon>, Query<&BodyWeapon>),
     (muzzles, nodes): (Query<(&Muzzle, &GlobalTransform)>, Query<&GlobalTransform>),
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
     mut times: ResMut<AttackTimes>,
@@ -1067,7 +1075,9 @@ pub(crate) fn fight(
     let crouched_now: std::collections::HashSet<u32> = rt.game.awareness.crouching.iter().map(|a| a.0).collect();
     let mut guarding: HashMap<FormId, [f32; 2]> = HashMap::new();
     let c = &*combat;
-    let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).collect();
+    // The weapon drawn on each actor: its model's, or a creature's body weapon in use
+    // (`body_weapons.rs`).
+    let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).chain(body.iter().map(|b| (b.reference, b.weapon))).collect();
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // A creature's embedded weapon shoots from the node its WEAP names (NNAM), where its
     // skeleton has it (module notes).
@@ -1176,7 +1186,8 @@ pub(crate) fn fight(
             let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
             still.push(id);
             // How fast it runs (`pace`).
-            let two = crate::attack_anims::drawn(hold) && weapons.get(&id).and_then(|w| c.forms.weapons.get(w)).is_some_and(WeaponStats::two_handed);
+            // Not for a creature's body weapon: it carries nothing in its hands (§19).
+            let two = crate::attack_anims::drawn(hold) && weapons.get(&id).and_then(|w| c.forms.weapons.get(w)).is_some_and(|ws| ws.two_handed() && !ws.embedded);
             let p = pace(two, c.rules.move_2h_penalty);
             if g.awareness.pace_of(me) != p {
                 info!(
@@ -1270,7 +1281,8 @@ pub(crate) fn fight(
                                 info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
                             }
                             let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
-                            Cycle::new(ws, timing, false, ws.clip_size.max(1))
+                            // A body weapon has no magazine to change: it never reloads (§19).
+                            Cycle::new(ws, timing, ws.embedded, ws.clip_size.max(1))
                         }),
                         false,
                     ),
@@ -2128,7 +2140,7 @@ pub(crate) fn fight(
             } else {
                 g.awareness.aiming.remove(&me);
             }
-            f.poses.insert(id, Pose { pitch, weapon: weapons.get(&id).copied(), sights, crouched, blocking: fighter.block.is_some() });
+            f.poses.insert(id, Pose { pitch, weapon: weapons.get(&id).copied(), sights, crouched, blocking: fighter.block.is_some(), distance: away });
             match &arm {
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };

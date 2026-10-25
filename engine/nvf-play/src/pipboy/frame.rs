@@ -95,12 +95,14 @@ impl Kit {
         if self.faces.is_empty() {
             self.faces = FONTS.iter().map(|f| face(f, plain_font(31.0, 13.0), data, images, bc)).collect();
             self.pictures = Some(Pictures::load(data));
-            self.scanlines = data.and_then(|d| d.read(SCANLINES)).and_then(|b| scanline_column(&b)).map(|column| {
+            self.scanlines = data.and_then(|d| d.read(SCANLINES)).and_then(|b| scanline_column(&b)).and_then(|column| {
                 let rgba: Vec<u8> = column.iter().flat_map(|&l| [0, 0, 0, ((1.0 - l).clamp(0.0, 1.0) * 255.0).round() as u8]).collect();
-                let size = bevy::render::render_resource::Extent3d { width: 1, height: column.len() as u32, depth_or_array_layers: 1 };
-                let mut image = Image::new(size, bevy::render::render_resource::TextureDimension::D2, rgba, bevy::render::render_resource::TextureFormat::Rgba8Unorm, bevy::asset::RenderAssetUsages::default());
+                // A broken file's size (0 rows, too many) gives no scanlines, not a GPU error.
+                let format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
+                let mut image = nvf_assets::texture::checked_image(1, column.len() as u32, 1, format, rgba).map_err(|e| warn!("pipboy: {SCANLINES}: {e}")).ok()?;
+                image.asset_usage = bevy::asset::RenderAssetUsages::default();
                 image.sampler = bevy::image::ImageSampler::linear();
-                images.add(image)
+                Some(images.add(image))
             });
         }
     }

@@ -18,10 +18,13 @@
 //!   §11a).
 //! - [`dismember`]: whether a hit severs or explodes the part it lands on
 //!   (docs/spec-notes/dismemberment.md).
+//! - [`body_weapon`]: which of a creature's body weapons it fights with at a distance
+//!   (docs/design/combat-ai.md §19).
 //! - [`condition`]: how weapons and armour wear and what a worn item is worth
 //!   (docs/spec-notes/combat-rules.md §17).
 
 pub mod attack;
+pub mod body_weapon;
 pub mod condition;
 pub mod damage;
 pub mod data;

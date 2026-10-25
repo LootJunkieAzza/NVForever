@@ -1062,6 +1062,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   normal-map alpha as an ordinary specular mask; what it does with it and with the
   `_hl` map is open — an in-game picture of hair under a strong light, from the side,
   would show whether there is any highlight to rebuild].
+- **Hair and depth** [observed, `characters\hair\hairbase.nif`]: the hair shape's
+  NiAlphaProperty is flags 4333 (0x10ED), threshold 0: blend on, SRC_ALPHA /
+  INV_SRC_ALPHA, alpha test off [documented: nif.xml AlphaFlags], so the renderers draw
+  it blended. A blended shape writes no depth in the renderers, so fire and dust drawn
+  after the hair covered it wherever the room lay behind, and the player's head showed
+  bald in third person while burning or in a dust devil (owner's playtest, 2026-10-24).
+  Hair-shader shapes that are blended with no test now write depth where their alpha
+  is 0.25 or more and drop fainter fragments [engineering choice; whether the game's
+  hair writes depth is not known: the file has no NiZBufferProperty, and the Z-buffer
+  test flag (bit 31) above says nothing of writing]. Smoke check `hair-under-fire`.
 
 ## 7. Coverage status
 

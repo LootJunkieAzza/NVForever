@@ -9,6 +9,11 @@ use fnv_vfs::Vfs;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// The longest a voice file may last before its length is taken for a broken header's.
+/// Radio stations play their songs as dialogue lines [observed: radio.rs], so this is above
+/// any song's length, and far below the hours a garbled header can claim.
+pub const MAX_LINE_SECONDS: f64 = 20.0 * 60.0;
+
 pub struct VoiceBank {
     pub index: VoiceIndex,
     vfs: Arc<Vfs>,
@@ -57,8 +62,11 @@ impl VoiceBank {
         info
     }
 
+    /// The sound's length; `None` without one or when its header's length cannot be a
+    /// voice line's (not a positive number, or past [`MAX_LINE_SECONDS`]: a broken file
+    /// that would hold a conversation or quest for hours).
     pub fn seconds(&self, path: &str) -> Option<f64> {
-        self.info(path).map(|i| i.seconds)
+        self.info(path).map(|i| i.seconds).filter(|s| s.is_finite() && *s > 0.0 && *s <= MAX_LINE_SECONDS)
     }
 
     /// The face animation beside a sound (`<name>.lip`), decoded; `None` when there is

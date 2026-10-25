@@ -40,6 +40,9 @@ pub enum IdleSource {
     Fidget,
     /// A fidget on furniture (sitting or lying) picked from the idle tree.
     FurnitureFidget,
+    /// A creature standing alerted plays a combat idle from the idle tree (the gecko's
+    /// hiss; [`FidgetKind::Alerted`]).
+    CombatIdle,
     /// A talking or listening gesture picked from the idle tree
     /// ([`Game::talk_gesture`]).
     Gesture,
@@ -61,6 +64,11 @@ pub enum FidgetKind {
     /// On furniture: below a node requiring `GetSitting == 3` or `GetSleeping == 3`, the
     /// state of being on it (furniture.md §8).
     OnFurniture,
+    /// A creature standing alerted (a fight, or a warning, `Game::warning_to`): below a
+    /// node that wants `GetIsAlerted == 1`, alone or joined by OR (NVGeckoCombatIdles:
+    /// IsMoving != 1 and GetIsAlerted 1 or the combat or flee procedure; MWarning,
+    /// StBWarning) [observed: FalloutNV.esm; idles.md §14].
+    Alerted,
 }
 
 impl FidgetKind {
@@ -73,6 +81,7 @@ impl FidgetKind {
         match self {
             FidgetKind::WeaponOut => requires(conds, IS_WEAPON_OUT, 1.0),
             FidgetKind::OnFurniture => requires(conds, GET_SITTING, 3.0) || requires(conds, GET_SLEEPING, 3.0),
+            FidgetKind::Alerted => names(conds, GET_IS_ALERTED, 1.0),
         }
     }
 
@@ -80,6 +89,7 @@ impl FidgetKind {
         match self {
             FidgetKind::WeaponOut => IdleSource::Fidget,
             FidgetKind::OnFurniture => IdleSource::FurnitureFidget,
+            FidgetKind::Alerted => IdleSource::CombatIdle,
         }
     }
 }
@@ -550,6 +560,8 @@ fn names(conds: &[Condition], opcode: u16, value: f64) -> bool {
 const IS_WEAPON_OUT: u16 = 0x1065;
 const GET_SITTING: u16 = 0x109F;
 const GET_SLEEPING: u16 = 0x1031;
+/// Opcode of `GetIsAlerted` (`functions::mod`).
+const GET_IS_ALERTED: u16 = 0x105B;
 /// The procedure of a fleeing actor, 16 FLEE (`functions::ai_state`).
 const FLEE_PROCEDURE: f64 = 16.0;
 
@@ -678,6 +690,24 @@ mod tests {
         assert!(!on.gated_by(&[c(weapon, Cmp::Eq, 1.0, false)]));
         assert!(!FidgetKind::WeaponOut.gated_by(&[c(sitting, Cmp::Eq, 3.0, false)]));
         assert_eq!(on.source(), IdleSource::FurnitureFidget);
+    }
+
+    #[test]
+    fn creature_combat_idles_are_gated_by_get_is_alerted_alone_or_or_joined() {
+        use crate::cond::{Cmp, Operand, RunOn};
+        let c = |function: u16, cmp: Cmp, v: f64, or: bool| Condition { cmp, or, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
+        let (moving, alerted, procedure, in_combat) = (0x19, GET_IS_ALERTED - 0x1000, 0x8F, 0x121);
+        let a = FidgetKind::Alerted;
+        // NVGeckoCombatIdles 0x0011D9E9: IsMoving != 1 AND (GetIsAlerted == 1 OR
+        // GetCurrentAIProcedure == 13 OR == 16) [observed: FalloutNV.esm].
+        assert!(a.gated_by(&[c(moving, Cmp::Ne, 1.0, false), c(alerted, Cmp::Eq, 1.0, true), c(procedure, Cmp::Eq, 13.0, true), c(procedure, Cmp::Eq, 16.0, false)]));
+        // MWarning 0x00072DC2: GetIsAlerted == 1 alone.
+        assert!(a.gated_by(&[c(alerted, Cmp::Eq, 1.0, false)]));
+        // NVGeckoGeneralIdles (IsInCombat == 0) is no combat idle; nor is the weapon branch.
+        assert!(!a.gated_by(&[c(in_combat, Cmp::Eq, 0.0, false)]));
+        assert!(!a.gated_by(&[c(IS_WEAPON_OUT - 0x1000, Cmp::Eq, 1.0, false)]));
+        assert!(!FidgetKind::WeaponOut.gated_by(&[c(alerted, Cmp::Eq, 1.0, false)]));
+        assert_eq!(a.source(), IdleSource::CombatIdle);
     }
 
     #[test]

@@ -662,7 +662,7 @@ the original (test `snapshots_round_trip`).
 | GameMode | every frame: the OnLoad blocks due (below), then running quests whose delay has passed (FormID order), then scripted references in loaded cells, disabled ones included (FormID order), then the scripted items the player carries (FormID order), then active magic effects (§7.6), then dialogue lines (§7.7). A menu opened by one of these scripts holds the ones after it until it closes (§7.7) | quest scripts before object scripts [observed for one pair: BeatrixFX's GameMode moved GameHour on and two Goodsprings windows (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c]; every other part of the order [hypothesis]; delays [observed]; carried items [observed: JarPistolPowder, `L5.quest.onadd_gamemode`; other holders not modelled, hypothesis: the wiki's Scripting for Beginners page says an item's script runs while its holder is loaded, owner export 2026-10-09]; disabled references [documented: GECK wiki Object scripts, owner export 2026-10-09] |
 | MenuMode | instead of GameMode while a menu is open (`Game::menu`, a message box included); a block's menu code must match; quests run it on their delay, counted in menu time only | VCG01's `MenuMode 1036` set stage 40 while the race menu was open [observed: layer5-captures.md §10.3]; the delay counter [hypothesis] |
 | OnActivate | an activation by hand runs the block *instead of* the default action, inside the activation; the default runs only if the block calls `Activate`; a scripted `Activate` (flag 0) runs the default and never the block; with flag 1 the block runs instead, or the default when the target has no block; the block runs on dead actors too; a block parameter (`OnActivate player`) must match the activator | [observed: `L5.quest.ref_activation`, `.dead_activation`, layer5-captures.md §8.3 d, f; documented: GECK wiki Activate] |
-| OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors), at once; a reference enabled in a loaded cell at the start of the next frame, not inside Enable | cell load [hypothesis]; after Enable [observed: jukebox and broken radio, layer5-captures.md §8.3 d] |
+| OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors), at once, disabled ones included; a reference enabled in a loaded cell at the start of the next frame, not inside Enable (again, for one that ran it disabled at the cell load) | cell load [hypothesis]; disabled ones at the cell load [observed: VMS15's rising plane had run its OnLoad while disabled, read on the line after its Enable, layer5-captures.md §8.3 d; that it was the cell load and not Enable is the narrowest reading, hypothesis]; after Enable [observed: jukebox and broken radio, layer5-captures.md §8.3 d] |
 | OnAdd / OnEquip / OnUnequip | AddItem (each item of a form list), pick-up, EquipItem / UnequipItem, on the item's script, inside the call; the item's GameMode follows by the next frame | [documented: AddItem's OnAdd; per call, not per item, hypothesis; observed: OnAdd then GameMode by the next frame, `L5.quest.onadd_gamemode`] |
 | OnDeath | KillActor | [hypothesis: at once] |
 | SayToDone | when a line said by SayTo or Say ends, after its end result script (§7.7); also the runner input `say_to_done` | after Say too [documented: GECK tutorials, level-design.md §11.2 D1]; the order [hypothesis] |
@@ -715,8 +715,9 @@ that). The frames right after a door's cell load are the engine's to mark with
 Disabled references run their per-frame blocks [documented: GECK wiki Object scripts,
 owner export 2026-10-09; observed for GameMode: capture job `od_09a_disabled_ref_script`,
 2026-10-18, the skull's timer fell at its enabled rate while disabled,
-owner-decision-captures.md; round 3 had them stopped, a hypothesis]; deleted ones do not, and OnLoad at a cell
-load needs the reference enabled (a disabled reference has no 3D to load) [hypothesis].
+owner-decision-captures.md; round 3 had them stopped, a hypothesis]; deleted ones do not.
+OnLoad at a cell load runs for disabled references too (§7.2 OnLoad row; it was "needs
+the reference enabled" until 2026-10-24, a hypothesis the rising plane refuted).
 Return ends the script for the run, later blocks of the same event included (§4.2).
 
 ### 7.3 Functions
@@ -1340,8 +1341,8 @@ and Trudy's lines in the VCG02 / VCG03 part are still `say_info` / `say_first` i
   hypothesis); whether an entry's conditions see the effects of earlier entries' scripts.
 - Frame order: quest scripts before object scripts is observed for one pair only
   (layer5-captures.md §9.3 c); where effect scripts, inventory items' scripts and actors'
-  scripts come is not captured. The rising plane's OnLoad on the line after Enable
-  (§8.3 d, unexplained).
+  scripts come is not captured. The rising plane's GameMode stall after Enable
+  (layer5-captures.md §8.3 d, unexplained; its OnLoad is read as the cell load's).
 - Scripted items held by actors other than the player, and by containers: do they run
   GameMode (§7.2)? OnAdd once per call or once per item.
 - MenuMode quest delays (one counter per mode, §7.2): not captured.

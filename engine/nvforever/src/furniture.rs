@@ -225,7 +225,12 @@ impl Furnishings {
             let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
             Some(furn::markers(&file, &dec))
         };
-        let m = Arc::new(read().unwrap_or_default());
+        // A panic reading a broken file counts as no markers (logged once: cached).
+        let m = nvf_assets::guard::guarded(|| Ok(read().unwrap_or_default())).unwrap_or_else(|e| {
+            bevy::log::warn!("{model}: furniture markers not read: {e}");
+            Vec::new()
+        });
+        let m = Arc::new(m);
         self.markers.insert(model.to_string(), m.clone());
         m
     }
