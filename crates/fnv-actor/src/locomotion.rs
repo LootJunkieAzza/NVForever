@@ -129,6 +129,18 @@ pub fn clip_candidates(folder: &str, body: Body, prefix: &str, m: Move) -> Vec<S
     if matches!(m, Move::Forward | Move::FastForward) {
         v.push(format!("{folder}\\locomotion\\{prefix}{}.kf", m.group().to_ascii_lowercase().replace("forward", "foward")));
     }
+    // The alien's walk and run have no `mt`: `locomotion\forwardwalk.kf` (89.89 units/s)
+    // and `locomotion\fastforward.kf` (419.9), and its walk with a weapon drawn
+    // `locomotion\1hmforwardwalk.kf` [observed: `fnvtool actor locomotion --folder
+    // meshes\dlc05\creatures\alien`, 2026-10-25; no other creature folder the base game
+    // and add-ons place names them so]; the original walks it at 86–91 and runs it at 420
+    // (actors.md §8.10): looked for last.
+    let bare = if prefix == "mt" { "" } else { prefix };
+    match m {
+        Move::Forward => v.push(format!("{folder}\\locomotion\\{bare}forwardwalk.kf")),
+        Move::FastForward if prefix == "mt" => v.push(format!("{folder}\\locomotion\\fastforward.kf")),
+        _ => {}
+    }
     v
 }
 
@@ -630,6 +642,29 @@ mod tests {
         let set = LocomotionSet::find(folder, Body::Male, "mt", |p| p == "meshes\\creatures\\nightstalker\\locomotion\\mtfastfoward.kf");
         assert_eq!(set.clips.get(&Move::FastForward).map(String::as_str), Some("meshes\\creatures\\nightstalker\\locomotion\\mtfastfoward.kf"));
         assert!(clip_candidates(folder, Body::Male, "mt", Move::Backward).iter().all(|p| !p.contains("foward")));
+    }
+
+    #[test]
+    fn the_aliens_bare_walk_and_run_are_found() {
+        let folder = "meshes\\dlc05\\creatures\\alien";
+        let files = [
+            "meshes\\dlc05\\creatures\\alien\\locomotion\\forwardwalk.kf",
+            "meshes\\dlc05\\creatures\\alien\\locomotion\\fastforward.kf",
+            "meshes\\dlc05\\creatures\\alien\\locomotion\\1hmforwardwalk.kf",
+            "meshes\\dlc05\\creatures\\alien\\mtidle.kf",
+        ];
+        let set = LocomotionSet::find(folder, Body::Male, "mt", |p| files.contains(&p));
+        assert_eq!(set.clips.get(&Move::Forward).map(String::as_str), Some(files[0]));
+        assert_eq!(set.clips.get(&Move::FastForward).map(String::as_str), Some(files[1]));
+        assert_eq!(set.clips.get(&Move::Idle).map(String::as_str), Some(files[3]));
+        let armed = LocomotionSet::find(folder, Body::Male, "1hm", |p| files.contains(&p));
+        assert_eq!(armed.clips.get(&Move::Forward).map(String::as_str), Some(files[2]));
+        // The `mt` clips come first where a folder has them.
+        let c = clip_candidates("meshes\\creatures\\dog", Body::Male, "mt", Move::FastForward);
+        assert_eq!(c[1], "meshes\\creatures\\dog\\locomotion\\mtfastforward.kf");
+        assert_eq!(c.last().map(String::as_str), Some("meshes\\creatures\\dog\\locomotion\\fastforward.kf"));
+        // A weapon stance's run is not looked for without its prefix.
+        assert!(clip_candidates(folder, Body::Male, "1hm", Move::FastForward).iter().all(|p| !p.ends_with("\\fastforward.kf")));
     }
 
     #[test]
