@@ -25,7 +25,8 @@
 //!   highest stage reached, added as AddSpell adds it, and loses it when the value drops
 //!   below [hypothesis]. Rads' stages hold in every mode, the needs' only in Hardcore
 //!   [hypothesis: radiation sickness is no Hardcore feature; the needs' stage effects
-//!   are taken away when Hardcore is turned off].
+//!   are taken away when Hardcore is turned off]. Turning Hardcore off also sets the
+//!   needs back to 0 [owner 2026-10-25].
 //! - **Sleep heals crippled limbs** outside Hardcore: an hour slept takes away all the
 //!   damage of the player's limb conditions [observed: FalloutNV.esm MESG
 //!   `HelpHealingLimbs`, "to heal a crippled limb, you have three choices: sleep in a
@@ -84,11 +85,21 @@ impl Game<'_> {
     /// ammunition, which the simulation counts by its own switch
     /// (`fnv_sim::World::set_hardcore`) [observed: FalloutNV.esm's Hardcore help text,
     /// "ammunition has weight"]. Turning it off marks the game as not always Hardcore
-    /// (IsAlwaysHardcore).
+    /// (IsAlwaysHardcore). Turning it off also clears the needs (dehydration, hunger,
+    /// sleep deprivation back to 0) and takes away their stages' effects at once
+    /// [owner 2026-10-25: "turning off hardcore mode needs to clear all hardcore values
+    /// and negative effects"]; turned on again, the needs start from nothing.
     pub fn set_hardcore(&mut self, on: bool) {
         self.player.hardcore = Some(on);
         self.player.hardcore_was_off |= !on;
         self.world.set_hardcore(on);
+        if !on {
+            let p = FormId::PLAYER_REF;
+            for (code, _, _) in NEEDS {
+                let _ = fa::set_current(self, p, code, 0.0);
+            }
+            self.update_need_stages();
+        }
     }
 
     /// Seconds of play per point of a need.

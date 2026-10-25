@@ -5769,6 +5769,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "hardcore-setting"
+source = "owner 2026-10-25: Hardcore mode is a switch of the settings page's Gameplay group; turning it off clears the needs and their effects (engine/nvf-play/src/hardcore.rs, crates/fnv-game/src/needs.rs, docs/spec-notes/aid-items.md §11)"
+note = "The settings page turns Hardcore on at 11 s; Dehydration 650 at 13 s (Critical: H2O red, Strength down); the page turns it off at 17 s: the needs go back to 0 and the word and its effect go"
+areas = ["hud", "hardcore", "settings"]
+paths = ["engine/nvf-play/src/hardcore.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/hud_needs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,16:18", NVF_PLAY_TEST_SETTINGS = "11:hardcore,17:hardcore", NVF_PLAY_TEST_SCRIPT = "13:set_av:player:Dehydration:650" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 22
+order = [[
+  "hardcore: Hardcore mode on",
+  { re = 'hud needs: H2O red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
+  "hardcore: Hardcore mode off: needs cleared",
+  { re = 'hud needs: H2O hidden', label = "the word goes with Hardcore off" },
+]]
+forbid = [{ text = "the setting follows", label = "the switch's own change is taken as the game's" }]
+
+[[scenario]]
 name = "hud-dialogue"
 source = "owner's playtest list 5, item 74 (docs/spec-notes/hud.md §10): Sunny greets the player in the saloon; Trudy's lines to Cheyenne while the conversation runs are logged, not drawn as subtitles"
 note = "the conversation is the force-greet scenario's; Trudy's say_to lines come every 4 s so one falls inside it"
@@ -5863,6 +5880,25 @@ order = [[
   { re = 'combat: kick: shot [6-8] in a row' },
   { re = 'combat: kick settled' },
 ]]
+
+[[scenario]]
+name = "dynamic-crosshair-off"
+source = "owner 2026-10-25: the dynamic crosshair is a switch of the settings page's Gameplay group (engine/nvf-play/src/reticle.rs, docs/spec-notes/reticle.md §6)"
+note = "The settings page turns Dynamic crosshair off at 6 s, before the 10mm Pistol is drawn; the run of shots blooms the combat model's cone as in combat-bloom-recoil, but the arrows never part"
+areas = ["hud", "settings"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "5:7", NVF_PLAY_TEST_SETTINGS = "6:dynamic-crosshair", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11.00:fire,11.20:fire,11.55:fire,11.75:fire,12.10:fire,12.30:fire,12.65:fire,12.85:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
+run_seconds = 15
+expect = [
+  { re = 'combat: kick: shot [4-8] in a row, .*crosshair cone now (?P<n>[0-9.]+) deg', range = [2.0, 15.0], label = "the shots still widen the combat model's cone" },
+]
+order = [[
+  "reticle: dynamic crosshair on",
+  "reticle: dynamic crosshair off: the arrows stay together",
+  { re = 'combat: kick: shot 1 in a row' },
+]]
+forbid = [{ re = 'reticle: \w+ spread [1-9]', label = "the arrows part with the switch off" }]
 
 [[scenario]]
 name = "compass-reticle"

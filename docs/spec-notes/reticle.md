@@ -121,6 +121,9 @@ pixels (the font's glyphs start a little after their pen position).
   each 60th of a second. Only weapons with a firing cycle (guns, energy weapons,
   launchers, thrown weapons) open it; melee, unarmed and a holstered weapon leave it
   closed. The filled crosshair (something to use) does not open.
+- [design: owner 2026-10-25] The spread is a switch of the settings page's Gameplay group,
+  "Dynamic crosshair" (`dynamic-crosshair` in `NVForever.ini`), on by default; off, the
+  arrows stay together whatever is drawn.
 - [documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"] The crosshair
   is red, the crime colour, over an actor hostile to the player: the crosshair's ray to
   [`AIM_RANGE`] meets a living actor fighting the player or ready to attack it
