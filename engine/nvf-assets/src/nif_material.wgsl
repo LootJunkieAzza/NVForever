@@ -25,9 +25,10 @@
 //
 // REFRACT (shapes with the Refraction shader flag, main pass): what lies behind the shape
 // (Bevy's view transmission texture), shifted on the screen by the shape's normal (normal
-// map applied) in view space times `surface.refraction` [hypothesis, nif_material.rs
-// "Refraction"]; nothing of the shape's own colour or lighting. With a fire period the
-// normal map's tilt, scrolled over time, is added (nif_material.rs "Fire refraction").
+// map applied) in view space times `surface.refraction` (the strength already in screen
+// UV) [hypothesis, nif_material.rs "Refraction"]; nothing of the shape's own colour or
+// lighting. With a fire period the vertex normal's tilt and the normal map's, scrolled
+// over time, are used instead (nif_material.rs "Fire refraction").
 //
 // Holes (nif_material.rs "Holes"): where `surface.holes.x` is 0 or more, the holes
 // texture's alpha (0-255) at or above it leaves a hole and the band of `surface.holes.y`
@@ -305,11 +306,12 @@ fn fragment(
 #ifdef STANDARD_MATERIAL_NORMAL_MAP
 #ifdef VERTEX_UVS_A
     if surface.fire_period != 0.0 {
-        // Fire refraction (nif_material.rs "Fire refraction"): the normal map read again,
+        // Fire refraction (nif_material.rs "Fire refraction"): the normal map read
         // scrolled up its texture once every `fire_period` seconds (down when negative:
-        // fract keeps the offset in 0..1 either way); its tangent-space tilt
-        // is added to the shift as it is.
+        // fract keeps the offset in 0..1 either way); its tangent-space tilt is added to
+        // the tilt of the vertex normal, in place of the unscrolled map's.
         let scrolled = in.uv + vec2(0.0, fract(globals.time / surface.fire_period));
+        tilt = (view.view_from_world * vec4(pbr_input.world_normal, 0.0)).xy;
         tilt += normal_map_texel(in.instance_index, scrolled).rg * 2.0 - 1.0;
     }
 #endif

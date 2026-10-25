@@ -56,8 +56,9 @@ note covers the whole census, fire refraction and actors.
 - **Rule** [hypothesis]: a refracting shape with Fire Refraction set moves its bend: the
   normal map is read a second time with its texture coordinates scrolled up the texture
   (v grows) by one whole repeat every `period × 0.1` seconds, and that tangent-space tilt
-  (red and green, −1..1) is added to the view-space tilt of the shape's normal before it
-  is multiplied by the strength. A negative period scrolls the other way. A period of 0
+  (red and green, −1..1) is added to the view-space tilt of the shape's own (vertex)
+  normal before it is multiplied by the strength. The unscrolled normal map is not used
+  then (until 2026-10-25 both were, so the map counted twice). A negative period scrolls the other way. A period of 0
   leaves the bend still. Reasons: the name and its use on fires and explosions point at
   rising heat; the most common period, 10, then gives one repeat a second, which shows
   over an explosion's 0.3 s shell; tenths of a second keep 200 (a roof shock effect) at
@@ -79,7 +80,8 @@ note covers the whole census, fire refraction and actors.
 ## 5. The Stealth Boy's field on the player
 
 - While the player's Chameleon is 1 or more, every mesh of the player's body and
-  first-person arms is drawn refracting, strength 0.03, normal map scrolling once every
+  first-person arms is drawn refracting, a screen shift of 0.03 per unit of tilt (strength
+  0.3 in the unit of §6), normal map scrolling once every
   2 s [hypothesis: chosen between the game's own refracting effects, 0.04 for Mister
   Handy's jet and 0.0556 for the Incinerator; the original's look is the engine's (§1)
   and has not been compared with game frames]. Nothing of the body's colour is drawn:
@@ -89,6 +91,18 @@ note covers the whole census, fire refraction and actors.
   `StealthBoyInvisibilitySpell`): their meshes are not changed.
 
 ## 6. How it is drawn
+
+**Strength to screen shift** [hypothesis, 2026-10-25]: the shift in screen UV (a share of
+the screen's width or height) is the view-space tilt × the strength × 0.1
+(`nif_material::REFRACTION_SCREEN`). Until then the strength was taken as screen UV whole,
+and the owner found the Incinerator's burst "really really strong and noticeable": keyed to
+0.156 (explosion-effects.md §7), its shell moved the picture by up to about a third of the
+screen and drew the boulder behind it as a magnified dome. Reasons for a tenth: the stored
+strengths run up to 1.0 (§2: the HELIOS One beam, the displacer impact), which as screen UV
+would move the picture by a whole screen; with 0.1 the Incinerator's peak is about 2 % of
+the screen, Mister Handy's jet 0.4 % (8 pixels at 1920 wide), the Ghoul body glow 0.15 %, and
+1.0 a tenth of the screen. Not compared with game frames. The Stealth Boy's field (§5) keeps
+its shift (0.03 screen UV per unit of tilt): its material strength is 0.3.
 
 As in explosion-effects.md §7: after the opaque pass from Bevy's copy of it (the view
 transmission texture), no depth written, nothing in the shadow maps; particles and other
