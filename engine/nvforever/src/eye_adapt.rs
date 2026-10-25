@@ -320,13 +320,14 @@ mod tests {
 
     #[test]
     fn speed_follows_eye_adapt_speed() {
-        assert_eq!(adapt_speed(0.9), ADAPT_SPEED);
+        // 0.9 is the base image spaces' own value: the speed is ADAPT_SPEED (to f32 rounding).
+        assert!((adapt_speed(0.9) - ADAPT_SPEED).abs() < 1e-5);
         // NVCaveEnteringISFX halves it: slower.
         assert!((adapt_speed(0.45) - ADAPT_SPEED / 2.0).abs() < 1e-5);
         assert_eq!(adapt_speed(0.0), INSTANT_ADAPT_SPEED);
         assert_eq!(adapt_speed(0.01), SLOWEST_ADAPT_SPEED);
         assert_eq!(adapt_speed(100.0), INSTANT_ADAPT_SPEED);
-        assert_eq!(adapt_speed(f32::NAN), ADAPT_SPEED);
+        assert!((adapt_speed(f32::NAN) - ADAPT_SPEED).abs() < 1e-5);
     }
 
     #[test]
