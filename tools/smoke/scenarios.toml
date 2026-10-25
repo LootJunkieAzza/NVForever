@@ -509,6 +509,30 @@ expect = [
 ]
 
 [[scenario]]
+name = "swing-trap-log"
+source = "docs/spec-notes/traps.md §4: in the developer cell TestTraps the swinging log 00165273 (TrapMaceSCRIPT) is activated; its OnActivate starts trapUpdate, which lets the log go: the model's bodies swing on their constraints (nvforever swing_traps.rs)"
+areas = ["physics", "scripts"]
+paths = ["engine/nvforever/src/swing_traps.rs", "engine/nvf-play/src/swing_traps.rs", "crates/fnv-game/src/swing_traps.rs", "crates/fnv-phys/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:0x00165273", NVF_PLAY_TEST_SHOTS = "5:swing_trap_0.png,7:swing_trap_1.png,9:swing_trap_2.png" }
+args = ["--cell", "TestTraps", "--pos=2960,6004,8700", "--heading", "90", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'swing traps: 00165273 is let go', label = "the first trapUpdate lets the log go" },
+  { re = 'swing traps: 00165273 let go: 16 bodies \(13 moving\), 14 joints', label = "its 16 bodies on 14 constraints, the 3 anchors fixed" },
+  { re = 'swing traps: 00165273 hits 00000014 at \d+ units/s: 40 damage', label = "the log hits the player standing under it, at the script's first damage (40)" },
+]
+
+[[scenario]]
+name = "swing-trap-look"
+source = "docs/spec-notes/traps.md §4: the swinging log 00165273 of TestTraps watched from the west, end on: frames swing_look_0 (held back), swing_look_1..3 (swinging) in target/smoke"
+areas = ["physics"]
+paths = ["engine/nvforever/src/swing_traps.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:0x00165273", NVF_PLAY_TEST_SHOTS = "5.5:swing_look_0.png,6.5:swing_look_1.png,7:swing_look_2.png,7.6:swing_look_3.png" }
+args = ["--cell", "TestTraps", "--pos=2500,6004,8700", "--heading", "90", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [{ re = 'swing traps: 00165273 swings: body 1 at .* (1\d\d|[2-9]\d\d) units/s', label = "the log swings" }, "Screenshot saved to swing_look_3.png"]
+
+[[scenario]]
 name = "npc-travel"
 source = "CLAUDE.md: after navmesh, pathing or travelling-NPC changes, the travel smoke test"
 areas = ["nav"]

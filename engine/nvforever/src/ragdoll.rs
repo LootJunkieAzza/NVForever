@@ -296,14 +296,14 @@ impl Plugin for RagdollPlugin {
 }
 
 /// A bone's world transform (Bevy space, any uniform scale) as a game-space pose.
-fn game_iso(a: &Affine3A) -> Iso {
+pub(crate) fn game_iso(a: &Affine3A) -> Iso {
     let col = |c: bevy::math::Vec3A| Vec3::from(space::to_game(Vec3::from(c))).normalize_or_zero();
     let (x, y, z) = (col(a.matrix3.x_axis), col(a.matrix3.y_axis), col(a.matrix3.z_axis));
     Iso { translation: space::to_game(Vec3::from(a.translation)), rotation: [x.x, y.x, z.x, x.y, y.y, z.y, x.z, y.z, z.z] }
 }
 
 /// A game-space pose with a uniform scale as a world transform (Bevy space).
-fn bevy_affine(translation: [f32; 3], r: &[f32; 9], scale: f32) -> Affine3A {
+pub(crate) fn bevy_affine(translation: [f32; 3], r: &[f32; 9], scale: f32) -> Affine3A {
     let col = |j: usize| space::to_bevy([r[j], r[3 + j], r[6 + j]]) * scale;
     Affine3A::from_cols(col(0).into(), col(1).into(), col(2).into(), space::to_bevy(translation).into())
 }
@@ -552,7 +552,7 @@ pub(crate) fn pose(
         c.settled = asleep;
     }
     // Ragdolls whose actor is no longer drawn: remember where they lie.
-    let gone: Vec<u32> = phys.world.ragdolls().filter(|id| !seen.contains(id)).collect();
+    let gone: Vec<u32> = phys.world.ragdolls().filter(|&id| !seen.contains(&id) && !phys.world.is_object_ragdoll(id)).collect();
     for id in gone {
         if let Some(nodes) = phys.world.ragdoll_nodes(id) {
             ragdolls.rest.insert(id, nodes.iter().map(|b| b.as_ref().map(iso_of)).collect());
