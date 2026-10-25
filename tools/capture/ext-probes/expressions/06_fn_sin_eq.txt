@@ -1,0 +1,17 @@
+scn ExtProbeExpr06
+; one probe that may not compile (tools/capture/ext-probes/expressions/README.md)
+int x
+int y
+int r
+float f
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr06|begin"
+    let r := Sin 90 > 0.5
+    Print "EXTPROBE|fn.sin_eq|" + $(r)
+    Print "EXTPROBE|expressions/ExtProbeExpr06|end"
+End
