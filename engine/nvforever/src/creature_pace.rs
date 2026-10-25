@@ -423,6 +423,7 @@ mod tests {
                 accum_root: None,
                 text_keys: Vec::new(),
                 visibility: Vec::new(),
+                emitters: Vec::new(),
                 materials: Vec::new(),
                 free: Vec::new(),
                 free_visibility: Vec::new(),

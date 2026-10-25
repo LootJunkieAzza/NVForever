@@ -32,6 +32,9 @@ pub struct Clip {
     /// Visibility tracks (`NiVisController`): node name, priority, shown over time
     /// (docs/spec-notes/animation.md §9.7).
     pub visibility: Vec<(String, i32, BoolTrack)>,
+    /// Particle emitter tracks (`NiPSysEmitterCtlr`) on systems of a model the clip
+    /// moves the parts of: the dynamite's fuse sparks in its throw clip ([`EmitterTrack`]).
+    pub emitters: Vec<EmitterTrack>,
     /// Tracks on a shape's material: its glow and texture offset (`crate::material_anim`,
     /// docs/spec-notes/activators.md §2).
     pub materials: Vec<MaterialTrack>,
@@ -46,6 +49,29 @@ pub struct Clip {
     /// Tracks on a light of the model: its colour and dimmer (`NiLightColorController`,
     /// `NiLightDimmerController`; docs/spec-notes/model-lights.md).
     pub lights: Vec<LightTrack>,
+}
+
+/// A clip's tracks on one particle system's emitter controller (`NiPSysEmitterCtlr`),
+/// by the system's name: interpolator ID `BirthRate` (particles a second) and
+/// `EmitterActive` (on/off keys) [observed: `_1stpersongtattackthrow2.kf` drives the
+/// dynamite's `##PCloud01` with both, on from 1.0 s to its `Release` key at 1.83 s, at
+/// 21.6 a second; the model's own controller keeps it on for ever, docs/spec-notes/particles.md §7.6].
+#[derive(Debug, Clone)]
+pub struct EmitterTrack {
+    pub system: String,
+    pub priority: i32,
+    pub rate: Option<Arc<ValueTrack>>,
+    pub active: Option<BoolTrack>,
+}
+
+impl EmitterTrack {
+    /// Whether the emitter is on at `t`, and its birth rate there where the clip keys one.
+    /// Without an on/off track the emitter is on while the clip speaks for it.
+    pub fn at(&self, t: f32) -> (bool, Option<f32>) {
+        let on = self.active.as_ref().and_then(|a| a.at(t)).unwrap_or(true);
+        let rate = self.rate.as_ref().and_then(|r| r.at(t)).map(|[v, ..]| v.max(0.0));
+        (on, rate)
+    }
 }
 
 /// What a light track drives.
@@ -235,9 +261,25 @@ impl Clip {
         let mut visibility = Vec::new();
         let mut materials = Vec::new();
         let mut lights = Vec::new();
+        let mut emitters: Vec<EmitterTrack> = Vec::new();
         for t in &seq.tracks {
             materials.extend(MaterialTrack::of(t));
             lights.extend(LightTrack::of(t));
+            if let (Some(n), Some("NiPSysEmitterCtlr")) = (&t.node_name, t.controller_type.as_deref()) {
+                let priority = t.priority.unwrap_or(0) as i32;
+                let k = match emitters.iter().position(|e| e.system == *n && e.priority == priority) {
+                    Some(k) => k,
+                    None => {
+                        emitters.push(EmitterTrack { system: n.clone(), priority, rate: None, active: None });
+                        emitters.len() - 1
+                    }
+                };
+                match t.interpolator_id.as_deref() {
+                    Some("BirthRate") => emitters[k].rate = t.values.clone().map(Arc::new),
+                    Some("EmitterActive") => emitters[k].active = t.bools.clone(),
+                    _ => {}
+                }
+            }
             if let (Some(n), Some(b), Some("NiVisController")) = (&t.node_name, &t.bools, t.controller_type.as_deref()) {
                 visibility.push((n.clone(), t.priority.unwrap_or(0) as i32, b.clone()));
             }
@@ -261,6 +303,7 @@ impl Clip {
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
             text_keys: seq.text_keys.clone(),
             visibility,
+            emitters,
             materials,
             free: Vec::new(),
             free_visibility: Vec::new(),
@@ -312,6 +355,7 @@ impl Clip {
             accum_root: None,
             text_keys: Vec::new(),
             visibility: Vec::new(),
+            emitters: Vec::new(),
             materials: tracks,
             free,
             free_visibility: shows,
@@ -1116,6 +1160,7 @@ mod tests {
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
             visibility: Vec::new(),
+            emitters: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
             free_visibility: Vec::new(),

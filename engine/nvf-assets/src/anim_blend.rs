@@ -359,6 +359,22 @@ impl Animator {
         best.map(|(_, v)| v)
     }
 
+    /// What the playing clips say of the particle system named `system` (a weapon
+    /// model's, the dynamite's fuse sparks): whether its emitter is on and its birth rate
+    /// where keyed, from the emitter track of the highest priority among them, the latest
+    /// started of equals; `None` when no playing clip has one for it.
+    pub fn emitter(&self, system: &str) -> Option<(bool, Option<f32>)> {
+        let mut best: Option<(i32, (bool, Option<f32>))> = None;
+        for l in self.layers.iter().filter(|l| l.ease > 0.0) {
+            for e in l.clip.emitters.iter().filter(|e| e.system == system) {
+                if best.is_none_or(|(p, _)| e.priority >= p) {
+                    best = Some((e.priority, e.at(l.sample_time(self.phase))));
+                }
+            }
+        }
+        best.map(|(_, v)| v)
+    }
+
     /// Where the last [`Self::pose`] put the extra node at `k` in the list given to
     /// [`Self::set_extra`] (its local transform); `None` before the first pose with it.
     pub fn extra_local(&self, k: usize) -> Option<Transform> {
@@ -576,6 +592,7 @@ mod tests {
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
             visibility: Vec::new(),
+            emitters: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
             free_visibility: Vec::new(),
@@ -743,6 +760,28 @@ mod tests {
         a.advance(0.5, 1.0);
         assert_eq!(a.visible("##Gun"), Some(true));
         assert_eq!(a.visible("##Other"), None);
+    }
+
+    #[test]
+    fn a_clip_lights_and_puts_out_a_weapon_emitter() {
+        use crate::anim_play::EmitterTrack;
+        use fnv_nif::anim::BoolTrack;
+        // The dynamite's throw: the fuse on at 1.0 s, off at the release (1.833 s), at
+        // 21.6 a second; no rate keys, so the rate is the interpolator's lone value.
+        let mut c = (*clip(&[("A", [0.0; 3], 30)], 2.6)).clone();
+        let active = BoolTrack { value: None, keys: vec![(0.0, false), (1.0, true), (1.833, false)] };
+        c.emitters = vec![EmitterTrack { system: "##PCloud01".into(), priority: 55, rate: None, active: Some(active) }];
+        let throw = Arc::new(c);
+        let mut a = animator();
+        assert_eq!(a.emitter("##PCloud01"), None);
+        a.want(&throw, 0, 1.0, Mode::Once, 0.0);
+        a.advance(0.5, 1.0);
+        assert_eq!(a.emitter("##PCloud01"), Some((false, None)));
+        a.advance(0.75, 1.0);
+        assert_eq!(a.emitter("##PCloud01"), Some((true, None)));
+        a.advance(0.75, 1.0);
+        assert_eq!(a.emitter("##PCloud01"), Some((false, None)));
+        assert_eq!(a.emitter("##Other"), None);
     }
 
     #[test]

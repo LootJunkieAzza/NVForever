@@ -416,6 +416,10 @@ struct Rig {
     weapon_parent: Option<usize>,
     attached: Option<usize>,
     weapon_model: Option<Entity>,
+    /// The weapon model's particle systems, when it has any: the holder carrying their
+    /// clip-driven emitter ([`crate::particles::ModelEmitter::held`]) and the systems'
+    /// names (the dynamite's fuse sparks, [`drive_weapon_emitters`]).
+    weapon_emitter: Option<(Entity, Vec<String>)>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
     /// The weapon is in the hand with no draw, attack or reload clip playing, and the
@@ -833,7 +837,7 @@ impl Plugin for PlayerBodyPlugin {
         app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, true_iron_sights: self.true_iron_sights, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, drive_weapon_emitters, shade_light).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Last, report);
     }
 }
@@ -982,6 +986,7 @@ fn ensure_body(
             commands.entity(e).despawn();
         }
         rig.animator.set_extra(Vec::new());
+        rig.weapon_emitter = None;
         rig.muzzle = None;
         rig.muzzle_entity = None;
         rig.casing = None;
@@ -1001,6 +1006,17 @@ fn ensure_body(
             Some(pm) => {
                 let holder = commands.spawn((Name::new(format!("Player weapon {path}")), Transform::IDENTITY, Visibility::Inherited)).id();
                 commands.entity(rig.animator.nodes[node]).add_child(holder);
+                // The model's own particle systems emit from the holder as the rig's clips
+                // switch them on: the dynamite's fuse sparks while the throw lights it
+                // (docs/spec-notes/particles.md §7.6).
+                if pm.particles {
+                    let names: Vec<String> = models.particles(&path).map(|pp| pp.systems.iter().map(|d| d.name.clone()).collect()).unwrap_or_default();
+                    if !names.is_empty() {
+                        info!("player weapon model ({:?} person): particle systems {names:?}, emitting as the clips say", rig.view);
+                        commands.entity(holder).insert(crate::particles::ModelEmitter::held(path.clone()));
+                        rig.weapon_emitter = Some((holder, names));
+                    }
+                }
                 // A node of the model whose `UPB` string names a bone hangs its shapes
                 // from that bone instead [observed: the minigun's `Backpack` node says
                 // `Bip01 Spine2`; hypothesis: that is its meaning; animation.md §9.7].
@@ -1228,6 +1244,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_parent,
         attached: weapon_parent,
         weapon_model: None,
+        weapon_emitter: None,
         weapon_parts: Vec::new(),
         idle_logged: false,
         sights_turned: None,
@@ -1920,6 +1937,39 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
         }
         debug!("player body: first-person rig {}", if first { "shown" } else { "hidden" });
         f.shown = Some(first);
+    }
+}
+
+/// Switch the held weapon model's particle systems on and off as the seen rig's clips
+/// say (`Animator::emitter`): the dynamite's `##PCloud01` sparks at the fuse from the
+/// throw clip's lighting to its release (docs/spec-notes/particles.md §7.6). A system
+/// the clips hide (`NiVisController`) does not emit, nor does the rig the camera does not
+/// see: the third-person body stands behind the arms in first person, drawn for its
+/// shadow only.
+fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate::particles::ModelEmitter>) {
+    let Some(body) = state.body.as_ref() else { return };
+    let first_seen = body.first.as_ref().is_some_and(|f| f.shown == Some(true));
+    let third_seen = body.third.seen.is_some_and(|s| s.body && s.weapon);
+    for (rig, seen) in std::iter::once((&body.third, third_seen)).chain(body.first.as_ref().map(|f| (f, first_seen))) {
+        let Some((holder, names)) = &rig.weapon_emitter else { continue };
+        let Ok(mut em) = emitters.get_mut(*holder) else { continue };
+        let mut on: HashMap<String, Option<f32>> = HashMap::new();
+        for name in names.iter().filter(|_| seen) {
+            if rig.animator.visible(name) == Some(false) {
+                continue;
+            }
+            if let Some((true, rate)) = rig.animator.emitter(name) {
+                on.insert(name.clone(), rate);
+            }
+        }
+        let was = em.driven.as_ref().map_or(0, HashMap::len);
+        if was != on.len() {
+            // Smoke tests read it (`thrown-dynamite`): the fuse lit in the hand.
+            info!("player {:?} rig weapon particles: {}", rig.view, if on.is_empty() { "off".to_string() } else { format!("{:?} on", on.keys().collect::<Vec<_>>()) });
+        }
+        if em.driven.as_ref() != Some(&on) {
+            em.driven = Some(on);
+        }
     }
 }
 

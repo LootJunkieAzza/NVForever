@@ -154,16 +154,20 @@ pub struct ModelEmitter {
     /// The sequence its drawn model played last frame and how far into it (seconds of
     /// the sequence's time): births between that and now (particles.md §6.7).
     clock: Option<(String, f32)>,
+    /// A held weapon's model ([`ModelEmitter::held`]): its systems emit only as the
+    /// holder's clips say, by system name: on, and the clip's birth rate where it keys
+    /// one. A system not named does not emit.
+    pub driven: Option<HashMap<String, Option<f32>>>,
 }
 
 impl ModelEmitter {
     pub fn new(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None }
     }
 
     /// The model of placed reference `r` (a dust cloud, a sconce's flame, a smoke column).
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None }
     }
 
     /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
@@ -172,7 +176,14 @@ impl ModelEmitter {
     /// the rest, and the mover of those that are not driven (particles.md §6.8), in step
     /// with the rig and its sounds.
     pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None }
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None }
+    }
+
+    /// The model of a weapon in an actor's hand: its systems stay off until the actor's
+    /// clips switch them on (the dynamite's fuse sparks while the throw clip lights it,
+    /// particles.md §7.6); `driven` is set each frame by whoever plays the clips.
+    pub fn held(path: impl Into<String>) -> ModelEmitter {
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()) }
     }
 }
 
@@ -414,7 +425,9 @@ type ModelEmitterItem = (
 );
 
 /// An emitter to serve this frame: its entity, systems, time, placed reference and drive.
-type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>);
+/// An emitter, its systems' key, age, placed reference, the sequence driving its drawn
+/// model, and the clips' word on a held model's systems ([`ModelEmitter::driven`]).
+type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>);
 
 /// Births: each add-on node in the world emits into the systems of its ADDN, each
 /// model emitter into its file's own.
@@ -453,7 +466,7 @@ fn emit(
             p.placed_seen.insert(r);
         }
         if !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None));
+            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None));
         }
         em.age += dt;
     }
@@ -484,8 +497,10 @@ fn emit(
             em.clock = now;
             Drive { rig: e, playing: span, began }
         });
-        if !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive));
+        // A held model whose clips switch nothing on costs nothing.
+        let idle = em.driven.as_ref().is_some_and(HashMap::is_empty);
+        if !hidden(em.age, v) && !idle {
+            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone()));
         }
         em.age += dt;
     }
@@ -498,7 +513,7 @@ fn emit(
         order.sort_by(|&a, &b| places[a].translation.distance_squared(eye).total_cmp(&places[b].translation.distance_squared(eye)));
     }
     for i in order {
-        let (_, key, age, placed, drive) = &sources[i];
+        let (_, key, age, placed, drive, driven) = &sources[i];
         let (age, placed) = (*age, *placed);
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
@@ -521,8 +536,14 @@ fn emit(
             let (on, rate, t, sequence) = match by_sequence {
                 Some(None) => continue,
                 Some(Some((s, from, to))) => (s.on_time(from, to), s.rate_at((from + to) * 0.5), to, Some(s)),
-                // A keyed rate at the middle of the frame (particles.md §6.6).
-                None => (d.on_time(age, age + dt), d.rate_at(age + dt * 0.5), age, None),
+                None => match driven.as_ref().map(|m| m.get(&d.name).copied()) {
+                    // A held model's system: on for the whole frame while the clips say
+                    // so, at their rate where they key one, else its own (§7.6).
+                    Some(None) => continue,
+                    Some(Some(rate)) => (dt, rate.unwrap_or_else(|| d.rate_at(age + dt * 0.5)), age, None),
+                    // A keyed rate at the middle of the frame (particles.md §6.6).
+                    None => (d.on_time(age, age + dt), d.rate_at(age + dt * 0.5), age, None),
+                },
             };
             // The emitter's node as a sequence of its file moves it (a dust devil on its
             // path, particles.md §6.8): on the drawn model's sequence time when one drives
