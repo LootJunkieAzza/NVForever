@@ -177,7 +177,7 @@ use nvf_play::Location;
 use crate::limbs::ActorRig;
 use crate::locomotion::{Dying, Flinch};
 use crate::ragdoll::Corpse;
-use crate::body_weapons::BodyWeapon;
+use crate::body_weapons::{BodyMelee, BodyWeapon};
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
@@ -1058,7 +1058,7 @@ pub(crate) fn fight(
     (blocks, mut phys): (Option<Res<ActorBlocks>>, Option<ResMut<PhysState>>),
     (nav, location, mut battle, residents): Where,
     actors: Query<Fought>,
-    (held, body): (Query<&HeldWeapon>, Query<&BodyWeapon>),
+    (held, body, body_melee): (Query<&HeldWeapon>, Query<&BodyWeapon>, Query<&ActorRig, With<BodyMelee>>),
     (muzzles, nodes): (Query<(&Muzzle, &GlobalTransform)>, Query<&GlobalTransform>),
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
     mut times: ResMut<AttackTimes>,
@@ -1078,6 +1078,9 @@ pub(crate) fn fight(
     // The weapon drawn on each actor: its model's, or a creature's body weapon in use
     // (`body_weapons.rs`).
     let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).chain(body.iter().map(|b| (b.reference, b.weapon))).collect();
+    // Creatures with a melee body arm: they strike a target too near rather than step
+    // back from it (`body_weapons.rs`).
+    let strikes_near: std::collections::HashSet<u32> = body_melee.iter().map(|r| r.reference).collect();
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // A creature's embedded weapon shoots from the node its WEAP names (NNAM), where its
     // skeleton has it (module notes).
@@ -1697,7 +1700,7 @@ pub(crate) fn fight(
                     let within = tactics::BACK_OFF_WITHIN.max(gun.map_or(0.0, |r| r.clearance()));
                     let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::BackOff);
                     let near = away < if current.is_some() { within + tactics::BACK_OFF_SLACK } else { within };
-                    if near && !barred(t, PostKind::BackOff) {
+                    if near && !barred(t, PostKind::BackOff) && !strikes_near.contains(&id) {
                         // On to the step it is taking; reached, another one.
                         let at = match current.filter(|p| (p.at[0] - feet[0]).hypot(p.at[1] - feet[1]) >= tactics::AT_POST) {
                             Some(p) => p.at,
@@ -2173,7 +2176,7 @@ pub(crate) fn fight(
                         } else if t.wall.is_some_and(|w| clock < w.recheck_at) {
                             trigger = false;
                         } else {
-                            match tactics::shot_clear(phys.as_deref_mut(), eyes, muzzle_at.get(&id).copied(), tchest, teyes) {
+                            match tactics::shot_clear(phys.as_deref_mut(), eyes, muzzle_at.get(&id).copied().or_else(|| embedded_at(id, ws)), tchest, teyes) {
                                 Some(p) => {
                                     aim_at = p;
                                     t.shot_line = Some((target.0, clock + tactics::LINE_CLEAR_FOR, p));

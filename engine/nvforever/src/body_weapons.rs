@@ -15,14 +15,18 @@
 //!   `npc_combat` reads as the weapon drawn: a gun fires its projectile, anything else
 //!   strikes with the weapon's damage and reach. Its shots leave from the weapon's node
 //!   (WEAP NNAM: `ProjectileNode_HeadLaser` for the flamers, `…HeadLaser01` for the
-//!   plasma gun, a [`Muzzle`] put under that node). Its blows and shots play the stance's
+//!   plasma gun; `npc_combat`'s embedded-node rule, as for any embedded gun). Its blows and shots play the stance's
 //!   attack clips (`attack_anims`: `1hmattackright_chop.kf`, `1hpattackright.kf`,
 //!   `2hlattackspin.kf`). The own attack is the creature's stance (`creature_stance.rs`)
 //!   and its own `h2h` attack clips, as before.
 //! - **Switching** ([`switch`], the rule: `fnv_combat::body_weapon`): while it fights,
 //!   every [`body_weapon::SWITCH_SECONDS`] at most it takes up the arm the rule chooses
 //!   for its target's distance; the new arm's equip clip plays and it attacks once that
-//!   is drawn. An arm whose limb (WEAP "Embedded Weapon Actor Value": Mister Handy's
+//!   is drawn. Its first choice in a fight is made at once (the arm drawn before the fight
+//!   was chosen for [`FIRST_DISTANCE`]), so a Mister Handy that fights at its target's
+//!   feet takes up its saw rather than stepping back with its flamer; and a creature with
+//!   a melee arm ([`BodyMelee`]) does not step back from a target too near
+//!   (`npc_combat`, `combat_tactics::BACK_OFF_WITHIN`) [design]: it strikes. An arm whose limb (WEAP "Embedded Weapon Actor Value": Mister Handy's
 //!   flamer Left Attack, buzzsaw Right Attack) is crippled to 0 is left out
 //!   [hypothesis: the wiki's "the condition value affected when the weapon is targeted"];
 //!   with none left it fights with the creature's own damage and no clip.
@@ -36,7 +40,7 @@ use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::npc_combat::{is_gun, Fighters};
 use crate::outfits::CreatureArms;
-use crate::weapons::{Muzzle, Stance, WeaponHold, WeaponMode};
+use crate::weapons::{Stance, WeaponHold, WeaponMode};
 use bevy::prelude::*;
 use fnv_actor::weapon::AnimType;
 use fnv_combat::body_weapon::{self, Arm};
@@ -68,27 +72,29 @@ pub struct BodyWeapon {
     pub weapon: FormId,
 }
 
+/// On a creature's root when one of its arms is a melee one (`npc_combat`: it does not
+/// step back from a target too near; module notes).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BodyMelee;
+
 /// One of a creature's arms.
 struct BodyArm {
     /// The body weapon; `None`: its own attack.
     weapon: Option<FormId>,
     name: String,
     stance: Option<Arc<Stance>>,
-    /// The skeleton node its shots leave from (WEAP NNAM).
-    node: Option<usize>,
     /// The limb-condition actor value that disables it at 0.
     limb: Option<u16>,
     rule: Arm,
 }
 
-/// On a creature with body weapons: its arms, the one in use, when it took that up, and
-/// the muzzle entity of a gun in use.
+/// On a creature with body weapons: its arms, the one in use and when it took that up
+/// (`None`: not yet in a fight).
 #[derive(Component)]
 pub struct BodyArms {
     arms: Vec<BodyArm>,
     current: Option<usize>,
-    since: f32,
-    muzzle: Option<Entity>,
+    since: Option<f32>,
     /// Its own unarmed stance, given back when it takes up its own attack again.
     own: Option<Arc<CreatureClips>>,
 }
@@ -120,7 +126,6 @@ type Unchecked = (Without<BodyChecked>, Without<Dying>, Or<(With<CreatureStance>
 #[allow(clippy::too_many_arguments)]
 fn attach(
     mut commands: Commands,
-    time: Res<Time>,
     world: Option<Res<ActorWorld>>,
     combat: Option<Res<Combat>>,
     sim: Res<SimState>,
@@ -157,11 +162,10 @@ fn attach(
                 *stats.no_stance.entry(format!("{folder} {prefix}")).or_default() += 1;
                 continue;
             };
-            let node = ws.embedded_node.as_deref().and_then(|n| node_index(rig, n));
             let gun = is_gun(&combat, ws, item);
             let dps = body_weapon::damage_per_second(ws.base_damage, ws.projectile_count, ws.attack_shots_per_sec, ws.fire_rate);
             let name = ws.edid.clone().unwrap_or_else(|| item.to_string());
-            arms.push(BodyArm { weapon: Some(item), name, stance: Some(stance), node, limb: ws.embedded_limb, rule: Arm { melee: !gun, min_range: ws.min_range, max_range: ws.max_range, dps, usable: true } });
+            arms.push(BodyArm { weapon: Some(item), name, stance: Some(stance), limb: ws.embedded_limb, rule: Arm { melee: !gun, min_range: ws.min_range, max_range: ws.max_range, dps, usable: true } });
         }
         commands.entity(e).insert(BodyChecked);
         if arms.is_empty() {
@@ -173,7 +177,7 @@ fn attach(
             !ctx.models.data.vfs.paths(|p| p.starts_with(&pre) && p.ends_with(".kf")).is_empty()
         });
         if has_own {
-            arms.push(BodyArm { weapon: None, name: "its own attack".into(), stance: None, node: None, limb: None, rule: Arm { melee: true, min_range: 0.0, max_range: 0.0, dps: 0.0, usable: true } });
+            arms.push(BodyArm { weapon: None, name: "its own attack".into(), stance: None, limb: None, rule: Arm { melee: true, min_range: 0.0, max_range: 0.0, dps: 0.0, usable: true } });
         }
         let rules: Vec<Arm> = arms.iter().map(|a| a.rule).collect();
         let first = body_weapon::choose(&rules, FIRST_DISTANCE, None).unwrap_or(0);
@@ -181,34 +185,30 @@ fn attach(
         let label = format!("{} {:08X}", rig.skeleton, rig.reference);
         info!("body weapons: {label} fights with {list}; first {}", arms[first].name);
         stats.armed.insert(rig.reference, format!("{:08X}: {list}", rig.reference));
-        let mut body = BodyArms { arms, current: None, since: time.elapsed_secs(), muzzle: None, own: own_stance.map(|s| s.clips.clone()) };
+        let melee = arms.iter().any(|a| a.rule.melee);
+        let mut body = BodyArms { arms, current: None, since: None, own: own_stance.map(|s| s.clips.clone()) };
         take_up(&mut commands, e, rig, player.into_inner(), &mut body, Some(first), false);
         commands.entity(e).insert(body);
+        if melee {
+            commands.entity(e).insert(BodyMelee);
+        }
     }
 }
 
 /// Take up arm `to` (`None`: none at all): its stance and weapon, or the creature's own
 /// attack (module notes).
 fn take_up(commands: &mut Commands, e: Entity, rig: &ActorRig, player: &mut BlendPlayer, body: &mut BodyArms, to: Option<usize>, drawn: bool) {
-    if let Some(m) = body.muzzle.take() {
-        commands.entity(m).despawn();
-    }
     (player.layers[2], player.layers[3]) = (None, None);
     body.current = to;
     let arm = to.and_then(|i| body.arms.get(i));
-    match arm.and_then(|a| Some((a.weapon?, a.stance.clone()?, a.node))) {
-        Some((weapon, stance, node)) => {
+    match arm.and_then(|a| Some((a.weapon?, a.stance.clone()?))) {
+        Some((weapon, stance)) => {
             let parent = rig.skel.parents[stance.weapon_node].unwrap_or(0);
             let mut hold = WeaponHold::new(stance, false, parent);
             hold.body = true;
             hold.drawn = drawn;
             hold.layers(player);
             commands.entity(e).remove::<CreatureStance>().insert((hold, BodyWeapon { reference: rig.reference, weapon }));
-            if let Some(&n) = node.and_then(|n| rig.nodes.get(n)) {
-                let m = commands.spawn((Name::new("Muzzle"), Muzzle { reference: rig.reference }, Transform::IDENTITY, Visibility::Inherited)).id();
-                commands.entity(n).add_child(m);
-                body.muzzle = Some(m);
-            }
         }
         None => {
             commands.entity(e).remove::<(WeaponHold, BodyWeapon)>();
@@ -236,7 +236,8 @@ fn switch(
     for (e, rig, mut body, mut player, hold, own) in &mut armed {
         let id = rig.reference;
         let Some(d) = fighters.distance(id) else { continue };
-        if now - body.since < body_weapon::SWITCH_SECONDS {
+        // The first choice in a fight at once, later ones apart (module notes).
+        if body.since.is_some_and(|t| now - t < body_weapon::SWITCH_SECONDS) {
             continue;
         }
         // Arms on a crippled limb are left out.
@@ -255,6 +256,7 @@ fn switch(
         let rules: Vec<Arm> = body.arms.iter().map(|a| a.rule).collect();
         let to = body_weapon::choose(&rules, d, body.current);
         if to == body.current {
+            body.since.get_or_insert(now);
             continue;
         }
         let name = |i: Option<usize>| i.and_then(|i| body.arms.get(i)).map_or("nothing".to_string(), |a| a.name.clone());
@@ -262,14 +264,9 @@ fn switch(
         info!("body weapons: {id:08X} switches from {from_name} to {to_name}, its target {d:.0} units away");
         *stats.switches.entry((from_name, to_name)).or_default() += 1;
         let drawn = hold.is_some_and(|h| h.drawn) || own.is_some_and(|s| s.drawn);
-        body.since = now;
+        body.since = Some(now);
         take_up(&mut commands, e, rig, &mut player, &mut body, to, drawn);
     }
-}
-
-/// The index of skeleton node `name` (exact, else ignoring case).
-fn node_index(rig: &ActorRig, name: &str) -> Option<usize> {
-    rig.skel.by_name.get(name).copied().or_else(|| rig.skel.names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))))
 }
 
 /// The folder of a skeleton path (`creatures\mistergutsy\skeleton.nif` →

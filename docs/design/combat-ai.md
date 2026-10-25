@@ -1687,6 +1687,15 @@ bloatfly and protectron folders also keep stance clips there.
   per second; at most one switch every 1.5 s, the new arm's equip clip played before it
   attacks. Mister Handy: saw within 192, flamer beyond. Mister Gutsy: flamer within 512,
   plasma gun beyond 600, and between the two the one in use.
+- The first choice in a fight is made at once, and a creature with a melee arm does not
+  step back from a target within `BACK_OFF_WITHIN` (256) [design]. Before (2026-10-25,
+  full smoke on main 8ec4062d): Mister Handy, drawn with its flamer, stepped back from the
+  player at its feet before its first switch was allowed, kept 256 away, never came
+  within the saw's 192 and never used it.
+- A body gun's shots and its line-of-fire check leave from its NNAM node by
+  `npc_combat`'s embedded-node rule (`embedded_at`, from the ESM audit's gap 14), the one
+  path for every embedded gun; `body_weapons.rs` puts no muzzle entity of its own there
+  (it did, and that hid the embedded-node path and its log line).
 - An arm whose limb condition (the WEAP Embedded Weapon Actor Value) is 0 is left out
   [hypothesis: "the condition value affected when the weapon is targeted", GECK wiki
   Weapons]: crippling Mister Handy's left arm leaves it its saw.
