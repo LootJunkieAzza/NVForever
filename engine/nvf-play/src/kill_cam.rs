@@ -217,7 +217,7 @@ fn update(
     let playing = *state.get() == PlayState::Playing;
     let player_dead = rt.game.is_dead(FormId::PLAYER_REF);
     // The last mark: watched from the frame its attack starts.
-    if let Some((shot, _)) = vats.final_shot(player.eye()) {
+    if let Some((shot, _)) = vats.final_shot(&player) {
         let same = cam.watch.as_ref().is_some_and(|w| w.shot.target == shot.target);
         if !same && cam.show.is_none() && !rt.game.is_dead(shot.target) {
             cam.watch = Some(Watch { shot, since_off: 0.0 });

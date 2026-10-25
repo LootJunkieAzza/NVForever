@@ -204,6 +204,8 @@ pub struct Flinch {
     pub clip: Arc<BoundClip>,
     /// When it started (`Time::elapsed_secs`).
     pub at: f32,
+    /// A power attack forced it (GetForceHitReaction, `crate::anim_state`).
+    pub forced: bool,
 }
 
 impl ClipSet {

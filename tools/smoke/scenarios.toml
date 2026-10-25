@@ -7603,6 +7603,23 @@ order = [[
 ]]
 
 [[scenario]]
+name = "vats-mode-object"
+source = "GECK wiki SetVatsTarget: \"turns VATS targeting on or off for a destructible object, overriding the object's base setting\" (docs/design/vats-mode.md §20): the Goodsprings motorcycle 00157C97 (Motorcycle01, DEST flagged VATS Targetable) turned off by SetVatsTarget 0 is not marked; turned on again it is marked and shot"
+note = "north of the bike (from the west the wreck pile 00157C92 is in front of it); the 10mm pistol (0000434F), every roll a hit"
+areas = ["combat", "vats", "destruction"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONSOLE = "6:prid 00157C97;6.2:setvatstarget 0;6.4:close;13:prid 00157C97;13.2:setvatstarget 1;13.4:close", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=00157C97,16.3:aimref=00157C97", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.6:v,16:v,16.32:mouse-left,16.42:e" }
+args = ["--cell", "Goodsprings", "--pos=32990,17100,4700", "--heading", "180", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'vats: 00157C97 VATS targeting off', label = "SetVatsTarget 0 turns the bike's flag off" },
+  { re = 'vats mode: nothing to mark under the crosshair \(00157C97 is not a VATS target\)', label = "so a click on it marks nothing" },
+  { re = 'vats: 00157C97 VATS targeting on', label = "SetVatsTarget 1 turns it on again" },
+  { re = 'vats mode: marked object .* 00157C97, mark 1', label = "now the bike is marked" },
+  { re = 'vats mode: shot 1 of 1 at .*00157C97 \(object\)', label = "and shot" },
+]]
+
+[[scenario]]
 name = "vats-mode-burst"
 source = "owner's todo 6 follow-up: an automatic weapon fires a burst a mark (docs/design/vats-mode.md §16.1)"
 note = "as vats-mode-two-marks, with the 10mm SMG (Weap10mmSubmachineGun 00004321: 22 AP a mark from its DNAM override, fire rate 9, so bursts of round(9 x 0.4) = 4; god mode keeps its 30 rounds). Two marks, E: two bursts of 4 rounds, 44 AP. Written 2026-10-20 by a worker session that does not run the game: not yet run"
