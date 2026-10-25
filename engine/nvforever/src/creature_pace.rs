@@ -139,17 +139,16 @@ pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, default: Speeds) 
 /// actors.md §8.10]). Not its Speed Mult [observed: Cook-Cook, Speed Mult 110, ran 255 in
 /// metal armour with the Incinerator drawn, 344 × 0.75 = 258; with his Speed Mult it
 /// would be 284].
-pub fn person_pace(game: &mut fnv_game::Game, id: FormId) -> f32 {
-    game.armor_speed_mult(id) as f32
+pub fn person_pace(game: &fnv_game::Game, world: &fnv_sim::World, id: FormId) -> f32 {
+    fnv_game::combat::armor_speed(game, fnv_game::combat::worn_armor_class(world, id)) as f32
 }
 
 /// A drawn person and the share of the people's speeds it was last given.
 #[derive(Component)]
 struct PersonPace(f32);
 
-/// How often a drawn person's armour is looked at again, seconds: people put on their
-/// outfit when their cell loads, which may come after they are drawn, and scripts change
-/// what they wear [design].
+/// How often a drawn person's armour is looked at again, seconds: scripts and the
+/// person's own outfitting change what it wears [design].
 const PERSON_PACE_EVERY: f32 = 1.0;
 
 /// Drawn people walk and run at the people's speeds × [`person_pace`].
@@ -158,6 +157,7 @@ fn people_speeds(
     mut wait: Local<f32>,
     mut script: Option<ResMut<ScriptState>>,
     mut res: Option<ResMut<Residents>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
     mut people: Query<(&ActorRig, &mut PersonPace)>,
     mut stats: ResMut<PaceStats>,
 ) {
@@ -166,7 +166,7 @@ fn people_speeds(
         return;
     }
     *wait = PERSON_PACE_EVERY;
-    let Some(res) = res.as_deref_mut() else { return };
+    let (Some(res), Some(sim)) = (res.as_deref_mut(), sim) else { return };
     let default = res.default_speeds();
     let mut given = Vec::new();
     {
@@ -182,7 +182,7 @@ fn people_speeds(
             if id == FormId::PLAYER_REF {
                 continue;
             }
-            let share = person_pace(game, id);
+            let share = person_pace(game, &sim.world, id);
             if (share - pace.0).abs() < 1e-3 {
                 continue;
             }

@@ -1274,17 +1274,17 @@ stopped and started, as Victor's walk had before #258). Code:
     as it does a creature's [observed, one actor: Cook-Cook has Speed Mult 110 and ran
     255, the 258 above; with it, 284].
   - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds; a drawn
-    person's both are scaled by its body armour's share (`person_pace`), looked at again
-    every second, as people put on their outfit when their cell loads (`World::outfit`),
-    which can come after they are drawn (`person pace:` log lines, the count in the
-    `creature pace summary`). The
+    person's both are scaled by its body armour's share (`person_pace`), the armour
+    being what it wears by the rules in the simulation's world (`World::equipment`, which
+    the engine dresses it by: before its outfitting the pieces that will be put on),
+    looked at again every second so that changes of armour count (`person pace:` log
+    lines, the count in the `creature pace summary`). The
     two-handed run penalty was built before (`npc_combat::pace`, item 61) for every
     two-handed weapon drawn in combat; whether rifles count as "big" is not measured
     (the paladins walked holstered with Gauss rifles at about the heavy armour's pace).
   - **Not built**: the walk with a weapon drawn outside combat (77–78 here, about the
     `1hm`/`h2h` clip or `fMoveBaseSpeed`, which of the two is open); in combat, walking
     with a weapon drawn was faster (a fiend 105, Cook-Cook 97; not explained); the
-    armour's share changing when a person changes its armour after it is drawn; the
     same rule for the player (not measured).
 - **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
   ground when not alert and fly when they are alert/in combat"]: the cazador's folder
