@@ -1474,7 +1474,9 @@ pub(crate) fn fight(
                 None => {}
             }
             let flight = g.awareness.tactics.flights.get(&me).copied();
-            let fleeing = flight.is_some();
+            // On its way to a better weapon (`fnv_ai::rearm`, combat-ai.md §22) it holds its
+            // fire and takes no post, as a fleeing actor does.
+            let fleeing = flight.is_some() || g.rearms.fetches.contains_key(&me);
             if let Some(fl) = flight {
                 // How it fled, counted once: by its spot, or cornered.
                 let key = (id, fl.since.to_bits());
@@ -2145,8 +2147,12 @@ pub(crate) fn fight(
             if fighter.block.is_some() {
                 guarding.insert(me, heading(global));
             }
-            // It holds its fire while it uses a stimpak (`npc_stimpaks.rs`).
+            // It holds its fire while it uses a stimpak (`npc_stimpaks.rs`), and a creature
+            // flagged No Combat in Water while it swims ("will not perform attacks in
+            // water" [documented: GECK wiki Animation Tab]).
+            let in_water_hold = g.no_combat_in_water(me) && g.motion(me).swimming;
             let ready = sees
+                && !in_water_hold
                 && facing
                 && !hold_fire
                 && staggering.is_none()

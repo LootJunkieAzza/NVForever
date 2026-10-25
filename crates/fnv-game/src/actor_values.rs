@@ -217,6 +217,27 @@ impl<'a> Game<'a> {
         r != FormId::PLAYER_REF && self.base_data_def(r).is_some_and(|d| d.cant_open_doors)
     }
 
+    /// The record that gives `r` its movement flags (Swims, Walks, Flies, No Combat in
+    /// Water: the Animation tab's [documented: GECK wiki Animation Tab]): through a
+    /// template with "Use Model/Animation" [hypothesis: the tab goes with the model].
+    fn movement_def(&self, r: FormId) -> Option<&'a ActorDef> {
+        self.def_following(r, |d| d.template_model)
+    }
+
+    /// Whether `r` keeps out of water: a creature that moves (Walks or Flies) without the
+    /// Swims flag "will avoid using water triangles" [documented: GECK wiki Navmesh
+    /// Creation Workflow] (its paths close them, `fnv_ai`). People swim by their
+    /// packages' Allow Swimming; a creature with none of the three flags is left as it is.
+    pub fn keeps_out_of_water(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF && self.movement_def(r).is_some_and(ActorDef::keeps_out_of_water)
+    }
+
+    /// Whether `r` holds its attacks while it swims: CREA "No Combat in Water", "will not
+    /// perform attacks in water" [documented: GECK wiki Animation Tab].
+    pub fn no_combat_in_water(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF && self.movement_def(r).is_some_and(|d| d.no_combat_in_water)
+    }
+
     /// The current value of an actor value as the formulas read it: within its range, 0
     /// when it cannot be read.
     fn formula_input(&mut self, r: FormId, code: u16) -> f64 {

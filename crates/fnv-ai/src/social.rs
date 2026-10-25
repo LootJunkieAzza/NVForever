@@ -55,6 +55,29 @@
 //! back to its package's place, a sandboxing actor going on from where it is
 //! (`Ai::back_to_package`, as after a push) [hypothesis].
 //!
+//! **Lines of the Fallout behaviours** (packages.md §7.7), each allowed by its package
+//! as hellos are ([`allows`]), said in the world (`Game::say`, the player as the
+//! conditions' target), never by an actor in a combat state:
+//! - **Idle chatter** ("Allow idle chatter using the IdleChatter topic" [documented:
+//!   Category:Packages]; IdleChatter is "said by actors on a random basis who aren't in
+//!   combat" [documented: Conversation Tab]): the loaded area tries one after a time
+//!   drawn between `fIdleChatterCommentTimer` and `fIdleChatterCommentTimerMax` (15 and
+//!   60 in FalloutNV.esm) [hypothesis: the settings' meaning; one timer for the area as
+//!   for random conversations]; an actor within [`CHAT_NEAR_PLAYER`] of the player is
+//!   drawn and says its line.
+//! - **Reaction to player actions** (the PLAYER… topics [documented: Topics Tab]: "the
+//!   player fires their weapon near an actor", "throws a grenade near an actor who isn't
+//!   in a combat state", "places a mine near an actor"): when the player's body starts a
+//!   gun's shot, a throw or a mine (`Game::anim_state`), the nearest actor within
+//!   [`REACT_DISTANCE`] with a line says it, at most once per `fCommentOnPlayerActionsTimer`
+//!   (60) for the area [hypothesis: the setting's meaning]. The masters have lines only
+//!   for PLAYERFIREWEAPON, PLAYERTHROWGRENADE and PLAYERLAYMINE [observed].
+//! - **Observe combat** ("ObserveCombat: actors in "spectator" mode -- watching a combat
+//!   but not joining in" [documented: Misc Tab]): an actor within [`OBSERVE_DISTANCE`]
+//!   of an actor in Combat, and within [`REACT_DISTANCE`] of the player, says its line,
+//!   each actor at most once per `fCommentOnPlayerActionsTimer` [stand-in]. The behaviour's
+//!   running away from a fight that comes too close is not built.
+//!
 //! While two actors talk, and while an actor says hello or a SayTo line, they turn to
 //! whom they talk to (`Game::facings`, which says who turns; [hypothesis] for hellos and
 //! conversations); the engine keeps whoever waits or talks where it stands
@@ -64,6 +87,7 @@ use crate::carry::{Activity, Ai, AiEvent, Talking};
 use crate::goal::{self, dist};
 use crate::sandbox::Rng;
 use fnv_game::game::Game;
+use fnv_game::anim_state::AnimAction;
 use fnv_game::package::{fallout, flags, type_flags, PackageDef, PackageType};
 use fnv_nav::follow::{heading_delta, heading_of, turn_towards};
 use fnv_nav::{NavGraph, Place, Space};
@@ -92,6 +116,21 @@ const TIMER_MIN: f32 = 30.0;
 const TIMER_MAX: f32 = 60.0;
 const CHANCE: f32 = 25.0;
 const RADIUS: f32 = 1000.0;
+/// `fIdleChatterCommentTimer` and `…Max` when the load order does not set them [their
+/// values in FalloutNV.esm].
+const CHATTER_MIN: f32 = 15.0;
+const CHATTER_MAX: f32 = 60.0;
+/// `fCommentOnPlayerActionsTimer` when the load order does not set it [its value in
+/// FalloutNV.esm].
+const COMMENT_SECONDS: f32 = 60.0;
+/// An actor reacts to what the player does from this close, game units [stand-in: "near
+/// an actor"; the indoor random-conversation radius].
+pub const REACT_DISTANCE: f32 = 1000.0;
+/// An actor watches a fight this close to one of its fighters, game units [stand-in].
+pub const OBSERVE_DISTANCE: f32 = 1500.0;
+/// WEAP DNAM animation types that shoot (pistols, rifles, the launcher) [documented: xEdit
+/// wbWeaponAnimTypeEnum: 3 Pistol Ballistic … 9 Launcher].
+const GUN_ANIM_TYPES: std::ops::RangeInclusive<i64> = 3..=9;
 
 /// The packages that start random conversations [documented: Category:Packages].
 const STARTERS: [PackageType; 4] = [PackageType::Sandbox, PackageType::Guard, PackageType::Eat, PackageType::Patrol];
@@ -118,6 +157,14 @@ pub(crate) struct Social {
     greeted: BTreeSet<FormId>,
     pub(crate) rng: Rng,
     pub(crate) stats: SocialStats,
+    /// When the loaded area next tries idle chatter.
+    next_chatter: Option<f64>,
+    /// When an actor may next comment on what the player does.
+    next_comment: f64,
+    /// Until when each actor that commented on a fight watches quietly.
+    observed: BTreeMap<FormId, f64>,
+    /// The player's body last frame: a gun's shot going, a throw going.
+    player_was: (bool, bool),
     /// The Looks turning bodies, by actor: the target, how far the turn is, and the body's
     /// heading (radians; a walker's own heading stays its route's).
     looks: BTreeMap<FormId, (FormId, LookTurn, f32)>,
@@ -155,7 +202,18 @@ pub struct SocialStats {
 
 impl Default for Social {
     fn default() -> Self {
-        Social { next_try: None, next_chat: BTreeMap::new(), greeted: BTreeSet::new(), rng: Rng(0x5EED_C0DE), stats: SocialStats::default(), looks: BTreeMap::new() }
+        Social {
+            next_try: None,
+            next_chat: BTreeMap::new(),
+            greeted: BTreeSet::new(),
+            rng: Rng(0x5EED_C0DE),
+            stats: SocialStats::default(),
+            next_chatter: None,
+            next_comment: 0.0,
+            observed: BTreeMap::new(),
+            player_was: (false, false),
+            looks: BTreeMap::new(),
+        }
     }
 }
 
@@ -181,6 +239,11 @@ struct Free<'a> {
 
 fn setting(game: &Game, name: &str, default: f32) -> f32 {
     game.world.forms.setting_f32(name).unwrap_or(default)
+}
+
+/// Whether an actor is in a combat state (Alert, Combat, Lost).
+fn in_combat(game: &Game, actor: FormId) -> bool {
+    game.awareness.state(actor).in_combat()
 }
 
 /// Whether an actor is in the world and alive.
@@ -246,6 +309,11 @@ impl Ai {
                 }
             }
         }
+        if let Some(p) = player {
+            self.idle_chatter(game, p, &mut events);
+            self.player_actions(game, p, &mut events);
+            self.observe_combat(game, p, &mut events);
+        }
         for (actor, e) in events {
             self.log(game, actor, e);
         }
@@ -308,6 +376,119 @@ impl Ai {
                 if started {
                     return;
                 }
+            }
+        }
+    }
+
+    /// Idle chatter (module notes): when the area's timer is due, an actor next to the
+    /// player that may chatter says its IdleChatter line.
+    fn idle_chatter(&mut self, game: &mut Game, player: Place, events: &mut Vec<(FormId, AiEvent)>) {
+        let now = game.time;
+        let (lo, hi) = (setting(game, "fIdleChatterCommentTimer", CHATTER_MIN), setting(game, "fIdleChatterCommentTimerMax", CHATTER_MAX));
+        let due = *self.social.next_chatter.get_or_insert_with(|| now + self.social.rng.range(lo, hi) as f64);
+        if now < due || game.speech.iter().any(|s| s.hello) {
+            return;
+        }
+        let Some(topic) = game.data.by_edid("IdleChatter").filter(|t| game.data.topic_defs.contains_key(t)) else { return };
+        let mut can: Vec<(FormId, f32)> = self.onlookers(game, player, fallout::ALLOW_IDLE_CHATTER).into_iter().filter(|(_, _, d)| *d <= CHAT_NEAR_PLAYER).map(|(a, _, d)| (a, d)).collect();
+        // Nobody next to the player: due again as soon as someone is.
+        if can.is_empty() {
+            return;
+        }
+        self.social.next_chatter = Some(now + self.social.rng.range(lo, hi) as f64);
+        while !can.is_empty() {
+            let i = ((self.social.rng.next() * can.len() as f32) as usize).min(can.len() - 1);
+            let (actor, away) = can.swap_remove(i);
+            if let Some(line) = game.say(actor, None, topic, false) {
+                events.push((actor, AiEvent::IdleChatter { line, away }));
+                return;
+            }
+        }
+    }
+
+    /// Reactions to what the player does (module notes): a gun's shot, a grenade's throw
+    /// or a mine laid, seen as it starts on the player's body.
+    fn player_actions(&mut self, game: &mut Game, player: Place, events: &mut Vec<(FormId, AiEvent)>) {
+        let body = game.anim_state(FormId::PLAYER_REF).cloned().unwrap_or_default();
+        let gun = game.weapon_equipped(FormId::PLAYER_REF).and_then(|w| game.data.weapon_anim_types.get(&w)).is_some_and(|t| GUN_ANIM_TYPES.contains(t));
+        // The shot, its follow-through and return (GetAnimAction 2 to 4): one frame of 2
+        // alone could fall between two looks.
+        let firing = gun && matches!(body.action, Some(AnimAction::Attack | AnimAction::FollowThrough | AnimAction::AttackReturn));
+        let (was_firing, was_throwing) = std::mem::replace(&mut self.social.player_was, (firing, body.throwing));
+        let topic = if body.throwing && !was_throwing {
+            if body.mine {
+                "PLAYERLAYMINE"
+            } else {
+                "PLAYERTHROWGRENADE"
+            }
+        } else if firing && !was_firing {
+            "PLAYERFIREWEAPON"
+        } else {
+            return;
+        };
+        let now = game.time;
+        if now < self.social.next_comment {
+            return;
+        }
+        let Some(t) = game.data.by_edid(topic).filter(|t| game.data.topic_defs.contains_key(t)) else { return };
+        let mut near: Vec<(FormId, Place, f32)> = self.onlookers(game, player, fallout::REACTION_TO_PLAYER_ACTIONS);
+        near.sort_by(|a, b| a.2.total_cmp(&b.2));
+        for (actor, _, away) in near {
+            if let Some(line) = game.say(actor, None, t, false) {
+                self.social.next_comment = now + setting(game, "fCommentOnPlayerActionsTimer", COMMENT_SECONDS) as f64;
+                events.push((actor, AiEvent::PlayerAction { topic, line, away }));
+                return;
+            }
+        }
+    }
+
+    /// Who in the loaded area may comment on what happens near the player now, with where
+    /// each is and how far from the player: within [`REACT_DISTANCE`], its package
+    /// allowing `behaviour`, not asleep, talking or in a combat state. Walking ones too: a
+    /// shot or a fight is reacted to on the way.
+    fn onlookers(&self, game: &Game, player: Place, behaviour: u16) -> Vec<(FormId, Place, f32)> {
+        let data = game.data;
+        self.agents
+            .iter()
+            .filter(|(id, a)| a.walker.space == player.space && self.is_high(**id) && here(game, **id) && a.chat.is_none() && a.talk.is_none())
+            .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, behaviour) && d.ty != PackageType::Sleep))
+            .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
+            .map(|(id, a)| (*id, Place { space: a.walker.space, pos: a.walker.feet }, dist(a.walker.feet, player.pos)))
+            .filter(|(_, _, d)| *d <= REACT_DISTANCE)
+            .collect()
+    }
+
+    /// Comments on a fight nearby (module notes).
+    fn observe_combat(&mut self, game: &mut Game, player: Place, events: &mut Vec<(FormId, AiEvent)>) {
+        let now = game.time;
+        self.social.observed.retain(|_, until| now < *until);
+        let mut fighters: Vec<(FormId, Place)> = self
+            .agents
+            .iter()
+            .filter(|(id, _)| game.awareness.state(**id) == fnv_game::awareness::State::Combat && here(game, **id))
+            .map(|(id, a)| (*id, Place { space: a.walker.space, pos: a.walker.feet }))
+            .collect();
+        // The player in a fight counts as a fighter too (its foe may be no resident).
+        if game.awareness.hunted(FormId::PLAYER_REF) {
+            fighters.push((FormId::PLAYER_REF, player));
+        }
+        if fighters.is_empty() {
+            return;
+        }
+        let Some(topic) = game.data.by_edid("ObserveCombat").filter(|t| game.data.topic_defs.contains_key(t)) else { return };
+        for (actor, at, _) in self.onlookers(game, player, fallout::OBSERVE_COMBAT) {
+            if self.social.observed.contains_key(&actor) {
+                continue;
+            }
+            let Some((fighter, away)) = fighters.iter().copied().filter(|(id, p)| *id != actor && p.space == at.space).map(|(id, p)| (id, dist(p.pos, at.pos))).filter(|(_, d)| *d <= OBSERVE_DISTANCE).min_by(|a, b| a.1.total_cmp(&b.1)) else {
+                continue;
+            };
+            // Tried once per wait, said or not, so an actor without a line does not look
+            // for one every frame.
+            self.social.observed.insert(actor, now + setting(game, "fCommentOnPlayerActionsTimer", COMMENT_SECONDS) as f64);
+            if let Some(line) = game.say(actor, None, topic, false) {
+                events.push((actor, AiEvent::ObserveCombat { fighter, line, away }));
+                return;
             }
         }
     }
