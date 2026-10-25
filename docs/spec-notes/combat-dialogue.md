@@ -122,8 +122,14 @@ Every Combat and Detection topic of FalloutNV.esm and what says it in NVForever
 | AssaultNoCrime, MurderNoCrime, StealNoCrime, TrespassNoCrime, PickpocketNoCrime | as Assault, Murder … when the actor does not count it a crime | not said: the crime code says the crime topics only for crimes (follow-up) |
 | Pickpocket | notices the player picking its pocket | not said: pickpocketing is not built |
 | Yield | yields to whom it fights | not said: NPCs do not yield |
-| AvoidThreat, AvoidThreatResponse | begins avoiding a threat ("It's going to blow!"); per-group timer | AvoidThreat said once per grenade a fighter runs from (combat-ai.md §17.7; no per-group timer); AvoidThreatResponse not said |
-| AttackResponse, FleeResponse, FireExplosiveResponse | a valid actor nearby answers that line | not said (follow-up; DeathResponse is) |
-| StartCombatResponse, NormalToAlertResponse | (Detection; not on the pages) | not said [hypothesis: answers to NormalToCombat/NormalToAlert, as the other Response topics] |
-| ArmorIneffective, WeaponIneffective, OnFire, Poisoned, KnockedBack, UsedDoctorBag, Regenerating, Frenzy | the situation the name gives | not said (follow-up) |
+| AvoidThreat, AvoidThreatResponse | begins avoiding a threat ("It's going to blow!"); per-group timer | AvoidThreat said once per grenade a fighter runs from (combat-ai.md §17.7; no per-group timer); AvoidThreatResponse answers it (below) |
+| AttackResponse, FleeResponse, FireExplosiveResponse | a valid actor nearby answers that line | since 2026-10-25 the nearest living member of the speaker's group within 1,536 units says it when the line is over, as DeathResponse (`combat_lines::ANSWERS`) |
+| StartCombatResponse, NormalToAlertResponse | (Detection; not on the pages) | since 2026-10-25 answers to NormalToCombat and NormalToAlert as the other Response topics [hypothesis: NormalToAlertResponse's lines answer a noise heard, "Yeah, I heard it too"; StartCombatResponse's 104 lines are a fighter's word as a fight starts, "Ready as I'll ever be" observed] |
+| OnFire, Poisoned | an actor gets lit on fire, is poisoned | since 2026-10-25 when a hit's effect resisted by Fire or Poison Resistance takes hold on it [hypothesis: the resistance tells them apart] |
+| KnockedBack | knocked down, not unconscious | since 2026-10-25 (PushActorAway, explosion knockdowns) |
+| WeaponIneffective, ArmorIneffective | a weapon fails to damage an enemy sufficiently; armour fails to protect sufficiently | since 2026-10-25 [design: the measures]: the attacker when DT cut its hit to DT's floor; the one hit when one hit took a quarter of its health or more while its DT stopped a tenth of it or less; each at most once a minute per actor (`combat_lines::armour_lines`) |
+| Regenerating | given a stimpak at the companion wheel | `companion_wheel.rs` |
+| UsedDoctorBag, Frenzy | a doctor's bag used on the actor; "Unknown" | not said: NVForever has no way to use a doctor's bag on another actor |
 | CombatIdleChatter, GroupStrategy, DeathResponseUnderworld, Stea | "Unknown" / "Unused" | not said |
+
+Every line of OnFire, Poisoned, KnockedBack, WeaponIneffective, ArmorIneffective and UsedDoctorBag in FalloutNV.esm is a companion's (quest VNPCFollowers) [observed: `fnvtool dialogue lines`]. The GECK wiki says DeathResponse does not work in the original without JIP LN 55.45 [documented: Combat Tab]; NVForever says it as the other answers.

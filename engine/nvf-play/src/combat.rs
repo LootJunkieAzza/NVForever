@@ -311,6 +311,14 @@ fn spread_hit_areas(script: Option<&mut ScriptState>, sim: &mut SimState, stats:
     with_world(rt, sim, |rt| hit_effects::spread(&mut rt.game, &mut stats.hit_effects, target, items, attacker));
 }
 
+/// The WeaponIneffective and ArmorIneffective lines of a hit (`fnv_game::combat_lines`):
+/// what DT made of it.
+fn armour_lines(script: Option<&mut ScriptState>, attacker: Option<FormId>, target: FormId, d: &damage::Damage, floor: f32) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+        rt.game.armour_lines(attacker, target, f64::from(d.raw), f64::from(d.dt), f64::from(d.dealt), f64::from(floor));
+    }
+}
+
 fn blast_hit_info(cause: Option<Cause>) -> HitInfo {
     HitInfo { attacker: cause.map(|c| c.actor), weapon: cause.map(|c| c.weapon), location: -1, critical: false, limb: None }
 }
@@ -3243,6 +3251,7 @@ fn melee(
                 items.push(spell);
             }
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
+            armour_lines(script.as_deref_mut(), Some(FormId::PLAYER_REF), target, &d, c.tuning.dt_floor);
             spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
             if r.as_ref().is_some_and(|r| !r.died && !r.immune && !r.knocked_out) {
                 if let Some(m) = special.filter(|m| m.forces_reaction) {
@@ -3544,6 +3553,7 @@ fn actor_attacks(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
+        armour_lines(script.as_deref_mut(), Some(b.attacker), b.target, &d, c.tuning.dt_floor);
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, b.target, &items, info.attacker);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
@@ -3963,6 +3973,7 @@ fn fly(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
+        armour_lines(script.as_deref_mut(), Some(shooter), target, &d, c.tuning.dt_floor);
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
         // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
         // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
