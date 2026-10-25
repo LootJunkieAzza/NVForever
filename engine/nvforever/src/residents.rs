@@ -552,15 +552,21 @@ struct Resident {
     been_loaded: bool,
 }
 
-/// ACBS flag bit 5, "Flies" [documented: xEdit wbDefinitionsFNV.pas CREA ACBS, schema
-/// `gameplay.json`].
+/// ACBS flag bits 5, "Flies", and 23, "Immobile" [documented: xEdit wbDefinitionsFNV.pas
+/// CREA ACBS, schema `gameplay.json`].
 const ACBS_FLIES: u32 = 1 << 5;
+const ACBS_IMMOBILE: u32 = 1 << 23;
+
+/// Whether the base form's ACBS flags have `bit`.
+fn acbs_flag(world: &WorldData, base: u32, bit: u32) -> bool {
+    let Some((plugin, r)) = fnv_world::fields::winner(world.lo, base) else { return false };
+    let Ok(f) = fnv_world::fields::Fields::new(r, plugin, world.schema) else { return false };
+    &f.sig == b"CREA" && f.raw(b"ACBS").and_then(|s| s.data.get(..4)).is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & bit != 0)
+}
 
 /// Whether the base form's ACBS flags have "Flies".
 fn flies(world: &WorldData, base: u32) -> bool {
-    let Some((plugin, r)) = fnv_world::fields::winner(world.lo, base) else { return false };
-    let Ok(f) = fnv_world::fields::Fields::new(r, plugin, world.schema) else { return false };
-    f.raw(b"ACBS").and_then(|s| s.data.get(..4)).is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & ACBS_FLIES != 0)
+    acbs_flag(world, base, ACBS_FLIES)
 }
 
 /// A creature whose skeleton's folder has no movement animation (no `Forward` or
@@ -878,13 +884,15 @@ impl Residents {
 }
 
 impl Core {
-    /// Look up who of the listed creatures cannot walk ([`cannot_walk`]), before they are
-    /// handed to the AI.
+    /// Look up who of the listed creatures cannot walk ([`cannot_walk`], or flagged
+    /// Immobile), before they are handed to the AI.
     fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData) {
         let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
         for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
             let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
-                let rooted = cannot_walk(world, data, r.base);
+                // An Immobile creature (the turrets, Mr. House's screens) is held too:
+                // the flag "prevents movement" [documented: GECK wiki Animation Tab].
+                let rooted = cannot_walk(world, data, r.base) || acbs_flag(world, r.base, ACBS_IMMOBILE);
                 (rooted, rooted && flies(world, r.base))
             });
             r.rooted = Some(rooted);
@@ -1191,7 +1199,7 @@ impl Core {
                 r.failed = true;
             } else if r.rooted == Some(true) {
                 self.ai.root(game, r.actor);
-                info!("ai: {} has no movement animations: it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
+                info!("ai: {} cannot move (no movement animations, or flagged Immobile): it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
             }
         }
         if own {
@@ -1443,6 +1451,10 @@ impl Core {
                 | AiEvent::AmbushWaits { .. }
                 | AiEvent::AmbushSprung { .. }
                 | AiEvent::FleeRuns { .. }
+                | AiEvent::Rearmed { .. }
+                | AiEvent::Fetch { .. }
+                | AiEvent::FetchGot { .. }
+                | AiEvent::FetchDropped { .. }
                 | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
@@ -1693,6 +1705,24 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *length > 0.0 { format!("walks to its place, {length:.0} units to go") } else { "from where it stands".to_string() }
         ),
         AiEvent::WeaponUseOver => "has used its weapon: back to its package".into(),
+        AiEvent::Rearmed { weapon, from } => match from {
+            Some(f) if f == weapon => format!("rearm: now holds {} it fetched", n(weapon)),
+            Some(f) => format!("rearm: fetched {}, holds {} it carries", n(f), n(weapon)),
+            None => format!("rearm: holds {} it carries, a better weapon", n(weapon)),
+        },
+        AiEvent::Fetch { weapon, dps, stops, trip } => format!("rearm: goes for {} ({dps:.1} damage a second), {stops} stop(s), {trip:.0} units", n(weapon)),
+        AiEvent::FetchGot { item, from, take, got } => format!(
+            "rearm: {} {} {} {}",
+            if *got { "picks up" } else { "finds nothing to take:" },
+            n(item),
+            match take {
+                fnv_game::rearm::Take::Ground => "from the ground",
+                fnv_game::rearm::Take::FromBody => "from the body of",
+                fnv_game::rearm::Take::CopyAmmo => "(a copy) from",
+            },
+            n(from)
+        ),
+        AiEvent::FetchDropped { from, why } => format!("rearm: gives up on {}: {why}", n(from)),
         AiEvent::EscortWaits { package, target, away } => format!(
             "escorts {}: waits, it is {} behind ({})",
             n(target),

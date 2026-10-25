@@ -281,6 +281,9 @@ pub struct By {
     /// A marked shot of VATS mode (`crate::vats_mode`): its hit counts as a VATS attack
     /// (the critical chance bonus, docs/design/vats-mode.md §9.2).
     pub vats: bool,
+    /// The player was sneaking as it left: its hit may be a sneak attack
+    /// ([`sneak_attack`]).
+    pub sneaking: bool,
 }
 
 /// Debris a destroyed object throws (a destruction stage's DEBR and count) from `at`
@@ -2093,6 +2096,27 @@ fn companion_nerve(script: Option<&mut ScriptState>, sim: &mut SimState, actor: 
     with_world(rt, sim, |rt| rt.game.companion_nerve(actor)) as f32
 }
 
+/// Whether a hit by `attacker` on `target` is a sneak attack (the sneak multiplier and
+/// always a critical, docs/spec-notes/combat-rules.md §4): the player's, made sneaking
+/// (`sneaking`: as a swing lands, as a shot left), on a target that does not have the
+/// player in its Detected band now; a pair detection has not measured counts as unseen,
+/// as does every target without a script runtime.
+fn sneak_attack(script: Option<&ScriptState>, attacker: FormId, sneaking: bool, target: FormId) -> bool {
+    use fnv_game::detection::Band;
+    attacker == FormId::PLAYER_REF
+        && sneaking
+        && script.and_then(|s| s.rt.as_ref()).is_none_or(|rt| rt.game.detection.get(target, FormId::PLAYER_REF).is_none_or(|d| d.band != Band::Detected))
+}
+
+/// The hit log's note on a critical: a sneak attack's says so.
+fn crit_note(a: &Attacker, d: &damage::Damage) -> &'static str {
+    match (d.critical, a.sneaking) {
+        (false, _) => "",
+        (true, false) => ", critical",
+        (true, true) => ", sneak attack critical",
+    }
+}
+
 /// A perk entry's resolved function as combat applies it.
 fn perk_op(op: fnv_game::perks::Op) -> damage::PerkOp {
     use fnv_game::perks::Op;
@@ -2562,7 +2586,7 @@ pub(crate) fn fire(
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
-                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some() };
+                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
                     c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -3232,7 +3256,8 @@ fn melee(
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-            let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
+            let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
+            a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
@@ -3310,7 +3335,7 @@ fn melee(
                     bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                     r.dealt,
                     d.dt,
-                    if d.critical { ", critical" } else { "" },
+                    crit_note(&a, &d),
                     r.health,
                     r.max_health
                 ),
@@ -3464,7 +3489,7 @@ fn actor_attacks(
             }
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
-        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false };
+        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
         let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
@@ -3956,7 +3981,8 @@ fn fly(
             continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
+        let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
+        a.sneaking = p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, shooter, id), ammo_effects: &ammo_effects, part, power: 1.0 };
@@ -4049,7 +4075,7 @@ fn fly(
                 bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                 r.dealt,
                 d.dt,
-                if d.critical { ", critical" } else { "" },
+                crit_note(&a, &d),
                 r.health,
                 r.max_health,
                 if r.immune { ", takes no damage" } else { "" }
@@ -4340,9 +4366,19 @@ mod tests {
     /// with that weapon, not the player's (every blast used to be the player's, with the
     /// player's weapon: XP, hit marker and OnHit attacker for NPC-against-NPC blasts, and
     /// none of them in the `npc hits summary`). One nobody set off has no attacker.
+    /// Only the player's hits made sneaking are sneak attacks; with no detection measured
+    /// the target counts as unseen.
+    #[test]
+    fn sneak_attacks_are_the_sneaking_players() {
+        let target = FormId(0x00104F0A);
+        assert!(sneak_attack(None, FormId::PLAYER_REF, true, target));
+        assert!(!sneak_attack(None, FormId::PLAYER_REF, false, target));
+        assert!(!sneak_attack(None, FormId(0x000F5704), true, target));
+    }
+
     #[test]
     fn a_blast_hit_is_its_causes_not_the_players() {
-        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false };
+        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false, sneaking: false };
         let info = blast_hit_info(Some(Cause::of(&by)));
         assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
         let none = blast_hit_info(None);

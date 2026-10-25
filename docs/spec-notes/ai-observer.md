@@ -8,7 +8,9 @@ than guesses. Code: `tools/capture/observe.py` (campaigns, jobs, supervisor, tim
 and the plugin's `observe` step (`tools/capture/nvf_capture/src/runner.rs`, plugin
 version 4). Owner decision 2026-10-08: an **observer** only (no playthrough), base game +
 xNVSE only (no JIP or other plugins), the player moved by teleport and by xNVSE key
-emulation.
+emulation. Since 2026-10-25 an opt-in JIP tier (session key `jip`) reads some of what
+this tier cannot, under the A/B check and use rules of [ai-observer-jip](ai-observer-jip.md);
+the default campaigns are unchanged.
 
 Status: the diagnostic job ran in game on 2026-10-08 with no failed step (results in
 §6); the first campaign ran in part (findings in §7). In-game claims not tagged [documented] or [observed] are

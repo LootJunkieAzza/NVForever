@@ -887,6 +887,42 @@ listed record data the engine ignored. What each piece means, and what is built:
   template flag "Base Data") [hypothesis: the wiki's list of flags Base Data leaves out
   does not name it].
 
+### 7.1b Creatures' movement flags: Swims, Walks, Flies, Immobile, No Combat in Water (built 2026-10-25)
+
+- CREA ACBS bits 4 Swims, 5 Flies, 6 Walks, 18 No Combat in Water, 23 Immobile
+  [documented: xEdit CREA ACBS, `schemas/fnv/gameplay.json`]. Meanings [documented: GECK
+  wiki Animation Tab]: Swims "allows for swimming and moving across water marked navmesh
+  triangles"; Walks "allows for movement. Actors placed off of the navmesh will be
+  teleported onto it"; Immobile "prevents movement … (Overrides Flies, Walks and
+  Swims)"; No Combat in Water "will not perform attacks in water". And [documented: GECK
+  wiki Navmesh Creation Workflow] creatures "that do not have the flag will avoid using
+  water triangles".
+- In the masters [observed: scan of the six masters' CREA ACBS, 2026-10-25]: 269 walk
+  and swim (dogs, coyotes, rats, night stalkers, lakelurks, mirelurks), 1,714 walk only
+  (geckos, deathclaws, ants …), 157 fly and walk (cazadores, Mister Gutsies, bloatflies),
+  4 do all three (ED-E), 79 are Immobile (turrets, Mr. House), 3 tumbleweeds have No
+  Combat in Water, and 12 carry no movement flag (template creatures: their flags come
+  from the template).
+- Built:
+  - A creature that walks or flies without Swims keeps off water triangles
+    (`Game::keeps_out_of_water` → `PathParams::water` false, fnv-ai `path_params`): its
+    paths close them. A goal on water is out of its reach at once; standing in water, it
+    may walk out through it [design]. People are left to their packages' Allow Swimming
+    (§3); a creature with none of the three flags is left as it was.
+  - No Combat in Water: the creature holds its shots and blows while its character swims
+    (nvforever `npc_combat`, the `ready` gate).
+  - Immobile: the AI keeps the creature where it is, as one without movement clips
+    (nvforever `residents`, log `ai: <name> cannot move (no movement animations, or
+    flagged Immobile)`).
+  - The flags come through a template with "Use Model/Animation" [hypothesis: the
+    Animation tab goes with the model]; Immobile is read off the base record only.
+- Not built: a creature that swims but neither walks nor flies keeping to water (none in
+  the masters); "teleported onto" the navmesh for Walks (actors are snapped to the
+  nearest triangle when a path starts, as before).
+- Checks: fnv-nav `water_triangles_close_to_actors_that_do_not_swim`, fnv-game
+  `walkers_and_fliers_without_swims_keep_out_of_water`; smoke `nav-water-closed`
+  (`fnvtool nav path --no-water`, Lake Mead from the Boulder Beach shore).
+
 ### 7.2 Package Begin / End / Change topics (built)
 
 - "For each of the possible state changes of a package (Begin, End/Done, Change) you

@@ -272,6 +272,16 @@ pub enum AiEvent {
     /// It reached its flee spot after `seconds`, `off` units from it; whether it hides
     /// there crouched (a person, `Game::sneaks`).
     FleeArrived { from: FormId, seconds: f32, off: f32, hides: bool },
+    /// It holds a better weapon it carries (`crate::rearm`); `from`: the weapon it fetched
+    /// for it (`None`: one it had).
+    Rearmed { weapon: FormId, from: Option<FormId> },
+    /// It sets off for a better weapon: its damage per second, the stops and the trip's
+    /// length (`crate::rearm`).
+    Fetch { weapon: FormId, dps: f32, stops: u32, trip: f32 },
+    /// At a stop of its fetch: whether it took (or copied) `item` from `from`.
+    FetchGot { item: FormId, from: FormId, take: fnv_game::rearm::Take, got: bool },
+    /// It gives up its fetch at `from` (`why`).
+    FetchDropped { from: FormId, why: &'static str },
     /// It has nowhere to flee to and stays where it is; whether it hides there crouched.
     Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).
@@ -1702,6 +1712,11 @@ impl Ai {
         if let Some(a) = self.agents.get(&actor).filter(|_| self.avoids_radiation(game, actor)) {
             params.avoid = radiated_near(game, a.walker.space, a.walker.feet);
             params.avoid_cost = AVOID_RADIATION_COST;
+        }
+        // A creature without the Swims flag keeps off water triangles altogether
+        // (`Game::keeps_out_of_water`).
+        if game.keeps_out_of_water(actor) {
+            params.water = false;
         }
         if let Ok(s) = game.world.get(actor) {
             params.keys.extend(s.inventory.iter().flat_map(|inv| inv.iter()).map(|(item, _)| item.0));
