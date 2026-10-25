@@ -25,14 +25,17 @@
 //!   `glow_hud_compass_objective_marker.dds` drawn over the others [documented:
 //!   `menus/prefabs/hudtemplates.xml`, `template_compass_icon_quest`: that picture,
 //!   40 × 50 at y 5 as the map marker's, depth 5 over the map marker's 3]. A target in
-//!   another cell is marked at a door towards it: outdoors at the door into its interior
-//!   (the Pip-Boy map's rule, `fnv_game::quest_targets::marker_door`), indoors at a door of
-//!   the player's cell that leads to the target's cell, else to its worldspace or to the
-//!   worldspace of the door into its interior [hypothesis: the original walks the doors
-//!   further; one step is what is built] (docs/spec-notes/hud.md §11).
+//!   another place (an interior, or another worldspace) is marked at the door of the
+//!   player's place that starts the way to it through the fewest load doors, avoiding
+//!   locked ones unless the target ignores locks (`fnv_game::quest_targets::DoorGraph`)
+//!   [hypothesis: the shortest way; the GECK wiki says the marker "will attempt to avoid
+//!   locked doors if possible"] (docs/spec-notes/hud.md §11). The original's compass
+//!   shows no distance: its icon file sets `_Distance` and nothing reads it [documented:
+//!   `menus/prefabs/compassicon.xml`].
 //! - The ranges are guesses: no game setting for them is in the masters [hypothesis].
 
 use crate::hud::{CompassMarks, COMPASS, STRIP};
+use fnv_game::quest_targets::{DoorGraph, Place as QuestPlace};
 use crate::interface::{amber, at, bc_supported, texture};
 use crate::phys::PhysState;
 use crate::pipboy::data::DataState;
@@ -48,7 +51,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use nvf_assets::GameData;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 /// Game units of range per point of Perception for actors and for map markers
 /// [hypothesis: Perception 5 shows actors within about 21 m and markers within about
@@ -208,7 +211,7 @@ fn gather(
     mut poll: Local<f32>,
     mut view: ResMut<CompassView>,
     mut logged: Local<[usize; 5]>,
-    mut doors: Local<HashMap<u32, Vec<FormId>>>,
+    mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
 ) {
     *poll += time.delta_secs();
@@ -270,7 +273,8 @@ fn gather(
     let (mut placed, mut shown) = (0, 0);
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         for c in st.marked_targets() {
-            let Some(pos) = quest_mark_at(&sim, loc, &mut doors, c.target, c.ignores_locks) else { continue };
+            let graph = graph.get_or_insert_with(|| DoorGraph::build(sim.refs));
+            let Some(pos) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
             placed += 1;
             let x = offset(heading, here, [pos[0], pos[1]]);
             if on_compass(x) {
@@ -294,20 +298,11 @@ fn gather(
     view.set_if_neq(CompassView(marks));
 }
 
-/// The doors outdoors that lead into interior `cell` (as `fnv_game::Game::doors_into`).
-fn doors_into(sim: &SimState, cell: FormId) -> Vec<FormId> {
-    let refs = sim.refs;
-    refs.refs
-        .iter()
-        .filter(|(_, d)| d.teleport.is_some_and(|t| refs.get(t.door).is_some_and(|inside| inside.cell == Some(cell))) && d.cell.is_some_and(|c| refs.cell_world.contains_key(&c)))
-        .map(|(id, _)| *id)
-        .collect()
-}
-
 /// Where the compass marks quest target `target` for a player at `loc` (see the module
-/// notes): the target itself in the player's cell or worldspace, else a door towards it;
-/// `None` when no door is known. `doors` caches the doors into each interior.
-fn quest_mark_at(sim: &SimState, loc: &Location, doors: &mut HashMap<u32, Vec<FormId>>, target: FormId, ignores_locks: bool) -> Option<[f32; 3]> {
+/// notes): the target itself in the player's cell or worldspace, else the door of the
+/// player's place that starts the way to it (`fnv_game::quest_targets::DoorGraph`);
+/// `None` when no way through doors is known.
+fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<[f32; 3]> {
     let refs = sim.refs;
     let (cell, pos) = match sim.world.peek(target) {
         Some(s) => (s.cell?, s.pos),
@@ -316,31 +311,16 @@ fn quest_mark_at(sim: &SimState, loc: &Location, doors: &mut HashMap<u32, Vec<Fo
             (p.cell?, p.pos)
         }
     };
-    let world = refs.cell_world.get(&cell).map(|w| w.0);
-    // The door outdoors into the target's interior, and its worldspace.
-    let mut door_in = || -> Option<(u32, [f32; 3])> {
-        let into = doors.entry(cell.0).or_insert_with(|| doors_into(sim, cell));
-        let d = fnv_game::quest_targets::marker_door(&sim.world, into, ignores_locks).and_then(|d| refs.get(d))?;
-        Some((refs.cell_world.get(&d.cell?)?.0, d.pos))
+    let here = match loc.interior {
+        Some(c) => QuestPlace::Interior(FormId(c)),
+        None => QuestPlace::World(FormId(loc.world)),
     };
-    match loc.interior {
-        Some(here) if here == cell.0 => Some(pos),
-        None if world == Some(loc.world) => Some(pos),
-        None if world.is_none() => door_in().filter(|(w, _)| *w == loc.world).map(|(_, p)| p),
-        None => None,
-        Some(here) => {
-            // A door of the player's cell: to the target's cell, else to its worldspace
-            // (or the one of the door into its interior).
-            let wanted_world = world.or_else(|| door_in().map(|(w, _)| w));
-            let exits: Vec<([f32; 3], FormId)> =
-                refs.by_cell.get(&FormId(here)).into_iter().flatten().filter_map(|&d| refs.get(d)).filter_map(|d| Some((d.pos, refs.get(d.teleport?.door)?.cell?))).collect();
-            exits
-                .iter()
-                .find(|(_, to)| *to == cell)
-                .or_else(|| exits.iter().find(|(_, to)| wanted_world.is_some() && refs.cell_world.get(to).map(|w| w.0) == wanted_world))
-                .map(|(p, _)| *p)
-        }
+    let there = QuestPlace::of_cell(refs, cell);
+    if here == there {
+        return Some(pos);
     }
+    let door = graph.first_door(&sim.world, here, there, ignores_locks)?;
+    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos))
 }
 
 struct Art {

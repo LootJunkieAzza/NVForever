@@ -5041,6 +5041,16 @@ order = [[
 ]]
 
 [[scenario]]
+name = "compass-quest-target-doors"
+source = "docs/spec-notes/hud.md §11 (2026-10-25): a quest target several load doors away is marked at the first door of the shortest way to it (fnv_game::quest_targets::DoorGraph); from Vault 22's lower level (its doors lead only to the vault's other levels) VCG03's two targets in Goodsprings are marked at the first door of the way out; the one-step rule found no door there"
+areas = ["hud", "quests"]
+paths = ["engine/nvf-play/src/compass.rs", "crates/fnv-game/src/quest_targets.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:startquest VCG03;10.5:setobjectivedisplayed VCG03 10 1;11:forceactivequest VCG03;11.5:close" }
+args = ["--cell", "Vault22c", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
+
+[[scenario]]
 name = "teammate-perk"
 source = "playtest list 7 item 44 (gap audit 2026-10-23; docs/spec-notes/perk-entry-points.md §6): a perk given to the player's teammates (player.AddPerk CalmHeart 1, Cass's quest reward) gives its ability to a teammate, and the ability ends when the actor leaves the team"
 areas = ["perks", "followers", "scripts"]

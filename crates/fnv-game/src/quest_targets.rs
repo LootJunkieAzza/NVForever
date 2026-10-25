@@ -81,3 +81,121 @@ fn door_locked(world: &World, door: FormId) -> bool {
         None => world.placed.get(door).is_some_and(|p| p.lock.is_some()),
     }
 }
+
+/// Where a reference is, for the doors between places: an interior cell, or a worldspace
+/// (its exterior cells are one place).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Place {
+    Interior(FormId),
+    World(FormId),
+}
+
+impl Place {
+    /// The place of a reference in `cell`.
+    pub fn of_cell(refs: &fnv_sim::RefTable, cell: FormId) -> Place {
+        refs.cell_world.get(&cell).map_or(Place::Interior(cell), |&w| Place::World(w))
+    }
+}
+
+/// Places joined by their load doors (REFR XTEL): from each place, the doors in it and
+/// the place each leads to, in FormID order. Built once from the placed references.
+#[derive(Debug, Clone, Default)]
+pub struct DoorGraph {
+    pub edges: std::collections::BTreeMap<Place, Vec<(FormId, Place)>>,
+}
+
+/// A quest marker leads through at most this many doors [design].
+pub const MARKER_DOORS_MAX: usize = 8;
+
+impl DoorGraph {
+    pub fn build(refs: &fnv_sim::RefTable) -> DoorGraph {
+        let mut edges: std::collections::BTreeMap<Place, Vec<(FormId, Place)>> = Default::default();
+        for (&id, d) in &refs.refs {
+            let (Some(t), Some(cell)) = (d.teleport, d.cell) else { continue };
+            let Some(dest) = refs.get(t.door).and_then(|o| o.cell) else { continue };
+            edges.entry(Place::of_cell(refs, cell)).or_default().push((id, Place::of_cell(refs, dest)));
+        }
+        DoorGraph { edges }
+    }
+
+    /// The door of `from` that starts the way to `to` through the fewest doors (at most
+    /// [`MARKER_DOORS_MAX`]): a way without locked doors when there is one, unless
+    /// `ignores_locks` [hypothesis: the Objectives Tab's marker "will attempt to avoid
+    /// locked doors if possible" (GECK wiki), applied to every door on the way].
+    pub fn first_door(&self, world: &World, from: Place, to: Place, ignores_locks: bool) -> Option<FormId> {
+        if !ignores_locks {
+            if let Some(d) = self.search(from, to, |d| !door_locked(world, d)) {
+                return Some(d);
+            }
+        }
+        self.search(from, to, |_| true)
+    }
+
+    /// Breadth-first over the places from `from`: the first door of the shortest way to
+    /// `to` through doors that `open` allows; doors in FormID order, so ties go to the
+    /// lowest.
+    pub fn search(&self, from: Place, to: Place, open: impl Fn(FormId) -> bool) -> Option<FormId> {
+        if from == to {
+            return None;
+        }
+        let mut seen = std::collections::BTreeSet::from([from]);
+        let mut frontier: Vec<(Place, FormId)> = Vec::new();
+        for &(d, next) in self.edges.get(&from).into_iter().flatten() {
+            if open(d) && seen.insert(next) {
+                if next == to {
+                    return Some(d);
+                }
+                frontier.push((next, d));
+            }
+        }
+        for _ in 1..MARKER_DOORS_MAX {
+            let mut next_frontier = Vec::new();
+            for (place, first) in frontier {
+                for &(d, next) in self.edges.get(&place).into_iter().flatten() {
+                    if open(d) && seen.insert(next) {
+                        if next == to {
+                            return Some(first);
+                        }
+                        next_frontier.push((next, first));
+                    }
+                }
+            }
+            if next_frontier.is_empty() {
+                return None;
+            }
+            frontier = next_frontier;
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A worldspace W with a building B (two floors B1, B2) and a cave C entered from W.
+    fn graph() -> DoorGraph {
+        let (w, b1, b2, c) = (Place::World(FormId(1)), Place::Interior(FormId(10)), Place::Interior(FormId(11)), Place::Interior(FormId(20)));
+        let mut g = DoorGraph::default();
+        g.edges.insert(w, vec![(FormId(0x100), b1), (FormId(0x101), c)]);
+        g.edges.insert(b1, vec![(FormId(0x110), w), (FormId(0x111), b2)]);
+        g.edges.insert(b2, vec![(FormId(0x120), b1)]);
+        g.edges.insert(c, vec![(FormId(0x130), w)]);
+        g
+    }
+
+    #[test]
+    fn a_marker_leads_through_the_first_door_of_the_shortest_way() {
+        let g = graph();
+        let (w, b2, c) = (Place::World(FormId(1)), Place::Interior(FormId(11)), Place::Interior(FormId(20)));
+        // From the cave to the building's upper floor: out of the cave first.
+        assert_eq!(g.search(c, b2, |_| true), Some(FormId(0x130)));
+        // From outside: the building's door, two floors below the target.
+        assert_eq!(g.search(w, b2, |_| true), Some(FormId(0x100)));
+        // Upstairs to the cave: down first.
+        assert_eq!(g.search(b2, c, |_| true), Some(FormId(0x120)));
+        // There already, and a door shut on the only way.
+        assert_eq!(g.search(c, c, |_| true), None);
+        assert_eq!(g.search(w, b2, |d| d != FormId(0x111)), None);
+    }
+}
