@@ -1,0 +1,9 @@
+scn ExtCase18
+ref rCallback
+int iCount
+Begin GameMode
+    let rCallback := (begin function {}
+        let iCount += 1
+    end)
+    Call rCallback
+End
