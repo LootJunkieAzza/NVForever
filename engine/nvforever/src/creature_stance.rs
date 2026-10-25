@@ -85,7 +85,7 @@ impl CreatureStance {
     /// The stance `clips`, at rest, to be drawn when `drawn` (a creature taking up its
     /// own attack again after a body weapon, `body_weapons.rs`).
     pub fn new(clips: Arc<CreatureClips>, drawn: bool) -> CreatureStance {
-        CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered }
+        CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered, mode: Mode::Calm }
     }
 
     /// Advance the draw cycle by `dt`.
