@@ -2180,6 +2180,23 @@ impl<'a> Game<'a> {
         inst.run_last = Some(now);
     }
 
+    /// A trigger is about to run its OnTrigger block for the actors inside it this frame:
+    /// call once per frame, before those runs. OnTrigger runs every frame an actor is
+    /// inside, so for a script without a GameMode block it is the per-frame run that
+    /// GetSecondsPassed counts from [documented: GECK wiki GetSecondsPassed, the time
+    /// since the script last ran; hypothesis: an OnTrigger run counts as one]. Without
+    /// this, GetSecondsPassed read 0 there: VMS15's detonator spot (FalloutNV SCPT
+    /// 0x0014F50D) adds it to a timer and beeps when the timer is 0, resetting it after
+    /// 0.5 s, and beeped every frame. A script with a GameMode block is marked by its
+    /// GameMode run already.
+    pub fn trigger_frame(&mut self, trigger: FormId) {
+        let Some(script) = self.ref_script(trigger) else { return };
+        let per_frame = self.data.script(script).is_some_and(|u| u.has_block(event::ON_TRIGGER) && !u.has_block(event::GAME_MODE));
+        if per_frame && !self.paused() {
+            self.mark_run(InstKey::Ref { reference: trigger }, Some(script));
+        }
+    }
+
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
     /// order. Only the player's inventory runs per-frame item scripts here [observed: a
     /// jar of pistol powder's GameMode ran in the player's inventory by the frame after
@@ -2636,9 +2653,8 @@ impl<'a> Game<'a> {
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
     /// export: object scripts run even for disabled references; observed: capture job
-    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell load
-    /// still needs the reference enabled (a disabled reference has no 3D to load)
-    /// [hypothesis].
+    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell
+    /// load runs for disabled references too (`Game::set_loaded`).
     fn active_refs(&self) -> Vec<FormId> {
         let mut out: BTreeSet<FormId> = BTreeSet::new();
         for c in &self.loaded_cells {
@@ -2671,7 +2687,8 @@ impl<'a> Game<'a> {
     }
 
     /// Make `cells` the loaded set; scripted references in newly loaded cells get
-    /// OnLoad [hypothesis: OnLoad runs when the reference's cell is loaded].
+    /// OnLoad, disabled ones included [hypothesis: OnLoad runs when the reference's cell
+    /// is loaded; observed for a disabled one, below].
     pub fn set_loaded(&mut self, cells: BTreeSet<FormId>) {
         let new: Vec<FormId> = cells.difference(&self.loaded_cells).copied().collect();
         let left: Vec<FormId> = self.loaded_cells.difference(&cells).copied().collect();
@@ -2693,10 +2710,16 @@ impl<'a> Game<'a> {
         // Actors of the new cells choose their package at the next tick, and dress now.
         self.package_scan_due = 0.0;
         self.outfit_loaded_actors();
+        // Disabled references run OnLoad here too [observed: VMS15's rising plane,
+        // disabled, read `bLoaded` 0 before its cell loaded and 1 on the line after its
+        // Enable; only its OnLoad sets it, so that OnLoad had run at the cell load,
+        // layer5-captures.md §8.3 d]. Their Enable queues OnLoad again
+        // (`Game::note_enabled`). References disabled through an enable parent are
+        // treated the same [hypothesis: the plane was disabled by its own flag].
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
             for r in refs {
-                if self.present(r) {
+                if self.world.peek(r).is_none_or(|s| !s.deleted) {
                     self.ref_event(r, event::ON_LOAD, None, None);
                 }
             }

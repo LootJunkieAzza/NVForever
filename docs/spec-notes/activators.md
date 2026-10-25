@@ -225,14 +225,20 @@ script), and whether that base's model has a sequence named like the group.
     plays goes on [design];
   - an object not drawn keeps the latest request and shows it when drawn: a group played
     once at its end, a loop from its start [design]; meanwhile it is reported not
-    playing;
+    playing. An object a script enabled at run time (`nvf_play::script_draw` draws it a
+    frame or more after the Enable, with its own node hierarchy when its model has named
+    sequences) shows a group played once where it would be by now, from its start when
+    it was asked for with the Enable, and the sound keys passed meanwhile play when it is
+    drawn [design: VMS15's bomber, enabled by the detonator, plays its 9.9 s `Forward`
+    rise; smoke `b29-rise`];
   - the group's material tracks (emissive, emittance, texture offset, alpha; §3, §6) and
     visibility tracks (§6) play with it; a track on the model's root node is not
     applied, the root carrying the placement [design]; particle, refraction and morph
     controllers are not played (§6);
   - `Sound: <SOUN>` keys the group passes play where the object is (anim_sounds.rs).
 - Log: `playgroup: <ref> plays <group> (once|loop, <s> s), flag <n>`; `… not drawn, shown
-  when it is`; `… drawn, shows <group> as asked while it was not`; `… its model has no
+  when it is`; `… drawn, shows <group> as asked while it was not`; `… drawn (enabled at run time),
+  plays <group> from <s> s as asked while it was not`; `… its model has no
   sequence of that name`; at exit `playgroup summary: …`; the `anim sounds summary`
   counts "object group sounds".
 - Smoke test (CLAUDE.md): Goodsprings at 21:00. On load the plants' OnLoad blocks play

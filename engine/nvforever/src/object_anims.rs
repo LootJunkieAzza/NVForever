@@ -20,7 +20,12 @@
 //!   when a group cannot be played (no such sequence, the object not drawn) and when one
 //!   played once ends; `IsAnimPlaying` answers from that.
 //! - **Not drawn**: the request is kept and shown when the object is drawn: a group
-//!   played once at its end, a loop from its start [design].
+//!   played once at its end, a loop from its start [design]. An object a script enabled
+//!   at run time (drawn by `nvf_play::script_draw`, which takes a frame or more after
+//!   the Enable) shows a group played once where it would be by now, from its start if
+//!   it was asked for in the same moment, and the sound keys passed meanwhile play when
+//!   it is drawn [design: the request comes with the Enable, and the player watches the
+//!   object appear; VMS15's bomber rises out of the lake, `Forward`].
 //! - **Sounds**: the `Sound: <editor ID>` text keys the playing group passes are played
 //!   where the object is (anim_sounds.rs, [`ObjectSound`]), keys at the group's very
 //!   start included (a tripwire's sound key is 0.00001 s into its Forward).
@@ -43,7 +48,9 @@ use fnv_sim::FormId;
 use nvf_assets::anim_play::{Clip, Playing};
 use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::PreparedModel;
+use nvf_assets::model::ModelCtx;
 use nvf_play::script::ScriptState;
+use nvf_play::script_draw::ScriptDrawnRig;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -63,11 +70,13 @@ pub struct GroupRig {
     next: Option<(u16, usize)>,
     /// Sequence time and cycle count last seen, to find passed keys and cycle ends.
     last: Option<(f32, i64)>,
+    /// Drawn by `nvf_play::script_draw` (enabled at run time), not render streaming.
+    run_time: bool,
 }
 
 impl GroupRig {
     pub fn new(form_id: u32, model: Arc<PreparedModel>, source: &str, nodes: HashMap<String, Entity>) -> GroupRig {
-        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None }
+        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None, run_time: false }
     }
 
     fn clip(&self, i: usize) -> Option<&Clip> {
@@ -88,8 +97,9 @@ pub struct ObjectSound {
 
 #[derive(Resource, Default)]
 pub struct ObjectAnims {
-    /// Requests for objects not drawn, shown when they are.
-    waiting: HashMap<u32, AnimRequest>,
+    /// Requests for objects not drawn, shown when they are, with the time they were made
+    /// (`Time::elapsed_secs`).
+    waiting: HashMap<u32, (AnimRequest, f32)>,
     /// The last request logged per reference (a script repeating it is not logged again).
     logged: HashMap<u32, (u16, i32)>,
     stats: Stats,
@@ -111,14 +121,28 @@ struct Stats {
     by_group: BTreeMap<String, u32>,
 }
 
+/// How far into a clip [`start`] puts it.
+#[derive(Clone, Copy, PartialEq)]
+enum StartAt {
+    /// Its start.
+    Start,
+    /// Its end, no sound keys.
+    End,
+    /// `s` seconds after its start (at most its end); the keys it passed play.
+    After(f32),
+}
+
 /// Start clip `i` of `rig` on its root (replacing what played there).
-fn start(commands: &mut Commands, root: Entity, rig: &mut GroupRig, group: u16, i: usize, at_end: bool, mats: Option<&mut RigMaterials>) {
+fn start(commands: &mut Commands, root: Entity, rig: &mut GroupRig, group: u16, i: usize, from: StartAt, mats: Option<&mut RigMaterials>) {
     let Some(clip) = rig.clip(i) else { return };
     let root_name = rig.model.rig.as_ref().and_then(|r| r.nodes.first()).and_then(|n| n.name.clone());
     let mut p = Playing::new(&rig.source, clip, |n| if Some(n) == root_name.as_deref() { None } else { rig.nodes.get(n).copied() });
-    if at_end {
-        p.time = clip.stop;
+    match from {
+        StartAt::Start => {}
+        StartAt::End => p.time = clip.stop,
+        StartAt::After(s) => p.time = (clip.start + s.max(0.0)).min(clip.stop),
     }
+    let at_end = from == StartAt::End;
     if let Some(m) = mats {
         m.idle = Arc::new(clip.materials.clone());
         m.dark = false;
@@ -147,8 +171,10 @@ pub fn drive(
     actors: Query<&ActorRig>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     mut for_actors: ResMut<ActorGroups>,
+    time: Res<Time>,
 ) {
     let st = &mut *st;
+    let now = time.elapsed_secs();
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let game = &mut rt.game;
     game.anims.driven = true;
@@ -167,17 +193,27 @@ pub fn drive(
         if !rig.is_added() || st.waiting.is_empty() {
             continue;
         }
-        let Some(r) = st.waiting.remove(&rig.form_id) else { continue };
+        let Some((r, asked)) = st.waiting.remove(&rig.form_id) else { continue };
         let Some(name) = r.name.as_deref() else { continue };
         let Some(i) = rig.find(name) else { continue };
         let once = rig.clip(i).is_some_and(|c| c.cycle_type == CLAMP);
-        start(&mut commands, root, &mut rig, r.group, i, once, mats.map(|m| m.into_inner()));
+        let from = match (once, rig.run_time) {
+            (false, _) => StartAt::Start,
+            (true, false) => StartAt::End,
+            (true, true) => StartAt::After(now - asked),
+        };
+        start(&mut commands, root, &mut rig, r.group, i, from, mats.map(|m| m.into_inner()));
         started.insert(root);
         st.stats.shown_when_drawn += 1;
-        if once {
+        if from == StartAt::End {
             game.anims.set_playing(r.on, None);
+        } else {
+            game.anims.set_playing(r.on, Some(r.group));
         }
-        info!("playgroup: {} drawn, shows {name} as asked while it was not", game.data.name(r.on));
+        match from {
+            StartAt::After(s) => info!("playgroup: {} drawn (enabled at run time), plays {name} from {s:.2} s as asked while it was not", game.data.name(r.on)),
+            _ => info!("playgroup: {} drawn, shows {name} as asked while it was not", game.data.name(r.on)),
+        }
     }
 
     // Reset3DState: the group stops where it is and nothing waits to be shown (a request
@@ -213,7 +249,7 @@ pub fn drive(
                 info!("playgroup: {who} plays {group} (flag {}): not drawn, shown when it is", r.start.flag());
             }
             game.anims.set_playing(r.on, None);
-            st.waiting.insert(r.on.0, r);
+            st.waiting.insert(r.on.0, (r, now));
             continue;
         };
         let Ok((root, mut rig, playing, mats, _)) = rigs.get_mut(e) else { continue };
@@ -244,7 +280,7 @@ pub fn drive(
             }
             continue;
         }
-        start(&mut commands, root, &mut rig, r.group, i, false, mats.map(|m| m.into_inner()));
+        start(&mut commands, root, &mut rig, r.group, i, StartAt::Start, mats.map(|m| m.into_inner()));
         started.insert(root);
         st.stats.started += 1;
         if fresh {
@@ -277,7 +313,7 @@ pub fn drive(
         rig.last = Some((t, cycles));
         if let Some((g, i)) = rig.next {
             if ended || wrapped {
-                start(&mut commands, root, &mut rig, g, i, false, mats.map(|m| m.into_inner()));
+                start(&mut commands, root, &mut rig, g, i, StartAt::Start, mats.map(|m| m.into_inner()));
                 st.stats.started += 1;
                 if let Some(c) = rig.clip(i) {
                     info!("playgroup: {} plays {}, its turn come", game.data.name(FormId(rig.form_id)), describe(c));
@@ -339,6 +375,17 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     );
 }
 
+/// A model a script enabled at run time (`nvf_play::script_draw`) whose rig has named
+/// sequences gets a [`GroupRig`] as render streaming's do (world.rs).
+fn script_drawn(mut commands: Commands, mut models: ModelCtx, added: Query<(Entity, &ScriptDrawnRig), Added<ScriptDrawnRig>>) {
+    for (e, d) in &added {
+        let Some(model) = models.model(&d.path) else { continue };
+        let mut rig = GroupRig::new(d.reference, model, &d.path, d.nodes.clone());
+        rig.run_time = true;
+        commands.entity(e).insert(rig);
+    }
+}
+
 /// Added by nvforever with `--play`.
 pub struct ObjectAnimsPlugin;
 
@@ -347,7 +394,7 @@ impl Plugin for ObjectAnimsPlugin {
         app.init_resource::<ObjectAnims>()
             .init_resource::<ActorGroups>()
             .add_message::<ObjectSound>()
-            .add_systems(Update, drive.after(nvf_play::PlaySet::Scripts).before(crate::advance_animations))
+            .add_systems(Update, (script_drawn, drive).chain().after(nvf_play::PlaySet::Scripts).before(crate::advance_animations))
             // Actors' groups (actor_groups.rs): before their idles advance and they are posed.
             .add_systems(Update, crate::actor_groups::drive.after(drive).before(crate::idles::drive).before(crate::locomotion::walk_test))
             .add_systems(Last, (report, crate::actor_groups::report));

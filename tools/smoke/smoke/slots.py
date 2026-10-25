@@ -8,7 +8,8 @@ does: FalloutNV stops when it loses focus, so a capture holds both game locks
 
 How the two fit together:
 
-- A smoke launch takes one of `count` slots: `slot-<i>.lock` files in a `smoke-slots`
+- A smoke launch takes one of the machine's `count` slots (`NVF_SMOKE_SLOTS` or `--slots`,
+  default 3; `--slots 1` takes the machine alone instead, as `--exclusive`): `slot-<i>.lock` files in a `smoke-slots`
   folder beside `smoke.lock`, held with an OS file lock for the launch (the lock goes
   when the process does, so a crashed runner never leaves a slot taken).
 - While any slot is taken, `smoke.lock` exists as a *shared* lock (its owner file
@@ -18,9 +19,15 @@ How the two fit together:
   only waits while that lock, or a plain `smoke.lock` of someone else, is there.
 - Old-style runners (one game at a time, `Locks`) still work beside this: their
   `mkdir smoke.lock` fails on the shared lock, and a slot runner waits on theirs.
-- Fairness: runners keep their first-come, first-served tickets (`Queue`). The first
-  `count` runners in the queue share the slots: with r of them, each gets
-  `count // r` slots and the oldest `count % r` one more. Later runners wait.
+- Fairness: runners keep their first-come, first-served tickets (`Queue`). Each ticket
+  says how many slots its runner can use at most (`want=N`: its `--jobs` or its number
+  of game launch groups, the lesser; a ticket without it, from an older runner, wants
+  them all). The slots are dealt one at a time in queue order,
+  round after round, skipping a ticket that has all it wants, until none are left. With
+  r runners that want them all, the first `count` get `count // r` each and the oldest
+  `count % r` one more; later runners wait. A runner that wants fewer leaves the rest
+  to the runners behind it, so a ticket never holds a place it cannot use (a runner
+  with one launch used to hold a share of two slots while the runners behind waited).
 
 Every change of the shared lock and every slot take happens under a short OS file
 lock (`smoke-slots/mutex.lock`), so two runners cannot both decide they are first.
@@ -37,7 +44,7 @@ from .runner import OWNER, QUEUE, Queue, game_running, pid_alive
 
 SHARED = "shared"  # first word of the shared smoke.lock's owner file
 SLOT_LABEL = "smoke runner slots"  # a slot runner's queue ticket (old-style tickets say "smoke runner")
-MAX_SLOTS = 16  # slots looked at when deciding the shared lock can go (runners may differ in count)
+MAX_SLOTS = 16  # slots looked at when deciding the shared lock can go (NVF_SMOKE_SLOTS may differ by shell)
 DEFAULT_SLOTS = 3
 # Seconds between two smoke game starts on the machine. Games that load at the same time
 # slow each other's start [observed 2026-10-24: "scripts ready in" 6.4-9.3 s with the
@@ -133,6 +140,38 @@ def is_slot_ticket(t: Path) -> bool:
         return False
 
 
+def ticket_want(t: Path, default: int) -> int:
+    """The most slots a slot ticket's runner can use (`want=N`; `default` when it does not say)."""
+    try:
+        words = t.read_text().split()
+    except OSError:
+        return default
+    for w in words:
+        if w.startswith("want="):
+            try:
+                return max(1, int(w[5:]))
+            except ValueError:
+                break
+    return default
+
+
+def deal(count: int, wants: list[int]) -> list[int]:
+    """The slots each ticket (in queue order) gets: one at a time, round after round,
+    skipping a ticket that has all it wants, until the `count` slots are dealt."""
+    got = [0] * len(wants)
+    left = count
+    while left > 0:
+        dealt = False
+        for i, w in enumerate(wants):
+            if left > 0 and got[i] < w:
+                got[i] += 1
+                left -= 1
+                dealt = True
+        if not dealt:
+            break
+    return got
+
+
 # ---------------------------------------------------------------- slots
 
 class Slot:
@@ -145,10 +184,12 @@ class Slots:
 
     def __init__(self, shared: Path, gates: list[Path], count: int | None = None, poll: float = 5.0,
                  wait_max: float = 4 * 3600.0, say=print, running=game_running, queue: Queue | None = None,
-                 stale_after: float = 900.0, stagger: float | None = None, clock=time.time):
+                 stale_after: float = 900.0, stagger: float | None = None, clock=time.time,
+                 want: int | None = None):
         self.shared = Path(shared)
         self.gates = [Path(g) for g in gates]
-        self.count = count or default_count()
+        self.count = count or default_count()  # the machine's slots
+        self.want = max(1, min(want or self.count, self.count))  # the most this runner can use
         self.stagger = default_stagger() if stagger is None else stagger
         self.clock = clock
         self.poll, self.wait_max, self.say = poll, wait_max, say
@@ -156,7 +197,7 @@ class Slots:
         self.dir = self.shared.parent / "smoke-slots"
         first = self.gates[0] if self.gates else self.shared
         self.queue = queue if queue is not None else Queue(first.parent / QUEUE)
-        self.queue.label = SLOT_LABEL
+        self.queue.label = f"{SLOT_LABEL} want={self.want}"
         self.mutex = FileLock(self.dir / "mutex.lock")
         self.guard = threading.Lock()  # this process's workers, one at a time through the mutex
         self.mine: list[Slot] = []
@@ -166,7 +207,9 @@ class Slots:
     # -- queue share
 
     def share(self) -> int:
-        """How many slots this runner may hold now (0: wait, others are first).
+        """How many slots this runner may hold now (0: wait, others are first): its part
+        of the deal (module notes) among the slot tickets ahead of it, its own and those
+        behind it.
 
         An old-style runner (one game at a time; its ticket is not marked "slots") ahead
         in the queue gets its turn alone: it needs smoke.lock free, so slot runners behind
@@ -176,19 +219,16 @@ class Slots:
         ahead, behind = self.queue.live()
         if any(not is_slot_ticket(t) for t in ahead):
             return 0
-        if len(ahead) >= self.count:
-            return 0
-        room = self.count - len(ahead) - 1
         # Slot runners behind an old-style ticket wait for its turn alone, so they do not
         # share the slots now (counting them left one runner on one slot, 2026-10-24).
-        before_old = 0
+        sharing = []
         for t in behind:
             if not is_slot_ticket(t):
                 break
-            before_old += 1
-        sharing = len(ahead) + 1 + min(room, before_old)
-        runners = min(sharing, self.count)
-        return self.count // runners + (1 if len(ahead) < self.count % runners else 0)
+            sharing.append(t)
+        wants = [ticket_want(t, self.count) for t in ahead] + [self.want]
+        wants += [ticket_want(t, self.count) for t in sharing]
+        return deal(self.count, wants)[len(ahead)]
 
     # -- the shared lock
 

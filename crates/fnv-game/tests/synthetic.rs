@@ -146,6 +146,8 @@ const QUEST: u32 = 0x900;
 const QUEST_SCRIPT: u32 = 0x901;
 const ACT_SCRIPT: u32 = 0x902;
 const ACTIVATOR: u32 = 0x903;
+const TRIG_SCRIPT: u32 = 0x904;
+const TRIGGER: u32 = 0x905;
 const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
@@ -158,6 +160,7 @@ const INFO_A: u32 = 0x931;
 const INFO_B: u32 = 0x932;
 const CELL: u32 = 0x200;
 const ACT_REF: u32 = 0x300;
+const TRIG_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
 
@@ -215,6 +218,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   begin MenuMode 1 / 1007 / 1056
     //     set nPip / nLoad / nVats to … + 1
     //   end
+    //   begin OnLoad
+    //     set nOnLoad to nOnLoad + 1
+    //   end
     let body = [
         set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")])),
         call(SET_STAGE, &[r(2), n(10)]),
@@ -233,8 +239,9 @@ fn plugin_bytes() -> Vec<u8> {
                 (1, Some([le16(1), n(1)].concat()), set(var(b's', 4), ex(&[var(b's', 4), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1056)].concat()), set(var(b's', 6), ex(&[var(b's', 6), a("1"), a("+")]))),
+                (0x15, None, set(var(b's', 7), ex(&[var(b's', 7), a("1"), a("+")]))),
             ]),
-            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1)],
+            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1), (7, "nOnLoad", 1)],
             &[0x14, QUEST, MESSAGE],
         ),
     ]
@@ -245,8 +252,15 @@ fn plugin_bytes() -> Vec<u8> {
     //   end
     let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
     let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    // Trigger script: fSum (1, float); no GameMode block.
+    //   begin OnTrigger
+    //     set fSum to fSum + GetSecondsPassed
+    //   end
+    let body = set(var(b'f', 1), ex(&[var(b'f', 1), xcall(GET_SECONDS_PASSED, &[]), a("+")]));
+    let trigscript = [vec![sub(b"EDID", z("TrigScript"))], unit(0, &script(&[(0x18, None, body)]), &[(1, "fSum", 0)], &[])].concat();
     let scpt = [
         record(b"SCPT", 0, QUEST_SCRIPT, &qscript),
+        record(b"SCPT", 0, TRIG_SCRIPT, &trigscript),
         record(b"SCPT", 0, ACT_SCRIPT, &actscript),
         record(b"SCPT", 0, NPC_SCRIPT, &npcscript),
     ]
@@ -289,6 +303,13 @@ fn plugin_bytes() -> Vec<u8> {
     q.push(ctda(0, 0.0, GET_DISABLED_INDEX, 0, 0));
     let qust = record(b"QUST", 0, QUEST, &q);
     let acti = record(b"ACTI", 0, ACTIVATOR, &[sub(b"EDID", z("TestActivator")), sub(b"SCRI", ACT_SCRIPT.to_le_bytes().to_vec())]);
+    let trig = record(b"ACTI", 0, TRIGGER, &[sub(b"EDID", z("TestTrigger")), sub(b"SCRI", TRIG_SCRIPT.to_le_bytes().to_vec())]);
+    let trig_ref = record(
+        b"REFR",
+        0,
+        TRIG_REF,
+        &[sub(b"EDID", z("TestTriggerREF")), sub(b"NAME", TRIGGER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])],
+    );
     let refr = record(
         b"REFR",
         0,
@@ -365,13 +386,13 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, achr, achr_auto].concat()));
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
-        top(b"ACTI", &acti),
+        top(b"ACTI", &[acti, trig].concat()),
         top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"PACK", &pack),
         top(b"QUST", &qust),
@@ -436,7 +457,7 @@ fn data_reads_quest_stages_conditions_and_units() {
     assert_eq!(s.raw, 0);
     assert_eq!(s.var_index("bRun"), Some(2));
     assert_eq!(d.script_of_base(FormId(ACTIVATOR)), Some(FormId(ACT_SCRIPT)));
-    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF), FormId(NPC_REF)]);
+    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF), FormId(TRIG_REF), FormId(NPC_REF)]);
     assert_eq!(d.messages[&FormId(MESSAGE)].buttons, vec!["Yes", "No"]);
 }
 
@@ -485,6 +506,33 @@ fn the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage() {
     let before = g.var(InstKey::Quest { quest: q() }, 1);
     g.frames(120);
     assert_eq!(g.var(InstKey::Quest { quest: q() }, 1), before);
+}
+
+#[test]
+fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
+    // OnTrigger runs every frame the player is inside; with `Game::trigger_frame` before
+    // it, each run's GetSecondsPassed is the time since the previous frame's run, so the
+    // sum is the time from the first run to the last (VMS15's detonator spot beeps
+    // every 0.5 s by such a timer).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let t = FormId(TRIG_REF);
+    let inside = |g: &mut Game| {
+        g.trigger_frame(t);
+        assert!(g.ref_event(t, fnv_game::game::event::ON_TRIGGER, Some(Value::Ref(FormId::PLAYER_REF.0)), Some(FormId::PLAYER_REF)));
+    };
+    inside(&mut g);
+    let first = g.time;
+    for _ in 0..60 {
+        g.frames(1);
+        inside(&mut g);
+    }
+    let elapsed = g.time - first;
+    let Value::Num(sum) = g.var(InstKey::Ref { reference: t }, 1) else { panic!("fSum is not a number") };
+    assert!(elapsed > 0.5, "{elapsed}");
+    // The clock is read in 1/64 s steps.
+    assert!((sum - elapsed).abs() <= 2.0 / 64.0, "sum {sum}, elapsed {elapsed}");
 }
 
 #[test]
@@ -836,6 +884,34 @@ fn a_disabled_reference_runs_its_game_mode_block() {
     g.world.set_enabled(FormId(ACT_REF), true).unwrap();
     g.tick();
     assert_eq!(frames(&g), Value::Num(start + 4.0));
+}
+
+/// A reference disabled when its cell loads runs its OnLoad block at that load, and
+/// again at the start of the frame after its Enable [observed: VMS15's rising plane read
+/// `bLoaded` 1 on the line after its Enable, layer5-captures.md §8.3 d; the jukebox's
+/// OnLoad one frame after Enable, same section].
+#[test]
+fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.set_enabled(FormId(ACT_REF), false).unwrap();
+    let key = InstKey::Ref { reference: FormId(ACT_REF) };
+    let loads = |g: &Game| match g.var(key, 7) {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!(loads(&g), 1.0);
+    g.tick();
+    assert_eq!(loads(&g), 1.0);
+    g.world.set_enabled(FormId(ACT_REF), true).unwrap();
+    g.note_enabled(FormId(ACT_REF));
+    assert_eq!(loads(&g), 1.0, "not inside Enable");
+    g.tick();
+    assert_eq!(loads(&g), 2.0);
+    g.tick();
+    assert_eq!(loads(&g), 2.0);
 }
 
 #[test]

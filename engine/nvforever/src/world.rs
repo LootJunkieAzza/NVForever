@@ -649,6 +649,12 @@ pub fn loading_gate(streamer: Res<Streamer>, mut loading: ResMut<nvf_play::loadi
     if loading.render_busy != busy {
         loading.render_busy = busy;
     }
+    // Actors around the player not drawn yet: a loading screen waits for them too, so
+    // they are not seen appearing after it comes down (`readahead::actors_waiting`).
+    let actors = crate::readahead::actors_waiting() > 0;
+    if loading.actors_busy != actors {
+        loading.actors_busy = actors;
+    }
 }
 
 /// Turn every tree billboard about its vertical (game Z) axis so that its face (local

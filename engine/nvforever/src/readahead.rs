@@ -57,8 +57,20 @@ pub fn clock() -> (usize, f64) {
     (DRAWN.load(Ordering::Relaxed), DRAW_NS.load(Ordering::Relaxed) as f64 / 1e6)
 }
 
-/// Actors asked for ([`ready_to_draw`]) and found not ready, since when.
-static WAITING: Mutex<Option<HashMap<u32, Instant>>> = Mutex::new(None);
+/// Actors asked for ([`ready_to_draw`]) and found not ready: since when, and when last
+/// asked for.
+static WAITING: Mutex<Option<HashMap<u32, (Instant, Instant)>>> = Mutex::new(None);
+/// An actor asked for within this long and not ready is still wanted on screen
+/// ([`actors_waiting`]): its drawer asks every frame it is in view [engineering choice:
+/// a few frames at the slowest loading-screen frame rate].
+const STILL_WANTED: Duration = Duration::from_millis(750);
+
+/// Actors still wanted on screen whose parts are not read yet (asked for within
+/// [`STILL_WANTED`]); a loading screen waits for them (`nvf_play::loading::Loading::actors_busy`).
+pub fn actors_waiting() -> usize {
+    let waiting = WAITING.lock().expect("read-ahead waits");
+    waiting.as_ref().map_or(0, |w| w.values().filter(|(_, last)| last.elapsed() < STILL_WANTED).count())
+}
 /// Actors ready at the first ask, and after waiting; the longest wait (microseconds).
 static AT_ONCE: AtomicUsize = AtomicUsize::new(0);
 static AFTER_WAIT: AtomicUsize = AtomicUsize::new(0);
@@ -115,8 +127,9 @@ pub fn ready_to_draw(world: &ActorWorld, ctx: &mut ActorCtx, reference: u32, bas
     let mut waiting = WAITING.lock().expect("read-ahead waits");
     let waiting = waiting.get_or_insert_with(HashMap::new);
     if !ready {
-        waiting.entry(reference).or_insert_with(Instant::now);
-    } else if let Some(since) = waiting.remove(&reference) {
+        let now = Instant::now();
+        waiting.entry(reference).or_insert((now, now)).1 = now;
+    } else if let Some((since, _)) = waiting.remove(&reference) {
         AFTER_WAIT.fetch_add(1, Ordering::Relaxed);
         // One asked for long ago left view meanwhile: not a wait for its parts.
         if since.elapsed() < STALE_WAIT {
