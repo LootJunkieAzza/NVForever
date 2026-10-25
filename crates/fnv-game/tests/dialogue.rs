@@ -77,6 +77,16 @@ const T_ANSWER: u32 = 0x958;
 const C_CHAT: u32 = 0xF57;
 const C_OPENER: u32 = 0xF58;
 const C_REPLY: u32 = 0xF59;
+// Ping-pong between actors: in QA (no repeated topics) and in QREP (repeats allowed).
+const QREP: u32 = 0x90A;
+const T_PING: u32 = 0x959;
+const T_PONG: u32 = 0x95A;
+const T_RPING: u32 = 0x95B;
+const T_RPONG: u32 = 0x95C;
+const P_PING: u32 = 0xF5A;
+const P_PONG: u32 = 0xF5B;
+const P_RPING: u32 = 0xF5C;
+const P_RPONG: u32 = 0xF5D;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -238,8 +248,10 @@ fn plugin_bytes() -> Vec<u8> {
         QTICK,
         &[sub(b"EDID", z("QTick")), sub(b"SCRI", u32b(QTICK_SCRIPT)), sub(b"DATA", [vec![1u8, 0, 0, 0], f32b(0.01)].concat())],
     );
+    // Start Game Enabled and Allow Repeated Conversation Topics.
+    let repeat_quest = record(b"QUST", 0, QREP, &[sub(b"EDID", z("QRepeat")), sub(b"DATA", [vec![0x05, 50, 0, 0], f32b(0.0)].concat())]);
     let quests =
-        [quest(QA, "QA", true, 50), quest(QHI, "QHi", true, 80), quest(QOFF, "QOff", false, 90), quest(QEQ, "QEq", true, 50), tick_quest].concat();
+        [quest(QA, "QA", true, 50), quest(QHI, "QHi", true, 80), quest(QOFF, "QOff", false, 90), quest(QEQ, "QEq", true, 50), repeat_quest, tick_quest].concat();
     let npcs = [
         record(b"NPC_", 0, NPC1, &[sub(b"EDID", z("Talker"))]),
         record(b"NPC_", 0, NPC2, &[sub(b"EDID", z("Chatter"))]),
@@ -533,6 +545,10 @@ fn plugin_bytes() -> Vec<u8> {
                 L { id: C_REPLY, quest: QA, ty: CONV, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Reply"), link_from: vec![T_CHAT], ..L::default() },
             ],
         ),
+        topic(T_PING, "TestPing", "TestPing", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_PING, quest: QA, ty: CONV, responses: one("Ping"), choices: vec![T_PONG], ..L::default() }]),
+        topic(T_PONG, "TestPong", "TestPong", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_PONG, quest: QA, ty: CONV, responses: one("Pong"), choices: vec![T_PING], ..L::default() }]),
+        topic(T_RPING, "TestRPing", "TestRPing", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_RPING, quest: QREP, ty: CONV, responses: one("Ping"), choices: vec![T_RPONG], ..L::default() }]),
+        topic(T_RPONG, "TestRPong", "TestRPong", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_RPONG, quest: QREP, ty: CONV, responses: one("Pong"), choices: vec![T_RPING], ..L::default() }]),
     ]
     .concat();
     let placed = |id: u32, base: u32, edid: &str| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
@@ -1412,4 +1428,30 @@ fn the_runner_talks_and_prints_a_dialogue_trace() {
     assert_eq!(t["final"]["dialogue"], Json::Null);
     // The same document is not a script actions document.
     assert!(fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).is_err());
+}
+
+/// "If this box is unchecked, conversations will never use the same topic twice (in the
+/// same conversation)" [documented: GECK wiki Quest Data Tab]: ping-pong in a quest
+/// without Allow Repeated Conversation Topics stops after the pong; in one with it, it
+/// goes on.
+#[test]
+fn a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats() {
+    let f = fixture();
+    let r = |id: u32| ArgValue::Value(Value::Ref(id));
+    let lines = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count();
+    let mut g = game(&f);
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_PING)]);
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    assert_eq!(lines(&g), 2, "ping, pong, and no second ping");
+    let mut g = game(&f);
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_RPING)]);
+    for _ in 0..2_000 {
+        g.tick();
+    }
+    assert!(lines(&g) >= 4, "the repeating quest's ping-pong goes on: {} lines", lines(&g));
 }
