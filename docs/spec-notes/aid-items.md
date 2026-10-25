@@ -377,6 +377,12 @@ Rules (`crates/fnv-game/src/needs.rs`):
   reached, added as AddSpell adds it; when the value falls below, it goes (RemoveSpell)
   and the lower stage's comes [hypothesis]. Rads' stages hold in every mode; the needs'
   only in Hardcore, and go when Hardcore is turned off [hypothesis].
+- Turning Hardcore off (SetHardcore 0, or the settings page's Gameplay switch "Hardcore
+  mode", `hardcore` in `NVForever.ini`) also sets the three needs back to 0 at once, so
+  their stages' effects go with them and the needs start from nothing if it is turned
+  on again [design: owner 2026-10-25]. The switch follows the game when a script, the
+  console or a loaded save sets Hardcore, and a new game that never set it plays by the
+  switch (`nvf_play::hardcore`).
 - Only the player has needs [design].
 - The HUD's words H2O, FOD and SLP show each need's stage (hud.md §13).
 - Not done: the refusal of a wait or sleep that would kill; the messages

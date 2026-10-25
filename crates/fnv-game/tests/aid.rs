@@ -507,6 +507,31 @@ fn need_stages_give_their_effects() {
     assert_eq!(av(&mut g, STRENGTH), 5.0);
 }
 
+/// Turning Hardcore off (SetHardcore 0, the settings page's switch) sets every need back
+/// to 0 and takes their stages' effects away at once; on again, they start from 0.
+#[test]
+fn hardcore_off_clears_the_needs_and_their_effects() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_hardcore(true);
+    set_actor_value_current(&mut g, P, DEHYDRATION, 250.0).unwrap();
+    set_actor_value_current(&mut g, P, HUNGER, 120.0).unwrap();
+    set_actor_value_current(&mut g, P, SLEEP_DEPRIVATION, 80.0).unwrap();
+    g.frames(1);
+    assert_eq!(av(&mut g, STRENGTH), 4.0);
+    assert!(!g.player.need_stages.is_empty());
+    g.set_hardcore(false);
+    for code in [DEHYDRATION, HUNGER, SLEEP_DEPRIVATION] {
+        assert_eq!(av(&mut g, code), 0.0, "need {code}");
+    }
+    assert_eq!(av(&mut g, STRENGTH), 5.0);
+    assert!(g.player.need_stages.is_empty());
+    g.set_hardcore(true);
+    g.frames(1);
+    assert_eq!(av(&mut g, STRENGTH), 5.0);
+    assert!(av(&mut g, DEHYDRATION) < 1.0);
+}
+
 /// The Stealth Boy's Chameleon effect raises the Chameleon actor value while it lasts,
 /// which detection reads (aid-items.md §2, detection.md).
 #[test]

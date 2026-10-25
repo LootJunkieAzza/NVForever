@@ -33,6 +33,7 @@ pub mod dialogue;
 pub mod dialogue_look;
 pub mod dialogue_menu;
 pub mod difficulty;
+pub mod hardcore;
 pub mod dismember;
 pub mod doors;
 pub mod created_spots;
@@ -331,7 +332,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(vats_mode::VatsModePlugin)
             .add_plugins(kill_cam::KillCamPlugin)
             .add_plugins(grab::GrabPlugin)
-            .add_plugins(difficulty::DifficultyPlugin);
+            .add_plugins(difficulty::DifficultyPlugin)
+            .add_plugins(hardcore::HardcorePlugin);
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);

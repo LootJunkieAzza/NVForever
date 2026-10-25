@@ -14,6 +14,8 @@
 //!   `_SpreadPercentage` trait says the code sets a spread; owner's playtest list 5,
 //!   item 15]; they move there at `_SpreadChangeSpeed` [documented: 0.125, in
 //!   hud_main_menu.xml; hypothesis: a share of the way per frame at 60 frames a second].
+//!   A switch of the settings page's Gameplay group, on by default ([`DynamicCrosshair`];
+//!   owner 2026-10-25): off, the arrows stay together whatever is drawn.
 //! - **Hostile**: over an actor hostile to the player the crosshair is red, the crime
 //!   colour (`crate::hud_target::AimHostile`) [owner's playtest list 5, item 58;
 //!   documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"].
@@ -216,11 +218,33 @@ pub fn under_bar(t: &Targeted, bar_form_id: u32) -> bool {
     t.form_id == bar_form_id
 }
 
+/// Whether the crosshair's arrows part with the weapon's spread (module notes).
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct DynamicCrosshair(pub bool);
+
+impl Default for DynamicCrosshair {
+    fn default() -> Self {
+        DynamicCrosshair(true)
+    }
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "dynamic-crosshair",
+                group: crate::pause::GROUP_MENUS,
+                label: "Dynamic crosshair",
+                note: "On: with a gun or thrown weapon drawn the crosshair's arrows part to show how wide your shots spread now (wider running, after shots, with crippled arms; narrower aimed or crouched). Off: the arrows stay together whatever is drawn.",
+                get: |w| w.resource::<DynamicCrosshair>().0,
+                set: |w, on| w.resource_mut::<DynamicCrosshair>().0 = on,
+                slider: None,
+            },
+        );
     }
 }
 
@@ -332,9 +356,9 @@ fn draw(
     state: Res<State<PlayState>>,
     target: Res<Target>,
     sim: Res<SimState>,
-    (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
+    (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>, Option<Res<crate::player::ViewDriven>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -391,7 +415,12 @@ fn draw(
         Projection::Perspective(p) => Some(p.fov),
         _ => None,
     });
-    let want = match (combat.as_ref().and_then(|c| c.crosshair_cone), fov) {
+    let dynamic = dynamic.is_none_or(|d| d.0);
+    if logged.4 != Some(dynamic) {
+        info!("reticle: dynamic crosshair {}", if dynamic { "on" } else { "off: the arrows stay together" });
+        logged.4 = Some(dynamic);
+    }
+    let want = match (combat.as_ref().and_then(|c| c.crosshair_cone).filter(|_| dynamic), fov) {
         (Some(cone), Some(fov)) => spread_units(cone, fov),
         _ => 0.0,
     };
