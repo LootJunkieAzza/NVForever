@@ -8706,3 +8706,16 @@ carry; the game's stimpak idle plays on the upper body only, so they keep moving
   heal at sensible moments, and does the half-body injection look right while it runs?
 - *Not built:* no syringe drawn for the minigun/heavy-weapon idle; the syringe shows for
   the whole idle (its visibility track is not played).
+
+## Sneak attack criticals (2026-10-25, branch claude/sneak-crits)
+
+docs/spec-notes/combat-rules.md §4. The player's hits made while sneaking, on a target that
+has not detected the player, take the sneak multiplier (×2 guns, ×5 melee/unarmed) and are
+always criticals (your rule), except with a weapon whose Crit % Mult is 0 (the wiki's rule).
+Before, the multiplier existed but nothing switched it on.
+- *Guesses:* a shot counts as sneaking if you were sneaking when it left, and the target is
+  judged when it lands; a target detection has not measured (out of reach) counts as unseen;
+  explosions (grenades, mines) are never sneak attacks.
+- *Not built:* no on-screen message. The game files have no text for one, only the HUD
+  icon setting `sCriticalStrikeIcon` (glow_Critical_Chance.dds). What does the original
+  show on a sneak attack critical (words, icon, sound)?

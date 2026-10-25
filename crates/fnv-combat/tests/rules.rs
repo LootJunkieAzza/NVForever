@@ -139,8 +139,14 @@ fn criticals() {
 
 #[test]
 fn sneak_melee_unarmed() {
+    // A sneak attack: × 2 for a gun, and always a critical (+ Crit Dmg 10) [owner
+    // statement 2026-10-25], but never with a crit multiplier of 0 [documented].
     let sneak = Attacker { sneaking: true, ..skilled() };
-    assert!(close(hit(&gun(20), 1, &sneak, &Target::default(), &[], HitPart::default(), 0.99).dealt, 40.0));
+    let d = hit(&gun(20), 1, &sneak, &Target::default(), &[], HitPart::default(), 0.99);
+    assert!(d.critical && close(d.dealt, 50.0), "{d:?}");
+    let no_crit = WeaponStats { crit_mult: 0.0, ..gun(20) };
+    let d = hit(&no_crit, 1, &sneak, &Target::default(), &[], HitPart::default(), 0.99);
+    assert!(!d.critical && close(d.dealt, 40.0), "{d:?}");
     let blade = WeaponStats { anim_type: Some("Melee (1 Hand)".into()), ..gun(10) };
     // 10 × skill 1.0 + MeleeDamage 0.5 × Strength 10.
     let strong = Attacker { strength: 10.0, ..skilled() };
@@ -148,9 +154,9 @@ fn sneak_melee_unarmed() {
     // Crippled arm: 10 × (0.2 − 1 + 0) / 2 = −4.
     let crippled = Attacker { arm_condition: 0.0, ..strong.clone() };
     assert!(close(hit(&blade, 1, &crippled, &Target::default(), &[], HitPart::default(), 0.99).dealt, 11.0));
-    // Melee sneak ×5.
+    // Melee sneak ×5, a critical.
     let sneaky = Attacker { sneaking: true, ..strong };
-    assert!(close(hit(&blade, 1, &sneaky, &Target::default(), &[], HitPart::default(), 0.99).dealt, 75.0));
+    assert!(close(hit(&blade, 1, &sneaky, &Target::default(), &[], HitPart::default(), 0.99).dealt, 85.0));
     // Unarmed: 2 + UnarmedDamage (0.5 + 0.05 × 100), no skill bonus.
     let fists = WeaponStats { anim_type: Some("Hand to Hand".into()), ..gun(2) };
     let boxer = Attacker { unarmed_skill: 100.0, ..Attacker::default() };
