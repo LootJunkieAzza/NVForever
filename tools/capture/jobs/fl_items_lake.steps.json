@@ -1,0 +1,1352 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "fl_items_lake",
+ "title": "Floating: fifteen items and a killed NCR trooper put 150 units under Lake Mead (about 1.5 min, no input)",
+ "start": "nvfstrip (any exterior place); travels to BoulderBeachCampground with coc (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "console": "coc BoulderBeachCampground"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X > 53248\n  if player.GetPos X < 61440\n    let fV := 1\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "after travel",
+   "field": "menumode"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X 58000\nplayer.SetPos Y 37000\nplayer.SetPos Z 2600\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "at the surface",
+   "field": "player.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "at the surface",
+   "field": "player.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "at the surface",
+   "field": "player.z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "dropped",
+   "field": "sledgehammer.z"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37200\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37240\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37280\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37320\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37360\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37400\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37440\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37480\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37520\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37560\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37600\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37640\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37680\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37720\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37760\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1393632\nplayer.PlaceAtMe rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "ref rScan\nref rHit\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.SetPos X 58528\nrHit.SetPos Y 37950\nrHit.SetPos Z 2450\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "ref rScan\nref rHit\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nrHit.KillActor\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetCurrentTime\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 0",
+   "field": "player.z"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 1",
+   "field": "player.z"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 2",
+   "field": "player.z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 3",
+   "field": "player.z"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 4",
+   "field": "player.z"
+  },
+  {
+   "frames": 240
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 5",
+   "field": "player.z"
+  },
+  {
+   "frames": 240
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 6",
+   "field": "player.z"
+  },
+  {
+   "frames": 480
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 7",
+   "field": "player.z"
+  },
+  {
+   "frames": 600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "t_ms"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374332\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "pencil.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "tin_can.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 127519\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "teddy_bear.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 213096\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "cigarette_carton.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 607218\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "prewar_book.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139530\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "wonderglue.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139529\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "sensor_module.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "empty_whiskey_bottle.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 207989\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "whiskey.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "nuka_cola.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 348523\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "hot_plate.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 632840\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "toaster.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 16924\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "baseball_bat.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "lead_pipe.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rScan\nref rScanBase\nref rHit\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17233\nlet rScan := GetFirstRef 201 1 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDistance player < 1500\n        let rHit := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "sledgehammer.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "trooper.z"
+  },
+  {
+   "query": "ref rScan\nref rHit\nfloat fV\nBegin Function { }\nlet rScan := GetFirstRef 200 1 0\nwhile rScan != 0\n  if rScan.GetSourceModIndex == 255\n    if rScan.GetDistance player < 1500\n      let rHit := rScan\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fV := rHit.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "trooper.dead"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "reading 8",
+   "field": "player.z"
+  }
+ ]
+}

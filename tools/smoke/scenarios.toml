@@ -6766,6 +6766,21 @@ expect = [
 forbid = [{ re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
 
 [[scenario]]
+name = "loose-items-float"
+source = "owner 2026-10-25: loose items float like ragdolls; in the original they float or sink by their Havok material (docs/spec-notes/ragdoll.md section 8, captures fl_items_lake and fl_heavy_lake: cloth, wood, bottles and cans floated, metal and glass sank)"
+note = "the player swims out from the Boulder Beach shore as wade-in-swim and drops a teddy bear (cloth), a Nuka-Cola (bottle) and a toaster (metal) at 19-20 s; at exit the bear and the bottle float with their tops at the surface and the toaster lies on the bed"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/buoyancy.rs", "crates/fnv-phys/src/water.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0", NVF_PLAY_TEST_CONSOLE = "18:player.additem 0001F21F 1;18.3:player.additem 0001519E 1;18.6:player.additem 0009A808 1;19:player.drop 0001F21F 1;19.5:player.drop 0001519E 1;20:player.drop 0009A808 1;20.5:close" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'physics: (?P<n>\d+) loose item bodies in water at exit', range = [3, 20], label = "the three dropped items are in the water (the bear has 6 bodies)" },
+  { re = 'physics: \d+ loose item bodies in water at exit: .*\(floats, its top \d+ units from the surface\).*\(floats, its top \d+ units from the surface\)', label = "the bear and the bottle float, their tops above the surface" },
+  { re = 'physics: \d+ loose item bodies in water at exit: .*\(sinks, its top -\d{2,3} units from the surface\)', label = "the toaster lies on the bed" },
+]
+
+[[scenario]]
 name = "aim-zoom"
 source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
 note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
