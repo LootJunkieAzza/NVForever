@@ -195,6 +195,7 @@ fn channel_finite<const N: usize>(c: &fnv_nif::anim::Channel<N>) -> bool {
         Channel::Static(v) => v.is_none_or(|v| v.iter().all(|x| x.is_finite())),
         Channel::Keys(k) => keys_finite(k),
         Channel::BSpline { start, stop, spline } => start.is_finite() && stop.is_finite() && spline.points.iter().all(|v| v.is_finite()),
+        Channel::Path(p) => keys_finite(&p.path) && keys_finite(&p.percent) && p.by_length.as_ref().is_none_or(|t| t.iter().all(|v| v.is_finite())),
     }
 }
 

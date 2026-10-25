@@ -158,9 +158,8 @@ for models placed in cells (§5: fires, steam, smoke). Code:
   emits only while its reference is at one of that node's model damage stages (a
   motorcycle's smoke once it is damaged, never on the Prospector Saloon's static bikes):
   `destruction-stages.md`.
-- Not built: turbulence, spawn on death, the ADDN's sound and particle cap (spherical colliders: §7.3),
-  the dust devils' path (`fxdustwhirlwind01.nif` emits from a mesh emitter that moves along
-  a path). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
+- Not built: turbulence, spawn on death, the ADDN's sound and particle cap (spherical colliders: §7.3).
+  The dust devils' path: §6.8 (built 2026-10-23). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
   `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
   dlc03fxdarksmoke.nif` (13, Primm), `effects/nv/fxtiresmoke.nif` (16),
   `clutter/ashtray/ashtray03smoke.nif` (19), `effects/fxhelios_steam.nif` (8)
@@ -297,8 +296,8 @@ names [hypothesis] unless tagged otherwise.
 - Code: `nvf_assets::particles` (`EmitterMesh`, `Strip`, `Bomb`, `Collider`,
   `FloatKeys`); `nvforever::particles` (emission from meshes, bomb push, collisions,
   trails, ribbons).
-- Not built: spawning on collision; the strip's cap sizes (0 in both files). An emitter
-  object moved by the model's sequence: §6.7.
+- Not built: spawning on collision; the strip's cap sizes (0 in both files). Emitters a
+  model's sequence moves or keys: §6.7–§6.9.
 
 ### 6.7 Drawn models whose sequences drive their emitters [2026-10-24]
 
@@ -350,8 +349,98 @@ names [hypothesis] unless tagged otherwise.
   `simulate`). Log: the model's line ends `; <n> driven by the sequences [<names>]`, and
   `particles: <ref> <path> emits as its <sequence> says: <k> of <n> systems` when a
   sequence begins. Smoke `repconn-rocket-launch`.
-- Not built: a mesh emitter's meshes are not moved by the sequence; gravity strength keys
+- A mesh emitter's meshes, and the bombs under a moved node, move by the node's keys on the same sequence time (§6.8, `Mover`, 2026-10-25). Not built: gravity strength keys
   come from the first sequence only.
+
+### 6.8 Emitters a sequence moves: the dust devils [2026-10-23]
+
+Owner report 2026-10-23 (Goodsprings, screenshots and a game video): the dust devils
+whirled in one spot for good and drew white; in the game a brown column travels along the
+ground and fades. `effectsmbientxdustwhirlwind01.nif` (`FXDustWhirlWind01`, 47 placed in
+WastelandNV, 7 around Goodsprings) [observed, `fnvtool world refs`, `fnvtool nif decode`]:
+- One sequence, `Idle` (cycle type 0, loop; 0 to 12 s), whose
+  `NiMultiTargetTransformController` drives node `FXDustWhirlWindMover` with a
+  `NiPathInterpolator`: flags 18 (bits `curve_type_open`, `constant_velocity`
+  [documented: nif.xml PathFlags]), follow axis 0, path keys (quadratic) at 0, 0.5 and 1
+  from (−767, 51, −227) through (117, 73, −227) to (797, −173, −209): about 1,600 units;
+  percent keys (linear) 0 at 0 s to 1 at 12 s. The mover's rest place is the path's start.
+- Under the mover: the hidden mesh `EmitterpStorm:0` (32 vertices, radius 31), the bomb
+  object `PBomb01` (194 above), and the emitter nodes of two systems that both emit from
+  that mesh (`NiPSysMeshEmitter`, face surfaces, along the normals) and are pulled in by
+  the bomb: `pTornadoWisps` (`FXWisps02.dds`, 7.5 a second, at most 19, radius 165, life
+  4 s, colour 0.478 0.463 0.435 alpha 0.6) and `pTornadoDebris` (`FXDebrisGen01.dds`, 60
+  a second, at most 200). The sequence keys both emitters on from 0 to 12 s and their bomb
+  modifiers on over the same time.
+- Textures [observed, decoded]: `FXWisps02.dds` light grey (mean 199, 196, 192 where
+  alpha is above 20; mean alpha 19 of 255), `FXDebrisGen01.dds` (187, 181, 174; mean
+  alpha 50). The dust's brown is the systems' grey-brown colour over these, laid thinly
+  over the desert floor.
+
+How the engine plays it [hypothesis]:
+- `NiPathInterpolator` (`fnv_nif::anim::PathChannel`): the place is the path's keys at the
+  key time the percent keys give; with `constant_velocity` the share is of the curve's
+  length (measured on 512 samples), else of its key times. Rotation and scale are the
+  node's own. `follow` and `bank` are not read: the three ambient files with a path
+  (`fxdustwhirlwind01.nif` flags 18, `fxambdust01.nif` 16, `megatonfanltrays01.nif` 16 on
+  all six of its paths) set neither and have follow axis 0. The drawn model plays it like
+  any transform track.
+- A particle system whose emitter object (or first emitter mesh) is at or below a node
+  that a sequence of the file moves (`nvf_assets::particles::Mover`, the first sequence
+  with a keyed transform track for the nearest such node) emits from that node's place at
+  the emitter's time on the sequence's cycle: every place of the file (emitter, meshes,
+  bomb) is moved by the node's keyed place over its rest place. The holder's clock starts
+  when the reference's emitter appears, as for the emitter controllers' keys (§6.6); it is
+  not tied to the drawn model's sequence clock (the dust devil's drawn parts are hidden).
+- Particles live in the world (`world_space`), so a moving emitter leaves a trail that
+  fades over the particles' life; each 12 s the mover starts again at the path's start.
+- Log: the system description ends `moved by <node> (<cycle> s)`. Smoke
+  `dust-whirlwind-path` (frames `dust_whirlwind_*.png`).
+- Open: the dust's look against the game frame by frame; the colour comes from the
+  display-value blend of unlit shapes (nif.md §6 "Alpha blend of unlit shapes", same
+  branch history); whether the game restarts the walk at once or waits.
+
+### 6.9 Which sequence keys a placed model's systems; keyed particle alpha [2026-10-23]
+
+An audit of every placed model with a sequence, controllers or particle systems
+[observed: `fnvtool world refs` over all 14 worldspaces and the interiors of
+FalloutNV.esm, `fnvtool nif stats` and `nif decode` of `Fallout - Meshes.bsa` and
+`Update.bsa`: 754 models, 22,024 references; 81 models, 1,239 references with systems
+of their own] found three gaps for emitters:
+- **The first sequence of the file won.** The rate, on/off and modifier keys a
+  sequence gives a system were taken from the first sequence in the file that drives
+  it. `nvbouldersm.nif` (89 MSTT) has `Forward` (dust on for 13.3 s) before
+  `SpecialIdle` (off): each boulder puffed dust when drawn. Also `protectronpod01.nif`
+  (15, steam), `nvnellisartillery.nif` (3, a firing burst every 3.33 s),
+  `forcefieldrightglow02.nif` (36, `Forward` with rate 0 hid `Backward`'s shock).
+  Now `Idle`, then `SpecialIdle`, then the rest in file order (`particles.rs`
+  `sequence_order`) [hypothesis: a placed model plays its Idle, else SpecialIdle; other
+  groups wait for a script or the game]. Groups a script plays (`PlayGroup`) do not
+  yet key a placed model's emitter.
+- **Keyed particle alpha.** A system's own `NiMaterialProperty` can carry an
+  `NiAlphaController`, its own or keyed by a sequence: `sanddust02.nif`'s `PCloud01`
+  (8 placed, 2 by Goodsprings) stores alpha 0 and keys 0 → 0.05 (0.67 s) → 0.05 (4 s)
+  → 0 (6.3 s) over its 45 s Idle; its colour runs (0.90, 0.77, 0.56) → (0.69, 0.58,
+  0.40). The material was built with the stored alpha, so the brown puffs were never
+  seen. Now the keys are read (`material_alpha_keys`), the material gets alpha 1 and
+  each particle's alpha is scaled by the keys at the emitter time it is drawn at
+  (`nvforever::particles::keyed_alpha`) [hypothesis: the material alpha multiplies the
+  particle's colour alpha as for shapes]. Also `projectorlightfx01.nif` (2): its motes
+  flicker with the beam.
+- **Random Anim Start.** `FXDustWhirlWind01` and `FXDust02` bases have the flag (MSTT
+  record flag 0x10000): the drawn rig starts its Idle at a phase spread by reference
+  (animation.md §8) while the emitter started at 0, so the dust and the rig's sound node
+  were out of step and devils streamed in together moved in lockstep. The emitter's time
+  now starts at the rig's phase (`ModelEmitter::placed_from`).
+
+`sanddust02.nif` as a whole [observed]: Idle 45 s, loop. Over 0–5.3 s `DustVortexSlide`
+(the two sheets) and `PCloud01-Emitter` move 510 units along x and 102 up (157 linear
+keys), the sheets' alpha goes 0 → 0.5/0.35 → 0 and their textures scroll; the box
+emitter is on 0–3.67 s; then nothing shows for about 39 s. Smoke `dust-vortex-cycle`. Drawn models whose sequence drives their systems (§6.7) take the rate, on/off keys and the mover's time from the sequence playing on the drawn rig; the order here is for the rest.
+
+Left for later (the same audit): visibility tracks of a plain rig's Idle are not applied
+(`fxelectricarc01/02.nif`, 29; `gomorrahlightslowerlevel.nif`) nor
+`fxdustmeshtube01.nif`'s own `NiVisController`; `NiLightColorController` is not read (91
+LIGH references: `lamplightwarm.nif`, `klaxonglow.nif`, `nukacolavendlightblink.nif`).
 
 ## 7. Placed particle systems: the survey and what was still missing [2026-10-21]
 

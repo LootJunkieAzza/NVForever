@@ -3237,6 +3237,47 @@ expect = [
 ]
 
 [[scenario]]
+name = "dust-whirlwind-path"
+source = "docs/spec-notes/particles.md §6.8 (owner 2026-10-23: Goodsprings' dust devils whirled in one spot, white; the game's travel and fade): fxdustwhirlwind01.nif's Idle sequence moves FXDustWhirlWindMover along a NiPathInterpolator curve in 12 s, and its two particle systems emit from a mesh under that node; the dust devil 00106A84 by the general store seen from the road to its south-west (the owner's screenshot); frames in target/smoke (dust_whirlwind_*.png) should show the column at a different place along an east-west line in each"
+areas = ["particles", "effects", "animation"]
+paths = ["engine/nvf-assets/src/particles.rs", "crates/fnv-nif/src/anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "3:dust_whirlwind_0.png,5:dust_whirlwind_1.png,7:dust_whirlwind_2.png,9:dust_whirlwind_3.png,11:dust_whirlwind_4.png,13:dust_whirlwind_5.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-73000,-700,8700", "--heading", "45", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+manual = "dust_whirlwind_0..5.png: the brown column moves along the ground from frame to frame instead of standing in one place"
+expect = [
+  { re = 'particles: model \S*fxdustwhirlwind01\.nif: 2 system.*pTornadoWisps .*moved by FXDustWhirlWindMover \(12\.0 s\)', label = "the whirlwind's wisps follow its mover" },
+  { re = 'particles: born in \S*fxdustwhirlwind01\.nif: .*pTornadoWisps [1-9]', label = "the wisps are born" },
+]
+
+[[scenario]]
+name = "dust-whirlwind-close"
+source = "docs/spec-notes/particles.md §6.8 (owner 2026-10-23: white dust devils standing still): FXDustWhirlWind01 0010707A west of Goodsprings from 900 units south, a frame every second over 14 s (whirl_close_*.png in target/smoke)"
+areas = ["particles", "effects"]
+paths = ["engine/nvf-assets/src/particles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "3:whirl_close_00.png,4:whirl_close_01.png,5:whirl_close_02.png,6:whirl_close_03.png,7:whirl_close_04.png,8:whirl_close_05.png,9:whirl_close_06.png,10:whirl_close_07.png,11:whirl_close_08.png,12:whirl_close_09.png,13:whirl_close_10.png,14:whirl_close_11.png,15:whirl_close_12.png,16:whirl_close_13.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-70560,3300,8650", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+manual = "whirl_close_*.png: a faint brown dust cloud moving across the ground"
+expect = [
+  { re = 'particles: born in \S*fxdustwhirlwind01\.nif: .*pTornadoWisps [1-9]', label = "the wisps are born" },
+]
+
+[[scenario]]
+name = "dust-vortex-cycle"
+source = "docs/spec-notes/particles.md §6.9 (owner 2026-10-23: Goodsprings dust white, still, never fading): FXDust02 0016906F by the Prospector Saloon (effects/nv/sanddust/sanddust02.nif) seen from the road 900 units west: once every 45 s its Idle slides two sheets ~510 units up the slope while they fade in and out over 5.3 s, and the PCloud01 puffs (stored alpha 0, keyed up to 0.05) show for about 6 s; frames every 2 s over 49 s (dust_vortex_*.png in target/smoke)"
+areas = ["particles", "effects", "animation"]
+paths = ["engine/nvf-assets/src/particles.rs", "engine/nvforever/src/particles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "3:dust_vortex_00.png,5:dust_vortex_01.png,7:dust_vortex_02.png,9:dust_vortex_03.png,11:dust_vortex_04.png,13:dust_vortex_05.png,15:dust_vortex_06.png,17:dust_vortex_07.png,19:dust_vortex_08.png,21:dust_vortex_09.png,23:dust_vortex_10.png,25:dust_vortex_11.png,27:dust_vortex_12.png,29:dust_vortex_13.png,31:dust_vortex_14.png,33:dust_vortex_15.png,35:dust_vortex_16.png,37:dust_vortex_17.png,39:dust_vortex_18.png,41:dust_vortex_19.png,43:dust_vortex_20.png,45:dust_vortex_21.png,47:dust_vortex_22.png,49:dust_vortex_23.png,51:dust_vortex_24.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-68100,2092,8450", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 53
+manual = "dust_vortex_*.png: a brown gust of dust shows and slides for a few seconds of the 45 s cycle and is gone the rest of the time"
+expect = [
+  { re = 'particles: model \S*sanddust02\.nif: 1 system.*PCloud01 .*keyed alpha', label = "the puffs' material alpha keys are read" },
+  { re = 'particles: born in \S*sanddust02\.nif: PCloud01 [1-9]', label = "the puffs are born" },
+]
+
+[[scenario]]
 name = "broken-files"
 source = "owner 2026-10-24: nothing may crash on a missing or bad file from a broken mod (engine/nvf-assets/src/guard.rs). The test aid makes the Bison Steve lobby's furniture models missing (drawn as the game's red error marker, meshes/marker_error.nif, like the original), its clutter models panic while loading (caught: that model is skipped), its architecture textures missing and the male idle clip garbled; the game goes on and exits normally"
 areas = ["crash", "assets"]

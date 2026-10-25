@@ -165,6 +165,15 @@ impl ModelEmitter {
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
         ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None }
     }
+
+    /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
+    /// in ("Random Anim Start" bases): the emitter's own time starts there too. Systems
+    /// the rig's playing sequence drives follow that sequence's clock (§6.7); this keeps
+    /// the rest, and the mover of those that are not driven (particles.md §6.8), in step
+    /// with the rig and its sounds.
+    pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None }
+    }
 }
 
 /// A model emitter drawn with its own nodes: the rig's entity, and the sequence playing
@@ -515,6 +524,12 @@ fn emit(
                 // A keyed rate at the middle of the frame (particles.md §6.6).
                 None => (d.on_time(age, age + dt), d.rate_at(age + dt * 0.5), age, None),
             };
+            // The emitter's node as a sequence of its file moves it (a dust devil on its
+            // path, particles.md §6.8): on the drawn model's sequence time when one drives
+            // the system, else on the emitter's own (`t`, the same clock as the births).
+            // Box emitters also take their object's place from the drawn rig below; the
+            // mover adds the mesh emitters and the bombs under the moved node.
+            let node = node * d.moved(t);
             if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) {
                 continue;
             }
@@ -729,7 +744,7 @@ fn draw(
                 let [u, w, v, h] = d.subtextures.get(q.tex).copied().unwrap_or([0.0, 1.0, 0.0, 1.0]);
                 let tint = d.tint(t);
                 let e = d.emitter.color;
-                let colour = display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]);
+                let colour = display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3] * keyed_alpha(d, q)]);
                 let base = positions.len() as u32;
                 for (i, p) in points.iter().enumerate() {
                     let tangent = points[(i + 1).min(count - 1)] - points[i.saturating_sub(1)];
@@ -757,7 +772,7 @@ fn draw(
             uvs.extend([[u, v + h], [u + w, v + h], [u + w, v], [u, v]]);
             let tint = d.tint(t);
             let e = d.emitter.color;
-            colors.extend([display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]); 4]);
+            colors.extend([display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3] * keyed_alpha(d, q)]); 4]);
             let b = (k * 4) as u32;
             indices.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
         }
@@ -767,6 +782,13 @@ fn draw(
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
         mesh.insert_indices(Indices::U32(indices));
     }
+}
+
+/// The system's keyed material alpha (`ParticleSystemDef::alpha_keys`) at the emitter
+/// time particle `q` is drawn at (its birth time plus its age), 1 without keys
+/// (particles.md §6.9).
+fn keyed_alpha(d: &ParticleSystemDef, q: &Particle) -> f32 {
+    d.alpha_keys.as_ref().and_then(|k| k.at(q.born_at + q.age)).map_or(1.0, |a| a.clamp(0.0, 1.0))
 }
 
 /// A particle's colour (the colour modifier's times the emitter's) taken as display

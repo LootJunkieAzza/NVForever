@@ -229,6 +229,85 @@ pub enum Channel<const N: usize> {
     Static(Option<[f32; N]>),
     Keys(Keys<N>),
     BSpline { start: f32, stop: f32, spline: BSplineChannel },
+    /// A place on a curve (`NiPathInterpolator`).
+    Path(Box<PathChannel>),
+}
+
+/// A `NiPathInterpolator`'s place: a curve (`NiPosData` keys) and how far along it the
+/// node is over time (`NiFloatData`, 0 at the curve's first key and 1 at its last)
+/// [documented: nif.xml NiPathInterpolator "Path Data", "Percent Data"; PathFlags].
+/// With the flag `constant_velocity` the share is of the curve's length, else of its
+/// key times [hypothesis: the flag's name; `fxdustwhirlwind01.nif` sets it, with path
+/// keys at 0, 0.5 and 1 whose two spans differ in length]. The flags `follow` and
+/// `bank` (turning the node along the curve) are not read: the three ambient files with
+/// a path set neither [observed, docs/spec-notes/particles.md §6.8].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathChannel {
+    pub path: Keys<3>,
+    pub percent: Keys<1>,
+    /// With constant velocity: the path's key time at each [`PATH_LENGTH_STEPS`]th of
+    /// its length.
+    pub by_length: Option<Vec<f32>>,
+}
+
+/// How finely a constant-velocity path is measured.
+pub const PATH_LENGTH_STEPS: usize = 64;
+
+impl PathChannel {
+    pub fn new(path: Keys<3>, percent: Keys<1>, constant_velocity: bool) -> PathChannel {
+        let by_length = constant_velocity.then(|| Self::length_table(&path)).flatten();
+        PathChannel { path, percent, by_length }
+    }
+
+    /// Key times at equal steps of the curve's length (`None` for a curve of no length).
+    fn length_table(path: &Keys<3>) -> Option<Vec<f32>> {
+        let (t0, t1) = (path.keys.first()?.time, path.keys.last()?.time);
+        const SAMPLES: usize = 512;
+        let at = |k: usize| t0 + (t1 - t0) * k as f32 / SAMPLES as f32;
+        let mut lengths = vec![0.0f32; SAMPLES + 1];
+        let mut prev = path.sample(t0)?;
+        for k in 1..=SAMPLES {
+            let p = path.sample(at(k))?;
+            let d = ((p[0] - prev[0]).powi(2) + (p[1] - prev[1]).powi(2) + (p[2] - prev[2]).powi(2)).sqrt();
+            lengths[k] = lengths[k - 1] + d;
+            prev = p;
+        }
+        let total = lengths[SAMPLES];
+        if total <= 0.0 || !total.is_finite() {
+            return None;
+        }
+        let mut table = Vec::with_capacity(PATH_LENGTH_STEPS + 1);
+        let mut k = 0;
+        for step in 0..=PATH_LENGTH_STEPS {
+            let want = total * step as f32 / PATH_LENGTH_STEPS as f32;
+            while k < SAMPLES && lengths[k + 1] < want {
+                k += 1;
+            }
+            let k1 = (k + 1).min(SAMPLES);
+            let span = lengths[k1] - lengths[k];
+            let u = if span > 0.0 { ((want - lengths[k]) / span).clamp(0.0, 1.0) } else { 0.0 };
+            table.push(at(k) + (at(k1) - at(k)) * u);
+        }
+        Some(table)
+    }
+
+    /// The place at time `t`.
+    pub fn sample(&self, t: f32) -> Option<[f32; 3]> {
+        let share = self.percent.sample(t)?[0];
+        let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
+        let u = match &self.by_length {
+            Some(table) => {
+                let x = share * (table.len() - 1) as f32;
+                let i = (x.floor() as usize).min(table.len() - 2);
+                table[i] + (table[i + 1] - table[i]) * (x - i as f32)
+            }
+            None => {
+                let (t0, t1) = (self.path.keys.first()?.time, self.path.keys.last()?.time);
+                t0 + (t1 - t0) * share
+            }
+        };
+        self.path.sample(u)
+    }
 }
 
 impl<const N: usize> Channel<N> {
@@ -240,6 +319,10 @@ impl<const N: usize> Channel<N> {
                 let span = stop - start;
                 let u = if span > 0.0 { (t - start) / span } else { 0.0 };
                 spline.eval_array(u)
+            }
+            Channel::Path(p) => {
+                let v = p.sample(t)?;
+                Some(std::array::from_fn(|k| v.get(k).copied().unwrap_or(0.0)))
             }
         }
     }
@@ -617,6 +700,20 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
             };
             Some(TransformTrack { translation, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) })
         }
+        // A node moved along a curve: the dust devils' and drifting dust's movers
+        // (docs/spec-notes/particles.md §6.8). Its rotation and scale are the node's own.
+        "NiPathInterpolator" => {
+            let keys3 = |field: &str| it.block_ref(field).and_then(|r| dec.get(r)).and_then(|d| d.strukt("data")).and_then(Keys::<3>::from_group).filter(|k| !k.is_empty());
+            let path = keys3("path_data")?;
+            let percent = it.block_ref("percent_data").and_then(|r| dec.get(r)).and_then(|d| d.strukt("data")).and_then(Keys::<1>::from_group).filter(|k| !k.is_empty())?;
+            let constant_velocity = it.int("flags").is_some_and(|f| f & (1 << 4) != 0);
+            Some(TransformTrack {
+                translation: Channel::Path(Box::new(PathChannel::new(path, percent, constant_velocity))),
+                rotation: Channel::Static(None),
+                euler: None,
+                scale: Channel::Static(None),
+            })
+        }
         "NiBSplineCompTransformInterpolator" | "NiBSplineTransformInterpolator" => {
             let comp = type_name == "NiBSplineCompTransformInterpolator";
             let (start, stop) = (it.float("start_time")?, it.float("stop_time")?);
@@ -711,6 +808,24 @@ pub fn sequences(file: &crate::NifFile, dec: &Decoded) -> Vec<Sequence> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_places_follow_the_share_of_the_curve() {
+        // Two straight spans: 100 units by time 0.5, then 300 more by time 1.
+        let path = Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [0.0, 0.0, 0.0]), key(0.5, [100.0, 0.0, 0.0]), key(1.0, [400.0, 0.0, 0.0])] };
+        // Along the whole curve over 12 s, as fxdustwhirlwind01.nif's percent keys.
+        let percent = Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [0.0]), key(12.0, [1.0])] };
+        let by_time = PathChannel::new(path.clone(), percent.clone(), false);
+        let by_length = PathChannel::new(path, percent, true);
+        // Halfway in time: the middle key by key time, half of the 400 units by length.
+        assert!((by_time.sample(6.0).unwrap()[0] - 100.0).abs() < 1e-3);
+        assert!((by_length.sample(6.0).unwrap()[0] - 200.0).abs() < 1.0, "{:?}", by_length.sample(6.0));
+        // Held at the ends.
+        assert_eq!(by_length.sample(0.0).unwrap()[0], 0.0);
+        assert!((by_length.sample(20.0).unwrap()[0] - 400.0).abs() < 1e-3);
+        let channel: Channel<3> = Channel::Path(Box::new(by_length));
+        assert!(channel.is_animated() && (channel.sample(3.0).unwrap()[0] - 100.0).abs() < 1.0);
+    }
 
     fn morph(name: &str, vectors: Vec<[f32; 3]>) -> MorphTarget {
         MorphTarget { name: Some(name.into()), vectors, weight: None, stored_weight: 0.0, interpolator_type: None }
