@@ -241,3 +241,17 @@ plugin.
 | 120 | `SLPD` | sleep deprivation stage |
 | 200 | — | actor (reference walking only) |
 | 201 | — | inventory object (reference walking only) |
+
+## Implementation table (D5)
+
+One row per function the plan lists for this task (docs/handoff/extender-core-tasks.md), taken from the sections above and their pages; "fmt" means a format string with up to 20 values (ext-format.md). Anything not stated by a page is marked open.
+
+| Function | Aliases | Arguments (type, ? = optional) | Returns | Behaviour [documented] | Edge cases [documented unless marked] |
+|---|---|---|---|---|---|
+| GetObjectType | GetType | form? (or calling reference) | int | form-type code of a base form, or of a reference's base form | codes: appendix; check IsFormValid/IsReference first |
+| IsFormValid | — | ref variable | bool | 1 when it holds a loaded reference or base form | 0 when empty or not in memory |
+| IsReference | — | ref variable | bool | 1 when it holds a reference (not a base form) | always 1 in a compiler-override block; may error on an invalid form |
+| GetFormFromMod | GFFM | plugin name string; hex form ID string (no mod index) | form | the form with that ID in that plugin (LU plugin, not core) | leading zeros optional; does not resolve unloaded non-persistent references; unloaded plugin: open |
+| GetModIndex | — | plugin file name string | int | the plugin's load-order index | 255 when not loaded; name matching rules: open |
+| GetSourceModIndex | — | form? (or calling reference) | int | load-order index of the plugin the form belongs to | run-time (FF) forms: open |
+| TypeOf | — | expression | string | "Number", "Form", "String", "Array", "Map" or "StringMap" | all forms are "Form" |

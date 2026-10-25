@@ -159,3 +159,19 @@ mismatches; Call's result with no SetFunctionValue; recursion; `Return` with a v
 GetCallingScript from lambdas, handlers and timers; lambda variables after the parent
 instance is gone; `this` in a lambda; reassigning a ref holding a lambda under the
 ordinary compiler.
+
+## Implementation table (D3)
+
+One row per function the plan lists for this task (docs/handoff/extender-core-tasks.md), taken from the sections above and their pages; "fmt" means a format string with up to 20 values (ext-format.md). Anything not stated by a page is marked open.
+
+| Function | Aliases | Arguments (type, ? = optional) | Returns | Behaviour [documented] | Edge cases [documented unless marked] |
+|---|---|---|---|---|---|
+| Call | — | function script (or a ref holding one); up to 15 values any | any (the function's value) | runs the function; with `ref.Call` its commands act on ref | result via `let`/`if eval`; no value set: open; at most 30 nested calls |
+| SetFunctionValue | — | value any | none | sets the calling Call's result | only in a Function block; last one wins; does not end the function |
+| GetCallingScript | — | — | script (form) | the script that called this function | 0 when called from a dialogue or quest-stage result; from lambdas/handlers/timers: open |
+| CallAfterSeconds | CallAfter | seconds float; udf; runWhen int? (0); up to 15 args (6.2.6) | none | runs udf once after game seconds | runWhen 0 GameMode, 1 also MenuMode, 2 also paused-menus wait (6.3.0); 0 seconds = next frame; dropped on load |
+| CallForSeconds | CallFor | seconds float; udf; runWhen int? (0); up to 15 args (6.2.6) | none | runs udf every frame until the seconds pass | as above; dropped on load |
+| CallAfterFrames | — | frames int; udf; runWhen int? (0); up to 15 args | none | runs udf once after that many frames (6.2.8) | runWhen as above; dropped on load |
+| CallWhile | — | udf; condition udf; flags int? (0); up to 15 args | none | runs udf every frame while condition is true; never again once false | flags: 1 args to udf, 2 args to condition (6.2.6), 4 not MenuMode, 8 not GameMode (6.2.8), 16 wait in paused menus (6.3.0); dropped on load |
+| CallWhen | — | udf; condition udf; flags int? (0); up to 15 args | none | runs udf once, the first frame condition is true (6.2.4) | flags as CallWhile; dropped on load |
+| CallWhilePerSeconds | — | interval float; udf; condition udf; flags int? (0); up to 15 args | none | runs udf every interval seconds until condition is false (6.2.8) | flags as CallWhile; dropped on load |

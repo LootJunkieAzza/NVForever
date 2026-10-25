@@ -9,8 +9,8 @@ Written for task D6 of the extender plan ([extender-core-tasks.md](../handoff/ex
 from the GECK wiki export. Everything the pages state is tagged `[documented: <page>]`;
 what they leave out is **open (to observe)**. All of these come from FOSE1 [observed:
 `schemas/script/functions.json`]. The DirectX scancode table is in the appendix
-[documented: Template:DirectX Scancodes, pasted by the owner from geckwiki.com, 2026-10-25]; the controller button table
-(Template:Controller Button Codes) is still missing.
+[documented: Template:DirectX Scancodes, pasted by the owner from geckwiki.com, 2026-10-25]; so is the controller button table (§3a); the controller trigger table is still
+missing.
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -95,7 +95,7 @@ Open (to observe): whether a disabled key still reaches scripts that do not pass
 across a save and load (ext-save.md lists only DisablePlayerControlsAlt as cleared on
 load); TapKey on a disabled key; whether a tap shows in IsKeyPressed the same frame.
 
-## 3a. Controller buttons (plugin functions; table still missing)
+## 3a. Controller buttons (plugin functions)
 
 GetControl's type 3 returns a controller button code [documented: GetControl]. The
 controller functions themselves (IsButtonPressed, GetPressedButtons, Disable/Enable/Tap/
@@ -106,8 +106,23 @@ once; 4 is D-pad left; 15 the whole D-pad; 768 both shoulder buttons; 63487 ever
 GetPressedButtons returns the bitfield of the buttons held [documented: IsButtonPressed;
 DisableButton; GetPressedButtons]. Triggers are 0 (left) and 1 (right) for TapTrigger and
 the trigger handlers [documented: TapTrigger; SetOnTriggerDownEventHandler]. The full
-bit table (Template:Controller Button Codes, and Controller Trigger Codes for the
-Hold/Disable/IsTrigger functions) is not in the export: open.
+bit table was then pasted by the owner from geckwiki.com, 2026-10-25:
+
+| Bit value | Button | Bit value | Button |
+|---|---|---|---|
+| 1 | D-pad up | 256 | left shoulder (LB) |
+| 2 | D-pad down | 512 | right shoulder (RB) |
+| 4 | D-pad left | 1024 | Xbox guide |
+| 8 | D-pad right | 4096 | A |
+| 16 | Start | 8192 | B |
+| 32 | Back | 16384 | X |
+| 64 | left stick (click) | 32768 | Y |
+| 128 | right stick (click) | | |
+
+[documented: Template:Controller Button Codes, pasted by the owner from geckwiki.com, 2026-10-25]. Bit 2048 is not used; the fifteen
+bits sum to 63487, the "every button" value of the DisableButton page, so the table and
+that page agree [documented: both; the arithmetic is ours]. The trigger codes used by the
+Hold/Disable/IsTrigger functions (Template:Controller Trigger Codes): still open.
 
 ## 4. Session tests
 
@@ -118,7 +133,7 @@ GetGameRestarted].
 
 ## 5. Open (to observe), collected
 
-The controller button table (export it); scancodes the sample omits; unbound controls in GetControl and
+The controller trigger table; scancodes the sample omits; unbound controls in GetControl and
 GetAltControl; GetKeyPress order; disabled keys without `ignoreStatus`; DisableKey and
 DisableControl across saves; TapKey on disabled keys and its timing.
 

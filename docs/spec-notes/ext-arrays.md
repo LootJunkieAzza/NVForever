@@ -250,3 +250,25 @@ append]` (xNVSE 6.1 and later): the same, into a file in the game folder; append
 `append` is 0 [documented: Ar DumpF]. The print format: open. NVForever writes the file
 under the engine home's logs folder (`fnv_install::EngineHome::logs`) instead and logs
 where it went [decision: install-layout.md, never the game folder].
+
+## Implementation table (D2)
+
+One row per function the plan lists for this task (docs/handoff/extender-core-tasks.md), taken from the sections above and their pages; "fmt" means a format string with up to 20 values (ext-format.md). Anything not stated by a page is marked open.
+
+| Function | Aliases | Arguments (type, ? = optional) | Returns | Behaviour [documented] | Edge cases [documented unless marked] |
+|---|---|---|---|---|---|
+| Ar_Construct | — | string kind ("array", "map", "stringmap") | array | an empty array of that kind | unknown kind: open; assign with `let` |
+| Ar_Size | — | array | int | number of elements | -1 when uninitialised |
+| Ar_Find | — | value any; array; range? | key (number or string) | key of the first equal element, optionally within a key range | Ar_BadNumericIndex (-99999) or Ar_BadStringIndex ("") when absent; string case and float equality: open |
+| Ar_Sort | — | array; descending bool? | array (list) | elements sorted; map keys dropped | mixed types give an empty array; strings case-insensitive, numbers by value, forms by form ID |
+| Ar_Copy | — | array | array | a copy; nested arrays shared | — |
+| Ar_DeepCopy | — | array | array | a copy with nested arrays copied recursively | — |
+| Ar_Keys | — | array | array (list) | all keys in key order (maps sorted) | — |
+| Ar_HasKey | — | array; key | bool | 1 when the key exists | any kind of array |
+| Ar_Insert | — | list; index int; value any | bool | inserts at index, shifting later elements up | lists only; index at most the size; index = size and past it: open |
+| Ar_Append | — | list; value any | none | adds at the end | lists only, already initialised; maps refused |
+| Ar_Erase | — | array; key or range? | int (erased) | removes the key, or a range `i:j` (inclusive), or everything | missing key removes nothing, no error, but key type must match; lists close the gap |
+| Ar_Range | — | start int; end int; step int? (default 1) | array (list) | ints from start to end inclusive, step apart | negative step counts down; step 0 / wrong direction: open |
+| Ar_List | — | up to 20 values any | array (list) | a list of the values in order | assign with `let` |
+| Ar_Map | — | up to 20 `key::value` pairs | array (map or stringmap) | kind follows the keys | form keys, or numbers mixed with strings, fail; what is returned then: open |
+| Ar_Dump | — | array | none | prints the array to the console readably | print format: open |

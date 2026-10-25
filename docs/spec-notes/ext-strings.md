@@ -265,3 +265,21 @@ from 0 throughout [documented: Sv Length; Sv Find].
   directly. A form ID depends on the load order, so a string saved from it can point
   elsewhere after a load. Padding and case of the digits: open.
 - **Evidence**: [documented: GetFormIDString].
+
+## Implementation table (D1)
+
+One row per function the plan lists for this task (docs/handoff/extender-core-tasks.md), taken from the sections above and their pages; "fmt" means a format string with up to 20 values (ext-format.md). Anything not stated by a page is marked open.
+
+| Function | Aliases | Arguments (type, ? = optional) | Returns | Behaviour [documented] | Edge cases [documented unless marked] |
+|---|---|---|---|---|---|
+| Sv_Construct | — | fmt | string | a new string from the format and its values | without codes it is plain assignment; wrong value count: open |
+| Sv_Length | — | string_var | int | number of characters | -1 for an invalid string; empty: open |
+| Sv_Find | — | fmt text; string_var s; startPos int?; numChars int?; caseSensitive int? | int | position (0-based) of the first match | -1 when absent; ignores case unless flag; 0 is a match (reads false in `if`); range-relative positions: open |
+| Sv_Replace | — | fmt "old\|new"; string_var s; startPos int?; searchLen int?; caseSensitive bool?; maxReplacements int? | int (replacements) | replaces in place; all, case-insensitive by default | `@` for `\|` at the console; empty old text: open |
+| Sv_Split | — | string text; string delimiters; joinDelimiters bool? | array (list) | pieces between delimiter characters | each delimiter char splits; with the flag the whole string is the separator; pieces keep their spaces; empty pieces: open |
+| Sv_ToNumeric | — | string_var | float | reads sign, digits, exponent; stops at the first other char | no leading number: open |
+| Sv_GetChar | — | string_var; position int | int | ASCII code (0-127) of that character | out of range: open; `s[i]` is the newer form |
+| ToString | `$` (operator) | any expression | string | number as text; form as name, else hex form ID | float decimals: open; arrays: open |
+| ToNumber | `#` (operator) | string; hexadecimal bool?; reportError bool? (6.2.9) | float | number in the text; `0x…` read as hex | with reportError a bad string raises an extender error (TestExpr catches); without: open |
+| NumToHex | IntToHex (6.2.9) | int; width int? (default 8); addPrefix bool? (default 0, 6.2.9) | string | upper-case hex, zero-padded to width; `0x` with the flag | width too small is widened; at most 8; negatives: open |
+| GetFormIDString | — | ref variable | string | hex form ID | a form named directly does not compile; load-order dependent; padding/case: open |

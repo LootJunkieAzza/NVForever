@@ -100,3 +100,17 @@ sUActnMenumode (Pip-Boy), sUActnRestmenu (wait), sUActnQuickmenu, sUActnVats,
 sUActnGrab, sUActnQuicksave, sUActnQuickload, sUActnQuick1 … sUActnQuick8 (the
 hotkeys). These are base-game text codes (game settings of the same names), not
 extender format codes.
+
+## Implementation table (D4, output)
+
+One row per function the plan lists for this task (docs/handoff/extender-core-tasks.md), taken from the sections above and their pages; "fmt" means a format string with up to 20 values (ext-format.md). Anything not stated by a page is marked open. Output functions live here because each takes a format string.
+
+| Function | Aliases | Arguments (type, ? = optional) | Returns | Behaviour [documented] | Edge cases [documented unless marked] |
+|---|---|---|---|---|---|
+| PrintToConsole | PrintC | fmt | none | prints the formatted text to the console | a string_var needs `$` |
+| DebugPrint | DBPrintC | fmt | none | as PrintToConsole, only when the calling mod's debug mode is on | a string_var needs `$` |
+| SetDebugMode | DBMode | enable int; modIndex int? (decimal; console use) | none | turns debug mode on/off for every script of the calling mod | from the console, modIndex picks the mod |
+| MessageEx | — | fmt | none | shows the text as a corner message, like ShowMessage without a Message form | icon and duration always default |
+| MessageBoxEx | — | fmt; `\|` separates up to 10 buttons | none | shows a message box; GetButtonPressed reads the choice | button numbering from 0 ("Cancel" in `Text\|Ok\|Cancel` is 1) |
+| Print | — | expression | none | prints a string expression (joins, `$`) (NVSE) | not in D4's list; related |
+| PrintDebug | PrintD | expression | none | as Print, only in debug mode (NVSE) | not in D4's list; related |

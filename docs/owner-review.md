@@ -8730,9 +8730,9 @@ game. Nothing here is urgent; each item unblocks part of the work.
    event priority and filtering pages and User-Defined Event, and `FOSE.xml` settled
    GetType (it is GetObjectType's alias), and you pasted Form Type IDs, the DirectX
    scancodes, GetCurrentEventName, DispatchEventAlt and sUActn: thank you. Still
-   missing: **Template:Controller Button Codes** and **Template:Controller Trigger
-   Codes** (`Controller.xml` has the controller functions, but they only include these
-   tables by reference; paste them or export them by those exact titles; ext-input.md),
+   missing: **Template:Controller Trigger Codes** (you pasted the button codes;
+   `Controller.xml` has the controller functions, which only include these tables by
+   reference; ext-input.md),
    and **Player Character String Codes** (ext-format.md, minor).
 2. **The GECK with xNVSE loaded**, to compile, in a private test plugin of yours:
    `tools/capture/ext-compile/` (23 cases; note what the GECK says for each) and the
