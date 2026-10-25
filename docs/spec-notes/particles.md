@@ -445,7 +445,7 @@ sequence drives its emitters, a lone value is a key) needs the emitter beside th
 root, where `object_anims` builds that `GroupRig`. Now such a model's own systems emit from
 the rig root (`particles::script_drawn_rig`; its add-on nodes stay on the holder), so in
 `Idle` the plane sprays nothing and in `Forward` the spray comes at its keys' times, the
-drips from where `b29Root` is. Smoke `b29-spray-follows-sequence`. Whether the original
+drips from where `b29Root` is. Smoke `b29-spray-follows-sequence`: the detonator plays `Forward` (#710), the plane emits by it, and `wFlingL01` is born 50 times, its 150 a second for the 0.33 s its keys give [observed 2026-10-25]. Whether the original
 shows anything in `Idle` was not checked against the game (no frame of the rise yet).
 
 ### 7.6 Left open
