@@ -551,3 +551,32 @@ shows anything in `Idle` was not checked against the game (no frame of the rise 
 - Exit log: `particles: placed references emitting: <n> of <m> with particle systems, at
   most <k> placed model instances at once`; smoke `placed-particle-smokes` (Gomorrah's
   floor: 45 of 45, 45 instances [observed 2026-10-21]).
+
+### 7.6 A held weapon's systems, switched by the actor's clips (the dynamite's fuse; built 2026-10-23)
+
+- The dynamite's model in the hand (WEAP `WeapNVDynamite` WNAM → STAT `1stPersonDynamite`
+  and MODL both `weaponshandgrenadethrow\dynamite.nif`) holds one particle system,
+  `##PCloud01` (texture `textures\effects
+v\FuseSparks.dds`), below the node
+  `##PCloud01-Emitter` at the fuse's end [observed: the file's blocks]. Its own emitter
+  controller keeps it on from 0 to 3 s and loops (flags 72), at 25 a second [observed].
+- The throw clip drives it by name: `_1stpersongtattackthrow2.kf` (the weapon's DNAM
+  attack animation AttackThrow2) has `NiPSysEmitterCtlr` tracks on `##PCloud01` with
+  interpolator IDs `BirthRate` (21.6, no keys) and `EmitterActive` (off at 0, on at 1.0 s,
+  off at 1.833 s, the clip's `Release` key), a `NiVisController` track on it (shown) and a
+  transform track on `##PCloud01-Emitter` (its place in the file) [observed]. The clip's
+  `Sound: WPNDynamiteFuseStart` key is at 0.733 s [observed].
+- Reading [hypothesis]: the clip's tracks take the place of the model's own controller
+  while it plays, as its transform tracks do for the weapon's `##` parts
+  (animation.md §9.8): the fuse sparks from the lighting to the release, then the thrown
+  model (`dynamitethrown.nif`, its own looping sparks and smoke) carries on. Before
+  2026-10-23 a held weapon model's particle systems were not spawned at all: no sparks.
+- Built: `anim_play::Clip::emitters` keeps a clip's emitter tracks by system name;
+  `Animator::emitter` gives the playing clips' word on one (highest priority, as
+  visibility); the player's weapon model, when it has systems, carries a
+  `ModelEmitter::held` on its holder, and `player_body::drive_weapon_emitters` switches
+  each system on while the seen rig's clips say so (at their birth rate where keyed),
+  off otherwise, and off for the rig the camera does not see. Log: `player <view> rig
+  weapon particles: ["##PCloud01"] on` / `… off`; smoke `thrown-dynamite`.
+- Not built: NPCs' held weapons (`weapons.rs`) emit nothing; placed dynamite still sparks
+  lying in the world (§7.5).

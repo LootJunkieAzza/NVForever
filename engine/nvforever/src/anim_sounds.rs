@@ -758,6 +758,7 @@ mod tests {
             accum_root: None,
             text_keys: keys.iter().map(|&(t, k)| (t, k.to_string())).collect(),
             visibility: Vec::new(),
+            emitters: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
             free_visibility: Vec::new(),

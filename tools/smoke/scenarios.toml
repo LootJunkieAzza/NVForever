@@ -8903,7 +8903,7 @@ name = "thrown-dynamite"
 source = "owner's playtest list 7 item 22: a thrown weapon left the hand when the attack was pressed plus its wind-up, and only then did the throw clip start (dynamite waited, was spawned and thrown, then lit and thrown again in the clip); the clip now starts at the pull and the stick leaves at its Hit key (docs/design/combat.md §5.5)"
 note = "God mode in Goodsprings: the player is given three sticks of dynamite (000BA0F3), draws them and throws one at 17 s. The throw's wind-up line, the rig's clip start and the stick leaving the hand should come in that order, the stick the clip's Hit key after the pull"
 areas = ["combat", "animation"]
-paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-combat/src/attack.rs"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/anim_blend.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "000BA0F3:3", NVF_PLAY_TEST_EQUIP = "000BA0F3", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
 run_seconds = 24
@@ -8912,8 +8912,12 @@ expect = [
   { re = 'player \w+ rig: \S+ starts at the pull; the shot leaves at its Hit key', label = "the throw clip starts at the pull" },
   { re = 'combat: WeapNVDynamite leaves the hand', label = "the stick leaves the hand" },
   { gap = ["combat: WeapNVDynamite winds up", "combat: WeapNVDynamite leaves the hand"], range = [0.1, 5.0], label = "the stick leaves at the clip's Hit key, not at once" },
+  { re = 'player weapon model \(First person\): particle systems \["##PCloud01"\]', label = "the held stick's fuse sparks are spawned" },
+  { re = 'player First rig weapon particles: \["##PCloud01"\] on', label = "the throw clip lights the fuse: sparks in the hand" },
+  { re = 'player First rig weapon particles: off', label = "the sparks stop at the release" },
+  { gap = ["combat: WeapNVDynamite winds up", "player First rig weapon particles: [\"##PCloud01\"] on"], range = [0.5, 1.5], label = "the fuse lights about 1 s into the throw clip (its EmitterActive key)" },
 ]
-order = [["combat: WeapNVDynamite winds up", "starts at the pull", "combat: WeapNVDynamite leaves the hand"]]
+order = [["combat: WeapNVDynamite winds up", "starts at the pull", "player First rig weapon particles: [\"##PCloud01\"] on", "player First rig weapon particles: off"]]
 
 [[scenario]]
 name = "perk-light-step"
