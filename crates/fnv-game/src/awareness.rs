@@ -856,6 +856,9 @@ impl Game<'_> {
         let line = self.say(actor, about, t, false);
         if line.is_some() {
             self.awareness.said.push(Said { kind, speaker: actor, at: at.unwrap_or_default(), time: now });
+            // A nearby group-mate answers it (FleeResponse, StartCombatResponse …;
+            // `crate::combat_lines`).
+            self.queue_response(actor, topic);
         }
         self.awareness.barks.push((topic, actor, line));
     }

@@ -67,6 +67,74 @@ fn combat_lines() {
     the_player_grunts_when_hit_and_on_a_power_attack(&l);
     a_brahmin_says_its_hit_sound(&l);
     sunny_says_her_death_line_and_it_is_not_cut(&l);
+    a_companion_knocked_down_says_knocked_back(&l);
+    a_companion_whose_shot_dt_stops_says_weapon_ineffective(&l);
+    a_companion_poisoned_says_poisoned(&l);
+}
+
+/// The companions whose lines the VNPCFollowers quest holds.
+const COMPANIONS: [&str; 6] = ["CraigBoone", "CassREF", "VeronicaREF", "ArcadeGannonREF", "RaulREF", "LilyREF"];
+
+fn companions(l: &Loaded) -> Vec<FormId> {
+    let mut out: Vec<FormId> = COMPANIONS.iter().filter_map(|e| l.data.by_edid(e)).collect();
+    if let Some(b) = l.data.by_edid("CraigBoone") {
+        out.extend(l.refs.refs.iter().filter(|(_, p)| p.base == b).map(|(id, _)| *id));
+    }
+    out.retain(|r| l.refs.refs.contains_key(r));
+    out
+}
+
+/// The topic `topic`'s line said by one of the companions under `act`, and by whom.
+fn said_by_a_companion(l: &Loaded, topic: &str, act: impl Fn(&mut Game, FormId)) -> (FormId, FormId) {
+    for c in companions(l) {
+        let mut g = game(l);
+        act(&mut g, c);
+        if let Some(line) = g.combat_lines.said.iter().find(|s| s.0 == topic && s.1 == c).and_then(|s| s.2) {
+            return (c, line);
+        }
+    }
+    panic!("no companion said {topic}");
+}
+
+/// KnockedBack: "Said when an actor has been knocked down, but isn't unconscious"
+/// (Combat Tab); the masters' lines are the companions'.
+fn a_companion_knocked_down_says_knocked_back(l: &Loaded) {
+    let (_, line) = said_by_a_companion(l, "KnockedBack", |g, c| {
+        g.knock_out(c, fnv_game::unconscious::Cause::KnockedDown, Some(FormId::PLAYER_REF));
+    });
+    assert_eq!(quest_of(l, line), "VNPCFollowers");
+}
+
+/// WeaponIneffective: the companion's hit was cut to DT's floor; once a minute at most.
+fn a_companion_whose_shot_dt_stops_says_weapon_ineffective(l: &Loaded) {
+    let target = placed(l, "GSSunnySmiles");
+    let (c, line) = said_by_a_companion(l, "WeaponIneffective", |g, c| g.armour_lines(Some(c), target, 10.0, 30.0, 2.0, 0.2));
+    assert_eq!(quest_of(l, line), "VNPCFollowers");
+    let mut g = game(l);
+    g.armour_lines(Some(c), target, 10.0, 30.0, 2.0, 0.2);
+    g.speech.clear();
+    g.armour_lines(Some(c), target, 10.0, 30.0, 2.0, 0.2);
+    assert_eq!(g.combat_lines.said.iter().filter(|s| s.0 == "WeaponIneffective").count(), 1, "once a minute");
+    // A hit DT did not stop says nothing.
+    let mut g = game(l);
+    g.armour_lines(Some(c), target, 30.0, 5.0, 25.0, 0.2);
+    assert!(g.combat_lines.said.is_empty());
+}
+
+/// Poisoned: an effect item whose base effect Poison Resistance resists, applied by a hit.
+fn a_companion_poisoned_says_poisoned(l: &Loaded) {
+    let poison = l
+        .data
+        .effect_items
+        .iter()
+        .filter(|(_, e)| e.iter().any(|x| l.data.magic_effects.get(&x.effect).is_some_and(|m| m.resistance == Some(fnv_game::actor_values::POISON_RESISTANCE))))
+        .map(|(id, _)| *id)
+        .min()
+        .expect("a poison in the masters");
+    let (_, line) = said_by_a_companion(l, "Poisoned", |g, c| {
+        g.apply_hit_effect(c, poison, None);
+    });
+    assert_eq!(quest_of(l, line), "VNPCFollowers");
 }
 
 /// The player's lines are the GenericPlayer quest's (voice type PlayerVoiceMale).
@@ -101,7 +169,9 @@ fn a_brahmin_says_its_hit_sound(l: &Loaded) {
     let mut tried = Vec::new();
     for brahmin in brahmins {
         let mut g = game(l);
-        g.hit(brahmin, 10.0, HitInfo { attacker: Some(FormId::PLAYER_REF), location: -1, ..HitInfo::default() });
+        // A hit says Hit only on a 1 % roll for creatures (combat-dialogue.md §1, since
+        // 2026-10-17): the line is asked for directly.
+        g.combat_line(brahmin, Some(FormId::PLAYER_REF), "Hit");
         let Some(line) = g.combat_lines.said.iter().find(|s| s.0 == "Hit" && s.1 == brahmin).and_then(|s| s.2) else {
             tried.push(l.data.name(l.refs.refs[&brahmin].base));
             continue;

@@ -367,7 +367,10 @@ impl Game<'_> {
             return Vec::new();
         }
         let mods = crate::aid::Mods { hit: true, ..crate::aid::Mods::default() };
-        self.apply_magic_item_with(target, item, caster, false, &mods)
+        let applied = self.apply_magic_item_with(target, item, caster, false, &mods);
+        // OnFire, Poisoned (`crate::combat_lines`).
+        self.effect_started_lines(target, caster, &applied);
+        applied
     }
 
     /// An actor's unarmed attack effect and the attack animation it needs (`EITM`,
