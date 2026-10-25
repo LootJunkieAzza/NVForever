@@ -28,12 +28,15 @@ IsReference]. The Function syntax page advises IsFormValid first, then IsReferen
 because IsReference on an invalid form may raise an extender error [documented: Function
 syntax].
 
-**GetType**: the IsFormValid page's example calls it on a base form (`GetType SomeRef`)
-and on a reference (`SomeRef.GetType`) to get a form-type number [documented:
-IsFormValid example]. **It has no page in the export and no row in
-`schemas/script/functions.json`**, so its arguments, its numbers and which origin it
-belongs to are open. Before D5 builds it, the owner adds its page (and its form-type
-table) to the next `Special:Export`; the catalogue then gains the row on regeneration.
+**GetObjectType** (alias **GetType**; FOSE1) `GetType form` or `ref.GetType`: the
+form-type code of a base form; given a reference (or called on one), the code of its base
+form. An NPC gives 42, armor 24, ammo 41 [documented: GetObjectType, exported in
+`FOSE.xml` 2026-10-25]. The page recommends checking IsFormValid and IsReference first,
+and `let` over `set` so a bad call reports an error [documented: GetObjectType]. The
+catalogue already has it under GetObjectType with GetType as its alias [observed:
+`schemas/script/functions.json`]; an earlier version of this note missed the alias. The
+full table of codes is the "Form Type IDs" page, not yet exported; until then only the
+three codes above are documented.
 
 **TypeOf** `TypeOf expr` (NVSE): the kind of a value as a string, one of "Number",
 "Form", "String", "Array", "Map", "StringMap" [documented: TypeOf]. A form of any type is
@@ -86,7 +89,7 @@ order already assigns these (fnv-esm); D5 maps these functions onto it.
 | IsFormValid | FOSE1 | yes | values |
 | IsReference | FOSE1 | yes | values |
 | TypeOf | NVSE | yes | values |
-| GetType | ? | **no** | — |
+| GetObjectType (GetType) | FOSE1 | yes | — |
 | GetFormIDString | NVSE | yes | strings |
 | GetRawFormIDString | NVSE | yes | — |
 | GetModIndex | FOSE1 | yes | — |
@@ -100,6 +103,6 @@ module (C2's split).
 
 ## 5. Open (to observe), collected
 
-GetType entirely (page missing); GetFormIDString's case and padding; GetModIndex's
+the form-type code table (page "Form Type IDs" not exported); GetFormIDString's case and padding; GetModIndex's
 matching rules; GetSourceModIndex for run-time forms; GetFormFromMod for an unloaded
 plugin.

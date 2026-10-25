@@ -8727,12 +8727,14 @@ takes its facts only from the wiki and from captures of our own scripts in the o
 game. Nothing here is urgent; each item unblocks part of the work.
 1. **The rest of the wiki export.** `NVSE.xml` (2026-10-25) brought String Formatting,
    Hexadecimal Notation, User Defined Function, String/Array Variable, NVSE Error, the
-   event priority and filtering pages and User-Defined Event: thank you. Still missing,
-   for the next `Special:Export` into `C:\fnv-private\geckwiki\`: **GetType** (no page
-   and no catalogue row; ext-forms.md), **Template:DirectX Scancodes** and
-   **Template:Controller Button Codes** (the key and button tables; ext-input.md),
-   **GetCurrentEventName** and **DispatchEventAlt** (ext-events.md), **sUActn**
-   (ext-format.md, minor).
+   event priority and filtering pages and User-Defined Event, and `FOSE.xml` settled
+   GetType (it is GetObjectType's alias): thank you. Still missing, for the next
+   `Special:Export` into `C:\fnv-private\geckwiki\`: **Form Type IDs** (GetType's code
+   table; ext-forms.md), **Template:DirectX Scancodes** and **Template:Controller Button
+   Codes** (the key and button tables, by those exact titles or with "include templates"
+   ticked; ext-input.md), **GetCurrentEventName** and **DispatchEventAlt**
+   (ext-events.md), **sUActn** and **Player Character String Codes** (ext-format.md,
+   minor).
 2. **The GECK with xNVSE loaded**, to compile, in a private test plugin of yours:
    `tools/capture/ext-compile/` (23 cases; note what the GECK says for each) and the
    probe sets in `tools/capture/ext-probes/` (strings, expressions, arrays, loops, udf;

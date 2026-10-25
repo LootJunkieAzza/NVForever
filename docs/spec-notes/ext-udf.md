@@ -7,8 +7,7 @@ Filled for task G4 of the extender plan ([extender-core-tasks.md](../handoff/ext
 from the GECK wiki export. Everything the pages state is tagged `[documented: <page>]`;
 what they leave out is **open (to observe)**, to be settled by the GECK compile cases
 (tools/capture/ext-compile/, cases 15–19) or captures in the original game. The
-export has no "User Defined Function" page (it is linked from many pages); what follows
-is put together from the pages that are there.
+"User Defined Function" page arrived in the 2026-10-25 export (`NVSE.xml`).
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -17,8 +16,10 @@ from a cited document or from compiling our own test scripts with xNVSE,
 
 ## 1. Function scripts
 
-- **Form**: a script whose block type is `Function`; its parameter list follows in
-  braces, possibly empty [documented: Function]:
+- **Form** (NVSE 4): saved as an **object** script that uses only the `Function`
+  block; it is attached to nothing and called by name with Call. Up to **15 parameters**
+  of any type, listed in braces, possibly empty [documented: User Defined Function;
+  Function]:
 
   ```
   scn MyUDF
@@ -33,7 +34,10 @@ from a cited document or from compiling our own test scripts with xNVSE,
   [documented: Lambda, the OnKeyDownUDF example; CallAfterSeconds, `{ ref rPlayer }`
   with an inline type]. Parameters are separated by commas in the examples; whether
   spaces alone also separate: open (compile case 15 uses commas).
-- **The block is the whole function.** Other block types in the same script: open.
+- **Only the Function block** may be used [documented: User Defined Function].
+- **Any-type parameters**: an array_var parameter receives a boxed value (`call MyUDF
+  &MyRef`), unboxed with `*` and tested with TypeOf or GetType [documented: User Defined
+  Function].
 - **Arguments** arrive in the parameter variables in order. Too few or too many, or a
   value of the wrong type: open.
 - **Arrays made inside a function script are freed when it ends** (NVSE 4.6.2 and
@@ -55,8 +59,12 @@ from a cited document or from compiling our own test scripts with xNVSE,
 - **Passing a boxed value**: `call MyUDF &MyRef` passes a one-element array, for
   parameters of array type [documented: NVSE Expressions].
 
-Open: what Call returns when the function never set a value; recursion and its depth
-limit; a variable holding something other than a function script.
+- **Recursion** works: a function may call itself, but the script must first be saved
+  once without the call (the name does not exist yet). **At most 30 nested calls**; past
+  that, NVSE aborts further recursion [documented: User Defined Function].
+
+Open: what Call returns when the function never set a value; what the 31st nested call
+returns; a variable holding something other than a function script.
 
 ## 3. The return value: SetFunctionValue
 
@@ -66,9 +74,12 @@ limit; a variable holding something other than a function script.
   than once, the last one set is returned [documented: SetFunctionValue].
 - **It does not end the function**: the lines after it still run to the end of the
   block [documented: SetFunctionValue].
-- **Return with a value** (`Return x`): no page in the export documents it. Plain
-  `Return` stops the script there [documented: Return]; whether a function's earlier
-  SetFunctionValue still counts after it, and whether `Return` takes a value: open.
+- **Return with a value** (`return x`) is shown only in NVSEScript, the newer language;
+  the ordinary-language examples use SetFunctionValue and then a bare `return`
+  [documented: User Defined Function]. Plain `Return` stops the script there
+  [documented: Return]; that a value set before it still counts: [hypothesis, by the
+  fnShuffle example]. Whether `Return x` compiles in the ordinary language: open (probe
+  udf/02).
 
 ## 4. The calling script: GetCallingScript
 
