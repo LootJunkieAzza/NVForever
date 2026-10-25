@@ -61,6 +61,7 @@ pub mod cond;
 pub mod crafting;
 pub mod crime;
 pub mod data;
+pub mod source_compile;
 pub mod death_items;
 pub mod detection;
 pub mod followers;

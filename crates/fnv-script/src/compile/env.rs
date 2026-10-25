@@ -146,6 +146,9 @@ impl Env for PluginEnv<'_> {
         let d = self.ix.def(form, self.plugin)?;
         let script = d.script.or_else(|| self.ix.def(d.base?, self.plugin)?.script)?;
         let vis = &self.ix.visible[self.plugin];
-        self.ix.scripts.get(&script)?.iter().rev().find(|(p, _)| vis[*p]).map(|(_, v)| v.clone())
+        // The version the viewer sees; when only a later plugin's is at hand (a game reads
+        // the winning records only), that one.
+        let versions = self.ix.scripts.get(&script)?;
+        versions.iter().rev().find(|(p, _)| vis[*p]).or_else(|| versions.last()).map(|(_, v)| v.clone())
     }
 }

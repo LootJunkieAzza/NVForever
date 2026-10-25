@@ -358,6 +358,7 @@ impl ScriptState {
                 None
             }
         });
+        source_compile_mode(unattended);
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
         ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
@@ -443,6 +444,24 @@ pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
         if let Mode::Container(c) = mode {
             rt.game.queue_ref_event(c, event::ON_CLOSE, Some(FormId::PLAYER_REF));
         }
+    }
+}
+
+/// `[Extenders] CompileSource` of NVForever.ini: which units run from their source text
+/// (fnv_game::source_compile; `NVF_COMPILE_SOURCE` overrides it). Read before the script
+/// data is built; an unattended run in the player's home leaves the INI alone, as for every
+/// setting (crate::settings).
+fn source_compile_mode(unattended: bool) {
+    use fnv_game::source_compile::{self as sc, Mode};
+    let Some(path) = crate::settings::SettingsFile::for_run(unattended).0 else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let Some(v) = fnv_install::ini_get(&text, sc::SECTION, sc::KEY) else { return };
+    match Mode::parse(&v) {
+        Some(m) => {
+            info!("[{}] {}={v}: scripts compiled from source: {m:?}", sc::SECTION, sc::KEY);
+            sc::set_mode(m);
+        }
+        None => warn!("[{}] {}={v}: expected auto, always or never", sc::SECTION, sc::KEY),
     }
 }
 
@@ -1573,6 +1592,16 @@ pub(crate) fn run_scripts(
                             }
                         }
                         Err(e) => warn!("load: {}: {e}; the game goes on from the plugins", path.display()),
+                    }
+                }
+                let from_source = data.issues.count("script_compiled_from_source");
+                let failed = data.issues.count("script_source_does_not_compile");
+                if from_source + failed > 0 {
+                    info!("scripts: {from_source} units run from their source text, {failed} kept their bytes (the source does not compile)");
+                    let issues = data.issues.to_json();
+                    let samples = issues.as_array().into_iter().flatten().find(|x| x["kind"] == "script_source_does_not_compile").map(|x| x["samples"].clone());
+                    if let Some(s) = samples {
+                        info!("scripts: sources that do not compile, for example {s}");
                     }
                 }
                 let running = rt.game.quests.values().filter(|q| q.running).count();

@@ -1068,8 +1068,12 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     if on_name.is_none() && func.eq_ignore_ascii_case("GetGameDifficulty") {
         return Ok(ConsoleReply { lines: vec![format!("GetGameDifficulty >> {:.2}", g.difficulty.code() as f64)], ..Default::default() });
     }
-    // The `set <variable> to <value>` statement.
+    // The `set <variable> to <value>` statement; with an expression for the value
+    // (`set x to GetAV Luck + 1`), the compiler's.
     if on_name.is_none() && func.eq_ignore_ascii_case("set") {
+        if args.len() > 3 {
+            return compiled(g, call, on);
+        }
         let lines = fnv_game::functions::console::set_statement(g, &console_ctx, args)?;
         return Ok(ConsoleReply { lines, ..Default::default() });
     }
@@ -1084,7 +1088,12 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         return Ok(ConsoleReply { lines, requests, ..Default::default() });
     }
     let asked = g.toggles.asked.len();
-    let called = fnv_game::functions::console::call_words(g, on, &func, args, "console")?;
+    let called = match fnv_game::functions::console::call_words(g, on, &func, args, "console") {
+        Ok(c) => c,
+        // An expression the console's reader does not take: the compiler's.
+        Err(_) if has_operator(&call.line) => return compiled(g, call, on),
+        Err(e) => return Err(e),
+    };
     let (fname, v) = (called.name, called.value);
     // A function of a system not built says so instead of its 0.
     if let Some(why) = called.stub {
@@ -1104,9 +1113,38 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     Ok(ConsoleReply { lines: vec![format!("{fname}{on_text} >> {shown}")], ..Default::default() })
 }
 
+/// Whether a statement holds an operator or a parenthesis outside quotes.
+fn has_operator(line: &str) -> bool {
+    let mut quoted = false;
+    line.chars().any(|c| {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        !quoted && "+-*/%()<>=&|".contains(c)
+    })
+}
+
+/// Run a statement through the script compiler as a one-line result script, on the
+/// selected (or named) reference (`Game::run_source`, docs/design/console.md).
+fn compiled(g: &mut fnv_game::Game, call: &ConsoleCall, on: Option<FormId>) -> Result<ConsoleReply, String> {
+    let ctx = fnv_game::game::RunCtx { self_ref: on, ..Default::default() };
+    let warnings = g.run_source(&call.line, ctx)?;
+    let mut lines = vec![format!("{} >> ran", call.line.trim())];
+    lines.extend(warnings);
+    Ok(ConsoleReply { lines, ..Default::default() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn operators_outside_quotes_send_a_line_to_the_compiler() {
+        assert!(has_operator("set x to GetAV Luck + 1"));
+        assert!(has_operator("player.SetAV Luck (5)"));
+        assert!(!has_operator("player.additem f 100"));
+        assert!(!has_operator("ShowMessage \"a-b\""));
+    }
 
     #[test]
     fn along_ray_orders_by_distance_and_steps_round() {

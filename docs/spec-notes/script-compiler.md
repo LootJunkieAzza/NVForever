@@ -164,7 +164,48 @@ Errors: `syntax`, `unknown_block`, `unknown_function`, `unresolved_name`,
 `stray_punctuation`. Which of these the editor really refuses is to be checked with the
 GECK compile cases (extender-core-tasks.md G2) [hypothesis].
 
-## 7. Open
+## 7. Running compiled source (task A6)
+
+**At load time** (`fnv_game::source_compile`, called by `GameData::build`): the original
+game runs compiled bytes only. A mod compiled with the script extender loaded has bytes
+that call the extender's functions at opcodes the extender assigned. Our function table
+has no such opcodes, so those bytes would not run. Rule: a unit whose bytes call an
+opcode above the highest one in the function table, and that has source, runs from its
+source compiled by NVForever, seeded with its own lists [decision; no shipped unit calls
+such an opcode, so the shipped game is unchanged in `auto`]. A unit whose source does not
+compile keeps its bytes. Names the lists lacked are added after the existing entries. A
+unit without bytes stays unrun, as in the original (the three never-compiled units of
+scripts.md §3.6).
+
+`[Extenders] CompileSource` in NVForever.ini, read by the engine before the script data is
+built (`NVF_COMPILE_SOURCE` overrides it):
+
+| Value | Units compiled from source |
+|---|---|
+| `auto` (default) | those calling an opcode the table does not have (above its highest) |
+| `always` | every unit with source and bytes (a test of the compiler) |
+| `never` | none (bytes only, as the original game) |
+
+The engine logs `scripts: N units run from their source text, M kept their bytes`, with
+samples of the ones that kept them. A game reads only the winning records, so a script
+overridden by a later plugin is known only in its winning version. The compiler then
+takes that version's variables when the unit's own plugin sees none (FalloutNV's
+`VMQTopsScript` under DeadMoney's override).
+
+Checked 2026-10-25 with `always` over the ten masters: 14,466 units run from source and 7
+keep their bytes. Those 7 are the units of §5 whose source names forms renamed since, or
+another script's variable that is gone. The headless intro walkthrough
+(`fnvtool script run … --actions crates/fnv-game/walkthrough/intro.actions.json`)
+gives a trace byte-identical to the one from the bytes. Smoke `scripts-from-source`
+starts the game this way.
+
+**At the console** (docs/design/console.md): a statement the console's own reader does
+not take goes through the compiler and runs as a one-line result script
+(`Game::run_source`), on the selected reference. That covers a `set` whose value is an
+expression (`set TimeScale to 10 + 2 * 10`) and a call the reader refuses that contains
+an operator or parenthesis. Smoke `console-compiled-source`.
+
+## 8. Open
 
 - The editor's error messages and refusals (G2).
 - Rule 7's declaration counting and rule 8's entry order (more cases would come from mods'

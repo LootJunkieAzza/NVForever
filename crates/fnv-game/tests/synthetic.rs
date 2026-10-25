@@ -1585,3 +1585,26 @@ fn set_actor_full_name_renames_the_base_and_is_saved() {
     let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
     assert_eq!(h.script_name(FormId(NPC)), Some("Renamed One"));
 }
+
+#[test]
+fn a_unit_whose_bytes_call_an_unknown_high_opcode_runs_from_its_source() {
+    // Bytes as a mod compiled with the script extender loaded might hold them: a call to
+    // an opcode above every opcode of the function table (fnv_game::source_compile). The
+    // source says something else; the source is what runs.
+    let bytes = script(&[(0, None, call(0x7FFF, &[]))]);
+    let mut subs = unit(0, &bytes, &[(1, "a", 1)], &[]);
+    subs.push(sub(b"SCTX", b"scn TestExtScript\nshort a\nbegin GameMode\n  set a to 5\nend\n".to_vec()));
+    let scpt = record(b"SCPT", 0, 0x0000_0900, &[vec![sub(b"EDID", z("TestExtScript"))], subs].concat());
+    let plugin = [tes4(), top(b"SCPT", &scpt)].concat();
+    let plugins = vec![Plugin::parse(&plugin, "Ext.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let s = data.script(FormId(0x900)).expect("the script loads");
+    let body = &s.program.blocks[0].body;
+    assert!(matches!(&body[..], [fnv_script::Stmt::Set { .. }]), "the compiled source runs: {body:?}");
+    assert_eq!(data.issues.count("script_compiled_from_source"), 1);
+    assert!(fnv_game::source_compile::highest_opcode(&data.table) < 0x7FFF);
+}

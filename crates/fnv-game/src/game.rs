@@ -1418,6 +1418,34 @@ pub struct RunCtx {
     pub quest: Option<FormId>,
 }
 
+/// The compiler's view of a running game: names as the winning records give them, a
+/// form's script by [`Game::instance_of`] (`fnv_script::compile::Env`).
+pub struct GameEnv<'g, 'a> {
+    pub g: &'g Game<'a>,
+}
+
+impl fnv_script::compile::Env for GameEnv<'_, '_> {
+    fn form(&self, editor_id: &str) -> Option<fnv_script::compile::FormInfo> {
+        let id = *self.g.data.edids.get(&editor_id.to_ascii_lowercase())?;
+        self.info(id.0)
+    }
+    fn info(&self, form: u32) -> Option<fnv_script::compile::FormInfo> {
+        let sig = *self.g.data.sigs.get(&FormId(form))?;
+        Some(fnv_script::compile::FormInfo { form, sig })
+    }
+    fn editor_id(&self, form: u32) -> Option<String> {
+        self.g.data.edid_of.get(&FormId(form)).cloned()
+    }
+    /// FormIDs typed at the console are load-order FormIDs.
+    fn local_form(&self, local: u32) -> Option<u32> {
+        self.g.data.sigs.contains_key(&FormId(local)).then_some(local)
+    }
+    fn script_vars(&self, form: u32) -> Option<Vec<fnv_script::VarDecl>> {
+        let (_, script) = self.g.instance_of(FormId(form))?;
+        Some(self.g.data.script(script)?.unit.variables.clone())
+    }
+}
+
 impl<'a> Game<'a> {
     pub fn new(data: &'a GameData, mut world: World<'a>, cfg: GameConfig) -> Game<'a> {
         // Placed actors carry their template's items (template flag "Inventory").
@@ -1818,6 +1846,34 @@ impl<'a> Game<'a> {
     pub fn run_result(&mut self, unit: UnitId, ctx: RunCtx) {
         let c = self.data.unit(unit);
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
+    }
+
+    /// Compile `src` as a result script (statements without blocks) and run it now: the
+    /// console's lines that its own reader does not take (`set x to a + 1`,
+    /// docs/design/console.md). Names resolve against the winning records
+    /// ([`GameEnv`]). The compiled unit lives as long as the game data (it is leaked:
+    /// one per such line, a debugging aid). Returns the compiler's warnings.
+    pub fn run_source(&mut self, src: &str, ctx: RunCtx) -> Result<Vec<String>, String> {
+        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        if let Some(e) = c.errors().next() {
+            return Err(format!("{}: {}", e.kind.replace('_', " "), e.detail));
+        }
+        let warnings = c.diags.iter().map(|d| format!("{}: {}", d.kind.replace('_', " "), d.detail)).collect();
+        let d = fnv_script::decode(&c.bytes, &self.data.table);
+        let unit = fnv_script::ScriptUnit {
+            plugin: "console".into(),
+            owner: fnv_script::UnitOwner::Other { sig: "CONS".into(), form: 0, ordinal: 0 },
+            kind: fnv_script::ScriptKind::Object,
+            header: Default::default(),
+            variables: c.variables,
+            refs: c.refs,
+            has_scda: true,
+            bytes: c.bytes,
+            source: Some(src.to_string()),
+        };
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        self.exec(unit, &unit.program.top, Locals::Temp(BTreeMap::new()), ctx);
+        Ok(warnings)
     }
 
     /// Whether a block's parameter accepts `subject` (a block without parameters accepts
