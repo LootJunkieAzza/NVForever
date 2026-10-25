@@ -1,0 +1,19 @@
+scn ExtProbeExpr03
+; one probe that may not compile (tools/capture/ext-probes/expressions/README.md)
+int x
+int y
+int r
+float f
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr03|begin"
+    let x := 1
+    let y := 1
+    let x += y += 1
+    Print "EXTPROBE|chain.compound_y|" + $(y)
+    Print "EXTPROBE|expressions/ExtProbeExpr03|end"
+End

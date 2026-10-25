@@ -1,0 +1,17 @@
+scn ExtProbeExpr07
+; one probe that may not compile (tools/capture/ext-probes/expressions/README.md)
+int x
+int y
+int r
+float f
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|expressions/ExtProbeExpr07|begin"
+    let f := Rand 5 5
+    Print "EXTPROBE|fn.rand_nocomma|" + $(f)
+    Print "EXTPROBE|expressions/ExtProbeExpr07|end"
+End
