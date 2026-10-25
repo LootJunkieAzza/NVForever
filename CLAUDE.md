@@ -11,8 +11,8 @@ playthrough blockers; its 2026-10-25 note and §7 say what is still open: the ma
 walkthroughs, the Hoover Dam load test, a recorded parity-lab run) and the owner's
 `playtest-list-7.md`. What ESM data the engine still does nothing with:
 `docs/handoff/esm-audit-2026-10-25.md`. Finished, kept for their Outcome sections and
-history only: playtest lists 1-5 (`playtest-2026-10-12.md`, `playtest-list-4.md`,
-`playtest-list-5.md`), the queue `queue-2026-10-20.md` and the handovers of 2026-10-21/22.
+history only, in `docs/handoff/archive/`: playtest lists 1-5, the queue of 2026-10-20, the
+handovers of 2026-10-21/22, the outstanding audit of 2026-10-23 and the site update.
 Script extender compatibility (xNVSE, JIP LN, JohnnyGuitar as engine code, no DLLs, no
 extender source read): `docs/design/extender-compat.md`, core tasks in
 `docs/handoff/extender-core-tasks.md`.

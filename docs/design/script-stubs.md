@@ -2,7 +2,7 @@
 
 The owner's list 2 asked to "go through the placeholder stubs on scripting functions
 against everything we have added up till this point and check/add any core engine
-functionality missing" (workstream K, docs/handoff/playtest-2026-10-12.md §3). This note
+functionality missing" (workstream K, docs/handoff/archive/playtest-2026-10-12.md §3). This note
 is that audit: every stubbed function, how often the shipped scripts use it, the system it
 needs, its status, and what this round did.
 

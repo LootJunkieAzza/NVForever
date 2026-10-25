@@ -120,7 +120,9 @@ ignores a hit by the player: it ignores friendly hits`.
   IsFollowingLong, FollowerSwitchAggressive and the combat style; a passive companion
   fights only who fights the player's side; Use Stimpak, Back Up, Talk, Open Inventory;
   following companions sneak with the player. Test aid `NVF_PLAY_TEST_WHEEL`.
-- The companions' perks' effects, Hardcore essential: not built.
+- The companions' perks' effects: built since (the teammate perks, #604 and #701; Spotter,
+  Search and Mark, Enhanced Sensors, #715, docs/spec-notes/perk-entry-points.md §13).
+- Hardcore essential: not built.
 
 ## 6. Checks
 

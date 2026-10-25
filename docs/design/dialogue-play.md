@@ -676,7 +676,8 @@ and turned away by `NVF_PLAY_TEST_LOOK`.
     while the screen is open) for that system, and this file's part shrinks to naming
     the target; the bone chain and the limits from the body part data move with it.
 - Head tracking outside conversations (actors looking at the player or each other as
-  they pass) is not built: it is AI.
+  they pass) was not built here: it is AI. It was built since (`nvforever` `head_look.rs`,
+  docs/status.md §3 Animation).
 - The `.lip` files' own head and look channels are still not applied (lipsync.md §3.3).
 
 ## 9. Turning to whom a line is said (2026-10-11, `claude/sayto-facing`)

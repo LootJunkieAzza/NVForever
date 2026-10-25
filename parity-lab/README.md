@@ -75,8 +75,10 @@ Goldens are produced by `tools/capture/` and must stay out of any public reposit
 
 ## Open items
 
-- Image comparator (perceptual metric + region masks) for Layer 3 frames.
-- Behavioural capture plugin: first version `tools/capture/nvf_capture` (xNVSE, JSON lines;
-  tools/capture/README.md §10), not yet run in-game.
+- ~~Image comparator (perceptual metric + region masks) for Layer 3 frames.~~ Built:
+  `fnvlab/image.py`, `compare_image` in `fnvlab/comparators.py`.
+- ~~Behavioural capture plugin, not yet run in-game.~~ `tools/capture/nvf_capture` runs
+  unattended jobs in the original game and the AI observer (tools/capture/README.md
+  "nvf_capture"); the L4 and L5 captures and goldens come from it.
 - Parallel scenario execution (`--jobs`).
 - Moving holdout scenario files and goldens to a location the agent cannot read.

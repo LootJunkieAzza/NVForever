@@ -5,6 +5,9 @@ correct terrain and objects"), in the section 9 format. Status 2026-10-07: **wor
 layer done and checked on the owner's install; the world renderer draws terrain, static
 objects, a weather-driven sky with time of day, water and distant LOD around a free
 camera; world-data parity 92/92; clouds, SpeedTree and screenshot parity not started.**
+Since then (2026-10-25, docs/status.md §2): SpeedTree trees are drawn (`fnv-spt`), clouds
+are drawn with their placement still the gap (§5 item 5), and the reference frames meet the
+image threshold in 7 of 7 interiors and 2 of 8 exteriors.
 
 ## 1. Summary and assumptions
 

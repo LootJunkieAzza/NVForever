@@ -321,8 +321,8 @@ FalloutNV.esm sets the middle three), scaled by a confidence modifier drawn per 
 from fCombatConfidenceModifierMin −0.25 to Max 1.0, not for the foolhardy [documented:
 GECK wiki Confidence; how the modifier applies, threshold × (1 − modifier):
 hypothesis]. Damage per second is the weapon's damage times its shots or blows per
-second [design]; armour is not counted yet. Fleeing is not built: the engine logs
-`npc combat: … would flee (threat ratio … below its confidence …)` and counts it.
+second [design]; armour is not counted yet. Fleeing was not built when this was written (the engine
+logged `npc combat: … would flee …` and counted it); it is now, §12.2.
 
 ### 10.6 Aiming down the sights (NPCs)
 
@@ -873,7 +873,7 @@ travel, the navmesh cover field's heights.
 
 ## 13. Creature data: aggro radius, cowards, template data (playtest list 4, 2026-10-13)
 
-The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` §4).
+The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/archive/playtest-list-4.md` §4).
 
 ### 13.1 The aggro radius (`fnv_game::aggro`, item 18)
 

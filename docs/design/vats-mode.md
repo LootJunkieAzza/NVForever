@@ -1,8 +1,8 @@
 # VATS mode: slow-time mark and fire
 
 Status 2026-10-17: **design for review; built on `claude/vats-mode`** (the engine's
-`nvf-play` `vats_mode.rs`, `fnv_combat::vats`, `fnv_game::vats`; not yet seen in a game
-run). Owner request (todo
+`nvf-play` `vats_mode.rs`, `fnv_combat::vats`, `fnv_game::vats`; seen in game runs since through the
+`vats-mode-*` smoke scenarios). Owner request (todo
 6): "VATS mode", NVForever's own take on VATS, modelled on Red Dead Redemption's Dead Eye.
 Combat is not a parity target (docs/design/combat.md §1: only the quest script hooks must
 behave as in the original), so this is deliberately **not** the original's VATS (no
@@ -16,13 +16,14 @@ Grim Reaper's Sprint gives AP back after a kill, Nerves of Steel speeds the AP b
 
 2026-10-23: **hit chances** (§17, owner: "lets build hit chance into our vats … show a
 percentage hit chance against the X"): each mark shows its chance to hit beside its "x"
-and every shot is rolled on it; a miss goes wide. Built, unit-tested, not yet seen in a
-game run.
+and every shot is rolled on it; a miss goes wide. Built, unit-tested, and seen since in the
+smoke scenario `vats-mode-hit-chance`.
 
 2026-10-20: **beyond single-shot guns** (§16): automatic weapons fire a burst per mark,
 melee and unarmed weapons teleport beside each mark and swing, grenades and thrown weapons
 are lobbed at each mark; melee marks are within 5 m and the player teleports beside each
-to swing (owner 2026-10-20). Built, unit-tested, not yet seen in a game run.
+to swing (owner 2026-10-20). Built, unit-tested, and seen since in the smoke scenarios
+`vats-mode-burst`, `-melee` and `-thrown`.
 
 Tags: `[documented]` cites a page or file, `[observed]` is something we looked at in the
 game data or the references, `[hypothesis]` is unconfirmed, and **`[design]` is our own
