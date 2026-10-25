@@ -1,0 +1,68 @@
+scn ExtProbeArrays01
+; Ar_Construct, Ar_List, Ar_Map, Ar_Range, ar_Init, TypeOf, Ar_Packed, Ar_Size (tools/capture/ext-probes/arrays/README.md)
+array_var a
+array_var b
+array_var c
+array_var d
+array_var e
+string_var s
+string_var t
+int r
+int iDone
+array_var x
+array_var y
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|arrays/01_make_and_kinds|begin"
+    let a := Ar_Null
+    Print "EXTPROBE|size.unset|" + $(Ar_Size d)
+    let a := Ar_Null
+    let a := Ar_List 10, 20, 30
+    Print "EXTPROBE|list.size|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := Ar_List 10, 20, 30
+    Print "EXTPROBE|list.kind|[" + (TypeOf a) + "]"
+    let a := Ar_Null
+    let a := Ar_Map 2::10, 1::20
+    Print "EXTPROBE|map.kind|[" + (TypeOf a) + "]"
+    let a := Ar_Null
+    let a := Ar_Map "b"::1, "a"::2
+    Print "EXTPROBE|smap.kind|[" + (TypeOf a) + "]"
+    let a := Ar_Null
+    let a := Ar_Construct "bogus"
+    Print "EXTPROBE|construct.bogus|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := Ar_Map 1::10, "x"::20
+    Print "EXTPROBE|map.mixed_keys|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := Ar_List 1
+    Print "EXTPROBE|packed.list|" + $(Ar_Packed a)
+    let a := Ar_Null
+    let a := Ar_Map 1::1
+    Print "EXTPROBE|packed.map|" + $(Ar_Packed a)
+    let a := Ar_Null
+    let a := Ar_Map "k"::1
+    Print "EXTPROBE|packed.smap|" + $(Ar_Packed a)
+    let a := Ar_Null
+    let a := Ar_Range 1, 5
+    Print "EXTPROBE|range.basic|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := Ar_Range 0, 30, 10
+    Print "EXTPROBE|range.step|" + $(a[3])
+    let a := Ar_Null
+    let a := Ar_Range 10, 5, -1
+    Print "EXTPROBE|range.down|" + $(a[5])
+    let a := Ar_Null
+    let a := Ar_Range 1, 3, 0
+    Print "EXTPROBE|range.step0|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := Ar_Range 1, 5, -1
+    Print "EXTPROBE|range.wrong_way|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := ar_Init 4, 7
+    Print "EXTPROBE|init.size|" + $(a[3])
+    Print "EXTPROBE|arrays/01_make_and_kinds|end"
+End

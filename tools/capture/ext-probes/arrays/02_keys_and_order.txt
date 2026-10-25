@@ -1,0 +1,72 @@
+scn ExtProbeArrays02
+; map key order, Ar_Keys, Ar_First/Last/Next/Prev, Ar_HasKey, bad indexes (tools/capture/ext-probes/arrays/README.md)
+array_var a
+array_var b
+array_var c
+array_var d
+array_var e
+string_var s
+string_var t
+int r
+int iDone
+array_var x
+array_var y
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|arrays/02_keys_and_order|begin"
+    let a := Ar_Null
+    let a := Ar_Map 5::50, 2::20, 9::90
+    Print "EXTPROBE|map.sorted_first|" + $(Ar_First a)
+    let a := Ar_Null
+    let a := Ar_Map 5::50, 2::20, 9::90
+    Print "EXTPROBE|map.sorted_last|" + $(Ar_Last a)
+    let a := Ar_Null
+    let a := Ar_Map 5::50, 2::20, 9::90
+    Print "EXTPROBE|map.next|" + $(Ar_Next a, 2)
+    let a := Ar_Null
+    let a := Ar_Map 5::50, 2::20, 9::90
+    Print "EXTPROBE|map.next_end|" + $(Ar_Next a, 9)
+    let a := Ar_Null
+    let a := Ar_Map 5::50, 2::20, 9::90
+    Print "EXTPROBE|map.prev_start|" + $(Ar_Prev a, 2)
+    let a := Ar_Null
+    let a := Ar_Map 5::50, 2::20, 9::90
+    Print "EXTPROBE|map.next_missing|" + $(Ar_Next a, 3)
+    let a := Ar_Null
+    let a := Ar_Map "Weapon"::1, "Ammo"::2, "Armor"::3
+    let b := Ar_Keys a
+    Print "EXTPROBE|smap.keys_sorted|[" + (b[0]) + "]"
+    let a := Ar_Null
+    let a := Ar_Map "b"::1, "A"::2, "a"::3
+    let b := Ar_Keys a
+    Print "EXTPROBE|smap.case_order|[" + (b[0]) + "]"
+    let a := Ar_Null
+    let a := Ar_Map "b"::1, "A"::2, "a"::3
+    Print "EXTPROBE|smap.case_size|" + $(Ar_Size a)
+    let a := Ar_Null
+    let a := Ar_Construct "map"
+    Print "EXTPROBE|first.empty|" + $(Ar_First a)
+    let a := Ar_Null
+    let a := Ar_Map 2::1, 5::1
+    Print "EXTPROBE|haskey.yes|" + $(Ar_HasKey a, 5)
+    let a := Ar_Null
+    let a := Ar_Map 2::1, 5::1
+    Print "EXTPROBE|haskey.no|" + $(Ar_HasKey a, 13)
+    let a := Ar_Null
+    Print "EXTPROBE|bad.numeric|" + $(Ar_BadNumericIndex)
+    let a := Ar_Null
+    Print "EXTPROBE|bad.string|[" + (Ar_BadStringIndex) + "]"
+    let a := Ar_Null
+    let a := Ar_List 1, 2
+    Print "EXTPROBE|find.missing|" + $(Ar_Find 3, a)
+    let a := Ar_Null
+    let a := Ar_List "Abc", "x"
+    Print "EXTPROBE|find.string_case|" + $(Ar_Find "abc", a)
+    let a := Ar_Null
+    let a := Ar_List 7, 8, 7, 8
+    Print "EXTPROBE|find.range|" + $(Ar_Find 7, a, 1:3)
+    Print "EXTPROBE|arrays/02_keys_and_order|end"
+End
