@@ -773,3 +773,22 @@ GetAnimAction 0 / 1), GetIsAlerted 0, and fought 21 s later. A player 129-135 fr
 turn of his head, no warning. For people too the owner chose draw and hold over the cycle
 (2026-10-25, `alert.rs`); they say their GuardTrespass line at each warning. The bouncer sessions saw nothing (no detection; the
 player was moved away by something in Gomorrah).
+
+Campaign `warnings2` (2026-10-25, run by the observer session, plugin version 7, 23
+sessions; the frame rate was lower, the clock normal):
+- Attack delay: creatures 15 s after the warning began (the young gecko at 387-393 of
+  500, the coyote VERGSCoyote6REF at 727 of 1024, the gecko hunters), the cash-room guard
+  21-22 s (at 70-90 of 128, four runs). The setgs runs (fAITrespassWarningTimer 2 / 10,
+  iGuardWarnings 1 / 4, TimeScale 60) showed no difference: their start distances
+  varied between 90 and 98 and that, not the settings, decided whether he attacked.
+- Inside half the radius: the young gecko at 217 of 500 fought on detection; the guard at
+  32 and 62 of 128 fought after one draw (about 3 s). Open: the guard at 98-121 of 128
+  warned for 68 s and never attacked.
+- The draw cycle, sampled every game loop: the guard's weapon out 1.33 s, holstered
+  1.17 s (2.5 s); the young gecko out 0.81 s, holstered 1.20 s (2.0 s), GetAnimAction 0
+  for 1.08 s and 1 for 0.88 s. Not built (owner: draw and hold).
+- Gomorrah's room guards (vGomorrahGuardPackage, no aggro radius) did not warn a player
+  15 units from the door each guards, nor 60 units from them (a run-time Follow
+  package, procedure 11, instead). Guard packages' own warnings were taken out.
+- Coyote at 300-560 of 1024: it took up the warning's Guard package within 0.6 s, then
+  lost sight of the player and stood without warning or fighting for 28 s.

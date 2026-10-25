@@ -100,9 +100,6 @@ pub enum Why {
     Assist { victim: FormId },
     /// The player stayed inside its aggro radius past its warnings (`crate::aggro`).
     Aggro,
-    /// The player stayed inside the area its Guard package guards past its warnings
-    /// (`crate::aggro`, "Guard packages").
-    Guard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -181,11 +178,6 @@ pub enum Note {
     /// `actor` warned the player inside its aggro radius (`level` warnings so far;
     /// `crate::aggro`).
     AggroWarned { actor: FormId, level: u32, distance: f64, radius: f64 },
-    /// `actor` warned the player inside the area its Guard package guards: `distance`
-    /// from `guarded`, of `radius` (`crate::aggro`).
-    GuardWarned { actor: FormId, level: u32, guarded: FormId, distance: f64, radius: f64 },
-    /// After its warnings it attacks the player, still inside that area.
-    GuardAttacks { actor: FormId, guarded: FormId, distance: f64, radius: f64 },
     /// `actor` attacks the player, who stayed inside its aggro radius.
     AggroAttacks { actor: FormId, distance: f64, radius: f64 },
     /// `helper` stays out of `victim`'s fight: its confidence is Cowardly (module notes).

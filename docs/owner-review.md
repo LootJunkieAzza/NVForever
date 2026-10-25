@@ -8335,7 +8335,7 @@ trespasser do the same. Spec: [idles §14](spec-notes/idles.md), [combat-ai §13
   and attack after two warnings?
 
 
-## Guard packages warn (2026-10-24, branch claude/aggro-warning-look)
+## Guard packages warn (2026-10-24, branch claude/aggro-warning-look; taken out 2026-10-25, see "what `warnings2` settled")
 
 An NPC or creature on a Guard package now warns you when you come into the area it
 guards, twice, 5 s apart, then attacks, with the same look as the aggro warnings (it
@@ -8376,3 +8376,16 @@ the second warning. Smoke `warning-guard-draws` (Gomorrah's cash-room guard) and
 `aggro-warning-look` (a young gecko).
 
 - *Check:* a Gomorrah or Goodsprings warning: two different lines 5 s apart, weapon held.
+
+
+## Warnings: what `warnings2` settled (2026-10-25, branch claude/aggro-warning-look)
+
+- *Settled:* Guard packages do not warn by themselves. Gomorrah's room guards stood by
+  silently with the player at their door; the Guard-package warning I added on 10-24 is
+  taken out. Guards warn by their own aggro radius (the cash-room guard's 128).
+- *Settled:* creatures attack 15 s after the warning starts, people 21 s (the cash-room
+  guard, four runs); at once inside about half the radius.
+- *Open:* the cash-room guard warned at 98-121 units (inside his 128) for over a minute
+  and never attacked; the geckos at the same share of their radius did. Not built.
+- *Open:* the split of the wait into warnings (the setgs runs were spoilt by varying
+  start distances).

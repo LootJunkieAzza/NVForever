@@ -42,39 +42,26 @@
 //!   IsWeaponOut 0 and GetIsAlerted 0 until it fought, then IsWeaponOut 1 and procedure
 //!   13]. Without the look a creature warned in silence while it walked on, and the
 //!   player saw nothing before the attack.
-//! - **The timing** [observed, original game, capture `warnings` 2026-10-24 (TimeScale
-//!   30): the Goodsprings Young Gecko Hunters 0x00165186 and 0x00165185 (radius 650)
-//!   stopped to warn at 607 and 618 units and attacked 451 and 500 game seconds (15.0 and
-//!   16.7 real seconds) later with the player standing still; a Young Gecko (radius 500)
-//!   attacked on first detection at 196 units with no warning, and one warning from 467
-//!   attacked as the player came within 246]: the first warning at once, the second one
-//!   timer later, the attack [`LAST_WARNING_TIMERS`] timers after that (15 s with the
-//!   5 s timer) [hypothesis: the split of the 15 s; GetTrespassWarningLevel was not
-//!   read]; inside half the aggro radius ([`AGGRO_ATTACK_SHARE`]) the attack comes at once
-//!   [hypothesis: two samples, 196 and 246 of 500]. The same timing for Guard packages
-//!   [hypothesis: not observed]. A person: Gomorrah's cash-room guard (aggro radius 128)
-//!   warning from 66-85 units attacked 21 s after his warning began [observed: capture
-//!   `warnings` cashroom_near]; the 15 s is kept for everyone [hypothesis: 15-21 s
-//!   seen].
-//! - **Guard packages** [documented: GuardTrespass is "said when issuing a warning …
-//!   from a Guard package"; fAITrespassWarningTimer and iGuardWarnings are the "Guard
-//!   Package Settings" (GECK wiki Settings); the Guard package page, as packages.md §3
-//!   took it down: "warn intruders near the guarded reference …, then attack"]: an actor
-//!   whose current package is a Guard package without "No Warn/Attack Behavior" warns
-//!   and then attacks a player it watches inside the guarded area, by the same timer,
-//!   count and look as the aggro radius. The guarded reference is the package's target
-//!   (a reference, or the actor's linked reference: vGomorrahGuardPackage's is the door
-//!   each Gomorrah guard stands by), the area the target's Count / Distance around it, or
-//!   the package location's radius when that is 0 [hypothesis: which field is the
-//!   area's radius; capture campaign `warnings`, sessions gomorrah_*]; a package
-//!   guarding the player, or with neither radius, warns nobody. The area comes before
-//!   the actor's aggro radius; one count serves both (GetTrespassWarningLevel). A grudge
-//!   [`Why::Guard`]. In FalloutNV.esm 61 of the 175 Guard packages allow it
-//!   [observed: `fnvtool ai show`]. Not seen in the original yet: Gomorrah's cash-room
-//!   guard (on vGomorrahGuardPackage) did not warn a player 24-33 units from the door he
-//!   guards (outside the 25 just), and the warning he gave a player 66-85 units from him
-//!   was his own aggro radius's (128, his AI data) [observed: capture `warnings`
-//!   cashroom_at_door / cashroom_near, 2026-10-24]; the bouncer runs saw nothing.
+//! - **The timing** [observed, original game, captures `warnings` and `warnings2`
+//!   2026-10-24/25, TimeScale 30, the player standing still]: a creature attacks 15 s
+//!   after its warning began (Young Gecko Hunters 15.0 / 16.7 s at 607-618 of 650; a
+//!   Young Gecko 15 s at 387-393 of 500; the coyote VERGSCoyote6REF 15 s at 727 of 1024),
+//!   a person 21-22 s (Gomorrah's cash-room guard, four runs at 66-90 of his 128):
+//!   [`CREATURE_ATTACK_SECONDS`], [`PERSON_ATTACK_SECONDS`] from the first warning, the
+//!   second warning one timer after the first [hypothesis: the split; setgs of
+//!   fAITrespassWarningTimer and iGuardWarnings showed no difference in `warnings2`,
+//!   whose start distances varied too much to tell]. Inside half the aggro radius
+//!   ([`AGGRO_ATTACK_SHARE`]) the attack comes at once [observed: the young gecko at
+//!   196 and 217 of 500 at once; the guard at 32 and 62 of 128 after about 3 s]. Open: the
+//!   cash-room guard warned at 98-121 units (inside his 128) and never attacked in 68 s,
+//!   while the geckos at 0.78 of their radius did; not built.
+//! - **Guard packages do not warn** [observed: `warnings2` g_room*, Gomorrah's room
+//!   guards on vGomorrahGuardPackage, with no aggro radius of their own, neither warned
+//!   nor fought a player 15 units from the door each guards or 60 units from them;
+//!   their package allows warnings (no "No Warn/Attack Behavior")]. The wiki's Guard
+//!   package summary ("warn intruders near the guarded reference", packages.md section 3)
+//!   is not built: a guard's GuardTrespass lines come with an aggro radius, as the
+//!   cash-room guard's did. Built on 2026-10-24, taken out on 2026-10-25.
 //! - **Who**: the player only [design: other actors' aggro radii are not measured];
 //!   never an actor that is the player's ally or friend or teammate, one already hostile
 //!   by its records, a dead, unconscious or restrained one.
@@ -86,7 +73,7 @@
 
 use crate::detection::Band;
 use crate::game::Game;
-use crate::package::{fallout, flags, PackageType};
+use crate::package::{fallout, flags};
 use crate::provocation::{Grudge, Note, Why, ALLY, FRIEND};
 use fnv_sim::FormId;
 
@@ -94,9 +81,11 @@ use fnv_sim::FormId;
 /// not yet in Combat ([`Game::warning_to`]), seconds [design].
 pub const AGGRO_TURN_SECONDS: f64 = 2.0;
 
-/// After its last warning the actor attacks this many warning timers later (module notes,
-/// "The timing").
-pub const LAST_WARNING_TIMERS: f64 = 2.0;
+/// A creature attacks this long after its first warning (module notes, "The timing").
+pub const CREATURE_ATTACK_SECONDS: f64 = 15.0;
+
+/// A person attacks this long after its first warning (module notes, "The timing").
+pub const PERSON_ATTACK_SECONDS: f64 = 21.0;
 
 /// Inside this share of its aggro radius an actor attacks without warning (module notes,
 /// "The timing").
@@ -121,23 +110,8 @@ impl Game<'_> {
         }
     }
 
-    /// What `actor`'s current Guard package has it guard (module notes, "Guard
-    /// packages"): the guarded reference and the radius around it, game units. None for
-    /// any other package, one with "No Warn/Attack Behavior", one guarding the player, or
-    /// one with no radius.
-    pub fn guard_area(&mut self, actor: FormId) -> Option<(FormId, f64)> {
-        let data = self.data;
-        let d = self.current_package(actor).and_then(|p| data.package_defs.get(&p))?;
-        if d.ty != PackageType::Guard || d.has(flags::NO_WARN_ATTACK_BEHAVIOR) {
-            return None;
-        }
-        let guarded = self.package_target(actor, d).filter(|g| *g != FormId::PLAYER_REF)?;
-        let radius = d.target.map(|t| t.count_distance).filter(|r| *r > 0).or(d.location.map(|l| l.radius).filter(|r| *r > 0))?;
-        Some((guarded, radius as f64))
-    }
-
-    /// After a round of detection measurements: aggro radius and Guard package warnings
-    /// and attacks (module notes). Returns how many actors turned on the player.
+    /// After a round of detection measurements: aggro radius warnings and attacks (module
+    /// notes). Returns how many actors turned on the player.
     pub fn aggro_tick(&mut self) -> usize {
         let s = self.crime_settings();
         let now = self.time;
@@ -165,15 +139,9 @@ impl Game<'_> {
             if out(self, w) || !self.present(w) || self.provocations.holds(w, FormId::PLAYER_REF) {
                 continue;
             }
-            // A Guard package's area comes first; else the aggro radius around the actor.
-            let guard = self.guard_area(w).and_then(|(g, r)| Some((g, at(self, g)?, r))).map(|(g, p, r)| (Some(g), gap(p), r)).filter(|(_, d, r)| d <= r);
-            let aggro = || -> Option<(Option<FormId>, f64, f64)> {
-                let r = self.aggro_radius(w)?;
-                let d = gap(at(self, w)?);
-                (d <= r).then_some((None, d, r))
-            };
-            let Some((guarded, distance, radius)) = guard.or_else(aggro) else { continue };
-            if matches!(self.reaction_to(w, FormId::PLAYER_REF), ALLY | FRIEND) || (guarded.is_none() && !self.package_allows_aggro(w)) {
+            let Some(radius) = self.aggro_radius(w) else { continue };
+            let Some(distance) = at(self, w).map(gap) else { continue };
+            if distance > radius || matches!(self.reaction_to(w, FormId::PLAYER_REF), ALLY | FRIEND) || !self.package_allows_aggro(w) {
                 continue;
             }
             if self.would_attack(w, FormId::PLAYER_REF) {
@@ -183,26 +151,22 @@ impl Game<'_> {
             let (level, last) = self.provocations.aggro_warnings.get(&w).copied().unwrap_or((0, f64::NEG_INFINITY));
             // Inside a share of its aggro radius it attacks at once (module notes, "The
             // timing").
-            let close = guarded.is_none() && distance <= radius * AGGRO_ATTACK_SHARE;
+            let close = distance <= radius * AGGRO_ATTACK_SHARE;
             let warned_out = (level as f64) >= s.guard_warnings;
-            let due = if warned_out { LAST_WARNING_TIMERS * s.warning_timer } else { s.warning_timer };
+            // The attack comes so long after the first warning: the time left after the
+            // warnings already given.
+            let attack_after = if self.creature_type(w).is_some() { CREATURE_ATTACK_SECONDS } else { PERSON_ATTACK_SECONDS };
+            let due = if warned_out { (attack_after - (s.guard_warnings - 1.0).max(0.0) * s.warning_timer).max(s.warning_timer) } else { s.warning_timer };
             if !close && now - last < due {
                 continue;
             }
             if !close && !warned_out {
                 self.provocations.aggro_warnings.insert(w, (level + 1, now));
                 self.detection_bark(w, Some(FormId::PLAYER_REF), "GuardTrespass");
-                self.provocations.notes.push(match guarded {
-                    Some(guarded) => Note::GuardWarned { actor: w, level: level + 1, guarded, distance, radius },
-                    None => Note::AggroWarned { actor: w, level: level + 1, distance, radius },
-                });
+                self.provocations.notes.push(Note::AggroWarned { actor: w, level: level + 1, distance, radius });
             } else {
-                let why = if guarded.is_some() { Why::Guard } else { Why::Aggro };
-                self.provocations.grudges.insert((w, FormId::PLAYER_REF), Grudge { why, since: now });
-                self.provocations.notes.push(match guarded {
-                    Some(guarded) => Note::GuardAttacks { actor: w, guarded, distance, radius },
-                    None => Note::AggroAttacks { actor: w, distance, radius },
-                });
+                self.provocations.grudges.insert((w, FormId::PLAYER_REF), Grudge { why: Why::Aggro, since: now });
+                self.provocations.notes.push(Note::AggroAttacks { actor: w, distance, radius });
                 turned += 1;
             }
         }
@@ -222,7 +186,7 @@ impl Game<'_> {
         // Just turned on the player and not yet in Combat (detection settles a moment
         // later): still the warning, so the stance is not put away and drawn again
         // [design; observed in NVForever: 0.23 s, smoke `aggro-warning-look`].
-        let turning = self.provocations.grudges.get(&(actor, FormId::PLAYER_REF)).is_some_and(|g| matches!(g.why, Why::Aggro | Why::Guard) && self.time - g.since < AGGRO_TURN_SECONDS) && !self.awareness.state(actor).in_combat();
+        let turning = self.provocations.grudges.get(&(actor, FormId::PLAYER_REF)).is_some_and(|g| g.why == Why::Aggro && self.time - g.since < AGGRO_TURN_SECONDS) && !self.awareness.state(actor).in_combat();
         (self.provocations.aggro_inside.contains(&actor) || turning || self.crimes.warning_now.contains(&actor)).then_some(FormId::PLAYER_REF)
     }
 }

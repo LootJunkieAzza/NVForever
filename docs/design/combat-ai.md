@@ -925,14 +925,13 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` �
   weapon or stance every 2-2.5 s; the owner judged that a quirk (2026-10-25): NVForever's
   draw once and hold it, and say a GuardTrespass line at each warning (the Detection
   lines' cooldown does not hold warnings back).
-- **Guard packages** (2026-10-24): an actor on a Guard package without "No Warn/Attack
-  Behavior" warns and attacks a player inside the area it guards, by the same timer,
-  count and look: the guarded reference is the package target (a reference or the
-  linked reference), the area its Count / Distance, else the location radius
-  [hypothesis; packages.md §3]; a `Why::Guard` grudge. Log `provocation: … warns the
-  player inside the area its Guard package guards (warning n; d of r units from …)`.
-  GetTrespassWarningLevel counts these warnings and the aggro radius's as well as the
-  trespass ones [documented].
+- **Guard packages do not warn** (built 2026-10-24, taken out 2026-10-25): Gomorrah's
+  room guards on vGomorrahGuardPackage, with no aggro radius of their own, neither
+  warned nor fought the player by the door they guard [observed: capture `warnings2`].
+  A guard warns by its own aggro radius (the cash-room guard's 128). GetTrespassWarningLevel
+  counts the aggro radius warnings as well as the trespass ones [documented].
+- **Attack delays** [observed, `warnings2`]: creatures 15 s after the first warning,
+  people 21 s (Gomorrah's cash-room guard, four runs).
   Smoke `aggro-warning-look` (VERGSGecko6REF, a Young Gecko, radius 500).
 
 ### 13.2 Cowards stay out (`fnv_game::provocation`, item 14)

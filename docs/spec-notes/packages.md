@@ -275,7 +275,9 @@ location, in cell (radius ignored), near reference; the radius is editable.
   `iGuardWarnings`), then attack. Built 2026-10-24 (`fnv_game::aggro`, "Guard
   packages"; combat-ai.md §13.1): the guarded reference is the target (a reference or the
   linked reference), the area its Count / Distance, else the location radius
-  [hypothesis]; "No Warn/Attack Behavior" turns it off. Of the 175 Guard packages of
+  [hypothesis]; "No Warn/Attack Behavior" turns it off. **Taken out 2026-10-25**: in the
+  original, Gomorrah's room guards on vGomorrahGuardPackage did not warn a player by
+  their door (capture `warnings2`, combat-ai.md §13.1). Of the 175 Guard packages of
   FalloutNV.esm 114 set that flag; the 61 that warn include vGomorrahGuardPackage (the
   Gomorrah bouncers', room guards' and cash-room guard's: each stands 140–210 units from
   the door it guards, its linked reference, with a target distance of 25),
