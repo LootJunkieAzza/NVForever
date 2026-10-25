@@ -138,5 +138,35 @@ wiki pages cited in §3, not from JIP's source code, and nothing of JIP ships.
   to chems). Off: `bFixFleeing` (NPCs fleeing in CAUTION with no enemies),
   `bFixNPCShootingAngle`, `bFixDeathVoicelines` and the rest. So the with set-up is not
   the original game, though none of the switches that are on is about AI.
-- **With** and **base** (`goodsprings_ab` × 3 each, plugin version 9): running.
-  Results go to `C:\fnv-private\capture\observe\jip_ab\` (private).
+- **The A/B check, 2026-10-25** (`goodsprings_ab` × 3 with JIP + JohnnyGuitar, then × 3
+  with `nvf_capture.dll` only; plugin version 9; private results in
+  `C:\fnv-private\capture\observe\jip_ab\`, `with_vs_base.json`). All 18 sessions ended
+  at their game time; none was cut off and no timeline has problems. 45 (session,
+  actor) pairs were seen in every run.
+  - **The same on both sides** [observed]: every NPC's package and procedure shares
+    (schedules, sandboxing, bedtime at 22:00, the saloon evening, Sunny's dialogue
+    package and target) are within the base runs' range. The cost of a sample is the
+    same (median about 2.4 ms both sides).
+  - **Different in all three runs** [observed]:
+    - The animals' brief GET_UP and TRAVEL spells inside WANDER (each one sample, about a
+      second, in `town_bedtime`). GET_UP spells per run: 8, 7, 8 without the plugins;
+      6, 3, 2 with them, mostly the bighorners (8, 8, 10 against 6, 3, 2). The ravens'
+      TRAVEL spells: 2, 1, 2 without; 0 with.
+    - GSVictorRef, a tracked actor not loaded at that moment: his first sample in
+      `saloon_evening` is in cell 0x000DAEB8 with the plugins and 0x000DAEBA without.
+      The rest of his patrol matches.
+    - 359 samples per `town_bedtime` session with the plugins against 363 without, every
+      run: about 1 % fewer game loops in the same three game hours.
+    - Packages made at run time are numbered differently (Sunny's FF001323 against
+      FF001313; same type, procedure and target). `observe_compare.py` now compares
+      such packages by type.
+  - **Cause:** not known. Candidates [hypothesis]: the slightly lower frame rate; a fix
+    in JIP or JohnnyGuitar (`bJIPFixes` is on); off-screen processing between the save
+    loading and the clock moving. A round with JIP alone would tell the two plugins
+    apart.
+  - **Verdict:** the plugins change something, though not the NPC schedules and packages
+    measured here. So the §4 rule applies: JIP-tier data backs **state facts only**
+    (processing level, stable and interrupt package, detection value), tagged
+    `[observed: JIP tier ...]`. Behaviour facts and goldens keep coming from runs with
+    `nvf_capture.dll` alone, and the default campaigns are run with the other plugins'
+    DLLs taken out.

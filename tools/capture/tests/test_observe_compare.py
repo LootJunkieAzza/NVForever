@@ -46,6 +46,15 @@ class Compare(unittest.TestCase):
         # a slightly later bedtime than both base runs, within the share tolerance
         self.assertEqual(oc.compare(base, [oc.run_metrics(tl({"1": bob(7.0)}))])["outside"], [])
 
+    def test_runtime_packages_compare_by_type(self):
+        def run(fid):
+            s = seg("day", 0, 24, None)
+            s["state"].update(package_edid=None, package=fid, package_type_name="DIALOGUE")
+            return oc.run_metrics(tl({"1": ("SunnyRef", [s])}))
+        doc = oc.compare([run("0xFF001313")] * 2, [run("0xFF001323")])
+        self.assertEqual(doc["outside"], [])
+        self.assertIn("package:runtime DIALOGUE", run("0xFF001313")[("day", "SunnyRef")])
+
     def test_new_cells_new_packages_and_partial_actors(self):
         base = [oc.run_metrics(tl({"1": bob(6.0)}))] * 2
         other = [oc.run_metrics(tl({"1": ("BobREF", [seg("day", 0, 12, "BobWander", "WANDER", cell="Saloon"),

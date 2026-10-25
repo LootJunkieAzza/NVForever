@@ -44,6 +44,12 @@ def run_metrics(tl):
                 st = s["state"]
                 span = (s["to"] - s["from"]) / hours if hours > 0 else 0.0
                 pkg = st.get("package_edid") or st.get("package") or "none"
+                if isinstance(pkg, str) and pkg.upper().startswith("0XFF"):
+                    # a package made at run time: its FormID depends on how many forms were
+                    # made before it (Sunny's dialogue package in the saloon was FF001313
+                    # without plugins and FF001323 with JIP and JohnnyGuitar, same type,
+                    # procedure and target [observed 2026-10-25]), so it is compared by type
+                    pkg = f"runtime {st.get('package_type_name', st.get('package_type'))}"
                 proc = st.get("procedure_name", st.get("procedure"))
                 m[f"package:{pkg}"] = m.get(f"package:{pkg}", 0.0) + span
                 m[f"procedure:{proc if proc is not None else 'none'}"] = \
