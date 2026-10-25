@@ -6760,9 +6760,9 @@ expect = [
 
 [[scenario]]
 name = "novac-brahmin-gate"
-source = "Owner 2026-10-17: a Novac pack brahmin could not get through the open chain-link gate by the motel (CLFenceGate01 0008EF2F)"
+source = "Owner 2026-10-17: a Novac pack brahmin could not get through the open chain-link gate by the motel (CLFenceGate01 0008EF2F); owner 2026-10-24: it ran at every start and swapped between run and walk"
 areas = ["navigation"]
-paths = ["crates/fnv-nav/src/follow.rs", "crates/fnv-nav/src/path.rs", "engine/nvforever/src/residents.rs"]
+paths = ["crates/fnv-nav/src/follow.rs", "crates/fnv-nav/src/path.rs", "engine/nvforever/src/residents.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Novac", "--pos=23300,-32300,7100", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all"]
 # The caravan sets off for Freeside at noon; the brahmin follows its merchant through the
@@ -6770,7 +6770,13 @@ args = ["--cell", "Novac", "--pos=23300,-32300,7100", "--play", "--hour", "12", 
 # it detoured or walked back to the stop in front of the gate at each replan).
 run_seconds = 150
 expect = [
-  { re = 'ai \[[\d:]+\] 0x001650BD: runs after VCaravanMerchant01NovacREF \(VES09BrahminFollowMerchant\)' },
+  # It sets off walking, about 450 + 64 units behind (its package keeps it about 450 back),
+  # and keeps step rather than running at every start (owner 2026-10-24: it swapped
+  # between running and walking all the way; main gave 140 walk/run clip changes in this
+  # run, 9 with the fix).
+  { re = 'ai \[[\d:]+\] 0x001650BD: walks after VCaravanMerchant01NovacREF \(VES09BrahminFollowMerchant\)' },
+  { re = 'ai \[[\d:]+\] 0x001650BD: runs after VCaravanMerchant01NovacREF', count = 0, label = "the brahmin never sets off running" },
+  { re = 'creature pace summary: .* (?P<n>\d+) changes between walk and run clips', range = [0, 25], label = "few changes between walk and run clips" },
   { re = '0x001650BD: VES09BrahminFollowMerchant, on its way in WastelandNV, walked (?P<n>\d+) units', range = [8000, 100000], label = "the brahmin follows its merchant out of Novac" },
   { re = 'physics moved actors in .* gave up (?P<n>\d+) times', range = [0, 1], label = "physics gives up at most once" },
   { re = 'moved (?P<n>\d+) stuck actors on', range = [0, 2], label = "at most two stuck actors moved on" },

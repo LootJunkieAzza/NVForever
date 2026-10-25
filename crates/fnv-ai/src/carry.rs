@@ -295,25 +295,52 @@ fn greets(game: &Game, actor: FormId) -> bool {
 /// A follower stands until its target is this much farther than its distance, so that
 /// it does not set off at every step the target takes, game units [our choice].
 pub const FOLLOW_SLACK: f32 = 64.0;
-/// A follower whose target is farther than this runs, game units [our choice].
-pub const FOLLOW_RUN_FROM: f32 = 512.0;
+/// A follower this much farther from its target than its distance runs, game units
+/// [our choice: 512 from the target at the usual distance of 128; owner's playtest
+/// 2026-10-24: the Novac pack brahmin, whose package keeps it about 450 units back,
+/// set off past a fixed 512 at once and so ran at every start].
+pub const FOLLOW_RUN_BEHIND: f32 = 384.0;
+/// A follower on its way after a moving target goes at the target's own pace plus the
+/// gap beyond its distance over this many seconds, between [`FOLLOW_SLOWEST`] of its
+/// walk and its run ([`keep_step_speed`]) [our choice; owner's playtest 2026-10-24:
+/// the Novac pack brahmin swapped between running and walking all the way after its
+/// merchant, where it should run only to catch up and then keep step].
+pub const FOLLOW_CLOSE_SECONDS: f32 = 3.0;
+/// The slowest a follower keeps step with its target, a share of its walk [our choice].
+pub const FOLLOW_SLOWEST: f32 = 0.5;
+/// A target going at least this fast, game units per second, is one a follower keeps
+/// step with: it goes on at the target's pace within its distance rather than stopping
+/// there and setting off again [our choice].
+pub const FOLLOW_MOVING: f32 = 20.0;
 /// In a column of followers ([`Ai::ahead_in_column`]), how near each one after the first
 /// keeps to the one ahead of it, game units, at most the package's own distance [our
 /// choice: the owner's playtest of 2026-10-24 asked for followers of one leader to walk
 /// in a line, three mercenaries a few steps apart behind their leader].
 pub const COLUMN_GAP: f32 = 128.0;
-/// A follower farther behind than [`FOLLOW_RUN_FROM`] goes faster than it can run, to
-/// catch up: by up to this share more, reached [`CATCH_UP_SPAN`] units beyond
-/// [`FOLLOW_RUN_FROM`] [our choice: owner's playtest of 2026-10-24, "a speed boost to
+/// A follower more than [`FOLLOW_RUN_BEHIND`] beyond its distance goes faster than it can
+/// run, to catch up: by up to this share more, reached [`CATCH_UP_SPAN`] units beyond
+/// that [our choice: owner's playtest of 2026-10-24, "a speed boost to
 /// allow them to catch up ... faster than their max speed"].
 pub const CATCH_UP_BOOST: f32 = 0.5;
 /// See [`CATCH_UP_BOOST`]; game units.
 pub const CATCH_UP_SPAN: f32 = 1024.0;
 
-/// How much faster than its own pace a follower `gap` units behind goes
-/// ([`CATCH_UP_BOOST`]): 1 within [`FOLLOW_RUN_FROM`].
+/// How much faster than its own pace a follower `gap` units beyond its distance goes
+/// ([`CATCH_UP_BOOST`]): 1 within [`FOLLOW_RUN_BEHIND`].
 pub fn catch_up(gap: f32) -> f32 {
-    1.0 + CATCH_UP_BOOST * ((gap - FOLLOW_RUN_FROM) / CATCH_UP_SPAN).clamp(0.0, 1.0)
+    1.0 + CATCH_UP_BOOST * ((gap - FOLLOW_RUN_BEHIND) / CATCH_UP_SPAN).clamp(0.0, 1.0)
+}
+
+/// The speed of a follower in step with a target going at `target_pace`, `away` from
+/// it, that is to keep within `keep`: the target's pace plus the gap beyond `keep`
+/// closed in [`FOLLOW_CLOSE_SECONDS`], between [`FOLLOW_SLOWEST`] of `walk` and `run`.
+/// It changes smoothly with the gap, so the walk clip is played faster or slower and the
+/// run clip comes only when catching up calls for it (the gait's own switch point,
+/// `locomotion.rs`), rather than the actor swapping between its walk and its run at
+/// every plan or stopping and setting off again every few steps.
+pub fn keep_step_speed(target_pace: f32, away: f32, keep: f32, walk: f32, run: f32) -> f32 {
+    let slowest = walk * FOLLOW_SLOWEST;
+    (target_pace + (away - keep).max(0.0) / FOLLOW_CLOSE_SECONDS).clamp(slowest, run.max(slowest))
 }
 
 /// A target that has moved this far from where the way to it was planned to is planned
@@ -414,8 +441,9 @@ pub struct Agent {
     /// [design; owner's playtest 2026-10-11: actors turned half about in a frame].
     pub face_to: Option<f32>,
     /// A Follow or Accompany package: where the target was when the way to it was last
-    /// planned, and from when (`Game::time`) it may be planned again.
-    following: Option<(Place, f64)>,
+    /// planned, from when (`Game::time`) it may be planned again, and how fast the
+    /// target went before that plan, when known.
+    following: Option<(Place, f64, Option<f32>)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
     weapon_order: Option<u64>,
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
@@ -1236,8 +1264,10 @@ impl Ai {
     /// (in another space: through the doors between), and the way is planned again when
     /// the target has moved [`REPLAN_DISTANCE`] since, at most every
     /// [`REPLAN_SECONDS`]; it stops once within the distance. It runs when the package
-    /// says Always Run or the target is more than [`FOLLOW_RUN_FROM`] away, else walks
-    /// [our choice]. A target that is gone or dead is not followed: the actor stands.
+    /// says Always Run or it is more than [`FOLLOW_RUN_BEHIND`] beyond its distance, else
+    /// walks; on its way after a target that moves it keeps step with it
+    /// ([`keep_step_speed`]), and stops only once the target stops or it is
+    /// [`FOLLOW_SLACK`] nearer than its distance [our choice]. A target that is gone or dead is not followed: the actor stands.
     /// Without a way to the target the package is set aside like any other that cannot
     /// be reached. Several actors following one target walk after it in a line, each
     /// after the one ahead of it ([`Ai::ahead_in_column`]).
@@ -1274,25 +1304,34 @@ impl Ai {
         let away = if feet.space == target.space { hdist(feet.pos, target.pos) } else { f32::INFINITY };
         let keep = f.distance.max(self.cfg.arrive);
         if travelling {
-            if away <= keep && (feet.pos[2] - target.pos[2]).abs() <= 256.0 {
+            let following = self.agents[&actor].following;
+            let moved = following.is_none_or(|(to, _, _)| to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE);
+            // In step with a target on the move: one that went at least FOLLOW_MOVING and
+            // has not stood about since (a second more without the way planned again).
+            let in_step = following.is_some_and(|(_, replan, pace)| pace.is_some_and(|v| v >= FOLLOW_MOVING) && (moved || game.time < replan + 1.0));
+            let stop_at = if in_step { (keep - FOLLOW_SLACK).max(self.cfg.arrive) } else { keep };
+            if away <= stop_at && (feet.pos[2] - target.pos[2]).abs() <= 256.0 {
                 let a = self.agents.get_mut(&actor).expect("listed");
                 (a.walker.follower, a.activity, a.following) = (None, Activity::There, None);
                 self.log(game, actor, AiEvent::CaughtUp { package, target: f.target });
                 return;
             }
-            let Some((to, replan)) = self.agents[&actor].following else { return };
-            let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
+            let Some((to, replan, pace)) = following else { return };
             if moved && game.time >= replan {
-                self.follow_plan(game, nav, actor, package, f, target, away, lead_away, false);
+                // The target's pace since the way was last planned.
+                let since = (game.time - (replan - REPLAN_SECONDS)) as f32;
+                let target_pace = (to.space == target.space && since > 0.0).then(|| hdist(to.pos, target.pos) / since);
+                self.follow_plan(game, nav, actor, package, f, target, away, lead_away, target_pace, false);
             } else if away.is_finite() {
-                // The catch-up boost eases off as the gap closes.
-                let (speed, _) = self.follow_speed(game, actor, package, away, lead_away);
+                // The pace follows the gap: the catch-up boost eases off as it closes, and
+                // in step it keeps to the target's.
+                let (speed, _) = self.follow_speed(game, actor, package, away, keep, lead_away, pace);
                 self.agents.get_mut(&actor).expect("listed").walker.speed = speed;
             }
             return;
         }
         if self.agents[&actor].activity == Activity::There && away > keep + FOLLOW_SLACK {
-            self.follow_plan(game, nav, actor, package, f, target, away, lead_away, true);
+            self.follow_plan(game, nav, actor, package, f, target, away, lead_away, None, true);
         }
     }
 
@@ -1325,35 +1364,46 @@ impl Ai {
         Some((one, Place { space: a.walker.space, pos: a.walker.feet }, i))
     }
 
-    /// The pace of a follower `away` from the one it walks after (`lead_away`: see
-    /// [`Ai::follow_plan`]), and whether it runs, with the catch-up boost ([`catch_up`]).
-    fn follow_speed(&self, game: &Game, actor: FormId, package: FormId, away: f32, lead_away: f32) -> (f32, bool) {
-        let gap = away.max(lead_away);
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || gap > FOLLOW_RUN_FROM;
-        (self.pace(game, actor, running) * catch_up(gap), running)
+    /// The pace of a follower `away` from the one it walks after, which it is to keep
+    /// within `keep` (`lead_away`: see [`Ai::follow_plan`]), and whether it runs: its run
+    /// with the catch-up boost ([`catch_up`]) when far behind, else in step with a target
+    /// going at `target_pace` ([`keep_step_speed`]), else its walk.
+    #[allow(clippy::too_many_arguments)]
+    fn follow_speed(&self, game: &Game, actor: FormId, package: FormId, away: f32, keep: f32, lead_away: f32, target_pace: Option<f32>) -> (f32, bool) {
+        let behind = (away - keep).max(lead_away - keep);
+        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || behind > FOLLOW_RUN_BEHIND;
+        let speed = match target_pace {
+            Some(v) if !running => keep_step_speed(v, away, keep, self.pace(game, actor, false), self.pace(game, actor, true)),
+            _ => self.pace(game, actor, running) * catch_up(behind),
+        };
+        (speed, running)
     }
 
     /// Plan the way after the one `actor` follows. It runs when the package says
     /// Always Run, the one it walks after is far, or the leader of its column is far
-    /// beyond its place in the line (`lead_away`).
+    /// beyond its place in the line (`lead_away`); `target_pace` is how fast the target
+    /// has gone since the last plan, when known.
     #[allow(clippy::too_many_arguments)]
-    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, lead_away: f32, first: bool) {
-        let (_, running) = self.follow_speed(game, actor, package, away, lead_away);
+    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, lead_away: f32, target_pace: Option<f32>, first: bool) {
+        let keep = f.distance.max(self.cfg.arrive);
+        let (speed, running) = self.follow_speed(game, actor, package, away, keep, lead_away, target_pace);
         let pace = self.pace(game, actor, running);
         let params = self.path_params(game, actor);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = pace;
+        a.walker.speed = speed;
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
                 let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
                 // In another space the length of the way is the gap the boost goes by.
-                a.walker.speed = pace * catch_up(if away.is_finite() { away.max(lead_away) } else { length });
+                if !away.is_finite() {
+                    a.walker.speed = pace * catch_up(length - keep);
+                }
                 if a.activity != Activity::Travelling {
                     a.trip_started = game.time;
                     a.trip_from = a.walker.travelled;
                 }
                 a.activity = Activity::Travelling;
-                a.following = Some((target, game.time + REPLAN_SECONDS));
+                a.following = Some((target, game.time + REPLAN_SECONDS, target_pace));
                 if first {
                     let away = away.is_finite().then_some(away);
                     self.log(game, actor, AiEvent::Follow { package, target: f.target, away, length, doors, running });
@@ -2111,4 +2161,30 @@ fn nearest_point(route: &Route, feet: Place) -> usize {
             ka.0.cmp(&kb.0).then(ka.1.total_cmp(&kb.1))
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In step: at its distance a follower goes at its target's pace, a little faster
+    /// the farther behind, and its run only when well behind.
+    #[test]
+    fn a_follower_keeps_step_and_runs_only_to_catch_up() {
+        let (walk, run, keep) = (60.0, 200.0, 192.0);
+        assert_eq!(keep_step_speed(80.0, keep, keep, walk, run), 80.0);
+        assert_eq!(keep_step_speed(80.0, keep + 30.0, keep, walk, run), 90.0);
+        assert_eq!(keep_step_speed(80.0, 700.0, keep, walk, run), run);
+        // Nearer than its distance it does not slow below the target's pace.
+        assert_eq!(keep_step_speed(80.0, 50.0, keep, walk, run), 80.0);
+        // A target slower than half its walk: it keeps to half its walk.
+        assert_eq!(keep_step_speed(10.0, keep, keep, walk, run), 30.0);
+        // The speed changes smoothly with the gap: no jump between walk and run.
+        let mut last = keep_step_speed(80.0, keep, keep, walk, run);
+        for gap in (0..400).map(|g| keep + g as f32) {
+            let v = keep_step_speed(80.0, gap, keep, walk, run);
+            assert!(v >= last && v - last <= 0.34, "{gap}: {last} to {v}");
+            last = v;
+        }
+    }
 }

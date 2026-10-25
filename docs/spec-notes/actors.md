@@ -1221,8 +1221,20 @@ stopped and started, as Victor's walk had before #258). Code:
   is proportional to Speed Mult, not an offset. No game setting gives 0.70
   (`fMoveBaseSpeed` 77, `fMoveRunMult` 4, `fMoveSneakMult` 0.57 are the only movement
   ones [observed: `fnvtool esm inventory`]); people at Speed Mult 100 walk at their clip's
-  speed (§8.3, physics.md §6.3), so why creatures keep 0.70 is open. Other creatures
-  are not measured.
+  speed (§8.3, physics.md §6.3), so why creatures keep 0.70 is open.
+- **Brahmin** [observed: the AI observer in the original game, 2026-10-24, the Novac
+  caravan's pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its merchant
+  on its route, 2,909 samples over 243 s]: it walked at a median 78 units/s over
+  2-second windows (p10 60, p90 83) and ran once, for about 4.6 s, at a median of about
+  330 (up to 463) to close a gap of about 1,000; the rule above gives 39 and 155, half of
+  both. `skeleton_pace` gives `creatures\brahmin` skeletons twice the share (77 and 311)
+  [hypothesis: that the walk is its own rather than matched to the merchant's, the run
+  being matched to nothing; the same share for every brahmin]. So 0.70 is not one share
+  for every creature; other creatures are not measured. The merchant walked at a median
+  76.8, which is `fMoveBaseSpeed` (77), below the 86.8 NVForever gives people (not
+  changed here). The brahmin kept 440–530 units behind it while both walked, closed to
+  about 300 when the merchant stopped, and ran when about 800–1,060 behind
+  (docs/design/actor-behaviour.md, Follow).
 - **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
   ground when not alert and fly when they are alert/in combat"]: the cazador's folder
   has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
