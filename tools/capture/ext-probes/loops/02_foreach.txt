@@ -46,12 +46,6 @@ Begin GameMode
         loop
         Print "EXTPROBE|foreach.string_last|[" + aA[2] + "]"
         let iR := 0
-        foreach rForm <- ExtProbeList
-            let iR += 1
-        loop
-        Print "EXTPROBE|foreach.formlist_count|" + $iR
-        Print "EXTPROBE|foreach.formlist_listcount|" + $(ListGetCount ExtProbeList)
-        let iR := 0
         foreach rItem <- PlayerREF
             let iR += 1
             let rKeep := rItem

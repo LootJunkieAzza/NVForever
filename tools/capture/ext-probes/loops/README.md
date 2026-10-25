@@ -14,8 +14,9 @@ Quest), each printing `EXTPROBE|<id>|<value>` between `EXTPROBE|loops/<script>|b
 and `…|end`. Values are printed with `$`; strings appear inside `[brackets]`. Two
 differences:
 
-- **02_foreach needs a form list** named `ExtProbeList` in the test plugin, holding three
-  or more forms of your choice. It runs over two frames: the second frame checks whether
+- **05 and 06 need a form list** named `ExtProbeList` in the test plugin, holding three
+  or more forms of your choice (Object Window, Miscellaneous, FormList). If the GECK
+  refuses either, that is its result; send the message. It runs over two frames: the second frame checks whether
   an inventory entry kept from the first is still valid.
 - **09_runaway is the runaway loop: observe with care.** Do **not** mark its quest Start
   Game Enabled. Run every other file first and save the console text. Then start this one
@@ -40,8 +41,10 @@ differences:
 | 02_foreach | `foreach.smap_order` | string-map keys in loop order | `[abc]` | [documented: ForEach; Ar Keys (keys sorted)] |  |
 | 02_foreach | `foreach.string_count` | entries for a 3-character string | `3` | [documented: ForEach] |  |
 | 02_foreach | `foreach.string_last` | the last entry | `[z]` | [documented: ForEach (one-character strings)] |  |
-| 02_foreach | `foreach.formlist_count` | entries over the form list ExtProbeList (xNVSE 6.2.5) | to observe | [documented: ForEach] | should equal the next line |
-| 02_foreach | `foreach.formlist_listcount` | ListGetCount of the same list | to observe | — | the reference count to compare with |
+| 05_foreach_formlist | `foreach.formlist_count` | entries over the form list ExtProbeList named directly (xNVSE 6.2.5) | to observe | [documented: ForEach] | should equal the next line. In 02 the GECK refused this line: "Invalid operands for operator <-" (2026-10-25), so it has its own script |
+| 05_foreach_formlist | `foreach.formlist_listcount` | ListGetCount of the same list | to observe | — | the count to compare with |
+| 06_foreach_formlist_ref | `foreach.formlist_ref_count` | the same loop over a ref variable holding ExtProbeList | to observe | — | does a form list in a ref work where the bare name does not? (a ref is also how containers are looped) |
+| 06_foreach_formlist_ref | `foreach.formlist_ref_listcount` | ListGetCount of the list | to observe | — | the count to compare with |
 | 02_foreach | `foreach.container_entries` | entries over the player's inventory | to observe | — | one per item kind, or per stack? |
 | 02_foreach | `foreach.container_kinds` | GetNumItems on the player | to observe | — | compare with the line above |
 | 02_foreach | `foreach.tempref_after_loop` | IsFormValid of an entry kept in a ref after the loop (same frame) | to observe | [documented: ForEach (the reference is temporary, invalid once the loop ends)] | 0 expected by the page's wording |
