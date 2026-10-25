@@ -1,0 +1,41 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "fiend_facing",
+ "title": "Gunman facing (owner 2026-10-25: our NPCs turn sideways while shooting at their target): a Fiend gunman alone against the player standing still in god mode where Violet's dogs roam near Goodsprings, as in gun_reach. killall clears the dogs; the player is turned to face north (GetAngle Z 0) and the Fiend is moved 400 units north of the player, close and in view, then set on the player. Every game loop, the fight field set: the shooter's heading against the bearing to the player while it attacks (GetAnimAction 2 or 3).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "hours": 0.1,
+  "settle_frames": 120
+ },
+ "sessions": [
+  {
+   "name": "arrive",
+   "hours": 0.02,
+   "go": {"cow": ["WastelandNV", -12, 15]},
+   "console_first": ["tgm"],
+   "note": "the player is put where a dog stands (on the navmesh, as gun_reach) before anyone is spawned",
+   "do": [["player.MoveTo {0}", "0x000F573F"]]
+  },
+  {
+   "name": "violet",
+   "note": "Violet's own base (1EFiendViolet 0x000F56FD, template 1EFiendRangedAAM) with her own weapon, 400 units in front of the player",
+   "console_first": ["killall"],
+   "do_first": ["player.SetAngle Z 0"],
+   "place": [
+    {"base": "0x000F56FD", "count": 1, "distance": 400, "attack": "player", "attack_late": true, "offset": [0, 400, 0]}
+   ]
+  },
+  {
+   "name": "fiend_gun",
+   "note": "a levelled Fiend gunman (LvlFiendGun 0x000F1C7B) with its own weapon, 400 units in front of the player",
+   "console_first": ["killall"],
+   "do_first": ["player.SetAngle Z 0"],
+   "place": [
+    {"base": "0x000F1C7B", "count": 1, "distance": 400, "attack": "player", "attack_late": true, "offset": [0, 400, 0]}
+   ]
+  }
+ ]
+}

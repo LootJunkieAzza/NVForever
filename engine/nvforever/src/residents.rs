@@ -240,6 +240,15 @@ fn open_door(doors: &mut nvf_play::doors::Doors, door: u32) -> bool {
     doors.is_open(door) == Some(true)
 }
 
+/// A held actor's physics body (if it has one) stands still; the speed it had.
+fn stop_body(phys: Option<&mut PhysState>, id: u32) -> f32 {
+    phys.and_then(|p| p.npcs.get_mut(&id)).map_or(0.0, |b| {
+        let was = b.velocity[0].hypot(b.velocity[1]);
+        b.velocity = [0.0, 0.0];
+        was
+    })
+}
+
 impl Mover for PhysMover<'_> {
     fn open(&mut self, _actor: FormId, door: u32) -> bool {
         open_door(self.doors, door)
@@ -248,6 +257,14 @@ impl Mover for PhysMover<'_> {
     fn walk(&mut self, actor: FormId, walker: &mut Walker, _nav: &NavGraph, dt: f32) -> Option<WalkEvent> {
         let id = actor.0;
         if self.held.contains(&id) {
+            // Its body stops too: the character keeps the last velocity it was given, and
+            // an actor staggering mid-walk slid on at its walking speed [observed: Cook-Cook
+            // in a smoke run, 2026-10-25].
+            let was = stop_body(self.phys.as_deref_mut(), id);
+            if was > 0.0 {
+                info!("actor {id:08X} held (staggering, seated or talking): its character stops (was walking at {was:.0} units/s)");
+            }
+            walker.moving = false;
             return Some(WalkEvent::Moved);
         }
         let phys = self.phys.as_deref_mut()?;
@@ -398,6 +415,7 @@ impl Mover for PhysMover<'_> {
     fn coast(&mut self, actor: FormId, walker: &mut Walker, _dt: f32) -> bool {
         let id = actor.0;
         if self.held.contains(&id) {
+            let _ = stop_body(self.phys.as_deref_mut(), id);
             return false;
         }
         let Some(phys) = self.phys.as_deref_mut() else { return false };
@@ -551,6 +569,12 @@ struct Resident {
     /// buffered and it stays at the Low level (`process_levels`).
     been_loaded: bool,
 }
+
+/// A fighter locked on its target (`npc_combat::Fighters::lock_on`) and turned within
+/// this of it (radians, 10°) follows it exactly: the original's gunmen stayed within about
+/// 1.5° of their target while they fought [observed 2026-10-25, observer campaign
+/// fiend_facing]; a bigger turn (a new target) goes at the turn rate [design].
+const LOCK_HOLD: f32 = 10.0 * std::f32::consts::PI / 180.0;
 
 /// ACBS flag bits 5, "Flies", and 23, "Immobile" [documented: xEdit wbDefinitionsFNV.pas
 /// CREA ACBS, schema `gameplay.json`].
@@ -1304,6 +1328,14 @@ impl Core {
                 p.remove_npc(id);
                 self.unstuck.remove(&id);
             }
+            // Nor does one go on while it staggers, whether or not the AI walked it this
+            // frame.
+            for &id in &self.staggering {
+                let was = stop_body(Some(&mut *p), id);
+                if was > 0.0 {
+                    info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
+                }
+            }
         }
         if own {
             game.events.clear();
@@ -1766,11 +1798,13 @@ type PlayState<'w> = (
     Option<ResMut<'w, ActorBlocks>>,
 );
 
-/// Who is on furniture, the hours passed in the Wait menu, and who plays a hit reaction.
+/// Who is on furniture, the hours passed in the Wait menu, who plays a hit reaction, and
+/// who is locked on its target (`npc_combat`).
 type Held<'w, 's> = (
     Query<'w, 's, &'static RefVisual, With<OnFurniture>>,
     Option<MessageReader<'w, 's, nvf_play::wait::HourPassed>>,
     Query<'w, 's, (&'static RefVisual, &'static crate::locomotion::Flinch)>,
+    Option<Res<'w, crate::npc_combat::Fighters>>,
 );
 
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
@@ -1790,7 +1824,7 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
-    (seated, hours, flinches): Held,
+    (seated, hours, flinches, fighters): Held,
     (mut door_fades, mut door_sounds): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>),
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
@@ -2013,14 +2047,20 @@ pub fn drive(
         };
         // A fighter is drawn turning to face its target (its legs walk the way it goes
         // in its own axes: strafing, backing away); afterwards it turns back to its
-        // walker's heading, at twice the walking turn rate.
-        let heading = match (core.aims.get(&r.actor), r.aim_heading) {
+        // walker's heading, at twice the walking turn rate. Locked on a target it sees
+        // (`npc_combat::Fighters::lock_on`): it faces where that target is drawn this
+        // frame, not where the AI last placed it (a charging Fiend was drawn 110 units
+        // from its AI place, and the trooper shooting at it faced 16° off), and once
+        // turned to it, it stays on it.
+        let lock = fighters.as_deref().and_then(|f| f.lock_on(r.actor.0));
+        let heading = match (lock.or_else(|| core.aims.get(&r.actor).copied()), r.aim_heading) {
             (Some(t), from) => {
                 let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
+                let from = from.unwrap_or(w.heading);
                 // Standing, at the rate the AI turns a fighter (`fnv_ai::alert`), so one
                 // that never moves is drawn as its walker turns.
                 let rate = if agent.activity == Activity::Travelling { fnv_nav::follow::WALK_TURN_RATE * 2.0 } else { fnv_nav::follow::SPOT_TURN_RATE * fnv_ai::alert::COMBAT_TURN };
-                let h = turn_towards(from.unwrap_or(w.heading), want, rate * dt);
+                let h = if lock.is_some() && heading_delta(from, want).abs() <= LOCK_HOLD { want } else { turn_towards(from, want, rate * dt) };
                 r.aim_heading = Some(h);
                 h
             }

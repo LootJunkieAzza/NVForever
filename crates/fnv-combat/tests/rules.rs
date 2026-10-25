@@ -844,6 +844,66 @@ fn lobbers_timer_proximity_detonation() {
     assert!(matches!(c.detonate(), Some(ProjEvent::Explode { .. })));
 }
 
+/// A pond on the toy floor: water 50 deep (its surface at z = 50) from x = 300 on.
+struct Pond(Toy);
+
+impl CombatWorld for Pond {
+    fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit> {
+        self.0.ray(from, to, ignore)
+    }
+
+    fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        self.0.actors_near(point, radius)
+    }
+
+    fn water_surface(&self, point: V3) -> Option<f32> {
+        (point[0] >= 300.0).then_some(50.0)
+    }
+}
+
+fn splashes(ev: &[ProjEvent]) -> Vec<V3> {
+    ev.iter().filter_map(|e| if let ProjEvent::Splash { point, .. } = e { Some(*point) } else { None }).collect()
+}
+
+#[test]
+fn shots_splash_into_water_and_strike_what_is_under_it() {
+    let t = CombatTuning::default();
+    // From the bank (no water under the shooter) down at an actor under the surface: a
+    // splash where the line meets the surface (5/8 of the way, x = 625), then the hit.
+    let under = Pond(Toy { actors: vec![(7, [1000.0, 0.0, 20.0], 15.0)], fence: false, wall: None });
+    let dir = vec::normalize([1000.0, 0.0, -80.0]);
+    let mut p = Projectile::spawn(&proj("Missile", &["Hitscan"], 20000.0, 0.0), None, [0.0, 0.0, 100.0], dir, Some(1), G, &t);
+    match &p.step(&under, 1.0 / 60.0)[..] {
+        [ProjEvent::Splash { point, .. }, ProjEvent::Hit { actor: Some(7), .. }] => assert!(close(point[2], 50.0) && (point[0] - 625.0).abs() < 1.0, "{point:?}"),
+        e => panic!("{e:?}"),
+    }
+    // A wall on the bank stops it before the water: no splash.
+    let walled = Pond(Toy { wall: Some(400.0), ..under.0 });
+    let mut p = Projectile::spawn(&proj("Missile", &["Hitscan"], 20000.0, 0.0), None, [0.0, 0.0, 100.0], dir, Some(1), G, &t);
+    assert!(matches!(&p.step(&walled, 1.0 / 60.0)[..], [ProjEvent::Hit { actor: None, .. }]));
+    // Level over the water: none either.
+    let empty = Pond(Toy { actors: vec![], fence: false, wall: None });
+    let mut p = Projectile::spawn(&ProjectileStats { range: 2000.0, ..proj("Missile", &["Hitscan"], 20000.0, 0.0) }, None, [0.0, 0.0, 100.0], [1.0, 0.0, 0.0], Some(1), G, &t);
+    assert!(splashes(&p.step(&empty, 1.0 / 60.0)).is_empty());
+    // A flying missile falls into it: one splash on the surface, then the bed.
+    let mut m = Projectile::spawn(&proj("Missile", &[], 1000.0, 1.0), None, [0.0, 0.0, 100.0], [1.0, 0.0, 0.0], Some(1), G, &t);
+    let mut ev = Vec::new();
+    for _ in 0..120 {
+        ev.extend(m.step(&empty, 1.0 / 60.0));
+    }
+    let s = splashes(&ev);
+    assert!(s.len() == 1 && close(s[0][2], 50.0) && s[0][0] > 300.0, "{ev:?}");
+    assert!(matches!(ev.last(), Some(ProjEvent::Hit { actor: None, point, .. }) if point[2].abs() < 1e-3), "{ev:?}");
+    // A grenade bouncing on the bed splashes once, however often it comes up.
+    let timed = ProjectileStats { alt_trigger_timer: 3.0, ..proj("Lobber", &["Explosion", "Alt. Trigger"], 600.0, 1.0) };
+    let mut g = Projectile::spawn(&timed, Some(BOOM), [0.0, 0.0, 100.0], [1.0, 0.0, 0.5], Some(1), G, &t);
+    let mut ev = Vec::new();
+    for _ in 0..240 {
+        ev.extend(g.step(&empty, 1.0 / 60.0));
+    }
+    assert_eq!(splashes(&ev).len(), 1, "{ev:?}");
+}
+
 #[test]
 fn melee_swing_and_blast() {
     let t = CombatTuning::default();

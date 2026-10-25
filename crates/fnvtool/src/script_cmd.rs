@@ -39,6 +39,23 @@ pub enum ScriptCmd {
         #[command(flatten)]
         sel: Select,
     },
+    /// Compile every unit's source text and compare the result with its compiled bytes
+    /// (fnv.script.compile/1; docs/spec-notes/script-compiler.md).
+    Compile {
+        #[command(flatten)]
+        a: ScriptArgs,
+        #[command(flatten)]
+        sel: Select,
+        /// Start from empty variable and reference lists and resolve every name through
+        /// the load order. By default each unit's own lists seed the compiler, as when the
+        /// editor recompiles a script.
+        #[arg(long)]
+        fresh: bool,
+        /// List every unit with the SHA-256 of its compiled bytes (the candidate of
+        /// L5.script.compile.vanilla).
+        #[arg(long)]
+        digests: bool,
+    },
     /// Per-opcode counts: calls decoded, raw parameters, implemented (fnv.script.coverage/1).
     Coverage {
         #[command(flatten)]
@@ -129,6 +146,10 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
         ScriptCmd::Decompile { a, sel } => with_load_order(&a, |l, lo, schema| {
             let names = ScriptIndex::build(lo, schema, &l.units);
             decompile_all(l, &names, &sel)
+        }),
+        ScriptCmd::Compile { a, sel, fresh, digests } => with_load_order(&a, |l, lo, schema| {
+            let names = ScriptIndex::build(lo, schema, &l.units);
+            compile_all(l, lo, &names, &sel, fresh, digests)
         }),
         ScriptCmd::Coverage { a } => {
             let fjson = functions_json(&a)?;
@@ -497,6 +518,168 @@ fn decompile_all(l: &Loaded, names: &ScriptIndex, sel: &Select) -> anyhow::Resul
         "count": rows.len(),
         "units": rows,
     }))
+}
+
+/// Mismatches of one kind: a count and a few samples.
+#[derive(Default)]
+struct Kinds(BTreeMap<String, (u64, Vec<Value>)>);
+
+impl Kinds {
+    fn add(&mut self, kind: String, sample: impl FnOnce() -> Value) {
+        let e = self.0.entry(kind).or_default();
+        e.0 += 1;
+        if e.1.len() < 25 {
+            e.1.push(sample());
+        }
+    }
+    fn json(&self) -> Value {
+        let mut v: Vec<(&String, &(u64, Vec<Value>))> = self.0.iter().collect();
+        v.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
+        Value::Array(v.into_iter().map(|(k, (n, s))| json!({"kind": k, "count": n, "samples": s})).collect())
+    }
+}
+
+/// What a differing line is about: its statement word, and the function for a call.
+fn line_kind(line: &str) -> String {
+    let mut w = line.split_whitespace();
+    let first = w.next().unwrap_or("");
+    match first {
+        "set" | "if" | "elseif" => {
+            let call = line.split_whitespace().find_map(|t| t.split_once('(').map(|(f, _)| f.rsplit('.').next().unwrap_or(f)));
+            match call {
+                Some(f) => format!("{first} {f}"),
+                None => first.to_string(),
+            }
+        }
+        "begin" => format!("begin {}", w.next().unwrap_or("")),
+        f => format!("call {}", f.rsplit('.').next().unwrap_or(f)),
+    }
+}
+
+fn compile_all(
+    l: &Loaded,
+    lo: &LoadOrder<'_>,
+    names: &ScriptIndex,
+    sel: &Select,
+    fresh: bool,
+    digests: bool,
+) -> anyhow::Result<Value> {
+    use fnv_script::compile::{compile, env::LoadOrderIndex, Seed};
+    let ix = LoadOrderIndex::build(lo, &l.units);
+    struct Row {
+        key: String,
+        sha256: String,
+        bytes_equal: bool,
+        text_equal: bool,
+        refs_equal: bool,
+        refs_same_set: bool,
+        vars_equal: bool,
+        vars_same_set: bool,
+        errors: Vec<Value>,
+        diff: Option<(usize, String, String)>,
+        detail: Option<Value>,
+    }
+    let rows: Vec<Row> = l
+        .units
+        .par_iter()
+        .filter(|u| u.has_scda && u.source.is_some() && sel.matches(u))
+        .map(|u| {
+            let pi = ix.plugin_index(&u.plugin).unwrap_or(0);
+            let env = ix.env(pi);
+            let seed = (!fresh).then_some(Seed { variables: &u.variables, refs: &u.refs });
+            let c = compile(u.source.as_deref().unwrap_or(""), &l.table, &env, seed);
+            let ours_unit = ScriptUnit { variables: c.variables.clone(), refs: c.refs.clone(), bytes: c.bytes.clone(), ..u.clone() };
+            let ours = decode(&c.bytes, &l.table);
+            let theirs = decode(&u.bytes, &l.table);
+            let a = Decompiler { unit: &ours_unit, table: &l.table, names }.lines(&ours.program);
+            let b = Decompiler { unit: u, table: &l.table, names }.lines(&theirs.program);
+            let diff = (a != b).then(|| {
+                let i = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+                (i, a.get(i).cloned().unwrap_or_default(), b.get(i).cloned().unwrap_or_default())
+            });
+            let errors: Vec<Value> =
+                c.errors().map(|d| json!({"line": d.line, "kind": d.kind, "detail": d.detail})).collect();
+            let detail = sel.any().then(|| {
+                json!({
+                    "diags": c.diags.iter().map(|d| json!({"line": d.line, "kind": d.kind, "error": d.error, "detail": d.detail})).collect::<Vec<_>>(),
+                    "ours": {"text": a, "bytes": fnv_util::sha256::to_hex(&c.bytes), "refs": c.refs, "variables": c.variables},
+                    "shipped": {"text": b, "bytes": fnv_util::sha256::to_hex(&u.bytes), "refs": u.refs, "variables": u.variables},
+                })
+            });
+            Row {
+                key: u.key(),
+                sha256: fnv_util::sha256::hex(&c.bytes),
+                bytes_equal: c.bytes == u.bytes,
+                text_equal: diff.is_none(),
+                refs_equal: c.refs == u.refs,
+                refs_same_set: {
+                    let key = |r: &RefSlot| format!("{r:?}");
+                    let mut x: Vec<String> = c.refs.iter().map(key).collect();
+                    let mut y: Vec<String> = u.refs.iter().map(key).collect();
+                    x.sort();
+                    y.sort();
+                    x == y
+                },
+                vars_equal: c.variables == u.variables,
+                vars_same_set: {
+                    let key = |v: &fnv_script::VarDecl| (v.name.to_ascii_lowercase(), format!("{:?}", v.ty));
+                    let mut x: Vec<_> = c.variables.iter().map(key).collect();
+                    let mut y: Vec<_> = u.variables.iter().map(key).collect();
+                    x.sort();
+                    y.sort();
+                    x == y
+                },
+                errors,
+                diff,
+                detail,
+            }
+        })
+        .collect();
+    if sel.any() && rows.is_empty() {
+        bail!("no unit with source and compiled bytes matches the selection");
+    }
+    let mut text_kinds = Kinds::default();
+    let mut byte_only = Kinds::default();
+    let mut error_kinds = Kinds::default();
+    for r in &rows {
+        if let Some((i, ours, theirs)) = &r.diff {
+            text_kinds.add(line_kind(if theirs.is_empty() { ours } else { theirs }), || {
+                json!({"unit": r.key, "line": i, "ours": ours, "shipped": theirs})
+            });
+        } else if !r.bytes_equal && !fresh {
+            byte_only.add("bytes".into(), || json!({"unit": r.key}));
+        }
+        for e in &r.errors {
+            let k = e["kind"].as_str().unwrap_or("").to_string();
+            error_kinds.add(k, || json!({"unit": r.key, "error": e}));
+        }
+    }
+    let n = |f: &dyn Fn(&Row) -> bool| rows.iter().filter(|r| f(r)).count();
+    let mut out = json!({
+        "format": "fnv.script.compile/1",
+        "load_order": l.load_order,
+        "mode": if fresh { "fresh" } else { "seeded" },
+        "summary": {
+            "units": rows.len(),
+            "bytes_equal": n(&|r| r.bytes_equal),
+            "text_equal": n(&|r| r.text_equal),
+            "refs_equal": n(&|r| r.refs_equal),
+            "refs_same_set": n(&|r| r.refs_same_set),
+            "variables_equal": n(&|r| r.vars_equal),
+            "variables_same_set": n(&|r| r.vars_same_set),
+            "units_with_errors": n(&|r| !r.errors.is_empty()),
+        },
+        "text_differs": text_kinds.json(),
+        "bytes_differ_text_equal": byte_only.json(),
+        "errors": error_kinds.json(),
+    });
+    if sel.any() {
+        out["units"] = Value::Array(rows.iter().map(|r| json!({"unit": r.key, "detail": r.detail})).collect());
+    } else if digests {
+        out["count"] = json!(rows.len());
+        out["units"] = Value::Array(rows.iter().map(|r| json!({"unit": r.key, "sha256": r.sha256})).collect());
+    }
+    Ok(out)
 }
 
 fn functions_json(a: &ScriptArgs) -> anyhow::Result<Value> {
