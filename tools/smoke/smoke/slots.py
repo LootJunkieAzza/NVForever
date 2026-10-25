@@ -39,6 +39,13 @@ SHARED = "shared"  # first word of the shared smoke.lock's owner file
 SLOT_LABEL = "smoke runner slots"  # a slot runner's queue ticket (old-style tickets say "smoke runner")
 MAX_SLOTS = 16  # slots looked at when deciding the shared lock can go (runners may differ in count)
 DEFAULT_SLOTS = 3
+# Seconds between two smoke game starts on the machine. Games that load at the same time
+# slow each other's start [observed 2026-10-24: "scripts ready in" 6.4-9.3 s with the
+# machine alone, 10-21 s when several of 3 slots started together; short scenarios then
+# ended before the scripts ran ("scripts: never ran") or lost keys to the start-up
+# message boxes]. A launch lasts about 40 s, so 3 slots start one about every 13 s anyway.
+DEFAULT_STAGGER = 12.0
+LAST_START = "last-start.txt"
 
 
 def default_count() -> int:
@@ -46,6 +53,13 @@ def default_count() -> int:
         return max(1, int(os.environ.get("NVF_SMOKE_SLOTS", DEFAULT_SLOTS)))
     except ValueError:
         return DEFAULT_SLOTS
+
+
+def default_stagger() -> float:
+    try:
+        return max(0.0, float(os.environ.get("NVF_SMOKE_STAGGER", DEFAULT_STAGGER)))
+    except ValueError:
+        return DEFAULT_STAGGER
 
 
 # ---------------------------------------------------------------- OS file locks
@@ -131,10 +145,12 @@ class Slots:
 
     def __init__(self, shared: Path, gates: list[Path], count: int | None = None, poll: float = 5.0,
                  wait_max: float = 4 * 3600.0, say=print, running=game_running, queue: Queue | None = None,
-                 stale_after: float = 900.0):
+                 stale_after: float = 900.0, stagger: float | None = None, clock=time.time):
         self.shared = Path(shared)
         self.gates = [Path(g) for g in gates]
         self.count = count or default_count()
+        self.stagger = default_stagger() if stagger is None else stagger
+        self.clock = clock
         self.poll, self.wait_max, self.say = poll, wait_max, say
         self.running, self.stale_after = running, stale_after
         self.dir = self.shared.parent / "smoke-slots"
@@ -163,7 +179,14 @@ class Slots:
         if len(ahead) >= self.count:
             return 0
         room = self.count - len(ahead) - 1
-        sharing = len(ahead) + 1 + min(room, sum(1 for t in behind if is_slot_ticket(t)))
+        # Slot runners behind an old-style ticket wait for its turn alone, so they do not
+        # share the slots now (counting them left one runner on one slot, 2026-10-24).
+        before_old = 0
+        for t in behind:
+            if not is_slot_ticket(t):
+                break
+            before_old += 1
+        sharing = len(ahead) + 1 + min(room, before_old)
         runners = min(sharing, self.count)
         return self.count // runners + (1 if len(ahead) < self.count % runners else 0)
 
@@ -207,6 +230,13 @@ class Slots:
             self.say(f"lock {self.shared}: left by a smoke runner that is gone; cleared")
             shutil.rmtree(self.shared, ignore_errors=True)
             state = "free"
+        if self.stagger > 0:
+            try:
+                since = self.clock() - float((self.dir / LAST_START).read_text().split()[0])
+            except (OSError, ValueError, IndexError):
+                since = None
+            if since is not None and 0 <= since < self.stagger:
+                return f"spreading game starts ({self.stagger:.0f} s apart)"
         if state == "free":
             self.shared.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -219,6 +249,10 @@ class Slots:
             if lock.try_lock():
                 try:
                     (self.dir / f"slot-{i}.txt").write_text(f"{os.getpid()} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                except OSError:
+                    pass
+                try:
+                    (self.dir / LAST_START).write_text(f"{self.clock()} slot {i} by {os.getpid()}\n")
                 except OSError:
                     pass
                 self.mine.append(Slot(i, lock))
@@ -283,9 +317,10 @@ class Slots:
             got = self.try_take()
             if isinstance(got, Slot):
                 return got
-            if got != last and not got.startswith(("another runner is taking", "this runner's share")):
+            quiet = got.startswith(("another runner is taking", "this runner's share", "spreading"))
+            if got != last and not quiet:
                 self.say(f"waiting: {got}")
-            last = got
+                last = got  # the last reason said, so short quiet waits between do not repeat it
             if time.monotonic() - start > self.wait_max:
                 raise TimeoutError(f"no smoke slot after {self.wait_max:.0f} s: {got}")
             time.sleep(self.poll if "queue" in got else min(self.poll, 2.0))
