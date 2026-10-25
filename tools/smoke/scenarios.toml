@@ -6050,10 +6050,10 @@ manual = "on a failure, explain the change against docs/spec-notes/animation.md 
 [[scenario]]
 name = "creature-pace"
 source = "owner's playtest 2026-10-16 (engine/nvforever/src/creature_pace.rs, docs/spec-notes/actors.md §8.10): creatures move at their clips' pace × scale × Speed Mult × 0.70, measured on cazadors in the original game; a steady walk keeps its walk clip"
-note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 8 s, so they stay calm (sandbox)"
+note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 3 s, so they stay calm (sandbox); at 8 s the console aid sometimes came after the first detection under a loaded machine (2026-10-25)"
 areas = ["actors", "ai"]
 paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:tdetect;8.5:close", NVF_PLAY_TEST_GOTO = "9:-74027:30369:8200" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close", NVF_PLAY_TEST_GOTO = "9:-74027:30369:8200" }
 args = ["--play", "--pos=-80027,30369,8500", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 70
 expect = [
