@@ -60,9 +60,10 @@ observe", with the readings it decides between under **Decides**.
 | 02_chain_compound_x | `chain.compound_x` | `let x := 1; let y := 1; let x += y += 1; print x` | to observe | — | 3 if right-assoc (y becomes 2 first) |
 | 03_chain_compound_y | `chain.compound_y` | `let x := 1; let y := 1; let x += y += 1; print y` | to observe | — | 2 if right-assoc |
 | 04_and_vs_compound | `and.vs_compound` | `let x := 1; let r := 1 && x += 5; print x` | to observe | — | `&&` and `+=` share level 2: does it compile, and does x become 6? |
-| 05_fn_abs_swallow | `fn.abs_swallow` | `let r := Abs -3 + 1; print r` | to observe | — | 4 if Abs takes -3; 2 if it takes -3 + 1 |
+| 05_fn_abs_swallow | `fn.abs_swallow` | `let r := Abs -3 + 1; print r` | `4` | [documented: Inline Expression; Let (in an ordinary block a call's argument is one operand)] | 4 if Abs takes -3; 2 if it takes -3 + 1; compare with override.abs_swallow |
 | 06_fn_sin_eq | `fn.sin_eq` | `let r := Sin 90 > 0.5; print r` | to observe | — | 1 if `(Sin 90) > 0.5`; 0 if `Sin (90 > 0.5)` (sine of 1 degree, stored as int 0) |
 | 07_fn_rand_nocomma | `fn.rand_nocomma` | `let f := Rand 5 5; print f` | to observe | — | 5 if two arguments without a comma are accepted |
+| 09_override_abs_swallow | `override.abs_swallow` | `let r := Abs -3 + 1; print r` (in a `_GameMode` block) | `2` | [documented: Script Compiler Override (a call takes the rest of the expression)] | the same line as fn.abs_swallow, under the override |
 | 08_override_sin_eq | `override.sin_eq` | `let r := Sin 90 > 0.5; print r` | `0` | [documented: Script Compiler Override (`Sin 14 == 1` runs `14 == 1` first)] | the comparison runs first: Sin 1, stored as int 0 |
 
 Note on `fn.sin_eq`: the Script Compiler Override page's example is `Sin 14 == 1`. With

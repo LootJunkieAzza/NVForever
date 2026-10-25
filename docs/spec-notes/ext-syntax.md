@@ -81,6 +81,17 @@ Notes and gaps:
   open.
 - Mixing types (a string `+` a number, comparing a form to a number): open; `$` is the
   documented way to join a number to a string [documented: NVSE Expressions examples].
+- **How far a function's arguments reach.** In an ordinary block, a call's arguments
+  are single operands and the operators after them apply to the call's result:
+  `let fTemp := Player.GetActorValue Health + 50` is (GetActorValue Health) + 50, the
+  value the Inline Expression page then passes on as the new Health [documented: Inline
+  Expression, its "compiles pre-6.1" example, read with the use it makes of fTemp; Let,
+  whose examples assign call results the same way]. **Only in a compiler-override block**
+  does a call take the whole rest of the expression: `if Sin 14 == 1` there evaluates
+  `14 == 1` first, leaving `Sin 0`, which the page calls evaluating "differently"
+  [documented: Script Compiler Override, "Unforeseen Consequences"]. So A7 parses
+  arguments as operands, and greedily only inside `_Block`s. Probes expressions/05 (normal)
+  and expressions/09 (override) check the same line `let r := Abs -3 + 1` both ways.
 
 ## 3. `&&` and `||`
 
@@ -198,7 +209,10 @@ passed straight to base-game and older extender functions whose parameters the b
 compiler would refuse (`floor somearray[k]`, `rActor.GetAV sAVName`), at the scripter's
 risk: types are checked at run time, not compile time, and parentheses are needed more
 often. Inline expressions (xNVSE 6.1) replace it and behave more predictably
-[documented: Script Compiler Override]. Compile case 23 uses it.
+[documented: Script Compiler Override]. Compile case 23 uses it. Inside such a block a
+function call takes everything after it as its argument (`Sin 14 == 1` runs as
+`Sin (14 == 1)`), unlike an ordinary block; §2 "How far a function's arguments reach"
+[documented: Script Compiler Override].
 
 ## 9. Out of scope here: NVSEScript
 
