@@ -279,7 +279,7 @@ fn iso_of(b: &BodyState) -> Iso {
 /// body's bone or the nearest bone above it, else the torso's, else none.
 fn body_parts(rig: &ActorRig, corpse: &Corpse, limbs: Option<&LimbRig>) -> Vec<u8> {
     let Some(limbs) = limbs else { return Vec::new() };
-    let part_of = |node: usize| limbs.chains.iter().find(|(_, _, chain)| chain.contains(&rig.nodes[node])).map(|c| c.0);
+    let part_of = |node: usize| limbs.chains.iter().find(|(_, _, chain, _)| chain.contains(&rig.nodes[node])).map(|c| c.0);
     let torso = limbs.chains.iter().find(|c| c.1 == Limb::Torso).map(|c| c.0);
     corpse
         .bones

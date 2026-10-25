@@ -649,6 +649,11 @@ beyond combat. Third, C5 already passes a hit location everywhere (`GetHitLocati
   - Lengths come from the part's bone chain, radii from a share of the actor's size by
     kind of part [design] (combat-rules.md §12). The skeleton's own collision was not
     used.
+  - The human skeleton has no bone above `Bip01 Head` (the base of the skull), so a
+    head chain that ends on such a bone is carried on to the crown (`nvforever`
+    `limbs::skull_tip`, 2026-10-24) [observed: `skeleton.nif`, `headhuman.nif`; design:
+    the reach]. Before, the head's capsule was a ball at the neck, and a VATS mark on the
+    head needed the crosshair on the neck (the owner's playtest).
   - `Owner::Actor` gains the part index.
 - **Damage:**
   - The part's damage multiplier in §5.3 (head ×2 for most humans [observed: C1
