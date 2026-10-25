@@ -329,6 +329,10 @@ fn armour_lines(script: Option<&mut ScriptState>, attacker: Option<FormId>, targ
     }
 }
 
+/// How far before and past an NPC blow's landing point its body part is looked for, game
+/// units [design].
+const BLOW_PROBE: f32 = 24.0;
+
 fn blast_hit_info(cause: Option<Cause>) -> HitInfo {
     HitInfo { attacker: cause.map(|c| c.actor), weapon: cause.map(|c| c.weapon), location: -1, critical: false, limb: None }
 }
@@ -596,6 +600,16 @@ pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats,
         dir,
         scripted: None,
     })
+}
+
+/// The body part of `actor` a line from `from` towards `to` meets first, and where
+/// (other actors left out): the part a blast or a blow lands on, for dismemberment
+/// (dismemberment.md §4) [design: as a shot's part is the one its ray meets].
+pub(crate) fn facing_part(world: &dyn CombatWorld, actor: ActorId, from: V3, to: V3) -> Option<(u8, V3)> {
+    let others: Vec<ActorId> = world.actors_near(to, 512.0).into_iter().map(|(a, _)| a).filter(|&a| a != actor).collect();
+    let hit = world.ray(from, to, &others)?;
+    (hit.actor == Some(actor)).then_some(())?;
+    Some((hit.part?, hit.point))
 }
 
 /// Whether the script runtime has the actor dead.
@@ -3412,6 +3426,7 @@ fn actor_attacks(
     sfx: Option<Res<Sfx>>,
     (mut impacts, mut broken): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>),
     (control, anim, player): Guard,
+    mut dm: ResMut<crate::dismember::Dismemberment>,
 ) {
     let c = &mut *c;
     let gravity = phys.world.params.gravity;
@@ -3566,6 +3581,17 @@ fn actor_attacks(
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
         armour_lines(script.as_deref_mut(), Some(b.attacker), b.target, &d, c.tuning.dt_floor);
+        // A killing blow (or one on a corpse) may dismember the part it lands on, by the
+        // weapon's On Hit, as the player's blows (dismemberment.md §4, §7); the part is the
+        // one a short line along the blow meets at its landing point.
+        if r.as_ref().is_some_and(|r| r.died || r.corpse) && b.target != FormId::PLAYER_REF {
+            let from = vec::sub(b.point, vec::scale(b.dir, BLOW_PROBE));
+            let to = vec::add(b.point, vec::scale(b.dir, BLOW_PROBE));
+            let facing = facing_part(&view(&mut phys, script.as_deref(), Some(&sim)), b.target.0 as ActorId, from, to);
+            if let Some(check) = r.as_ref().zip(facing).and_then(|(rr, (part, point))| dismember_check(b.target, Some(part), &w, rr, Some(b.attacker), point, b.dir)) {
+                dm.checks.push(check);
+            }
+        }
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, b.target, &items, info.attacker);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
@@ -3825,6 +3851,16 @@ fn fly(
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, None);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
+            }
+            // A blast that kills (or hits a corpse) may dismember the part facing it, by
+            // its weapon's On Hit (dismemberment.md §4, §7): most grenades and every mine are
+            // No Dismember/Explode; launchers, the Fat Man and dynamite are not.
+            if let (Some(rr), Some(w)) = (r.as_ref().filter(|r| r.died || r.corpse), cause.and_then(|k| c.forms.weapons.get(&k.weapon)).cloned()) {
+                let center = { view(&mut phys, script.as_deref(), Some(&sim)).actors_near(at, x.radius.max(1.0)).into_iter().find(|(a, _)| *a == b.actor).map(|(_, p)| p) };
+                let facing = center.and_then(|p| facing_part(&view(&mut phys, script.as_deref(), Some(&sim)), b.actor, at, p));
+                if let Some(check) = facing.and_then(|(part, point)| dismember_check(target, Some(part), &w, rr, info.attacker, point, b.push)) {
+                    dm.checks.push(check);
+                }
             }
             if let Some(r) = r {
                 // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
@@ -4270,6 +4306,27 @@ mod tests {
     /// The laser rifle's beam (BeamLaserProjectile, Fade Duration 0.14 s) is drawn in
     /// full when made, at half strength half way through and not at all at the end; a
     /// bullet, or a beam whose PROJ gives no fade, in full.
+    /// A stand-in world: a ray hits actor 7's part 3 at (1, 2, 3) unless 7 is ignored,
+    /// when it hits actor 9 (no part); actors 7 and 9 stand near.
+    struct Two;
+    impl CombatWorld for Two {
+        fn ray(&self, _from: V3, _to: V3, ignore: &[ActorId]) -> Option<fnv_combat::projectile::WorldHit> {
+            let (actor, part) = if ignore.contains(&7) { (9, None) } else { (7, Some(3)) };
+            Some(fnv_combat::projectile::WorldHit { point: [1.0, 2.0, 3.0], normal: [0.0, 0.0, 1.0], distance: 1.0, actor: Some(actor), part, object: None, small_transparent: false, material: None })
+        }
+        fn actors_near(&self, _point: V3, _radius: f32) -> Vec<(ActorId, V3)> {
+            vec![(7, [0.0; 3]), (9, [0.0; 3])]
+        }
+    }
+
+    #[test]
+    fn a_blast_or_blow_lands_on_the_part_its_line_meets() {
+        // The other actor is left out of the line: actor 7's part 3.
+        assert_eq!(facing_part(&Two, 7, [0.0; 3], [1.0, 0.0, 0.0]), Some((3, [1.0, 2.0, 3.0])));
+        // Actor 9 has no part volumes: nothing to dismember.
+        assert_eq!(facing_part(&Two, 9, [0.0; 3], [1.0, 0.0, 0.0]), None);
+    }
+
     #[test]
     fn a_beam_fades_over_its_fade_duration() {
         assert_eq!(beam_strength(true, 0.14, 0.14), 1.0);
