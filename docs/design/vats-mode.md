@@ -392,8 +392,8 @@ not overlap.
     pace on the slowed clock; the arms' own aim clips run on the game clock and are
     slowed with the world [observed in code; with true iron sights on, the gun is put
     on the eye by the zoom's share, so the sight picture arrives at the usual pace].
-- Movement, looking, sneaking and the camera (Toggle POV too) keep working, slowed with
-  the world. Ready Item's reload and Ammo Swap are held while the mode is on [design: no
+- Movement, looking and the camera (Toggle POV too) keep working, slowed with
+  the world; sneaking ends the mode since 2026-10-25 (§11.8). Ready Item's reload and Ammo Swap are held while the mode is on [design: no
   reload or ammunition change mid-mode].
 - Controller: the same controls on their pad bindings (`Bindings::pad`), nothing extra.
 - `DisablePlayerControls` with the fighting group off refuses entering and ends the mode
@@ -411,6 +411,31 @@ The mode is never saved and is Off after a load. A save made while marking (only
 possible through the pause menu, which ends the mode first, §11.6) holds the AP as it is,
 reservations being nothing spent. Spent AP is the Action Points damage the save already
 keeps. The VATS clock scale is not part of the save.
+
+### 11.8 Never stuck in the mode
+
+Owner 2026-10-25: "kick the player out of vats if he activates something, gets forced
+dialogued, tries to wait (basically any action besides aiming and marking or accepting
+marks) or if he dies. i dont want the player to get stuck in vats" [design].
+
+- **Actions** (`vats_mode::LEAVING`, `leaving_press`): in Drawing, Marking or Firing a
+  press of Activate, Ready Item, Sneak, Jump, the Pip-Boy, Wait, a hotkey (Ammo Swap
+  too), Quick Save, Quick Load or Grab ends the mode at once and the press then does
+  what it does outside it. The one exception is Activate while marking with a mark
+  made: that accepts (§11.5). So E with nothing marked activates what is under the
+  crosshair, and Wait opens the Wait menu (or is refused as usual, the mode ended all the
+  same). The check runs in `read_keys`, before activation, so the same frame's E
+  reaches the target. Use, Block, V, movement, looking and Toggle POV stay the mode's
+  or go on as before. Log: `vats mode: off (…; Wait pressed)`, the control's name from
+  `bindings::label`.
+- **A conversation** (E on an actor, StartConversation, a Dialogue package's forced
+  greeting) or a script's menu: `Game::in_menu` ends the mode the frame it starts, before
+  `PlayState::Dialogue` follows (§11.6 would catch it a frame later). Log:
+  `… a conversation or a script's menu began`.
+- **Death** ends the mode (§9.3), as before.
+- **Drawing** (V with the weapon away) gives up when the weapon is put away again or is
+  not out within `DRAW_LIMIT` = 3 real seconds [design]. Log: `vats mode: entering
+  cancelled (the weapon did not come out)`.
 
 ## 12. Script functions
 
