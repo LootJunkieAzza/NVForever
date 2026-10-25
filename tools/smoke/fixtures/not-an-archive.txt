@@ -1,0 +1,2 @@
+Not a BSA archive: the damaged-archive smoke scenario (tools/smoke/scenarios.toml) names
+this file as an archive to load, and the game must refuse to start with it.

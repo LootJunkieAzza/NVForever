@@ -63,6 +63,13 @@ pub fn run(cmd: BsaCmd) -> anyhow::Result<Value> {
             Ok(json!({"schema": "fnv.bsa.extract/1", "path": inner, "size": data.len()}))
         }
         BsaCmd::Verify { archive } => verify(&archive),
+        BsaCmd::Check { archives } => {
+            let rows: Vec<(String, Option<String>)> =
+                archives.iter().map(|a| (archive_name(a), fnv_bsa::check(a).err().map(|e| e.to_string()))).collect();
+            let damaged: Vec<String> = rows.iter().filter_map(|(n, e)| e.as_ref().map(|e| format!("{n}: {e}"))).collect();
+            anyhow::ensure!(damaged.is_empty(), "damaged archive(s): {}", damaged.join("; "));
+            Ok(json!({"schema": "fnv.bsa.check/1", "archives": rows.iter().map(|(n, _)| n).collect::<Vec<_>>(), "ok": true}))
+        }
     }
 }
 

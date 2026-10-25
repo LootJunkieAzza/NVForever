@@ -88,6 +88,7 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 |---|---|---|
 | `bsa verify <archive>` | `fnv.bsa.verify/1` | byte-identical rebuild + decode every file |
 | `bsa extract <archive> <path> <out>` | `fnv.bsa.extract/1` | write one decoded file |
+| `bsa check <archive>…` | `fnv.bsa.check/1` | the game's start-up check (header, folder and file tables, data inside the file; nothing decompressed); fails naming each damaged archive |
 | `esm header <plugin>` | (header object above) | TES4 summary |
 | `esm verify <plugin>` | `fnv.esm.verify/1` | byte-identical rebuild, decompression, subrecord round-trip, zlib trailer anomalies |
 | `esm coverage <plugin> --schema <dir>` | `fnv.esm.coverage/1` | schema decode coverage + ranked work queue |
