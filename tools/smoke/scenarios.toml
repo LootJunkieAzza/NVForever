@@ -468,6 +468,22 @@ expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arriv
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]
+name = "nav-water-closed"
+kind = "tool"
+source = "GECK wiki Navmesh Creation Workflow: creatures without the Swims flag \"will avoid using water triangles\" (PathParams::water, fnv-ai keeps_out_of_water): from the Boulder Beach shore to a point in Lake Mead a swimmer's path crosses water triangles; for one that does not swim the goal in water is out of reach at once (no search of the area); standing in the water, it walks out"
+areas = ["nav", "ai"]
+paths = ["crates/fnv-nav/src/path.rs", "crates/fnvtool/src/nav_path.rs", "crates/fnv-ai/src/carry.rs"]
+commands = [
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=56992,37536,2745", "--to=57800,37536,2500"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=56992,37536,2745", "--to=57800,37536,2500", "--no-water"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=57800,37536,2500", "--to=56992,37536,2745", "--no-water"],
+]
+expect = [
+  { json = "path.legs.0.water_triangles", schema = "fnv.nav.path/1", range = [1, 100], count = 2, label = "the swimmer's way in and the non-swimmer's way out cross water" },
+  { json = "error", schema = "fnv.nav.path/1", equals = "the goal cannot be reached (0 triangles searched)", count = 1, label = "a goal in water is out of a non-swimmer's reach, no search" },
+]
+
+[[scenario]]
 name = "npc-travel"
 source = "CLAUDE.md: after navmesh, pathing or travelling-NPC changes, the travel smoke test"
 areas = ["nav"]
