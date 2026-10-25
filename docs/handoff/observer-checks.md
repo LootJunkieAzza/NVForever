@@ -284,7 +284,22 @@ The numbers above stay put so links to them hold; each item here gives its own p
     - Does their count drop?
     Setup: Powder Gangers with dynamite at NCRCF, or a Legion squad.
     ([combat-ai §20](../design/combat-ai.md))
-21. **Combat answer lines and companion complaints** (P2). To check:
+21. **Packages that send NPCs through player-only load doors** (P2). Some door
+    scripts' OnActivate blocks call Activate for the player only. `fnvtool ai reach`
+    (routes_through_door) still finds FalloutNV.esm packages routed through them:
+    - the Strip gates (VStripGate, refs 0016A14D–0016A150), about 420 actor/package
+      pairs, among them the securitrons' VStripSecuritronGuardGate*/Patrol*, the NCR
+      MPs' VStripMPBPatrolEmb and the Omerta thugs' VMS33ThugLeavePackage;
+    - Gomorrah's elevator doors (0010DA76, 0010D6AC, 0010D6AE, 0010DDB4), 15 pairs, e.g.
+      VMS21NeroCasinoTravel and VMS21BigSalHomeTravel.
+
+    Ours lets an NPC through a load door whatever the block did (the block still runs)
+    and refuses only at doors that open in place.
+    To check: does the original move these NPCs through those doors? Does a Strip
+    securitron's gate patrol cross the gate? Do Nero and Big Sal go between their rooms
+    and the casino floor through the elevator, or never get there?
+    ([doors §5.2](../spec-notes/doors.md))
+22. **Combat answer lines and companion complaints** (P2). To check:
     - When a group-mate says NormalToAlert or NormalToCombat, does a nearby mate answer
       with NormalToAlertResponse or StartCombatResponse?
     - Are AttackResponse (BoS: "On it!") and FleeResponse (super mutants: "Coward!")
@@ -299,7 +314,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
-22. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
+23. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
     goes on to its next point after a reload.
     To check: save while it is half-way along its route, reload, and see whether it
     goes on or starts again from the first point.
