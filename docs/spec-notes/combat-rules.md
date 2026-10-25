@@ -20,9 +20,12 @@ them.
 |---|---|---|
 | `dt_floor` | 0.2 | DT never removes more than 80 % of a hit |
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
-| `bloom_per_shot`, `bloom_recovery`, `bloom_max` | 0.03 × Min Spread, 1.0 /s, 0.25 | spread added per shot (spread units) |
+| `bloom_per_shot`, `bloom_per_min_spread`, `bloom_auto_mult` | 0.08 + 0.04 × Min Spread, × 0.5 for automatics | spread added per shot (spread units) |
+| `bloom_max`, `bloom_recovery` | 1.0 (about 6° of deviation, 3° of cone), 2.0 /s | bloom cap; how fast it shrinks once settling |
+| `settle_delay` | 0.3 s | rest beyond the weapon's own time between shots before bloom shrinks; closer shots build on each other |
 | `jump_spread` | 0.3 | actor-spread penalty while airborne |
-| `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_recovery_deg` | 0.4°, 0.03°/damage, 12°/s | view kick |
+| `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_auto_mult` | 0.6°, 0.04°/damage, × 0.5 for automatics | view kick up per shot |
+| `recoil_jitter`, `recoil_side_share`, `recoil_lean_flip` | ±25 %, up to 0.4 × the kick up, 30 % per shot | the climb's random pattern |
 | `melee_window`, `melee_rays`, `melee_arc_deg` | 0.1 s, 5, 35° | melee swing |
 | `explosion_edge` | 0.25 | blast damage at the edge of the radius |
 | `default_bounce` | 0.3 | lobbers whose PROJ has no bounce value |
@@ -32,8 +35,12 @@ them.
 
 The bloom values were lowered after the first `combat sim` runs: at 0.15 × Min Spread
 with a cap of 1.0, the 10mm SMG hit 2 of 60 shots at 1000 units from the hip [observed
-with `fnvtool combat sim`]. With the current values it hits about 19 %, and every shot
-aimed at 600 units.
+with `fnvtool combat sim`]. That went too far: with 0.03 × Min Spread recovering at
+1.0 /s from the first frame, a pistol's bloom was gone before its next shot and the
+crosshair never opened, and the 1° kick was back in under 0.1 s (owner, 2026-10-24).
+The values above (2026-10-24) let a run of shots build, shrink only after a rest, and
+keep automatics at half the per-shot growth and kick, so the SMG's long-range hip fire
+stays poor but not hopeless.
 
 ## 2. Damage (`damage.rs`)
 
@@ -121,8 +128,18 @@ each the identity by default. Reading PERK records is a later step.
     spread twice as wide as measured).
   - The shot leaves inside a cone of that half-angle around the view direction, uniform
     over the cone's disc, so the crosshair is always the centre [design].
-  - Bloom adds to the actor spread per shot and recovers; recoil kicks the view up per
-    shot (more for harder-hitting weapons) and recovers.
+  - Bloom adds to the actor spread per shot, up to its cap. It recovers only after the
+    weapon has rested for its own time between shots plus `settle_delay`, so fire as
+    fast as the weapon allows keeps widening the cone, whatever its rate, and a short
+    pause lets it close again. (A bare 0.35 s delay reset the 10mm Pistol, about 0.5 s
+    between shots, after every shot [observed: smoke run 2026-10-24].)
+  - Recoil kicks the view up per shot (more for harder-hitting weapons, ±`recoil_jitter`)
+    and sideways by up to `recoil_side_share` of that. The sideways part leans to one
+    side for a few shots and swaps with `recoil_lean_flip` per shot, so each burst
+    climbs in a different pattern. Nothing brings the view back: pulling it down is the
+    player's (owner, 2026-10-24; a 70 % automatic return was tried first).
+  - VATS mode's shots, throws and the `NVF_PLAY_TEST_NO_SPREAD` test aid's shots kick
+    nothing and grow no bloom. The recoil's rolls have their own random stream.
 
 ## 4. Attack cycle (`attack.rs`)
 
@@ -761,6 +778,33 @@ the player puts down. Code: `fnv_combat::mine` (rules), `nvf_play::mines` (in pl
   marker, mines owned by an actor base (XOWN naming an NPC_), `DisableAllMines`. Also the
   Light Step perk (mines do not go off for the player), and the Explosives chance of
   setting one off while disarming, which the owner's rule leaves out.
+
+## 11b. Thrown weapons land (2026-10-24)
+
+From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_weapon`,
+`nvf_play::thrown`.
+
+- **The records** [observed: FalloutNV.esm and the add-ons, PROJ `DATA` flags]: "Can Be
+  Picked Up" without "Can Be Disabled" on `NVThrowingKnifeProjectile` (Missile; Pins
+  Limbs, Rotation), `NVHatchetProjectile`, `NVSpearProjectile`,
+  `NVDLC02WeapTomahawkProjectile` (and Honest Hearts' `NVdlc02tomahawkrProjectiletest`),
+  `TrapBaseballProjectile` (Lobber) and Old World Blues' `NVDLC03MineMeat`. The
+  mines and C-4 carry both flags.
+- **What they mean** [documented: GECK wiki Projectile]: "Can be Picked Up: If checked,
+  projectile can be picked up by the player character after it has been disabled, or
+  regardless of it if Can be Disabled isn't enabled." "Default Weapon Source: Projectile
+  references store whichever weapon they fired from/as, and if they can be picked up by
+  an NPC or the player they will be added to inventory as that weapon." The same page's
+  notes say the flag "doesn't appear to work with Missile type projectiles": the
+  masters' thrown weapons are Missiles that set it; what the original does with them is
+  an owner question.
+- **As built** [hypothesis: where a landed weapon goes]: a projectile with the flag, no
+  "Can Be Disabled" and no explosion becomes its weapon where its flight ends: in the
+  inventory of the actor it struck (taken from the body), else as a loose reference at
+  the point it struck, 4 units out from the surface, turned the way it flew (or where it
+  ran out of range), in the thrower's cell; `crate::dropped` draws it and lets it settle.
+  The weapon is the one thrown, else the PROJ's Default Weapon Source. Log lines
+  `thrown: … landed at …` and `thrown summary` at the end.
 
 ## 12. Limb hits (step C8)
 

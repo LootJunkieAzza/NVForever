@@ -32,6 +32,10 @@ pub struct Stance {
     /// "Modify Aiming Move Speed" perk divisor for the moving penalty (1 = none; the page
     /// says it cannot divide below 1).
     pub aiming_move_divisor: f32,
+    /// "Modify Weapon Strength Req": points taken off the weapon's Strength requirement
+    /// [documented: GECK wiki Perk entry points, "Add Value of 1 means a reduction of 1
+    /// point from the requirement"; Weapon Handling 2].
+    pub strength_req_cut: f32,
 }
 
 /// Whether a weapon counts as one-handed for the crippled-arm penalties: pistols
@@ -54,7 +58,7 @@ pub fn actor_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance) ->
     } / s.aiming_move_divisor.max(1.0);
     let standing = if s.sneaking { 0.0 } else { r.spread_standing };
     let arms = crippled_spread(r, t, w, s);
-    let str_req = (w.strength_req as f32 - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
+    let str_req = (w.strength_req as f32 - s.strength_req_cut - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
     // The page reports the original applies the Strength setting to the skill shortfall
     // (a bug); we use the skill setting it names.
     let skill_req = (w.skill_req as f32 - s.skill.min(100.0)).max(0.0) * r.skill_req_penalty;
@@ -115,30 +119,84 @@ pub fn spread_dir(forward: [f32; 3], cone_deg: f32, u1: f32, u2: f32) -> [f32; 3
     crate::vec::normalize(crate::vec::add(crate::vec::scale(f, c), off))
 }
 
-/// Bloom and recoil state of one wielder [design].
+/// Bloom and recoil state of one wielder [design] (docs/spec-notes/combat-rules.md §3).
+///
+/// - Bloom: every shot widens the cone; while the wielder keeps firing it builds up to
+///   [`CombatTuning::bloom_max`]. It starts to shrink only once no shot has left for the
+///   weapon's own time between shots plus [`CombatTuning::settle_delay`], so a weapon
+///   fired as fast as it can always builds, however slow its cycle.
+/// - Recoil: every shot kicks the view up, with a random share sideways that leans one
+///   way for a few shots and then the other, so a burst climbs in a different pattern
+///   each time. Nothing brings the view back: pulling it down is the wielder's to do
+///   (owner, 2026-10-24).
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Kick {
     /// Extra actor spread (spread units).
     pub bloom: f32,
-    /// View pitch offset still to recover, degrees (positive = up).
-    pub recoil_deg: f32,
+    /// The view kick of this burst so far, degrees: pitch (positive = up) and yaw. A new
+    /// burst starts it again; the view itself keeps it until the wielder pulls it back.
+    pub climb_deg: f32,
+    pub climb_yaw_deg: f32,
+    /// Seconds since the last shot.
+    pub since_shot: f32,
+    /// The rest after the last shot before bloom shrinks: that weapon's time between
+    /// shots plus the settle delay.
+    pub settle_after: f32,
+    /// Shots fired without a settle between them.
+    pub burst: u32,
+    /// The side the climb leans to now: -1 or 1 (0 before the first shot).
+    pub lean: f32,
+}
+
+/// A view change in degrees: pitch (positive = up) and yaw.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct ViewKick {
+    pub pitch_deg: f32,
+    pub yaw_deg: f32,
 }
 
 impl Kick {
-    /// After a shot of `damage_per_shot` with a weapon of Min Spread `min_spread`. Returns
-    /// the view kick in degrees for this shot.
-    pub fn shot(&mut self, t: &CombatTuning, min_spread: f32, damage_per_shot: f32) -> f32 {
-        self.bloom = (self.bloom + t.bloom_per_shot * min_spread.max(0.1)).min(t.bloom_max);
-        let kick = t.recoil_base_deg + t.recoil_per_damage_deg * damage_per_shot.max(0.0);
-        self.recoil_deg += kick;
-        kick
+    /// After a shot of weapon `w`, which fires every `interval` seconds at its fastest;
+    /// `rnd` gives uniform numbers in [0, 1). Returns the view kick for this shot (added
+    /// to the view).
+    pub fn shot(&mut self, t: &CombatTuning, w: &WeaponStats, interval: f32, rnd: &mut impl FnMut() -> f32) -> ViewKick {
+        let auto = |m: f32| if w.automatic { m } else { 1.0 };
+        if self.since_shot >= self.settle_after {
+            self.burst = 0;
+            self.climb_deg = 0.0;
+            self.climb_yaw_deg = 0.0;
+        }
+        self.settle_after = interval.max(0.0) + t.settle_delay;
+        let per_shot = (t.bloom_per_shot + t.bloom_per_min_spread * w.min_spread.max(0.0)) * auto(t.bloom_auto_mult);
+        self.bloom = (self.bloom + per_shot).min(t.bloom_max);
+        // The lean: a new burst picks a side; then each shot may swap it.
+        let flip = rnd();
+        if self.burst == 0 || self.lean == 0.0 {
+            self.lean = if flip < 0.5 { -1.0 } else { 1.0 };
+        } else if flip < t.recoil_lean_flip {
+            self.lean = -self.lean;
+        }
+        let up = (t.recoil_base_deg + t.recoil_per_damage_deg * w.base_damage.max(0) as f32) * auto(t.recoil_auto_mult);
+        let pitch = up * (1.0 + t.recoil_jitter * (2.0 * rnd() - 1.0));
+        let yaw = up * t.recoil_side_share * (0.6 * self.lean + 0.4 * (2.0 * rnd() - 1.0));
+        self.climb_deg += pitch;
+        self.climb_yaw_deg += yaw;
+        self.since_shot = 0.0;
+        self.burst += 1;
+        ViewKick { pitch_deg: pitch, yaw_deg: yaw }
     }
 
-    /// Recover over `dt` seconds. Returns the view pitch change (degrees, down).
-    pub fn recover(&mut self, t: &CombatTuning, dt: f32) -> f32 {
-        self.bloom = (self.bloom - t.bloom_recovery * dt).max(0.0);
-        let back = (t.recoil_recovery_deg * dt).min(self.recoil_deg);
-        self.recoil_deg -= back;
-        back
+    /// Over `dt` seconds: once the weapon has rested past the settle delay, bloom
+    /// shrinks. The view is left where the recoil put it.
+    pub fn recover(&mut self, t: &CombatTuning, dt: f32) {
+        self.since_shot += dt;
+        if self.since_shot >= self.settle_after {
+            self.bloom = (self.bloom - t.bloom_recovery * dt).max(0.0);
+        }
+    }
+
+    /// Whether the weapon has settled: no bloom left.
+    pub fn settled(&self) -> bool {
+        self.bloom == 0.0
     }
 }

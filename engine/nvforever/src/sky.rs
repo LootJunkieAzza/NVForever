@@ -96,9 +96,6 @@ const MOON_FADE: (f32, f32) = (5.0, -6.0);
 const SUN_SOUTH: f32 = 9.0 * PI / 180.0;
 /// Elevation (radians) below which the directional light fades out towards the horizon.
 const HORIZON_FADE: f32 = 0.1;
-/// Cloud texture scroll per second per ONAM speed unit, in texture repeats [placeholder
-/// rate, to tune against the game].
-const CLOUD_SCROLL: f32 = 1.0 / 25_600.0;
 /// Game hours per real second at the default TimeScale of 30 [documented: GECK wiki
 /// TimeScale]: a weather's transition, given in real seconds
 /// (`Weather::transition_seconds`), fades over that many game hours.
@@ -1363,9 +1360,10 @@ pub fn update_clouds(
     mut materials: ResMut<Assets<SkyMaterial>>,
     cam: Query<&Transform, (With<FlyCam>, Without<CloudLayer>)>,
     mut clouds: Query<(&mut CloudLayer, &MeshMaterial3d<SkyMaterial>, &mut Transform, &mut Visibility), Without<FlyCam>>,
+    mut logged: Local<Option<u32>>,
 ) {
     let Ok(cam_t) = cam.single() else { return };
-    let secs = time.elapsed_secs();
+    let secs = time.elapsed_secs_f64();
     // Set 0 shows the current weather while no fade runs; during a fade the set whose
     // texture already shows the new weather keeps it.
     for (mut cl, m, mut t, mut vis) in &mut clouds {
@@ -1390,8 +1388,19 @@ pub fn update_clouds(
         *vis = if mat.base.base_color_texture.is_some() && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
         let c = sky.cloud_tint(w.cloud_color(&sky.climate, cl.layer, sky.hour));
         mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], alpha));
-        let speed = w.cloud_speeds[cl.layer] as f32;
-        mat.base.uv_transform = Affine2::from_translation(Vec2::new((secs * speed * CLOUD_SCROLL).fract(), 0.0));
+        // Each set scrolls at its own weather's ONAM speeds, so a fade blends the two
+        // weathers' layers each moving at its own rate (fnv_world::sky::Weather::cloud_scroll).
+        mat.base.uv_transform = Affine2::from_translation(Vec2::new(w.cloud_offset(cl.layer, secs), 0.0));
+        if cl.set == 0 && cl.layer == 0 && *logged != Some(w.form_id) {
+            *logged = Some(w.form_id);
+            let rates = [0, 1, 2, 3].map(|i| format!("{:.5}", w.cloud_scroll(i)));
+            info!(
+                "clouds: {} layer speeds {:?} (ONAM), scrolling {} texture repeats/s",
+                w.edid.as_deref().unwrap_or("?"),
+                w.cloud_speeds,
+                rates.join(", ")
+            );
+        }
     }
 }
 
@@ -1544,8 +1553,13 @@ pub fn update_sky(
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<CloudLayer>)>,
     mut materials: ResMut<Assets<SkyMaterial>>,
     mut flashed: Local<bool>,
+    screen: Option<Res<crate::imagespace::ScreenModifiers>>,
 ) {
     let mut cam = cam;
+    // What the image space modifiers on the screen do to the Sunlight Dimmer and the
+    // Emissive Mult (image-modifiers.md §11), on top of the image space's.
+    let ratio = |i: usize| screen.as_deref().map_or(1.0, |s| s.hdr_ratio(i));
+    let (sun_mod, emissive_mod) = (ratio(fnv_world::imagespace::HDR_SUNLIGHT_DIMMER), ratio(fnv_world::imagespace::HDR_EMISSIVE_MULT));
     let Ok((cam_t, mut fog)) = cam.single_mut() else { return };
     let cam_pos = cam_t.translation;
     let to_bevy = game_to_bevy();
@@ -1648,7 +1662,7 @@ pub fn update_sky(
         // switch between the two does not flip shadows at full strength [interim].
         // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
         // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * sun_mod * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
@@ -1659,7 +1673,7 @@ pub fn update_sky(
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
     fog.color = to_color(sky.fog_color()).with_alpha(strength);
     let power = sky.fog_power();
-    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale());
+    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale() * emissive_mod);
     // A lightning flash changes the light each frame it lasts: not worth a line each.
     let flashing = std::mem::replace(&mut *flashed, flash != Vec3::ZERO);
     if sky.time_scale <= 0.0 && flash == Vec3::ZERO && !flashing {

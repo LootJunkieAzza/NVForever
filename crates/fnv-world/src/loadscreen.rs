@@ -8,6 +8,10 @@ use std::collections::BTreeSet;
 /// Record flag "deleted" [documented: xEdit record header flags].
 const DELETED: u32 = 0x20;
 
+/// The LSCR header flag that puts a screen behind the main menu, by its schema name
+/// [documented: xEdit wbDefinitionsFNV.pas LSCR, bit 10; schemas/fnv/gameplay.json].
+pub const MAIN_MENU_FLAG: &str = "Displays In Main Menu";
+
 /// Where a screen belongs (LSCR LNAM) [documented: fopdoc FalloutNV/Records/LSCR].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenLocation {
@@ -27,6 +31,8 @@ pub struct LoadScreen {
     pub text: String,
     /// Empty: a screen for anywhere.
     pub locations: Vec<ScreenLocation>,
+    /// Header flag "Displays In Main Menu" ([`MAIN_MENU_FLAG`]).
+    pub main_menu: bool,
 }
 
 /// Where the player is being taken.
@@ -94,7 +100,20 @@ fn load_screen(lo: &LoadOrder, schema: &Schema, form_id: u32) -> Option<LoadScre
         texture: f.string(b"ICON").filter(|t| !t.is_empty()),
         text: f.string(b"DESC").unwrap_or_default(),
         locations,
+        main_menu: schema.header_flag(b"LSCR", MAIN_MENU_FLAG).is_some_and(|m| r.header.flags & m != 0),
     })
+}
+
+/// The pictures shown behind the main menu: those of the screens flagged Displays In Main
+/// Menu [documented: the flag's name]; when no screen has the flag (a load order whose
+/// plugins never set it), the screens for anywhere [design: as before the flag was read].
+/// Sorted, each once.
+pub fn main_menu_pictures(screens: &[LoadScreen]) -> Vec<String> {
+    let flagged = screens.iter().any(|s| s.main_menu);
+    let mut out: Vec<String> = screens.iter().filter(|s| if flagged { s.main_menu } else { s.locations.is_empty() }).filter_map(|s| s.texture.clone()).collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// The screen for a trip to `to`. Screens that belong to the destination and screens for
@@ -128,7 +147,7 @@ mod tests {
     const SALOON: u32 = 0x106FE5;
 
     fn screen(form_id: u32, locations: Vec<ScreenLocation>) -> LoadScreen {
-        LoadScreen { form_id, edid: None, texture: None, text: String::new(), locations }
+        LoadScreen { form_id, edid: None, texture: None, text: String::new(), locations, main_menu: false }
     }
 
     fn outdoors(x: i32, y: i32) -> Destination {
@@ -171,5 +190,23 @@ mod tests {
         assert_eq!(choose(&[], &saloon, 0), None);
         // Only screens of other places: nothing fits.
         assert_eq!(choose(&screens[3..], &saloon, 0), None);
+    }
+
+    #[test]
+    fn main_menu_pictures_are_the_flagged_screens() {
+        let pic = |id: u32, t: &str, locations: Vec<ScreenLocation>, main_menu: bool| LoadScreen { texture: Some(t.into()), main_menu, ..screen(id, locations) };
+        let mut screens = vec![
+            pic(1, "b.dds", vec![], false),
+            pic(2, "a.dds", vec![ScreenLocation::Direct(SALOON)], true),
+            pic(3, "c.dds", vec![], true),
+            pic(4, "c.dds", vec![], true),
+        ];
+        // Flagged screens only, a location or not; each picture once.
+        assert_eq!(main_menu_pictures(&screens), vec!["a.dds".to_string(), "c.dds".to_string()]);
+        // None flagged: the screens for anywhere.
+        for s in &mut screens {
+            s.main_menu = false;
+        }
+        assert_eq!(main_menu_pictures(&screens), vec!["b.dds".to_string(), "c.dds".to_string()]);
     }
 }

@@ -176,8 +176,15 @@ visual term, and the detector's skill minus the target's skill times a factor
   Chameleon is at least 1, else 1.
 - **Detector skill** comes from Perception, not Sneak: `P = 10 + 80 · PER / 10`
   (fSneakPerceptionSkillMin 10, Max 90), then `Kd = a · P · (1 + 0.2·inCombat −
-  0.2·asleep − 0.4·busy)`, where `busy` means the detector is fighting someone else
-  (fSneakAlertMod, fSneakSleepBonus, fSneakCombatMod).
+  0.2·asleep − 0.4·combatTarget)` (fSneakAlertMod, fSneakSleepBonus, fSneakCombatMod).
+  The page's formula writes the last term `IsCombatTarget * fSneakCombatMod`, and
+  IsCombatTarget is 1 when the target is a combat target of the detector [documented:
+  GECK wiki IsCombatTarget]; the Fallout Wiki's Sneak (New Vegas) page gives the same:
+  0.8 "in Combat and trying to Detect a Current Combat Target", 1.2 for Alert, Lost, or
+  in Combat detecting anyone else [documented: owner's saved copy, 2026-10-24]. The
+  page's description of fSneakCombatMod says the opposite ("currently in active combat
+  against someone else"); NVForever follows the formula, which two sources agree on
+  (docs/design/detection.md §9).
 - **Target skill** (New Vegas): `Kt = sneaking · (Sneak + 5·(Lt − Ld) + max(50 − 10·Lt,
   0) − armour)`, with `Lt`, `Ld` the levels of target and detector (iSneakLevelBonus 5,
   iSneakStartBonus 50, iSneakStartBonusLevelPenatly 10), `armour` 10 for medium and 20

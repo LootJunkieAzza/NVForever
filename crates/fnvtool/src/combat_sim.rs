@@ -155,7 +155,8 @@ pub struct Shooting {
 
 /// Fire at a target until it dies or time runs out (fnv.combat.sim/1). The shooter stands
 /// at the origin with the eye at 100 units, aiming at the target's centre at the same
-/// height; recoil moves the aim, bloom and the documented spread size the cone.
+/// height; recoil climbs the aim within a burst (the shooter brings it back between
+/// bursts), bloom and the documented spread size the cone.
 pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: &Shooting) -> Result<Value> {
     let Some(w) = c.weapons.get(&weapon) else { bail!("not a weapon") };
     let ch = c.chain(weapon, ammo).expect("weapon present");
@@ -191,11 +192,13 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                 Event::Fired { .. } => {
                     shots += 1;
                     let cone = spread::cone_deg(actor_spread, kick.bloom, w, &eff);
-                    let pitch = kick.recoil_deg.to_radians();
-                    let aim = [pitch.cos(), 0.0, pitch.sin()];
+                    // The shooter holds against the climb only between bursts: within
+                    // one the aim rises by the burst's kicks.
+                    let (pitch, yaw) = (kick.climb_deg.to_radians(), kick.climb_yaw_deg.to_radians());
+                    let aim = [pitch.cos() * yaw.cos(), pitch.cos() * yaw.sin(), pitch.sin()];
                     let mut rnd = || rng.next_f32();
                     flying.extend(shot::fire(c, &ch, eye, aim, cone, Some(SHOOTER), g, &t, &mut rnd));
-                    kick.shot(&t, w.min_spread, w.base_damage as f32);
+                    kick.shot(&t, w, timing.interval, &mut rnd);
                 }
                 Event::Reloaded { taken } => {
                     carried -= taken;

@@ -180,6 +180,12 @@ pub struct Item {
     /// ([`crate::World::activate`]; skill-books.md §4). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub cant_be_taken: bool,
+    /// ARMO DNAM flag "Modulates Voice" (bit 0): "the item modulates the actor's voice"
+    /// [documented: xEdit wbDefinitionsFNV.pas ARMO DNAM; GECK wiki Armor, ArmorAddon
+    /// ("like Power Armor helmets do")]. Its wearer's lines play through the voice filter
+    /// (nvf-play `voice_filter`). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub modulates_voice: bool,
 }
 
 impl Item {
@@ -324,9 +330,20 @@ pub struct BaseForm {
     /// XATO comes first. Not written to JSON.
     #[serde(skip)]
     pub prompt: Option<String>,
+    /// A talking activator (TACT) without the record header flag "No Voice Filter"
+    /// ([`NO_VOICE_FILTER`]): its lines play through the voice filter (nvf-play
+    /// `voice_filter`) [hypothesis: the flag's name says the filter is the rule for
+    /// talking activators; 2 of FalloutNV.esm's 87 set it, both radios]. Not written to
+    /// JSON.
+    #[serde(skip)]
+    pub voice_filter: bool,
     #[serde(flatten)]
     pub data: BaseData,
 }
+
+/// Record header bit 13 of a TACT, "No Voice Filter" (8192) [documented: GECK wiki
+/// GetFormFlag bit table, adapted from FNVEdit; owner export].
+pub const NO_VOICE_FILTER: u32 = 1 << 13;
 
 pub(crate) fn ser_sig<S: serde::Serializer>(sig: &[u8; 4], s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&String::from_utf8_lossy(sig))
@@ -541,6 +558,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     name: None,
                     script: None,
                     prompt: None,
+                    voice_filter: false,
                     data: BaseData::Item(Item {
                         kind,
                         value: None,
@@ -563,6 +581,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         placed_count: None,
                         teaches: None,
                         cant_be_taken: false,
+                        modulates_voice: false,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -677,7 +696,8 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
         }
     };
     let prompt = if &sig == b"ACTI" { first(&d, b"XATO").and_then(text).filter(|t| !t.trim().is_empty()) } else { None };
-    Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, prompt, data }))
+    let voice_filter = &sig == b"TACT" && r.header.flags & NO_VOICE_FILTER == 0;
+    Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, prompt, voice_filter, data }))
 }
 
 /// Whether the record's header carries the flag the schema names "Quest Item" for its
@@ -799,6 +819,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             _ => None,
         },
         cant_be_taken: kind == ItemKind::Book && data.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Can't be Taken")),
+        modulates_voice: kind == ItemKind::Armor && first(d, b"DNAM").and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Modulates Voice")),
     })
 }
 

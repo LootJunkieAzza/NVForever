@@ -33,10 +33,24 @@ As built (`fnv_game::data::GameData::default_object`, `fnv_world::audio::AudioFo
 - **Drug Wears Off Image Space**: when the last effect of a chem the player took (ALCH,
   equip type Chems) ends, that image space modifier plays [documented: the entry's name;
   hypothesis: when].
+- **Stimpak** (place 0): the companion wheel's Use Stimpak gives the carried stimpak the
+  entry names first (`Game::wheel_stimpak`), else the one with Editor ID `Stimpak`
+  [observed: FalloutNV.esm names `Stimpak` 0x00015169 there, so nothing changes with the
+  shipped data].
+- **Perk Paralysis** (place 5): Paralyzing Palm casts the entry's spell
+  (`Game::palm_spell`), else `PerkParalyzingPalm` 0x0006B20B [observed: FalloutNV.esm names
+  that spell there, `fnvtool esm decode --edid DefaultObjectManager`].
+- **Stimpak, RadX, RadAway, Doctor's Bag** (places 0, 2, 3, 21): the Pip-Boy STATS
+  page's hints count and use them (`nvf_play::pipboy::stats::read`, its own DOBJ read),
+  else the Editor IDs as before [observed: FalloutNV.esm names `Stimpak`, `RadX`,
+  `RadAway` and `NVDoctorBag` there, so nothing changes with the shipped data].
 - Read and not used: the rest. The level-up's `DefaultSuccess` names no shipped file and
-  the level-up keeps `UILevelUp` (xp-meter); the stimpak, the factions, the voices, the
+  the level-up keeps `UILevelUp` (xp-meter); the other chems, the factions, the voices, the
   Meltdown explosion (the perk is not built), the unarmed power-attack effects (not built,
   perk-entry-points.md §2), Spotter and Item Detected.
+- Looked up by Editor ID because no place matches: the SOUN `MUSDeath` (the fallback after
+  Death Music, `nvf_play::music`) and the night-vision scope's `NightScopeISFX`
+  (`nvforever::scope_view`); the list has no death sound or scope image space.
 
 ## 2. REGN RDSD: region sounds
 
@@ -71,9 +85,11 @@ multipliers for the player, the target and the world; max and min time; target %
 between actors) and `MNAM` an image space modifier. CPTH: conditions, `ANAM` (parent,
 previous sibling), `DATA` camera zoom (Default, Disable, Shot List) and `SNAM` shots.
 FalloutNV.esm: 276 CAMS, 418 CPTH [observed]. They are the kill cameras of VATS and the
-death cameras; NVForever's VATS mode has no kill camera (vats-mode.md) and the death
-camera is its own (death_cam.rs), so nothing plays them yet. `fnvtool esm decode` shows
-them.
+death cameras. As built (2026-10-24, ESM audit gap 10): both are loaded
+(`fnv_game::camera_paths`, `GameData::camera_paths` / `camera_shots`), and VATS mode's
+kill camera chooses a path from the tree and plays its shots' models (vats-mode.md §19).
+The death camera stays the owner's own (death_cam.rs); the `PlayerDeath` paths are
+loaded, not played. `fnvtool esm decode` shows them.
 
 ## 4. RGDL: ragdolls
 
@@ -87,6 +103,7 @@ and pose matching (keyframed bones driving the ragdoll) are not built (ragdoll.m
 
 ## 5. Checks
 
-Unit tests: `default_object` places, `RegionSound::plays_in`. Smoke `region-sounds`
-(Doc Mitchell's house, AudioIntMitchellHouse: region sounds played) and `death-music-dobj` (the death line names the SOUN
-fallback with the shipped data).
+Unit tests: `default_object` places (0, 5, 11, 13, 20), the palm's fallback
+(`palm_spell_in`), `RegionSound::plays_in`. Smoke `region-sounds` (Doc Mitchell's house,
+AudioIntMitchellHouse: region sounds played) and `death-music-dobj` (the death line names
+the SOUN fallback with the shipped data).

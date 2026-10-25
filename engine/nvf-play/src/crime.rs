@@ -222,6 +222,7 @@ fn show_notes(
                 let what = if now { "trespasses in" } else { "left" };
                 info!("crime: the player {what} {} (owned by {})", g.data.name(cell), g.data.name(owner));
             }
+            Note::NoAlarm { door, cell } => info!("crime: the player came through {door}, a No Alarm door, into {}: no trespass alarm there", g.data.name(cell)),
         }
     }
 }

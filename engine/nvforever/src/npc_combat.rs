@@ -44,7 +44,15 @@
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
-//!   were coming from Violet's face, not the gun"); without a muzzle node, from the eyes.
+//!   were coming from Violet's face, not the gun"). A creature's embedded weapon (a
+//!   sentry bot's minigun, an eyebot's laser) shoots from the node of the creature's
+//!   skeleton its WEAP `NNAM` names ("Node that the weapon is attached to" [documented:
+//!   GECK wiki Weapons, Embedded Weapon]; `ProjectileNode_RGatling`,
+//!   `ProjectileNode_HeadLaser`); a node only in a body part's model is not found
+//!   [design: the skeleton's nodes are the ones spawned]. Without either, from the eyes. A
+//!   creature with no weapon drawn in its hands fights with such an embedded gun when its
+//!   skeleton has the gun's node (before 2026-10-24 embedded guns were never fired: the
+//!   sentry bot only struck) [design: which of several; the first equipped or carried].
 //!   Inside its spread: the documented actor
 //!   spread for its weapon skill, standing, plus an aim that settles over
 //!   [`SETTLE_SECONDS`] of firing at the same target [design].
@@ -629,6 +637,22 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// Whether a creature's blow is a power attack, and which with its hit time (module
 /// notes): `have`, the power attacks it has clips for; `u` and `v`, rolls in [0, 1).
 /// Also says whether the chance was the fallback.
+/// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
+/// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
+/// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
+fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+    if !g.is_teammate(me) {
+        return 1.0;
+    }
+    let (v, applied) = g.entry_point_with(me, fnv_game::perks::MODIFY_ATTACK_SPEED, &[weapon], 1.0);
+    let v = (v as f32).clamp(0.1, 10.0);
+    if !applied.is_empty() {
+        let by: Vec<String> = applied.iter().map(|a| g.data.name(a.perk)).collect();
+        debug!("npc combat: {} {me} attacks at x{v:.2} ({})", g.data.name(me), by.join(", "));
+    }
+    v
+}
+
 fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f32)], fatigue: f32, u: f32, v: f32) -> (Option<(Power, f32)>, bool) {
     let own = style.filter(|s| s.power_attack_chance > 0.0).map(|s| creature_power_chance(s, fatigue));
     if have.is_empty() || u * 100.0 >= own.unwrap_or(FALLBACK_POWER_CHANCE) {
@@ -999,6 +1023,21 @@ fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
     }
 }
 
+/// The embedded gun (WEAP Embedded Weapon, a projectile) among `me`'s items whose NNAM
+/// node is in its skeleton (`names`): the one it shoots with.
+fn embedded_gun(c: &Combat, world: &fnv_sim::World, me: FormId, names: &[Option<String>]) -> Option<FormId> {
+    let usable = |id: &FormId| c.forms.weapons.get(id).is_some_and(|ws| ws.embedded && is_gun(c, ws, *id) && ws.embedded_node.as_deref().is_some_and(|n| embedded_node_index(names, n).is_some()));
+    let equipped = world.equipment(me).unwrap_or_default();
+    let carried: Vec<FormId> = world.peek(me).and_then(|s| s.inventory.as_ref()).map(|inv| inv.iter().map(|(id, _)| id).collect()).unwrap_or_default();
+    equipped.into_iter().chain(carried).find(usable)
+}
+
+/// The index of the skeleton node named `node` (an embedded weapon's NNAM), matched
+/// without regard to case.
+pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize> {
+    names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(node)))
+}
+
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fight(
@@ -1012,7 +1051,7 @@ pub(crate) fn fight(
     (nav, location, mut battle, residents): Where,
     actors: Query<Fought>,
     held: Query<&HeldWeapon>,
-    muzzles: Query<(&Muzzle, &GlobalTransform)>,
+    (muzzles, nodes): (Query<(&Muzzle, &GlobalTransform)>, Query<&GlobalTransform>),
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
     mut times: ResMut<AttackTimes>,
     (cstats, control): (Option<Res<CombatStats>>, Option<Res<PlayerControl>>),
@@ -1030,6 +1069,15 @@ pub(crate) fn fight(
     let c = &*combat;
     let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).collect();
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
+    // A creature's embedded weapon shoots from the node its WEAP names (NNAM), where its
+    // skeleton has it (module notes).
+    let rigs: HashMap<u32, &ActorRig> = actors.iter().map(|(rig, ..)| (rig.reference, rig)).collect();
+    let embedded_at = |id: u32, ws: &WeaponStats| -> Option<V3> {
+        let node = ws.embedded_node.as_deref().filter(|_| ws.embedded)?;
+        let rig = rigs.get(&id)?;
+        let i = embedded_node_index(&rig.skel.names, node)?;
+        nodes.get(*rig.nodes.get(i)?).ok().map(|g| bevy_to_game(g.translation()).to_array())
+    };
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
     for (rig, g, vis, _, dying, corpse, _) in &actors {
@@ -1155,7 +1203,10 @@ pub(crate) fn fight(
                 continue;
             }
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
-            let arm = arm_of(c, g, weapons.get(&id).copied(), me, scale, melee_only);
+            // A creature with nothing in its hands fights with an embedded gun whose node its
+            // skeleton has (WEAP NNAM; module notes).
+            let held = weapons.get(&id).copied().or_else(|| rigs.get(&id).and_then(|rig| embedded_gun(c, &g.world, me, &rig.skel.names)));
+            let arm = arm_of(c, g, held, me, scale, melee_only);
             // Its strength, and its target's, for the threat ratios.
             let (health, full) = g.health_now_and_full(me);
             // How spent it is, for its dodges and power attacks (§17.1, §17.3).
@@ -1214,7 +1265,11 @@ pub(crate) fn fight(
                     (_, Some((cy, timed))) => (Some(cy), timed),
                     (Arm::Gun(w), None) => (
                         c.forms.weapons.get(w).map(|ws| {
-                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
+                            let rate = teammate_attack_rate(g, me, Some(*w));
+                            if rate != 1.0 {
+                                info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
+                            }
+                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
                             Cycle::new(ws, timing, false, ws.clip_size.max(1))
                         }),
                         false,
@@ -2082,7 +2137,8 @@ pub(crate) fn fight(
                     // (between reloads, so one under way runs to its end).
                     if !fighter.reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
                         if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
-                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning);
+                            let rate = teammate_attack_rate(g, me, Some(*w));
+                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning).with_attack_rate(rate);
                             fighter.reload_timed = true;
                         }
                     }
@@ -2161,14 +2217,16 @@ pub(crate) fn fight(
                                 }
                                 // Aimed from the eyes, drawn from the muzzle when the weapon
                                 // has one (module notes).
-                                let muzzle = muzzle_at.get(&id).copied();
+                                let embedded = if muzzle_at.contains_key(&id) { None } else { embedded_at(id, ws) };
+                                let muzzle = muzzle_at.get(&id).copied().or(embedded);
                                 let to = vec::sub(aim_at, eyes);
                                 let len = vec::len(to).max(1.0);
                                 let aim = vec::scale(to, 1.0 / len);
                                 let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
                                 if !fighter.opened_fire {
                                     fighter.opened_fire = true;
-                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0})", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
+                                    let node = embedded.and(ws.embedded_node.as_deref()).map_or(String::new(), |n| format!(", shooting from its embedded weapon's node {n}"));
+                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0}){node}", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
                                 }
                                 let first = f.stats.from_muzzle + f.stats.from_eyes == 0 || fighter.firing_for <= dt;
                                 match muzzle {
@@ -2197,7 +2255,7 @@ pub(crate) fn fight(
                                 // crippled-limbs.md §3].
                                 use fnv_game::combat::{HEAD, LEFT_ARM, RIGHT_ARM};
                                 let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled, head_crippled };
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, strength_req_cut: 0.0, left_arm_crippled, right_arm_crippled, head_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
@@ -2407,7 +2465,14 @@ pub(crate) fn fight(
                     }
                     if attack {
                         let speed = match &arm {
-                            Arm::Melee(w) => w.or(c.fists_id()).and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)),
+                            Arm::Melee(w) => {
+                                let id = w.or(c.fists_id());
+                                let rate = teammate_attack_rate(g, me, id);
+                                if rate != 1.0 {
+                                    info!("npc combat: {} {me} strikes at x{rate:.2} (the teammate perks)", g.data.name(me));
+                                }
+                                id.and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)) * rate
+                            }
                             _ => 1.0,
                         };
                         fighter.strike_in = STRIKE_SECONDS / speed;
@@ -2657,6 +2722,15 @@ fn log_room(phys: Option<&mut PhysState>, name: &str, what: &str, feet: [f32; 3]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_weapon_node_by_name() {
+        // The sentry bot's skeleton names its gun node so (meshes\creatures\sentrybot).
+        let names = vec![Some("Bip01".to_string()), None, Some("ProjectileNode_RGatling".to_string())];
+        assert_eq!(embedded_node_index(&names, "ProjectileNode_RGatling"), Some(2));
+        assert_eq!(embedded_node_index(&names, "projectilenode_rgatling"), Some(2));
+        assert_eq!(embedded_node_index(&names, "ProjectileNode_HeadLaser"), None);
+    }
 
     #[test]
     fn melee_keeps_its_reach_from_the_target() {
