@@ -292,3 +292,22 @@ formula (capped 5–85 %), not built at all.
 
 Checks: `fnv_game::detection` test `perception_night_eye_stealth_boys_and_the_detectors_state`
 (a fighter's foe at 0.8, anyone else at 1.2); smoke `detection-pipboy-light`.
+
+## 10. Light and noise gauges (owner request 2026-10-24)
+
+An optional HUD addition, after the stealth games that show how lit and how loud the
+player is [design: not the original's]. The settings page's Gameplay switch
+`sneak-gauges` (off by default, kept in the INI) shows two segmented bars under the
+sneak word while the player sneaks (`nvf_play::sneak_gauges`):
+
+- **Light**: the light level at the player, 0–100, from the detection pass (§3, with
+  the Pip-Boy light of §9), the bar following changes over half a second.
+- **Noise**: the player's sound term before the distance falloff,
+  `Settings::noise` (the same function the detection value uses): footsteps by body
+  armour weight, × 1.5 running unless Silent Running, shots × 2 by their sound level,
+  all × 1.6; full at 100. Standing still is 0, a walk in light armour about a third, a
+  run about half, any Normal or Loud shot fills it, and it falls back over 1.5 s.
+
+They show what the player gives off, not whether anyone notices (the sneak word says
+that); sneaking itself makes no less noise in the formula, only the Sneak skill counts.
+Smoke `sneak-gauges`.
