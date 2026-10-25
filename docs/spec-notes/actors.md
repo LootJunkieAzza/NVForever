@@ -1224,50 +1224,66 @@ stopped and started, as Victor's walk had before #258). Code:
   multipliers [observed: `fnvtool esm inventory` and `esm decode`, FalloutNV.esm]). From
   2026-10-16 to 10-25 every creature had 0.70; the measurements below show most
   creatures keep the whole clip pace, so 0.70 is the cazadors' own.
-- **Other creatures** [observed: AI observer in the original game, 2026-10-25, the
-  observer-jobs session's `creature_pace` campaigns (outputs
-  `C:\fnv-private\capture\out\obs_creature_pace_room_*`, `obs_creature_charge_01_*`, not
-  committed)]: bases spawned by PlaceAtMe in a flat test room (TestJoshWeapons) wandering
-  on their own packages (`tdetect`), medians over 0.5-s windows while moving; placed ones
-  in the world. Share = speed ÷ (clip root motion × the base's scale (BNAM, as the
-  engine reads it: through the Stats template) × Speed Mult / 100); clips
-  `locomotion\mtforward.kf` and `mtfastforward.kf` of each folder [observed: `fnvtool
-  actor locomotion`]:
+- **Other creatures, on open ground** [observed: AI observer in the original game,
+  2026-10-25, campaign `creature_runs` (`tools/capture/observe/creature_runs.campaign.json`;
+  outputs `C:\fnv-private\capture\out\obs_creature_runs_*`, not committed), save
+  `nvfstrip`, 10:00]: on the Searchlight Airport runway (cells 8–9, −29: flat at z 6056,
+  navmeshed), the area's radscorpions killed (`killall`) on arrival, the player in god
+  mode (`tgm`, no `tdetect`). Each base was spawned by PlaceAtMe and moved 1,500 units up
+  the runway, then set on the player (StartCombat): it detected the player and charged
+  straight down the runway. The bark scorpion attacks as soon as it is spawned (aggro
+  radius 500), so it was left beside the player until it had engaged and the player was
+  then moved 1,500 units away. Walks: the base spawned 600 units off with the player in
+  its faction, wandering on its own package for 68 s. Speeds over 0.25-s windows while
+  the creature moved and the player stood; runs only while `IsRunning`, the first and
+  last 0.5 s of a charge left out. Share = speed ÷ (clip root motion × the base's scale
+  (BNAM, through the Stats template) × Speed Mult / 100); a charge plays the run clip of
+  the creature's combat stance (`h2hfastforward.kf` for dogs and coyotes, §8.10 Alert
+  stance; `mtfastforward.kf` otherwise) [observed: `fnvtool actor locomotion`]:
 
   | creature (base) | scale, Speed Mult | clip walk / run | walk (share) | run (share) |
   |---|---|---|---|---|
-  | dog VCrTier1DogMed 0014F425 | 0.8, 100 | 57.4 / 333.1 | 45.1 (0.98) | |
-  | coyote VCrTier1CoyoteMed 0014F428; placed CrCoyote | 1.0, 110 | 57.4 / 333.1 | 60.8 (0.96, 3 s); about 62 (0.98) | |
-  | NCR dog CrDogNCRAggressive (placed) | 1.2, 100 | 57.4 / 333.1 | 63–79 (0.91–1.15) | |
-  | gecko VCrTier2GeckoMed 0014F3FD | 0.8, 100 | 62.5 / 578.6 | 49.9 (1.00) | |
-  | giant mantis VCrTier2GiantMantisMed 0014F427 | 1.0, 100 | 44.9 / 279.8 | 44.8 (1.00) | |
-  | bark scorpion CrBarkScorpion (placed) | 0.35, 250 | 74.9 / 315.0 | about 65 (0.99) | |
-  | giant rat VCrTier1GiantRatMed 0014F3FF | 1.1, 100 | 56.0 / 337.5 | 46.9 (0.76) | |
-  | mole rat VCrTier1MoleRatMed 0014F404; placed CrMoleRat 000BAC90 | 1.0, 100 | 42.7 / 338.7 | 34.1 (0.80) | 324, p10 307, p90 336, 3.5 s (0.96) |
-  | young deathclaw VCrTier3DeathClawSmall 0014F42D | 0.75, 100 | 120.0 / 600.0 | 52.9 (0.59, unsteady) | |
+  | dog VCrTier1DogMed 0014F425 | 0.8, 100 | 57.36 / h2h 454.75 | 46, 2 s (1.00) | 363–365 for 3 s (1.00) |
+  | coyote VCrTier1CoyoteMed 0014F428 | 1.0, 110 | 57.36 / h2h 454.75 | 63.1 (1.00) | 498–502 for 2 s (1.00) |
+  | radscorpion VCrTier2RadscorpionMed 0014F403 | 0.6, 150 | 74.9 / 315.04 | 67.0, 62 s in two walks (0.99) | 279–295, median 281, 4 s (0.99) |
+  | bark scorpion CrBarkScorpion 000EB401 | 0.35, 250 | 74.9 / 315.04 | | 268–282, median 275, 4.3 s (1.00) |
+  | feral ghoul VCrTier1FeralGhoul1A 00167ECC | 1.0, 100 | 95.72 / 384.0 | 95.5–97.3, 20 s (1.01) | medians 385 and 393, 3 s each (1.01) |
+  | deathclaw VCrTier4DeathClawMed 0014F42C | 1.0, 100 | 120.0 / 599.99 | 118.9 and 121.3, 120 s (1.00) | 538–647 around 600, two charges of 1.3 s (1.00) |
+  | young deathclaw VCrTier3DeathClawSmall 0014F42D | 0.75, 100 | 120.0 / 599.99 | | 391–528, median about 450, two charges (1.00) |
+  | mole rat VCrTier1MoleRatMed 0014F404 | 1.0, 100 | 42.71 / 338.69 | 42.4, 30 s (0.99) | |
+  | giant rat VCrTier1GiantRatMed 0014F3FF | 1.1, 100 | 56.0 / 337.5 | 61.5, 35 s (1.00) | |
+  | brahmin VCrTier0Brahmin 00167EF3 | 1.25, 100 | 44.13 / 177.6 | 53.4 (0.97) | fleeing (Cowardly, set on the player): 206–234 while speeding up, 1.8 s (about 1) |
 
-  Not usable: radscorpion and feral ghoul (their positions jumped). Spawned creatures set
-  on the player did not charge, and placed ones did not detect the player, so only the
-  mole rat ran. Leveled geckos charging earlier at 230–290 fit a run share of 1 at a
-  scale of 0.5 (578.6 × 0.5 = 289).
-- **Rule** (`creature_pace::skeleton_share`, `CREATURE_SPEED_FIT`) [observed fit;
-  hypothesis for unmeasured creatures and runs]: a creature moves at its clips'
-  root-motion speed × scale × Speed Mult / 100 × its skeleton's share: 1 by default (the
-  dogs, coyotes, geckos, mantises and scorpions above); cazadors 0.70; brahmin 1.4;
-  mole rats 0.80 walking, 0.96 running; giant rats 0.76; deathclaws and feral ghouls keep
-  0.70 (the deathclaw's walk was unsteady; ghouls are not measured and keep the owner's
-  ×1.25 on top, `type_pace`). Where only a walk was measured, the run takes the walk's
-  share. Why the shares differ is open: the original may match its creatures' gaits to
-  speeds of its own and not to the clips.
-- **Brahmin** [observed: the AI observer in the original game, 2026-10-24, the Novac
-  caravan's pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its merchant
-  on its route, 2,909 samples over 243 s]: it walked at a median 78 units/s over
+  The deathclaws' speeds swing within a stride (walk p10 67, p90 155), so their medians
+  are the measure. Earlier rounds (the same day, `creature_pace_room`,
+  `creature_charge`) were spoilt by their places: in the test room TestJoshWeapons the
+  creatures walked at 0.76–0.80 (giant rat, mole rat) or in short bursts and froze in
+  combat beside a target they saw (the owner: the room has no navmesh), and a standing
+  player 1,500 units off is below an interior detection range of 2,500 (actor-behaviour.md
+  §2.1: falloff ((2500 − 1500)/2500)² = 0.16); outdoors on rough ground most placed
+  creatures never detected the player, and the one charge (mole rat 000BAC90, 324 =
+  0.96) went uphill. The room's walks that fit 1 (dog 45.1, gecko 49.9 at 0.8 against
+  62.5, giant mantis 44.8 against 44.9) agree with the runway.
+- **Rule** (`creature_pace::skeleton_share`, `CREATURE_SPEED_FIT`) [observed fit]: a
+  creature walks and runs at its clips' root-motion speed × scale × Speed Mult / 100,
+  the whole of it: every creature measured on open ground above, walking and running,
+  is within 3 % of it. Cazadors are the one exception, 0.70 walking and running
+  (measured at the Tribal Village, above); why is open (no game setting gives 0.70; they
+  are the only flyers measured). The shares built from 2026-10-24 to 10-25 (brahmin 1.4,
+  mole rats 0.80/0.96, giant rats 0.76, deathclaws and feral ghouls 0.70) came from the
+  spoilt rounds and the pack brahmin below and are gone, and with them the feral ghouls'
+  ×1.25 (`type_pace`, the owner's guess of list 7 item 36 to make them as fast as a
+  running player): at the whole clip pace a ghoul runs 384, as the original's do. For
+  creatures not measured the rule is a [hypothesis].
+- **Brahmin following** [observed: the AI observer in the original game, 2026-10-24, the
+  Novac caravan's pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its
+  merchant on its route, 2,909 samples over 243 s]: it walked at a median 78 units/s over
   2-second windows (p10 60, p90 83) and ran once, for about 4.6 s, at a median of about
-  330 (up to 463) to close a gap of about 1,000; the rule above gives 39 and 155, half of
-  both. `creatures\brahmin` skeletons take twice that share, 1.4 (77 and 311)
-  [hypothesis: that the walk is its own rather than matched to the merchant's, the run
-  being matched to nothing; the same share for every brahmin]. The merchant walked at a median
-  76.8 with its weapon drawn (below, "People"). The brahmin kept 440–530 units behind it while both walked, closed to
+  330 (up to 463) to close a gap of about 1,000. Its own pace is 55 and 222 (above), so
+  it walked at its merchant's pace (76.8, weapon drawn: below, "People") and ran faster
+  than its run clip to catch up [hypothesis]; NVForever's followers do both
+  (`fnv_ai::keep_step_speed`, `catch_up`: up to 1.5 × the run, 333).
+  The brahmin kept 440–530 units behind it while both walked, closed to
   about 300 when the merchant stopped, and ran when about 800–1,060 behind
   (docs/design/actor-behaviour.md, Follow).
 - **People** (added 2026-10-24; `fnv_ai::NPC_WALK`, `NPC_RUN`,
