@@ -1,0 +1,113 @@
+# Spec note: extender version and plugin checks
+
+Covers how scripts ask which script extender and which extender plugins are present:
+GetNVSEVersion, GetNVSERevision, GetNVSEBeta, IsPluginInstalled, GetPluginVersion, the
+plugins' own getters (GetLNVersion/GetJIPLNVersion, GetNVSEVersionFull, …), and what
+NVForever should answer.
+
+Written for task C5 of the extender plan ([extender-core-tasks.md](../handoff/extender-core-tasks.md))
+from the GECK wiki export. Everything the pages state is tagged `[documented: <page>]`;
+what they leave out is **open (to observe)**. Origins are from
+`schemas/script/functions.json` [observed]. The list of known plugin names that
+GetPluginVersion and IsPluginInstalled include (`Template:NVSE_Plugins`) is **not in the
+export**; the names below are only the ones pages spell out.
+
+Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
+private); no extender source, no opcode numbers or argument encodings (those come only
+from a cited document or from compiling our own test scripts with xNVSE,
+[extender-compat.md](../design/extender-compat.md) §4.1).
+
+## 1. The extender's own version (NVSE)
+
+| Function | Arguments | Returns | Behaviour |
+|---|---|---|---|
+| GetNVSEVersion | — | int | the installed extender's version number [documented: GetNVSEVersion] |
+| GetNVSERevision | — | int | its revision number [documented: GetNVSERevision] |
+| GetNVSEBeta | — | int | its beta number; **0 for a non-beta release** [documented: GetNVSEBeta] |
+
+- The pages' checks: `if GetNVSEVersion < 4` (needs NVSE 4), `if GetNVSEVersion == 4 &&
+  GetNVSERevision < 3` (needs 4 revision 3), `if GetNVSEBeta != 0 && GetNVSEBeta < 3`
+  (needs beta 3) [documented: each page's example]. The NVSE Expressions page's example
+  prints `$(GetNVSEVersion)` as `4` [documented: NVSE Expressions], an old example.
+- **A version check only works in a script that uses nothing else from the extender**:
+  without the extender, a script using any extender feature fails before the check runs
+  [documented: GetNVSEVersion, "Usage Warning"].
+- How xNVSE 6.4.9 splits into these three numbers (6 / 4 / 9?): open [hypothesis: the
+  three getters map to the three parts of the dotted version]. A probe printing the three
+  under the owner's xNVSE settles it.
+
+## 2. Extender plugins
+
+| Function | Arguments | Returns | Behaviour |
+|---|---|---|---|
+| IsPluginInstalled | plugin name (string) | bool | 1 when that NVSE plugin is loaded [documented: IsPluginInstalled] |
+| GetPluginVersion | plugin name (string) | float | the plugin's version, **-1 when it is not loaded** [documented: GetPluginVersion] |
+
+- **The name is the one the plugin registers** (shown in `nvse.log`), **not its file
+  name** [documented: IsPluginInstalled; GetPluginVersion].
+- **The number is usually the version times 100** (ShowOff 1.80 → 180), **except JIP LN,
+  which returns its real version as a float** (57.30) [documented: GetPluginVersion].
+- Matching of the name (case, spaces): open.
+
+**Plugin names the pages give** (exact strings):
+
+| Plugin | Name to test | Evidence |
+|---|---|---|
+| JIP LN NVSE | `"JIP NVSE Plugin"` | [documented: GetPluginVersion; IsPluginInstalled] |
+| JohnnyGuitar NVSE | `"JohnnyGuitarNVSE"` | [documented: IsPluginInstalled] |
+| SUP NVSE | `"SUP NVSE Plugin"` | [documented: IsPluginInstalled; GetSUPVersion] |
+| MCM | `"MCM Extensions"` | [documented: IsPluginInstalled] |
+| NX (New Vegas Extender) | `"Extensions for NVSE"` | [documented: IsPluginInstalled] |
+| ShowOff NVSE | `"ShowOffNVSE Plugin"` | [documented: GetPluginVersion; Category:Functions (ShowOff NVSE)] |
+| JIP PP LN | `"JIP PP LN"` | [documented: AttachModel and the other JIP PP LN pages] |
+| CacheUI | `"CUI"` | [documented: Category:Functions (CacheUI Plugin)] |
+| hNVSE | `hNVSE` (unquoted on its page) | [documented: Category:Functions (hNVSE)] |
+
+## 3. Plugins' own version getters
+
+| Function | Origin | Returns | Behaviour |
+|---|---|---|---|
+| GetLNVersion (alias GetJIPLNVersion) | LU | int | **always 0 now**; deprecated since NVSE 4.5.7 in favour of GetPluginVersion [documented: GetLNVersion] |
+| GetNVSEVersionFull | JIP | float | the full extender version (version, revision and beta) as one float, e.g. `>= 5.02`; registered on an unused base-game opcode, so it returns 0 without NVSE and JIP and works as an NVSE check; broken before JIP 57.05 [documented: GetNVSEVersionFull] |
+| GetPluginHeaderVersion | JIP | float | a plugin file's header version, e.g. of FalloutNV.esm [documented: GetPluginHeaderVersion] |
+| GetSUPVersion | SUP | -1 always | prints SUP's version to the console; not a check [documented: GetSUPVersion] |
+| GetNVSEOnlineVersion, GetNexusModVersion… | SUP | — | fetch versions from the internet; out of scope (NVForever does not reach the network for scripts) [documented: their pages] |
+| IsDLLLoaded | JohnnyGuitar | bool | whether a named DLL is loaded into the game [documented: IsDLLLoaded] |
+
+No "IsScriptExtenderLoaded"-style function is in the export; GetNVSEVersionFull is the
+documented way to test for the extender from a script that must also run without it.
+
+## 4. How the wiki's examples check versions (survey)
+
+Counted over the private export [observed: every page's text]:
+
+| Check | Mentions |
+|---|---|
+| GetPluginVersion "…" | 24 (mostly "use GetPluginVersion "X"" lines on plugin category pages) |
+| GetNVSEVersion | 15 |
+| IsPluginInstalled "…" | 9 |
+| GetNVSEBeta | 5 |
+| GetNVSERevision | 4 |
+| GetLNVersion / GetJIPLNVersion | 1 each (its own deprecation page) |
+
+So mods mostly gate on **GetPluginVersion with a plugin name** and on **GetNVSEVersion**
+(compared with 4, the version that brought let, arrays and strings). Examples compare
+with "at least" (`<` → warn), so reporting a version that is too high is safer than too
+low.
+
+## 5. What NVForever answers (for C5)
+
+- **GetNVSEVersion / Revision / Beta**: the xNVSE version NVForever targets (owner-review,
+  "xNVSE baseline" item 4; default 6.4.9), split as §1 settles [decision pending the
+  probe].
+- **IsPluginInstalled / GetPluginVersion**: report a plugin as loaded only when NVForever
+  implements that plugin's functions (C2's per-plugin modules), with the version that
+  module claims; otherwise 0 and -1 [decision: claiming a plugin whose functions are
+  missing would let mods take paths that then fail]. The names in §2 are the keys.
+- **GetNVSEVersionFull**: a JIP function; answer only once JIP's module exists.
+- **GetLNVersion**: 0, as documented.
+
+## 6. Open (to observe)
+
+The version/revision/beta split of 6.4.9; GetPluginVersion's name matching; the full
+known-plugin list (`Template:NVSE_Plugins`, not exported).
