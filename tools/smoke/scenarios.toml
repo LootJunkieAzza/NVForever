@@ -6765,6 +6765,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "creature-pace-skeletons"
+source = "docs/spec-notes/actors.md §8.10 Every skeleton (engine/nvforever/src/creature_pace.rs, crates/fnv-actor/src/locomotion.rs clip_candidates): creatures of several skeletons get the speeds measured in the original game on the Searchlight Airport runway (campaigns creature_runs_all, creature_flee): nightstalker 100.6 / 498.8 (misspelt mtfoward/mtfastfoward), protectron 22.2 / 84.4 (walk share 0.88), Dead Money ghost person (scale 1.25, no run clip) 106.7 / 105.4, lakelurk 27.9–31.4 / 358, sentry bot 96.2 / 383.7, alien 86–91 / 420.8 (forwardwalk/fastforward, no mt), sonic-bark cyberdog 57.5 / 333.1 on its mt run (no alert stance)"
+note = "each base placed beside the player by PlaceAtMe (GOD) from 3 s; a creature's speeds are logged once it is drawn. Expected values are clip root motion × scale × Speed Mult (all 100) × share, rounded as the log prints them"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier4NightStalkerMed:1:600:0,3.5:call:player:PlaceAtMe:VCrTier0CrProtectron:1:600:1,4:call:player:PlaceAtMe:NVDLC01CrGhost:1:600:2,4.5:call:player:PlaceAtMe:NVCrLakelurk:1:600:3,5:call:player:PlaceAtMe:CrSentryBotRHQ:1:800:0,5.5:call:player:PlaceAtMe:CrAlien:1:800:1,6:call:player:PlaceAtMe:NVDLC03CrCyberDogMilitary01Ranged:1:800:2" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'creature pace: VCrTier4NightStalkerMed 0x\w+ walks 101 and runs 500 units/s', label = "the nightstalker walks 101 and runs 500 (observed 100.6 and 498.8)" },
+  { re = 'creature pace: VCrTier0CrProtectron 0x\w+ walks 22 and runs 83 units/s', label = "the protectron walks 22 and runs 83 (observed 22.2 and 84.4)" },
+  { re = 'creature pace: NVDLC01CrGhost 0x\w+ walks 10[45] and runs 10[45] units/s', label = "the ghost person runs at its walk's pace, 105 (observed 106.7 and 105.4)" },
+  { re = 'creature pace: NVCrLakelurk 0x\w+ walks 30 and runs 356 units/s', label = "the lakelurk walks 30 and runs 356 on its mtfastforward (observed 27.9–31.4 and 358)" },
+  { re = 'creature pace: CrSentryBotRHQ 0x\w+ walks 96 and runs 384 units/s', label = "the sentry bot walks 96 and runs 384 (observed 96.2 and 383.7)" },
+  { re = 'creature pace: CrAlien 0x\w+ walks 90 and runs 420 units/s', label = "the alien walks 90 and runs 420 on forwardwalk/fastforward (observed 86–91 and 420.8)" },
+  { re = 'creature pace: NVDLC03CrCyberDogMilitary01Ranged 0x\w+ walks 57 and runs 333 units/s, turns \d+ degrees/s \(scale', label = "the sonic-bark cyberdog walks 57 and runs 333, with no alert stance (observed 57.5 and 333.1 on its mt run)" },
+]
+
+[[scenario]]
 name = "creature-flying-stance"
 source = "owner's playtest 2026-10-16 (engine/nvforever/src/creature_pace.rs): cazadors scurry on the ground while calm and fly (their h2h clips) when alert or in combat"
 note = "the player placed among the Tribal Village's cazadors (god mode): they detect and attack"
