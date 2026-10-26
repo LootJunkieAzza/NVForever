@@ -160,7 +160,7 @@ Two routes:
 2. **Compile `SCTX` ourselves.** Needs the script compiler that owner-review.md item 3
    deferred. The compiler also serves the console, test aids and source-only mods.
 
-**Decision: route 2 first**, with route 1 as the fallback for units without source. Phase 0
+**Decision: route 2 first**, with route 1 as the fallback for units without source. *Owner, 2026-10-26:* route 1 is not built; the only source-less extender units in his lists (3, AMFAmata.esp) do not matter. Phase 0
 measures how many extender-using units in real mods lack `SCTX`. That number decides
 whether route 1 is ever needed.
 

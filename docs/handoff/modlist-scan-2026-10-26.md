@@ -93,6 +93,8 @@ plugins' script sources use; only names and counts are recorded here.
 functions and statements, 23958 uses [observed: `fnvtool ext scan`]. **3 units use the
 extender without source text**, all in AMFAmata.esp: running them needs route 1, reading
 the bytes xNVSE's GECK writes (ext-bytecode.md), which NVForever does not yet do.
+*Owner, 2026-10-26:* they do not matter; route 1 is skipped (no bytecode decoder). If a
+source-less unit ever matters, re-saving it with source in the GECK is the way.
 
 ### The owner's Amata mod (AMFAmata.esp, VNV)
 
