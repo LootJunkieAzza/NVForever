@@ -141,6 +141,9 @@ pub fn drop(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.emit(EventKind::ItemRemoved { from: actor, item, count: n, silent: false });
     for r in made {
         note_created(g, r);
+        // The extender's OnDrop: the actor, then the dropped reference [observed:
+        // nvse-events, (player, the stimpak's reference)].
+        g.dispatch_event("OnDrop", vec![fnv_script::vm::XVal::Ref(actor.0), fnv_script::vm::XVal::Ref(r.0)], Some(actor));
     }
     none()
 }

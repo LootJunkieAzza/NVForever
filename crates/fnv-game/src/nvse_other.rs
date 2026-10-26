@@ -405,6 +405,31 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: Sv_Set; observed: nvse-fifth, `Sv_Set "n=%g" 3 sText` leaves the
         // string empty] it does nothing [hypothesis: the function is left over].
         "sv_set" => zero,
+        // [documented: GetSoldItemInvRef; observed: outside an OnSell 00000000; OnSell is
+        // not sent yet].
+        "getsolditeminvref" => XVal::Ref(0),
+        // [documented: GetPaired; observed: 0 in the base game, which has no tokens; no
+        // item is a token here (nvse_tokens.rs)].
+        "getpaired" => zero,
+        // The game's folder, ending in "\" [observed: it ends with "Fallout New Vegas\"]:
+        // the folder holding Data.
+        "getfalloutdirectory" => {
+            let dir = crate::mod_files::data_dir().and_then(|d| d.parent().map(|p| p.to_path_buf()));
+            XVal::Str(dir.map(|d| format!("{}\\", d.display().to_string().trim_end_matches('\\'))).unwrap_or_default())
+        }
+        // The current objective's targets, without the doors between [documented:
+        // GetCurrentQuestObjectiveTeleportLinks; observed: one entry with the target in
+        // the player's own space; hypothesis: the door path is not built].
+        "getcurrentquestobjectiveteleportlinks" => {
+            let q = g.ui.active_quest.unwrap_or(FormId(0));
+            let st = g.quest_state(q);
+            let cur = st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i);
+            let targets: Vec<XVal> = cur
+                .and_then(|i| g.data.quests.get(&q)?.objectives.get(&i).map(|o| o.targets.iter().filter_map(|t| t.target).map(|t| XVal::Ref(t.0)).collect()))
+                .unwrap_or_default();
+            let entries = targets.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+        }
         // [documented: OutputLocalMapPicturesOverride; SetOutputLocalMapPicturesGrids]
         // NVForever writes no local map pictures.
         "outputlocalmappicturesoverride" | "setoutputlocalmappicturesgrids" => zero,

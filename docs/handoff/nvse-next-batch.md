@@ -110,6 +110,9 @@ left is functions not built, ranked by calls at run time:
 | N9 | Done but ForceCrouch/ForceCombatTarget (ITR not installed in the probe game). |
 | N10 | Done (6d7597ab), §5. |
 | N14 | Done (6d7597ab): bit 0x40 = talked to the player. |
-| N4, N5 | Probed in the game (sets skysound, knvse-anim on claude/jip-lab); to build. |
+| N4 | Done (7cfe4d1f): the getters and setters; the drawn sky, sounds and image spaces do not read the changes yet. |
+| N5 | Slice 1 done (1bf36331, docs/design/knvse-anim.md); slice 2 (the engine plays replacements) open. |
 | N2 | Outside the pause menu MCM's functions give 0 [observed]; the in-menu rows wait on a way to open StartMenu (UI T7). |
-| N6, N11–N13 | Open. |
+| N11 | Events sent at the points they happen: OnEquip/OnUnequip/OnActorUnequip, OnActorEquip, OnDrop, OnEnable/OnDisable, OnHit, OnHitWith, OnMagicEffectHit, OnLoad, OnPackageStart/Done/Change, OnCombatEnd, OnStartCombat (through `Game::ref_event`); OnAdd not sent for AddItem [observed]; OnSell not yet. |
+| N13 | TestExpr, GetFalloutDirectory, GetSoldItemInvRef, GetPaired (0, no tokens), GetCurrentQuestObjectiveTeleportLinks (targets, no doors); GetCalculatedWeaponDamage and PrintVar's names open. |
+| N6, N12 | Open (N6 probed: set nif-blocks). |

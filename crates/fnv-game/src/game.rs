@@ -2496,8 +2496,34 @@ impl<'a> Game<'a> {
         ran
     }
 
+    /// The script extender's event of the same name as the block (`OnHit`, `OnEquip` …),
+    /// to the handlers SetEventHandler registered, with the reference and the block's
+    /// parameter as its two arguments [documented: SetEventHandler's event table, "the
+    /// first argument is the reference the event happened to"; observed: nvse-events,
+    /// OnHit (creature, 0), OnActorEquip and OnEquip (player, pistol), OnLoad (the ref
+    /// twice)]. OnDeath and OnActivate are sent where they happen, with their own
+    /// arguments.
+    pub(crate) fn ext_event(&mut self, ev: u16, on: FormId, other: Option<Value>) {
+        if self.handlers.is_empty() || matches!(ev, event::GAME_MODE | event::MENU_MODE | event::ON_DEATH | event::ON_ACTIVATE) {
+            return;
+        }
+        let Some(name) = self.data.table.block_name(ev).map(str::to_string) else { return };
+        use fnv_script::vm::XVal;
+        let second = match other {
+            Some(v) => match v.as_form() {
+                Some(f) => XVal::Ref(f),
+                None => XVal::Num(v.num()),
+            },
+            None => XVal::Num(0.0),
+        };
+        // OnLoad gives the reference twice [observed].
+        let second = if ev == event::ON_LOAD { XVal::Ref(on.0) } else { second };
+        self.dispatch_event(&name, vec![XVal::Ref(on.0), second], Some(on));
+    }
+
     /// Run a non-frame event on a reference's script, with a trace line.
     pub fn ref_event(&mut self, r: FormId, event: u16, subject: Option<Value>, action_ref: Option<FormId>) -> bool {
+        self.ext_event(event, r, subject);
         if event == event::ON_LOAD {
             // An OnLoad run by the caller (a cell load, or an engine that runs it
             // itself) settles one queued by Enable: OnLoad runs once per load.
@@ -3530,6 +3556,17 @@ impl<'a> Game<'a> {
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
     /// item's script runs in an instance per holder and item [hypothesis].
     pub fn item_event(&mut self, holder: FormId, item: FormId, ev: u16, subject: Option<Value>) -> bool {
+        // The extender's OnEquip and OnUnequip (and OnActorUnequip with it): the holder and
+        // the item [observed: nvse-events, (player, pistol) for all three]. Not OnAdd:
+        // AddItem of a base form did not fire it [observed]; OnDrop is sent by Drop with
+        // the dropped reference.
+        if matches!(ev, event::ON_EQUIP | event::ON_UNEQUIP) {
+            self.ext_event(ev, holder, Some(Value::Ref(item.0)));
+        }
+        if ev == event::ON_UNEQUIP {
+            use fnv_script::vm::XVal;
+            self.dispatch_event("OnActorUnequip", vec![XVal::Ref(holder.0), XVal::Ref(item.0)], Some(holder));
+        }
         let Some(script) = self.data.script_of_base(item) else { return false };
         if !self.data.script(script).is_some_and(|u| u.has_block(ev)) {
             return false;
