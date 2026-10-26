@@ -1764,6 +1764,26 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Notes that reached the player's inventory (taken from a container, picked up,
+    /// AddItem, bought) become the player's notes and leave the inventory: a note is
+    /// never an inventory item [documented: GECK wiki GetItemCount, "does not work with
+    /// Notes"; observed: GetItemCount 0 for a holotape just added, capture
+    /// `fa_batch3_actions`]. The owner's playtest: Jeannie May's Bill of Sale, taken from
+    /// her safe, was a misc item and missing from the Pip-Boy's notes.
+    pub fn file_carried_notes(&mut self) {
+        let Some(inv) = self.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()) else { return };
+        let forms = &self.world.forms;
+        let carried: Vec<(FormId, i32)> =
+            inv.iter().filter(|&(i, n)| n > 0 && forms.item(i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Note)).collect();
+        for (note, n) in carried {
+            let _ = self.world.remove_item(FormId::PLAYER_REF, note, n);
+            if self.player.notes.insert(note) {
+                tracing::info!("notes: {} {note} filed with the player's notes", self.data.name(note));
+                self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
+            }
+        }
+    }
+
     /// The new-game state: every quest flagged "Start game enabled" is running, with no
     /// stage set [hypothesis: the flag's documented meaning (xEdit); which quest the
     /// "New Game" menu starts is a separate input, scripts.md §8]; the placed actors that
@@ -2618,6 +2638,8 @@ impl<'a> Game<'a> {
         if !self.challenge_queue.rewards.is_empty() {
             self.run_challenge_rewards();
         }
+        // In menu mode too: a note taken in the container menu files at once.
+        self.file_carried_notes();
         if self.loading {
             self.side_blocks(menus::LOADING);
             return;

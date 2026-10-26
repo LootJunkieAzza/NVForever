@@ -9873,3 +9873,15 @@ expect = [
 ]
 # 2026-10-26 run: Boone left at 21:08 and stood at (25400, -32813) by the end; before the
 # fix he was never handed to the AI (the AI only took actors of cells that had loaded).
+
+[[scenario]]
+name = "note-from-container"
+source = "owner playtest 2026-10-26: Jeannie May's Bill of Sale (NOTE 0x000B83CC) taken from her safe (VLootSafeFloorJeannieMayREF 0x000B83E5) was a misc item; a note never stays in the inventory, it files with the Pip-Boy's notes (Game::file_carried_notes)"
+areas = ["containers", "pipboy"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "000B83E5", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "NovacJeannieMayHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'notes: VFreeformNovacBillOfSale 0x000B83CC filed with the player.s notes', label = "the Bill of Sale is a note, not an item" },
+]
