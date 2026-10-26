@@ -15,7 +15,7 @@ impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
-            .add_systems(Update, (tell_magazine, tell_player_state));
+            .add_systems(Update, (tell_magazine, tell_player_state, mod_file_roots));
     }
 }
 
@@ -146,4 +146,26 @@ fn tell_player_state(control: Option<Res<crate::control::PlayerControl>>, pads: 
             pad.sticks = [0.0; 4];
         }
     }
+}
+
+/// Once the game's Data is open: mods' files are read from NVForever's mods layer, then
+/// the game's Data, and the archives answer FileExists (fnv_game::mod_files).
+fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>) {
+    let Some(d) = data.filter(|_| !*done) else { return };
+    *done = true;
+    let vfs = d.vfs.clone();
+    let mods = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods());
+    let data_dir = vfs.data_dir().to_path_buf();
+    fnv_game::mod_files::update_roots(move |r| {
+        r.read = mods.into_iter().chain(std::iter::once(data_dir)).collect();
+        r.lookup = Some(std::sync::Arc::new(move |p: &str| {
+            if vfs.loose_path(p).is_some() {
+                1
+            } else if vfs.exists(p) {
+                2
+            } else {
+                0
+            }
+        }));
+    });
 }

@@ -359,6 +359,12 @@ impl ScriptState {
             }
         });
         source_compile_mode(unattended);
+        // Mods' files are written under NVForever's own mods layer, never the game folder;
+        // an unattended run in the player's home keeps them in memory, as the settings
+        // (fnv_game::mod_files).
+        let own_home = std::env::var_os(fnv_install::HOME_ENV).is_some_and(|h| !h.is_empty());
+        let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
+        fnv_game::mod_files::update_roots(|r| r.write = write);
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
         ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }

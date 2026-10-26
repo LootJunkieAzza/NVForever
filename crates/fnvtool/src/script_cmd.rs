@@ -95,6 +95,10 @@ pub enum ScriptCmd {
         /// …), in order, later ones overriding earlier ones; only read.
         #[arg(long)]
         ini: Vec<PathBuf>,
+        /// A folder that stands for Data\Config: the INI files mods read with LU,
+        /// ShowOff and MCM functions (fnv_game::mod_files). Writes stay in memory.
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
 }
 
@@ -164,7 +168,18 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(uses(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Run { a, actions, no_voice_lengths, ini } => run_actions(&a, &actions, !no_voice_lengths, &ini),
+        ScriptCmd::Run { a, actions, no_voice_lengths, ini, config } => {
+            // Mods' files: the Data folder (and its archives) read-only, `--config` before
+            // it; nothing is written to disk.
+            let vfs = std::sync::Arc::new(fnv_vfs::Vfs::open_for_plugins(&a.lo.data_dir, &a.lo.plugins).ok());
+            let lookup: std::sync::Arc<dyn Fn(&str) -> u8 + Send + Sync> = std::sync::Arc::new(move |p: &str| match vfs.as_ref() {
+                Some(v) if v.loose_path(p).is_some() => 1,
+                Some(v) if v.exists(p) => 2,
+                _ => 0,
+            });
+            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![a.lo.data_dir.clone()], config: config.clone(), write: None, lookup: Some(lookup) });
+            run_actions(&a, &actions, !no_voice_lengths, &ini)
+        }
     }
 }
 
