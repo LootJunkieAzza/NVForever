@@ -1,5 +1,8 @@
 # The remaining xNVSE functions: tasks
 
+*2026-10-26: every family here is built; the next batch for the whole extender
+integration is docs/handoff/nvse-next-batch.md.*
+
 Written 2026-10-26, after the core plan (docs/handoff/extender-core-tasks.md, D1–D6) and
 next to the JIP plan (jip-tasks.md). Same rules: no extender source; behaviour from the
 wiki export `[documented]` or the game `[observed]`.

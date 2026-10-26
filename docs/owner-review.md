@@ -218,7 +218,9 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
 - **File functions (J9).** JIP reads and writes files in the game folder; NVForever never
   writes there. *Proposed:* writers write only under NVForever's own engine-home folder,
   mirroring the relative path; readers prefer that copy, then the game folder (read-only).
-  docs/spec-notes/jip-math-utility.md §4. *Check:* say if you want something else.
+  docs/spec-notes/jip-math-utility.md §4. The same rule would cover mods' INI writes
+  (SetINIFloat, the MCM settings files under `Data\Config`) and Con_SCOF's console log
+  (docs/handoff/nvse-next-batch.md N3). *Check:* say if you want something else.
 - **Arc tangents are approximate in JIP:** `fatan 1` and `fatan2 1 1` give 44.9998, not 45.
   *Default:* NVForever computes the exact value and the lab accepts a small tolerance on
   these two functions only, unless a sweep of probe points lets us fit the game's curve
