@@ -401,7 +401,7 @@ impl ScriptState {
             // Knocked down: until the get-up clip is over (docs/spec-notes/unconscious.md
             // §5.4; `nvforever` player_knockdown.rs).
             Some(rt) if rt.game.knockout(FormId::PLAYER_REF).is_some() => ControlLocks::ALL,
-            Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
+            Some(rt) => ControlLocks::from_flags(rt.game.controls_locked()),
             None => ControlLocks::default(),
         }
     }
@@ -2016,6 +2016,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::ItemRemoved { from, item, count, .. } => debug!("script: {count} x {} removed from {}", n(*item), n(*from)),
         EventKind::Unhandled { name, unit, .. } => debug!("script: unhandled {name} in {unit}"),
         EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
+        EventKind::ScriptPrint { unit, text } => info!("script: print {text:?} ({unit})"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
         _ => crate::dialogue::log_event(data, e),
     }

@@ -1873,3 +1873,79 @@ fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
     assert_eq!(read(&mut g, "*hH"), before, "the handler runs before the damage");
     assert_eq!(read(&mut g, "*hC"), XVal::Num(1.0), "a critical hit");
 }
+
+#[test]
+fn message_ex_box_ex_and_debug_print() {
+    // Task D4 [documented: MessageEx; MessageBoxEx; DebugPrint; SetDebugMode].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("MessageEx \"n %g\", 3\nMessageBoxEx \"Pick|Ok|Cancel\"\nDebugPrint \"hidden\"\nSetDebugMode 1\nDebugPrint \"shown\"", Default::default()).expect("compiles");
+    let shown: Vec<(Option<String>, Vec<String>)> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::MessageShown { text, buttons, .. } => Some((text.clone(), buttons.clone())),
+        _ => None,
+    }).collect();
+    assert_eq!(shown, vec![(Some("n 3".into()), vec![]), (Some("Pick".into()), vec!["Ok".into(), "Cancel".into()])]);
+    assert_eq!(g.message_box.as_ref().map(|m| m.buttons), Some(2));
+    let printed: Vec<&str> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptPrint { text, .. } => Some(text.as_str()),
+        _ => None,
+    }).collect();
+    assert_eq!(printed, ["shown"]);
+}
+
+#[test]
+fn delayed_calls_run_when_due() {
+    // Task D3 [documented: CallAfterFrames (catalogue), CallWhile, CallWhen].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), ctx()).unwrap();
+    q(&mut g, "CallAfterFrames 2 ({} => AuxVarSetFlt \"*a\" 1 -1)
+CallWhile ({} => AuxVarSetFlt \"*w\" 1 -1) ({} => (AuxVarSize \"*w\") < 3)
+CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
+    g.frames(1);
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(0.0), "not yet");
+    g.frames(5);
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(1.0), "once");
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*w\")"), XVal::Num(3.0), "while the condition holds");
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
+}
+
+#[test]
+fn message_box_ex_alt_runs_its_callback_with_the_button() {
+    // [documented: MessageBoxExAlt] the UDF gets the pressed button's index.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = "Begin Function { }\nMessageBoxExAlt (Begin Function {int b}\nPlayerREF.AuxVarSetFlt \"*btn\" b\nEnd) \"^Title^Pick|A|B\"\nEnd\n";
+    g.run_query(q, ctx()).unwrap();
+    g.press_button(1).unwrap();
+    g.tick();
+    let read = g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"*btn\")\nEnd\n", ctx()).unwrap();
+    assert_eq!(read, XVal::Num(1.0));
+}
+
+#[test]
+fn player_control_locks_are_kept_per_plugin() {
+    // [documented: DisablePlayerControlsAlt] "stored on a per-mod basis": a group stays
+    // locked until every plugin that locked it gives it back.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    q(&mut g, "DisablePlayerControlsAltEx (1 << 3)");
+    assert_eq!(g.controls_locked(), [false, false, true, false, false, false, false], "bit 3 is fighting");
+    g.other.alt_locks.insert("other.esp".into(), [true, false, false, false, false, false, false]);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabledAlt 0 1)"), XVal::Num(0.0), "movement is the other plugin's");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabledAlt 1 1)"), XVal::Num(1.0), "any plugin's");
+    // [observed: nvse-fifth, the vanilla getter sees an Alt lock]
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabled)"), XVal::Num(1.0), "the vanilla getter sees them");
+    q(&mut g, "EnablePlayerControlsAlt");
+    assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
+}

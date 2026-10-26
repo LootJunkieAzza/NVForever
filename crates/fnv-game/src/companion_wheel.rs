@@ -380,8 +380,7 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
 
     /// Whether `actor`'s current package (as last chosen) follows the player.
     pub fn package_follows_player(&self, actor: FormId) -> bool {
-        let data = self.data;
-        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| {
+        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).is_some_and(|d| {
             matches!(d.ty, PackageType::Follow | PackageType::Accompany) && matches!(d.target.map(|t| t.kind), Some(TargetKind::Reference(Some(r))) if r == FormId::PLAYER_REF)
         })
     }

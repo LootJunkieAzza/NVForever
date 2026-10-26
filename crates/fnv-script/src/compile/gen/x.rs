@@ -307,7 +307,10 @@ impl Gen<'_> {
             Some(16)
         // A format string takes up to 20 values [documented: String Formatting]; the
         // catalogue marks them as a parameter named or typed "Formatting"/"formatable".
-        } else if u.params.iter().any(|p| {
+        // SetNameEx takes format values too, though its page shows none [observed:
+        // nvse-fifth, `SetNameEx "Gun %g" 5 rObj` compiles and names it "Gun 5"].
+        } else if u.name.eq_ignore_ascii_case("setnameex")
+            || u.params.iter().any(|p| {
             p.name.starts_with("...")
                 || p.name.to_ascii_lowercase().contains("format")
                 || p.wiki_type.as_deref().is_some_and(|t| t.to_ascii_lowercase().contains("format"))
@@ -367,6 +370,14 @@ impl Gen<'_> {
             None if self.in_args && name.len() == 1 && matches!(name.to_ascii_uppercase().as_str(), "X" | "Y" | "Z") => {
                 Some(XExpr::Axis { c: name.to_ascii_uppercase().chars().next().unwrap_or('Z') })
             }
+            // Any other bare word that names nothing is its own text, with the editor's
+            // "Unquoted argument" warning, parenthesised too [observed: nvse-fourth,
+            // `SetFunctionValue (GetFOSEVersion)` returns the text "GetFOSEVersion" in xNVSE
+            // 6.4.9].
+            None if self.in_arg_any => {
+                self.diag("unquoted_argument", false, name.to_string());
+                Some(XExpr::Str { s: name.to_string() })
+            }
             None => self.xerr("unresolved_name", name.to_string()),
         }
     }
@@ -398,8 +409,10 @@ impl Gen<'_> {
                 ARG
             };
             let was = std::mem::replace(&mut self.in_args, true);
+            let was_any = std::mem::replace(&mut self.in_arg_any, true);
             let a = self.xarg(p, &enc, min);
             self.in_args = was;
+            self.in_arg_any = was_any;
             args.push(a?);
         }
         Some(args)

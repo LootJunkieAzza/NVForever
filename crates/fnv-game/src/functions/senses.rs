@@ -55,6 +55,10 @@ pub struct Senses {
     /// The crosshair's ray as the engine last cast it (PlaceAtReticle); `None` before the
     /// engine told it (a headless run).
     pub reticle: Option<Reticle>,
+    /// The reference the player would activate (GetCrosshairRef) and the first one the
+    /// crosshair's ray meets at any range (GetCrosshairRefEx), as the engine tells them.
+    pub crosshair_ref: Option<FormId>,
+    pub crosshair_far: Option<FormId>,
     /// The reference the player holds with the grab (`nvf-play` grab.rs), told by the
     /// engine ([`Game::set_player_grab`]); `None` while the player holds nothing. Not
     /// part of the saved state: a grab ends with the frame the game is saved in.
@@ -93,7 +97,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, crosshair_ref: None, crosshair_far: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new() }
     }
 }
 
@@ -329,16 +333,14 @@ impl Game<'_> {
     /// Whether `actor`'s current package (as last chosen) has the PKDT general flag `flag`
     /// (`crate::package::flags`).
     pub fn package_has(&self, actor: FormId, flag: u32) -> bool {
-        let data = self.data;
-        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flag))
+        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flag))
     }
 
     /// Whether `actor`'s current package allows a Fallout behaviour (a
     /// `crate::package::fallout` bit): the bits count only on a package with "Skip
     /// Fallout Behavior" set (docs/spec-notes/packages.md §3); with no package, yes.
     pub fn package_allows(&self, actor: FormId, behaviour: u16) -> bool {
-        let data = self.data;
-        let def = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p));
+        let def = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p));
         def.is_none_or(|d| !d.has(crate::package::flags::SKIP_FALLOUT_BEHAVIOR) || d.fallout_flags & behaviour != 0)
     }
 

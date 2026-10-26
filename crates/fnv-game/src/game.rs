@@ -974,10 +974,58 @@ pub struct Game<'a> {
     lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
     /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
     /// lasts for the session; SetEventHandlerAlt is flushed on every load].
-    handlers: Vec<Handler>,
+    pub(crate) handlers: Vec<Handler>,
     handler_seq: u64,
     /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
     pub(crate) jip: crate::jip_events::JipEvents,
+    /// The temporary inventory references foreach made this frame (task B5): container
+    /// and item, id [`TEMP_REF_BASE`] + index; gone at the next frame [observed: probe
+    /// loops/02, valid after the loop, invalid a frame later].
+    pub(crate) temp_refs: Vec<(FormId, FormId)>,
+    /// Form lists as ListAddForm and the ListRemove… functions left them, for the
+    /// session only [documented: ListAddForm, its changes are not saved].
+    pub(crate) list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
+    /// xNVSE's queued delayed calls (`crate::delayed`); not saved [documented].
+    pub(crate) delayed: Vec<crate::delayed::Delayed>,
+    /// The input the extender's input functions read (task D6); the engine fills it.
+    pub input: crate::script_input::ScriptInput,
+    /// Record fields xNVSE's setters changed this session (`crate::nvse`), by form and
+    /// "SUB/path", and the names SetName gave.
+    pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
+    pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
+    /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
+    pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// TempCloneForm's clones and their originals (`crate::nvse_data`).
+    pub(crate) clones: std::collections::HashMap<FormId, FormId>,
+    pub(crate) clone_seq: u32,
+    /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
+    /// the engine's console takes them each frame.
+    pub console_out: Vec<String>,
+    /// SetNthEffectTraitNumeric's changes: (form, entry, trait) -> value, the session's.
+    pub(crate) effect_overrides: std::collections::HashMap<(FormId, usize, usize), f64>,
+    /// JIP switches kept for the session (ToggleTeammateKillable, SetWheelDisabled,
+    /// ToggleNoHealthReset).
+    pub(crate) jip_flags: std::collections::HashSet<(FormId, &'static str)>,
+    /// Packages a script changed (SetPackageLocationRadius, SetPackageLocationReference,
+    /// SetPackageTargetReference): the changed copy, kept for the session (leaked, so it
+    /// lives as long as the records; a few per session).
+    pub(crate) package_overrides: std::collections::HashMap<FormId, &'a crate::package::PackageDef>,
+    /// The xNVSE "other" functions' and the control locks' session state.
+    pub other: crate::nvse_other::OtherState,
+    /// The INI settings the extender reads and sets (`crate::nvse_settings`).
+    pub ini: crate::nvse_settings::IniState,
+    /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
+    pub(crate) box_callback: Option<fnv_script::vm::XVal>,
+    /// The rounds in the player's magazine, as the engine's combat has them (None without
+    /// the engine).
+    pub player_magazine: Option<u32>,
+    /// SetIsPlayable's changes, for the session.
+    pub(crate) playable_overrides: std::collections::HashMap<FormId, bool>,
+    /// What GetNextRef gives next (GetFirstRef's walk).
+    pub(crate) ref_walk: Vec<FormId>,
+    /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
+    /// [hypothesis: the page gives no lifetime].
+    debug_plugins: BTreeSet<String>,
     /// The events being handled, innermost last (GetCurrentEventName).
     event_names: Vec<String>,
     /// The scripts that saw GetGameLoaded / GetGameRestarted true (by unit key).
@@ -1487,13 +1535,15 @@ pub struct Session {
 /// argument index (0 the calling reference), its priority, whether SetEventHandlerAlt set
 /// it, and its place in registration order.
 #[derive(Debug, Clone)]
-struct Handler {
-    event: String,
-    func: fnv_script::vm::XVal,
-    filters: Vec<(usize, fnv_script::vm::XVal)>,
-    priority: i32,
-    alt: bool,
-    seq: u64,
+pub(crate) struct Handler {
+    pub(crate) event: String,
+    /// The event's name as the script gave it (GetEventHandlers' StringMap keys).
+    pub(crate) name: String,
+    pub(crate) func: fnv_script::vm::XVal,
+    pub(crate) filters: Vec<(usize, fnv_script::vm::XVal)>,
+    pub(crate) priority: i32,
+    pub(crate) alt: bool,
+    pub(crate) seq: u64,
 }
 
 /// A user-defined function running: the value it set, and the script that called it.
@@ -1509,6 +1559,8 @@ pub const MAX_UDF_DEPTH: usize = 30;
 /// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
 /// FormID this high needs a 255th plugin, which NVForever's load order never gives a
 /// lambda's place to; script-compiler.md §9].
+/// Ids of foreach's temporary inventory references (B5), below the lambdas'.
+pub const TEMP_REF_BASE: u32 = 0xFE40_0000;
 pub const LAMBDA_BASE: u32 = 0xFE80_0000;
 
 /// What a script run is attached to.
@@ -1563,6 +1615,26 @@ impl<'a> Game<'a> {
             handlers: Vec::new(),
             handler_seq: 0,
             jip: Default::default(),
+            debug_plugins: BTreeSet::new(),
+            temp_refs: Vec::new(),
+            list_edits: std::collections::HashMap::new(),
+            delayed: Vec::new(),
+            ref_walk: Vec::new(),
+            field_overrides: std::collections::HashMap::new(),
+            name_overrides: std::collections::HashMap::new(),
+            mod_data: BTreeMap::new(),
+            clones: std::collections::HashMap::new(),
+            clone_seq: 0,
+            playable_overrides: std::collections::HashMap::new(),
+            player_magazine: None,
+            console_out: Vec::new(),
+            effect_overrides: std::collections::HashMap::new(),
+            jip_flags: std::collections::HashSet::new(),
+            box_callback: None,
+            other: Default::default(),
+            ini: Default::default(),
+            package_overrides: std::collections::HashMap::new(),
+            input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
@@ -1889,7 +1961,8 @@ impl<'a> Game<'a> {
         } else {
             base
         };
-        self.data.script_of_base(base)
+        // RemoveScript's and SetScript's changes first.
+        self.base_script(base)
     }
 
     /// The instance that `form.var` addresses: a quest's script or a reference's.
@@ -1908,6 +1981,11 @@ impl<'a> Game<'a> {
     /// Read a variable of an instance (0 when never written).
     pub fn var(&self, key: InstKey, index: u16) -> Value {
         self.instances.get(&key).and_then(|i| i.vars.get(&index)).copied().unwrap_or_default()
+    }
+
+    /// Store into a variable as given, whatever its declared type (xNVSE's SetVariable).
+    pub(crate) fn store_raw(&mut self, key: InstKey, script: Option<FormId>, index: u16, v: Value) {
+        self.instance(key, script).vars.insert(index, v);
     }
 
     /// Store into a variable by its declared type: integer variables truncate (see
@@ -2132,7 +2210,7 @@ impl<'a> Game<'a> {
         let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
         Ok(match c {
             EventCall::Set { event, func, pairs, alt } => {
-                let mut h = Handler { event: event.to_ascii_lowercase(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
+                let mut h = Handler { event: event.to_ascii_lowercase(), name: event.clone(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
                 for (k, v) in pairs {
                     match (key_text(&k).as_str(), &k) {
                         ("priority", _) => {
@@ -2228,6 +2306,21 @@ impl<'a> Game<'a> {
                 XVal::Num(0.0)
             }
         })
+    }
+
+    /// A temporary inventory reference for one kind of item in a container (B5).
+    pub(crate) fn temp_ref(&mut self, container: FormId, item: FormId) -> FormId {
+        if let Some(i) = self.temp_refs.iter().position(|&(c, x)| c == container && x == item) {
+            return FormId(TEMP_REF_BASE + i as u32);
+        }
+        self.temp_refs.push((container, item));
+        FormId(TEMP_REF_BASE + self.temp_refs.len() as u32 - 1)
+    }
+
+    /// The container and item of a live temporary inventory reference.
+    pub fn temp_item(&self, r: FormId) -> Option<(FormId, FormId)> {
+        let i = r.0.checked_sub(TEMP_REF_BASE).filter(|_| r.0 < LAMBDA_BASE)?;
+        self.temp_refs.get(i as usize).copied()
     }
 
     /// How many parameters a function script's Function block or a lambda declares;
@@ -2504,8 +2597,12 @@ impl<'a> Game<'a> {
     /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
-        // JIP's SetGameMainLoopCallback functions due this frame (task J6).
+        self.temp_refs.clear();
+        // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
+        // delayed calls.
         self.run_main_loop();
+        self.run_delayed();
+        self.run_box_callback();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -3479,7 +3576,7 @@ impl<'a> Game<'a> {
         // set [documented: GECK wiki, Category:Packages, Begin/End/Change tab]; the topic
         // is said as Say says it, before the idle is asked for [hypothesis: their order;
         // docs/spec-notes/packages.md §7.2].
-        if let Some(topic) = data.package_defs.get(&package).and_then(|d| d.events[which.min(2)].topic) {
+        if let Some(topic) = self.package_def(&package).and_then(|d| d.events[which.min(2)].topic) {
             if !self.is_dead(actor) {
                 self.say(actor, None, topic, false);
             }
@@ -4160,8 +4257,9 @@ impl Host for Exec<'_, '_> {
                 return Some(n);
             }
         }
-        let names = &self.game.data.full_names;
-        names.get(&f).cloned().or_else(|| crate::functions::base_of(self.game, f).and_then(|b| names.get(&b).cloned()))
+        let g = &*self.game;
+        let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
+        named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
@@ -4282,7 +4380,49 @@ impl Host for Exec<'_, '_> {
 
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
+        self.game.console_out.push(text.to_string());
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
+    }
+
+    fn script_error(&mut self, text: &str) {
+        let unit = self.unit.key();
+        self.game.console_out.push(format!("Script error in {unit}: {text}"));
+        self.game.emit(EventKind::ScriptError { unit, error: text.to_string() });
+    }
+
+    fn box_callback(&mut self, func: fnv_script::vm::XVal) {
+        self.game.box_callback = Some(func);
+    }
+
+    fn show_text(&mut self, text: &str, buttons: Vec<String>) {
+        let none = FormId(0);
+        if !buttons.is_empty() {
+            let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
+            self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner });
+        }
+        let is_box = !buttons.is_empty();
+        self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
+        if is_box {
+            self.game.show_box(none);
+        }
+    }
+
+    fn debug_mode(&mut self, set: Option<bool>, plugin: Option<u32>) -> bool {
+        let name = match plugin {
+            Some(i) => self.game.data.load_order.get(i as usize).cloned().unwrap_or_default(),
+            None => self.unit.unit.plugin.clone(),
+        }
+        .to_ascii_lowercase();
+        match set {
+            Some(true) => {
+                self.game.debug_plugins.insert(name.clone());
+            }
+            Some(false) => {
+                self.game.debug_plugins.remove(&name);
+            }
+            None => {}
+        }
+        self.game.debug_plugins.contains(&name)
     }
 
     fn make_lambda(&mut self, l: &fnv_script::ir::XExpr) -> Result<fnv_script::vm::XVal, String> {
@@ -4334,8 +4474,10 @@ impl Host for Exec<'_, '_> {
         if self.game.data.sig(f) == Some(*b"FLST") {
             return Some(functions::list_members(self.game, f).into_iter().map(|m| m.0).collect());
         }
-        let inv = self.game.world.inventory_mut(f).ok()?;
-        Some(inv.iter().filter(|(_, n)| *n > 0).map(|(i, _)| i.0).collect())
+        // A container's items, one temporary reference per kind of item [documented:
+        // ForEach; observed: probe loops/02].
+        let items: Vec<FormId> = self.game.world.inventory_mut(f).ok()?.iter().filter(|(_, n)| *n > 0).map(|(i, _)| i).collect();
+        Some(items.into_iter().map(|i| self.game.temp_ref(f, i).0).collect())
     }
 
     fn random(&mut self) -> f64 {
@@ -4345,6 +4487,10 @@ impl Host for Exec<'_, '_> {
 
     fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
         let f = FormId(form);
+        if self.game.temp_item(f).is_some() {
+            return Some(*b"REFR");
+        }
+        let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
     }
@@ -4371,6 +4517,33 @@ impl Host for Exec<'_, '_> {
 
     fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
         self.game.data.body_part_name(FormId(form), part)
+    }
+
+    fn calling_plugin(&mut self) -> Option<String> {
+        let p = &self.unit.unit.plugin;
+        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
+    }
+
+    fn current_script(&mut self) -> Option<u32> {
+        match self.unit.unit.owner {
+            fnv_script::UnitOwner::Script { form } => Some(form),
+            _ => None,
+        }
+    }
+
+    fn local_var(&mut self, name: &str) -> Option<VarRef> {
+        let index = self.unit.var_index(name)?;
+        Some(VarRef { on: None, var: VarSlot::Local { index, letter: fnv_script::ir::VarLetter::Float } })
+    }
+
+    fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
+        let on = on.and_then(|v| v.as_form()).map(FormId);
+        let ctx = self.ctx;
+        // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef
+        // reads the calling script.
+        self.game.other.plugin = self.calling_plugin().unwrap_or_default();
+        self.game.other.script = self.current_script().map(FormId);
+        crate::nvse::call(self.game, &ctx, name, on, args)
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {

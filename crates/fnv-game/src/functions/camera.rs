@@ -19,6 +19,8 @@ pub struct CameraRequests {
     pub fov: Option<(Option<f32>, Option<f32>)>,
     /// ToggleMenus: the HUD, the crosshair and the corner messages are hidden.
     pub menus_hidden: bool,
+    /// The fly camera is on, by the ToggleFlyCam calls so far (GetTFC).
+    pub fly_on: bool,
 }
 
 /// `ToggleFlyCam [mode]` (`tfc`): the camera leaves the player and flies, or comes back
@@ -26,6 +28,7 @@ pub struct CameraRequests {
 /// knows are in docs/design/console.md.
 pub fn toggle_fly_cam(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.ui.camera.fly_toggles.push(a.num_or(0, 0.0) as i32);
+    g.ui.camera.fly_on = !g.ui.camera.fly_on;
     none()
 }
 

@@ -113,7 +113,7 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
         return Doing::Warning;
     }
     let p = g.current_package(r);
-    Doing::Package(p.and_then(|p| g.data.package_defs.get(&p)).map(|d| d.ty))
+    Doing::Package(p.and_then(|p| g.package_def(&p)).map(|d| d.ty))
 }
 
 /// `actor.GetCurrentAIPackage`: the kind of package the actor runs, by the codes of

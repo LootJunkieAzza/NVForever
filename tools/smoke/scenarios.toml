@@ -9799,6 +9799,35 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-extender-output"
+source = "extender task D4 (docs/spec-notes/ext-format.md §4): MessageEx and MessageBoxEx show text without a Message form; DebugPrint prints only after SetDebugMode 1; the console runs extender functions by name through the compiler"
+areas = ["console", "scripts"]
+paths = ["crates/fnv-script/src/vm.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:MessageEx \"nvf corner %g\", 7;10.5:DebugPrint \"nvf hidden\";11:SetDebugMode 1;11.5:DebugPrint \"nvf shown\";12:MessageBoxEx \"nvf box|Ok|Cancel\"" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: message .*"nvf corner 7"', label = "MessageEx shows its formatted text" },
+  { re = 'script: print "nvf shown"', label = "DebugPrint prints once debug mode is on" },
+  { re = 'script: print "nvf hidden"', count = 0, label = "DebugPrint is silent before SetDebugMode" },
+  { re = 'script: message .*"nvf box" buttons \["Ok", "Cancel"\]', label = "MessageBoxEx shows a box with its buttons" },
+]
+
+[[scenario]]
+name = "script-input-keys"
+source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
+areas = ["console", "scripts", "input"]
+paths = ["crates/fnv-game/src/script_input.rs", "engine/nvf-play/src/script_input.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_KEYS = "10:g:4", NVF_PLAY_TEST_CONSOLE = "11:PrintC \"nvf held %g\", (IsKeyPressed 34);11.5:DisableKey 34;12:PrintC \"nvf disabled %g %g %g\", (IsKeyPressed 34), (IsKeyPressed 34 2), (IsKeyDisabled 34);12.5:EnableKey 34;13:PrintC \"nvf enabled %g\", (IsKeyPressed 34)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'script: print "nvf held 1"', label = "a held key is pressed" },
+  { re = 'script: print "nvf disabled 0 1 1"', label = "a disabled key: not pressed, pressed with ignoreStatus 2, disabled" },
+  { re = 'script: print "nvf enabled 1"', label = "enabled again it is pressed" },
+]
+
+[[scenario]]
 name = "scripts-from-source"
 source = "extender task A6 (fnv_game::source_compile): NVF_COMPILE_SOURCE=always runs every shipped unit from its source text, compiled by NVForever; the game starts and runs its scripts as from the bytes"
 areas = ["scripts"]

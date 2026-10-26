@@ -49,7 +49,7 @@ impl<'a> Game<'a> {
         let data = self.data;
         // The current package's, else SetCombatStyle's, else the record's (module notes).
         let extra = self.extra.get(&actor);
-        let package = extra.and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).and_then(|d| d.combat_style).filter(|id| data.combat_styles.contains_key(id));
+        let package = extra.and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).and_then(|d| d.combat_style).filter(|id| data.combat_styles.contains_key(id));
         let set = extra.and_then(|e| e.combat_style);
         let own = package.or(set).or_else(|| self.def_following(actor, |d| d.template_ai).and_then(|d| d.combat_style));
         let id = own.filter(|id| data.combat_styles.contains_key(id)).or_else(|| data.by_edid("DefaultCombatstyle"))?;

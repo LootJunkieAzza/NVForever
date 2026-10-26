@@ -343,6 +343,20 @@ impl FunctionTable {
                 return Err(TableError::Format(format!("encodings: opcode 0x{op:04X} is not in functions.json")));
             }
         }
+        // FOSE names xNVSE does not register (encodings.json `compiler.not_commands`,
+        // [observed]): they read as text.
+        for name in strings(comp.and_then(|c| c.get("not_commands"))) {
+            t.unnumbered.remove(&name.to_ascii_lowercase());
+        }
+        // Arguments the catalogue's pages leave out but the original compiles
+        // (encodings.json `compiler.extra_params`, each [observed]).
+        for (name, extra) in comp.and_then(|c| c.get("extra_params")).and_then(Value::as_object).into_iter().flatten() {
+            if let Some(u) = t.unnumbered.get_mut(&name.to_ascii_lowercase()) {
+                for p in extra.as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    u.params.push(Param { name: p.to_string(), wiki_type: None, kind: "unknown".into(), optional: true });
+                }
+            }
+        }
         Ok(t)
     }
 

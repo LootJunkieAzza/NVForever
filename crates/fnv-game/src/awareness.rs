@@ -686,8 +686,7 @@ impl Game<'_> {
     /// Whether `actor`'s current package keeps it out of Alert: the package flag "No
     /// Combat Alert" [hypothesis: what the flag's name says; no source describes it].
     fn no_combat_alert(&mut self, actor: FormId) -> bool {
-        let data = self.data;
-        self.current_package(actor).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flags::NO_COMBAT_ALERT))
+        self.current_package(actor).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flags::NO_COMBAT_ALERT))
     }
 
     /// Whether `actor`'s current package goes on while the actor is in a combat state
@@ -698,8 +697,7 @@ impl Game<'_> {
     /// instead of searching or holding its ground (`fnv_ai`); its state, weapon and barks
     /// are as for any other actor.
     pub fn continues_during_combat(&mut self, actor: FormId) -> bool {
-        let data = self.data;
-        self.current_package(actor).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flags::CONTINUE_DURING_COMBAT))
+        self.current_package(actor).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flags::CONTINUE_DURING_COMBAT))
     }
 
     /// The engine measured `target` from `detector` at `at` (game space): when the

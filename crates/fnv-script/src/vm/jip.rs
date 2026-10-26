@@ -31,6 +31,9 @@ impl JipStores {
     }
 }
 
+/// Between a private name and its plugin in a store's key.
+const PRIVATE: char = '\u{1}';
+
 /// The store a name lives in: names starting `*` are temporary, not saved [observed:
 /// aux.class.*; documented by the class names].
 fn stores<'s>(x: &'s mut ExtStore, name: &str) -> &'s mut JipStores {
@@ -396,11 +399,15 @@ impl Vm<'_, '_> {
                 };
                 Ok(Some(XVal::Str(f.and_then(|f| self.host.form_text(f)).unwrap_or_default())))
             }
-            "getformdescription" | "getloadscreentexture" | "getprojectilemuzzleflash" => {
-                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+            // GetArmorRCT: the ragdoll constraint template, ARMO BMCT [observed: #830,
+            // ArmorPowerT45d `RagdollConstraint\default.rdt`, ArmorMetal ""].
+            "getformdescription" | "getloadscreentexture" | "getprojectilemuzzleflash" | "getarmorrct" => {
+                let v0 = val(self, 0)?;
+                let f = if n == "getarmorrct" { self.jip_base(v0)? } else { v0.value()?.as_form().unwrap_or(0) };
                 let sub = match n {
                     "getformdescription" => "DESC",
                     "getloadscreentexture" => "ICON",
+                    "getarmorrct" => "BMCT",
                     _ => "NAM1",
                 };
                 Ok(Some(match self.host.record_field(f, sub, "") {
@@ -443,6 +450,27 @@ impl Vm<'_, '_> {
                 }))
             }
             "sv_regexmatch" | "sv_regexsearch" | "sv_regexreplace" | "validateregex" => self.regex_function(n, c).map(Some),
+            // [documented: MessageBoxExAlt] `callback "^title^text|button|…" values…`: up to
+            // 255 buttons; the UDF gets the pressed button's index. The title is not shown
+            // [hypothesis: NVForever's box has none]. Without a button the box gets "Ok", as
+            // MessageBoxEx [hypothesis].
+            "messageboxexalt" => {
+                let func = val(self, 0)?;
+                let (t, _) = self.format_arg(c, 1)?;
+                let body = match t.strip_prefix('^').and_then(|r| r.split_once('^')) {
+                    Some((_, rest)) => rest.to_string(),
+                    None => t,
+                };
+                let mut parts = body.split('|').map(str::to_string);
+                let text = parts.next().unwrap_or_default();
+                let mut buttons: Vec<String> = parts.take(255).collect();
+                if buttons.is_empty() {
+                    buttons.push("Ok".into());
+                }
+                self.host.box_callback(func);
+                self.host.show_text(&text, buttons);
+                Ok(Some(XVal::Num(0.0)))
+            }
             _ => self.jip_store_function(n, c),
         }
     }
@@ -461,8 +489,16 @@ impl Vm<'_, '_> {
                 None => Err(VmError::Expression(format!("{n} without a string"))),
             }
         };
+        // An invalid pattern crashes the original [documented: the three pages]: here the
+        // default value (0, an empty string or no array) and a script error on the
+        // console [decision: the owner, 2026-10-26].
+        let fallback = match n {
+            "sv_regexsearch" => XVal::Array(0),
+            "sv_regexreplace" => XVal::Str(String::new()),
+            _ => XVal::Num(0.0),
+        };
         let build = |p: &str| fancy_regex::Regex::new(p).map_err(|e| VmError::Type(format!("{n}: the pattern {p:?} is not valid ({e})")));
-        Ok(match n {
+        let result = (|| -> Result<XVal, VmError> { Ok(match n {
             // [documented: ValidateRegex; observed: "[" gives 5] 0 when valid. Which
             // fancy-regex error is which code is our reading of the error names
             // [hypothesis].
@@ -515,7 +551,14 @@ impl Vm<'_, '_> {
                 XVal::Str(re.replace_all(&t, with).into_owned())
             }
             _ => unreachable!("routed by name"),
-        })
+        }) })();
+        match result {
+            Err(VmError::Type(e)) if n != "validateregex" => {
+                self.host.script_error(&e);
+                Ok(fallback)
+            }
+            r => r,
+        }
     }
 
     /// Argument `k`, or `None` when left out.
@@ -582,6 +625,7 @@ impl Vm<'_, '_> {
             Some(XVal::Str(s)) => s.to_lowercase(),
             _ => return Err(VmError::Type(format!("{n} without a name"))),
         };
+        let name = self.store_key(&name);
         if aux {
             return self.aux_function(n, op, &name, c);
         }
@@ -590,9 +634,11 @@ impl Vm<'_, '_> {
                 let v = self.jvalue(n, c, kind_of(op))?;
                 let key = self.jowner(n, c, 2)?;
                 let m = stores(self.store()?, &name).refmaps.entry(name.clone()).or_default();
-                match m.iter_mut().find(|(k, _)| *k == key) {
-                    Some(e) => e.1 = v,
-                    None => m.push((key, v)),
+                // Kept in FormID order [documented: RefMap Array Functions (JIP), "the
+                // elements in a RefMap are ordered by FormID (ascending)"].
+                match m.binary_search_by_key(&key, |(k, _)| *k) {
+                    Ok(i) => m[i].1 = v,
+                    Err(i) => m.insert(i, (key, v)),
                 }
                 XVal::Num(1.0)
             }
@@ -745,15 +791,48 @@ impl Vm<'_, '_> {
         Ok(Some(v))
     }
 
+    /// The key a store keeps a name under: the name cut to 79 characters, and a private
+    /// name (no `_` after an optional `*`) tied to the calling plugin, so that each mod
+    /// has its own [documented: Auxiliary-Variable Functions (JIP), JIP.xml]. A runtime
+    /// script belongs to no plugin: its names are shared [observed: aux.class.*, each
+    /// variable showed in both its private and its public class].
+    fn store_key(&mut self, name: &str) -> String {
+        let name: String = name.chars().take(79).collect();
+        let public = name.trim_start_matches('*').starts_with('_');
+        match self.host.calling_plugin() {
+            Some(p) if !public => format!("{name}{PRIVATE}{p}"),
+            _ => name,
+        }
+    }
+
     /// AuxiliaryVariableGetAll class [base]: a string map of name -> list of values.
-    /// Classes 0 and 2 hold the saved variables, 1 and 3 the temporary ones [observed:
-    /// aux.class.*; private and public are not told apart, jip-variable-stores.md §1].
+    /// Classes 0 and 2 hold the saved variables, 1 and 3 the temporary ones; 0 and 1 the
+    /// calling plugin's private ones, 2 and 3 the public ones [documented: AuxVar classes,
+    /// JIP.xml]. From a runtime script every variable shows in both [observed: aux.class.*].
     fn aux_get_all(&mut self, c: &XCall) -> Result<XVal, VmError> {
         let class = self.jindex(c, 0, 0)?;
         let o = self.jowner("AuxiliaryVariableGetAll", c, 1).ok();
+        let plugin = self.host.calling_plugin();
         let x = self.store()?;
         let s = if class % 2 == 1 { &x.jip_temp } else { &x.jip };
-        let vars: Vec<(String, Vec<XVal>)> = o.and_then(|o| s.aux.get(&o)).map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+        let all: Vec<(String, Vec<XVal>)> = o.and_then(|o| s.aux.get(&o)).map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+        let private_class = class < 2;
+        let vars: Vec<(String, Vec<XVal>)> = all
+            .into_iter()
+            .filter_map(|(k, v)| {
+                let (bare, owner) = match k.split_once(PRIVATE) {
+                    Some((b, p)) => (b.to_string(), Some(p.to_string())),
+                    None => (k.clone(), None),
+                };
+                let public = bare.trim_start_matches('*').starts_with('_');
+                let shown = match &plugin {
+                    None => owner.is_none(),
+                    Some(p) if private_class => !public && owner.as_deref() == Some(p.as_str()),
+                    Some(_) => public,
+                };
+                shown.then_some((bare, v))
+            })
+            .collect();
         let mut entries = Vec::new();
         for (k, l) in vars {
             let inner = l.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();

@@ -160,7 +160,7 @@ Two routes:
 2. **Compile `SCTX` ourselves.** Needs the script compiler that owner-review.md item 3
    deferred. The compiler also serves the console, test aids and source-only mods.
 
-**Decision: route 2 first**, with route 1 as the fallback for units without source. Phase 0
+**Decision: route 2 first**, with route 1 as the fallback for units without source. *Owner, 2026-10-26:* route 1 is not built; the only source-less extender units in the owner's lists (3, AMFAmata.esp) do not matter. Phase 0
 measures how many extender-using units in real mods lack `SCTX`. That number decides
 whether route 1 is ever needed.
 
@@ -216,7 +216,10 @@ relative to vanilla blocktypes (OnHit vs the script's `Begin OnHit`), and the sa
 The ordering is captured, not guessed: `nvf_capture` already receives events through xNVSE's
 event manager interface (plugin version 9, xnvse-capture.md §2).
 
-### 5.6 UI functions (needs an owner decision)
+### 5.6 UI functions (owner chose A, 2026-10-26)
+
+**Decision:** (A), a tile tree, so modders can change the UI; design in
+`docs/design/ui-tile-tree.md` (its own session).
 
 JIP and xNVSE have a large UI family: `GetUIFloat`, `SetUIFloat`, `SetUIString`,
 `GetActiveMenuMode`, tile injection (`InjectUIXML`, `InjectUIComponent`), menu-item lookups.
