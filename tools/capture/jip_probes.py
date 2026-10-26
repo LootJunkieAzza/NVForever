@@ -4,6 +4,7 @@
   jip_probes.py job [--set S] [-o JOB.steps.json]       write the capture job
   jip_probes.py collect OUT.jsonl [--set S] [-o golden]  capture output -> fnv.ext.probes/1
   jip_probes.py compare GOLDEN.json                the golden against the expectations here
+  jip_probes.py steps [--dir DIR]                  every set's job into tools/capture/jip-probes/
 
 Each probe is a function script that nvf_capture compiles inside the running game and
 whose result it records (docs/spec-notes/xnvse-capture.md §4–§5): JIP is loaded in the
@@ -329,6 +330,15 @@ def script(body):
     return "Begin Function { }\n" + body + "\nEnd\n"
 
 
+STEPS_DIR = os.path.join(HERE, "jip-probes")
+
+
+def steps_text(set_name):
+    """The job file of a set as committed in STEPS_DIR (the lab's candidate,
+    `fnvtool ext queries`, runs these)."""
+    return json.dumps(job(set_name), indent=1) + "\n"
+
+
 def job_name(set_name):
     return set_name.replace("-", "_")
 
@@ -382,7 +392,16 @@ def main(argv=None):
     c.add_argument("-o", "--out")
     k = sub.add_parser("compare")
     k.add_argument("golden")
+    st = sub.add_parser("steps")
+    st.add_argument("--dir", default=STEPS_DIR)
     a = ap.parse_args(argv)
+    if a.cmd == "steps":
+        os.makedirs(a.dir, exist_ok=True)
+        for name in SETS:
+            with open(os.path.join(a.dir, f"{name}.steps.json"), "w", encoding="utf-8", newline="\n") as f:
+                f.write(steps_text(name))
+        print(json.dumps({"dir": a.dir, "sets": list(SETS)}))
+        return 0
     if a.cmd == "job":
         a.out = a.out or f"{job_name(a.set)}.steps.json"
         with open(a.out, "w", encoding="utf-8", newline="\n") as f:

@@ -57,6 +57,12 @@ class Job(unittest.TestCase):
         for name, _ in jp.HIT_VALUES:
             self.assertIn(f'AuxVarErase "*nvfH.{name}"', jp.HIT_PROBES[-1][1])
 
+    def test_committed_steps_are_current(self):
+        for name in jp.SETS:
+            path = os.path.join(jp.STEPS_DIR, f"{name}.steps.json")
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), jp.steps_text(name), f"{path}: run `python tools/capture/jip_probes.py steps`")
+
     def test_only_getters(self):
         for pid, body, _, _, _ in [p for k, probes in jp.SETS.items() if k not in jp.WRITING_SETS for p in probes]:
             words = body.replace("(", " ").split()

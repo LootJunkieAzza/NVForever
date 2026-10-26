@@ -1,0 +1,170 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_stores",
+ "title": "JIP stores, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfF\" 3.5\nlet fV := rP.AuxVarGetFlt \"*nvfF\"\nrP.AuxVarErase \"*nvfF\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.float",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfL\" 1\nrP.AuxVarSetFlt \"*nvfL\" 2 -1\nrP.AuxVarSetFlt \"*nvfL\" 3 -1\nlet fV := rP.AuxVarSize \"*nvfL\"\nrP.AuxVarErase \"*nvfL\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.append.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfL\" 1\nrP.AuxVarSetFlt \"*nvfL\" 2 -1\nlet fV := rP.AuxVarGetFlt \"*nvfL\" -1\nrP.AuxVarErase \"*nvfL\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.last",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfG\" 1 5\nlet fV := rP.AuxVarSize \"*nvfG\"\nrP.AuxVarErase \"*nvfG\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.gap.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfNone\")\nEnd\n",
+   "label": "aux.missing.float",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarType \"*nvfNone\")\nEnd\n",
+   "label": "aux.missing.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfNone\")\nEnd\n",
+   "label": "aux.missing.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfT\" 1\nlet fV := rP.AuxVarType \"*nvfT\"\nrP.AuxVarErase \"*nvfT\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.type.float",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetRef \"*nvfT\" rP\nlet fV := rP.AuxVarType \"*nvfT\"\nrP.AuxVarErase \"*nvfT\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.type.ref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetStr \"*nvfT\" \"abc\"\nlet fV := rP.AuxVarType \"*nvfT\"\nrP.AuxVarErase \"*nvfT\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.type.string",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetStr \"*nvfT\" \"abc\"\nlet fV := rP.AuxVarGetFlt \"*nvfT\"\nrP.AuxVarErase \"*nvfT\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.float.of.string",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetStr \"*nvfS\" \"abc\"\nSetFunctionValue (rP.AuxVarGetStr \"*nvfS\")\nrP.AuxVarErase \"*nvfS\"\nEnd\n",
+   "label": "aux.string",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfT\" 1\nrP.AuxVarSetStr \"*nvfT\" \"abc\"\nlet fV := rP.AuxVarType \"*nvfT\"\nrP.AuxVarErase \"*nvfT\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.overwrite.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfE\" 1\nrP.AuxVarSetFlt \"*nvfE\" 2 -1\nrP.AuxVarSetFlt \"*nvfE\" 3 -1\nlet fV := rP.AuxVarErase \"*nvfE\" 0\nrP.AuxVarErase \"*nvfE\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.erase.returns",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfE\" 1\nrP.AuxVarSetFlt \"*nvfE\" 2 -1\nrP.AuxVarSetFlt \"*nvfE\" 3 -1\nrP.AuxVarErase \"*nvfE\" 0\nlet fV := rP.AuxVarGetFlt \"*nvfE\" 0\nrP.AuxVarErase \"*nvfE\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.erase.shifts",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfE\" 1\nrP.AuxVarSetFlt \"*nvfE\" 2 -1\nlet fV := rP.AuxVarErase \"*nvfE\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.erase.all",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nAuxVarSetFlt \"*nvfO\" 7 0 rB\nlet fV := (AuxVarGetFlt \"*nvfO\" 0 rB) * 10 + (rP.AuxVarGetFlt \"*nvfO\")\nAuxVarErase \"*nvfO\" -1 rB\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.owner.base",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfC\" 4\nlet fV := rP.AuxVarGetFlt \"*NVFc\"\nrP.AuxVarErase \"*nvfC\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.case",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"nvfP\" 1\nlet fV := (ar_HasKey (rP.AuxVarGetAll 0) \"nvfP\") * 1 + (ar_HasKey (rP.AuxVarGetAll 1) \"nvfP\") * 2 + (ar_HasKey (rP.AuxVarGetAll 2) \"nvfP\") * 4 + (ar_HasKey (rP.AuxVarGetAll 3) \"nvfP\") * 8\nrP.AuxVarErase \"nvfP\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.class.nvfP",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*nvfP\" 1\nlet fV := (ar_HasKey (rP.AuxVarGetAll 0) \"*nvfP\") * 1 + (ar_HasKey (rP.AuxVarGetAll 1) \"*nvfP\") * 2 + (ar_HasKey (rP.AuxVarGetAll 2) \"*nvfP\") * 4 + (ar_HasKey (rP.AuxVarGetAll 3) \"*nvfP\") * 8\nrP.AuxVarErase \"*nvfP\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.class.tnvfP",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"_nvfP\" 1\nlet fV := (ar_HasKey (rP.AuxVarGetAll 0) \"_nvfP\") * 1 + (ar_HasKey (rP.AuxVarGetAll 1) \"_nvfP\") * 2 + (ar_HasKey (rP.AuxVarGetAll 2) \"_nvfP\") * 4 + (ar_HasKey (rP.AuxVarGetAll 3) \"_nvfP\") * 8\nrP.AuxVarErase \"_nvfP\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.class.unvfP",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.AuxVarSetFlt \"*_nvfP\" 1\nlet fV := (ar_HasKey (rP.AuxVarGetAll 0) \"*_nvfP\") * 1 + (ar_HasKey (rP.AuxVarGetAll 1) \"*_nvfP\") * 2 + (ar_HasKey (rP.AuxVarGetAll 2) \"*_nvfP\") * 4 + (ar_HasKey (rP.AuxVarGetAll 3) \"*_nvfP\") * 8\nrP.AuxVarErase \"*_nvfP\"\nSetFunctionValue fV\nEnd\n",
+   "label": "aux.class.tunvfP",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RefMapSetFlt \"*nvfM\" 4.5\nlet fV := rP.RefMapGetFlt \"*nvfM\"\nRefMapDestroy \"*nvfM\"\nSetFunctionValue fV\nEnd\n",
+   "label": "refmap.float",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nrP.RefMapSetFlt \"*nvfM\" 1\nRefMapSetFlt \"*nvfM\" 2 rB\nrP.RefMapSetFlt \"*nvfM\" 3\nlet fV := RefMapArrayGetSize \"*nvfM\"\nRefMapDestroy \"*nvfM\"\nSetFunctionValue fV\nEnd\n",
+   "label": "refmap.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RefMapSetStr \"*nvfM\" \"abc\"\nlet fV := rP.RefMapGetType \"*nvfM\"\nRefMapDestroy \"*nvfM\"\nSetFunctionValue fV\nEnd\n",
+   "label": "refmap.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.RefMapGetType \"*nvfNone\")\nEnd\n",
+   "label": "refmap.missing.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.RefMapGetFlt \"*nvfNone\")\nEnd\n",
+   "label": "refmap.missing.float",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RefMapSetFlt \"*nvfM\" 1\nlet rB := (RefMapFirst \"*nvfM\")[0]\nRefMapDestroy \"*nvfM\"\nSetFunctionValue (GetFormIDString rB)\nEnd\n",
+   "label": "refmap.first.key",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nrP.RefMapSetFlt \"*nvfM\" 1\nRefMapSetFlt \"*nvfM\" 2 rB\nlet fV := ar_Size (RefMapKeys \"*nvfM\")\nRefMapDestroy \"*nvfM\"\nSetFunctionValue fV\nEnd\n",
+   "label": "refmap.keys",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RefMapSetFlt \"*nvfM\" 1\nlet fV := ar_Size (RefMapFirst \"*nvfM\")\nlet fV := fV * 10 + ar_Size (RefMapNext \"*nvfM\")\nRefMapDestroy \"*nvfM\"\nSetFunctionValue fV\nEnd\n",
+   "label": "refmap.next.end",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RefMapSetFlt \"*nvfM\" 1\nRefMapDestroy \"*nvfM\"\nSetFunctionValue (RefMapArrayGetSize \"*nvfM\")\nEnd\n",
+   "label": "refmap.destroyed",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nfloat fV\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RefMapSetFlt \"*nvfM\" 1\nlet fV := RefMapValidate \"*nvfM\"\nRefMapDestroy \"*nvfM\"\nSetFunctionValue fV\nEnd\n",
+   "label": "refmap.validate",
+   "field": "value"
+  }
+ ]
+}

@@ -71,6 +71,22 @@ pub enum ExtCmd {
         #[arg(long)]
         risky: bool,
     },
+    /// Run a runtime-query job (fnv.capture.steps/1, as tools/capture/jip_probes.py writes
+    /// it) headless, one runner query per step in order, and write fnv.ext.probes/1 as
+    /// jip_probes.py's collector does.
+    Queries {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Layer 1 schema directory (schemas/fnv).
+        #[arg(long)]
+        schema: PathBuf,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// The job file (tools/capture/jip-probes/<set>.steps.json).
+        #[arg(long)]
+        steps: PathBuf,
+    },
 }
 
 pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
@@ -111,6 +127,99 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             doc["runs"] = json!(runs);
             Ok(doc)
         }
+        ExtCmd::Queries { lo, schema, functions, steps } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let jtext = std::fs::read_to_string(&steps).with_context(|| steps.display().to_string())?;
+            let job: Value = serde_json::from_str(&jtext).with_context(|| steps.display().to_string())?;
+            let (set, input) = query_input(&job)?;
+            let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
+            let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
+            let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let forms = fnv_sim::FormStore::build(&order, &schema);
+            let refs = fnv_sim::RefTable::build(&order, &schema);
+            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            let input: fnv_game::runner::Input = serde_json::from_value(input).context("query actions")?;
+            let trace = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
+            Ok(queries_doc(&set, &trace))
+        }
+    }
+}
+
+/// The probe set of a query job (its name with `_` as `-`, as jip_probes.py names the
+/// golden) and the runner input: one `query` action per step, in order.
+pub(crate) fn query_input(job: &Value) -> anyhow::Result<(String, Value)> {
+    anyhow::ensure!(job["format"] == "fnv.capture.steps/1", "not a fnv.capture.steps/1 job");
+    let set = job["name"].as_str().context("job without a name")?.replace('_', "-");
+    let mut actions = Vec::new();
+    for s in job["steps"].as_array().context("job without steps")? {
+        let script = s["query"].as_str().context("a step without a query (only query jobs run here)")?;
+        let label = s["label"].as_str().context("a step without a label")?;
+        actions.push(json!({"op": "query", "script": script, "label": label, "text": s["text"].as_bool().unwrap_or(false)}));
+    }
+    Ok((set, json!({"format": "fnv.script.actions/1", "new_game": false, "actions": actions})))
+}
+
+/// fnv.ext.probes/1 from a run's query observations, as jip_probes.py's collector writes
+/// it from the game's capture: numbers as `%.6g`, errors listed apart.
+pub(crate) fn queries_doc(set: &str, trace: &Value) -> Value {
+    let mut rows = Vec::new();
+    let mut errors = Vec::new();
+    for o in trace["observations"].as_array().into_iter().flatten() {
+        let Some(id) = o["label"].as_str() else { continue };
+        if let Some(e) = o.get("error").or_else(|| o.pointer("/errors/action")) {
+            errors.push(json!({"id": id, "error": e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string())}));
+            continue;
+        }
+        let value = match &o["value"] {
+            Value::Number(n) => fmt_g6(n.as_f64().unwrap_or(f64::NAN)),
+            Value::String(s) => s.clone(),
+            Value::Null => String::new(),
+            v => v.to_string(),
+        };
+        rows.push(json!({"id": id, "value": value}));
+    }
+    json!({
+        "format": "fnv.ext.probes/1",
+        "set": set,
+        "version": "nvforever",
+        "sources": ["fnvtool ext queries"],
+        "rows": rows,
+        "files": [],
+        "duplicates": [],
+        "errors": errors,
+    })
+}
+
+/// A number as Python's `"%.6g" % x`: six significant digits, trailing zeros dropped,
+/// exponent form below 1e-4 and from 1e6 up.
+pub(crate) fn fmt_g6(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    if x == 0.0 {
+        return if x.is_sign_negative() { "-0".into() } else { "0".into() };
+    }
+    let sci = format!("{x:.5e}");
+    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let trim = |s: &str| -> String {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    if !(-4..6).contains(&exp) {
+        let sign = if exp < 0 { '-' } else { '+' };
+        format!("{}e{sign}{:02}", trim(mant), exp.abs())
+    } else {
+        trim(&format!("{x:.*}", (5 - exp).max(0) as usize))
     }
 }
 
@@ -558,6 +667,49 @@ End
         assert_eq!(input["actions"][2], json!({"op": "set_quest_var", "quest": "ExtProbeX02Q", "var": "iWhich", "value": 1}));
         let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn numbers_print_as_python_g6() {
+        for (x, s) in [
+            (1.0, "1"),
+            (0.5, "0.5"),
+            (44.99977, "44.9998"),
+            (-98.1, "-98.1"),
+            (10000.0, "10000"),
+            (0.039_999_999_105_930_33, "0.04"),
+            (6.49, "6.49"),
+            (1e6, "1e+06"),
+            (0.00001234, "1.234e-05"),
+            (0.0001, "0.0001"),
+            (-0.5294, "-0.5294"),
+            (0.0, "0"),
+        ] {
+            assert_eq!(fmt_g6(x), s, "{x}");
+        }
+    }
+
+    #[test]
+    fn query_jobs_become_runner_queries_and_rows() {
+        let job = json!({"format": "fnv.capture.steps/1", "name": "jip_forms", "steps": [
+            {"query": "Begin Function { }\nSetFunctionValue 1\nEnd\n", "label": "a", "field": "value"},
+            {"query": "Begin Function { }\nSetFunctionValue (GetModName 0)\nEnd\n", "label": "b", "field": "value", "text": true},
+        ]});
+        let (set, input) = query_input(&job).unwrap();
+        assert_eq!(set, "jip-forms");
+        assert_eq!(input["actions"][1]["op"], "query");
+        assert_eq!(input["actions"][1]["text"], true);
+        let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
+        assert!(query_input(&json!({"format": "fnv.capture.steps/1", "name": "x", "steps": [{"console": "tgm"}]})).is_err());
+
+        let trace = json!({"observations": [
+            {"label": "a", "step": 0, "value": 44.99977},
+            {"label": "b", "step": 1, "value": "FalloutNV"},
+            {"label": "c", "step": 2, "error": "script did not compile"},
+        ]});
+        let doc = queries_doc("jip-forms", &trace);
+        assert_eq!(doc["rows"], json!([{"id": "a", "value": "44.9998"}, {"id": "b", "value": "FalloutNV"}]));
+        assert_eq!(doc["errors"], json!([{"id": "c", "error": "script did not compile"}]));
     }
 
     #[test]
