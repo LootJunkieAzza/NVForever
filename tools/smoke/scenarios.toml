@@ -6729,6 +6729,7 @@ expect = [
   { re = 'scope sway: PSp [\d.]+, radius [\d.]+°', label = "the view sways through the scope" },
   { re = 'scope: down', label = "letting go of Block takes the scope down" },
   { re = 'scope: night vision', count = 0, label = "a plain scope gives no night vision" },
+  { re = 'failed to process shader', count = 0, label = "the picture's materials compile in the scope's fog-less view (the picture was blank when they did not)" },
 ]
 
 [[scenario]]
@@ -9801,4 +9802,16 @@ expect = [
   { re = 'scripts: 1[0-9]{4} units run from their source text, \d+ kept their bytes', label = "the shipped units run from their source" },
   { re = 'scripts ready in', label = "the scripts start" },
   { re = 'panicked', count = 0, label = "no panic" },
+]
+
+[[scenario]]
+name = "ui-menus"
+kind = "tool"
+source = "docs/spec-notes/menu-xml.md, docs/design/ui-tile-tree.md: every vanilla menu file under menus (archives of the owner's install) builds into the tile tree and its traits settle on one update; 49 files hold a <menu> (2026-10-26)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "menus", "--data", "{data}"]]
+expect = [
+  { json = "built", schema = "fnv.ui.menus/1", equals = 49, label = "all 49 vanilla menus build" },
+  { json = "globals_warnings", schema = "fnv.ui.menus/1", equals = 0, label = "globals.xml reads without mending" },
 ]

@@ -345,3 +345,20 @@ The numbers above stay put so links to them hold; each item here gives its own p
     To check: `player.setav intelligence 1`, then screenshots of those conversations.
     Check Intelligence 4 too: is the player dim there?
     ([dialogue §2](../spec-notes/dialogue.md))
+
+## Added 2026-10-26 (UI tile tree)
+
+26. **How the original's menu engine reads its files** (P2: every UI mod and MCM).
+    Ours (fnv-ui):
+    - `&true;` is 1 and `&false;` 0;
+    - other constants are kept by name;
+    - an end tag closes the innermost element of its name, else the innermost element;
+    - a value a script set holds until what its expression reads changes;
+    - SetUIFloat makes no trait that is not there;
+    - `name:N` counts from 0 among the children of that name.
+
+    To check: GetUIFloat on traits the files set to constants (`HUDMainMenu/locus`,
+    `_CrosshairVisible`, a `justify`), DumpTileInfo on QuestAddedMenu and on MCM's
+    StartMenu tree, SetUIFloat on a trait with an expression and on a missing one, and
+    SetUIFloat against SetUIFloatAlt on a templated list row (the "children tiles" bug
+    MCM depends on). ([menu-xml §8](../spec-notes/menu-xml.md))

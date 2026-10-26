@@ -5,6 +5,8 @@ vision and its sway. ESM gap audit row 10 (docs/handoff/esm-gap-audit-2026-10-21
 built in claude/e10-weapon-scopes. Aiming and the zoom itself are older:
 `nvf_play::aim_zoom` (camera.md, combat-data.md §1.1), true iron sights
 (`nvforever/src/iron_sights.rs`).
+A 3D scope on the gun's lens instead of the overlay: studied, not built
+(docs/design/scope-3d-lens.md).
 
 ## 1. The record's fields
 

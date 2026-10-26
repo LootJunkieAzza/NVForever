@@ -1,0 +1,5 @@
+scn ExtCase25
+ref rK
+Begin GameMode
+    set rK to player
+End
