@@ -1,0 +1,59 @@
+"""Tests for tools/capture/jip_probes.py: the job, collection and comparison, no game."""
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+
+import jip_probes as jp  # noqa: E402
+
+
+class Job(unittest.TestCase):
+    def test_every_probe_is_a_function_script_query(self):
+        job = jp.job()
+        self.assertEqual(job["format"], "fnv.capture.steps/1")
+        self.assertEqual(len(job["steps"]), len(jp.PROBES))
+        ids = [s["label"] for s in job["steps"]]
+        self.assertEqual(len(ids), len(set(ids)), "probe ids are unique")
+        for s in job["steps"]:
+            q = s["query"]
+            self.assertIn("Begin Function { }", q)
+            self.assertTrue(q.endswith("End\n"))
+            self.assertLess(q.index("Begin Function"), q.index("SetFunctionValue"))
+
+    def test_ref_variables_come_before_begin(self):
+        q = next(s["query"] for s in jp.job()["steps"] if s["label"] == "formfrommod.player")
+        self.assertTrue(q.startswith("ref rF\nBegin Function { }\n"))
+
+    def test_only_getters(self):
+        for pid, body, _, _, _ in jp.PROBES:
+            words = body.replace("(", " ").split()
+            self.assertFalse(any(w.startswith(("Set", "Toggle", "Clear", "Write")) and w != "SetFunctionValue" for w in words), pid)
+
+
+class Collect(unittest.TestCase):
+    def test_output_to_rows_and_compare(self):
+        lines = [{"kind": "start"},
+                 {"kind": "result", "label": "fsin.90", "field": "value", "value": 1.0},
+                 {"kind": "result", "label": "modname.0", "field": "value", "value": "FalloutNV"},
+                 {"kind": "result", "label": "av.strength", "field": "value", "value": 5.0},
+                 {"kind": "result", "label": "fsqrt.16", "field": "value", "error": "did not compile"},
+                 {"kind": "end"}]
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "out.jsonl")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+            doc = jp.collect(p)
+        self.assertEqual(doc["rows"][:2], [{"id": "fsin.90", "value": "1"}, {"id": "modname.0", "value": "FalloutNV"}])
+        self.assertEqual(doc["errors"], [{"id": "fsqrt.16", "error": "did not compile"}])
+        res = jp.compare(doc)
+        self.assertEqual(res["matched"], 2)
+        self.assertIn("fsqrt.16", res["missing"])
+        self.assertIn({"id": "av.strength", "got": "5"}, res["observe"])
+
+
+if __name__ == "__main__":
+    unittest.main()

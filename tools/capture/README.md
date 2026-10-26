@@ -607,6 +607,21 @@ README does not know and scripts that never printed their end marker; it exits 1
 mismatch or a missing id. The results then go into the matching
 `docs/spec-notes/ext-*.md` as `[observed]`.
 
+## 13. `jip_probes.py` — JIP getters without the GECK (JIP plan, task J3)
+
+Read-only JIP LN NVSE calls run as runtime-compiled capture queries (xnvse-capture.md
+§4–§5) in the original game with JIP loaded; no GECK and no test plugin needed:
+
+```
+python tools/capture/jip_probes.py job -o C:/fnv-private/capture/ext/jip_getters.steps.json
+python tools/capture/capture_run.py --game "<FNV folder>" --save <save> C:/fnv-private/capture/ext/jip_getters.steps.json
+python tools/capture/jip_probes.py collect C:/fnv-private/capture/out/jip_getters.<unix>.jsonl
+python tools/capture/jip_probes.py compare C:/fnv-private/goldens/jip/jip-getters.json
+```
+
+`collect` writes `<goldens>/jip/jip-getters.json` (fnv.ext.probes/1); `compare` checks it
+against the expected values in the script (only those a wiki page states exactly).
+
 ## Tests
 
 ```
