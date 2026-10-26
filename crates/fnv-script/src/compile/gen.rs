@@ -306,6 +306,12 @@ impl<'a> Gen<'a> {
     // ------------------------------------------------------------------ variables, names
 
     fn declare(&mut self, name: &str, ty: DeclType) {
+        // A variable may not take an extender function's name or alias [observed: a
+        // runtime-compiled script declaring `ref rK` (ReleaseKey's alias) is refused, rF
+        // rG rB rD rP are not; hypothesis that every extender name is refused].
+        if self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) {
+            self.diag("variable_named_like_a_function", true, name.to_string());
+        }
         // A string or array variable holds an id [documented: Array Variable; String
         // Variable]; NVForever keeps the kind in the type (the record's list cannot).
         let vt = match ty {

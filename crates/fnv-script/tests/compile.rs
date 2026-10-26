@@ -794,6 +794,19 @@ end");
 }
 
 #[test]
+fn a_variable_named_like_an_extender_function_is_refused() {
+    // [observed: `ref rK`, ReleaseKey's alias, does not compile in the original].
+    let t = table();
+    let c = compile("Begin Function { }
+ref rK
+ref rF
+End
+", &t, &World, None);
+    let bad: Vec<&str> = c.errors().map(|d| d.detail.as_str()).collect();
+    assert_eq!(bad, ["rK"]);
+}
+
+#[test]
 fn jip_reports_and_pure_functions() {
     let h = run(
         "float i
