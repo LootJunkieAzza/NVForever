@@ -90,6 +90,10 @@ pub enum ExtCmd {
         /// start where the oracle's save stands.
         #[arg(long)]
         start_cell: Option<String>,
+        /// Also write the run's whole trace (fnv.script.trace) to this file, for debugging
+        /// a row.
+        #[arg(long)]
+        trace: Option<PathBuf>,
     },
     /// Write the compiled script units that have no source text (route 1 input) to a
     /// directory: each unit's bytes as `<n>.scda`, and `units.json` with its plugin, owner,
@@ -154,7 +158,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             doc["runs"] = json!(runs);
             Ok(doc)
         }
-        ExtCmd::Queries { lo, schema, functions, steps, start_cell } => {
+        ExtCmd::Queries { lo, schema, functions, steps, start_cell, trace } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let jtext = std::fs::read_to_string(&steps).with_context(|| steps.display().to_string())?;
             let job: Value = serde_json::from_str(&jtext).with_context(|| steps.display().to_string())?;
@@ -169,8 +173,11 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let refs = fnv_sim::RefTable::build(&order, &schema);
             let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
             let input: fnv_game::runner::Input = serde_json::from_value(input).context("query actions")?;
-            let trace = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
-            Ok(queries_doc(&set, &trace))
+            let run = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
+            if let Some(path) = trace {
+                std::fs::write(&path, serde_json::to_string(&run)?).with_context(|| path.display().to_string())?;
+            }
+            Ok(queries_doc(&set, &run))
         }
         ExtCmd::Units { lo, schema, functions, dump, plugin, all } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));

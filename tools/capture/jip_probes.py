@@ -924,8 +924,12 @@ FIFTH_PROBES = [
         + 'let fRes := (GetGlobalValue rOther) - (rPlayer.AuxVarGetFlt "*nvfGH")\n'
         'SetFunctionValue ((fRes > 0.99) && (fRes < 1.01))'),
     _f4("gamehour.restore", _form("rObj", FF["timescale"])
-        + 'let fRes := rPlayer.AuxVarGetFlt "*nvfGH"\nif (GetGlobalValue rObj) == 30\n  if fRes < 22\n    SetGameHour fRes\n  endif\nendif\n'
+        + 'let fRes := rPlayer.AuxVarGetFlt "*nvfGH"\nrPlayer.AuxVarSetFlt "*nvfGD" (GetGameDaysPassed)\n'
+        'if (GetGlobalValue rObj) == 30\n  if fRes < 22\n    SetGameHour fRes\n  endif\nendif\n'
         'rPlayer.AuxVarErase "*nvfGH"\nSetFunctionValue 1'),
+    # Setting an earlier hour: does the clock go back, or on to that hour the next day?
+    _f4("gamehour.restore.hours.passed", 'let fRes := ((GetGameDaysPassed) - (rPlayer.AuxVarGetFlt "*nvfGD")) * 24\n'
+        'rPlayer.AuxVarErase "*nvfGD"\nSetFunctionValue (sv_Construct "%.0f" fRes)', True),
     # The owner's Amata companion mod (AMFAmata.esp): its unbuilt functions, read-only or
     # changed and put back in the same step, on Doc Mitchell, Sunny Smiles and Chet.
     # MessageBoxExAlt is left out: it opens a message box, which would hold the run.
