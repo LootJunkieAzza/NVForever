@@ -346,6 +346,8 @@ impl Game<'_> {
     /// page uses a Stimpak on the limb chosen: a Value And Parts restore gives that limb
     /// its whole amount and the other limbs nothing ([`PARTS_LIMB_SHARE`]).
     pub fn ingest_on(&mut self, actor: FormId, item: FormId, limb: Option<u16>) -> Ingested {
+        // [documented: SetOnUseAidItemEventHandler] this = the actor, the item.
+        self.jip_event("useaiditem", Some(actor), vec![fnv_script::vm::XVal::Ref(item.0)]);
         let def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);

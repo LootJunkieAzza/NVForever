@@ -274,6 +274,65 @@ impl Vm<'_, '_> {
                     },
                 }))
             }
+            // JIP's own event registrations (task J6; jip-events.md).
+            _ if n.starts_with("seton") && n.ends_with("eventhandler") && n.len() > 17 => {
+                let event = n["seton".len()..n.len() - "eventhandler".len()].to_string();
+                let func = val(self, 0)?;
+                let add = val(self, 1)?.truthy();
+                let mut filters = Vec::new();
+                for a in c.args.iter().skip(2) {
+                    filters.push(self.xeval(a)?);
+                }
+                let r = self.host.event_call(super::EventCall::JipSet { event, func, add, filters }).map_err(VmError::Host)?;
+                Ok(Some(r))
+            }
+            "setgamemainloopcallback" => {
+                let func = val(self, 0)?;
+                let add = val(self, 1)?.truthy();
+                let delay = opt(self, 2)?.map(|v| v.num()).transpose()?.unwrap_or(1.0).max(1.0) as u64;
+                let flags = opt(self, 3)?.map(|v| v.num()).transpose()?.unwrap_or(3.0) as u32;
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let r = self.host.event_call(super::EventCall::MainLoop { func, add, delay, flags, on }).map_err(VmError::Host)?;
+                Ok(Some(r))
+            }
+            // Names and text fields (jip-strings.md §3): a missing entry is "" [observed].
+            "lngetname" => {
+                let f = match (c.args.first(), &c.on) {
+                    (Some(a), _) => self.xeval(a)?.value()?.as_form(),
+                    (None, Some(e)) => self.xeval(e)?.value()?.as_form(),
+                    (None, None) => self.host.calling_ref(),
+                };
+                Ok(Some(XVal::Str(f.and_then(|f| self.host.form_text(f)).unwrap_or_default())))
+            }
+            "getformdescription" | "getloadscreentexture" | "getprojectilemuzzleflash" => {
+                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let sub = match n {
+                    "getformdescription" => "DESC",
+                    "getloadscreentexture" => "ICON",
+                    _ => "NAM1",
+                };
+                Ok(Some(match self.host.record_field(f, sub, "") {
+                    Some(XVal::Str(s)) => XVal::Str(s),
+                    _ => XVal::Str(String::new()),
+                }))
+            }
+            // [documented: GetObjectiveText; observed: objective 9999 gives ""].
+            "getobjectivetext" => {
+                let q = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let i = val(self, 1)?.num()? as i32;
+                Ok(Some(XVal::Str(self.host.objective_text(q, i).unwrap_or_default())))
+            }
+            // [documented: GetStringSetting; observed: `%d` left in].
+            "getstringsetting" => {
+                let s = text(val(self, 0)?).unwrap_or_default();
+                Ok(Some(match self.host.game_setting(&s) {
+                    Some(XVal::Str(t)) => XVal::Str(t),
+                    _ => XVal::Str(String::new()),
+                }))
+            }
             // [observed: projexpl.*, projlight.slug, ammoproj.*] form fields.
             "getprojectileexplosion" | "getprojectilelight" | "getammoprojectile" => {
                 let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
@@ -516,6 +575,11 @@ impl Vm<'_, '_> {
             // the end does nothing, a new type replaces the element].
             "setfloat" | "setref" | "setstring" => {
                 let v = self.jvalue(n, c, kind_of(op))?;
+                // Setting no form leaves no element [observed: jip-events ev.source.type,
+                // the null source stored with AuxVarSetRef].
+                if v == XVal::Ref(0) {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
                 let i = self.jindex(c, 2, 0)?;
                 let o = self.jowner(n, c, 3)?;
                 let s = stores(self.store()?, name);

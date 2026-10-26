@@ -213,6 +213,10 @@ pub enum XKind {
 pub struct XTok {
     pub kind: XKind,
     pub text: String,
+    /// A `-` with a space before it and a digit right after (`GetMaxOf -1 -5`): among
+    /// arguments it starts the next one [observed: maxof.neg, aux.append.* in the
+    /// original with JIP; `- 5` with spaces stays a subtraction, probe expressions/08].
+    pub sign: bool,
 }
 
 impl XTok {
@@ -241,7 +245,7 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
         }
         if c == '"' {
             let end = cs[i + 1..].iter().position(|&q| q == '"').map(|p| i + 1 + p);
-            out.push(XTok { kind: XKind::Str, text: cs[i + 1..end.unwrap_or(cs.len())].iter().collect() });
+            out.push(XTok { kind: XKind::Str, text: cs[i + 1..end.unwrap_or(cs.len())].iter().collect(), sign: false });
             i = end.map(|e| e + 1).unwrap_or(cs.len());
             continue;
         }
@@ -249,13 +253,14 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
             let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
             let text: String = cs[i..i + n].iter().collect();
             let kind = if is_number(&text) { XKind::Num } else { XKind::Word };
-            out.push(XTok { kind, text });
+            out.push(XTok { kind, text, sign: false });
             i += n;
             continue;
         }
         let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
         if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
-            out.push(XTok { kind: XKind::Op, text: op.to_string() });
+            let sign = *op == "-" && i > 0 && cs[i - 1].is_whitespace() && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == '.');
+            out.push(XTok { kind: XKind::Op, text: op.to_string(), sign });
             i += op.chars().count();
             continue;
         }
@@ -270,7 +275,7 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
             '!' | '$' | '#' => XKind::Op,
             _ => XKind::Other,
         };
-        out.push(XTok { kind, text: c.to_string() });
+        out.push(XTok { kind, text: c.to_string(), sign: false });
         i += 1;
     }
     out

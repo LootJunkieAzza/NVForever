@@ -93,6 +93,9 @@ pub(super) struct Gen<'a> {
     /// Inside a compiler-override block (`Begin _GameMode` … `End`): every line is read
     /// with the extender's grammar (task A12, script-compiler.md §8).
     co: bool,
+    /// Parsing a function's arguments (not inside brackets of one): a signed number after
+    /// a space starts the next argument ([`lex::XTok::sign`]).
+    in_args: bool,
     /// The block-form lambdas taken out of the source: parameter names and their lines
     /// (`__lambda<i>` stands in their place).
     lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
@@ -154,6 +157,7 @@ impl<'a> Gen<'a> {
             extended: false,
             text: String::new(),
             co: false,
+            in_args: false,
             lambdas: Vec::new(),
         }
     }
@@ -244,6 +248,7 @@ impl<'a> Gen<'a> {
     /// statements, as the decoder reads them back.
     pub(super) fn lambda(&mut self, i: usize) -> Option<crate::ir::XExpr> {
         let (names, lines) = self.lambdas.get(i).cloned()?;
+        let names = self.typed_params(&names);
         let mut params = Vec::new();
         for n in &names {
             let Some(v) = self.var(n) else {
@@ -275,6 +280,27 @@ impl<'a> Gen<'a> {
         self.text = saved.6;
         let body = crate::decode::decode(&bytes, self.table).program.top;
         Some(crate::ir::XExpr::Lambda { params, body, value: None })
+    }
+
+    /// Brace parameters, each name possibly after a type word (`{float fD, ref rS}`),
+    /// which declares it [observed: the original's runtime-compiled function scripts take
+    /// typed parameters there, jip-events.md §4]; the names.
+    pub(super) fn typed_params(&mut self, words: &[String]) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut ty = None;
+        for w in words {
+            if let Some(t) = DeclType::from_word(w) {
+                ty = Some(t);
+                continue;
+            }
+            if let Some(t) = ty.take() {
+                if self.var(w).is_none() {
+                    self.declare(w, t);
+                }
+            }
+            out.push(w.clone());
+        }
+        out
     }
 
     // ------------------------------------------------------------------ variables, names
@@ -796,7 +822,7 @@ impl<'a> Gen<'a> {
                 Kw::ElseIf(_) => Some(Kw::ElseIfEval(x[1..].to_vec())),
                 Kw::Set { .. } => x.iter().position(|t| t.is(lex::XKind::Word, "to")).map(|k| {
                     let mut t = x[1..k].to_vec();
-                    t.push(lex::XTok { kind: lex::XKind::Op, text: ":=".into() });
+                    t.push(lex::XTok { kind: lex::XKind::Op, text: ":=".into(), sign: false });
                     t.extend_from_slice(&x[k + 1..]);
                     Kw::Let(t)
                 }),
@@ -828,7 +854,8 @@ impl<'a> Gen<'a> {
                 // `Begin Function {a, b}`: a user-defined function; its parameters are
                 // variables of the script [documented: User Defined Function].
                 if block.eq_ignore_ascii_case("function") {
-                    let params = Self::arg_tokens(args);
+                    let words: Vec<String> = Self::arg_tokens(args).into_iter().map(|t| t.text).collect();
+                    let params: Vec<Tok> = self.typed_params(&words).into_iter().map(|text| Tok { kind: Kind::Word, text }).collect();
                     let mut body = Vec::new();
                     put16(&mut body, crate::ir::FUNCTION_BLOCK);
                     body.extend_from_slice(&0u32.to_le_bytes());

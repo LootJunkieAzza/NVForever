@@ -221,6 +221,14 @@ pub trait Host {
     fn record_field(&mut self, _form: u32, _sub: &str, _path: &str) -> Option<XVal> {
         None
     }
+    /// A game setting (GMST) by Editor ID, without regard to case.
+    fn game_setting(&mut self, _name: &str) -> Option<XVal> {
+        None
+    }
+    /// A quest objective's display text.
+    fn objective_text(&mut self, _quest: u32, _index: i32) -> Option<String> {
+        None
+    }
     /// The reference the script runs on, if any (JIP's stores default to it).
     fn calling_ref(&mut self) -> Option<u32> {
         None
@@ -685,6 +693,10 @@ pub enum EventCall {
     DispatchAlt { event: String, on: Option<Value>, args: Vec<XVal> },
     /// GetCurrentEventName.
     CurrentName,
+    /// JIP LN's `SetOn<event>EventHandler func add filters…` (`event` lower case).
+    JipSet { event: String, func: XVal, add: bool, filters: Vec<XVal> },
+    /// JIP LN's SetGameMainLoopCallback.
+    MainLoop { func: XVal, add: bool, delay: u64, flags: u32, on: Option<Value> },
 }
 
 /// How the host stores a variable (the extender's types live in ordinary slots).
