@@ -1,4 +1,4 @@
-# Extender use in the owner's mod list (Talon profile), 2026-10-26
+# Extender use in the owner's mod lists, 2026-10-26
 
 `fnvtool ext scan` over the owner's MO2 profile `Talon` (Tale of Two Wastelands, 128
 plugins in load order, resolved from `plugins.txt` and `modlist.txt`; read-only, private
@@ -86,3 +86,21 @@ plugins' script sources use; only names and counts are recorded here.
 - JohnnyGuitar (EditorIDToFormID, GetEditorID, Clamp) and ShowOff come next after JIP.
 - Everything else in the lists is game-side work of the kind already built (actor,
   inventory, sound, leveled lists, perk entries).
+
+## Second list: the owner's VNV profile `Talon` (Viva New Vegas), 2026-10-26
+
+42 plugins, 37899 script units, 863 use the extender, 580 different
+functions and statements, 23958 uses [observed: `fnvtool ext scan`]. **3 units use the
+extender without source text**, all in AMFAmata.esp: running them needs route 1, reading
+the bytes xNVSE's GECK writes (ext-bytecode.md), which NVForever does not yet do.
+
+### The owner's Amata mod (AMFAmata.esp, VNV)
+
+455 script units, 268 use the extender: 66 functions, 2,130 uses (let 1,111, Call 434,
+ModBaseActorValue 79, MessageBoxExAlt 52, PrintToConsole 51, SetHair 46 …). Not built yet
+(2026-10-26): ModBaseActorValue, MessageBoxExAlt, SetHair, SetHairColor, ForceCrouch and
+ForceCombatTarget (ITR plugin), SetNthEffectTraitNumeric, GetValueAlt,
+ToggleTeammateKillable, GetCurrentAmmo, SetWheelDisabled, Update3D, IsSpellTargetAlt,
+GetAllItemRefs, GetCalculatedWeaponDamage, GetCrosshairRefEx, GetItemRefCurrentHealth,
+GetMerchantContainer, IsFleeing, ToggleNoHealthReset; plus the 3 source-less units. The
+TTW build (AmataFollower.esp) uses no extender functions.
