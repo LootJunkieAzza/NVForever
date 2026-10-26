@@ -287,12 +287,13 @@ and accepts the Ex forms until the GECK says otherwise. Cases 24 and 25 in
 To probe the INI-file functions (next batch N3) in your game, the probe session created
 `Data\Config\` (it did not exist), put two test files there (`NVFExtProbe.ini`,
 `NVFExtProbe\probe.ini`), and let the game's LU functions write to them and create
-`NVFExtProbe\created.ini`. After the run the whole `Data\Config` folder was removed;
+`NVFExtProbe\created.ini`. After the run the probe files were removed;
 copies of what the game wrote are in `C:\fnv-private\ext\ini-files-after`. Nothing else
 in Data was touched; NVForever itself still never writes there. *Check:* say if probe
 runs should not create files in Data, even briefly; the default is to keep doing it
 this way, only under NVFExtProbe names, and remove them after each run.
 
-MCM's script functions (GetModINISetting, SetModINISetting) are not installed in this
-game, so N2/N3's MCM rows cannot be probed here. *Check:* install MCM here if you want
-them probed; otherwise they are built from the wiki alone.
+*Answered 2026-10-26:* you installed MCM (MCM.dll and its ESP, not in the load order);
+its script functions are probed through the DLL. MCM.dll made `Data\Config\MCM.ini` on
+its own at start-up, so `Data\Config` now stays, holding only that file; the probe files
+are still removed after each run.
