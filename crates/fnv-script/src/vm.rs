@@ -2555,13 +2555,15 @@ impl Vm<'_, '_> {
                 let (x, y, z) = (val(self, 0)?.num()?, val(self, 1)?.num()?, val(self, 2)?.num()?);
                 XVal::Num((x * x + y * y + z * z).sqrt())
             }
-            // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4
-            // [decision: the version whose behaviour these tasks follow; how a version
-            // splits into the three numbers is open]. A plugin without a module here is
+            // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4.9
+            // [decision: the owner, 2026-10-26; observed: 6 / 4 / 9 split as version,
+            // revision, beta in the original]. A plugin without a module here is
             // absent: IsPluginInstalled 0, GetPluginVersion -1 [documented: -1 when absent].
             "getnvseversion" => XVal::Num(6.0),
             "getnvserevision" => XVal::Num(4.0),
-            "getnvsebeta" => XVal::Num(0.0),
+            // [observed: GetNVSEBeta 9 under 6.4.9, the third number; owner 2026-10-26:
+            // target 6.4.9].
+            "getnvsebeta" => XVal::Num(9.0),
             // JIP LN is NVForever's own module (task J4): reported installed at the version
             // its functions follow.
             "isplugininstalled" | "getpluginversion" => {

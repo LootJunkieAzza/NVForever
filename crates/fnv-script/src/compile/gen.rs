@@ -96,6 +96,9 @@ pub(super) struct Gen<'a> {
     /// Parsing a function's arguments (not inside brackets of one): a signed number after
     /// a space starts the next argument ([`lex::XTok::sign`]).
     in_args: bool,
+    /// Inside a function's argument at any depth, parentheses included: a bare word that
+    /// names nothing is text there.
+    in_arg_any: bool,
     /// The block-form lambdas taken out of the source: parameter names and their lines
     /// (`__lambda<i>` stands in their place).
     lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
@@ -158,6 +161,7 @@ impl<'a> Gen<'a> {
             text: String::new(),
             co: false,
             in_args: false,
+            in_arg_any: false,
             lambdas: Vec::new(),
         }
     }
