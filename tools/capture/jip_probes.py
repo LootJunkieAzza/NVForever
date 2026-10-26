@@ -621,9 +621,10 @@ def _inv(pid, body, text=False, exp=None, page=""):
 
 
 def _each(expr):
-    """fRes := expr for the pistol's inventory reference, computed inside foreach. Breaking
-    out and reading the loop variable after the loop left the function without a value
-    in the game [observed; which of the two caused it is not known]."""
+    """fRes := expr for the pistol's inventory reference, computed inside foreach: after a
+    container foreach the loop variable is no longer a valid form, and calling a function
+    on it ends the function without a value; a break alone is fine [observed:
+    foreach.break.alone, foreach.read.after(.valid), foreach.break.then.read]."""
     return ("let fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n"
             f"    let fRes := {expr}\n  endif\nloop\nSetFunctionValue fRes")
 INV_PROBES = [
@@ -634,6 +635,12 @@ INV_PROBES = [
     _inv("inv.count.after", "SetFunctionValue (ar_Size (rPlayer.GetInvRefsForItem rGun))"),
     _inv("invref.found", _each("rItem.GetBaseObject == rGun"), exp="1", page="foreach over a container"),
     _inv("invref.foreach", _each("rItem.IsInventoryRef"), exp="1", page="IsInventoryRef"),
+    # Which part ended the function without a value: a break out of a container foreach,
+    # reading the loop variable after the loop, or both.
+    _inv("foreach.break.alone", "foreach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    break\n  endif\nloop\nSetFunctionValue 1"),
+    _inv("foreach.read.after", "foreach rItem <- rPlayer\nloop\nSetFunctionValue (rItem.IsInventoryRef)"),
+    _inv("foreach.read.after.valid", "foreach rItem <- rPlayer\nloop\nSetFunctionValue (IsFormValid rItem)"),
+    _inv("foreach.break.then.read", "foreach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    break\n  endif\nloop\nSetFunctionValue (rItem.IsInventoryRef)"),
     _inv("inv.equip", "rPlayer.EquipItem rGun 0 1\nSetFunctionValue 1", exp="1", page="EquipItem"),
     _inv("equipped.after.equip", _each("rItem.IsEquipped")),
     _inv("getequipped.after.equip", "SetFunctionValue (rPlayer.GetEquipped rGun)", exp="1", page="GetEquipped"),

@@ -30,6 +30,26 @@
    "field": "value"
   },
   {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    break\n  endif\nloop\nSetFunctionValue 1\nEnd\n",
+   "label": "foreach.break.alone",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nforeach rItem <- rPlayer\nloop\nSetFunctionValue (rItem.IsInventoryRef)\nEnd\n",
+   "label": "foreach.read.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nforeach rItem <- rPlayer\nloop\nSetFunctionValue (IsFormValid rItem)\nEnd\n",
+   "label": "foreach.read.after.valid",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    break\n  endif\nloop\nSetFunctionValue (rItem.IsInventoryRef)\nEnd\n",
+   "label": "foreach.break.then.read",
+   "field": "value"
+  },
+  {
    "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrPlayer.EquipItem rGun 0 1\nSetFunctionValue 1\nEnd\n",
    "label": "inv.equip",
    "field": "value"
