@@ -179,6 +179,13 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
+    fn show_text(&mut self, _text: &str, _buttons: Vec<String>) {}
+    /// The calling script's plugin's debug mode (DebugPrint), after setting it when `set`
+    /// is given (SetDebugMode; `plugin` a load-order index from the console).
+    fn debug_mode(&mut self, _set: Option<bool>, _plugin: Option<u32>) -> bool {
+        false
+    }
     /// Run a user-defined function or a lambda (`Call`, the ar_* functions that take a
     /// function): its value (what SetFunctionValue set; 0 when nothing).
     fn call_function(&mut self, _f: &XVal, _on: Option<Value>, _args: Vec<XVal>) -> Result<XVal, String> {
@@ -2344,6 +2351,40 @@ impl Vm<'_, '_> {
             "printtoconsole" | "printc" => {
                 let (t, _) = self.format_arg(c, 0)?;
                 self.host.print(&t);
+                XVal::Num(0.0)
+            }
+            // [documented: DebugPrint; SetDebugMode, ext-format.md §4] PrintC only while the
+            // calling mod's debug mode is on.
+            "debugprint" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                if self.host.debug_mode(None, None) {
+                    self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            "setdebugmode" => {
+                let on = val(self, 0)?.truthy();
+                let plugin = opt(self, 1)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
+                self.host.debug_mode(Some(on), plugin);
+                XVal::Num(0.0)
+            }
+            // [documented: MessageEx] a corner message without a Message form.
+            "messageex" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                self.host.show_text(&t, Vec::new());
+                XVal::Num(0.0)
+            }
+            // [documented: MessageBoxEx] `text|button|…`, up to 10 buttons numbered from 0;
+            // without one the box gets "Ok" [hypothesis: a box needs a button to close].
+            "messageboxex" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                let mut parts = t.split('|').map(str::to_string);
+                let text = parts.next().unwrap_or_default();
+                let mut buttons: Vec<String> = parts.take(10).collect();
+                if buttons.is_empty() {
+                    buttons.push("Ok".into());
+                }
+                self.host.show_text(&text, buttons);
                 XVal::Num(0.0)
             }
             "print" => {

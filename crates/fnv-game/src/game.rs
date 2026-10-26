@@ -978,6 +978,9 @@ pub struct Game<'a> {
     handler_seq: u64,
     /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
     pub(crate) jip: crate::jip_events::JipEvents,
+    /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
+    /// [hypothesis: the page gives no lifetime].
+    debug_plugins: BTreeSet<String>,
     /// The events being handled, innermost last (GetCurrentEventName).
     event_names: Vec<String>,
     /// The scripts that saw GetGameLoaded / GetGameRestarted true (by unit key).
@@ -1552,6 +1555,7 @@ impl<'a> Game<'a> {
             handlers: Vec::new(),
             handler_seq: 0,
             jip: Default::default(),
+            debug_plugins: BTreeSet::new(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
@@ -4269,6 +4273,37 @@ impl Host for Exec<'_, '_> {
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
+    }
+
+    fn show_text(&mut self, text: &str, buttons: Vec<String>) {
+        let none = FormId(0);
+        if !buttons.is_empty() {
+            let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
+            self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner });
+        }
+        let is_box = !buttons.is_empty();
+        self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
+        if is_box {
+            self.game.show_box(none);
+        }
+    }
+
+    fn debug_mode(&mut self, set: Option<bool>, plugin: Option<u32>) -> bool {
+        let name = match plugin {
+            Some(i) => self.game.data.load_order.get(i as usize).cloned().unwrap_or_default(),
+            None => self.unit.unit.plugin.clone(),
+        }
+        .to_ascii_lowercase();
+        match set {
+            Some(true) => {
+                self.game.debug_plugins.insert(name.clone());
+            }
+            Some(false) => {
+                self.game.debug_plugins.remove(&name);
+            }
+            None => {}
+        }
+        self.game.debug_plugins.contains(&name)
     }
 
     fn make_lambda(&mut self, l: &fnv_script::ir::XExpr) -> Result<fnv_script::vm::XVal, String> {
