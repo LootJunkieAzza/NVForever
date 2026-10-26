@@ -361,6 +361,32 @@ impl Vm<'_, '_> {
                     _ => 0.0,
                 })))
             }
+            // The current or last hit of the actor it is called on (task J7,
+            // jip-hit-info.md §1): nothing, 0 or no form without a hit. Not built yet:
+            // projectiles and explosions (GetHitProjectile gives none, flag 8 0), fatigue
+            // damage, the 3D data.
+            "gethitattacker" | "gethitweapon" | "gethitprojectile" | "gethithealthdamage" | "gethitlimbdamage" | "gethitfatiguedamage" | "gethitbaseweapondamage" | "gethitextendedflag" | "gethit3ddata" => {
+                let who = match &c.on {
+                    Some(e) => self.xeval(e)?.value()?.as_form(),
+                    None => self.host.calling_ref(),
+                }
+                .unwrap_or(0);
+                let k = opt(self, 0)?.map(|v| v.num()).transpose()?.unwrap_or(0.0) as i64;
+                let what = match n {
+                    "gethitattacker" => "attacker",
+                    "gethitweapon" => "weapon",
+                    "gethithealthdamage" => "health",
+                    "gethitlimbdamage" => "limb",
+                    "gethitextendedflag" => "flag",
+                    "gethit3ddata" => return self.jlist(Vec::new()).map(Some),
+                    "gethitprojectile" => return Ok(Some(XVal::Ref(0))),
+                    _ => return Ok(Some(XVal::Num(0.0))),
+                };
+                Ok(Some(self.host.hit_value(who, what, k).unwrap_or(match what {
+                    "attacker" | "weapon" => XVal::Ref(0),
+                    _ => XVal::Num(0.0),
+                })))
+            }
             // Names and text fields (jip-strings.md §3): a missing entry is "" [observed].
             "lngetname" => {
                 let f = match (c.args.first(), &c.on) {

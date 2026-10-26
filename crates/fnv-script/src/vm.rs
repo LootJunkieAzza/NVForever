@@ -221,6 +221,11 @@ pub trait Host {
     fn record_field(&mut self, _form: u32, _sub: &str, _path: &str) -> Option<XVal> {
         None
     }
+    /// A value of an actor's current or last hit (JIP's GetHit…, jip-hit-info.md):
+    /// `what` is attacker, weapon, health, limb or flag (`k` the flag number).
+    fn hit_value(&mut self, _actor: u32, _what: &str, _k: i64) -> Option<XVal> {
+        None
+    }
     /// A game setting (GMST) by Editor ID, without regard to case.
     fn game_setting(&mut self, _name: &str) -> Option<XVal> {
         None

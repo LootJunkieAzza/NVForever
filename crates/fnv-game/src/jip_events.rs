@@ -22,6 +22,20 @@ pub struct JipEvents {
     pub handlers: Vec<JipHandler>,
     pub main_loop: Vec<MainLoop>,
     seq: u64,
+    /// Each actor's hit in progress, or its last one (task J7, jip-hit-info.md §5).
+    pub hits: std::collections::HashMap<FormId, JipHit>,
+}
+
+/// What JIP's GetHit… functions read [documented: jip-hit-info.md §1].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct JipHit {
+    pub attacker: Option<FormId>,
+    pub weapon: Option<FormId>,
+    pub health_damage: f64,
+    pub limb_damage: f64,
+    pub location: i32,
+    /// GetHitExtendedFlag's bits: 1 critical, 2 fatal, 5 limb crippled (bit n = flag n).
+    pub flags: u16,
 }
 
 /// One `SetOn<Event>EventHandler handler 1 filters…`.
@@ -146,6 +160,19 @@ impl Game<'_> {
     pub(crate) fn jip_skips_stage(&self, quest: FormId, stage: i32) -> bool {
         let args = [XVal::Ref(quest.0), XVal::Num(f64::from(stage))];
         self.jip.handlers.iter().any(|h| h.event == "queststage" && h.filters.get(2).is_some_and(XVal::truthy) && self.jip_matches(h, None, &args))
+    }
+
+    /// A GetHit… value of `actor`'s current or last hit; `None` when it had none.
+    pub(crate) fn hit_value(&self, actor: FormId, what: &str, k: i64) -> Option<XVal> {
+        let h = self.jip.hits.get(&actor)?;
+        Some(match what {
+            "attacker" => XVal::Ref(h.attacker.map_or(0, |a| a.0)),
+            "weapon" => XVal::Ref(h.weapon.map_or(0, |w| w.0)),
+            "health" => XVal::Num(h.health_damage),
+            "limb" => XVal::Num(h.limb_damage),
+            "flag" => XVal::Num(f64::from(u8::from((0..16).contains(&k) && h.flags & (1 << k) != 0))),
+            _ => return None,
+        })
     }
 
     /// The main-loop callbacks due this frame (`Game::tick`).

@@ -4342,6 +4342,10 @@ impl Host for Exec<'_, '_> {
         })
     }
 
+    fn hit_value(&mut self, actor: u32, what: &str, k: i64) -> Option<fnv_script::vm::XVal> {
+        self.game.hit_value(FormId(actor), what, k)
+    }
+
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
         use fnv_script::vm::XVal;
         if let Some(v) = self.game.world.setting_f32(name) {
