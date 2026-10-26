@@ -169,6 +169,10 @@ pub struct AnimState {
     pub mine: bool,
     /// Its hit reaction plays because a power attack forced it (GetForceHitReaction).
     pub forced_hit: bool,
+    /// The file of the clip its body plays, as the engine loaded it (a path under
+    /// meshes, `characters\_male\locomotion\mtidle.kf`) (kNVSE's
+    /// GetPlayingAnimSequencePaths, IsAnimSequencePlaying); `None` when not told.
+    pub clip: Option<String>,
     /// When ([`Game::time`]) it was told (for traces; it does not expire).
     pub at: f64,
 }

@@ -49,6 +49,17 @@ pub fn update_roots(f: impl FnOnce(&mut Roots)) {
     }
 }
 
+/// The game's Data folder, when the host gave one (the last read root).
+pub fn data_dir() -> Option<PathBuf> {
+    roots().read.last().cloned()
+}
+
+/// Whether a Data path is a file of the game: in a read root or in an archive.
+pub fn exists(path: &str) -> bool {
+    let r = roots();
+    r.read.iter().any(|root| root.join(path).is_file()) || r.lookup.as_ref().is_some_and(|f| f(path) > 0)
+}
+
 fn roots() -> Roots {
     ROOTS.lock().ok().and_then(|g| g.clone()).unwrap_or_default()
 }

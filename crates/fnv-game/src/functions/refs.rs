@@ -26,6 +26,8 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if !was {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
+        // The extender's OnEnable: the reference, then 0 [observed: nvse-events].
+        g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }
@@ -65,6 +67,8 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
         g.emit(EventKind::RefDisabled { reference: r, fade });
+        // The extender's OnDisable: the reference, then 0 [observed: nvse-events].
+        g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }

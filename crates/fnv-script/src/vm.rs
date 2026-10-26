@@ -2792,6 +2792,16 @@ impl Vm<'_, '_> {
             }
             // [documented: GetCurrentScript; observed: none in a runtime query].
             "getcurrentscript" => Ok(XVal::Ref(self.host.current_script().unwrap_or(0))),
+            // [documented: TestExpr; observed: nvse-leftovers, (1 + 1) 1, an element past
+            // the end 0, an unset reference's GetName 0, ar_Size of an unassigned array 1]
+            // 1 when the expression evaluates without an error.
+            "testexpr" => {
+                let ok = match c.args.first() {
+                    Some(e) => self.xeval(e).and_then(|v| v.value().map(|_| ())).is_ok(),
+                    None => false,
+                };
+                Ok(XVal::Num(f64::from(u8::from(ok))))
+            }
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
