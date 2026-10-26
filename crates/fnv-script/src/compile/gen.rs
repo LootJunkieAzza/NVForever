@@ -99,6 +99,11 @@ pub(super) struct Gen<'a> {
     /// Inside a function's argument at any depth, parentheses included: a bare word that
     /// names nothing is text there.
     in_arg_any: bool,
+    /// Inside parentheses: an expression, where a string variable is its value.
+    in_paren: bool,
+    /// Compiling a line that is a call on its own (not `let`, `if eval` or any other
+    /// expression).
+    call_line: bool,
     /// The block-form lambdas taken out of the source: parameter names and their lines
     /// (`__lambda<i>` stands in their place).
     lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
@@ -162,6 +167,8 @@ impl<'a> Gen<'a> {
             co: false,
             in_args: false,
             in_arg_any: false,
+            in_paren: false,
+            call_line: false,
             lambdas: Vec::new(),
         }
     }
@@ -1030,7 +1037,10 @@ impl<'a> Gen<'a> {
                 // An inline expression among the arguments, or an extender function: the
                 // whole line is an extended expression run for what it does.
                 let x = lex::xtokens(&self.text);
-                let Some(e) = self.xwhole(&x) else { return };
+                self.call_line = true;
+                let e = self.xwhole(&x);
+                self.call_line = false;
+                let Some(e) = e else { return };
                 if !matches!(e, crate::ir::XExpr::Call { .. }) {
                     self.diag("not_a_call", true, self.text.clone());
                     return;
