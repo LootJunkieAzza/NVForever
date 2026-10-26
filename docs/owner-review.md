@@ -263,3 +263,11 @@ match them. Nothing is marked or loosened in the lab: they stay failing until th
 can start from a save. *Check:* whether NVForever's lab may read your save (read-only,
 private, like the goldens). The default if you say nothing is to wait for the engine's
 save loading.
+
+## Two GECK compile cases for when you are back (2026-10-26)
+
+Runtime-compiled scripts in your game refuse two things the GECK may accept:
+`QFromEulerEx` and the other xNVSE 6.4.8 "Ex" quaternion functions, and a variable named
+like a command alias (`ref rK`, ReleaseKey's alias). NVForever refuses the alias name
+and accepts the Ex forms until the GECK says otherwise. Cases 24 and 25 in
+`tools/capture/ext-compile/` (README there says how): note whether each saves.
