@@ -985,6 +985,17 @@ pub struct Game<'a> {
     restarted_seen: BTreeSet<String>,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
+    /// The menus' tile tree (`fnv_ui`, docs/design/ui-tile-tree.md; `ui` above is the requests to the engine's own menus): the engine loads
+    /// and draws the menus, the UI script functions (`crate::ui_functions`) read and
+    /// change it. Not saved: menus are built again after a load.
+    pub ui_tree: fnv_ui::Ui,
+    /// Where InjectUIXML and the menus' includes read files: the engine's archives and
+    /// loose files. `None` headless: InjectUIXML then fails, InjectUIComponent works
+    /// without includes.
+    pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
+    /// Keys MenuTapKey pressed (DirectInput scan codes), for the engine to take as one
+    /// frame's presses in the open menu.
+    pub ui_taps: Vec<u32>,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
     pub difficulty: crate::difficulty::Difficulty,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
@@ -1556,6 +1567,9 @@ impl<'a> Game<'a> {
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
             toggles: Default::default(),
+            ui_tree: fnv_ui::Ui::new(),
+            ui_files: None,
+            ui_taps: Vec::new(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),

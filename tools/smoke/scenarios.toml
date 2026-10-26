@@ -9774,3 +9774,15 @@ expect = [
   { re = 'scripts ready in', label = "the scripts start" },
   { re = 'panicked', count = 0, label = "no panic" },
 ]
+
+[[scenario]]
+name = "ui-menus"
+kind = "tool"
+source = "docs/spec-notes/menu-xml.md, docs/design/ui-tile-tree.md: every vanilla menu file under menus (archives of the owner's install) builds into the tile tree and its traits settle on one update; 49 files hold a <menu> (2026-10-26)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "menus", "--data", "{data}"]]
+expect = [
+  { json = "built", schema = "fnv.ui.menus/1", equals = 49, label = "all 49 vanilla menus build" },
+  { json = "globals_warnings", schema = "fnv.ui.menus/1", equals = 0, label = "globals.xml reads without mending" },
+]
