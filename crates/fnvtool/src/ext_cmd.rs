@@ -94,6 +94,9 @@ pub enum ExtCmd {
         /// a row.
         #[arg(long)]
         trace: Option<PathBuf>,
+        /// The game's INI files the extender's INI functions read, in order (only read).
+        #[arg(long)]
+        ini: Vec<PathBuf>,
     },
     /// Write the compiled script units that have no source text (route 1 input) to a
     /// directory: each unit's bytes as `<n>.scda`, and `units.json` with its plugin, owner,
@@ -158,7 +161,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             doc["runs"] = json!(runs);
             Ok(doc)
         }
-        ExtCmd::Queries { lo, schema, functions, steps, start_cell, trace } => {
+        ExtCmd::Queries { lo, schema, functions, steps, start_cell, trace, ini } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let jtext = std::fs::read_to_string(&steps).with_context(|| steps.display().to_string())?;
             let job: Value = serde_json::from_str(&jtext).with_context(|| steps.display().to_string())?;
@@ -171,7 +174,10 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             let forms = fnv_sim::FormStore::build(&order, &schema);
             let refs = fnv_sim::RefTable::build(&order, &schema);
-            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            let mut data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            for p in &ini {
+                data.ini_texts.push(std::fs::read_to_string(p).with_context(|| p.display().to_string())?);
+            }
             let input: fnv_game::runner::Input = serde_json::from_value(input).context("query actions")?;
             let run = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
             if let Some(path) = trace {
