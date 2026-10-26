@@ -1872,6 +1872,72 @@ N9_PROBES = [
     _n9v("itr.target", "rDoc.ForceCombatTarget rPlayer"),
 ]
 
+# Thirty-third set (lu-leveled follow-up): which entries LeveledListAddForm takes, and
+# whether an edited list reaches AddItem, a newly placed container and ResetInventory.
+# Forms from fnvtool esm inventory [observed]: Ammo556mm 004240, Caps001 00000F,
+# VStreetCrBrahmin2 (CREA) 17B587, VarVHDNCRRanger8Veteran (LVLN) 17A2FD,
+# VLootAmmoBoxGen30 (CONT) 167815 holding 02FE5D. Lists edited for the session only.
+FX.update(ammo556="4240", brahmin="17B587", lvln2="17A2FD", ammobox="167815", boxlist="2FE5D")
+
+
+def _l2(pid, lst, body, text=False):
+    head = _HL.replace("float fRes\n", "float fRes\nstring_var sText\n")
+    return (pid, head + _form("rLst", FX[lst]) + body, text, None, "")
+
+
+_NUM = "SetFunctionValue (GetNumLevItems rLst)"
+
+LEVELED2_PROBES = [
+    # AddItem of an unedited list (does it give anything at all?).
+    _l2("additem.plain.before", "fortune", "SetFunctionValue (rPlayer.GetNumItems)"),
+    _l2("additem.plain", "fortune", "rPlayer.AddItem rLst 1 1\nSetFunctionValue 1"),
+    _l2("additem.plain.after", "fortune", "SetFunctionValue (rPlayer.GetNumItems)"),
+    _l2("additem.ammo10.before", "lvli", _form("rObj", "4241") + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _l2("additem.ammo10.cn0", "lvli", "SetChanceNone rLst 0\nrPlayer.AddItem rLst 1 1\nSetFunctionValue 1"),
+    _l2("additem.ammo10.after", "lvli", _form("rObj", "4241") + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    # What an unedited LVLI takes.
+    _l2("type.lvli.same", "lvli", _form("rObj", FX["ammo556"]) + "LeveledListAddForm rLst rObj 1 1 1.0\n" + _NUM),
+    _l2("type.lvli.same.index", "lvli", _form("rObj", FX["ammo556"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+    _l2("type.lvli.caps.simple", "lvli", _form("rObj", FX["capsf"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    _l2("type.lvli.caps.health", "lvli", _form("rObj", FX["capsf"]) + "LeveledListAddForm rLst rObj 1 1 1.0\n" + _NUM),
+    _l2("type.lvli.stim", "lvli", _form("rObj", FX["stim"]) + "LeveledListAddForm rLst rObj 1 1 1.0\n" + _NUM),
+    _l2("type.lvli.list", "lvli", _form("rObj", FX["fortune"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    _l2("player.level", "lvli", "SetFunctionValue (rPlayer.GetLevel)"),
+    _l2("type.lvli.atlevel", "lvli", _form("rOther", FX["ammo556"]) + "LeveledListAddForm rLst rOther (rPlayer.GetLevel) 1 1.0\n" + _NUM),
+    _l2("type.lvli.abovelevel", "lvli", _form("rOther", FX["ammo556"]) + "LeveledListAddForm rLst rOther ((rPlayer.GetLevel) + 1) 1 1.0\n" + _NUM),
+    _l2("type.lvli.level2", "lvli", _form("rObj", FX["ammo556"]) + "LeveledListAddForm rLst rObj 2 1 1.0\n" + _NUM),
+    _l2("type.lvli.level7", "lvli", _form("rObj", FX["ammo556"]) + "LeveledListAddForm rLst rObj 7 1 1.0\n" + _NUM),
+    _l2("type.lvli.count25", "lvli", _form("rObj", FX["ammo556"]) + "LeveledListAddForm rLst rObj 1 25 1.0\n" + _NUM),
+    _l2("type.lvli.order", "lvli", "let fRes := 0\nlet sText := \"\"\nwhile fRes < (GetNumLevItems rLst)\n"
+        "  let sText += (GetFormIDString (GetNthLevItem rLst fRes)) + (sv_Construct \":%g:%g \" (GetNthLevItemLevel rLst fRes) (GetNthLevItemCount rLst fRes))\n"
+        "  let fRes += 1\nloop\nSetFunctionValue sText", True),
+    # LVLC and LVLN.
+    _l2("type.lvlc.crea", "lvlc", _form("rObj", FX["brahmin"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    _l2("type.lvlc.list", "lvlc", _form("rObj", FX["lvlc2"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    _l2("type.lvlc.npc", "lvlc", _form("rObj", FX["docnpc"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    _l2("type.lvln.list", "lvln", _form("rObj", FX["lvln2"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    _l2("type.lvln.crea", "lvln", _form("rObj", FX["brahmin"]) + "LeveledListAddForm rLst rObj 1 1 0\n" + _NUM),
+    # A container from the edited list: VLootAmmoBoxGen30 holds 02FE5D.
+    _l2("box.list.num", "boxlist", _NUM),
+    _l2("box.list.rebuild", "boxlist", _form("rObj", FX["stim"])
+        + "LeveledListClear rLst\nSetChanceNone rLst 0\nSetLeveledListFlags rLst 0\nLeveledListAddForm rLst rObj 1 3 1.0\n" + _NUM),
+    _l2("box.place", "boxlist", _form("rObj", FX["ammobox"]) + 'let rOther := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfBX" rOther\nSetFunctionValue 1'),
+    _l2("box.stim", "boxlist", _form("rObj", FX["stim"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nSetFunctionValue (rOther.GetItemCount rObj)'),
+    _l2("box.items", "boxlist", 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nSetFunctionValue (rOther.GetNumItems)'),
+    _l2("box.reset.rebuild", "boxlist", _form("rObj", FX["stim"]) + "LeveledListClear rLst\nLeveledListAddForm rLst rObj 1 5 1.0\n" + _NUM),
+    _l2("box.reset", "boxlist", 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nrOther.ResetInventory\nSetFunctionValue 1'),
+    _l2("box.reset.stim", "boxlist", _form("rObj", FX["stim"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nSetFunctionValue (rOther.GetItemCount rObj)'),
+    _l2("box.reset.stim.next", "boxlist", _form("rObj", FX["stim"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nSetFunctionValue (rOther.GetItemCount rObj)'),
+    _l2("box.additem", "boxlist", _form("rObj", FX["stim"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nrOther.AddItem rLst 1 1\n'
+        "SetFunctionValue (rOther.GetItemCount rObj)"),
+    _l2("box.additem.next", "boxlist", _form("rObj", FX["stim"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nSetFunctionValue (rOther.GetItemCount rObj)'),
+    _l2("player.additem.boxlist.before", "boxlist", _form("rObj", FX["stim"]) + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _l2("player.additem.boxlist", "boxlist", "rPlayer.AddItem rLst 1 1\nSetFunctionValue 1"),
+    _l2("player.additem.boxlist.after", "boxlist", _form("rObj", FX["stim"]) + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _l2("player.additem.boxlist.cleanup", "boxlist", _form("rObj", FX["stim"]) + "rPlayer.RemoveItem rObj 5 1\nSetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _l2("box.cleanup", "boxlist", 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nrOther.Disable\nrOther.MarkForDelete\nrPlayer.AuxVarErase "*nvfBX"\nSetFunctionValue 1'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1887,11 +1953,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jip-n7": N7_PROBES,
         "player-state": PLAYER_STATE_PROBES,
         "mcm": MCM_PROBES,
-        "plugin-odds": N9_PROBES}
+        "plugin-odds": N9_PROBES,
+        "lu-leveled2": LEVELED2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2"}
 
 
 def script(body):

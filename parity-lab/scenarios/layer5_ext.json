@@ -495,6 +495,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "n9"]
+  },
+  {
+   "id": "L5.ext.lu.leveled2",
+   "layer": 5,
+   "description": "LeveledListAddForm by entry kind and level, and edited lists reaching AddItem (player and container), a placed container and ResetInventory; set lu-leveled2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/lu-leveled2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/lu_leveled2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "leveled2"]
   }
  ]
 }
