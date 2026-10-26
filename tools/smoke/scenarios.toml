@@ -5475,7 +5475,7 @@ name = "crafting"
 source = "owner todo 5 item 72: the recipe menu (engine/nvf-play/src/crafting.rs, crates/fnv-game/src/crafting.rs) opened by ShowRecipeMenu, the campfire's recipes from the records, Antivenom refused without its ingredients then made with them; frame recipe_menu.png in the working folder"
 areas = ["crafting", "menus"]
 paths = ["engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs"]
-env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,24:exit" }
+env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,23.5:accept,24:exit" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 27
 expect = [
@@ -5484,11 +5484,12 @@ expect = [
   { re = 'recipe menu: cannot make "Antivenom": \[Ingredient', label = "without its ingredients Antivenom is refused" },
   { text = "ui sounds: recipe category changed: UIMenuPrevNext", label = "the arrows switch the subcategory" },
   { re = 'recipe menu: open Campfire \(\d+ recipes listed of \d+ known, 1 ready', label = "with the ingredients one recipe is ready" },
+  { re = 'recipe menu: how many\? 1 of 1 \("Antivenom"\)', label = "Accept asks how many even when only one can be made (owner 2026-10-26)" },
   { re = 'recipe menu: made "Antivenom" \(2 x Antivenom\)', label = "Antivenom is made" },
   { re = 'console: GetItemCount on player >> 0\.00', label = "its ingredients are used up" },
   "recipe menu: closed",
 ]
-order = [["recipe menu: cannot make", "recipe menu: made"]]
+order = [["recipe menu: cannot make", "recipe menu: how many? 1 of 1", "recipe menu: made"]]
 
 [[scenario]]
 name = "repair-services"

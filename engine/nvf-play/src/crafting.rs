@@ -20,7 +20,8 @@
 //! it. Exit (X, Esc, Tab) closes the menu.
 //!
 //! Making several at once (2026-10-19): when the player has what it takes to make the
-//! recipe more than once, Accept opens the "How many?" prompt of the other menus
+//! recipe, Accept opens the "How many?" prompt, even when only one can be made (owner
+//! 2026-10-26: Sunny's healing powder asked nothing) of the other menus
 //! (`menus\quantity_menu.xml`, drawn by `menu::look::spawn_quantity`), from 1 up to the
 //! most the ingredients allow ([`times_possible`]); Left/Right (or the wheel, the arrows,
 //! a press on the meter) set the amount, Enter or A makes that many, E or Esc goes back
@@ -426,7 +427,7 @@ fn keys(
     if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {
         let chosen = v.rows.get(open.selected.min(n.saturating_sub(1))).map(|r| r.recipe);
         let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) else { return };
-        // More than one can be made: how many? (module notes)
+        // Any can be made: how many? (module notes)
         let most = crate::script::with_world(rt, &mut sim, |rt| {
             if !lacks(rt, recipe).is_empty() {
                 return 0;
@@ -434,7 +435,7 @@ fn keys(
             let counts: Vec<(FormId, i64)> = recipe.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
             times_possible(recipe, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
         });
-        if most > 1 {
+        if most >= 1 {
             info!("recipe menu: how many? 1 of {most} ({:?})", recipe.name);
             open.quantity = Some((1, most.min(i32::MAX as u32) as i32));
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Opened });
