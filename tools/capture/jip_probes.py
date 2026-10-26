@@ -1354,6 +1354,177 @@ EIGHTH_PROBES = [
     _f8("ui.stringex", 'SetUIStringEx "HUDMainMenu/_nvfstr" "n%g" 3\nSetFunctionValue (GetUIString "HUDMainMenu/_nvfstr")', True),
 ]
 
+# Twenty-sixth set (next batch N1): LU's leveled-list functions on an LVLI (Ammo10mm75
+# 02935E, CapsFortuneFinder 0645D4), an LVLN (VarVHDNCRRanger9Veteran 17A2FE) and an LVLC
+# (VEncTier4SupermutantMelee50 174435, adding VEncTier4SupermutantMinigun50 174434);
+# forms from fnvtool esm inventory [observed]. CapsFortuneFinder is rebuilt to one entry
+# (3 stimpaks, chance none 0) so AddItem of the list is certain, and the stimpaks are
+# taken back. The list edits are not put back (LU's are not savebaked [documented:
+# RemoveFormFromLeveledList]; session only, never saved). The versions the extender
+# plugins report come first, under the names the wiki gives and the likely others.
+FX.update(lvli="2935E", fortune="645D4", lvlc="174435", lvlc2="174434", stim="15169", capsf="F", docnpc="104C0C")
+_HL = ("ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]))
+
+
+def _lv(pid, lst, body, text=False):
+    return (pid, _HL + _form("rLst", FX[lst]) + body, text, None, "")
+
+
+def _lvid(pid, lst, expr):
+    return _lv(pid, lst, f"SetFunctionValue (GetFormIDString ({expr}))", True)
+
+
+_PLUGIN_NAMES = ["ShowOffNVSE Plugin", "ShowOff NVSE Plugin", "ShowOffNVSE", "kNVSE", "kNVSE Plugin",
+                 "JIP LN NVSE", "JohnnyGuitarNVSE"]
+
+
+def _lv_reads(tag, lst):
+    return [
+        _lv(f"{tag}.num", lst, "SetFunctionValue (GetNumLevItems rLst)"),
+        _lv(f"{tag}.flags", lst, "SetFunctionValue (GetLeveledListFlags rLst)"),
+        _lv(f"{tag}.chancenone", lst, "SetFunctionValue (GetChanceNone rLst)"),
+        _lvid(f"{tag}.chancenoneglobal", lst, "GetChanceNoneGlobal rLst"),
+        _lvid(f"{tag}.nth0", lst, "GetNthLevItem rLst 0"),
+        _lv(f"{tag}.nth0.level", lst, "SetFunctionValue (GetNthLevItemLevel rLst 0)"),
+        _lv(f"{tag}.nth0.count", lst, "SetFunctionValue (GetNthLevItemCount rLst 0)"),
+        _lvid(f"{tag}.nth.past", lst, "GetNthLevItem rLst 99"),
+        _lv(f"{tag}.nth.past.level", lst, "SetFunctionValue (GetNthLevItemLevel rLst 99)"),
+        _lv(f"{tag}.index.level1", lst, "SetFunctionValue (GetLevItemIndexByLevel rLst 1)"),
+        _lv(f"{tag}.index.level100", lst, "SetFunctionValue (GetLevItemIndexByLevel rLst 100)"),
+    ]
+
+
+LEVELED_PROBES = (
+    [(f"plugin.version.{n}", f'SetFunctionValue (GetPluginVersion "{n}")', False, None, "") for n in _PLUGIN_NAMES]
+    + [(f"plugin.installed.{n}", f'SetFunctionValue (IsPluginInstalled "{n}")', False, None, "") for n in _PLUGIN_NAMES]
+    # Reads.
+    + _lv_reads("lvli", "lvli") + _lv_reads("lvln", "lvln") + _lv_reads("lvlc", "lvlc")
+    + [
+        _lv("lvli.index.form0", "lvli", "let rObj := GetNthLevItem rLst 0\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvli.index.missing", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvli.hasdeep.nth0", "lvli", "let rObj := GetNthLevItem rLst 0\nSetFunctionValue (LeveledListHasFormDeep rLst rObj)"),
+        _lv("lvli.hasdeep.missing", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (LeveledListHasFormDeep rLst rObj)"),
+        # LVLI: add, read the new entry, replace, remove.
+        _lv("lvli.add", "lvli", _form("rObj", FX["capsf"]) + "LeveledListAddForm rLst rObj 7 25 1.0\nSetFunctionValue (GetNumLevItems rLst)"),
+        _lv("lvli.add.index", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvli.add.level", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (GetNthLevItemLevel rLst (GetLevItemIndexByForm rLst rObj))"),
+        _lv("lvli.add.count", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (GetNthLevItemCount rLst (GetLevItemIndexByForm rLst rObj))"),
+        _lv("lvli.add.index.level7", "lvli", "SetFunctionValue (GetLevItemIndexByLevel rLst 7)"),
+        _lv("lvli.add.hasdeep", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (LeveledListHasFormDeep rLst rObj)"),
+        _lv("lvli.add.twice", "lvli", _form("rObj", FX["capsf"]) + "LeveledListAddForm rLst rObj 3 5 1.0\nSetFunctionValue (GetNumLevItems rLst)"),
+        _lv("lvli.add.twice.index", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvli.replace", "lvli", _form("rObj", FX["capsf"]) + _form("rOther", FX["stim"])
+            + "LeveledListReplaceForm rLst rObj rOther\nSetFunctionValue (GetLevItemIndexByForm rLst rOther)"),
+        _lv("lvli.replace.old", "lvli", _form("rObj", FX["capsf"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvli.remove", "lvli", _form("rObj", FX["stim"]) + "SetFunctionValue (LeveledListRemoveForm rLst rObj)"),
+        _lv("lvli.remove.num", "lvli", "SetFunctionValue (GetNumLevItems rLst)"),
+        _lv("lvli.remove.again", "lvli", _form("rObj", FX["stim"]) + "SetFunctionValue (LeveledListRemoveForm rLst rObj)"),
+        # LVLI: Nth setters, chance none, flags.
+        _lv("lvli.setcount", "lvli", "SetNthLevItemCount rLst 0 42\nSetFunctionValue (GetNthLevItemCount rLst 0)"),
+        _lv("lvli.setlevel", "lvli", "SetNthLevItemLevel rLst 0 9\nSetFunctionValue (GetNthLevItemLevel rLst 0)"),
+        _lvid("lvli.setlevel.nth0", "lvli", "GetNthLevItem rLst 0"),
+        _lv("lvli.setitem", "lvli", _form("rObj", FX["stim"]) + "SetNthLevItem rLst 0 rObj\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvli.chancenone.set", "lvli", "SetChanceNone rLst 35\nSetFunctionValue (GetChanceNone rLst)"),
+        _lv("lvli.chancenone.big", "lvli", "SetChanceNone rLst 250\nSetFunctionValue (GetChanceNone rLst)"),
+        _lv("lvli.flags.set", "lvli", "SetLeveledListFlags rLst 5\nSetFunctionValue (GetLeveledListFlags rLst)"),
+        _lv("lvli.flags.set8", "lvli", "SetLeveledListFlags rLst 15\nSetFunctionValue (GetLeveledListFlags rLst)"),
+        _lv("lvli.removenth", "lvli", "let fRes := GetNumLevItems rLst\nRemoveNthLevItem rLst 0\nSetFunctionValue (fRes * 100 + (GetNumLevItems rLst))"),
+        _lv("lvli.removenth.past", "lvli", "let fRes := GetNumLevItems rLst\nRemoveNthLevItem rLst 99\nSetFunctionValue (fRes * 100 + (GetNumLevItems rLst))"),
+        _lv("lvli.showoff.remove", "lvli", "let rObj := GetNthLevItem rLst 0\nSetFunctionValue (RemoveFormFromLeveledList rLst rObj)"),
+        _lv("lvli.clear", "lvli", "LeveledListClear rLst\nSetFunctionValue (GetNumLevItems rLst)"),
+        _lvid("lvli.clear.nth0", "lvli", "GetNthLevItem rLst 0"),
+        # A list rebuilt to one entry, then added to the player.
+        _lv("fortune.num.before", "fortune", "SetFunctionValue (GetNumLevItems rLst)"),
+        _lv("fortune.rebuild", "fortune", _form("rObj", FX["stim"])
+            + "LeveledListClear rLst\nSetChanceNone rLst 0\nSetLeveledListFlags rLst 0\nLeveledListAddForm rLst rObj 1 3 1.0\n"
+            "SetFunctionValue (GetNumLevItems rLst)"),
+        _lv("fortune.stim.before", "fortune", _form("rObj", FX["stim"]) + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+        _lv("fortune.additem", "fortune", "rPlayer.AddItem rLst 1 1\nSetFunctionValue 1"),
+        _lv("fortune.stim.after", "fortune", _form("rObj", FX["stim"]) + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+        _lv("fortune.list.carried", "fortune", "SetFunctionValue (rPlayer.GetItemCount rLst)"),
+        _lv("fortune.cleanup", "fortune", _form("rObj", FX["stim"]) + "rPlayer.RemoveItem rObj 3 1\nSetFunctionValue 1"),
+        _lv("fortune.stim.cleaned", "fortune", _form("rObj", FX["stim"]) + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+        # LVLN and LVLC: add and remove.
+        _lv("lvln.add", "lvln", _form("rObj", FX["docnpc"]) + "LeveledListAddForm rLst rObj 1 1 0\nSetFunctionValue (GetNumLevItems rLst)"),
+        _lv("lvln.add.index", "lvln", _form("rObj", FX["docnpc"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvln.add.count", "lvln", _form("rObj", FX["docnpc"]) + "SetFunctionValue (GetNthLevItemCount rLst (GetLevItemIndexByForm rLst rObj))"),
+        _lv("lvln.remove", "lvln", _form("rObj", FX["docnpc"]) + "SetFunctionValue (LeveledListRemoveForm rLst rObj)"),
+        _lv("lvln.remove.num", "lvln", "SetFunctionValue (GetNumLevItems rLst)"),
+        _lv("lvlc.add.list", "lvlc", _form("rObj", FX["lvlc2"]) + "LeveledListAddForm rLst rObj 2 1 0\nSetFunctionValue (GetNumLevItems rLst)"),
+        _lv("lvlc.add.list.index", "lvlc", _form("rObj", FX["lvlc2"]) + "SetFunctionValue (GetLevItemIndexByForm rLst rObj)"),
+        _lv("lvlc.hasdeep.sub", "lvlc", _form("rObj", FX["lvlc2"]) + "let rOther := GetNthLevItem rObj 0\nSetFunctionValue (LeveledListHasFormDeep rLst rOther)"),
+        _lv("lvlc.flags.set", "lvlc", "let fRes := GetLeveledListFlags rLst\nSetLeveledListFlags rLst 4\n"
+            "let fRes := fRes * 10 + (GetLeveledListFlags rLst)\nSetFunctionValue fRes"),
+        _lv("lvlc.clear", "lvlc", "LeveledListClear rLst\nSetFunctionValue (GetNumLevItems rLst)"),
+        # Not a leveled list.
+        _lv("notlist.num", "fortune", _form("rObj", FX["stim"]) + "SetFunctionValue (GetNumLevItems rObj)"),
+        _lv("notlist.flags", "fortune", _form("rObj", FX["stim"]) + "SetFunctionValue (GetLeveledListFlags rObj)"),
+    ]
+)
+
+# Twenty-seventh set (next batch N14): which references carry form flag 64 at run time.
+# Doc reads 1097 where his ACHR record carries 0x400 (fnvtool esm inventory) [observed].
+# Persistent ACHRs of Goodsprings (Chet, Joe Cobb 0xC00, Sunny, Trudy, Ringo, Easy Pete),
+# the player, a loaded ACRE near the airport (14DEE2), REFRs whose record carries 0x40
+# (Hidden From Local Map in the schema), an NPC and a creature placed with PlaceAtMe
+# (non-persistent), the ACRE and the placed NPC killed, and Doc with his cell loaded (the
+# player moved there, last). Session only, never saved.
+_FREFS = {"doc": "104C0F", "chet": "104C79", "joecobb": "104C68", "sunny": "104E85", "trudy": "104C6D",
+          "ringo": "104C7D", "easypete": "104C80", "player": "14", "acre": "14DEE2",
+          "hidden.16941d": "16941D", "hidden.1690f1": "1690F1", "hidden.e7514": "E7514", "hidden.101a47": "101A47"}
+_HF = ("ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\n" + _form("rPlayer", NF["player"]))
+_FLAGS_OF = ('if IsFormValid rF\n  SetFunctionValue (sv_Construct "%g %g" (GetFlagsLow rF) (rF.GetDisabled))\n'
+             'else\n  SetFunctionValue "none"\nendif')
+_AUXF = 'let rF := rPlayer.AuxVarGetRef "*nvfFL"\n'
+
+
+def _fl(pid, body):
+    return (pid, _HF + body, True, None, "")
+
+
+def _flref(pid, fid, after=""):
+    return _fl(pid, _form("rF", fid) + after + _FLAGS_OF)
+
+
+FLAG_PROBES = (
+    [_flref(f"ref.{k}", fid) for k, fid in _FREFS.items()]
+    + [
+        _flref("ref.doc.persistent", "104C0F", "SetFunctionValue (rF.IsPersistent)\nreturn\n"),
+    ]
+    # Whether bit 64 follows having spoken with the player.
+    + [_flref(f"talked.{k}", _FREFS[k], "SetFunctionValue (rF.GetTalkedToPC)\nreturn\n")
+       for k in ("doc", "chet", "joecobb", "sunny", "trudy", "ringo", "easypete")]
+    + [
+        _flref("acre.dead.before", "14DEE2", "SetFunctionValue (rF.GetDead)\nreturn\n"),
+        # Placed NPC (Doc's base) and placed creature (the ACRE's base).
+        _fl("placed.npc", _form("rItem", NF["doc"]) + 'let rF := rPlayer.PlaceAtMe rItem 1\nrPlayer.AuxVarSetRef "*nvfFL" rF\n' + _FLAGS_OF),
+        _fl("placed.npc.next", _AUXF + _FLAGS_OF),
+        _fl("placed.npc.next2", _AUXF + _FLAGS_OF),
+        _fl("placed.npc.kill", _AUXF + "rF.Kill\n" + _FLAGS_OF),
+        _fl("placed.npc.dead", _AUXF + _FLAGS_OF),
+        _fl("placed.npc.dead2", _AUXF + _FLAGS_OF),
+        _fl("placed.npc.getdead", _AUXF + "SetFunctionValue (rF.GetDead)"),
+        _fl("placed.creature", _form("rItem", "14DEE2") + 'let rItem := rItem.GetBaseObject\nlet rF := rPlayer.PlaceAtMe rItem 1\n'
+            'rPlayer.AuxVarSetRef "*nvfFL" rF\n' + _FLAGS_OF),
+        _fl("placed.creature.next", _AUXF + _FLAGS_OF),
+        _fl("placed.cleanup", _AUXF + 'rF.Disable\nrF.MarkForDelete\nrPlayer.AuxVarErase "*nvfFL"\nSetFunctionValue "1"'),
+        # The loaded ACRE killed.
+        _flref("acre.kill", "14DEE2", "rF.Kill\n"),
+        _flref("acre.dead", "14DEE2"),
+        _flref("acre.dead2", "14DEE2"),
+        _flref("acre.getdead", "14DEE2", "SetFunctionValue (rF.GetDead)\nreturn\n"),
+        # Doc with his cell loaded.
+        _flref("doc.moveto", "104C0F", "rPlayer.MoveTo rF\n"),
+        _flref("doc.loaded", "104C0F"),
+        _flref("doc.loaded2", "104C0F"),
+        _flref("doc.loaded3", "104C0F"),
+        _fl("doc.loaded.player.cell", "SetFunctionValue (GetFormIDString (rPlayer.GetParentCell))"),
+        _fl("doc.loaded.walk", "let rItem := GetFirstRef 0 0 0\nlet fRes := 0\nlet sText := \"\"\nwhile IsFormValid rItem && fRes < 40\n"
+            "  let sText += (GetFormIDString rItem) + (sv_Construct \":%g \" (GetFlagsLow rItem))\n"
+            "  let fRes += 1\n  let rItem := GetNextRef\nloop\nSetFunctionValue sText"),
+    ]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1362,11 +1533,13 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nvse-keynames": KEYNAME_PROBES, "nvse-third": THIRD_PROBES, "nvse-fourth": FOURTH_PROBES,
         "jip-fifth": FIFTH_PROBES, "nvse-fifth": NVSE_FIFTH_PROBES, "nvse-sixth": SIXTH_PROBES,
         "nvse-seventh": SEVENTH_PROBES,
-        "nvse-eighth": EIGHTH_PROBES}
+        "nvse-eighth": EIGHTH_PROBES,
+        "lu-leveled": LEVELED_PROBES,
+        "nvse-flags": FLAG_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags"}
 
 
 def script(body):

@@ -411,6 +411,34 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "eighth"]
+  },
+  {
+   "id": "L5.ext.lu.leveled",
+   "layer": 5,
+   "description": "LU leveled-list functions (LeveledListAddForm, RemoveForm, ReplaceForm, Clear, Get/SetNthLevItem*, GetLevItemIndexBy*, chance none, flags) on an LVLI, an LVLN and an LVLC, AddItem of a rebuilt list, and the versions the extender plugins report; set lu-leveled of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/lu-leveled.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/lu_leveled.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "lu", "probes", "leveled"]
+  },
+  {
+   "id": "L5.ext.nvse.flags",
+   "layer": 5,
+   "description": "GetFlagsLow of references (persistent and placed actors, the player, an ACRE, REFRs with Hidden From Local Map, dead actors, Doc with his cell loaded) beside GetTalkedToPC and GetDead: which references carry flag 64; set nvse-flags of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-flags.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_flags.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "flags"]
   }
  ]
 }
