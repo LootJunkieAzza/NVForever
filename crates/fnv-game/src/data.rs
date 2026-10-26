@@ -863,7 +863,12 @@ pub struct GameData {
     /// Lower-case Editor ID → FormID (every winning record with an EDID).
     pub edids: HashMap<String, FormId>,
     pub edid_of: HashMap<FormId, String>,
+    /// The name the player sees (FULL) of every winning record that has one.
+    pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
+    /// The decoded subrecords of the record types JIP's trait getters read
+    /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers.
+    pub record_fields: HashMap<FormId, Vec<([u8; 4], Json)>>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
@@ -1315,6 +1320,8 @@ pub struct CombatStyleDef {
 #[derive(Default)]
 struct Read {
     edid: Option<String>,
+    /// FULL: the name the player sees.
+    full: Option<String>,
     script: Option<FormId>,
     quest: Option<QuestDef>,
     info: Option<InfoDef>,
@@ -1385,6 +1392,90 @@ struct Read {
 
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
+/// The record types whose fields [`GameData::record_fields`] keeps.
+pub const FIELD_SIGS: [[u8; 4]; 14] =
+    [*b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD"];
+
+/// A record's subrecords decoded by the schema, with each enum as its number (the
+/// decoder names them) so a script getter can return it.
+fn numeric_fields(schema: &Schema, r: &Record) -> Vec<([u8; 4], Json)> {
+    let mut ctx = DecodeCtx { schema, on_formid: None };
+    let mut out = Vec::new();
+    for s in r.subrecords().unwrap_or_default() {
+        let Some(mut v) = decode_sub(&r.header.sig, &s, &mut ctx).value else { continue };
+        if let Some(def) = schema.lookup(&r.header.sig, &s.sig) {
+            enums_to_numbers(schema, &def.ty, &mut v);
+        }
+        out.push((s.sig, v));
+    }
+    out
+}
+
+fn enums_to_numbers(schema: &Schema, t: &TypeDef, v: &mut Json) {
+    match (schema.resolve(t), v) {
+        (TypeDef::Enum { values, .. }, v @ Json::String(_)) => {
+            let name = v.as_str().unwrap_or_default().to_string();
+            if let Some((n, _)) = values.iter().find(|(_, s)| *s == name) {
+                *v = Json::from(*n);
+            }
+        }
+        (TypeDef::Struct(fields), Json::Object(o)) => {
+            for f in fields {
+                if let Some(x) = o.get_mut(&f.name) {
+                    enums_to_numbers(schema, &f.ty, x);
+                }
+            }
+        }
+        (TypeDef::Array { elem, .. }, Json::Array(a)) => {
+            for x in a {
+                enums_to_numbers(schema, elem, x);
+            }
+        }
+        _ => {}
+    }
+}
+
+impl GameData {
+    /// The name (BPTN) of the part of body-part data `form` whose type (BPND part_type)
+    /// is `part`; "" for a part without a name, `None` when there is no such part. A
+    /// part's subrecords start with BPTN or BPNN [documented: xEdit BPTD, schema
+    /// combat.json].
+    pub fn body_part_name(&self, form: FormId, part: i64) -> Option<String> {
+        let subs = self.record_fields.get(&form)?;
+        let mut name = String::new();
+        let mut named = false;
+        for (sig, v) in subs {
+            match sig {
+                b"BPTN" => {
+                    name = v.as_str().unwrap_or_default().to_string();
+                    named = true;
+                }
+                b"BPNN" if !named => name.clear(),
+                b"BPND" => {
+                    if v.get("part_type").and_then(Json::as_i64) == Some(part) {
+                        return Some(name);
+                    }
+                    named = false;
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then
+    /// `path` (field names split by `.`; empty for the whole subrecord). A flags field
+    /// gives its number.
+    pub fn record_field(&self, form: FormId, sub: &str, path: &str) -> Option<&Json> {
+        let subs = self.record_fields.get(&form)?;
+        let mut v = &subs.iter().find(|(s, _)| s == sub.as_bytes())?.1;
+        for k in path.split('.').filter(|k| !k.is_empty()) {
+            v = v.get(k)?;
+        }
+        Some(v.get("value").filter(|_| v.get("set").is_some()).unwrap_or(v))
+    }
+}
+
 impl GameData {
     /// Build from a load order. `functions` is the parsed `functions.json` (for the
     /// condition parameter types); `table` the function table built from it.
@@ -1432,7 +1523,13 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            full_names: HashMap::new(),
             sigs: HashMap::new(),
+            record_fields: winners
+                .par_iter()
+                .filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig))
+                .map(|&(g, _, r)| (FormId(g), numeric_fields(schema, r)))
+                .collect(),
             scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
             reputation_names: HashMap::new(),
@@ -1494,7 +1591,7 @@ impl GameData {
                 all_units.push((*id, u));
             }
         }
-        let compiled: Vec<(FormId, Compiled)> = all_units
+        let mut compiled: Vec<(FormId, Compiled)> = all_units
             .into_par_iter()
             .map(|(id, unit)| {
                 let dec = decode(&unit.bytes, &d.table);
@@ -1502,6 +1599,7 @@ impl GameData {
                 (id, Compiled { unit, program: dec.program, raw })
             })
             .collect();
+        crate::source_compile::apply(lo, &d.table, &mut compiled, &mut d.issues);
         let mut unit_of: HashMap<String, UnitId> = HashMap::new();
         for (_, c) in compiled {
             unit_of.insert(c.unit.owner.label(), d.units.len());
@@ -1513,6 +1611,9 @@ impl GameData {
             if let Some(e) = r.edid {
                 d.edids.entry(e.to_ascii_lowercase()).or_insert(id);
                 d.edid_of.insert(id, e);
+            }
+            if let Some(n) = r.full {
+                d.full_names.insert(id, n);
             }
             if let Some(s) = r.script {
                 d.form_script.insert(id, s);
@@ -2155,6 +2256,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     for s in &subs {
         match &s.sig {
             b"EDID" if out.edid.is_none() => out.edid = val(s).and_then(|v| v.as_str().map(str::to_string)),
+            b"FULL" if out.full.is_none() => out.full = Some(fnv_util::cp1252::decode_z(&s.data)).filter(|n| !n.is_empty()),
             b"SCRI" if out.script.is_none() => out.script = val(s).as_ref().and_then(hexid).and_then(map).map(FormId),
             _ => {}
         }

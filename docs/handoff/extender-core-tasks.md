@@ -73,7 +73,30 @@ What already exists (checked 2026-10-25):
 **Progress (2026-10-25, branch claude/ext-compiler):** A1–A5 done. The compiler writes the
 editor's bytes rather than IR (the decoder turns them into IR), so parity is checked byte for
 byte: 14,489 of 14,511 shipped units are identical, and the 22 others are explained in
-docs/spec-notes/script-compiler.md §5. Next: A6.
+docs/spec-notes/script-compiler.md §5. A6 done: units whose bytes call opcodes the table
+lacks run from their source, `[Extenders] CompileSource` switches it, and the console sends
+expressions through the compiler (script-compiler.md §7). A7 done: the expression grammar
+(precedence, operators, functions taking expressions as arguments) with `let`, the Let
+macro and `if eval` from A8, and numbers in the VM (script-compiler.md §8). A8 done:
+`while`/`foreach`/`loop`/`break`/`continue` compile and nest, `while` runs (foreach waits
+for arrays, B3). A9, A10, A12 done: inline expressions and calls on results, hex and
+binary literals, block comments, `string_var`/`array_var` and `int i = 5`, override
+blocks (script-compiler.md §8). A11 done: Function blocks, Call, lambdas in both forms
+compile (running them is B7/B8). The compiler tasks are done except NVSEScript.
+
+**B1 (2026-10-25):** string values in the VM (`XVal`, the game's `ExtStore`), copy on
+assignment, `+`, comparisons, slices, `$`/`#`, ToString/ToNumber, errors that let the script
+go on (script-compiler.md §9). **B3 and most of D2:** arrays with reference counts,
+`[]`, `->`, slices, box/unbox, foreach over arrays and strings, 27 ar_* functions and TypeOf
+(script-compiler.md §9). **B7, B8:** Call, SetFunctionValue, GetCallingScript, the
+30-call limit, lambdas over the parent's variables, and the ar_* functions that take a
+function. **F1:** strings, arrays and lambdas in NVForever's save (`GameSnapshot`). **C4, D1, C5, D4 in part:** formats, the sv_* functions, PrintC and
+Print, the version reports (script-compiler.md §9). **E1, E3, E2 in part:** the handler
+registry, filters, priorities, DispatchEvent(Alt), GetCurrentEventName; OnActivate and
+OnDeath, LoadGame, PostLoadGame and SaveGame fire; GetGameLoaded and GetGameRestarted.
+**D5**, and the first corrections from the in-game goldens (script-compiler.md §9).
+Next: more firing points (OnHit, OnAdd, OnDrop, NewGame…), D5 (forms and types), D6
+(input), then route 1 from the observed bytes (docs/spec-notes/ext-bytecode.md).
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any

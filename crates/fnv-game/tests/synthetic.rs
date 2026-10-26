@@ -1621,3 +1621,255 @@ fn set_actor_full_name_renames_the_base_and_is_saved() {
     let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
     assert_eq!(h.script_name(FormId(NPC)), Some("Renamed One"));
 }
+
+#[test]
+fn a_unit_whose_bytes_call_an_unknown_high_opcode_runs_from_its_source() {
+    // Bytes as a mod compiled with the script extender loaded might hold them: a call to
+    // an opcode above every opcode of the function table (fnv_game::source_compile). The
+    // source says something else; the source is what runs.
+    let bytes = script(&[(0, None, call(0x7FFF, &[]))]);
+    let mut subs = unit(0, &bytes, &[(1, "a", 1)], &[]);
+    subs.push(sub(b"SCTX", b"scn TestExtScript\nshort a\nbegin GameMode\n  set a to 5\nend\n".to_vec()));
+    let scpt = record(b"SCPT", 0, 0x0000_0900, &[vec![sub(b"EDID", z("TestExtScript"))], subs].concat());
+    let plugin = [tes4(), top(b"SCPT", &scpt)].concat();
+    let plugins = vec![Plugin::parse(&plugin, "Ext.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let s = data.script(FormId(0x900)).expect("the script loads");
+    let body = &s.program.blocks[0].body;
+    assert!(matches!(&body[..], [fnv_script::Stmt::Set { .. }]), "the compiled source runs: {body:?}");
+    assert_eq!(data.issues.count("script_compiled_from_source"), 1);
+    assert!(fnv_game::source_compile::highest_opcode(&data.table) < 0x7FFF);
+}
+
+// ---- user-defined functions and lambdas (extender tasks B7, B8) -------------------------
+
+/// No names: the function scripts below name only their own variables.
+struct NoNames;
+
+impl fnv_script::compile::Env for NoNames {
+    fn form(&self, _: &str) -> Option<fnv_script::compile::FormInfo> {
+        None
+    }
+    fn info(&self, _: u32) -> Option<fnv_script::compile::FormInfo> {
+        None
+    }
+    fn editor_id(&self, _: u32) -> Option<String> {
+        None
+    }
+    fn local_form(&self, _: u32) -> Option<u32> {
+        None
+    }
+    fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> {
+        None
+    }
+}
+
+/// A plugin with the global TestGlobal and function scripts compiled by NVForever's
+/// compiler: TestAdd {a, b} returns a + b; TestFact {n} returns n! by calling itself.
+fn udf_fixture() -> Fixture {
+    let (table, _) = catalogue();
+    let compiled = |src: &str| {
+        let c = fnv_script::compile::compile(src, &table, &NoNames, None);
+        assert!(c.errors().next().is_none(), "{:?}", c.diags);
+        c
+    };
+    let glob = record(b"GLOB", 0, 0x0000_0800, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let mut scripts = Vec::new();
+    for (fid, edid, src) in [
+        (0x0000_0901u32, "TestAdd", "scn TestAdd\nint a\nint b\nBegin Function {a, b}\n  SetFunctionValue a + b\nEnd\n".to_string()),
+        (
+            0x0000_0902u32,
+            "TestFact",
+            "scn TestFact\nint n\nint r\nBegin Function {n}\n  if eval n <= 1\n    SetFunctionValue 1\n  else\n    let r := Call TestFact (n - 1)\n    SetFunctionValue n * r\n  endif\nEnd\n".to_string(),
+        ),
+        (0x0000_0903u32, "TestSet", "scn TestSet\nfloat n\nBegin Function {n}\n  let TestGlobal := n\nEnd\n".to_string()),
+        (
+            0x0000_0904u32,
+            "TestMap",
+            "scn TestMap\narray_var m\nBegin Function {m}\n  let TestGlobal := Sv_Length (m[\"eventName\"]) * 10 + Sv_Length (m[\"eventSender\"])\nEnd\n".to_string(),
+        ),
+    ] {
+        // TestFact calls itself: its own name resolves through a seed reference list.
+        let c = if edid != "TestAdd" {
+            struct Me;
+            impl fnv_script::compile::Env for Me {
+                fn form(&self, e: &str) -> Option<fnv_script::compile::FormInfo> {
+                    let (form, sig) = match e.to_ascii_lowercase().as_str() {
+                        "testfact" => (0x0000_0902, *b"SCPT"),
+                        "testglobal" => (0x0000_0800, *b"GLOB"),
+                        _ => return None,
+                    };
+                    Some(fnv_script::compile::FormInfo { form, sig })
+                }
+                fn info(&self, _: u32) -> Option<fnv_script::compile::FormInfo> {
+                    None
+                }
+                fn editor_id(&self, _: u32) -> Option<String> {
+                    None
+                }
+                fn local_form(&self, _: u32) -> Option<u32> {
+                    None
+                }
+                fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> {
+                    None
+                }
+            }
+            let c = fnv_script::compile::compile(&src, &table, &Me, None);
+            assert!(c.errors().next().is_none(), "{:?}", c.diags);
+            c
+        } else {
+            compiled(&src)
+        };
+        let vars: Vec<(u32, String, u8)> = c.variables.iter().map(|v| (v.index, v.name.clone(), u8::from(v.ty == fnv_script::VarType::Int))).collect();
+        let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
+        let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
+        let mut subs = unit(0, &c.bytes, &vars, &refs);
+        subs.push(sub(b"SCTX", src.as_bytes().to_vec()));
+        scripts.push(record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], subs].concat()));
+    }
+    let plugin = [tes4(), top(b"GLOB", &glob), top(b"SCPT", &scripts.concat())].concat();
+    let plugins = vec![Plugin::parse(&plugin, "Udf.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+fn global_after(f: &Fixture, src: &str) -> f32 {
+    let mut g = game(f);
+    g.run_source(src, Default::default()).expect("compiles");
+    let errors: Vec<String> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptError { error, .. } => Some(error.clone()),
+        _ => None,
+    }).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    g.world.global(FormId(0x0000_0800)).unwrap()
+}
+
+#[test]
+fn call_runs_a_function_script_with_its_parameters() {
+    let f = udf_fixture();
+    assert_eq!(global_after(&f, "let TestGlobal := Call TestAdd 2, 3"), 5.0);
+    // Recursion: each call has its own variables [documented: User Defined Function].
+    assert_eq!(global_after(&f, "let TestGlobal := Call TestFact 5"), 120.0);
+}
+
+#[test]
+fn deeper_than_thirty_calls_is_refused() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    g.run_source("let TestGlobal := Call TestFact 40", Default::default()).expect("compiles");
+    let refused = g.events.iter().any(|e| matches!(&e.kind, EventKind::Skipped { what, .. } | EventKind::ScriptError { error: what, .. } if what.contains("nested")));
+    assert!(refused, "a 31st nested call is refused [documented: User Defined Function]");
+}
+
+#[test]
+fn lambdas_and_the_array_functions_that_take_them() {
+    let f = udf_fixture();
+    assert_eq!(global_after(&f, "int x\nlet TestGlobal := Call ({x} => x * 3) 4"), 12.0);
+    let src = "array_var a\narray_var b\narray_var it\nlet a := Ar_List 1, 2, 3, 4\nlet b := Ar_Filter a, ({it} => *it > 2)\nlet TestGlobal := Ar_Size b";
+    assert_eq!(global_after(&f, src), 2.0);
+    let src = "array_var a\narray_var b\narray_var it\nlet a := Ar_List 1, 2, 3\nlet b := Ar_MapTo a, ({it} => *it * 10)\nlet TestGlobal := b[2]";
+    assert_eq!(global_after(&f, src), 30.0);
+}
+
+#[test]
+fn the_extenders_strings_arrays_and_lambdas_are_in_the_save() {
+    // Task F1: a snapshot keeps the ExtStore and the lambdas; a restore gives them back.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("int x\nlet TestGlobal := Call ({x} => x * 3) 4", Default::default()).expect("compiles");
+    let id = g.ext.new_string("kept".into());
+    let snap = g.snapshot();
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, snap);
+    assert_eq!(snap.lambdas.len(), 1);
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let r = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
+    assert_eq!(r.ext.text(id), Some("kept"));
+    assert_eq!(r.snapshot().lambdas, snap.lambdas);
+}
+
+#[test]
+fn event_handlers_are_set_dispatched_filtered_and_removed() {
+    // Tasks E1–E3 [documented: SetEventHandler; SetEventHandlerAlt; RemoveEventHandler;
+    // DispatchEvent; DispatchEventAlt].
+    let f = udf_fixture();
+    // The handler names are scripts; the console line resolves them by Editor ID.
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    run(&mut g, "SetEventHandler \"NVFTestEvent\" TestSet\nDispatchEventAlt \"NVFTestEvent\" 7");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 7.0);
+    // A filter on the first argument: only 5 passes.
+    run(&mut g, "RemoveEventHandler \"NVFTestEvent\" TestSet\nSetEventHandlerAlt \"NVFAlt\" TestSet 1::5\nDispatchEventAlt \"NVFAlt\" 4\nDispatchEventAlt \"NVFTestEvent\" 9");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 7.0, "4 is filtered out and the removed handler does not run");
+    run(&mut g, "DispatchEventAlt \"NVFAlt\" 5");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 5.0);
+    // DispatchEvent: one string map with eventName and eventSender (the console's
+    // "plugin" is `console`).
+    run(&mut g, "SetEventHandler \"Abc\" TestMap\nDispatchEvent \"Abc\"");    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 37.0);
+    // Priority 0 is refused [documented: SetEventHandler].
+    run(&mut g, "let TestGlobal := SetEventHandler \"X\" TestSet \"priority\"::0");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 0.0);
+}
+
+#[test]
+fn get_game_loaded_and_restarted_are_true_once_per_script() {
+    // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
+    // session; a session's SetEventHandler registrations carry over a load.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("SetEventHandler \"NVFTestEvent\" TestSet", Default::default()).unwrap();
+    let session = g.take_session();
+    let mut g2 = game(&f);
+    g2.put_session(session);
+    g2.run_source("DispatchEventAlt \"NVFTestEvent\" 3", Default::default()).unwrap();
+    assert_eq!(g2.world.global(FormId(0x0000_0800)).unwrap(), 3.0, "the handler lasted for the session");
+}
+
+#[test]
+fn queries_run_function_scripts_and_keep_what_they_change() {
+    // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
+    // query are read by the next, and the saved ones are in the snapshot.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let set = "Begin Function { }\nAuxVarSetFlt \"nvfQ\" 2.5\nAuxVarSetFlt \"*nvfT\" 1\nSetFunctionValue 7\nEnd\n";
+    assert_eq!(g.run_query(set, ctx()), Ok(XVal::Num(7.0)));
+    let get = "float x\nBegin Function { }\nlet x := AuxVarGetFlt \"NVFQ\"\nSetFunctionValue x * 2\nEnd\n";
+    assert_eq!(g.run_query(get, ctx()), Ok(XVal::Num(5.0)));
+    assert_eq!(g.run_query("Begin Function { }\nSetFunctionValue Sv_Construct \"a%gb\", 1\nEnd\n", ctx()), Ok(XVal::Str("a1b".into())));
+    assert_eq!(g.run_query("Begin Function { }\nlet x := 1\nEnd\n", ctx()), Err("script did not compile".into()));
+    let snap = g.snapshot();
+    assert!(snap.ext.jip.aux[&FormId::PLAYER_REF.0].contains_key("nvfq"));
+    assert!(serde_json::to_string(&snap).unwrap().contains("nvfq") && !serde_json::to_string(&snap).unwrap().contains("*nvft"), "a * name is not saved");
+}
+
+#[test]
+fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
+    // Tasks J6, J7 [documented: SetOnHitEventHandler, GetHitHealthDamage; observed:
+    // jip-hits, Health in the handler is the value before the hit].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let reg = "Begin Function { }\nSetOnHitEventHandler (Begin Function { }\nAuxVarSetFlt \"*hD\" (GetHitHealthDamage) -1\nAuxVarSetFlt \"*hH\" (GetAV Health) -1\nAuxVarSetFlt \"*hC\" (GetHitExtendedFlag 1) -1\nEnd) 1 PlayerREF\nEnd\n";
+    assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
+    let before = g.run_query("Begin Function { }\nSetFunctionValue (GetAV Health)\nEnd\n", ctx()).unwrap();
+    let info = fnv_game::combat::HitInfo { critical: true, location: -1, ..Default::default() };
+    g.hit(FormId::PLAYER_REF, 5.0, info);
+    let read = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (AuxVarGetFlt \"{s}\" 0)\nEnd\n"), ctx()).unwrap();
+    assert_eq!(read(&mut g, "*hD"), XVal::Num(5.0));
+    assert_eq!(read(&mut g, "*hH"), before, "the handler runs before the damage");
+    assert_eq!(read(&mut g, "*hC"), XVal::Num(1.0), "a critical hit");
+}

@@ -1,0 +1,93 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_events",
+ "title": "JIP events, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHealthDamageEventHandler (Begin Function {float fD, ref rS}\n  rP.AuxVarSetFlt \"*nvfHD\" fD\n  rP.AuxVarSetRef \"*nvfHS\" rS\n  rP.AuxVarSetFlt \"*nvfHT\" (GetSelf == rP)\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.reg.amount",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHealthDamageEventHandler (Begin Function {float fD, ref rS}\n  rP.AuxVarSetFlt \"*nvfHO\" 1 -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.reg.order1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHealthDamageEventHandler (Begin Function {float fD, ref rS}\n  rP.AuxVarSetFlt \"*nvfHO\" 2 -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.reg.order2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHealthDamageEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfHN\" 1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.reg.noparams",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHealthDamageEventHandler (Begin Function {float fD}\n  rP.AuxVarSetFlt \"*nvfH1\" fD\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.reg.oneparam",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetGameMainLoopCallback (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfLC\" ((rP.AuxVarGetFlt \"*nvfLC\") + 1)\n  rP.AuxVarSetFlt \"*nvfLT\" (GetSelf == rP)\nEnd) 1 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "loop.reg",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.DamageAV Health 1\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfHD\")\nEnd\n",
+   "label": "ev.amount",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarType \"*nvfHS\")\nEnd\n",
+   "label": "ev.source.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfHT\")\nEnd\n",
+   "label": "ev.this",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfHO\")\nEnd\n",
+   "label": "ev.order.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfHO\" 0)\nEnd\n",
+   "label": "ev.order.first",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfHN\")\nEnd\n",
+   "label": "ev.noparams.ran",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH1\")\nEnd\n",
+   "label": "ev.oneparam.ran",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarGetFlt \"*nvfLC\") > 0)\nEnd\n",
+   "label": "loop.ran",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfLT\")\nEnd\n",
+   "label": "loop.this",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.RestoreAV Health 1\nrP.AuxVarErase \"*nvfHD\"\nrP.AuxVarErase \"*nvfHS\"\nrP.AuxVarErase \"*nvfHT\"\nrP.AuxVarErase \"*nvfHO\"\nrP.AuxVarErase \"*nvfHN\"\nrP.AuxVarErase \"*nvfH1\"\nrP.AuxVarErase \"*nvfLC\"\nrP.AuxVarErase \"*nvfLT\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ev.cleanup",
+   "field": "value"
+  }
+ ]
+}

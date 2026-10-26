@@ -111,6 +111,22 @@ pub struct Function {
     pub number_types: BTreeMap<usize, bool>,
 }
 
+/// A function the catalogue lists without an opcode.
+#[derive(Debug, Clone)]
+pub struct Unnumbered {
+    pub name: String,
+    /// The catalogue's `origin` (`NVSE`, `JIP`, …).
+    pub origin: String,
+    pub params: Vec<Param>,
+    /// In the wiki's "NVSE-Aware Functions" category: its arguments are whole
+    /// expressions [documented: Script Compiler Override, "Let, if eval, While, Print and
+    /// any other NVSE-Aware Function"].
+    pub aware: bool,
+    /// The row comes from the function's own wiki page (not an event or example page that
+    /// shows a call of it).
+    pub own_page: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FunctionTable {
     pub functions: BTreeMap<u16, Function>,
@@ -121,6 +137,10 @@ pub struct FunctionTable {
     /// Begin events whose statement has a parameter block (encodings.json
     /// `compiler.begin_params`).
     pub begin_params: std::collections::BTreeSet<u16>,
+    /// Functions the catalogue lists without an opcode (the script extenders' and the
+    /// console's), by lower-case name and alias: their parameters, for the compiler's
+    /// extender grammar (docs/spec-notes/script-compiler.md).
+    pub unnumbered: HashMap<String, Unnumbered>,
     by_name: HashMap<String, u16>,
 }
 
@@ -240,9 +260,6 @@ impl FunctionTable {
         for (i, func) in funcs.iter().enumerate() {
             let mut ops: Vec<u16> = strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect();
             ops.extend(console_ops.get(&i));
-            if ops.is_empty() {
-                continue;
-            }
             let name = func.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let params: Vec<Param> = func
                 .get("params")
@@ -256,6 +273,24 @@ impl FunctionTable {
                     optional: p.get("optional").and_then(Value::as_bool).unwrap_or(false),
                 })
                 .collect();
+            if ops.is_empty() {
+                let u = Unnumbered {
+                    name: name.clone(),
+                    origin: func.get("origin").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    params,
+                    aware: strings(func.get("categories")).iter().any(|c| c.to_ascii_lowercase().replace(' ', "_").contains("nvse-aware")),
+                    own_page: func.get("page").and_then(Value::as_str).is_some_and(|p| p.eq_ignore_ascii_case(&name)),
+                };
+                // Several rows can carry one name (the pages of events and examples that
+                // show a call); the function's own page wins [decision].
+                for s in std::iter::once(&name).chain(&strings(func.get("aliases"))) {
+                    let slot = t.unnumbered.entry(s.to_ascii_lowercase()).or_insert_with(|| u.clone());
+                    if u.own_page && !slot.own_page {
+                        *slot = u.clone();
+                    }
+                }
+                continue;
+            }
             let xedit_types = strings(func.get("xedit_param_types"));
             let n = |k: &str| func.get(k).and_then(Value::as_u64).unwrap_or(0);
             for &op in &ops {

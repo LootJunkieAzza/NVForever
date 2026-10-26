@@ -48,6 +48,13 @@ A statement is one script function call, spelled as script source spells it:
   world as a script's changes do. The reply is `<Function> on <reference> >> <value>`,
   or the failure the call reported.
 
+- A statement the reader above does not take goes through the script compiler
+  (docs/spec-notes/script-compiler.md §7) and runs at once as a one-line result script
+  on the selected reference: `set` with an expression for the value (`set TimeScale to
+  10 + 2 * 10`), or a refused call holding an operator or a parenthesis. The reply is
+  `<statement> >> ran`, then the compiler's warnings; a compile error is the reply instead.
+  A local variable has no meaning there: name the owner (`set SunnyRef.var to …`).
+
 Console commands of its own:
 
 | Command | What it does |

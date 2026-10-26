@@ -4,6 +4,7 @@
   jip_probes.py job [--set S] [-o JOB.steps.json]       write the capture job
   jip_probes.py collect OUT.jsonl [--set S] [-o golden]  capture output -> fnv.ext.probes/1
   jip_probes.py compare GOLDEN.json                the golden against the expectations here
+  jip_probes.py steps [--dir DIR]                  every set's job into tools/capture/jip-probes/
 
 Each probe is a function script that nvf_capture compiles inside the running game and
 whose result it records (docs/spec-notes/xnvse-capture.md §4–§5): JIP is loaded in the
@@ -267,7 +268,7 @@ REC = {
     "slug.proj": "1572C5", "ammo12": "8ECF5", "slug.ammo": "13E447", "gren.expl": "7EA31",
     "gren.proj": "7EA30", "laser": "4336", "hunting": "4333", "sledge": "4352", "rev44": "8F215",
     "pistol10": "434F", "carbine": "8F21E", "gatling": "432E", "metal": "3307F", "leather": "20423",
-    "ammo10": "4241", "proj10": "2CD5F",
+    "ammo10": "4241", "proj10": "2CD5F", "t45d": "4443E",
 }
 REC_EXPECTED = {
     "killimpulse.laser": ("0", "GetWeaponKillImpulse (WeapLaserRifle: 0)"),
@@ -314,7 +315,8 @@ RECORD_PROBES = (
        _rec("model.pistol10.7", "pistol10", "GetWeaponModel rF 7", True),
        _rec("armorclass.metal", "metal", "GetArmorClass rF"),
        _rec("armorclass.leather", "leather", "GetArmorClass rF"),
-       _rec("armorrct.metal", "metal", "GetArmorRCT rF", True)]
+       _rec("armorrct.metal", "metal", "GetArmorRCT rF", True),
+       _rec("armorrct.t45d", "t45d", "GetArmorRCT rF", True)]
 )
 
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
@@ -327,6 +329,15 @@ def script(body):
     if body.startswith("ref "):
         return body + "\nEnd\n"
     return "Begin Function { }\n" + body + "\nEnd\n"
+
+
+STEPS_DIR = os.path.join(HERE, "jip-probes")
+
+
+def steps_text(set_name):
+    """The job file of a set as committed in STEPS_DIR (the lab's candidate,
+    `fnvtool ext queries`, runs these)."""
+    return json.dumps(job(set_name), indent=1) + "\n"
 
 
 def job_name(set_name):
@@ -382,7 +393,16 @@ def main(argv=None):
     c.add_argument("-o", "--out")
     k = sub.add_parser("compare")
     k.add_argument("golden")
+    st = sub.add_parser("steps")
+    st.add_argument("--dir", default=STEPS_DIR)
     a = ap.parse_args(argv)
+    if a.cmd == "steps":
+        os.makedirs(a.dir, exist_ok=True)
+        for name in SETS:
+            with open(os.path.join(a.dir, f"{job_name(name)}.steps.json"), "w", encoding="utf-8", newline="\n") as f:
+                f.write(steps_text(name))
+        print(json.dumps({"dir": a.dir, "sets": list(SETS)}))
+        return 0
     if a.cmd == "job":
         a.out = a.out or f"{job_name(a.set)}.steps.json"
         with open(a.out, "w", encoding="utf-8", newline="\n") as f:

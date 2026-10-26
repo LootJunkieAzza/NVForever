@@ -18,7 +18,9 @@ grammar.
 ## 1. Lines and tokens (`lex`)
 
 - A line ends at a line break. Comments run from `;` outside double quotes to the end of
-  the line. Blank lines and lines with no letter or digit produce no statement
+  the line [observed: probe strings/03 splits "a,b;c" by ",;" in the original game; a GECK
+  compile case reported "Mismatched quotes" for a `;` in a string (ext-bytecode.md), to be
+  reconciled; no shipped string holds one, so vanilla parity is the same either way]. Blank lines and lines with no letter or digit produce no statement
   [observed: scripts.md §3.4].
 - Tokens: words (letters, digits, `_`, `.`), quoted strings (an unterminated one runs to
   the end of the line), the operators `== != <= >= && || < > + - * / %`, parentheses, and
@@ -164,7 +166,337 @@ Errors: `syntax`, `unknown_block`, `unknown_function`, `unresolved_name`,
 `stray_punctuation`. Which of these the editor really refuses is to be checked with the
 GECK compile cases (extender-core-tasks.md G2) [hypothesis].
 
-## 7. Open
+## 7. Running compiled source (task A6)
+
+**At load time** (`fnv_game::source_compile`, called by `GameData::build`): the original
+game runs compiled bytes only. A mod compiled with the script extender loaded has bytes
+that call the extender's functions at opcodes the extender assigned. Our function table
+has no such opcodes, so those bytes would not run. Rule: a unit whose bytes call an
+opcode above the highest one in the function table, or that the decoder cannot read (the
+extender's own statements have byte forms of their own [hypothesis]), and that has source,
+runs from its source compiled by NVForever, seeded with its own lists [decision; no shipped unit calls
+such an opcode, so the shipped game is unchanged in `auto`]. The rule agrees with the
+documented opcode ranges: the base game's run to 0x13FF, the extenders' start at 0x1400
+(xNVSE 0x1400–0x1FFF, JIP LN 0x2200–0x2FFF, JohnnyGuitar 0x3100–0x35FF [documented: NVSE
+Opcode Base]), and the function table's highest opcode is below 0x1400. A unit whose source does not
+compile keeps its bytes. Names the lists lacked are added after the existing entries. A
+unit without bytes stays unrun, as in the original (the three never-compiled units of
+scripts.md §3.6).
+
+`[Extenders] CompileSource` in NVForever.ini, read by the engine before the script data is
+built (`NVF_COMPILE_SOURCE` overrides it):
+
+| Value | Units compiled from source |
+|---|---|
+| `auto` (default) | those calling an opcode the table does not have (above its highest) |
+| `always` | every unit with source and bytes (a test of the compiler) |
+| `never` | none (bytes only, as the original game) |
+
+The engine logs `scripts: N units run from their source text, M kept their bytes`, with
+samples of the ones that kept them. A game reads only the winning records, so a script
+overridden by a later plugin is known only in its winning version. The compiler then
+takes that version's variables when the unit's own plugin sees none (FalloutNV's
+`VMQTopsScript` under DeadMoney's override).
+
+Checked 2026-10-25 with `always` over the ten masters: 14,466 units run from source and 7
+keep their bytes. Those 7 are the units of §5 whose source names forms renamed since, or
+another script's variable that is gone. The headless intro walkthrough
+(`fnvtool script run … --actions crates/fnv-game/walkthrough/intro.actions.json`)
+gives a trace byte-identical to the one from the bytes. Smoke `scripts-from-source`
+starts the game this way.
+
+**At the console** (docs/design/console.md): a statement the console's own reader does
+not take goes through the compiler and runs as a one-line result script
+(`Game::run_source`), on the selected reference. That covers a `set` whose value is an
+expression (`set TimeScale to 10 + 2 * 10`) and a call the reader refuses that contains
+an operator or parenthesis. Smoke `console-compiled-source`.
+
+## 8. The extender's grammar (tasks A7–A12)
+
+Written from the wiki export's pages (NVSE Expressions, Let, Let Macro, Eval, Inline
+Expression, Script Compiler Override), our notes in docs/spec-notes/ext-syntax.md. Code:
+`compile/lex.rs` (`xtokens`), `compile/parse.rs` (which lines), `compile/gen/x.rs` (the
+expression parser), `vm.rs` (`xeval`).
+
+- **Extended units.** A unit that uses any of the extender's statements, declares a
+  `string_var`/`array_var` or an initialised variable, calls a function that has no
+  opcode, or has a compiler-override block is compiled with the extender's rules. In it,
+  a call line holding parentheses or calling such a function is one extended expression
+  run for what it does (`SetAV Health (GetAV Health + 50)` [documented: Inline
+  Expression], `Ar_Append a 5`). Any other unit is vanilla and its parentheses are dropped
+  as the editor drops them (§3), so the shipped units compile as before.
+- **Declarations** (A10): `string_var` and `array_var` [documented: String Variable; Array
+  Variable] are kept in the variable list as `VarType::Other("string_var"/"array_var")`
+  [hypothesis on how the extender's editor stores them]. `int i = 5` declares and assigns
+  [documented: xNVSE 6.1 inline declarations].
+- **Literals and comments** (A9): `0x1F` and `0b101` are numbers [documented: Hexadecimal
+  Notation; Binary Notation]. `/* … */` comments may span lines [documented: xNVSE 6.1.7].
+  `expr.Function args` calls a function on a result or an element [documented: NVSE
+  Expressions `.`].
+- **User-defined functions** (A11): `Begin Function {a, b}` is a block of event code
+  0x7F00, NVForever's own (`ir::FUNCTION_BLOCK`), whose parameter block lists the
+  parameter variables [documented: User Defined Function: an object script holding only
+  that block, up to 15 parameters]. `Call udf args…` takes the function and up to 15
+  arguments [documented: Call]; a `ref` local holding a function is passed as the
+  variable. Lambdas: `(begin function {params} … end)`, which may span lines, and
+  `{params} => expr` [documented: Lambda], both an `XExpr::Lambda` whose parameters and
+  variables are the enclosing script's; the block form's statements are compiled with the
+  unit's own lists. Running them (calls, the 30-call nesting limit, SetFunctionValue) is
+  B7/B8.
+- **Compiler-override blocks** (A12): `Begin _GameMode` (any block name after `_`) is that
+  block, and inside it `if`, `elseif` and `set` take extended expressions too, with the
+  argument rule above [documented: Script Compiler Override].
+- **Which lines.** `let …`; the Let macro, a name followed by `=`, `+=`, `-=` or `*=`
+  [documented: Let Macro lists these four]; `if eval …` / `elseif eval …`; `while …`,
+  `foreach <var> <- <source>`, `loop`, `break`, `continue` [documented: While; ForEach]. Every
+  other line is read as vanilla, so the shipped units compile as before (§5, unchanged).
+- **Tokens.** The operators of NVSE Expressions (`:=` and the compound assignments,
+  `::` `->` `<<` `>>` `^` `|` `&` `!` `$` `#`), brackets, braces and commas, besides the
+  vanilla ones.
+- **Precedence** is the page's table (header of `compile/gen/x.rs`). `:=` groups right to
+  left [documented; observed: the GECK with xNVSE compiles `a := b := 2` with both
+  assignments last, docs/spec-notes/ext-bytecode.md] and `&&` binds tighter than `||`
+  [observed: `iA || iB && iC` compiles with `&&` first, ext-bytecode.md]. The other binary
+  operators group left to right and the compound assignments right to left [hypothesis;
+  probes in extender-core-tasks.md G3].
+- **Functions in an expression.** A function takes up to as many arguments as it has
+  parameters (the catalogue's count, or the compiler's observed one, §3). An argument is
+  an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50` [documented:
+  Inline Expression; Let]. The arguments of an NVSE-aware function (the wiki's category,
+  80 functions: Call, Print, SetFunctionValue, the ar_* family…) are whole expressions
+  [documented: Script Compiler Override]. Inside a compiler-override block an argument
+  takes arithmetic but stops at a comparison: `Abs -3 + 1` is 2 and `Sin 90 > 0.5` is
+  `(Sin 90) > 0.5` [observed: probes expressions/08, 09 in xNVSE 6.4.9, against the page's
+  `Sin 14 == 1` example; the bitwise operators inside, hypothesis]. Arguments are separated
+  by a comma or by two operands meeting without an operator, and a `-` starts the first
+  argument or one after a comma (`Abs -3`, `Rand -5, -1`) [hypothesis; probes in
+  tools/capture/ext-probes/expressions]. A function with a format string takes all the
+  arguments that follow (up to 20 values [documented: String Formatting]); the catalogue
+  marks those as a parameter named or typed "Formatting"/"formatable". In a parameter that takes an actor value, an axis or a
+  string, a lone name is that name. A function the catalogue lists without an opcode (the
+  extender's own) is kept by its catalogue name (`FuncId::Name`). A local variable's name
+  hides a function of the same name, as in vanilla.
+- **Values** (VM `xeval`): numbers and references. `&&` and `||` evaluate left to right,
+  stop when the left operand decides, and return the deciding operand's value [documented:
+  NVSE Expressions; Eval]. Bitwise operators and shifts take the operands as integers
+  [documented]. `^` is a power. An assignment stores the value and yields it [documented].
+  Strings, arrays, `$` `#` `*` `&`, `[]`, `->`, `:` `::`, `foreach` and the extender's
+  own functions stop the statement with `NotBuilt` until tasks B1–B4 and D build them.
+- **Loops** (VM): `while` tests its condition before each round; `break` leaves the
+  innermost loop, `continue` goes to its next round, through any `If` around them; each
+  round counts against the run's step budget (100,000 statements), so a loop that never
+  ends stops the script [decision; what the original does is to be observed, B4]. A
+  `loop` without its `while`, `break` or `continue` outside a loop, and a block ending
+  inside a loop are compile errors [hypothesis: as the editor refuses them, G2].
+
+**NVForever's own byte forms.** The extender's own byte encodings are not known here
+(extender-compat.md §5.2), and none is needed: the compiler writes the extended statements
+in a form of NVForever's own, which only its decoder reads. These forms never go into a
+plugin or a save:
+
+| Form | Bytes |
+|---|---|
+| `let` statement | opcode 0x00F0, body = the expression tree as JSON (`ir::XExpr`) |
+| extended condition (`if eval`) | the If/ElseIf condition holds one token: 0x20, 0xF0, u16 length, the tree as JSON |
+| `while` / `foreach` | opcode 0x00F1 (body: the condition as JSON) / 0x00F2 (body: `ir::XForEach` as JSON) |
+| `loop` / `break` / `continue` | opcodes 0x00F3 / 0x00F4 / 0x00F5, empty |
+| extended expression statement | opcode 0x00F6, body: the expression as JSON |
+
+The decoder nests a loop's statements between its head and its `loop` (`If` chains open
+outside a loop stay open around it); a loop left open at `End` is closed there and
+reported (`unterminated_loop`). All these opcodes lie between the vanilla statements
+(0x0010–0x001E) and the functions (0x1000 on), inside the base game's documented range of
+opcodes (0x0000–0x13FF [documented: NVSE Opcode Base, the owner's NVSE.xml export]), where
+the shipped bytes use only the statements of scripts.md §2.2.
+
+The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scripts.md
+§2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
+unit with one runs from source (§7).
+
+## 9. Values in the VM (tasks B1, B3, B7, B8)
+
+`fnv_script::vm::XVal` is a value of the extended expressions: a number, a form, a string
+(its text) or an array (by id, B3). docs/spec-notes/ext-values.md has the documented
+rules; what NVForever decides where they are open is tagged here.
+
+- **Storage.** A `string_var` slot holds the id of the variable's own string in the
+  game's `ExtStore` (`Game::ext`); 0 is none [documented: a string_var or array_var holds
+  a number underneath, Array Variable; for strings hypothesis]. Assigning a string copies
+  its text into the variable's string [documented: NVSE Expressions]. A string keeps at
+  most 16,384 characters [documented: String Variable]. Strings and arrays are kept in
+  NVForever's save (`GameSnapshot::ext`, F1), as the original keeps them in its co-save
+  [documented: ext-save.md]; NVForever never reads or writes the original's `.nvse`
+  file. Lambdas are saved with their unit's key and the instance whose variables they
+  share; one whose unit is gone after a load keeps its place and fails when called.
+- **Conversions.** `$x` / ToString: a number's text (whole numbers without decimals,
+  others with up to six [hypothesis]), a form's name (FULL; a reference's base form's),
+  or its FormID in hex without one [documented: ToString]. `#s` / ToNumber: the number in
+  the text, `0x…` as hex [documented: ToNumber], 0 when unreadable [hypothesis].
+- **Operators.** `+` joins two strings [documented]. Strings compare without regard to
+  case, `==`/`!=` included [documented for `<` `>` `<=` `>=`; `==` hypothesis]. `s[i]` is
+  one character and `s[a:b]` the characters a to b, both included, counting from the end
+  when negative [documented: NVSE Expressions, Slice; for `s[i]` hypothesis]. A string is
+  true when not empty [hypothesis; ext-values.md §3 open]. A non-number deciding `&&` or
+  `||` gives 1 or 0 [documented].
+- **Errors.** A string where a number is needed (or the reverse) and division by zero are
+  run-time errors [decision; NVSE Error lists such errors, division by zero
+  documented]. A failing `let` or expression statement reports its error and the script
+  goes on with the next line [documented: Let; NVSE Error]; the trace records it as a
+  skipped piece. Strict runs (tests) stop at it.
+
+- **Arrays** (B3; docs/spec-notes/ext-arrays.md has the documented rules). An
+  `array_var` slot holds an array id; the arrays live in the `ExtStore` with a count of
+  the variables and elements that hold each. Assigning an array shares it, and Ar_Null
+  (0) lets go of one [documented: NVSE Expressions; Ar Null]. An array nothing holds is
+  freed with what only it held [documented: xNVSE 6 counts references, ext-save.md], and
+  the temporaries of a statement are freed when the statement ends. Lists keep keys 0…n−1;
+  maps and string maps keep their keys sorted [documented: Ar First], string keys without
+  regard to case [hypothesis]. `a[k]` reads an element, and a missing key is an error
+  [documented: NVSE Error]. `let a[k] := v` and `let m->k := v` replace or add an element.
+  A list takes a key up to its size, where the size appends [hypothesis], and a key
+  beyond it is an error [documented]. `a[i:j]` is a copy of keys i to j of the same kind
+  [documented; kind hypothesis]. `&x` and `*a` box and unbox [documented]. `==` compares
+  top-level elements [documented]. `$` of an array is our own dump text, `kind #id [k: v,
+  …]` [decision: the original's format is open].
+- **foreach** over an array gives a string map {"key", "value"} per element; over a
+  string, one character each [documented: ForEach]. The source is read element by element
+  as the loop goes, so erasing during it skips elements, as documented. Form lists and
+  containers: B5.
+- **Array functions** (D2): Ar_Construct, Ar_List, Ar_Map (pairs `k::v`; keys mixing
+  kinds or forms are an error), Ar_Null, Ar_BadNumericIndex (−99999), Ar_BadStringIndex,
+  Ar_Size (−1 without an array), Ar_Packed, Ar_HasKey, Ar_Keys, Ar_First, Ar_Last,
+  Ar_Next, Ar_Prev, Ar_Append, Ar_Insert, Ar_Erase (key, range or all), Ar_Resize,
+  Ar_Copy, Ar_DeepCopy, Ar_Find, Ar_Sort, Ar_SortAlpha, Ar_Range, ar_Init, Ar_Unique,
+  Ar_DeepEquals, Ar_Dump (a `ScriptPrint` trace line), TypeOf; each as its page says
+  [documented: ext-arrays.md §5]. Ar_Find and Ar_Unique compare strings without regard to
+  case [hypothesis]. A parameter whose catalogue name starts with `...` (`...entry19`)
+  makes the list open-ended. Ar_ForEach, Ar_Filter, Ar_MapTo, ar_Any, ar_All, Ar_FindWhere
+  and Ar_Generate run their function once per element, with one array per element (`*it`
+  the value, `it["key"]` the key) [documented: Ar Filter; Ar MapTo; Ar ForEach; Ar Any;
+  Ar All; Ar Generate]; ar_Any and ar_All stop at the first element that decides
+  [hypothesis]. Ar_CustomSort: open.
+- **User-defined functions** (B7, the game host `Exec::call_function`): `Call udf args`
+  runs the function script's `Begin Function` block with variables of its own for this
+  call, its parameters set from the arguments in order, on the calling reference of
+  `ref.Call` [documented: Call; User Defined Function]. Its value is the last one
+  SetFunctionValue set, which does not end the function, or 0 [documented:
+  SetFunctionValue; 0 hypothesis]. Its strings and arrays go when it ends [documented: Ar
+  Null], and an array it returns lives on as a temporary of the caller's statement.
+  GetCallingScript gives the calling script, 0 from a result script [documented]. At most
+  30 calls nest; a deeper one is refused [documented: User Defined Function].
+- **Lambdas** (B8): evaluating a lambda gives a value that names it, kept by the game
+  with the instance whose variables it shares [documented: Lambda: it reads and changes
+  the parent's variables]; the same lambda of the same instance keeps its name. The
+  values start at 0xFE800000, in a `ref` slot [decision: a FormID that high would need a
+  255th plugin]. `Call f args` runs it; the `{params} => expr` form returns its
+  expression's value [documented: Lambda]. A lambda made by a result script has fresh
+  variables of its own [hypothesis].
+
+- **Formats** (C4; docs/spec-notes/ext-format.md): a format string's values are as many
+  as its codes [documented]. `%X.Yf`, `%g` (an integer, 1,000,000 and up as `1E+006`),
+  `%.Ne` (`1.230E+005`), the `+` ` ` `-` `0` switches, `%%`, `%a`, `%i`, `%n`, `%v`,
+  `%x` with its width digit, `%z`, `%{ … %}` [documented: String Formatting]. `%g` rounds
+  half away from zero [hypothesis]. `%B`/`%b` write nothing [decision: no colours in
+  NVForever's console]. `%k` writes the scancode's number until the scancode table is
+  in hand [hypothesis]; `%c` and `%po`/`%pp`/`%ps` take their values and write nothing
+  yet. `%q`, `%r` and a bare `%e` work in every string literal [documented].
+- **String functions** (D1; ext-strings.md's table): Sv_Construct, Sv_Length (−1 for no
+  string), Sv_Destruct, Sv_Find (from a position, within a length, without regard to case
+  unless asked; −1 when absent), Sv_Replace (`"old|new"`, in place, every match without
+  regard to case by default; the number replaced), Sv_Split (by delimiter characters, or
+  the whole delimiter with the flag), Sv_ToNumeric, Sv_GetChar, NumToHex/IntToHex,
+  GetFormIDString [documented: each page].
+- **Output** (D4 in part): PrintToConsole/PrintC (a format) and Print (an expression)
+  print to the console [documented]; the game records them as `ScriptPrint` trace lines.
+  MessageEx, MessageBoxEx, DebugPrint and SetDebugMode: not yet.
+- **What the engine reports** (C5; ext-version.md): GetNVSEVersion 6, GetNVSERevision 4,
+  GetNVSEBeta 0 [decision: the xNVSE 6.4 behaviour these tasks follow; how a version
+  splits into the three numbers is open]. IsPluginInstalled gives 0 and GetPluginVersion
+  −1 for every plugin until NVForever has that plugin's functions [documented: −1 when
+  absent; decision]. The `[Extenders]` switch per module is C2's.
+
+- **Events** (E1–E3; docs/spec-notes/ext-events.md). SetEventHandler (`"first"::`,
+  `"second"::` filters, an array filter ignored), SetEventHandlerAlt (`0::` the calling
+  reference, `1::`…`15::` the arguments; an array filter matches any of its elements),
+  `"priority"::n` (default 1, higher first, ties in registration order, 0 and values past
+  ±9999 refused), RemoveEventHandler (all of that handler for that event, or those
+  matching the filters given), DispatchEvent (one string map: `eventName` and
+  `eventSender`, the calling script's plugin, or the info map given with them added
+  [hypothesis]), DispatchEventAlt (the arguments, a calling reference; a handler may take
+  fewer parameters), GetCurrentEventName [documented: each page]. Filters match numbers
+  equal, strings without regard to case, a form the same form, a reference also its base
+  form, a form list any member [documented: New xNVSE Event Filtering System]. Handlers
+  run at once, inside the line that dispatches [hypothesis]. They are not saved, as
+  documented. Firing points so far: OnActivate first in every activation, even refused
+  ones [documented: NVSE Event Handling], and OnDeath before the OnDeath block [order
+  hypothesis]; LoadGame (the save's file name) and PostLoadGame (1) after a load, SaveGame
+  (the save's name) before a save is taken [documented: NVSE Event Handling, session
+  events]. A firing point costs nothing while no handler is registered.
+- **Sessions.** NVForever starts the engine again to load a save, so every load begins a
+  new session: SetEventHandler registrations end there, and GetGameRestarted is true
+  again for every script, which is when mods register them [documented: SetEventHandler,
+  "register again in a GetGameRestarted test"]. Within one run a game state taken over
+  keeps the session's SetEventHandler registrations of function scripts
+  (`Game::take_session`). GetGameLoaded is true once per script after each load,
+  GetGameRestarted once per script per session [documented: each page].
+- **Catalogue rows**: when several rows carry one name (the pages of events and examples
+  that show a call), the row from the function's own page gives the parameters
+  [decision].
+- **Variable types from source**: a record's variable list can only say Integer or
+  FloatOrRef [documented: xEdit SLSD]; the editor with xNVSE stores a `string_var` as
+  Integer and an `array_var` as FloatOrRef [observed: ext-bytecode.md]. So a unit whose
+  source declares either runs from its source (§7), and a seeded slot declared that way
+  takes the declared type at the same index.
+- **More of the editor's rules** [observed: ext-bytecode.md, the owner's GECK and game]:
+  `!-1` is refused ("too many operators") and `-!0` compiles; `Return value` compiles in a
+  function and is a plain Return: Call gives what SetFunctionValue set, not the value, and
+  Return ends the function keeping it [observed: probe udf]; `1 && iX += 5` reads
+  `(1 && iX) += 5` and fails, as the compiler here refuses it (an assignment to something
+  that is not a variable).
+
+- **Forms and types** (D5; ext-forms.md): GetObjectType/GetType (the form-type code of a
+  base form, a reference's base form's; the codes of the Form Type IDs table),
+  IsFormValid, IsReference, GetModIndex (255 when not loaded), GetSourceModIndex (the
+  FormID's top byte, FormIDs being load-order FormIDs here) [documented: each page].
+  Every form of the load order is in memory, so IsFormValid is true for any form that
+  exists [hypothesis]; an armor addon reports 96, the table's ARMA code [documented: the
+  table lists both ARMA 96 and "ARMO, armor addons too"; which an addon reports, open].
+- **From the original game** [observed: the peer session's probe runs in xNVSE 6.4.9,
+  goldens in C:nv-private\goldens\ext, which beat the wiki]: Ar_Sort keeps the
+  elements of the first element's type (`[3, "x"]` → `[3]`); Ar_SortAlpha sorts numbers by
+  value (9 before 10), ahead of the rest [hypothesis on the mix]; Sv_Length of a destructed
+  or unset string is −1; Sv_Count counts matches that do not overlap; numbers pass to a
+  function by value, strings as a copy, arrays shared; nested break/continue act on the
+  inner loop. The two calls that crash the original get a safe answer here: Sv_Replace
+  with an empty old text replaces nothing (0), and Ar_Range with a step of 0 is a run-time
+  error the script survives [decision].
+
+- **From the first probe lab run** (173 of 228 rows equal at e63e5edd; the peer's
+  mismatch list) [observed unless tagged]: `$` of no form is `<NULL>` and of a form
+  without a name `<no name>` (the page says its FormID); `$PlayerREF` is the name typed in
+  the name menu; `#"12abc"` is 12; ToNumber's hex flag reads `"1F"` as 31; a string slice
+  ending past the string stops at its end; Sv_Split drops empty pieces; Sv_Insert,
+  Sv_Erase, Sv_SubString, sv_ToUpper/ToLower (the source kept), sv_Percentify and
+  Sv_Compare (1 when the format text sorts after the variable's, −1 before, without regard
+  to case unless the flag) [documented + observed]; the trigonometric functions take and
+  give degrees, Rand gives a number from its minimum up to its maximum; Ar_Construct of an
+  unknown kind makes a list; Ar_Map drops the keys of another kind than the first;
+  Ar_Next/Ar_Prev of a key the array lacks give the bad index; Ar_Find takes a key range;
+  Ar_InsertRange; Ar_CustomSort (its test says whether the first comes before the
+  second); writing a list key at or past its size appends (the page calls past the size
+  an error); `1 && iX += 5` compiles and fails when it runs.
+- **Label and GoTo** (A8): `Label n` marks a place, `GoTo n` goes on after the label of
+  that number in its statement list or one around it [documented: Label; GoTo; observed:
+  probe loops/04 counts to 3]. NVForever's own opcodes 0x00F7/0x00F8, body n as i32.
+- **A failing extended condition** (`if eval`, `while`) counts as false and the script
+  goes on [observed: probe loops/03 reads past a shrunk list and finishes].
+- **foreach over a form** (B5 in part): a form list gives its forms, a container or an
+  actor one entry per kind of item [documented: ForEach; observed: as many as
+  GetNumItems]; the entry here is the item's base form, where the original gives a
+  temporary reference to the stack that stops being valid the next frame [hypothesis
+  until B5 builds inventory references].
+
+## 10. Open
 
 - The editor's error messages and refusals (G2).
 - Rule 7's declaration counting and rule 8's entry order (more cases would come from mods'

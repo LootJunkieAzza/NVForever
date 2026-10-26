@@ -1,0 +1,143 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_forms",
+ "title": "JIP forms, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "Begin Function { }\nSetFunctionValue (sv_RegexMatch (sv_Construct \"Whatchamacallit\") \"(What)(.*)\")\nEnd\n",
+   "label": "regex.match",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (sv_RegexMatch (sv_Construct \"Whatchamacallit\") \"x(.*)\")\nEnd\n",
+   "label": "regex.nomatch",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (sv_RegexMatch (sv_Construct \"Whatchamacallit\") \"What\")\nEnd\n",
+   "label": "regex.partial",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (sv_RegexReplace (sv_Construct \"This subject has a submarine as a subsequence\") \"blip!|\\b(sub)([^ ]*)\")\nEnd\n",
+   "label": "regex.replace",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (ar_Size (sv_RegexSearch (sv_Construct \"This subject has a submarine as a subsequence\") \"\\b(sub)([^ ]*)\"))\nEnd\n",
+   "label": "regex.search",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue ((sv_RegexSearch (sv_Construct \"This subject has a submarine as a subsequence\") \"\\b(sub)([^ ]*)\")[0])\nEnd\n",
+   "label": "regex.search0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (ValidateRegex \"[\")\nEnd\n",
+   "label": "regex.validate",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (RefToString rF)\nEnd\n",
+   "label": "reftostring.base",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rF.RefToString)\nEnd\n",
+   "label": "reftostring.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := StringToRef \"FalloutNV.esm:104C0C\"\nSetFunctionValue (GetFormIDString rF)\nEnd\n",
+   "label": "stringtoref.modkey",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (LNGetName rF)\nEnd\n",
+   "label": "lngetname.npc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (LNGetName rF)\nEnd\n",
+   "label": "lngetname.cell",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"73857\"\nSetFunctionValue (GetLoadScreenTexture rF)\nEnd\n",
+   "label": "loadscreen.texture",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"31DBA\"\nSetFunctionValue (sv_Length (GetFormDescription rF))\nEnd\n",
+   "label": "formdesc.perk.len",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (sv_Length (GetFormDescription rF))\nEnd\n",
+   "label": "formdesc.npc.len",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (sv_Length (GetObjectiveText rF 30))\nEnd\n",
+   "label": "objective.len",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (sv_Length (GetObjectiveText rF 9999))\nEnd\n",
+   "label": "objective.missing.len",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartName rF 0)\nEnd\n",
+   "label": "bodypart.torso",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartName rF 14)\nEnd\n",
+   "label": "bodypart.weapon",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"31DBA\"\nSetFunctionValue (GetNthPerkEntryString rF 0)\nEnd\n",
+   "label": "perkentry.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8F20F\"\nSetFunctionValue (GetProjectileMuzzleFlash rF)\nEnd\n",
+   "label": "muzzleflash",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetFontFile 2)\nEnd\n",
+   "label": "fontfile.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetFontFile 9)\nEnd\n",
+   "label": "fontfile.9",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetStringSetting \"sTraitMenuTitleText\")\nEnd\n",
+   "label": "stringsetting",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

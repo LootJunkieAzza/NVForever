@@ -180,10 +180,58 @@ impl Decompiler<'_> {
                 Token::Ref { r } => self.slot(*r),
                 Token::Call { call } => self.call_expr(call),
                 Token::Op { op } => op.symbol().to_string(),
+                Token::X { e } => format!("eval {}", self.xexpr(e)),
                 Token::Raw { bytes } => format!("?{}", hex(bytes)),
             })
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// An extended expression, every operation in parentheses:
+    /// `(a := (b + 1))`, `getav(health)`, `(0x00000014.getav(luck) > 5)`.
+    pub fn xexpr(&self, e: &XExpr) -> String {
+        match e {
+            XExpr::Num { value, .. } => number(*value),
+            XExpr::Str { s } => format!("{s:?}"),
+            XExpr::Var { var, .. } => self.var(var),
+            XExpr::Ref { r } => self.slot(*r),
+            XExpr::Enum { code } => format!("#{code}"),
+            XExpr::Axis { c } => c.to_ascii_lowercase().to_string(),
+            XExpr::Call { call } => {
+                let head = match &call.func {
+                    FuncId::Opcode(o) => self.table.get(*o).map_or_else(|| format!("#0x{o:04x}"), |f| f.name.to_ascii_lowercase()),
+                    FuncId::Name(n) => n.to_ascii_lowercase(),
+                };
+                let on = call.on.as_ref().map(|o| format!("{}.", self.xexpr(o))).unwrap_or_default();
+                format!("{on}{head}({})", call.args.iter().map(|a| self.xexpr(a)).collect::<Vec<_>>().join(" "))
+            }
+            XExpr::Unary { op, e } => {
+                let sym = match op {
+                    XUnary::Neg => "-",
+                    XUnary::Stringize => "$",
+                    XUnary::Numericize => "#",
+                    XUnary::Unbox => "*",
+                    XUnary::Box => "&",
+                    XUnary::Not => "!",
+                };
+                format!("({sym}{})", self.xexpr(e))
+            }
+            XExpr::Binary { op: XOp::Subscript, l, r } => format!("{}[{}]", self.xexpr(l), self.xexpr(r)),
+            XExpr::Binary { op, l, r } => format!("({} {} {})", self.xexpr(l), xop_symbol(*op), self.xexpr(r)),
+            XExpr::Member { l, key } => format!("{}->{key}", self.xexpr(l)),
+            XExpr::Assign { op, target, value } => format!("({} {} {})", self.xexpr(target), xassign_symbol(*op), self.xexpr(value)),
+            XExpr::Lambda { params, body, value } => {
+                let ps: Vec<String> = params.iter().map(|p| self.var(p)).collect();
+                match value {
+                    Some(v) => format!("({{{}}} => {})", ps.join(" "), self.xexpr(v)),
+                    None => {
+                        let mut lines = Vec::new();
+                        self.stmts(body, &mut lines);
+                        format!("(begin function {{{}}} {} end)", ps.join(" "), lines.join("; "))
+                    }
+                }
+            }
+        }
     }
 
     fn with_expr(head: &str, e: String) -> String {
@@ -211,6 +259,22 @@ impl Decompiler<'_> {
                 }
                 Stmt::Return => out.push("return".into()),
                 Stmt::Call { call } => out.push(self.call_stmt(call)),
+                Stmt::Let { expr } => out.push(format!("let {}", self.xexpr(expr))),
+                Stmt::Eval { expr } => out.push(format!("eval {}", self.xexpr(expr))),
+                Stmt::While { cond, body } => {
+                    out.push(format!("while {}", self.xexpr(cond)));
+                    self.stmts(body, out);
+                    out.push("loop".into());
+                }
+                Stmt::ForEach { head, body } => {
+                    out.push(format!("foreach {} <- {}", self.xexpr(&head.var), self.xexpr(&head.source)));
+                    self.stmts(body, out);
+                    out.push("loop".into());
+                }
+                Stmt::Break => out.push("break".into()),
+                Stmt::Label { n } => out.push(format!("label {n}")),
+                Stmt::GoTo { n } => out.push(format!("goto {n}")),
+                Stmt::Continue => out.push("continue".into()),
                 Stmt::Unmatched { marker, cond, .. } => out.push(match marker {
                     Marker::Else => "else".into(),
                     Marker::EndIf => "endif".into(),
@@ -233,6 +297,7 @@ impl Decompiler<'_> {
         for b in &p.blocks {
             let mut head = match self.table.block_name(b.event) {
                 Some(n) => format!("begin {}", n.to_lowercase()),
+                None if b.event == FUNCTION_BLOCK => "begin function".to_string(),
                 None => format!("begin #{}", b.event),
             };
             for a in self.args(b.params.as_deref().unwrap_or(&[]), None) {
@@ -250,4 +315,46 @@ impl Decompiler<'_> {
 /// Canonical lines of `program` decoded from `unit`.
 pub fn decompile(unit: &ScriptUnit, program: &Program, table: &FunctionTable, names: &dyn Names) -> Vec<String> {
     Decompiler { unit, table, names }.lines(program)
+}
+
+/// The source spelling of an extended binary operator.
+pub fn xop_symbol(op: XOp) -> &'static str {
+    match op {
+        XOp::Or => "||",
+        XOp::And => "&&",
+        XOp::Slice => ":",
+        XOp::Pair => "::",
+        XOp::Eq => "==",
+        XOp::Ne => "!=",
+        XOp::Gt => ">",
+        XOp::Lt => "<",
+        XOp::Ge => ">=",
+        XOp::Le => "<=",
+        XOp::BitOr => "|",
+        XOp::BitAnd => "&",
+        XOp::Shl => "<<",
+        XOp::Shr => ">>",
+        XOp::Add => "+",
+        XOp::Sub => "-",
+        XOp::Mul => "*",
+        XOp::Div => "/",
+        XOp::Mod => "%",
+        XOp::Pow => "^",
+        XOp::Subscript => "[]",
+    }
+}
+
+/// The source spelling of an assignment operator.
+pub fn xassign_symbol(op: XAssign) -> &'static str {
+    match op {
+        XAssign::Set => ":=",
+        XAssign::Add => "+=",
+        XAssign::Sub => "-=",
+        XAssign::Mul => "*=",
+        XAssign::Div => "/=",
+        XAssign::Pow => "^=",
+        XAssign::BitOr => "|=",
+        XAssign::BitAnd => "&=",
+        XAssign::Mod => "%=",
+    }
 }

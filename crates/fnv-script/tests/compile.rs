@@ -77,6 +77,7 @@ fn ops(e: &Expr) -> Vec<String> {
             Token::Var { .. } => "var".into(),
             Token::Ref { .. } => "ref".into(),
             Token::Call { call } => format!("call{:04X}", call.opcode),
+            Token::X { .. } => "x".into(),
             Token::Raw { .. } => "raw".into(),
         })
         .collect()
@@ -174,4 +175,691 @@ fn begin_blocks_with_parameters() {
     assert_eq!(p.blocks[0].params.as_ref().map(Vec::len), Some(1));
     assert_eq!(p.blocks[1].params, None);
     assert_eq!(c.refs, [RefSlot::Form(PLAYER)]);
+}
+
+// ---- the extender's expressions (task A7) --------------------------------------
+
+use fnv_script::ir::{FuncId, VarSlot, XAssign, XExpr, XOp};
+use fnv_script::vm::{ArgValue, Host, RunOpts, Value, Vm};
+
+/// The tree as text, every operation in parentheses.
+fn x(e: &XExpr) -> String {
+    match e {
+        XExpr::Num { text, .. } => text.clone(),
+        XExpr::Str { s } => format!("{s:?}"),
+        XExpr::Var { var, .. } => match var.var {
+            VarSlot::Local { index, .. } => format!("v{index}"),
+            VarSlot::Global { global } => format!("g{}", global.0),
+        },
+        XExpr::Ref { r } => format!("r{}", r.0),
+        XExpr::Enum { code } => format!("#{code}"),
+        XExpr::Axis { c } => c.to_string(),
+        XExpr::Call { call } => {
+            let f = match &call.func {
+                FuncId::Opcode(o) => format!("{o:04X}"),
+                FuncId::Name(n) => n.clone(),
+            };
+            let on = call.on.as_ref().map(|o| format!("{}.", x(o))).unwrap_or_default();
+            format!("{on}{f}({})", call.args.iter().map(x).collect::<Vec<_>>().join(" "))
+        }
+        XExpr::Unary { op, e } => format!("({op:?} {})", x(e)),
+        XExpr::Binary { op, l, r } => format!("({} {op:?} {})", x(l), x(r)),
+        XExpr::Member { l, key } => format!("{}->{key}", x(l)),
+        XExpr::Assign { op, target, value } => format!("({} {op:?}= {})", x(target), x(value)),
+        XExpr::Lambda { params, body, value } => format!(
+            "lambda[{}]({})",
+            params.len(),
+            value.as_ref().map(|v| x(v)).unwrap_or_else(|| format!("{} statements", body.len()))
+        ),
+    }
+}
+
+fn lets(src: &str) -> Vec<String> {
+    let (_, p) = build(src);
+    let mut out = Vec::new();
+    p.walk(&mut |s| match s {
+        Stmt::Let { expr } => out.push(x(expr)),
+        Stmt::If { arms, .. } => {
+            for a in arms {
+                if let [Token::X { e }] = &a.cond.0[..] {
+                    out.push(format!("if {}", x(e)));
+                }
+            }
+        }
+        _ => {}
+    });
+    out
+}
+
+#[test]
+fn extender_precedence_follows_the_operator_table() {
+    let l = lets("int a\nint b\nbegin GameMode\nlet a := 1 + 2 * 3 ^ 2\nlet a := b := 2\na += 1\nlet a := 1 || 0 && 2\nlet a := -!b\nend");
+    assert_eq!(l[0], "(v1 Set= (1 Add (2 Mul (3 Pow 2))))");
+    assert_eq!(l[1], "(v1 Set= (v2 Set= 2))", ":= groups right to left");
+    assert_eq!(l[2], "(v1 Add= 1)", "the Let macro");
+    assert_eq!(l[3], "(v1 Set= (1 Or (0 And 2)))", "&& binds tighter than ||");
+    assert_eq!(l[4], "(v1 Set= (Neg (Not v2)))");
+}
+
+#[test]
+fn a_functions_argument_is_an_operand() {
+    // [documented: Inline Expression] `Player.GetActorValue Health + 50` is
+    // (GetAV Health) + 50.
+    let l = lets("int a\nbegin GameMode\nif eval GetStage TestQuest >= 10\nendif\nlet a := player.GetAV Luck\nlet a := GetRandomPercent * 2\nlet a := Abs -3 + 1\nend");
+    assert_eq!(l[0], "if (103A(r1) Ge 10)");
+    assert_eq!(l[3], "(v1 Set= (1221((Neg 3)) Add 1))", "a minus starts the first argument");
+    assert!(l[1].starts_with("(v1 Set= r2.100E(#"), "an actor value name is its code: {}", l[1]);
+    assert_eq!(l[2], "(v1 Set= (104D() Mul 2))", "a function without parameters takes no operand");
+}
+
+#[test]
+fn extender_functions_are_named() {
+    let t = table();
+    let c = compile("int a\nbegin GameMode\nlet a := Ar_Size b\nend", &t, &World, None);
+    assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), ["unresolved_name"], "b is not declared");
+    let c = compile("int a\nint b\nbegin GameMode\nlet a := Ar_Size b\nend", &t, &World, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let p = decode(&c.bytes, &t).program;
+    let Stmt::Let { expr: XExpr::Assign { op: XAssign::Set, value, .. } } = &body(&p)[0] else { panic!() };
+    assert!(matches!(value.as_ref(), XExpr::Call { call } if call.func == FuncId::Name("Ar_Size".into())));
+}
+
+#[test]
+fn bad_extended_lines_are_errors() {
+    let t = table();
+    for (src, kind) in [
+        ("begin GameMode\nlet 5 := 1\nend", "bad_assignment_target"),
+        ("int a\nbegin GameMode\nlet a + 1\nend", "let_without_assignment"),
+        ("int a\nbegin GameMode\nlet a := (1 + 2\nend", "syntax"),
+        ("int a\nbegin GameMode\nlet a := 1 2\nend", "syntax"),
+    ] {
+        let c = compile(src, &t, &World, None);
+        assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), [kind], "{src}");
+    }
+}
+
+#[derive(Default)]
+struct Locals(
+    std::collections::BTreeMap<u16, Value>,
+    fnv_script::vm::ExtStore,
+    std::collections::BTreeSet<u16>,
+    std::collections::BTreeSet<u16>,
+    Vec<String>,
+    Option<u32>,
+);
+
+impl Host for Locals {
+    fn var_kind(&mut self, var: &fnv_script::VarRef) -> fnv_script::vm::VarKind {
+        match var.var {
+            VarSlot::Local { index, .. } if self.2.contains(&index) => fnv_script::vm::VarKind::String,
+            VarSlot::Local { index, .. } if self.3.contains(&index) => fnv_script::vm::VarKind::Array,
+            _ => fnv_script::vm::VarKind::Value,
+        }
+    }
+    fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
+        Some(&mut self.1)
+    }
+    fn print(&mut self, text: &str) {
+        self.4.push(text.to_string());
+    }
+    fn get_var(&mut self, var: &fnv_script::VarRef) -> Result<Value, String> {
+        let VarSlot::Local { index, .. } = var.var else { return Err("global".into()) };
+        Ok(self.0.get(&index).copied().unwrap_or_default())
+    }
+    fn set_var(&mut self, var: &fnv_script::VarRef, value: Value) -> Result<(), String> {
+        let VarSlot::Local { index, .. } = var.var else { return Err("global".into()) };
+        self.0.insert(index, value);
+        Ok(())
+    }
+    fn ref_value(&mut self, _r: fnv_script::RefIndex) -> Result<Value, String> {
+        Ok(Value::Ref(PLAYER))
+    }
+    fn call(&mut self, _opcode: u16, _on: Option<Value>, _args: &[ArgValue]) -> Result<Value, String> {
+        Ok(Value::Num(4.0))
+    }
+    fn calling_ref(&mut self) -> Option<u32> {
+        self.5
+    }
+    fn mod_name(&mut self, index: u32) -> Option<String> {
+        (index == 0).then(|| "FalloutNV.esm".to_string())
+    }
+    fn mod_index(&mut self, name: &str) -> Option<u32> {
+        name.eq_ignore_ascii_case("FalloutNV.esm").then_some(0)
+    }
+    fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
+        (form == 0x14 || form == 0x104C0C).then_some(*b"NPC_")
+    }
+    fn actor_value_code(&mut self, name: &str) -> Option<u16> {
+        name.eq_ignore_ascii_case("Strength").then_some(5)
+    }
+}
+
+/// A host whose string variables are the compiled unit's `string_var`s.
+fn host_for(c: &Compiled) -> Locals {
+    let of = |t: &str| c.variables.iter().filter(|v| v.ty == VarType::Other(t.into())).map(|v| v.index as u16).collect();
+    Locals(Default::default(), Default::default(), of("string_var"), of("array_var"), Vec::new(), None)
+}
+
+fn run(src: &str) -> Locals {
+    let t = table();
+    let (c, p) = build(src);
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs");
+    h
+}
+
+#[test]
+fn let_runs_on_numbers() {
+    let h = run("float a\nfloat b\nfloat c\nbegin GameMode\nlet a := 2 + 3 * 4\nlet b := c := 7\nb += 1\nlet c := 0 || 5\nlet a := (1 << 3) | 1\nend");
+    assert_eq!(h.0[&1], Value::Num(9.0));
+    assert_eq!(h.0[&2], Value::Num(8.0));
+    // `||` returns the deciding operand's value [documented: NVSE Expressions].
+    assert_eq!(h.0[&3], Value::Num(5.0));
+}
+
+#[test]
+fn if_eval_tests_an_extended_condition() {
+    let h = run("float a\nbegin GameMode\nif eval 2 ^ 3 == 8 && GetRandomPercent\nlet a := 1\nelseif eval 1\nlet a := 2\nendif\nend");
+    assert_eq!(h.0[&1], Value::Num(1.0));
+}
+
+#[test]
+fn not_built_yet_stops_the_statement() {
+    let t = table();
+    // MessageEx is not built yet (D4).
+    let (_, p) = build("ref r\nbegin GameMode\nMessageEx \"hi\"\nend");
+    let mut h = Locals::default();
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
+    assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
+    let _ = XOp::Add;
+}
+
+// ---- loops (task A8) ------------------------------------------------------------
+
+#[test]
+fn while_loops_run_with_break_and_continue() {
+    // Sum 1..=10 skipping 5, stopping after 8: 1+2+3+4+6+7+8 = 31.
+    let h = run(
+        "float i\nfloat s\nbegin GameMode\nwhile i < 10\n  i += 1\n  if eval i == 5\n    continue\n  endif\n  if eval i > 8\n    break\n  endif\n  s += i\nloop\nend",
+    );
+    assert_eq!(h.0[&2], Value::Num(31.0));
+    assert_eq!(h.0[&1], Value::Num(9.0));
+}
+
+#[test]
+fn nested_loops_and_their_structure() {
+    let (_, p) = build("float i\nfloat j\nfloat n\nbegin GameMode\nwhile i < 3\n  i += 1\n  let j := 0\n  while j < 2\n    j += 1\n    n += 1\n  loop\nloop\nend");
+    let Stmt::While { body, .. } = &body(&p)[0] else { panic!("outer while") };
+    assert!(matches!(body.last(), Some(Stmt::While { .. })), "the inner loop is in the outer body");
+    let h = run("float i\nfloat j\nfloat n\nbegin GameMode\nwhile i < 3\n  i += 1\n  let j := 0\n  while j < 2\n    j += 1\n    n += 1\n  loop\nloop\nend");
+    assert_eq!(h.0[&3], Value::Num(6.0));
+}
+
+#[test]
+fn a_runaway_loop_stops_at_the_step_budget() {
+    let t = table();
+    let (_, p) = build("float i\nbegin GameMode\nwhile 1\n  i += 1\nloop\nend");
+    let mut h = Locals::default();
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 1000 }).run(&p.blocks[0].body);
+    assert!(matches!(r, Err(fnv_script::vm::VmError::Budget(1000))), "{r:?}");
+}
+
+#[test]
+fn foreach_compiles_and_waits_for_arrays() {
+    let (_, p) = build("float e\nfloat a\nbegin GameMode\nforeach e <- a\n  break\nloop\nend");
+    assert!(matches!(&body(&p)[0], Stmt::ForEach { body, .. } if body == &[Stmt::Break]));
+}
+
+#[test]
+fn loop_mistakes_are_errors() {
+    let t = table();
+    for (src, kind) in [
+        ("begin GameMode\nloop\nend", "loop_without_while"),
+        ("begin GameMode\nbreak\nend", "outside_a_loop"),
+        ("float i\nbegin GameMode\nwhile i\nend", "while_without_loop"),
+        ("float e\nbegin GameMode\nforeach e a\nloop\nend", "syntax"),
+    ] {
+        let c = compile(src, &t, &World, None);
+        assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), [kind], "{src}");
+    }
+}
+
+// ---- inline expressions, new variable types (tasks A9, A10) -----------------------
+
+#[test]
+fn inline_expressions_as_arguments_in_an_extended_unit() {
+    // [documented: Inline Expression] `Player.SetActorValue Health (Player.GetActorValue
+    // Health + 50)`; the unit is extended (it has a let), so the call line is one too.
+    let (_, p) = build("float f\nbegin GameMode\nlet f := 1\nplayer.SetActorValue Health (player.GetActorValue Health + 50)\nend");
+    let Stmt::Eval { expr } = &body(&p)[1] else { panic!("an expression statement: {:?}", body(&p)[1]) };
+    let s = x(expr);
+    assert!(s.starts_with("r1.100F(#"), "{s}");
+    assert!(s.contains("(r1.100E(#") && s.ends_with("Add 50))"), "{s}");
+}
+
+#[test]
+fn a_vanilla_unit_keeps_its_parentheses_dropped() {
+    // Without any extender syntax, parentheses among arguments are dropped as the editor
+    // drops them (scripts.md §3.4): a plain call statement.
+    let (_, p) = build("begin GameMode\nplayer.AddItem (Caps001) 5\nend");
+    assert!(matches!(&body(&p)[0], Stmt::Call { .. }));
+}
+
+#[test]
+fn extender_functions_as_statements_make_the_unit_extended() {
+    let t = table();
+    let c = compile("array_var a\nbegin GameMode\nAr_Append a 5\nend", &t, &World, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let p = decode(&c.bytes, &t).program;
+    assert!(matches!(&body(&p)[0], Stmt::Eval { expr: XExpr::Call { call } } if call.func == FuncId::Name("Ar_Append".into())));
+    assert_eq!(c.variables[0].ty, VarType::Other("array_var".into()));
+}
+
+#[test]
+fn inline_declarations_hex_and_binary_and_block_comments() {
+    let h = run("begin GameMode\nint i = 0x10 + 0b101\n/* a comment\nint j = 99\n*/\nfloat f = i * 2 ; 42\nend");
+    assert_eq!(h.0[&1], Value::Num(21.0));
+    assert_eq!(h.0[&2], Value::Num(42.0), "j was inside the comment, so f is variable 2");
+}
+
+#[test]
+fn calls_on_results_chain() {
+    let l = lets("ref r\nfloat f\nbegin GameMode\nlet f := (GetSelf).GetAV Luck\nend");
+    assert!(l[0].starts_with("(v2 Set= "), "{}", l[0]);
+    assert!(l[0].contains(".100E(#"), "a call on the result of GetSelf: {}", l[0]);
+}
+
+#[test]
+fn compiler_override_blocks_read_every_line_with_the_extender_grammar() {
+    // Under `Begin _GameMode` `if` and `set` take extended expressions [documented:
+    // Script Compiler Override]; xNVSE 6.4.9 reads `Sin 90 > 0.5` as (Sin 90) > 0.5 there
+    // [observed: probe expressions/09], not as the page's `Sin (14 == 1)`.
+    let (_, p) = build("float f\nbegin _GameMode\nif Sin 14 == 1\nset f to f + 1\nendif\nend");
+    assert_eq!(p.blocks[0].event, 0, "the block is GameMode");
+    let Stmt::If { arms, .. } = &body(&p)[0] else { panic!() };
+    let [Token::X { e }] = &arms[0].cond.0[..] else { panic!("an extended condition: {:?}", arms[0].cond) };
+    assert_eq!(x(e), "(Sin(14) Eq 1)", "Sin is the extender's (no opcode)");
+    assert!(matches!(&arms[0].body[0], Stmt::Let { .. }));
+    // The same line outside an override block: (Sin 14) == 1.
+    let l = lets("float f\nbegin GameMode\nif eval Sin 14 == 1\nendif\nend");
+    assert_eq!(l[0], "if (Sin(14) Eq 1)");
+}
+
+// ---- user-defined functions and lambdas (task A11) --------------------------------
+
+#[test]
+fn a_function_script_has_a_function_block_with_its_parameters() {
+    let (c, p) = build("scn TestUDF
+int a
+int b
+Begin Function {a, b}
+  SetFunctionValue a + b
+End
+");
+    assert_eq!(p.blocks[0].event, fnv_script::ir::FUNCTION_BLOCK);
+    assert_eq!(p.blocks[0].params.as_ref().map(Vec::len), Some(2));
+    assert!(matches!(&p.blocks[0].body[0], Stmt::Eval { .. }), "SetFunctionValue is the extender's");
+    assert_eq!(c.variables.len(), 2);
+}
+
+#[test]
+fn call_takes_the_function_and_up_to_fifteen_arguments() {
+    let l = lets("int r
+ref f
+begin GameMode
+let r := Call f 1 2 3
+let r := Call f, 1, (2 + 3)
+end");
+    // A `ref` local holding the function is the variable [documented: Lambda, `Call
+    // rCallback 10`].
+    assert_eq!(l[0], "(v1 Set= Call(v2 1 2 3))");
+    assert_eq!(l[1], "(v1 Set= Call(v2 1 (2 Add 3)))");
+}
+
+#[test]
+fn lambdas_in_both_forms() {
+    let src = "int r
+int x
+ref f
+begin GameMode
+  let f := (begin function {x}
+    SetFunctionValue x * 2
+    let r := 1
+  end)
+  let f := ({x} => x + 1)
+end";
+    let l = lets(src);
+    assert_eq!(l[0], "(v3 Set= lambda[1](2 statements))");
+    assert_eq!(l[1], "(v3 Set= lambda[1]((v2 Add 1)))");
+}
+
+// ---- strings (task B1) ---------------------------------------------------------------
+
+impl Locals {
+    fn text(&self, index: u16) -> String {
+        let id = self.0.get(&index).copied().unwrap_or_default().num() as u32;
+        self.1.text(id).unwrap_or_default().to_string()
+    }
+}
+
+#[test]
+fn strings_join_copy_and_convert() {
+    let h = run("string_var a\nstring_var b\nfloat n\nbegin GameMode\nlet a := \"Hello\"\nlet b := a\nlet a += \", world\"\nlet n := #\"0x10\" + #\" 2.5 \"\nlet b := b + $n + $3 + $1.25\nend");
+    assert_eq!(h.text(1), "Hello, world");
+    // Assignment copies: b kept "Hello" when a changed [documented: NVSE Expressions].
+    assert_eq!(h.text(2), "Hello18.531.25");
+    assert_eq!(h.0[&3], Value::Num(18.5));
+}
+
+#[test]
+fn strings_compare_without_case_and_slice() {
+    let h = run("string_var s\nstring_var t\nfloat a\nfloat b\nbegin GameMode\nlet s := \"Abcdef\"\nlet t := s[1:3] + s[-1] + s[0]\nif eval s == \"ABCDEF\" && \"apple\" < \"Banana\"\n  let a := 1\nendif\nlet b := s != \"x\"\nend");
+    assert_eq!(h.text(2), "bcdfA");
+    assert_eq!(h.0[&3], Value::Num(1.0));
+    assert_eq!(h.0[&4], Value::Num(1.0));
+}
+
+#[test]
+fn a_type_error_is_reported_and_the_script_goes_on() {
+    // [documented: Let] a failing let reports and the script carries on.
+    let t = table();
+    let (c, p) = build("string_var s\nfloat a\nbegin GameMode\nlet a := \"x\" + 1\nlet a := 1 / 0\nlet a := 7\nend");
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts::default()).run(&p.blocks[0].body).expect("non-strict runs go on");
+    assert_eq!(h.0[&2], Value::Num(7.0));
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
+    assert!(matches!(r, Err(fnv_script::vm::VmError::Type(_))), "{r:?}");
+}
+
+#[test]
+fn tostring_and_tonumber() {
+    let h = run("string_var s\nfloat n\nbegin GameMode\nlet s := ToString 42\nlet n := (ToNumber \"12\") * 2\nend");
+    // ToNumber is NVSE-aware, so without the parentheses its argument would be "12" * 2.
+    assert_eq!(h.text(1), "42");
+    assert_eq!(h.0[&2], Value::Num(24.0));
+}
+
+// ---- arrays (task B3, the D2 functions) -------------------------------------------------
+
+impl Locals {
+    fn array_id(&self, index: u16) -> u32 {
+        self.0.get(&index).copied().unwrap_or_default().num() as u32
+    }
+}
+
+#[test]
+fn arrays_share_on_assignment_and_index() {
+    let h = run("array_var a\narray_var b\nfloat n\nfloat m\nbegin GameMode\nlet a := Ar_List 10, 20, 30\nlet b := a\nlet b[1] := 99\nlet n := a[1] + Ar_Size a\nlet a[3] := 5\nlet m := a[-0] + a[3]\nend");
+    assert_eq!(h.array_id(1), h.array_id(2), "assignment shares [documented: NVSE Expressions]");
+    assert_eq!(h.0[&3], Value::Num(102.0));
+    assert_eq!(h.0[&4], Value::Num(15.0), "setting the key equal to the size appends");
+}
+
+#[test]
+fn maps_keep_their_keys_sorted() {
+    let h = run("array_var m\narray_var k\nstring_var s\nfloat f\nbegin GameMode\nlet m := Ar_Map \"b\"::2, \"A\"::1, \"c\"::3\nlet k := Ar_Keys m\nlet s := k[0] + k[1] + k[2]\nlet f := m->b + m[\"c\"]\nend");
+    let text = { let id = h.0[&3].num() as u32; h.1.text(id).unwrap_or_default().to_string() };
+    assert_eq!(text, "Abc");
+    assert_eq!(h.0[&4], Value::Num(5.0));
+}
+
+#[test]
+fn foreach_walks_an_array_and_a_string() {
+    let h = run("array_var a\narray_var e\nfloat sum\nstring_var t\nstring_var c\nbegin GameMode\nlet a := Ar_Range 1, 5\nforeach e <- a\n  if eval *e == 4\n    break\n  endif\n  let sum += e[\"value\"] * 10 + e[\"key\"]\nloop\nforeach c <- \"abc\"\n  let t := c + t\nloop\nend");
+    // 1..3 counted: values 10+20+30, keys 0+1+2.
+    assert_eq!(h.0[&3], Value::Num(63.0));
+    let id = h.0[&4].num() as u32;
+    assert_eq!(h.1.text(id), Some("cba"));
+}
+
+#[test]
+fn array_functions() {
+    let h = run(
+        "array_var a\narray_var b\nfloat f\nfloat g\nfloat k\nstring_var t\nbegin GameMode\nlet a := Ar_List 3, 1, 2\nlet b := Ar_Sort a\nlet f := b[0] * 100 + b[2]\nAr_Append a, 7\nAr_Insert a, 0, 9\nlet g := Ar_Erase a, 1:2\nlet k := Ar_Find 7, a\nlet t := TypeOf (Ar_Construct \"stringmap\")\nAr_Dump a\nend",
+    );
+    assert_eq!(h.0[&3], Value::Num(103.0));
+    assert_eq!(h.0[&4], Value::Num(2.0), "two erased");
+    assert_eq!(h.0[&5], Value::Num(2.0), "[9, 2, 7]: 7 is at key 2");
+    let id = h.0[&6].num() as u32;
+    assert_eq!(h.1.text(id), Some("StringMap"));
+    assert_eq!(h.4, ["array #1 [0: 9, 1: 2, 2: 7]"]);
+}
+
+#[test]
+fn temporary_arrays_are_freed() {
+    let h = run("array_var a\nfloat n\nbegin GameMode\nlet n := Ar_Size (Ar_List 1, 2, 3)\nlet a := Ar_List (Ar_List 1), 2\nlet a := Ar_Null\nend");
+    assert_eq!(h.0[&2], Value::Num(3.0));
+    assert!(h.1.arrays.is_empty(), "nothing holds any array at the end: {:?}", h.1.arrays.keys().collect::<Vec<_>>());
+}
+
+// ---- string functions, formats, output, version reports (D1, C4, D4, C5) ------------------
+
+#[test]
+fn format_codes() {
+    // [documented: String Formatting] "i = %g and f = %.2f" with 42 and 3.1415926535.
+    let h = run("string_var s\nstring_var t\nbegin GameMode\nlet s := Sv_Construct \"i = %g and f = %.2f\", 42, 3.1415926535\nlet t := Sv_Construct \"%x4|%5.1f|%-4g|%+g|%05.1f|%%|%{%g%}\", 255, 2.25, 7, 3, -1.5, 0, 9\nend");
+    assert_eq!(h.text(1), "i = 42 and f = 3.14");
+    assert_eq!(h.text(2), "00FF|  2.2|7   |+3|-01.5|%|");
+}
+
+#[test]
+fn big_numbers_in_g_are_scientific() {
+    let h = run("string_var s\nbegin GameMode\nlet s := Sv_Construct \"%g %.3e\", 1000000, 123000\nend");
+    assert_eq!(h.text(1), "1E+006 1.230E+005");
+}
+
+#[test]
+fn literal_codes_in_any_string() {
+    let h = run("string_var s\nbegin GameMode\nlet s := \"say %qhi%q%rnext%e\"\nend");
+    assert_eq!(h.text(1), "say \"hi\"\nnext");
+}
+
+#[test]
+fn sv_functions() {
+    let h = run(
+        "string_var s\narray_var a\nfloat f\nfloat g\nfloat r\nfloat n\nstring_var x\nbegin GameMode\nlet s := \"One two ONE three\"\nlet f := Sv_Find \"one\", s, 1\nlet g := Sv_Length s\nlet r := Sv_Replace \"one|1\", s\nlet a := Sv_Split \"a,b:c\", \",:\"\nlet n := Sv_ToNumeric \"  -12.5e1xyz\" + Sv_GetChar \"A\", 0\nlet x := NumToHex 255, 4, 1\nend",
+    );
+    assert_eq!(h.0[&3], Value::Num(8.0), "found from position 1, without regard to case");
+    assert_eq!(h.0[&4], Value::Num(17.0));
+    assert_eq!(h.0[&5], Value::Num(2.0));
+    assert_eq!(h.text(1), "1 two 1 three");
+    assert_eq!(h.0[&6], Value::Num(-125.0 + 65.0));
+    assert_eq!(h.text(7), "0x00FF");
+}
+
+#[test]
+fn printc_and_version_reports() {
+    let h = run("float v\nfloat p\nbegin GameMode\nPrintC \"v%g\", 1\nPrint \"x\" + $2\nlet v := GetNVSEVersion\nlet p := GetPluginVersion \"ShowOff xNVSE Plugin\"\nend");
+    assert_eq!(h.4, ["v1", "x2"]);
+    assert_eq!(h.0[&1], Value::Num(6.0));
+    assert_eq!(h.0[&2], Value::Num(-1.0), "a plugin without a module here is absent");
+}
+
+#[test]
+fn override_arguments_take_arithmetic_not_comparisons() {
+    // [observed: probes expressions/08, 09 in the original game] under _GameMode,
+    // `Abs -3 + 1` is 2 and `Sin 90 > 0.5` is (Sin 90) > 0.5.
+    let l = lets("float r\nbegin _GameMode\nlet r := Abs -3 + 1\nlet r := Sin 90 > 0.5\nend");
+    assert_eq!(l[0], "(v1 Set= 1221(((Neg 3) Add 1)))");
+    assert_eq!(l[1], "(v1 Set= (Sin(90) Gt 0.5))");
+}
+
+#[test]
+fn label_and_goto() {
+    // [observed: probe loops/04 gives 3].
+    let h = run("float r\nbegin GameMode\nlet r := 0\nLabel 1\nlet r += 1\nif r < 3\n  GoTo 1\nendif\nend");
+    assert_eq!(h.0[&1], Value::Num(3.0));
+}
+
+#[test]
+fn a_failing_condition_is_false_and_the_script_goes_on() {
+    // [observed: probe loops/03] erasing forward runs past the shrunk list; the original
+    // goes on and ends with 3 elements.
+    let t = table();
+    let src = "array_var a\nfloat i\nfloat n\nbegin GameMode\nlet a := Ar_List 1, 2, 3, 4, 5, 6\nlet i := -1\nlet n := Ar_Size a\nwhile n > (i += 1)\n  if eval a[i] % 2 == 0\n    Ar_Erase a, i\n  endif\nloop\nlet n := Ar_Size a\nend";
+    let (c, p) = build(src);
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts::default()).run(&p.blocks[0].body).expect("goes on");
+    assert_eq!(h.0[&3], Value::Num(3.0));
+}
+
+#[test]
+fn math_and_rand() {
+    let h = run("float s\nfloat r\nfloat f\nbegin GameMode\nlet s := (Sin 90) + Cos 0\nlet r := Rand 5, 5\nlet f := Floor 2.7 + Pow 2, 3\nend");
+    assert_eq!(h.0[&1], Value::Num(2.0), "degrees [observed]");
+    assert_eq!(h.0[&2], Value::Num(5.0));
+    assert_eq!(h.0[&3], Value::Num(10.0));
+}
+
+#[test]
+fn a_semicolon_in_an_extender_string_is_a_mismatched_quote() {
+    // [observed: the GECK refused this line of probe strings/03, ext-bytecode.md §7].
+    let t = table();
+    let c = compile("scn X
+array_var a
+begin GameMode
+let a := Sv_Split \"a,b;c\", \",;\"
+end", &t, &World, None);
+    let kinds: Vec<&str> = c.errors().map(|d| d.kind).collect();
+    assert!(kinds.contains(&"mismatched_quotes"), "{kinds:?}");
+}
+
+#[test]
+fn jip_regex_follows_the_probes() {
+    // [observed: jip-forms regex.* rows, jip-strings.md §1].
+    let src = [
+        "string_var t\nstring_var r\nstring_var e\nfloat a\nfloat b\nfloat c\nfloat n\nfloat v\narray_var m\nbegin GameMode",
+        "let t := \"Whatchamacallit\"",
+        "let a := Sv_RegexMatch t, \"(What)(.*)\"",
+        "let b := Sv_RegexMatch t, \"What\"",
+        "let c := Sv_RegexMatch t, \"x(.*)\"",
+        "let t := \"This subject has a submarine as a subsequence\"",
+        "let m := Sv_RegexSearch t, \"\\b(sub)([^ ]*)\"",
+        "let n := Ar_Size m",
+        "let r := Sv_RegexReplace t, \"blip!|\\b(sub)([^ ]*)\"",
+        "let v := ValidateRegex \"[\", e",
+        "end",
+    ]
+    .join("\n");
+    let h = run(&src);
+    assert_eq!((h.0[&4], h.0[&5], h.0[&6]), (Value::Num(1.0), Value::Num(0.0), Value::Num(0.0)), "whole-string match");
+    assert_eq!(h.0[&7], Value::Num(3.0));
+    assert_eq!(h.text(2), "This blip! has a blip! as a blip!");
+    assert_eq!(h.0[&8], Value::Num(5.0));
+}
+
+#[test]
+fn typed_parameters_in_braces_declare_them() {
+    // [observed: the original's runtime-compiled function scripts, jip-events.md §4].
+    let t = table();
+    let c = compile("Begin Function {float fD, ref rS}\nlet fD := ({int n} => n * 2)\nEnd\n", &t, &World, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let names: Vec<(&str, &VarType)> = c.variables.iter().map(|v| (v.name.as_str(), &v.ty)).collect();
+    assert!(names.contains(&("fD", &VarType::FloatOrRef)) && names.contains(&("rS", &VarType::FloatOrRef)) && names.contains(&("n", &VarType::Int)), "{names:?}");
+}
+
+#[test]
+fn a_signed_number_after_a_space_starts_the_next_argument() {
+    // [observed: maxof.neg, aux.append.* with JIP in the original game].
+    let h = run("float m\nfloat d\nfloat s\nbegin GameMode\nlet m := GetMaxOf -1 -5\nlet d := 7 -5\nlet s := GetMaxOf (3 -5) 0\nend");
+    assert_eq!(h.0[&1], Value::Num(-1.0), "two arguments");
+    assert_eq!(h.0[&2], Value::Num(2.0), "outside arguments a subtraction");
+    assert_eq!(h.0[&3], Value::Num(0.0), "inside parentheses a subtraction");
+}
+
+#[test]
+fn jip_reports_and_pure_functions() {
+    let h = run(
+        "float i
+float v
+float a
+float q
+float m
+float av
+float ok
+string_var n
+string_var s
+ref r
+begin GameMode
+let i := IsPluginInstalled \"JIP NVSE Plugin\"
+let v := GetPluginVersion \"jip nvse plugin\"
+let a := Fatan2 1, -1
+let q := Fsqrt -1
+let m := GetMaxOf 1, 7, 3
+let av := StringToActorValue \"strength\"
+let ok := ValidateModIndex 200
+let n := GetModName 0
+let r := StringToRef \"FalloutNV.esm:104C0C\"
+let s := RefToString r
+end",
+    );
+    assert_eq!(h.0[&1], Value::Num(1.0));
+    assert_eq!(h.0[&2], Value::Num(57.3));
+    assert_eq!(h.0[&3], Value::Num(135.0), "[observed]");
+    assert_eq!(h.0[&4], Value::Num(0.0), "[observed]");
+    assert_eq!(h.0[&5], Value::Num(7.0));
+    assert_eq!(h.0[&6], Value::Num(5.0));
+    assert_eq!(h.0[&7], Value::Num(-1.0));
+    assert_eq!(h.text(8), "FalloutNV");
+    assert_eq!(h.text(9), "FalloutNV.esm:104C0C");
+}
+
+#[test]
+fn jip_aux_variables_and_refmaps_follow_the_probes() {
+    // [observed: jip-stores rows, jip-variable-stores.md] on the calling reference.
+    let src = [
+        "float a\nfloat b\nfloat c\nfloat d\nfloat e\nfloat f\nfloat g\nfloat h\nstring_var s\nfloat k\nfloat m\nfloat q\nbegin GameMode",
+        "AuxVarSetFlt \"nvfA\" 3.5",
+        "let a := AuxVarGetFlt \"NVFa\"",
+        "AuxiliaryVariableSetFloat \"nvfL\", 1, -1\nAuxiliaryVariableSetFloat \"nvfL\", 2, -1\nAuxiliaryVariableSetFloat \"nvfL\", 3, -1",
+        "let b := AuxiliaryVariableGetSize \"nvfL\"",
+        "let c := AuxiliaryVariableGetFloat \"nvfL\", -1",
+        "AuxiliaryVariableSetFloat \"nvfGap\" 1 5",
+        "let d := AuxiliaryVariableGetSize \"nvfGap\"",
+        "AuxiliaryVariableSetString \"nvfA\" \"abc\"",
+        "let e := AuxiliaryVariableGetType \"nvfA\"",
+        "let f := AuxiliaryVariableErase \"nvfL\" 0",
+        "let g := AuxiliaryVariableGetFloat \"nvfL\"",
+        "let h := AuxiliaryVariableErase \"nvfL\"",
+        "let s := AuxiliaryVariableGetString \"nvfA\"",
+        "RefMapArraySetFloat \"*nvfM\" 4.5\nRefMapArraySetFloat \"*nvfM\" 5.5",
+        "let k := RefMapArrayGetFloat \"*nvfM\"",
+        "let m := RefMapArrayGetSize \"*nvfM\"",
+        "let q := ar_Size (RefMapArrayGetNext \"*nvfM\")",
+        "end",
+    ]
+    .join("\n");
+    let t = table();
+    let (c, p) = build(&src);
+    let mut h = host_for(&c);
+    h.5 = Some(PLAYER);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs");
+    assert_eq!(h.0[&1], Value::Num(3.5), "names ignore case");
+    assert_eq!(h.0[&2], Value::Num(3.0), "-1 appends");
+    assert_eq!(h.0[&3], Value::Num(3.0), "-1 reads the last");
+    assert_eq!(h.0[&4], Value::Num(0.0), "past the end does nothing");
+    assert_eq!(h.0[&5], Value::Num(4.0), "a new type replaces the element");
+    assert_eq!(h.0[&6], Value::Num(2.0), "erase gives the new count");
+    assert_eq!(h.0[&7], Value::Num(2.0), "later elements move down");
+    assert_eq!(h.0[&8], Value::Num(-1.0), "erasing the whole variable gives -1");
+    assert_eq!(h.text(9), "abc");
+    assert_eq!(h.0[&10], Value::Num(5.5));
+    assert_eq!(h.0[&11], Value::Num(1.0), "one key, set twice");
+    // GetNext without a GetFirst starts at the first pair; ar_Size of ar_Null is -1 only
+    // after the last pair, here the pair itself has 2 elements.
+    assert_eq!(h.0[&12], Value::Num(2.0));
+    let x = &h.1;
+    assert!(x.jip_temp.refmaps.contains_key("*nvfm"), "a * name is temporary");
+    assert!(!x.jip.aux.is_empty() && x.jip.refmaps.is_empty());
+}
+
+#[test]
+fn string_edits_from_the_probes() {
+    let h = run(
+        "string_var s\nstring_var t\nstring_var u\nfloat c\nbegin GameMode\nlet s := \"lo\"\nSv_Insert \"Hel\", s, 0\nlet t := \"abcdef\"\nSv_Erase t, 1, 2\nlet u := Sv_SubString \"abcdef\", 1, 3\nlet c := Sv_Compare \"Beta\", \"Alpha\"\nend",
+    );
+    assert_eq!(h.text(1), "Hello");
+    assert_eq!(h.text(2), "adef");
+    assert_eq!(h.text(3), "bcd");
+    assert_eq!(h.0[&4], Value::Num(1.0));
 }

@@ -1,0 +1,473 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_records",
+ "title": "JIP records, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 0)\nEnd\n",
+   "label": "projtrait.slug.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 1)\nEnd\n",
+   "label": "projtrait.slug.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 2)\nEnd\n",
+   "label": "projtrait.slug.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 3)\nEnd\n",
+   "label": "projtrait.slug.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 4)\nEnd\n",
+   "label": "projtrait.slug.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 5)\nEnd\n",
+   "label": "projtrait.slug.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 6)\nEnd\n",
+   "label": "projtrait.slug.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 7)\nEnd\n",
+   "label": "projtrait.slug.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 8)\nEnd\n",
+   "label": "projtrait.slug.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 9)\nEnd\n",
+   "label": "projtrait.slug.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 10)\nEnd\n",
+   "label": "projtrait.slug.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 11)\nEnd\n",
+   "label": "projtrait.slug.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 12)\nEnd\n",
+   "label": "projtrait.slug.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 13)\nEnd\n",
+   "label": "projtrait.slug.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileTraitNumeric rF 14)\nEnd\n",
+   "label": "projtrait.slug.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileTraitNumeric rF 0)\nEnd\n",
+   "label": "projtrait.gren.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileTraitNumeric rF 1)\nEnd\n",
+   "label": "projtrait.gren.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileTraitNumeric rF 2)\nEnd\n",
+   "label": "projtrait.gren.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileTraitNumeric rF 3)\nEnd\n",
+   "label": "projtrait.gren.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileTraitNumeric rF 5)\nEnd\n",
+   "label": "projtrait.gren.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileTraitNumeric rF 6)\nEnd\n",
+   "label": "projtrait.gren.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 0)\nEnd\n",
+   "label": "projflag.slug.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 1)\nEnd\n",
+   "label": "projflag.slug.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 2)\nEnd\n",
+   "label": "projflag.slug.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 3)\nEnd\n",
+   "label": "projflag.slug.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 4)\nEnd\n",
+   "label": "projflag.slug.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 5)\nEnd\n",
+   "label": "projflag.slug.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 6)\nEnd\n",
+   "label": "projflag.slug.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 7)\nEnd\n",
+   "label": "projflag.slug.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 8)\nEnd\n",
+   "label": "projflag.slug.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 9)\nEnd\n",
+   "label": "projflag.slug.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 10)\nEnd\n",
+   "label": "projflag.slug.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetProjectileFlag rF 11)\nEnd\n",
+   "label": "projflag.slug.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileFlag rF 0)\nEnd\n",
+   "label": "projflag.gren.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileFlag rF 1)\nEnd\n",
+   "label": "projflag.gren.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetProjectileFlag rF 10)\nEnd\n",
+   "label": "projflag.gren.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA30\"\nSetFunctionValue (GetFormIDString (GetProjectileExplosion rF))\nEnd\n",
+   "label": "projexpl.gren",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetFormIDString (GetProjectileExplosion rF))\nEnd\n",
+   "label": "projexpl.slug",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetFormIDString (GetProjectileLight rF))\nEnd\n",
+   "label": "projlight.slug",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 0)\nEnd\n",
+   "label": "expltrait.gren.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 1)\nEnd\n",
+   "label": "expltrait.gren.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 2)\nEnd\n",
+   "label": "expltrait.gren.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 3)\nEnd\n",
+   "label": "expltrait.gren.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 4)\nEnd\n",
+   "label": "expltrait.gren.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 5)\nEnd\n",
+   "label": "expltrait.gren.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 6)\nEnd\n",
+   "label": "expltrait.gren.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionTraitNumeric rF 7)\nEnd\n",
+   "label": "expltrait.gren.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionFlag rF 1)\nEnd\n",
+   "label": "explflag.gren.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionFlag rF 2)\nEnd\n",
+   "label": "explflag.gren.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionFlag rF 3)\nEnd\n",
+   "label": "explflag.gren.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionFlag rF 4)\nEnd\n",
+   "label": "explflag.gren.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionFlag rF 5)\nEnd\n",
+   "label": "explflag.gren.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetExplosionFlag rF 6)\nEnd\n",
+   "label": "explflag.gren.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 0))\nEnd\n",
+   "label": "expltraitform.gren.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 1))\nEnd\n",
+   "label": "expltraitform.gren.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 2))\nEnd\n",
+   "label": "expltraitform.gren.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 3))\nEnd\n",
+   "label": "expltraitform.gren.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 4))\nEnd\n",
+   "label": "expltraitform.gren.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 5))\nEnd\n",
+   "label": "expltraitform.gren.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"7EA31\"\nSetFunctionValue (GetFormIDString (GetExplosionTraitForm rF 6))\nEnd\n",
+   "label": "expltraitform.gren.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8ECF5\"\nSetFunctionValue (GetAmmoTraitNumeric rF 0)\nEnd\n",
+   "label": "ammotrait.ammo12.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8ECF5\"\nSetFunctionValue (GetAmmoTraitNumeric rF 1)\nEnd\n",
+   "label": "ammotrait.ammo12.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8ECF5\"\nSetFunctionValue (GetAmmoTraitNumeric rF 2)\nEnd\n",
+   "label": "ammotrait.ammo12.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8ECF5\"\nSetFunctionValue (GetAmmoTraitNumeric rF 3)\nEnd\n",
+   "label": "ammotrait.ammo12.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetAmmoTraitNumeric rF 0)\nEnd\n",
+   "label": "ammotrait.ammo10.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetAmmoTraitNumeric rF 1)\nEnd\n",
+   "label": "ammotrait.ammo10.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetAmmoTraitNumeric rF 2)\nEnd\n",
+   "label": "ammotrait.ammo10.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetAmmoTraitNumeric rF 3)\nEnd\n",
+   "label": "ammotrait.ammo10.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"13E447\"\nSetFunctionValue (GetFormIDString (GetAmmoProjectile rF))\nEnd\n",
+   "label": "ammoproj.slug",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetFormIDString (GetAmmoProjectile rF))\nEnd\n",
+   "label": "ammoproj.ammo10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4336\"\nSetFunctionValue (GetWeaponKillImpulse rF)\nEnd\n",
+   "label": "killimpulse.laser",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponKillImpulse rF)\nEnd\n",
+   "label": "killimpulse.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4336\"\nSetFunctionValue (GetWeaponImpulseDistance rF)\nEnd\n",
+   "label": "impulsedist.laser",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponImpulseDistance rF)\nEnd\n",
+   "label": "impulsedist.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4336\"\nSetFunctionValue (GetWeaponCritFlags rF)\nEnd\n",
+   "label": "critflags.laser",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponCritFlags rF)\nEnd\n",
+   "label": "critflags.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4352\"\nSetFunctionValue (GetFormIDString (GetWeaponVATSEffect rF))\nEnd\n",
+   "label": "vatseffect.sledge",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4336\"\nSetFunctionValue (GetFormIDString (GetWeaponVATSEffect rF))\nEnd\n",
+   "label": "vatseffect.laser",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8F215\"\nSetFunctionValue (GetWeaponOnHitSetting rF)\nEnd\n",
+   "label": "onhit.rev44",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8F215\"\nSetFunctionValue (GetWeaponSemiAutoFireDelay rF 0)\nEnd\n",
+   "label": "semiauto.rev44.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8F215\"\nSetFunctionValue (GetWeaponSemiAutoFireDelay rF 1)\nEnd\n",
+   "label": "semiauto.rev44.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetImpactDataSet rF))\nEnd\n",
+   "label": "impactset.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"8F21E\"\nSetFunctionValue (GetWeaponModel rF 0)\nEnd\n",
+   "label": "model.carbine.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"432E\"\nSetFunctionValue (GetWeaponModel rF 3)\nEnd\n",
+   "label": "model.gatling.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponModel rF 7)\nEnd\n",
+   "label": "model.pistol10.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"3307F\"\nSetFunctionValue (GetArmorClass rF)\nEnd\n",
+   "label": "armorclass.metal",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetArmorClass rF)\nEnd\n",
+   "label": "armorclass.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"3307F\"\nSetFunctionValue (GetArmorRCT rF)\nEnd\n",
+   "label": "armorrct.metal",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4443E\"\nSetFunctionValue (GetArmorRCT rF)\nEnd\n",
+   "label": "armorrct.t45d",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

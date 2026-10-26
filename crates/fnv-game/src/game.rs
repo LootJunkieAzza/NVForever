@@ -962,6 +962,27 @@ pub enum LineKind {
 
 pub struct Game<'a> {
     pub data: &'a GameData,
+    /// The script extender's strings and arrays by id (fnv_script::vm::ExtStore;
+    /// docs/spec-notes/ext-values.md), saved with the game (`GameSnapshot::ext`).
+    pub ext: fnv_script::vm::ExtStore,
+    /// The user-defined functions running, innermost last (script-compiler.md §9).
+    udf: Vec<UdfFrame>,
+    /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
+    /// shares; named by `LAMBDA_BASE + index`.
+    lambdas: Vec<LambdaDef<'a>>,
+    /// A lambda already made, by where its expression is and whose variables it shares.
+    lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
+    /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
+    /// lasts for the session; SetEventHandlerAlt is flushed on every load].
+    handlers: Vec<Handler>,
+    handler_seq: u64,
+    /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
+    pub(crate) jip: crate::jip_events::JipEvents,
+    /// The events being handled, innermost last (GetCurrentEventName).
+    event_names: Vec<String>,
+    /// The scripts that saw GetGameLoaded / GetGameRestarted true (by unit key).
+    loaded_seen: BTreeSet<String>,
+    restarted_seen: BTreeSet<String>,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
@@ -1260,10 +1281,28 @@ pub struct Game<'a> {
     pub(crate) package_scan_due: f64,
 }
 
+/// A lambda in a save: the unit it is written in (by key), the lambda, the instance whose
+/// variables it shares.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedLambda {
+    pub unit: String,
+    pub lambda: fnv_script::ir::XExpr,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inst: Option<InstKey>,
+}
+
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
     pub format: String,
+    /// The script extender's strings and arrays, kept with the save as the original keeps
+    /// them in its co-save (task F1; docs/spec-notes/ext-save.md; NVForever never reads
+    /// or writes the original's `.nvse` file).
+    #[serde(default, skip_serializing_if = "fnv_script::vm::ExtStore::is_empty")]
+    pub ext: fnv_script::vm::ExtStore,
+    /// The lambdas scripts made, so variables naming them stay right after a load.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lambdas: Vec<SavedLambda>,
     pub sim: Snapshot,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
@@ -1412,12 +1451,89 @@ enum Locals {
     Temp(BTreeMap<u16, Value>),
 }
 
+/// A lambda a script made: its unit (`None` when a loaded save names a unit that is gone)
+/// and that unit's key, the lambda, and the instance whose variables it shares.
+#[derive(Clone)]
+struct LambdaDef<'a> {
+    unit: Option<&'a Compiled>,
+    key: String,
+    lambda: fnv_script::ir::XExpr,
+    inst: Option<InstKey>,
+    /// The variables of a maker that has no instance (a function script, a result
+    /// script) when the lambda was made: the lambda reads them [observed: jip-events
+    /// ev.this, a handler lambda compares GetSelf with the query's own variable].
+    captured: Option<BTreeMap<u16, Value>>,
+}
+
+/// What lasts for the session across a load ([`Game::take_session`]).
+pub struct Session {
+    handlers: Vec<Handler>,
+    restarted_seen: BTreeSet<String>,
+    handler_seq: u64,
+}
+
+/// An event handler: the event (lower case), the function or lambda, the filters by
+/// argument index (0 the calling reference), its priority, whether SetEventHandlerAlt set
+/// it, and its place in registration order.
+#[derive(Debug, Clone)]
+struct Handler {
+    event: String,
+    func: fnv_script::vm::XVal,
+    filters: Vec<(usize, fnv_script::vm::XVal)>,
+    priority: i32,
+    alt: bool,
+    seq: u64,
+}
+
+/// A user-defined function running: the value it set, and the script that called it.
+struct UdfFrame {
+    value: Option<fnv_script::vm::XVal>,
+    caller: Option<FormId>,
+}
+
+/// User-defined functions nest at most this deep; a call deeper is refused [documented:
+/// User Defined Function, NVSE aborts after 30 nested calls].
+pub const MAX_UDF_DEPTH: usize = 30;
+
+/// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
+/// FormID this high needs a 255th plugin, which NVForever's load order never gives a
+/// lambda's place to; script-compiler.md §9].
+pub const LAMBDA_BASE: u32 = 0xFE80_0000;
+
 /// What a script run is attached to.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RunCtx {
     pub self_ref: Option<FormId>,
     pub action_ref: Option<FormId>,
     pub quest: Option<FormId>,
+}
+
+/// The compiler's view of a running game: names as the winning records give them, a
+/// form's script by [`Game::instance_of`] (`fnv_script::compile::Env`).
+pub struct GameEnv<'g, 'a> {
+    pub g: &'g Game<'a>,
+}
+
+impl fnv_script::compile::Env for GameEnv<'_, '_> {
+    fn form(&self, editor_id: &str) -> Option<fnv_script::compile::FormInfo> {
+        let id = *self.g.data.edids.get(&editor_id.to_ascii_lowercase())?;
+        self.info(id.0)
+    }
+    fn info(&self, form: u32) -> Option<fnv_script::compile::FormInfo> {
+        let sig = *self.g.data.sigs.get(&FormId(form))?;
+        Some(fnv_script::compile::FormInfo { form, sig })
+    }
+    fn editor_id(&self, form: u32) -> Option<String> {
+        self.g.data.edid_of.get(&FormId(form)).cloned()
+    }
+    /// FormIDs typed at the console are load-order FormIDs.
+    fn local_form(&self, local: u32) -> Option<u32> {
+        self.g.data.sigs.contains_key(&FormId(local)).then_some(local)
+    }
+    fn script_vars(&self, form: u32) -> Option<Vec<fnv_script::VarDecl>> {
+        let (_, script) = self.g.instance_of(FormId(form))?;
+        Some(self.g.data.script(script)?.unit.variables.clone())
+    }
 }
 
 impl<'a> Game<'a> {
@@ -1429,6 +1545,16 @@ impl<'a> Game<'a> {
         world.set_inventory_sources(sources);
         Game {
             data,
+            ext: Default::default(),
+            udf: Vec::new(),
+            lambdas: Vec::new(),
+            lambda_ids: Default::default(),
+            handlers: Vec::new(),
+            handler_seq: 0,
+            jip: Default::default(),
+            event_names: Vec::new(),
+            loaded_seen: BTreeSet::new(),
+            restarted_seen: BTreeSet::new(),
             toggles: Default::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
@@ -1656,9 +1782,13 @@ impl<'a> Game<'a> {
             }
         }
         self.emit(EventKind::StageSet { quest: q, stage, entries: ran.clone() });
+        // JIP's quest-stage handlers, before the result scripts, which a registration
+        // with skipScript keeps from running [documented: SetOnQuestStageEventHandler].
+        let skip = self.jip_skips_stage(q, stage);
+        self.jip_event("queststage", None, vec![fnv_script::vm::XVal::Ref(q.0), fnv_script::vm::XVal::Num(f64::from(stage))]);
         for i in ran {
             let e = &entries[i];
-            if let Some(u) = e.unit {
+            if let Some(u) = e.unit.filter(|_| !skip) {
                 self.run_result(u, RunCtx { quest: Some(q), ..Default::default() });
             }
             if e.flags & STAGE_COMPLETE != 0 {
@@ -1821,6 +1951,371 @@ impl<'a> Game<'a> {
     pub fn run_result(&mut self, unit: UnitId, ctx: RunCtx) {
         let c = self.data.unit(unit);
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
+    }
+
+    /// Compile `src` as a result script (statements without blocks) and run it now: the
+    /// console's lines that its own reader does not take (`set x to a + 1`,
+    /// docs/design/console.md). Names resolve against the winning records
+    /// ([`GameEnv`]). The compiled unit lives as long as the game data (it is leaked:
+    /// one per such line, a debugging aid). Returns the compiler's warnings.
+    pub fn run_source(&mut self, src: &str, ctx: RunCtx) -> Result<Vec<String>, String> {
+        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        if let Some(e) = c.errors().next() {
+            return Err(format!("{}: {}", e.kind.replace('_', " "), e.detail));
+        }
+        let warnings = c.diags.iter().map(|d| format!("{}: {}", d.kind.replace('_', " "), d.detail)).collect();
+        let d = fnv_script::decode(&c.bytes, &self.data.table);
+        let unit = fnv_script::ScriptUnit {
+            plugin: "console".into(),
+            owner: fnv_script::UnitOwner::Other { sig: "CONS".into(), form: 0, ordinal: 0 },
+            kind: fnv_script::ScriptKind::Object,
+            header: Default::default(),
+            variables: c.variables,
+            refs: c.refs,
+            has_scda: true,
+            bytes: c.bytes,
+            source: Some(src.to_string()),
+        };
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        self.exec(unit, &unit.program.top, Locals::Temp(BTreeMap::new()), ctx);
+        Ok(warnings)
+    }
+
+    /// A whole function script from source, run once as nvf_capture's query step runs one
+    /// (xnvse-capture.md §5): its `Begin Function` block with fresh variables, on
+    /// `ctx.self_ref`; the value is what SetFunctionValue set (0 when nothing). The
+    /// extender's and JIP's stores, handlers and the game itself keep what it changed.
+    pub fn run_query(&mut self, src: &str, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::XVal;
+        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        if let Some(e) = c.errors().next() {
+            // The error is the capture's own text; what the compiler said goes to the trace.
+            let what = format!("query: {}: {}", e.kind.replace('_', " "), e.detail);
+            self.emit(EventKind::Skipped { unit: "query".into(), what });
+            return Err("script did not compile".into());
+        }
+        let d = fnv_script::decode(&c.bytes, &self.data.table);
+        let unit = fnv_script::ScriptUnit {
+            plugin: "query".into(),
+            owner: fnv_script::UnitOwner::Other { sig: "QURY".into(), form: 0, ordinal: 0 },
+            kind: fnv_script::ScriptKind::Object,
+            header: Default::default(),
+            variables: c.variables,
+            refs: c.refs,
+            has_scda: true,
+            bytes: c.bytes,
+            source: Some(src.to_string()),
+        };
+        // Leaked as the console's lines are: a lambda the query makes may outlive it.
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or("the script has no Function block")?;
+        let data = self.data;
+        let opts = self.opts();
+        self.udf.push(UdfFrame { value: None, caller: None });
+        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx };
+        let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
+        if let Locals::Temp(m) = &ex.locals {
+            for (&index, v) in m {
+                match unit.var_type(index) {
+                    Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
+                    Some(VarType::Other(t)) if t == "array_var" => ex.game.ext.release(&XVal::Array(v.num() as u32)),
+                    _ => {}
+                }
+            }
+        }
+        let frame = self.udf.pop();
+        let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
+        self.ext.hand_over(&v);
+        self.ext.sweep();
+        result.map(|_| v)
+    }
+
+    /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
+    /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
+    /// lambda, over the variables of the script that made it [documented: Call; User
+    /// Defined Function; Lambda]. The function's strings and arrays go when it ends
+    /// [documented: Ar Null, arrays of a function script are freed].
+    pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::XVal;
+        let id = match f {
+            XVal::Ref(id) => *id,
+            XVal::Num(x) => *x as u32,
+            _ => return Err("Call needs a function script or a lambda".into()),
+        };
+        if self.udf.len() >= MAX_UDF_DEPTH {
+            return Err(format!("more than {MAX_UDF_DEPTH} nested user-defined function calls"));
+        }
+        let data = self.data;
+        let opts = self.opts();
+        let self_ref = on.and_then(|v| v.as_form()).map(FormId);
+        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
+            let d = self.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
+            let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
+            let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
+            let locals = match inst {
+                Some(k) => Locals::Instance(k),
+                None => Locals::Temp(d.captured.unwrap_or_default()),
+            };
+            (unit, params, body, value.map(|v| *v), locals)
+        } else {
+            let unit = data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?;
+            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
+            let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
+            (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
+        };
+        self.udf.push(UdfFrame { value: None, caller });
+        let ctx = RunCtx { self_ref: self_ref.or(ctx.self_ref), ..ctx };
+        let mut ex = Exec { game: self, unit, locals, ctx };
+        let mut vm = Vm::new(&data.table, &mut ex, opts);
+        let mut result = Ok(());
+        for (p, a) in params.iter().zip(args) {
+            if let Err(e) = vm.bind(p, a) {
+                result = Err(e.to_string());
+                break;
+            }
+        }
+        let mut lambda_value = None;
+        if result.is_ok() {
+            match &value {
+                Some(v) => match vm.xeval(v) {
+                    Ok(x) => lambda_value = Some(x),
+                    Err(e) => result = Err(e.to_string()),
+                },
+                None => {
+                    if let Err(e) = vm.run(&body) {
+                        result = Err(e.to_string());
+                    }
+                }
+            }
+        }
+        // A function script's own strings and arrays go with it (a lambda's variables are
+        // its maker's).
+        if let (true, Locals::Temp(m)) = (id < LAMBDA_BASE, &ex.locals) {
+            for (&index, v) in m {
+                match unit.var_type(index) {
+                    Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
+                    Some(VarType::Other(t)) if t == "array_var" => ex.game.ext.release(&XVal::Array(v.num() as u32)),
+                    _ => {}
+                }
+            }
+        }
+        let frame = self.udf.pop();
+        let v = match lambda_value {
+            Some(v) => v,
+            None => {
+                let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
+                self.ext.hand_over(&v);
+                v
+            }
+        };
+        result.map(|_| v)
+    }
+
+    /// The event functions (tasks E1–E3; docs/spec-notes/ext-events.md). `sender` is the
+    /// calling script's plugin, DispatchEvent's default sender.
+    pub fn event_call(&mut self, c: fnv_script::vm::EventCall, sender: &str) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::{EventCall, XKey, XVal};
+        let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
+        Ok(match c {
+            EventCall::Set { event, func, pairs, alt } => {
+                let mut h = Handler { event: event.to_ascii_lowercase(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
+                for (k, v) in pairs {
+                    match (key_text(&k).as_str(), &k) {
+                        ("priority", _) => {
+                            // Default 1, higher first, 0 refused, -9999..9999 [documented:
+                            // SetEventHandler; Event Handler Priority System].
+                            let p = v.num().map_err(|e| e.to_string())? as i32;
+                            if p == 0 || !(-9999..=9999).contains(&p) {
+                                return Ok(XVal::Num(0.0));
+                            }
+                            h.priority = p;
+                        }
+                        // SetEventHandler: "first"/"second"; an array filter is ignored
+                        // [documented: SetEventHandler].
+                        ("first", _) if !alt => {
+                            if !matches!(v, XVal::Array(_)) {
+                                h.filters.push((1, v));
+                            }
+                        }
+                        ("second", _) if !alt => {
+                            if !matches!(v, XVal::Array(_)) {
+                                h.filters.push((2, v));
+                            }
+                        }
+                        // SetEventHandlerAlt: index 0 the calling reference, 1–15 the
+                        // arguments [documented: SetEventHandlerAlt].
+                        (_, XVal::Num(i)) if alt && (0.0..=15.0).contains(i) => {
+                            self.ext.retain(&v);
+                            h.filters.push((*i as usize, v));
+                        }
+                        _ => return Ok(XVal::Num(0.0)),
+                    }
+                }
+                self.ext.retain(&h.func);
+                self.handler_seq += 1;
+                self.handlers.push(h);
+                XVal::Num(1.0)
+            }
+            EventCall::Remove { event, func, pairs } => {
+                let event = event.to_ascii_lowercase();
+                let filters: Vec<(usize, XVal)> = pairs
+                    .into_iter()
+                    .filter_map(|(k, v)| match (key_text(&k).as_str(), &k) {
+                        ("first", _) => Some((1, v)),
+                        ("second", _) => Some((2, v)),
+                        (_, XVal::Num(i)) => Some((*i as usize, v)),
+                        _ => None,
+                    })
+                    .collect();
+                let before = self.handlers.len();
+                let ext = &mut self.ext;
+                self.handlers.retain(|h| {
+                    let hit = h.event == event && h.func == func && filters.iter().all(|f| h.filters.contains(f));
+                    if hit {
+                        for (_, v) in &h.filters {
+                            ext.release(v);
+                        }
+                    }
+                    !hit
+                });
+                XVal::Num(if self.handlers.len() < before { 1.0 } else { 0.0 })
+            }
+            // [documented: DispatchEvent] one string map: eventName and eventSender, or the
+            // info map given (eventName and eventSender added when it lacks them
+            // [hypothesis]); the handlers run at once [hypothesis].
+            EventCall::Dispatch { event, map, sender: s } => {
+                let sender = s.unwrap_or_else(|| sender.to_string());
+                let id = match map {
+                    Some(XVal::Array(id)) => id,
+                    _ => self.ext.new_array(fnv_script::vm::ArrayKind::StringMap, Vec::new()),
+                };
+                if let Some(a) = self.ext.array_mut(id).filter(|a| a.kind == fnv_script::vm::ArrayKind::StringMap) {
+                    for (k, v) in [("eventName", event.clone()), ("eventSender", sender)] {
+                        let key = XKey::Str(k.into());
+                        if a.get(&key).is_none() {
+                            a.entries.push((key, XVal::Str(v)));
+                        }
+                    }
+                    a.entries.sort_by(|x, y| x.0.cmp_key(&y.0));
+                }
+                self.ext.retain(&XVal::Array(id));
+                self.dispatch_event(&event, vec![XVal::Array(id)], None);
+                self.ext.hand_over(&XVal::Array(id));
+                XVal::Num(0.0)
+            }
+            EventCall::DispatchAlt { event, on, args } => {
+                self.dispatch_event(&event, args, on.and_then(|v| v.as_form()).map(FormId));
+                XVal::Num(1.0)
+            }
+            EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
+            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters)))),
+            EventCall::MainLoop { func, add, delay, flags, on } => {
+                self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
+                XVal::Num(0.0)
+            }
+        })
+    }
+
+    /// How many parameters a function script's Function block or a lambda declares;
+    /// `None` when `f` is neither.
+    pub(crate) fn function_arity(&self, f: &fnv_script::vm::XVal) -> Option<usize> {
+        use fnv_script::vm::XVal;
+        let id = match f {
+            XVal::Ref(id) => *id,
+            XVal::Num(x) => *x as u32,
+            _ => return None,
+        };
+        if id >= LAMBDA_BASE {
+            let d = self.lambdas.get((id - LAMBDA_BASE) as usize)?;
+            let fnv_script::ir::XExpr::Lambda { params, .. } = &d.lambda else { return None };
+            return Some(params.len());
+        }
+        let unit = self.data.script(FormId(id))?;
+        let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK)?;
+        Some(block.params.iter().flatten().count())
+    }
+
+    /// What lasts for the session across a load (task E3): the SetEventHandler
+    /// registrations [documented: they last for the session; SetEventHandlerAlt ones are
+    /// flushed on every load] of function scripts with filters that are not arrays (a
+    /// lambda or an array belongs to the old game's state, so those go [hypothesis]), and
+    /// which scripts saw GetGameRestarted.
+    pub fn take_session(&mut self) -> Session {
+        let handlers = self
+            .handlers
+            .iter()
+            .filter(|h| !h.alt)
+            .filter(|h| matches!(h.func, fnv_script::vm::XVal::Ref(f) if f < LAMBDA_BASE))
+            .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
+            .cloned()
+            .collect();
+        Session { handlers, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
+    }
+
+    /// Take over what lasts for the session ([`Game::take_session`]).
+    pub fn put_session(&mut self, s: Session) {
+        self.handlers = s.handlers;
+        self.restarted_seen = s.restarted_seen;
+        self.handler_seq = s.handler_seq;
+    }
+
+    /// Run every handler registered for `event` whose filters match, highest priority
+    /// first, ties in registration order [documented: SetEventHandler; Event Handler
+    /// Priority System]. A handler may take fewer parameters than the event sends
+    /// [documented: DispatchEventAlt]. Returns how many ran. Free when nothing is
+    /// registered, so a firing point costs nothing in an unmodded game.
+    pub fn dispatch_event(&mut self, event: &str, args: Vec<fnv_script::vm::XVal>, on: Option<FormId>) -> usize {
+        if self.handlers.is_empty() {
+            return 0;
+        }
+        let lname = event.to_ascii_lowercase();
+        let mut hs: Vec<Handler> = self.handlers.iter().filter(|h| h.event == lname && self.handler_matches(h, &args, on)).cloned().collect();
+        if hs.is_empty() {
+            return 0;
+        }
+        hs.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
+        self.event_names.push(event.to_string());
+        let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        for h in &hs {
+            if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
+                self.emit(EventKind::ScriptError { unit: format!("event handler for {event}"), error });
+            }
+        }
+        self.event_names.pop();
+        hs.len()
+    }
+
+    fn handler_matches(&self, h: &Handler, args: &[fnv_script::vm::XVal], on: Option<FormId>) -> bool {
+        h.filters.iter().all(|(i, f)| {
+            let v = match i {
+                0 => on.map(|r| fnv_script::vm::XVal::Ref(r.0)),
+                i => args.get(i - 1).cloned(),
+            };
+            v.is_some_and(|v| self.filter_matches(f, &v, h.alt))
+        })
+    }
+
+    /// [documented: SetEventHandler; New xNVSE Event Filtering System] numbers equal;
+    /// strings without regard to case; a form the same form, a reference also its base
+    /// form, a form list any of its forms; for SetEventHandlerAlt an array any of its
+    /// elements.
+    pub(crate) fn filter_matches(&self, f: &fnv_script::vm::XVal, v: &fnv_script::vm::XVal, alt: bool) -> bool {
+        use fnv_script::vm::XVal;
+        match (f, v) {
+            (XVal::Array(id), v) if alt => self.ext.array(*id).is_some_and(|a| a.entries.iter().any(|(_, e)| self.filter_matches(e, v, false))),
+            (XVal::Num(a), XVal::Num(b)) => a == b,
+            (XVal::Str(a), XVal::Str(b)) => a.eq_ignore_ascii_case(b),
+            (XVal::Ref(a), XVal::Ref(b)) => {
+                let (a, b) = (FormId(*a), FormId(*b));
+                a == b
+                    || functions::base_of(self, b) == Some(a)
+                    || {
+                        let m = functions::list_members(self, a);
+                        m.contains(&b) || functions::base_of(self, b).is_some_and(|base| m.contains(&base))
+                    }
+            }
+            _ => false,
+        }
     }
 
     /// Whether a block's parameter accepts `subject` (a block without parameters accepts
@@ -1995,6 +2490,8 @@ impl<'a> Game<'a> {
     /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
+        // JIP's SetGameMainLoopCallback functions due this frame (task J6).
+        self.run_main_loop();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -2801,6 +3298,9 @@ impl<'a> Game<'a> {
     /// `actor` activates `target`. A destroyed door or activator
     /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
+        // The extender's OnActivate handlers run first, even when the activation is then
+        // refused, and do not block it [documented: NVSE Event Handling].
+        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
         if self.activation_refused(target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
@@ -3443,6 +3943,8 @@ impl<'a> Game<'a> {
     pub fn snapshot(&self) -> GameSnapshot {
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
+            ext: self.ext.clone(),
+            lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
             sim: self.world.snapshot(),
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
@@ -3489,6 +3991,13 @@ impl<'a> Game<'a> {
             return Err(format!("unsupported snapshot format {:?}", s.format));
         }
         let mut g = Game::new(data, world, cfg);
+        g.ext = s.ext.clone();
+        for l in &s.lambdas {
+            // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
+            // so the later ones keep their names; calling it fails.
+            let unit = data.units.iter().find(|u| u.key() == l.unit);
+            g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
+        }
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
@@ -3610,6 +4119,37 @@ impl Exec<'_, '_> {
 }
 
 impl Host for Exec<'_, '_> {
+    fn var_kind(&mut self, var: &VarRef) -> fnv_script::vm::VarKind {
+        use fnv_script::vm::VarKind;
+        let VarSlot::Local { index, .. } = var.var else { return VarKind::Value };
+        let ty = match var.on {
+            None => self.unit.var_type(index).cloned(),
+            Some(r) => self.remote(r).ok().and_then(|(_, s)| self.game.data.script(s)).and_then(|c| c.var_type(index).cloned()),
+        };
+        match ty {
+            Some(VarType::Other(t)) if t == "string_var" => VarKind::String,
+            Some(VarType::Other(t)) if t == "array_var" => VarKind::Array,
+            _ => VarKind::Value,
+        }
+    }
+
+    fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
+        Some(&mut self.game.ext)
+    }
+
+    /// The form's name, a reference's its base form's [documented: ToString]; the player's
+    /// the name typed in the name menu [observed: probe strings/04 gives the player's name].
+    fn form_text(&mut self, form: u32) -> Option<String> {
+        let f = FormId(form);
+        if f == FormId::PLAYER_REF {
+            if let Some(n) = self.game.player.name.clone() {
+                return Some(n);
+            }
+        }
+        let names = &self.game.data.full_names;
+        names.get(&f).cloned().or_else(|| crate::functions::base_of(self.game, f).and_then(|b| names.get(&b).cloned()))
+    }
+
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
         match (var.on, var.var) {
             (_, VarSlot::Global { global }) => {
@@ -3724,5 +4264,135 @@ impl Host for Exec<'_, '_> {
 
     fn take_return(&mut self) -> bool {
         std::mem::take(&mut self.game.stop_run)
+    }
+
+    fn print(&mut self, text: &str) {
+        let unit = self.unit.key();
+        self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
+    }
+
+    fn make_lambda(&mut self, l: &fnv_script::ir::XExpr) -> Result<fnv_script::vm::XVal, String> {
+        let key = (l as *const _ as usize, self.inst_key());
+        if let Some(&id) = self.game.lambda_ids.get(&key) {
+            return Ok(fnv_script::vm::XVal::Ref(id));
+        }
+        let id = LAMBDA_BASE + self.game.lambdas.len() as u32;
+        let captured = match &self.locals {
+            Locals::Temp(m) => Some(m.clone()),
+            Locals::Instance(_) => None,
+        };
+        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.1, captured });
+        self.game.lambda_ids.insert(key, id);
+        Ok(fnv_script::vm::XVal::Ref(id))
+    }
+
+    fn set_function_value(&mut self, v: fnv_script::vm::XVal) -> Result<(), String> {
+        let game = &mut *self.game;
+        let frame = game.udf.last_mut().ok_or("SetFunctionValue outside a user-defined function")?;
+        game.ext.retain(&v);
+        if let Some(old) = frame.value.replace(v) {
+            game.ext.release(&old);
+        }
+        Ok(())
+    }
+
+    fn calling_script(&mut self) -> Option<u32> {
+        self.game.udf.last().and_then(|f| f.caller).map(|f| f.0)
+    }
+
+    /// `Call` (`Game::run_function`).
+    fn call_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>) -> Result<fnv_script::vm::XVal, String> {
+        let caller = match self.unit.unit.owner {
+            fnv_script::UnitOwner::Script { form } => Some(FormId(form)),
+            _ => None,
+        };
+        let ctx = self.ctx;
+        self.game.run_function(f, on, args, caller, ctx)
+    }
+
+    fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
+        let sender = self.unit.unit.plugin.clone();
+        self.game.event_call(c, &sender)
+    }
+
+    fn members(&mut self, form: u32) -> Option<Vec<u32>> {
+        let f = FormId(form);
+        if self.game.data.sig(f) == Some(*b"FLST") {
+            return Some(functions::list_members(self.game, f).into_iter().map(|m| m.0).collect());
+        }
+        let inv = self.game.world.inventory_mut(f).ok()?;
+        Some(inv.iter().filter(|(_, n)| *n > 0).map(|(i, _)| i.0).collect())
+    }
+
+    fn random(&mut self) -> f64 {
+        use rand_core::RngCore;
+        self.game.rng.next_u32() as f64 / (u32::MAX as f64 + 1.0)
+    }
+
+    fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
+        let f = FormId(form);
+        // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
+        self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
+    }
+
+    fn base_form(&mut self, form: u32) -> Option<u32> {
+        crate::functions::base_of(self.game, FormId(form)).map(|b| b.0)
+    }
+
+    fn record_field(&mut self, form: u32, sub: &str, path: &str) -> Option<fnv_script::vm::XVal> {
+        use fnv_script::vm::XVal;
+        let v = self.game.data.record_field(FormId(form), sub, path)?;
+        Some(match v {
+            serde_json::Value::Number(n) => XVal::Num(n.as_f64()?),
+            // Form IDs decode as "0x0007EA31"; the null form is no form.
+            serde_json::Value::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
+            serde_json::Value::String(s) => XVal::Str(s.clone()),
+            _ => return None,
+        })
+    }
+
+    fn hit_value(&mut self, actor: u32, what: &str, k: i64) -> Option<fnv_script::vm::XVal> {
+        self.game.hit_value(FormId(actor), what, k)
+    }
+
+    fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
+        self.game.data.body_part_name(FormId(form), part)
+    }
+
+    fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
+        use fnv_script::vm::XVal;
+        if let Some(v) = self.game.world.setting_f32(name) {
+            return Some(XVal::Num(f64::from(v)));
+        }
+        match self.game.world.forms.settings.get(&name.to_ascii_lowercase())? {
+            fnv_sim::settings::Setting::Str(s) => Some(XVal::Str(s.clone())),
+            _ => None,
+        }
+    }
+
+    fn objective_text(&mut self, quest: u32, index: i32) -> Option<String> {
+        self.game.data.quests.get(&FormId(quest))?.objectives.get(&index)?.text.clone()
+    }
+
+    fn calling_ref(&mut self) -> Option<u32> {
+        self.ctx.self_ref.map(|f| f.0)
+    }
+
+    fn mod_name(&mut self, index: u32) -> Option<String> {
+        self.game.data.load_order.get(index as usize).cloned()
+    }
+
+    fn actor_value_code(&mut self, name: &str) -> Option<u16> {
+        crate::functions::av_code(self.game, name).ok()
+    }
+
+    fn mod_index(&mut self, name: &str) -> Option<u32> {
+        self.game.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(name)).map(|i| i as u32)
+    }
+
+    fn game_loaded(&mut self, restarted: bool) -> bool {
+        let key = self.unit.key();
+        let seen = if restarted { &mut self.game.restarted_seen } else { &mut self.game.loaded_seen };
+        seen.insert(key)
     }
 }

@@ -9746,3 +9746,30 @@ expect = [
   { re = 'rearm: now holds .* it fetched', label = "she holds the rifle" },
   { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVServiceRifle \(gun\)', label = "she fights with the rifle" },
 ]
+
+[[scenario]]
+name = "console-compiled-source"
+source = "extender task A6 (docs/spec-notes/script-compiler.md §7, docs/design/console.md): a console line with an expression goes through the script compiler and runs as a one-line result script"
+areas = ["console", "scripts"]
+paths = ["crates/fnv-script/src/compile/", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:set TimeScale to 10 + 2 * 10;11:GetGlobalValue TimeScale" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'console: set TimeScale to 10 \+ 2 \* 10 >> ran', label = "the expression line is compiled and run" },
+  { re = 'console: GetGlobalValue >> 30\.00', label = "the global holds the expression's value" },
+]
+
+[[scenario]]
+name = "scripts-from-source"
+source = "extender task A6 (fnv_game::source_compile): NVF_COMPILE_SOURCE=always runs every shipped unit from its source text, compiled by NVForever; the game starts and runs its scripts as from the bytes"
+areas = ["scripts"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/"]
+env = { NVF_COMPILE_SOURCE = "always" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'scripts: 1[0-9]{4} units run from their source text, \d+ kept their bytes', label = "the shipped units run from their source" },
+  { re = 'scripts ready in', label = "the scripts start" },
+  { re = 'panicked', count = 0, label = "no panic" },
+]

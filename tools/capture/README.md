@@ -637,6 +637,11 @@ writes its own job (`jip_forms.steps.json`) and golden (`jip-forms.json`). A str
 parameter refuses a literal string; wrap it in `sv_Construct "..."`, or declare a
 `string_var` before `Begin Function` (both compile at run time).
 
+`python tools/capture/jip_probes.py steps` writes every set's job to
+`tools/capture/jip-probes/<job>.steps.json` (committed; a test keeps them current). The
+lab's `L5.ext.jip.*` scenarios run those files through `fnvtool ext queries`, the same
+steps as headless runner queries, and compare with the goldens.
+
 ## Tests
 
 ```

@@ -10,6 +10,8 @@ use crate::table::{FunctionTable, ParamEnc, TrailerEnc};
 use crate::unit::{RefSlot, VarDecl, VarType};
 use std::collections::HashMap;
 
+mod x;
+
 /// Binary operators, higher binds tighter; `||` above `&&` [observed: scripts.md §3.3].
 fn precedence(op: &str) -> u8 {
     match op {
@@ -81,6 +83,22 @@ pub(super) struct Gen<'a> {
     chains: Vec<Chain>,
     /// Byte offset of the open Begin's length field, and of the end of that statement.
     block: Option<(usize, usize)>,
+    /// Open `while`/`foreach` loops.
+    loops: usize,
+    /// The unit uses the extender's grammar somewhere: call lines may then hold inline
+    /// expressions (script-compiler.md §8).
+    extended: bool,
+    /// The text of the statement being compiled.
+    text: String,
+    /// Inside a compiler-override block (`Begin _GameMode` … `End`): every line is read
+    /// with the extender's grammar (task A12, script-compiler.md §8).
+    co: bool,
+    /// Parsing a function's arguments (not inside brackets of one): a signed number after
+    /// a space starts the next argument ([`lex::XTok::sign`]).
+    in_args: bool,
+    /// The block-form lambdas taken out of the source: parameter names and their lines
+    /// (`__lambda<i>` stands in their place).
+    lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
 }
 
 fn put16(b: &mut Vec<u8>, v: u16) {
@@ -135,6 +153,12 @@ impl<'a> Gen<'a> {
             stmts: 0,
             chains: Vec::new(),
             block: None,
+            loops: 0,
+            extended: false,
+            text: String::new(),
+            co: false,
+            in_args: false,
+            lambdas: Vec::new(),
         }
     }
 
@@ -144,7 +168,7 @@ impl<'a> Gen<'a> {
 
     pub(super) fn unit(mut self, src: &str) -> Compiled {
         let mut long = Vec::new();
-        let lines = lex::lines(src, &mut long);
+        let lines = self.take_lambdas(lex::lines(src, &mut long));
         for n in long {
             self.diags.push(Diag { line: n, kind: "line_too_long", error: false, detail: format!("over {} characters", lex::MAX_LINE) });
         }
@@ -157,8 +181,12 @@ impl<'a> Gen<'a> {
         }
         // Declarations first: a variable may be declared below its first use
         // (six shipped units declare inside a block, scripts.md §2.6).
+        self.extended = stmts.iter().any(|s| {
+            s.kw.extended()
+                || matches!(&s.kw, Kw::Call(t) if self.function(&t[0]).is_none() && self.xfunction_name(&t[0].text))
+        });
         for s in &stmts {
-            if let Kw::Decl { ty, names } = &s.kw {
+            if let Kw::Decl { ty, names, .. } = &s.kw {
                 self.line = s.line;
                 for n in names {
                     self.declare(n, *ty);
@@ -167,17 +195,137 @@ impl<'a> Gen<'a> {
         }
         for s in &stmts {
             self.line = s.line;
+            self.text = s.text.clone();
             self.statement(&s.kw);
         }
         Compiled { bytes: self.out, variables: self.vars, refs: self.refs, diags: self.diags }
     }
 
+    /// Take the block-form lambdas (`(begin function {…}` … `end)`, which span lines
+    /// [documented: Lambda]) out of the lines; each leaves `__lambda<i>` in its place, which
+    /// the expression parser compiles where it stands.
+    fn take_lambdas(&mut self, lines: Vec<lex::Line>) -> Vec<lex::Line> {
+        let mut out: Vec<lex::Line> = Vec::new();
+        let mut open: Vec<(lex::Line, String, Vec<String>, Vec<lex::Line>)> = Vec::new();
+        for l in lines {
+            let low = l.text.to_ascii_lowercase();
+            if let Some(at) = low.find("(begin function") {
+                let after = &l.text[at + "(begin function".len()..];
+                let names = after.split(['{', '}', ',', ' ']).filter(|w| !w.is_empty()).map(str::to_string).collect();
+                let names: Vec<String> = names;
+                open.push((l.clone(), l.text[..at].to_string(), names, Vec::new()));
+                continue;
+            }
+            let closes = {
+                let t = low.trim_start();
+                t.starts_with("end") && t[3..].trim_start().starts_with(')')
+            };
+            if closes && !open.is_empty() {
+                let (first, before, names, body) = open.pop().unwrap_or_else(|| unreachable!());
+                let i = self.lambdas.len();
+                self.lambdas.push((names, body));
+                let rest = &l.text[l.text.find(')').map_or(l.text.len(), |p| p + 1)..];
+                let text = format!("{before}__lambda{i}{rest}");
+                let merged = lex::Line { no: first.no, toks: lex::tokens(&text), text };
+                match open.last_mut() {
+                    Some(o) => o.3.push(merged),
+                    None => out.push(merged),
+                }
+                continue;
+            }
+            match open.last_mut() {
+                Some(o) => o.3.push(l),
+                None => out.push(l),
+            }
+        }
+        for (first, ..) in open {
+            self.diags.push(Diag { line: first.no, kind: "lambda_without_end", error: true, detail: String::new() });
+        }
+        out
+    }
+
+    /// Compile lambda `i`'s statements with this unit's variables and references; the
+    /// statements, as the decoder reads them back.
+    pub(super) fn lambda(&mut self, i: usize) -> Option<crate::ir::XExpr> {
+        let (names, lines) = self.lambdas.get(i).cloned()?;
+        let names = self.typed_params(&names);
+        let mut params = Vec::new();
+        for n in &names {
+            let Some(v) = self.var(n) else {
+                self.diag("unresolved_name", true, n.clone());
+                return None;
+            };
+            params.push(crate::ir::VarRef {
+                on: None,
+                var: crate::ir::VarSlot::Local { index: v.index as u16, letter: letter_of(&v.ty) },
+            });
+        }
+        let saved = (std::mem::take(&mut self.out), self.stmts, std::mem::take(&mut self.chains), self.block.take(), self.loops, self.line, self.text.clone());
+        self.stmts = 0;
+        self.loops = 0;
+        for l in &lines {
+            self.line = l.no;
+            self.text = l.text.clone();
+            match parse::statement(l) {
+                Ok(s) => self.statement(&s.kw),
+                Err(e) => self.diags.push(Diag { line: e.line, kind: "syntax", error: true, detail: e.msg }),
+            }
+        }
+        let bytes = std::mem::replace(&mut self.out, saved.0);
+        self.stmts = saved.1;
+        self.chains = saved.2;
+        self.block = saved.3;
+        self.loops = saved.4;
+        self.line = saved.5;
+        self.text = saved.6;
+        let body = crate::decode::decode(&bytes, self.table).program.top;
+        Some(crate::ir::XExpr::Lambda { params, body, value: None })
+    }
+
+    /// Brace parameters, each name possibly after a type word (`{float fD, ref rS}`),
+    /// which declares it [observed: the original's runtime-compiled function scripts take
+    /// typed parameters there, jip-events.md §4]; the names.
+    pub(super) fn typed_params(&mut self, words: &[String]) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut ty = None;
+        for w in words {
+            if let Some(t) = DeclType::from_word(w) {
+                ty = Some(t);
+                continue;
+            }
+            if let Some(t) = ty.take() {
+                if self.var(w).is_none() {
+                    self.declare(w, t);
+                }
+            }
+            out.push(w.clone());
+        }
+        out
+    }
+
     // ------------------------------------------------------------------ variables, names
 
     fn declare(&mut self, name: &str, ty: DeclType) {
-        let vt = if ty == DeclType::Int { VarType::Int } else { VarType::FloatOrRef };
+        // A string or array variable holds an id [documented: Array Variable; String
+        // Variable]; NVForever keeps the kind in the type (the record's list cannot).
+        let vt = match ty {
+            DeclType::Int => VarType::Int,
+            DeclType::String => VarType::Other("string_var".into()),
+            DeclType::Array => VarType::Other("array_var".into()),
+            DeclType::Float | DeclType::Ref => VarType::FloatOrRef,
+        };
         if ty == DeclType::Ref {
             self.ref_vars.insert(name.to_ascii_lowercase());
+        }
+        // A record's variable list can only say Integer or FloatOrRef: the editor with xNVSE
+        // stores a string_var as Integer and an array_var as FloatOrRef [observed:
+        // docs/spec-notes/ext-bytecode.md]. A seeded slot declared string_var or array_var
+        // takes that type, at the same index.
+        if let Some(v) = self.vars.iter_mut().find(|v| v.name.eq_ignore_ascii_case(name)) {
+            if matches!(v.ty, VarType::FloatOrRef | VarType::Int) && matches!(ty, DeclType::String | DeclType::Array) {
+                v.ty = vt;
+                return;
+            }
         }
         if let Some(v) = self.var(name) {
             if v.ty != vt {
@@ -313,7 +461,7 @@ impl<'a> Gen<'a> {
         let f = self.table.get(opcode)?;
         let params = match f.param_count {
             Some(n) => Some(n),
-            None if f.params.iter().any(|p| p.name == "...") => None,
+            None if f.params.iter().any(|p| p.name.starts_with("...")) => None,
             None => Some(f.params.len().max(f.encodings.len())),
         };
         let block = f.block.unwrap_or(params != Some(0) || !f.trailer.is_empty());
@@ -608,10 +756,35 @@ impl<'a> Gen<'a> {
 
     /// `If`/`ElseIf`/`Else` marker: skip count (patched later), then the condition.
     fn marker(&mut self, opcode: u16, cond: Option<&[Tok]>) {
+        let e = cond.map(|c| self.expr(c));
+        self.marker_bytes(opcode, e);
+    }
+
+    /// An extended expression as NVForever's own token (script-compiler.md §8).
+    fn xbytes(&mut self, e: &crate::ir::XExpr) -> Vec<u8> {
+        let json = serde_json::to_vec(e).unwrap_or_default();
+        let mut b = vec![b' ', op::X_TOKEN];
+        put16(&mut b, json.len() as u16);
+        b.extend_from_slice(&json);
+        b
+    }
+
+    /// Parse a whole extended expression, reporting what is left over.
+    fn xwhole(&mut self, toks: &[lex::XTok]) -> Option<crate::ir::XExpr> {
+        let mut p = x::P::new(toks);
+        let e = self.xexpr(&mut p, 0)?;
+        if !p.done() {
+            let rest = p.rest();
+            self.diag("syntax", true, format!("unexpected {rest}"));
+            return None;
+        }
+        Some(e)
+    }
+
+    fn marker_bytes(&mut self, opcode: u16, cond: Option<Vec<u8>>) {
         let here = self.stmts;
         let mut body = vec![0, 0];
-        if let Some(c) = cond {
-            let e = self.expr(c);
+        if let Some(e) = cond {
             put16(&mut body, e.len() as u16);
             body.extend_from_slice(&e);
         }
@@ -631,6 +804,38 @@ impl<'a> Gen<'a> {
     }
 
     fn statement(&mut self, kw: &Kw) {
+        // A line read with the extender's grammar must close its strings [observed: the
+        // GECK's "Mismatched quotes", ext-bytecode.md §7]; a vanilla line's unclosed string
+        // runs to the end of the line.
+        let x_line = self.co
+            || matches!(kw, Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_))
+            || matches!(kw, Kw::Call(toks) if self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open)));
+        if x_line && lex::unclosed_quote(&self.text) {
+            self.diag("mismatched_quotes", true, self.text.clone());
+            return;
+        }
+        // In a compiler-override block the vanilla statements take the extender's grammar.
+        if self.co {
+            let x = lex::xtokens(&self.text);
+            let mapped = match kw {
+                Kw::If(_) => Some(Kw::IfEval(x[1..].to_vec())),
+                Kw::ElseIf(_) => Some(Kw::ElseIfEval(x[1..].to_vec())),
+                Kw::Set { .. } => x.iter().position(|t| t.is(lex::XKind::Word, "to")).map(|k| {
+                    let mut t = x[1..k].to_vec();
+                    t.push(lex::XTok { kind: lex::XKind::Op, text: ":=".into(), sign: false });
+                    t.extend_from_slice(&x[k + 1..]);
+                    Kw::Let(t)
+                }),
+                _ => None,
+            };
+            if let Some(m) = mapped {
+                return self.statement_inner(&m);
+            }
+        }
+        self.statement_inner(kw)
+    }
+
+    fn statement_inner(&mut self, kw: &Kw) {
         match kw {
             Kw::ScriptName(_) => {
                 self.emit(None, op::SCRIPT_NAME, &[]);
@@ -638,9 +843,39 @@ impl<'a> Gen<'a> {
             // No statement, but the editor counts a `ref` declaration in skip counts
             // [observed: scripts.md §2.6, six units, all `ref`; one `short` inside an If
             // is not counted; hypothesis: the type decides].
-            Kw::Decl { ty: DeclType::Ref, .. } => self.stmts += 1,
+            Kw::Decl { ty: DeclType::Ref, init: None, .. } => self.stmts += 1,
+            // `int i = 5`: the declaration, then the assignment.
+            Kw::Decl { init: Some(toks), .. } => self.statement(&Kw::Let(toks.clone())),
             Kw::Decl { .. } => {}
             Kw::Begin { block, args } => {
+                let co = block.starts_with('_');
+                let block = &block.trim_start_matches('_').to_string();
+                self.co = co;
+                // `Begin Function {a, b}`: a user-defined function; its parameters are
+                // variables of the script [documented: User Defined Function].
+                if block.eq_ignore_ascii_case("function") {
+                    let words: Vec<String> = Self::arg_tokens(args).into_iter().map(|t| t.text).collect();
+                    let params: Vec<Tok> = self.typed_params(&words).into_iter().map(|text| Tok { kind: Kind::Word, text }).collect();
+                    let mut body = Vec::new();
+                    put16(&mut body, crate::ir::FUNCTION_BLOCK);
+                    body.extend_from_slice(&0u32.to_le_bytes());
+                    put16(&mut body, params.len() as u16);
+                    for t in &params {
+                        match self.var(&t.text) {
+                            Some(v) => {
+                                let val = Val::Local { index: v.index as u16, letter: letter_of(&v.ty) };
+                                self.tagged(&mut body, &val);
+                            }
+                            None => {
+                                self.diag("unresolved_name", true, t.text.clone());
+                                self.tagged(&mut body, &Val::Num("0".into()));
+                            }
+                        }
+                    }
+                    let at = self.emit(None, op::BEGIN, &body);
+                    self.block = Some((at + 2, self.out.len()));
+                    return;
+                }
                 let Some(&code) = self.blocks.get(&block.to_ascii_lowercase()) else {
                     self.diag("unknown_block", true, block.clone());
                     return;
@@ -659,6 +894,11 @@ impl<'a> Gen<'a> {
                 self.block = Some((at + 2, self.out.len()));
             }
             Kw::End => {
+                if self.loops > 0 {
+                    self.diag("while_without_loop", true, "");
+                    self.loops = 0;
+                }
+                self.co = false;
                 self.emit(None, op::END, &[]);
                 match self.block.take() {
                     Some((len_at, after)) => {
@@ -669,6 +909,69 @@ impl<'a> Gen<'a> {
                 }
             }
             Kw::If(c) => self.marker(op::IF, Some(c)),
+            Kw::IfEval(c) | Kw::ElseIfEval(c) => {
+                let opcode = if matches!(kw, Kw::IfEval(_)) { op::IF } else { op::ELSEIF };
+                // A condition that does not compile still opens its chain, so the
+                // markers after it pair up.
+                let e = self.xwhole(c).map(|e| self.xbytes(&e)).unwrap_or_else(|| b" 0".to_vec());
+                self.marker_bytes(opcode, Some(e));
+            }
+            Kw::While(toks) => {
+                let e = self.xwhole(toks).unwrap_or(crate::ir::XExpr::Num { value: 0.0, text: "0".into() });
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_WHILE, &json);
+                self.loops += 1;
+            }
+            Kw::ForEach(toks) => {
+                let arrow = toks.iter().position(|t| t.is(lex::XKind::Op, "<-"));
+                let head = arrow.and_then(|k| {
+                    let var = self.xwhole(&toks[..k])?;
+                    let source = self.xwhole(&toks[k + 1..])?;
+                    Some(crate::ir::XForEach { var, source })
+                });
+                match &head {
+                    None if arrow.is_none() => self.diag("syntax", true, "foreach without <-"),
+                    Some(h) if !matches!(h.var, crate::ir::XExpr::Var { .. }) => self.diag("bad_foreach_variable", true, ""),
+                    _ => {}
+                }
+                let head = head.unwrap_or(crate::ir::XForEach {
+                    var: crate::ir::XExpr::Num { value: 0.0, text: "0".into() },
+                    source: crate::ir::XExpr::Num { value: 0.0, text: "0".into() },
+                });
+                let json = serde_json::to_vec(&head).unwrap_or_default();
+                self.emit(None, op::X_FOREACH, &json);
+                self.loops += 1;
+            }
+            Kw::Loop => {
+                if self.loops == 0 {
+                    self.diag("loop_without_while", true, "");
+                    return;
+                }
+                self.loops -= 1;
+                self.emit(None, op::X_LOOP, &[]);
+            }
+            Kw::Label(n) => {
+                self.emit(None, op::X_LABEL, &n.to_le_bytes());
+            }
+            Kw::GoTo(n) => {
+                self.emit(None, op::X_GOTO, &n.to_le_bytes());
+            }
+            Kw::Break | Kw::Continue => {
+                if self.loops == 0 {
+                    self.diag("outside_a_loop", true, if matches!(kw, Kw::Break) { "break" } else { "continue" });
+                    return;
+                }
+                self.emit(None, if matches!(kw, Kw::Break) { op::X_BREAK } else { op::X_CONTINUE }, &[]);
+            }
+            Kw::Let(toks) => {
+                let Some(e) = self.xwhole(toks) else { return };
+                if !matches!(e, crate::ir::XExpr::Assign { .. }) {
+                    self.diag("let_without_assignment", true, "");
+                    return;
+                }
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_LET, &json);
+            }
             Kw::ElseIf(c) => self.marker(op::ELSEIF, Some(c)),
             Kw::Else => self.marker(op::ELSE, None),
             Kw::EndIf => {
@@ -680,6 +983,9 @@ impl<'a> Gen<'a> {
                 }
             }
             Kw::Return => {
+                // `Return value` compiles in a function and is a plain Return: Call gives
+                // what SetFunctionValue set, not the value [observed: probe
+                // udf.return_value, ext-bytecode.md].
                 self.emit(None, op::RETURN, &[]);
             }
             Kw::Set { target, expr } => {
@@ -697,6 +1003,18 @@ impl<'a> Gen<'a> {
                 put16(&mut body, e.len() as u16);
                 body.extend_from_slice(&e);
                 self.emit(None, op::SET, &body);
+            }
+            Kw::Call(toks) if self.co || (self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open))) => {
+                // An inline expression among the arguments, or an extender function: the
+                // whole line is an extended expression run for what it does.
+                let x = lex::xtokens(&self.text);
+                let Some(e) = self.xwhole(&x) else { return };
+                if !matches!(e, crate::ir::XExpr::Call { .. }) {
+                    self.diag("not_a_call", true, self.text.clone());
+                    return;
+                }
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_EVAL, &json);
             }
             Kw::Call(toks) => {
                 let Some((head, f)) = self.function(&toks[0]) else {

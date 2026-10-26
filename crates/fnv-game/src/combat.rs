@@ -335,6 +335,10 @@ impl Game<'_> {
         // The body gets its death item before OnDeath runs [hypothesis: the order]
         // (`crate::death_items`).
         self.give_death_items(r, killer);
+        // The extender's OnDeath handlers, before the block [hypothesis on the order;
+        // docs/spec-notes/ext-events.md].
+        let killer_val = fnv_script::vm::XVal::Ref(killer.map_or(0, |k| k.0));
+        self.dispatch_event("OnDeath", vec![fnv_script::vm::XVal::Ref(r.0), killer_val], Some(r));
         self.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
         // "Teammate state is cleared on death of the actor" [documented: GECK wiki
         // SetPlayerTeammate]; after OnDeath, which may still ask [hypothesis: the order].
@@ -434,6 +438,15 @@ impl Game<'_> {
         let essential = self.is_essential(target);
         let floor = if essential { 1.0 } else { 0.0 };
         let dealt = damage.max(0.0).min((before - floor).max(0.0));
+        // JIP's hit record, then its hit handlers, before the damage [documented:
+        // SetOnHitEventHandler; observed: jip-hits, Health in the handler is the value
+        // before the hit] (jip-hit-info.md).
+        let fatal = before - dealt <= floor;
+        let flags = (u16::from(info.critical) << 1) | (u16::from(fatal) << 2);
+        let limb_damage = info.limb.map_or(0.0, |l| l.damage);
+        let rec = crate::jip_events::JipHit { attacker: info.attacker, weapon: info.weapon, health_damage: dealt, limb_damage, location: info.location, flags };
+        self.jip.hits.insert(target, rec);
+        self.jip_event("hit", Some(target), Vec::new());
         actor::add_damage(self, target, HEALTH, dealt);
         {
             let e = self.extra.entry(target).or_default();
@@ -445,6 +458,11 @@ impl Game<'_> {
         }
         if let Some(a) = info.attacker {
             self.extra.entry(a).or_default().last_target = Some(target);
+        }
+        if dealt > 0.0 {
+            // [documented: SetOnHealthDamageEventHandler] the amount negative, the source.
+            let source = fnv_script::vm::XVal::Ref(info.attacker.map_or(0, |a| a.0));
+            self.jip_event("healthdamage", Some(target), vec![fnv_script::vm::XVal::Num(-dealt), source]);
         }
         self.ref_event(target, event::ON_HIT, info.attacker.map(|a| Value::Ref(a.0)), info.attacker);
         if let Some(w) = info.weapon {
@@ -461,6 +479,14 @@ impl Game<'_> {
             let (condition, crippled) = self.damage_limb(target, l, max_health);
             out.limb = Some((l.condition, condition));
             out.crippled = crippled;
+            if crippled {
+                if let Some(h) = self.jip.hits.get_mut(&target) {
+                    h.flags |= 1 << 5;
+                }
+                // [documented: SetOnCrippledLimbEventHandler] 0 head … 6 brain.
+                let limb = f64::from(l.condition - crate::actor_values::LIMB_CONDITIONS.start());
+                self.jip_event("crippledlimb", Some(target), vec![fnv_script::vm::XVal::Num(limb)]);
+            }
             if crippled && target == FormId::PLAYER_REF {
                 self.count_stat(crate::misc_stats::HAVE_LIMBS_CRIPPLED, 1.0);
             }

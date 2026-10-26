@@ -40,22 +40,26 @@ pub struct Line {
     /// 1-based line number in the source.
     pub no: usize,
     pub toks: Vec<Tok>,
+    /// The line's text without its comment, for the extender's lexer ([`xtokens`]).
+    pub text: String,
 }
 
 /// The longest source line the editor accepts [documented: Inline Expression; Lambda].
 pub const MAX_LINE: usize = 512;
 
 /// The text of `line` before its comment.
+///
+/// A `;` starts a comment even inside double quotes [observed: the GECK refused
+/// `Sv_Split "a,b;c", ",;"` with "Mismatched quotes" (probe strings/03, ext-bytecode.md
+/// §7); the golden's three pieces came from the line rewritten without `;`]. No shipped
+/// string holds a `;`, so vanilla parity is the same either way.
 pub fn strip_comment(line: &str) -> &str {
-    let mut quoted = false;
-    for (i, ch) in line.char_indices() {
-        match ch {
-            '"' => quoted = !quoted,
-            ';' if !quoted => return &line[..i],
-            _ => {}
-        }
-    }
-    line
+    line.find(';').map_or(line, |i| &line[..i])
+}
+
+/// Whether a line's double quotes do not pair up (an unclosed string).
+pub fn unclosed_quote(line: &str) -> bool {
+    line.matches('"').count() % 2 == 1
 }
 
 /// A number as the compiler writes it: digits with at most one `.`, at least one digit
@@ -124,13 +128,52 @@ pub fn tokens(line: &str) -> Vec<Tok> {
     out
 }
 
+/// The line without `/* … */` comments, which may span lines (`in_block` carries one over)
+/// [documented: xNVSE 6.1.7 comments]. Inside quotes they are text.
+fn block_comments(line: &str, in_block: &mut bool) -> String {
+    let cs: Vec<char> = line.chars().collect();
+    let mut out = String::new();
+    let mut quoted = false;
+    let mut i = 0;
+    while i < cs.len() {
+        if *in_block {
+            if cs[i] == '*' && cs.get(i + 1) == Some(&'/') {
+                *in_block = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        match cs[i] {
+            '"' => quoted = !quoted,
+            ';' => {
+                out.extend(&cs[i..]);
+                break;
+            }
+            '/' if !quoted && cs.get(i + 1) == Some(&'*') => {
+                *in_block = true;
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        out.push(cs[i]);
+        i += 1;
+    }
+    out
+}
+
 /// Every line that can produce a statement, with its tokens; `long` collects the numbers
 /// of lines over [`MAX_LINE`] characters.
 pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
     let src = src.trim_end_matches('\0');
     let mut out = Vec::new();
+    let mut in_block = false;
     for (n, raw) in src.split('\n').enumerate() {
         let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        let owned = block_comments(raw, &mut in_block);
+        let raw = owned.as_str();
         if raw.chars().count() > MAX_LINE {
             long.push(n + 1);
         }
@@ -140,8 +183,100 @@ pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
         }
         let toks = tokens(text);
         if !toks.is_empty() {
-            out.push(Line { no: n + 1, toks });
+            out.push(Line { no: n + 1, toks, text: text.to_string() });
         }
+    }
+    out
+}
+
+/// What a token of the extender's expressions is ([`xtokens`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XKind {
+    Word,
+    Num,
+    Str,
+    /// Every operator of NVSE Expressions, assignments included, and `=` (the Let macro's
+    /// assignment, docs/spec-notes/ext-syntax.md).
+    Op,
+    Open,
+    Close,
+    LBracket,
+    RBracket,
+    LBrace,
+    RBrace,
+    Comma,
+    /// Anything else.
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XTok {
+    pub kind: XKind,
+    pub text: String,
+    /// A `-` with a space before it and a digit right after (`GetMaxOf -1 -5`): among
+    /// arguments it starts the next one [observed: maxof.neg, aux.append.* in the
+    /// original with JIP; `- 5` with spaces stays a subtraction, probe expressions/08].
+    pub sign: bool,
+}
+
+impl XTok {
+    pub fn is(&self, kind: XKind, text: &str) -> bool {
+        self.kind == kind && self.text.eq_ignore_ascii_case(text)
+    }
+}
+
+/// Operators of the extender's expressions, longest first [documented: NVSE Expressions].
+const XOPS: [&str; 33] = [
+    "<-", "=>", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
+    "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
+];
+
+/// Tokens of a line in the extender's grammar. Words and numbers as in [`tokens`]; `!`,
+/// `$` and `#` are operators too.
+pub fn xtokens(line: &str) -> Vec<XTok> {
+    let cs: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            let end = cs[i + 1..].iter().position(|&q| q == '"').map(|p| i + 1 + p);
+            out.push(XTok { kind: XKind::Str, text: cs[i + 1..end.unwrap_or(cs.len())].iter().collect(), sign: false });
+            i = end.map(|e| e + 1).unwrap_or(cs.len());
+            continue;
+        }
+        if word_char(c) {
+            let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
+            let text: String = cs[i..i + n].iter().collect();
+            let kind = if is_number(&text) { XKind::Num } else { XKind::Word };
+            out.push(XTok { kind, text, sign: false });
+            i += n;
+            continue;
+        }
+        let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
+        if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
+            let sign = *op == "-" && i > 0 && cs[i - 1].is_whitespace() && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == '.');
+            out.push(XTok { kind: XKind::Op, text: op.to_string(), sign });
+            i += op.chars().count();
+            continue;
+        }
+        let kind = match c {
+            '(' => XKind::Open,
+            ')' => XKind::Close,
+            '[' => XKind::LBracket,
+            ']' => XKind::RBracket,
+            '{' => XKind::LBrace,
+            '}' => XKind::RBrace,
+            ',' => XKind::Comma,
+            '!' | '$' | '#' => XKind::Op,
+            _ => XKind::Other,
+        };
+        out.push(XTok { kind, text: c.to_string(), sign: false });
+        i += 1;
     }
     out
 }
@@ -176,8 +311,18 @@ mod tests {
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].no, 1);
         assert_eq!(l[1].no, 5);
-        assert_eq!(l[1].toks[3].text, "a;b");
+        // A `;` starts a comment even inside quotes (the GECK, probe strings/03); the
+        // vanilla line's unclosed string then runs to the end.
+        assert_eq!(l[1].toks[3].text, "a");
         assert!(long.is_empty());
+    }
+
+    #[test]
+    fn extender_tokens() {
+        let t: Vec<String> = xtokens("let a[0] := b -> key + $c :: 2 != !d").into_iter().map(|t| t.text).collect();
+        assert_eq!(t, ["let", "a", "[", "0", "]", ":=", "b", "->", "key", "+", "$", "c", "::", "2", "!=", "!", "d"]);
+        let t = xtokens("x += 1.5, \"s\"");
+        assert_eq!(t.iter().map(|t| t.kind).collect::<Vec<_>>(), [XKind::Word, XKind::Op, XKind::Num, XKind::Comma, XKind::Str]);
     }
 
     #[test]

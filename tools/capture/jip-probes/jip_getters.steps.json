@@ -1,0 +1,224 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_getters",
+ "title": "JIP getters, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fsin 90)\nEnd\n",
+   "label": "fsin.90",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fsin 30)\nEnd\n",
+   "label": "fsin.30",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fcos 60)\nEnd\n",
+   "label": "fcos.60",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fcos 0)\nEnd\n",
+   "label": "fcos.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (ftan 45)\nEnd\n",
+   "label": "ftan.45",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fasin 1)\nEnd\n",
+   "label": "fasin.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fasin 2)\nEnd\n",
+   "label": "fasin.out",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (facos 0)\nEnd\n",
+   "label": "facos.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fatan 1)\nEnd\n",
+   "label": "fatan.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fatan2 1 1)\nEnd\n",
+   "label": "fatan2.q1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fatan2 1 -1)\nEnd\n",
+   "label": "fatan2.q2",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fatan2 -1 -1)\nEnd\n",
+   "label": "fatan2.q3",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fsqrt 16)\nEnd\n",
+   "label": "fsqrt.16",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (fsqrt -1)\nEnd\n",
+   "label": "fsqrt.neg",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetMaxOf 1 5 3)\nEnd\n",
+   "label": "maxof.3",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetMaxOf -1 -5)\nEnd\n",
+   "label": "maxof.neg",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetMinOf 1 5 3)\nEnd\n",
+   "label": "minof.3",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetMinOf 9 8 7 6 5)\nEnd\n",
+   "label": "minof.5",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (StringToActorValue \"NotAnActorValue\")\nEnd\n",
+   "label": "av.unknown",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (StringToActorValue \"Strength\")\nEnd\n",
+   "label": "av.strength",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (StringToActorValue \"DamageThreshold\")\nEnd\n",
+   "label": "av.damagethreshold",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (StringToActorValue \"strength\")\nEnd\n",
+   "label": "av.case",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetModName 0)\nEnd\n",
+   "label": "modname.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetModName 0 1)\nEnd\n",
+   "label": "modname.0ext",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetModName 99)\nEnd\n",
+   "label": "modname.99",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginHeaderVersion \"FalloutNV.esm\")\nEnd\n",
+   "label": "headerversion.fnv",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (ValidateModIndex 0)\nEnd\n",
+   "label": "validatemod.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (ValidateModIndex 200)\nEnd\n",
+   "label": "validatemod.200",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString rF)\nEnd\n",
+   "label": "formfrommod.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"000014\"\nSetFunctionValue (GetFormIDString rF)\nEnd\n",
+   "label": "formfrommod.zeros",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := StringToRef \"00000014\"\nSetFunctionValue (GetFormIDString rF)\nEnd\n",
+   "label": "stringtoref.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (FileExists \"meshes\\ammo\\10mmammo.nif\")\nEnd\n",
+   "label": "fileexists.bsa",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (FileExists \"meshes\\nvforever_no_such_file.nif\")\nEnd\n",
+   "label": "fileexists.none",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (FileExists \"NVSE\" 1)\nEnd\n",
+   "label": "fileexists.folder",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetLNVersion)\nEnd\n",
+   "label": "lnversion",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetNVSEVersionFull)\nEnd\n",
+   "label": "nvseversionfull",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetRandomInRange 5 6)\nEnd\n",
+   "label": "random.single",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetLocalGravity X)\nEnd\n",
+   "label": "gravity.x",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetLocalGravity Z)\nEnd\n",
+   "label": "gravity.z",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetDebugModeState 0)\nEnd\n",
+   "label": "debugmode.tgm",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetGameDifficulty)\nEnd\n",
+   "label": "difficulty",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue ((GetGameDaysPassed) == (GetGameDaysPassed 2281 10 13))\nEnd\n",
+   "label": "dayspassed.same",
+   "field": "value"
+  }
+ ]
+}
