@@ -63,11 +63,11 @@
   {
    "id": "L5.ext.jip.getters",
    "layer": 5,
-   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<set>.steps.json) as headless runner queries.",
+   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<job>.steps.json) as headless runner queries.",
    "oracle": {"golden": "jip/jip-getters.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
-             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-getters.steps.json"]
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_getters.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "getters"]
@@ -79,7 +79,7 @@
    "oracle": {"golden": "jip/jip-forms.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
-             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-forms.steps.json"]
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_forms.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "forms"]
@@ -91,7 +91,7 @@
    "oracle": {"golden": "jip/jip-stores.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
-             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-stores.steps.json"]
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_stores.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "stores"]
@@ -103,7 +103,7 @@
    "oracle": {"golden": "jip/jip-events.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
-             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-events.steps.json"]
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_events.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "events"]
@@ -115,7 +115,7 @@
    "oracle": {"golden": "jip/jip-hits.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
-             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-hits.steps.json"]
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "hits"]
@@ -127,7 +127,7 @@
    "oracle": {"golden": "jip/jip-records.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
-             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-records.steps.json"]
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_records.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "records"]

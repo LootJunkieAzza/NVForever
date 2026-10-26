@@ -462,6 +462,12 @@
    "label": "armorrct.metal",
    "field": "value",
    "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4443E\"\nSetFunctionValue (GetArmorRCT rF)\nEnd\n",
+   "label": "armorrct.t45d",
+   "field": "value",
+   "text": true
   }
  ]
 }

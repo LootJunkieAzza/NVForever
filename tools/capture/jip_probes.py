@@ -268,7 +268,7 @@ REC = {
     "slug.proj": "1572C5", "ammo12": "8ECF5", "slug.ammo": "13E447", "gren.expl": "7EA31",
     "gren.proj": "7EA30", "laser": "4336", "hunting": "4333", "sledge": "4352", "rev44": "8F215",
     "pistol10": "434F", "carbine": "8F21E", "gatling": "432E", "metal": "3307F", "leather": "20423",
-    "ammo10": "4241", "proj10": "2CD5F",
+    "ammo10": "4241", "proj10": "2CD5F", "t45d": "4443E",
 }
 REC_EXPECTED = {
     "killimpulse.laser": ("0", "GetWeaponKillImpulse (WeapLaserRifle: 0)"),
@@ -315,7 +315,8 @@ RECORD_PROBES = (
        _rec("model.pistol10.7", "pistol10", "GetWeaponModel rF 7", True),
        _rec("armorclass.metal", "metal", "GetArmorClass rF"),
        _rec("armorclass.leather", "leather", "GetArmorClass rF"),
-       _rec("armorrct.metal", "metal", "GetArmorRCT rF", True)]
+       _rec("armorrct.metal", "metal", "GetArmorRCT rF", True),
+       _rec("armorrct.t45d", "t45d", "GetArmorRCT rF", True)]
 )
 
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
@@ -398,7 +399,7 @@ def main(argv=None):
     if a.cmd == "steps":
         os.makedirs(a.dir, exist_ok=True)
         for name in SETS:
-            with open(os.path.join(a.dir, f"{name}.steps.json"), "w", encoding="utf-8", newline="\n") as f:
+            with open(os.path.join(a.dir, f"{job_name(name)}.steps.json"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(steps_text(name))
         print(json.dumps({"dir": a.dir, "sets": list(SETS)}))
         return 0

@@ -59,7 +59,7 @@ class Job(unittest.TestCase):
 
     def test_committed_steps_are_current(self):
         for name in jp.SETS:
-            path = os.path.join(jp.STEPS_DIR, f"{name}.steps.json")
+            path = os.path.join(jp.STEPS_DIR, f"{jp.job_name(name)}.steps.json")
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(f.read(), jp.steps_text(name), f"{path}: run `python tools/capture/jip_probes.py steps`")
 
