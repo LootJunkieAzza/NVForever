@@ -216,7 +216,10 @@ relative to vanilla blocktypes (OnHit vs the script's `Begin OnHit`), and the sa
 The ordering is captured, not guessed: `nvf_capture` already receives events through xNVSE's
 event manager interface (plugin version 9, xnvse-capture.md §2).
 
-### 5.6 UI functions (needs an owner decision)
+### 5.6 UI functions (owner chose A, 2026-10-26)
+
+**Decision:** (A), a tile tree, so modders can change the UI; design in
+`docs/design/ui-tile-tree.md` (its own session).
 
 JIP and xNVSE have a large UI family: `GetUIFloat`, `SetUIFloat`, `SetUIString`,
 `GetActiveMenuMode`, tile injection (`InjectUIXML`, `InjectUIComponent`), menu-item lookups.

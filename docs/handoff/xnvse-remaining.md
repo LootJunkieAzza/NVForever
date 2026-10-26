@@ -66,9 +66,15 @@ L5.ext.nvse.*); all match except rows that depend on the owner's save.
 
 Done 2026-10-26: references and cells, delayed calls, input, setters, variables,
 factions, packages, appearance, weapon mods, quaternions, mod local data, clones, the
-ammo / condition / inventory-reference part of "other". Next:
-1. The rest of "other" (actor and script odds and ends), then the player-control locks
-   (DisablePlayerControlsAlt …, engine side like the key functions).
+ammo / condition / inventory-reference part of "other", then the rest of "other" and the
+player-control locks and hotkeys (`nvse_other.rs`; the engine reads
+`Game::controls_locked`). Still open from "other": GetPaired (with the tokens),
+GetSoldItemInvRef (OnSell is not dispatched yet), GetCurrentQuestObjectiveTeleportLinks,
+GetFalloutDirectory (the game does not know its folder), GetCommandOpcode (debug group).
+Hypotheses waiting on the peer's probes: the AltEx bits of looking/rollover/sneaking
+(1, 5, 6), SetDoorTeleport moving the player, RunScript on a non-function script, the
+console echo's start state. Next:
+1. (done)
 2. Packages and paths setters, form flags (needs the records' header flags kept).
 3. Event-handler lists, tokens, animations, generic forms.
 4. Console (`con_*`) and debug/documentation commands; UI waits on the owner

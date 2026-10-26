@@ -49,7 +49,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let it = item(g, 0);
             yes(g.playable_overrides.get(&it).copied().unwrap_or_else(|| g.world.forms.item(it).is_some_and(|i| !i.non_playable)))
         }
-        "ispowerarmor" => yes(g.world.forms.item(item(g, 0)).is_some_and(|i| i.power_armor)),
+        "ispowerarmor" => {
+            let f = item(g, 0);
+            // SetIsPowerArmor's change first.
+            yes(g.other.power_armor.get(&f).copied().unwrap_or_else(|| g.world.forms.item(f).is_some_and(|i| i.power_armor)))
+        }
         // [documented: IsModLoaded] a plugin of the load order, by file name.
         "ismodloaded" => {
             let n = text(args, 0);

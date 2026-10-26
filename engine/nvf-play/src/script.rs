@@ -401,7 +401,7 @@ impl ScriptState {
             // Knocked down: until the get-up clip is over (docs/spec-notes/unconscious.md
             // §5.4; `nvforever` player_knockdown.rs).
             Some(rt) if rt.game.knockout(FormId::PLAYER_REF).is_some() => ControlLocks::ALL,
-            Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
+            Some(rt) => ControlLocks::from_flags(rt.game.controls_locked()),
             None => ControlLocks::default(),
         }
     }

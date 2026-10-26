@@ -156,6 +156,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_jip::call(g, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_other::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     // The item a getter reads: its argument, else the calling reference's base form.
     let item = |g: &Game, k: usize| -> Option<FormId> {
         as_form(args.get(k)).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f))
@@ -538,9 +541,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         }
         "getnthfactionrankname" => {
             let ranks = g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0)));
-            let r = usize::try_from(int_of(args.get(1), -1)).ok().and_then(|i| ranks.get(i));
+            let f = as_form(args.first()).unwrap_or(FormId(0));
+            let i = usize::try_from(int_of(args.get(1), -1)).ok();
+            let r = i.and_then(|i| ranks.get(i));
             let female = args.get(2).is_some_and(XVal::truthy);
-            XVal::Str(r.map(|r| if female { r.1.clone() } else { r.0.clone() }).unwrap_or_default())
+            // SetNthFactionRankNameEx's title first.
+            match i.and_then(|i| g.other.ranks.get(&(f, i, female))) {
+                Some(t) => XVal::Str(t.clone()),
+                None => XVal::Str(r.map(|r| if female { r.1.clone() } else { r.0.clone() }).unwrap_or_default()),
+            }
         }
         // Form lists [documented: ListGetNthForm; ListGetFormIndex; ListAddForm;
         // ListRemoveForm; ListRemoveNthForm; ListClear]. The changes last for the session:

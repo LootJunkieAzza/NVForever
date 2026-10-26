@@ -1006,6 +1006,8 @@ pub struct Game<'a> {
     /// JIP switches kept for the session (ToggleTeammateKillable, SetWheelDisabled,
     /// ToggleNoHealthReset).
     pub(crate) jip_flags: std::collections::HashSet<(FormId, &'static str)>,
+    /// The xNVSE "other" functions' and the control locks' session state.
+    pub other: crate::nvse_other::OtherState,
     /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
     pub(crate) box_callback: Option<fnv_script::vm::XVal>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
@@ -1610,6 +1612,7 @@ impl<'a> Game<'a> {
             effect_overrides: std::collections::HashMap::new(),
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
+            other: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -1934,6 +1937,10 @@ impl<'a> Game<'a> {
         } else {
             base
         };
+        // RemoveScript took it away.
+        if self.other.removed_scripts.contains(&base) {
+            return None;
+        }
         self.data.script_of_base(base)
     }
 
@@ -4511,6 +4518,10 @@ impl Host for Exec<'_, '_> {
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
         let on = on.and_then(|v| v.as_form()).map(FormId);
         let ctx = self.ctx;
+        // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef
+        // reads the calling script.
+        self.game.other.plugin = self.calling_plugin().unwrap_or_default();
+        self.game.other.script = self.current_script().map(FormId);
         crate::nvse::call(self.game, &ctx, name, on, args)
     }
 

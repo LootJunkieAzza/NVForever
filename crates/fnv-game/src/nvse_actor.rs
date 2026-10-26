@@ -141,10 +141,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let items = codes.into_iter().map(|c| XVal::Num(f64::from(c))).collect();
             list(g, items)
         }
-        // [documented: IsControl] 1 when a game control uses the key.
+        // [documented: IsControl] 1 when a game control uses the key, 2 for a custom
+        // control (SetIsControl).
         "iscontrol" => {
             let code = u16::try_from(int(args, 0, -1)).ok();
-            XVal::Num(f64::from(u8::from(code.is_some_and(|c| g.input.is_bound(c)))))
+            XVal::Num(match code {
+                Some(c) if g.input.is_bound(c) => 1.0,
+                Some(c) if g.other.custom_controls.contains(&c) => 2.0,
+                _ => 0.0,
+            })
         }
         // [documented: GetBasePackages] GetNthPackage's list as an array.
         "getbasepackages" => {
