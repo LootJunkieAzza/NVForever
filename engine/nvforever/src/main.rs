@@ -17,6 +17,7 @@
 
 mod activators;
 mod nif_mirror;
+mod anim_paths;
 mod actor_feet;
 mod actor_jumps;
 mod actor_materials;
@@ -1425,6 +1426,8 @@ fn main() -> AppExit {
             app.add_plugins(anim_state::AnimStatePlugin);
             // JIP's NIF block functions on the drawn nodes (nif_mirror.rs).
             app.add_plugins(nif_mirror::NifMirrorPlugin);
+            // kNVSE's replacement animations on the drawn actors (anim_paths.rs).
+            app.add_plugins(anim_paths::AnimPathsPlugin);
         }
     }
     if play.is_some() {

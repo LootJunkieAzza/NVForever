@@ -28,7 +28,11 @@ original game (kNVSE 37) `[observed]`. No kNVSE source is read.
   (`AnimState::clip`, a path under meshes) and its movement group.
 - **Engine side, slice 1 (built):** `nvforever` anim_state.rs tells each NPC's clip
   from its locomotion set.
-- **Engine side, slice 2 (to build):** the locomotion and idle code asks the game for
+- **Engine side, slice 2 (built for locomotion, `nvforever` anim_paths.rs):** an actor
+  with replacement paths plays from its own copy of the standing set, a file whose stem
+  is `mt` + a move's group taking that move; taking the paths back restores the shared
+  set. Still to build: the idles, script-played sequences and first person. The original
+  plan: the locomotion and idle code asks the game for
   an actor's replacement of a group before taking the set's clip: a per-actor clip
   set made from the shared one with the replaced moves (`Locomotion::set` is an
   `Arc<ClipSet>` shared per skeleton and body, so a replacement clones it for that
