@@ -101,6 +101,16 @@ pub fn calls_above(p: &Program, highest: u16) -> bool {
     stmts(&p.top, highest) || p.blocks.iter().any(|b| stmts(&b.body, highest))
 }
 
+/// Whether the source declares a `string_var` or `array_var`: the record's variable list
+/// can only say Integer or FloatOrRef [documented: xEdit SLSD], so such a unit runs from
+/// its source, where the compiler knows the types (script-compiler.md §7).
+pub fn declares_extender_vars(src: &str) -> bool {
+    src.lines().any(|l| {
+        let w = l.trim_start().split(|c: char| c.is_whitespace()).next().unwrap_or("");
+        w.eq_ignore_ascii_case("string_var") || w.eq_ignore_ascii_case("array_var")
+    })
+}
+
 /// Compile from source the units the mode picks, in place. Units whose source does not
 /// compile keep their bytes (noted in `issues`).
 pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv_sim::FormId, Compiled)], issues: &mut Issues) {
@@ -112,7 +122,9 @@ pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv
     let picked: Vec<usize> = (0..units.len())
         .filter(|&i| {
             let c = &units[i].1;
-            c.unit.has_scda && c.unit.source.is_some() && (m == Mode::Always || calls_above(&c.program, highest) || c.raw > 0)
+            c.unit.has_scda
+                && c.unit.source.is_some()
+                && (m == Mode::Always || calls_above(&c.program, highest) || c.raw > 0 || declares_extender_vars(c.unit.source.as_deref().unwrap_or("")))
         })
         .collect();
     if picked.is_empty() {

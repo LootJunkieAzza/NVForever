@@ -447,6 +447,16 @@ pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
     }
 }
 
+/// The extender's LoadGame (the save's file name) and PostLoadGame (success) events after a
+/// load [documented: NVSE Event Handling, session events].
+pub(crate) fn loaded_events(rt: &mut Runtime, sim: &mut SimState, path: &std::path::Path) {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    with_world(rt, sim, |rt| {
+        rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None);
+        rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
+    });
+}
+
 /// `[Extenders] CompileSource` of NVForever.ini: which units run from their source text
 /// (fnv_game::source_compile; `NVF_COMPILE_SOURCE` overrides it). Read before the script
 /// data is built; an unattended run in the player's home leaves the INI alone, as for every
@@ -563,7 +573,9 @@ impl Runtime {
         let changed: Vec<FormId> = s.sim.refs.keys().copied().collect();
         let data = self.game.data;
         let cfg = self.game.cfg;
+        let session = self.game.take_session();
         self.game = Game::restore(data, World::new(sim.forms, sim.refs, world.config()), cfg, &s)?;
+        self.game.put_session(session);
         sim.world = world;
         sim.world.set_inventory_sources(data.inventory_sources(sim.refs));
         self.opening_pending = false;
@@ -1582,6 +1594,7 @@ pub(crate) fn run_scripts(
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            loaded_events(&mut rt, &mut sim, &path);
                             // The frames after a load are the loading screen's for the
                             // scripts, as after travel: their `Begin MenuMode 1007`
                             // blocks run (`game::menus::LOADING`) [hypothesis].

@@ -233,12 +233,12 @@ fn lets(src: &str) -> Vec<String> {
 
 #[test]
 fn extender_precedence_follows_the_operator_table() {
-    let l = lets("int a\nint b\nbegin GameMode\nlet a := 1 + 2 * 3 ^ 2\nlet a := b := 2\na += 1\nlet a := 1 || 0 && 2\nlet a := !-b\nend");
+    let l = lets("int a\nint b\nbegin GameMode\nlet a := 1 + 2 * 3 ^ 2\nlet a := b := 2\na += 1\nlet a := 1 || 0 && 2\nlet a := -!b\nend");
     assert_eq!(l[0], "(v1 Set= (1 Add (2 Mul (3 Pow 2))))");
     assert_eq!(l[1], "(v1 Set= (v2 Set= 2))", ":= groups right to left");
     assert_eq!(l[2], "(v1 Add= 1)", "the Let macro");
     assert_eq!(l[3], "(v1 Set= (1 Or (0 And 2)))", "&& binds tighter than ||");
-    assert_eq!(l[4], "(v1 Set= (Not (Neg v2)))");
+    assert_eq!(l[4], "(v1 Set= (Neg (Not v2)))");
 }
 
 #[test]
@@ -640,7 +640,7 @@ fn literal_codes_in_any_string() {
 #[test]
 fn sv_functions() {
     let h = run(
-        "string_var s\narray_var a\nfloat f\nfloat g\nfloat r\nfloat n\nstring_var x\nbegin GameMode\nlet s := \"One two ONE three\"\nlet f := Sv_Find \"one\", s, 1\nlet g := Sv_Length s\nlet r := Sv_Replace \"one|1\", s\nlet a := Sv_Split \"a,b;c\", \",;\"\nlet n := Sv_ToNumeric \"  -12.5e1xyz\" + Sv_GetChar \"A\", 0\nlet x := NumToHex 255, 4, 1\nend",
+        "string_var s\narray_var a\nfloat f\nfloat g\nfloat r\nfloat n\nstring_var x\nbegin GameMode\nlet s := \"One two ONE three\"\nlet f := Sv_Find \"one\", s, 1\nlet g := Sv_Length s\nlet r := Sv_Replace \"one|1\", s\nlet a := Sv_Split \"a,b:c\", \",:\"\nlet n := Sv_ToNumeric \"  -12.5e1xyz\" + Sv_GetChar \"A\", 0\nlet x := NumToHex 255, 4, 1\nend",
     );
     assert_eq!(h.0[&3], Value::Num(8.0), "found from position 1, without regard to case");
     assert_eq!(h.0[&4], Value::Num(17.0));

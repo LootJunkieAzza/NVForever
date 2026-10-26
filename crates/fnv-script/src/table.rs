@@ -119,6 +119,9 @@ pub struct Unnumbered {
     /// expressions [documented: Script Compiler Override, "Let, if eval, While, Print and
     /// any other NVSE-Aware Function"].
     pub aware: bool,
+    /// The row comes from the function's own wiki page (not an event or example page that
+    /// shows a call of it).
+    pub own_page: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -273,9 +276,15 @@ impl FunctionTable {
                     origin: func.get("origin").and_then(Value::as_str).unwrap_or_default().to_string(),
                     params,
                     aware: strings(func.get("categories")).iter().any(|c| c.to_ascii_lowercase().replace(' ', "_").contains("nvse-aware")),
+                    own_page: func.get("page").and_then(Value::as_str).is_some_and(|p| p.eq_ignore_ascii_case(&name)),
                 };
+                // Several rows can carry one name (the pages of events and examples that
+                // show a call); the function's own page wins [decision].
                 for s in std::iter::once(&name).chain(&strings(func.get("aliases"))) {
-                    t.unnumbered.entry(s.to_ascii_lowercase()).or_insert_with(|| u.clone());
+                    let slot = t.unnumbered.entry(s.to_ascii_lowercase()).or_insert_with(|| u.clone());
+                    if u.own_page && !slot.own_page {
+                        *slot = u.clone();
+                    }
                 }
                 continue;
             }

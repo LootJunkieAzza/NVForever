@@ -281,8 +281,7 @@ impl<'a> Gen<'a> {
 
     fn declare(&mut self, name: &str, ty: DeclType) {
         // A string or array variable holds an id [documented: Array Variable; String
-        // Variable], kept in a FloatOrRef slot [hypothesis: how the extender's editor
-        // stores the declaration, extender-core-tasks.md A10].
+        // Variable]; NVForever keeps the kind in the type (the record's list cannot).
         let vt = match ty {
             DeclType::Int => VarType::Int,
             DeclType::String => VarType::Other("string_var".into()),
@@ -291,6 +290,16 @@ impl<'a> Gen<'a> {
         };
         if ty == DeclType::Ref {
             self.ref_vars.insert(name.to_ascii_lowercase());
+        }
+        // A record's variable list can only say Integer or FloatOrRef: the editor with xNVSE
+        // stores a string_var as Integer and an array_var as FloatOrRef [observed:
+        // docs/spec-notes/ext-bytecode.md]. A seeded slot declared string_var or array_var
+        // takes that type, at the same index.
+        if let Some(v) = self.vars.iter_mut().find(|v| v.name.eq_ignore_ascii_case(name)) {
+            if matches!(v.ty, VarType::FloatOrRef | VarType::Int) && matches!(ty, DeclType::String | DeclType::Array) {
+                v.ty = vt;
+                return;
+            }
         }
         if let Some(v) = self.var(name) {
             if v.ty != vt {
@@ -931,6 +940,18 @@ impl<'a> Gen<'a> {
                 }
             }
             Kw::Return => {
+                // `Return value` in a function [observed: the GECK with xNVSE compiles it,
+                // docs/spec-notes/ext-bytecode.md]: SetFunctionValue, then Return
+                // [hypothesis on its meaning].
+                let x = lex::xtokens(&self.text);
+                if self.extended && x.len() > 1 {
+                    let mut t = vec![lex::XTok { kind: lex::XKind::Word, text: "SetFunctionValue".into() }];
+                    t.extend_from_slice(&x[1..]);
+                    if let Some(e) = self.xwhole(&t) {
+                        let json = serde_json::to_vec(&e).unwrap_or_default();
+                        self.emit(None, op::X_EVAL, &json);
+                    }
+                }
                 self.emit(None, op::RETURN, &[]);
             }
             Kw::Set { target, expr } => {

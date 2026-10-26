@@ -452,7 +452,12 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
     let game = world.resource_scope(|world, mut sim: Mut<SimState>| {
         let mut st = world.resource_mut::<ScriptState>();
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
-        Ok::<_, String>(crate::script::with_world(rt, &mut sim, |rt| rt.game.snapshot()))
+        // The extender's SaveGame event, with the save's name [documented: NVSE Event
+        // Handling], before the state is taken.
+        Ok::<_, String>(crate::script::with_world(rt, &mut sim, |rt| {
+            rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
+            rt.game.snapshot()
+        }))
     })?;
     let engine = engine_snapshot(world);
     let header = header(world, r.kind, &game, &engine);

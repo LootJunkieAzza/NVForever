@@ -972,6 +972,15 @@ pub struct Game<'a> {
     lambdas: Vec<LambdaDef<'a>>,
     /// A lambda already made, by where its expression is and whose variables it shares.
     lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
+    /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
+    /// lasts for the session; SetEventHandlerAlt is flushed on every load].
+    handlers: Vec<Handler>,
+    handler_seq: u64,
+    /// The events being handled, innermost last (GetCurrentEventName).
+    event_names: Vec<String>,
+    /// The scripts that saw GetGameLoaded / GetGameRestarted true (by unit key).
+    loaded_seen: BTreeSet<String>,
+    restarted_seen: BTreeSet<String>,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
@@ -1450,6 +1459,26 @@ struct LambdaDef<'a> {
     inst: Option<InstKey>,
 }
 
+/// What lasts for the session across a load ([`Game::take_session`]).
+pub struct Session {
+    handlers: Vec<Handler>,
+    restarted_seen: BTreeSet<String>,
+    handler_seq: u64,
+}
+
+/// An event handler: the event (lower case), the function or lambda, the filters by
+/// argument index (0 the calling reference), its priority, whether SetEventHandlerAlt set
+/// it, and its place in registration order.
+#[derive(Debug, Clone)]
+struct Handler {
+    event: String,
+    func: fnv_script::vm::XVal,
+    filters: Vec<(usize, fnv_script::vm::XVal)>,
+    priority: i32,
+    alt: bool,
+    seq: u64,
+}
+
 /// A user-defined function running: the value it set, and the script that called it.
 struct UdfFrame {
     value: Option<fnv_script::vm::XVal>,
@@ -1514,6 +1543,11 @@ impl<'a> Game<'a> {
             udf: Vec::new(),
             lambdas: Vec::new(),
             lambda_ids: Default::default(),
+            handlers: Vec::new(),
+            handler_seq: 0,
+            event_names: Vec::new(),
+            loaded_seen: BTreeSet::new(),
+            restarted_seen: BTreeSet::new(),
             toggles: Default::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
@@ -1934,6 +1968,269 @@ impl<'a> Game<'a> {
         let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
         self.exec(unit, &unit.program.top, Locals::Temp(BTreeMap::new()), ctx);
         Ok(warnings)
+    }
+
+    /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
+    /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
+    /// lambda, over the variables of the script that made it [documented: Call; User
+    /// Defined Function; Lambda]. The function's strings and arrays go when it ends
+    /// [documented: Ar Null, arrays of a function script are freed].
+    pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::XVal;
+        let id = match f {
+            XVal::Ref(id) => *id,
+            XVal::Num(x) => *x as u32,
+            _ => return Err("Call needs a function script or a lambda".into()),
+        };
+        if self.udf.len() >= MAX_UDF_DEPTH {
+            return Err(format!("more than {MAX_UDF_DEPTH} nested user-defined function calls"));
+        }
+        let data = self.data;
+        let opts = self.opts();
+        let self_ref = on.and_then(|v| v.as_form()).map(FormId);
+        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
+            let d = self.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
+            let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
+            let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
+            let locals = match inst {
+                Some(k) => Locals::Instance(k),
+                None => Locals::Temp(BTreeMap::new()),
+            };
+            (unit, params, body, value.map(|v| *v), locals)
+        } else {
+            let unit = data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?;
+            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
+            let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
+            (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
+        };
+        self.udf.push(UdfFrame { value: None, caller });
+        let ctx = RunCtx { self_ref: self_ref.or(ctx.self_ref), ..ctx };
+        let mut ex = Exec { game: self, unit, locals, ctx };
+        let mut vm = Vm::new(&data.table, &mut ex, opts);
+        let mut result = Ok(());
+        for (p, a) in params.iter().zip(args) {
+            if let Err(e) = vm.bind(p, a) {
+                result = Err(e.to_string());
+                break;
+            }
+        }
+        let mut lambda_value = None;
+        if result.is_ok() {
+            match &value {
+                Some(v) => match vm.xeval(v) {
+                    Ok(x) => lambda_value = Some(x),
+                    Err(e) => result = Err(e.to_string()),
+                },
+                None => {
+                    if let Err(e) = vm.run(&body) {
+                        result = Err(e.to_string());
+                    }
+                }
+            }
+        }
+        // A function script's own strings and arrays go with it.
+        if let Locals::Temp(m) = &ex.locals {
+            for (&index, v) in m {
+                match unit.var_type(index) {
+                    Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
+                    Some(VarType::Other(t)) if t == "array_var" => ex.game.ext.release(&XVal::Array(v.num() as u32)),
+                    _ => {}
+                }
+            }
+        }
+        let frame = self.udf.pop();
+        let v = match lambda_value {
+            Some(v) => v,
+            None => {
+                let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
+                self.ext.hand_over(&v);
+                v
+            }
+        };
+        result.map(|_| v)
+    }
+
+    /// The event functions (tasks E1–E3; docs/spec-notes/ext-events.md). `sender` is the
+    /// calling script's plugin, DispatchEvent's default sender.
+    pub fn event_call(&mut self, c: fnv_script::vm::EventCall, sender: &str) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::{EventCall, XKey, XVal};
+        let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
+        Ok(match c {
+            EventCall::Set { event, func, pairs, alt } => {
+                let mut h = Handler { event: event.to_ascii_lowercase(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
+                for (k, v) in pairs {
+                    match (key_text(&k).as_str(), &k) {
+                        ("priority", _) => {
+                            // Default 1, higher first, 0 refused, -9999..9999 [documented:
+                            // SetEventHandler; Event Handler Priority System].
+                            let p = v.num().map_err(|e| e.to_string())? as i32;
+                            if p == 0 || !(-9999..=9999).contains(&p) {
+                                return Ok(XVal::Num(0.0));
+                            }
+                            h.priority = p;
+                        }
+                        // SetEventHandler: "first"/"second"; an array filter is ignored
+                        // [documented: SetEventHandler].
+                        ("first", _) if !alt => {
+                            if !matches!(v, XVal::Array(_)) {
+                                h.filters.push((1, v));
+                            }
+                        }
+                        ("second", _) if !alt => {
+                            if !matches!(v, XVal::Array(_)) {
+                                h.filters.push((2, v));
+                            }
+                        }
+                        // SetEventHandlerAlt: index 0 the calling reference, 1–15 the
+                        // arguments [documented: SetEventHandlerAlt].
+                        (_, XVal::Num(i)) if alt && (0.0..=15.0).contains(i) => {
+                            self.ext.retain(&v);
+                            h.filters.push((*i as usize, v));
+                        }
+                        _ => return Ok(XVal::Num(0.0)),
+                    }
+                }
+                self.ext.retain(&h.func);
+                self.handler_seq += 1;
+                self.handlers.push(h);
+                XVal::Num(1.0)
+            }
+            EventCall::Remove { event, func, pairs } => {
+                let event = event.to_ascii_lowercase();
+                let filters: Vec<(usize, XVal)> = pairs
+                    .into_iter()
+                    .filter_map(|(k, v)| match (key_text(&k).as_str(), &k) {
+                        ("first", _) => Some((1, v)),
+                        ("second", _) => Some((2, v)),
+                        (_, XVal::Num(i)) => Some((*i as usize, v)),
+                        _ => None,
+                    })
+                    .collect();
+                let before = self.handlers.len();
+                let ext = &mut self.ext;
+                self.handlers.retain(|h| {
+                    let hit = h.event == event && h.func == func && filters.iter().all(|f| h.filters.contains(f));
+                    if hit {
+                        for (_, v) in &h.filters {
+                            ext.release(v);
+                        }
+                    }
+                    !hit
+                });
+                XVal::Num(if self.handlers.len() < before { 1.0 } else { 0.0 })
+            }
+            // [documented: DispatchEvent] one string map: eventName and eventSender, or the
+            // info map given (eventName and eventSender added when it lacks them
+            // [hypothesis]); the handlers run at once [hypothesis].
+            EventCall::Dispatch { event, map, sender: s } => {
+                let sender = s.unwrap_or_else(|| sender.to_string());
+                let id = match map {
+                    Some(XVal::Array(id)) => id,
+                    _ => self.ext.new_array(fnv_script::vm::ArrayKind::StringMap, Vec::new()),
+                };
+                if let Some(a) = self.ext.array_mut(id).filter(|a| a.kind == fnv_script::vm::ArrayKind::StringMap) {
+                    for (k, v) in [("eventName", event.clone()), ("eventSender", sender)] {
+                        let key = XKey::Str(k.into());
+                        if a.get(&key).is_none() {
+                            a.entries.push((key, XVal::Str(v)));
+                        }
+                    }
+                    a.entries.sort_by(|x, y| x.0.cmp_key(&y.0));
+                }
+                self.ext.retain(&XVal::Array(id));
+                self.dispatch_event(&event, vec![XVal::Array(id)], None);
+                self.ext.hand_over(&XVal::Array(id));
+                XVal::Num(0.0)
+            }
+            EventCall::DispatchAlt { event, on, args } => {
+                self.dispatch_event(&event, args, on.and_then(|v| v.as_form()).map(FormId));
+                XVal::Num(1.0)
+            }
+            EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
+        })
+    }
+
+    /// What lasts for the session across a load (task E3): the SetEventHandler
+    /// registrations [documented: they last for the session; SetEventHandlerAlt ones are
+    /// flushed on every load] of function scripts with filters that are not arrays (a
+    /// lambda or an array belongs to the old game's state, so those go [hypothesis]), and
+    /// which scripts saw GetGameRestarted.
+    pub fn take_session(&mut self) -> Session {
+        let handlers = self
+            .handlers
+            .iter()
+            .filter(|h| !h.alt)
+            .filter(|h| matches!(h.func, fnv_script::vm::XVal::Ref(f) if f < LAMBDA_BASE))
+            .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
+            .cloned()
+            .collect();
+        Session { handlers, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
+    }
+
+    /// Take over what lasts for the session ([`Game::take_session`]).
+    pub fn put_session(&mut self, s: Session) {
+        self.handlers = s.handlers;
+        self.restarted_seen = s.restarted_seen;
+        self.handler_seq = s.handler_seq;
+    }
+
+    /// Run every handler registered for `event` whose filters match, highest priority
+    /// first, ties in registration order [documented: SetEventHandler; Event Handler
+    /// Priority System]. A handler may take fewer parameters than the event sends
+    /// [documented: DispatchEventAlt]. Returns how many ran. Free when nothing is
+    /// registered, so a firing point costs nothing in an unmodded game.
+    pub fn dispatch_event(&mut self, event: &str, args: Vec<fnv_script::vm::XVal>, on: Option<FormId>) -> usize {
+        if self.handlers.is_empty() {
+            return 0;
+        }
+        let lname = event.to_ascii_lowercase();
+        let mut hs: Vec<Handler> = self.handlers.iter().filter(|h| h.event == lname && self.handler_matches(h, &args, on)).cloned().collect();
+        if hs.is_empty() {
+            return 0;
+        }
+        hs.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
+        self.event_names.push(event.to_string());
+        let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        for h in &hs {
+            if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
+                self.emit(EventKind::ScriptError { unit: format!("event handler for {event}"), error });
+            }
+        }
+        self.event_names.pop();
+        hs.len()
+    }
+
+    fn handler_matches(&self, h: &Handler, args: &[fnv_script::vm::XVal], on: Option<FormId>) -> bool {
+        h.filters.iter().all(|(i, f)| {
+            let v = match i {
+                0 => on.map(|r| fnv_script::vm::XVal::Ref(r.0)),
+                i => args.get(i - 1).cloned(),
+            };
+            v.is_some_and(|v| self.filter_matches(f, &v, h.alt))
+        })
+    }
+
+    /// [documented: SetEventHandler; New xNVSE Event Filtering System] numbers equal;
+    /// strings without regard to case; a form the same form, a reference also its base
+    /// form, a form list any of its forms; for SetEventHandlerAlt an array any of its
+    /// elements.
+    fn filter_matches(&self, f: &fnv_script::vm::XVal, v: &fnv_script::vm::XVal, alt: bool) -> bool {
+        use fnv_script::vm::XVal;
+        match (f, v) {
+            (XVal::Array(id), v) if alt => self.ext.array(*id).is_some_and(|a| a.entries.iter().any(|(_, e)| self.filter_matches(e, v, false))),
+            (XVal::Num(a), XVal::Num(b)) => a == b,
+            (XVal::Str(a), XVal::Str(b)) => a.eq_ignore_ascii_case(b),
+            (XVal::Ref(a), XVal::Ref(b)) => {
+                let (a, b) = (FormId(*a), FormId(*b));
+                a == b
+                    || functions::base_of(self, b) == Some(a)
+                    || {
+                        let m = functions::list_members(self, a);
+                        m.contains(&b) || functions::base_of(self, b).is_some_and(|base| m.contains(&base))
+                    }
+            }
+            _ => false,
+        }
     }
 
     /// Whether a block's parameter accepts `subject` (a block without parameters accepts
@@ -2914,6 +3211,9 @@ impl<'a> Game<'a> {
     /// `actor` activates `target`. A destroyed door or activator
     /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
+        // The extender's OnActivate handlers run first, even when the activation is then
+        // refused, and do not block it [documented: NVSE Event Handling].
+        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
         if self.activation_refused(target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
@@ -3903,87 +4203,24 @@ impl Host for Exec<'_, '_> {
         self.game.udf.last().and_then(|f| f.caller).map(|f| f.0)
     }
 
-    /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
-    /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
-    /// lambda, over the variables of the script that made it [documented: Call; User
-    /// Defined Function; Lambda]. The function's strings and arrays go when it ends
-    /// [documented: Ar Null, arrays of a function script are freed].
+    /// `Call` (`Game::run_function`).
     fn call_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>) -> Result<fnv_script::vm::XVal, String> {
-        use fnv_script::vm::XVal;
-        let id = match f {
-            XVal::Ref(id) => *id,
-            XVal::Num(x) => *x as u32,
-            _ => return Err("Call needs a function script or a lambda".into()),
-        };
-        if self.game.udf.len() >= MAX_UDF_DEPTH {
-            return Err(format!("more than {MAX_UDF_DEPTH} nested user-defined function calls"));
-        }
         let caller = match self.unit.unit.owner {
             fnv_script::UnitOwner::Script { form } => Some(FormId(form)),
             _ => None,
         };
-        let data = self.game.data;
-        let opts = self.game.opts();
-        let self_ref = on.and_then(|v| v.as_form()).map(FormId);
-        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
-            let d = self.game.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
-            let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
-            let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
-            let locals = match inst {
-                Some(k) => Locals::Instance(k),
-                None => Locals::Temp(BTreeMap::new()),
-            };
-            (unit, params, body, value.map(|v| *v), locals)
-        } else {
-            let unit = data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?;
-            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
-            let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
-            (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
-        };
-        self.game.udf.push(UdfFrame { value: None, caller });
-        let ctx = RunCtx { self_ref: self_ref.or(self.ctx.self_ref), ..self.ctx };
-        let mut ex = Exec { game: &mut *self.game, unit, locals, ctx };
-        let mut vm = Vm::new(&data.table, &mut ex, opts);
-        let mut result = Ok(());
-        for (p, a) in params.iter().zip(args) {
-            if let Err(e) = vm.bind(p, a) {
-                result = Err(e.to_string());
-                break;
-            }
-        }
-        let mut lambda_value = None;
-        if result.is_ok() {
-            match &value {
-                Some(v) => match vm.xeval(v) {
-                    Ok(x) => lambda_value = Some(x),
-                    Err(e) => result = Err(e.to_string()),
-                },
-                None => {
-                    if let Err(e) = vm.run(&body) {
-                        result = Err(e.to_string());
-                    }
-                }
-            }
-        }
-        // A function script's own strings and arrays go with it.
-        if let Locals::Temp(m) = &ex.locals {
-            for (&index, v) in m {
-                match unit.var_type(index) {
-                    Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
-                    Some(VarType::Other(t)) if t == "array_var" => ex.game.ext.release(&XVal::Array(v.num() as u32)),
-                    _ => {}
-                }
-            }
-        }
-        let frame = self.game.udf.pop();
-        let v = match lambda_value {
-            Some(v) => v,
-            None => {
-                let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
-                self.game.ext.hand_over(&v);
-                v
-            }
-        };
-        result.map(|_| v)
+        let ctx = self.ctx;
+        self.game.run_function(f, on, args, caller, ctx)
+    }
+
+    fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
+        let sender = self.unit.unit.plugin.clone();
+        self.game.event_call(c, &sender)
+    }
+
+    fn game_loaded(&mut self, restarted: bool) -> bool {
+        let key = self.unit.key();
+        let seen = if restarted { &mut self.game.restarted_seen } else { &mut self.game.loaded_seen };
+        seen.insert(key)
     }
 }

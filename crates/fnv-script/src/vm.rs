@@ -189,6 +189,14 @@ pub trait Host {
     fn calling_script(&mut self) -> Option<u32> {
         None
     }
+    /// GetGameLoaded (`restarted` false) or GetGameRestarted for the running script.
+    fn game_loaded(&mut self, _restarted: bool) -> bool {
+        false
+    }
+    /// The event functions (SetEventHandler and the rest).
+    fn event_call(&mut self, _c: EventCall) -> Result<XVal, String> {
+        Err("events are not run by this host".into())
+    }
     /// The value that names a lambda this run made (`let f := ({x} => x)`), kept by the
     /// host with the variables it shares.
     fn make_lambda(&mut self, _l: &XExpr) -> Result<XVal, String> {
@@ -595,6 +603,22 @@ impl XVal {
     }
 }
 
+/// An event function's request to the host (tasks E1–E3; docs/spec-notes/ext-events.md).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventCall {
+    /// SetEventHandler (`alt` false) or SetEventHandlerAlt: the event, the handler, the
+    /// `key::value` pairs (filters, priority).
+    Set { event: String, func: XVal, pairs: Vec<(XVal, XVal)>, alt: bool },
+    /// RemoveEventHandler: the event, the handler, the filters given (pairs or plain).
+    Remove { event: String, func: XVal, pairs: Vec<(XVal, XVal)> },
+    /// DispatchEvent: the event, the info map, the sender name.
+    Dispatch { event: String, map: Option<XVal>, sender: Option<String> },
+    /// DispatchEventAlt: the event, the calling reference, the arguments.
+    DispatchAlt { event: String, on: Option<Value>, args: Vec<XVal> },
+    /// GetCurrentEventName.
+    CurrentName,
+}
+
 /// How the host stores a variable (the extender's types live in ordinary slots).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VarKind {
@@ -671,6 +695,10 @@ impl XKey {
             (XKey::Num(_), XKey::Str(_)) => std::cmp::Ordering::Less,
             (XKey::Str(_), XKey::Num(_)) => std::cmp::Ordering::Greater,
         }
+    }
+    /// Key order, for code that keeps an array's entries sorted by hand.
+    pub fn cmp_key(&self, o: &XKey) -> std::cmp::Ordering {
+        self.cmp(o)
     }
     pub fn value(&self) -> XVal {
         match self {
@@ -2052,6 +2080,66 @@ impl Vm<'_, '_> {
                 self.host.set_function_value(v).map_err(VmError::Host)?;
                 Ok(XVal::Num(0.0))
             }
+            // The event functions [documented: SetEventHandler; SetEventHandlerAlt;
+            // RemoveEventHandler; DispatchEvent; DispatchEventAlt; GetCurrentEventName].
+            "seteventhandler" | "seteventhandleralt" | "removeeventhandler" | "dispatchevent" | "dispatcheventalt" | "getcurrenteventname" => {
+                let lname = name.to_ascii_lowercase();
+                if lname == "getcurrenteventname" {
+                    return self.host.event_call(EventCall::CurrentName).map_err(VmError::Host);
+                }
+                let event = match arg(self, 0)? {
+                    XVal::Str(s) => s,
+                    other => self.text_of(&other)?,
+                };
+                let call = match lname.as_str() {
+                    "dispatchevent" => {
+                        let map = c.args.get(1).map(|a| self.xeval(a)).transpose()?;
+                        let sender = match c.args.get(2).map(|a| self.xeval(a)).transpose()? {
+                            Some(XVal::Str(s)) => Some(s),
+                            _ => None,
+                        };
+                        EventCall::Dispatch { event, map, sender }
+                    }
+                    "dispatcheventalt" => {
+                        let on = match &c.on {
+                            Some(e) => Some(self.xeval(e)?.value()?),
+                            None => None,
+                        };
+                        let mut args = Vec::new();
+                        for k in 1..c.args.len() {
+                            args.push(arg(self, k)?);
+                        }
+                        EventCall::DispatchAlt { event, on, args }
+                    }
+                    _ => {
+                        let func = arg(self, 1)?;
+                        let mut pairs = Vec::new();
+                        for (k, a) in c.args.iter().enumerate().skip(2) {
+                            match a {
+                                XExpr::Binary { op: XOp::Pair, l, r } => {
+                                    let (key, v) = (self.xeval(l)?, self.xeval(r)?);
+                                    pairs.push((key, v));
+                                }
+                                // RemoveEventHandler's plain filters: the first and second.
+                                other => {
+                                    let v = self.xeval(other)?;
+                                    pairs.push((XVal::Str(if k == 2 { "first" } else { "second" }.into()), v));
+                                }
+                            }
+                        }
+                        if lname == "removeeventhandler" {
+                            EventCall::Remove { event, func, pairs }
+                        } else {
+                            EventCall::Set { event, func, pairs, alt: lname == "seteventhandleralt" }
+                        }
+                    }
+                };
+                self.host.event_call(call).map_err(VmError::Host)
+            }
+            // [documented: GetGameLoaded] true once per script after each load (and a new
+            // game); [documented: GetGameRestarted] true once per script per session.
+            "getgameloaded" => Ok(XVal::Num(if self.host.game_loaded(false) { 1.0 } else { 0.0 })),
+            "getgamerestarted" => Ok(XVal::Num(if self.host.game_loaded(true) { 1.0 } else { 0.0 })),
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),

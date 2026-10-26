@@ -160,6 +160,11 @@ impl Gen<'_> {
         let mut left = match p.peek().and_then(prefix) {
             Some((op, bp)) => {
                 p.next();
+                // `!-1` is refused, `-!0` compiles [observed: the GECK with xNVSE,
+                // docs/spec-notes/ext-bytecode.md].
+                if op == XUnary::Not && p.peek().is_some_and(|t| t.is(XKind::Op, "-")) {
+                    return self.xerr("syntax", "too many operators (! before -)");
+                }
                 let e = self.xexpr(p, bp)?;
                 XExpr::Unary { op, e: Box::new(e) }
             }

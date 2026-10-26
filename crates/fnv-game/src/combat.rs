@@ -335,6 +335,10 @@ impl Game<'_> {
         // The body gets its death item before OnDeath runs [hypothesis: the order]
         // (`crate::death_items`).
         self.give_death_items(r, killer);
+        // The extender's OnDeath handlers, before the block [hypothesis on the order;
+        // docs/spec-notes/ext-events.md].
+        let killer_val = fnv_script::vm::XVal::Ref(killer.map_or(0, |k| k.0));
+        self.dispatch_event("OnDeath", vec![fnv_script::vm::XVal::Ref(r.0), killer_val], Some(r));
         self.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
         // "Teammate state is cleared on death of the actor" [documented: GECK wiki
         // SetPlayerTeammate]; after OnDeath, which may still ask [hypothesis: the order].

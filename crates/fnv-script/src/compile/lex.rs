@@ -48,16 +48,12 @@ pub struct Line {
 pub const MAX_LINE: usize = 512;
 
 /// The text of `line` before its comment.
+///
+/// A `;` starts the comment even inside quotes [observed: the GECK with xNVSE reports
+/// "Mismatched quotes" for `"a;b"`, docs/spec-notes/ext-bytecode.md; no shipped string holds
+/// a `;`, so vanilla parity is the same either way].
 pub fn strip_comment(line: &str) -> &str {
-    let mut quoted = false;
-    for (i, ch) in line.char_indices() {
-        match ch {
-            '"' => quoted = !quoted,
-            ';' if !quoted => return &line[..i],
-            _ => {}
-        }
-    }
-    line
+    line.find(';').map_or(line, |i| &line[..i])
 }
 
 /// A number as the compiler writes it: digits with at most one `.`, at least one digit
@@ -145,7 +141,7 @@ fn block_comments(line: &str, in_block: &mut bool) -> String {
         }
         match cs[i] {
             '"' => quoted = !quoted,
-            ';' if !quoted => {
+            ';' => {
                 out.extend(&cs[i..]);
                 break;
             }
@@ -304,7 +300,8 @@ mod tests {
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].no, 1);
         assert_eq!(l[1].no, 5);
-        assert_eq!(l[1].toks[3].text, "a;b");
+        // The `;` inside the quotes starts the comment, as in the editor.
+        assert_eq!(l[1].toks[3].text, "a");
         assert!(long.is_empty());
     }
 

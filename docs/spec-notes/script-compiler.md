@@ -17,8 +17,10 @@ grammar.
 
 ## 1. Lines and tokens (`lex`)
 
-- A line ends at a line break. Comments run from `;` outside double quotes to the end of
-  the line. Blank lines and lines with no letter or digit produce no statement
+- A line ends at a line break. Comments run from `;` to the end of the line, also inside
+  double quotes [observed: the GECK with xNVSE reports "Mismatched quotes" for a `;` in a
+  string, docs/spec-notes/ext-bytecode.md; no shipped string holds one, so vanilla parity
+  is the same either way]. Blank lines and lines with no letter or digit produce no statement
   [observed: scripts.md §3.4].
 - Tokens: words (letters, digits, `_`, `.`), quoted strings (an unterminated one runs to
   the end of the line), the operators `== != <= >= && || < > + - * / %`, parentheses, and
@@ -411,6 +413,44 @@ rules; what NVForever decides where they are open is tagged here.
   splits into the three numbers is open]. IsPluginInstalled gives 0 and GetPluginVersion
   −1 for every plugin until NVForever has that plugin's functions [documented: −1 when
   absent; decision]. The `[Extenders]` switch per module is C2's.
+
+- **Events** (E1–E3; docs/spec-notes/ext-events.md). SetEventHandler (`"first"::`,
+  `"second"::` filters, an array filter ignored), SetEventHandlerAlt (`0::` the calling
+  reference, `1::`…`15::` the arguments; an array filter matches any of its elements),
+  `"priority"::n` (default 1, higher first, ties in registration order, 0 and values past
+  ±9999 refused), RemoveEventHandler (all of that handler for that event, or those
+  matching the filters given), DispatchEvent (one string map: `eventName` and
+  `eventSender`, the calling script's plugin, or the info map given with them added
+  [hypothesis]), DispatchEventAlt (the arguments, a calling reference; a handler may take
+  fewer parameters), GetCurrentEventName [documented: each page]. Filters match numbers
+  equal, strings without regard to case, a form the same form, a reference also its base
+  form, a form list any member [documented: New xNVSE Event Filtering System]. Handlers
+  run at once, inside the line that dispatches [hypothesis]. They are not saved, as
+  documented. Firing points so far: OnActivate first in every activation, even refused
+  ones [documented: NVSE Event Handling], and OnDeath before the OnDeath block [order
+  hypothesis]; LoadGame (the save's file name) and PostLoadGame (1) after a load, SaveGame
+  (the save's name) before a save is taken [documented: NVSE Event Handling, session
+  events]. A firing point costs nothing while no handler is registered.
+- **Sessions.** NVForever starts the engine again to load a save, so every load begins a
+  new session: SetEventHandler registrations end there, and GetGameRestarted is true
+  again for every script, which is when mods register them [documented: SetEventHandler,
+  "register again in a GetGameRestarted test"]. Within one run a game state taken over
+  keeps the session's SetEventHandler registrations of function scripts
+  (`Game::take_session`). GetGameLoaded is true once per script after each load,
+  GetGameRestarted once per script per session [documented: each page].
+- **Catalogue rows**: when several rows carry one name (the pages of events and examples
+  that show a call), the row from the function's own page gives the parameters
+  [decision].
+- **Variable types from source**: a record's variable list can only say Integer or
+  FloatOrRef [documented: xEdit SLSD]; the editor with xNVSE stores a `string_var` as
+  Integer and an `array_var` as FloatOrRef [observed: ext-bytecode.md]. So a unit whose
+  source declares either runs from its source (§7), and a seeded slot declared that way
+  takes the declared type at the same index.
+- **More of the editor's rules** [observed: ext-bytecode.md, the owner's GECK and game]:
+  `!-1` is refused ("too many operators") and `-!0` compiles; `Return value` compiles in a
+  function, here SetFunctionValue then Return [meaning hypothesis]; `1 && iX += 5` reads
+  `(1 && iX) += 5` and fails, as the compiler here refuses it (an assignment to something
+  that is not a variable).
 
 ## 10. Open
 

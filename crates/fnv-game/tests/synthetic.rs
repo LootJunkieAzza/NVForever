@@ -1674,13 +1674,24 @@ fn udf_fixture() -> Fixture {
             "TestFact",
             "scn TestFact\nint n\nint r\nBegin Function {n}\n  if eval n <= 1\n    SetFunctionValue 1\n  else\n    let r := Call TestFact (n - 1)\n    SetFunctionValue n * r\n  endif\nEnd\n".to_string(),
         ),
+        (0x0000_0903u32, "TestSet", "scn TestSet\nfloat n\nBegin Function {n}\n  let TestGlobal := n\nEnd\n".to_string()),
+        (
+            0x0000_0904u32,
+            "TestMap",
+            "scn TestMap\narray_var m\nBegin Function {m}\n  let TestGlobal := Sv_Length (m[\"eventName\"]) * 10 + Sv_Length (m[\"eventSender\"])\nEnd\n".to_string(),
+        ),
     ] {
         // TestFact calls itself: its own name resolves through a seed reference list.
-        let c = if edid == "TestFact" {
+        let c = if edid != "TestAdd" {
             struct Me;
             impl fnv_script::compile::Env for Me {
                 fn form(&self, e: &str) -> Option<fnv_script::compile::FormInfo> {
-                    e.eq_ignore_ascii_case("TestFact").then_some(fnv_script::compile::FormInfo { form: 0x0000_0902, sig: *b"SCPT" })
+                    let (form, sig) = match e.to_ascii_lowercase().as_str() {
+                        "testfact" => (0x0000_0902, *b"SCPT"),
+                        "testglobal" => (0x0000_0800, *b"GLOB"),
+                        _ => return None,
+                    };
+                    Some(fnv_script::compile::FormInfo { form, sig })
                 }
                 fn info(&self, _: u32) -> Option<fnv_script::compile::FormInfo> {
                     None
@@ -1704,7 +1715,8 @@ fn udf_fixture() -> Fixture {
         let vars: Vec<(u32, String, u8)> = c.variables.iter().map(|v| (v.index, v.name.clone(), u8::from(v.ty == fnv_script::VarType::Int))).collect();
         let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
         let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
-        let subs = unit(0, &c.bytes, &vars, &refs);
+        let mut subs = unit(0, &c.bytes, &vars, &refs);
+        subs.push(sub(b"SCTX", src.as_bytes().to_vec()));
         scripts.push(record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], subs].concat()));
     }
     let plugin = [tes4(), top(b"GLOB", &glob), top(b"SCPT", &scripts.concat())].concat();
@@ -1773,4 +1785,41 @@ fn the_extenders_strings_arrays_and_lambdas_are_in_the_save() {
     let r = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
     assert_eq!(r.ext.text(id), Some("kept"));
     assert_eq!(r.snapshot().lambdas, snap.lambdas);
+}
+
+#[test]
+fn event_handlers_are_set_dispatched_filtered_and_removed() {
+    // Tasks E1–E3 [documented: SetEventHandler; SetEventHandlerAlt; RemoveEventHandler;
+    // DispatchEvent; DispatchEventAlt].
+    let f = udf_fixture();
+    // The handler names are scripts; the console line resolves them by Editor ID.
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    run(&mut g, "SetEventHandler \"NVFTestEvent\" TestSet\nDispatchEventAlt \"NVFTestEvent\" 7");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 7.0);
+    // A filter on the first argument: only 5 passes.
+    run(&mut g, "RemoveEventHandler \"NVFTestEvent\" TestSet\nSetEventHandlerAlt \"NVFAlt\" TestSet 1::5\nDispatchEventAlt \"NVFAlt\" 4\nDispatchEventAlt \"NVFTestEvent\" 9");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 7.0, "4 is filtered out and the removed handler does not run");
+    run(&mut g, "DispatchEventAlt \"NVFAlt\" 5");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 5.0);
+    // DispatchEvent: one string map with eventName and eventSender (the console's
+    // "plugin" is `console`).
+    run(&mut g, "SetEventHandler \"Abc\" TestMap\nDispatchEvent \"Abc\"");    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 37.0);
+    // Priority 0 is refused [documented: SetEventHandler].
+    run(&mut g, "let TestGlobal := SetEventHandler \"X\" TestSet \"priority\"::0");
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 0.0);
+}
+
+#[test]
+fn get_game_loaded_and_restarted_are_true_once_per_script() {
+    // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
+    // session; a session's SetEventHandler registrations carry over a load.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("SetEventHandler \"NVFTestEvent\" TestSet", Default::default()).unwrap();
+    let session = g.take_session();
+    let mut g2 = game(&f);
+    g2.put_session(session);
+    g2.run_source("DispatchEventAlt \"NVFTestEvent\" 3", Default::default()).unwrap();
+    assert_eq!(g2.world.global(FormId(0x0000_0800)).unwrap(), 3.0, "the handler lasted for the session");
 }
