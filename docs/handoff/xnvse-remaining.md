@@ -75,7 +75,13 @@ Hypotheses waiting on the peer's probes: the AltEx bits of looking/rollover/snea
 (1, 5, 6), SetDoorTeleport moving the player, RunScript on a non-function script, the
 console echo's start state. Next:
 1. (done)
-2. Packages and paths setters, form flags (needs the records' header flags kept).
+2. (done 2026-10-26: packages, paths and form flags; `Game::package_def` and
+   `Game::package_list` carry the scripts' package changes to every reader, the record
+   header flags are kept in `GameData::form_flags`.) Claimed by the peer session the
+   same day: quaternion Ex forms, settings and INI, tokens (GetPaired with them),
+   event-handler lists, debug and docs. Left here: animations, generic forms, console;
+   UI waits on the tile tree (#834).
+3. Was: Packages and paths setters, form flags (needs the records' header flags kept).
 3. Event-handler lists, tokens, animations, generic forms.
 4. Console (`con_*`) and debug/documentation commands; UI waits on the owner
    (extender-compat.md §5.6).

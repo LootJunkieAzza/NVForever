@@ -486,6 +486,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 Some(t) if own.is_empty() => g.data.actors.get(&t).map(|d| d.packages.clone()).unwrap_or_default(),
                 _ => own,
             };
+            // AddPackageAt's and RemovePackageAt's list first.
+            let list = g.other.package_lists.get(&b).cloned().unwrap_or(list);
             if name == "getpackagecount" {
                 XVal::Num(list.len() as f64)
             } else {
@@ -495,7 +497,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // [documented: GetPackageTargetDistance] the target's count / distance.
         "getpackagetargetdistance" => {
             let p = as_form(args.first()).unwrap_or(FormId(0));
-            XVal::Num(g.data.package_defs.get(&p).and_then(|d| d.target).map_or(0.0, |t| f64::from(t.count_distance)))
+            XVal::Num(g.package_def(&p).and_then(|d| d.target).map_or(0.0, |t| f64::from(t.count_distance)))
         }
         "getcurrentpackage" => XVal::Ref(as_form(args.first()).or(subject).and_then(|a| g.current_package(a)).map_or(0, |p| p.0)),
         // [documented: GetQuestObjectiveCount; GetNthQuestObjective; observed: nvse-misc,

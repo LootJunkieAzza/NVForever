@@ -2767,14 +2767,24 @@ impl Vm<'_, '_> {
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
             // `"format" values… faction rank [female]`]: formatted here, set by the game
             // (SetName's change; the rank title).
-            "setnameex" | "setnthfactionranknameex" => {
+            // [documented: SetModelPathEx; SetIconPathEx; SetBipedModelPathEx;
+            // SetBipedIconPathEx] likewise, then the plain setter.
+            "setnameex" | "setnthfactionranknameex" | "setmodelpathex" | "seticonpathex" | "setbipedmodelpathex" | "setbipediconpathex" => {
                 let (t, k) = self.format_arg(c, 0)?;
                 let mut args = vec![XVal::Str(t)];
                 for e in c.args.iter().skip(k) {
                     args.push(self.xeval(e)?);
                 }
-                let to = if lname == "setnameex" { "setname" } else { "setnthfactionranknameex" };
-                match self.host.ext_call(to, None, &args) {
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let to = match lname.as_str() {
+                    "setnameex" => "setname",
+                    "setnthfactionranknameex" => "setnthfactionranknameex",
+                    other => other.strip_suffix("ex").unwrap_or(other),
+                };
+                match self.host.ext_call(to, on, &args) {
                     Some(r) => r.map_err(VmError::Host)?,
                     None => XVal::Num(0.0),
                 };

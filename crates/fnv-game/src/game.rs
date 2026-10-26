@@ -1006,6 +1006,10 @@ pub struct Game<'a> {
     /// JIP switches kept for the session (ToggleTeammateKillable, SetWheelDisabled,
     /// ToggleNoHealthReset).
     pub(crate) jip_flags: std::collections::HashSet<(FormId, &'static str)>,
+    /// Packages a script changed (SetPackageLocationRadius, SetPackageLocationReference,
+    /// SetPackageTargetReference): the changed copy, kept for the session (leaked, so it
+    /// lives as long as the records; a few per session).
+    pub(crate) package_overrides: std::collections::HashMap<FormId, &'a crate::package::PackageDef>,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
@@ -1613,6 +1617,7 @@ impl<'a> Game<'a> {
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
             other: Default::default(),
+            package_overrides: std::collections::HashMap::new(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -3552,7 +3557,7 @@ impl<'a> Game<'a> {
         // set [documented: GECK wiki, Category:Packages, Begin/End/Change tab]; the topic
         // is said as Say says it, before the idle is asked for [hypothesis: their order;
         // docs/spec-notes/packages.md §7.2].
-        if let Some(topic) = data.package_defs.get(&package).and_then(|d| d.events[which.min(2)].topic) {
+        if let Some(topic) = self.package_def(&package).and_then(|d| d.events[which.min(2)].topic) {
             if !self.is_dead(actor) {
                 self.say(actor, None, topic, false);
             }

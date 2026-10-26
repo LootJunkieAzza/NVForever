@@ -100,8 +100,7 @@ impl Game<'_> {
 
     /// Whether `actor`'s current package allows aggro radius behaviour (module notes).
     fn package_allows_aggro(&mut self, actor: FormId) -> bool {
-        let data = self.data;
-        match self.current_package(actor).and_then(|p| data.package_defs.get(&p)) {
+        match self.current_package(actor).and_then(|p| self.package_def(&p)) {
             // "No Warn/Attack Behavior" turns the warnings and the attack off [hypothesis:
             // the flag's name, xEdit; no page describes it].
             Some(d) if d.has(flags::NO_WARN_ATTACK_BEHAVIOR) => false,

@@ -571,7 +571,7 @@ pub fn drive(
     for (actor, marker) in candidates {
         let data = game.data;
         let of_marker = marker.and_then(|m| data.idle_markers.get(&m).filter(|c| !c.idles.is_empty()).map(|c| ((true, m.0), c)));
-        let quiet = package_of(game, actor).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flags::NO_IDLE_ANIMS));
+        let quiet = package_of(game, actor).and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::NO_IDLE_ANIMS));
         let Some((key, collection)) = of_marker.or_else(|| game.package_idles(FormId(actor)).map(|(p, c)| ((false, p.0), c))).filter(|_| !quiet) else { continue };
         live.push(actor);
         let c = st.collections.entry(actor).or_insert_with(|| Collection { key, picker: IdlePicker::default(), next: None, retry: 0.0 });

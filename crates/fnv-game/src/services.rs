@@ -150,7 +150,7 @@ impl Game<'_> {
             return false;
         }
         let Some(p) = self.current_package(actor) else { return false };
-        if !self.data.package_defs.get(&p).is_some_and(|d| d.has(flags::OFFERS_SERVICES)) {
+        if !self.package_def(&p).is_some_and(|d| d.has(flags::OFFERS_SERVICES)) {
             return false;
         }
         let on_the_way = self.extra.get(&actor).is_some_and(|e| e.ai_phase == Some(crate::ai::AiPhase::Travelling) && !e.package_goal_met);

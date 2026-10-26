@@ -100,7 +100,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // Doors [documented: GetLinkedDoor; GetTeleportCell; IsLoadDoor]: the reference's
         // teleport (XTEL).
         "getlinkeddoor" | "getteleportcell" | "isloaddoor" => {
-            let t = subject.and_then(|r| g.world.placed.get(r)).and_then(|p| p.teleport.as_ref()).map(|t| t.door);
+            // SetDoorTeleport's target first [observed: nvse-fifth, GetLinkedDoor follows it].
+            let t = subject.and_then(|r| g.door_teleport(r)).map(|t| t.0);
             match name {
                 "getlinkeddoor" => XVal::Ref(t.map_or(0, |d| d.0)),
                 // An exterior destination gives no cell [observed: nvse-actors, Doc's
