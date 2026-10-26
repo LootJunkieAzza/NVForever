@@ -72,6 +72,40 @@ def core_family(rec):
     return next((fam for fam, names in CORE_NAMED.items() if n in names), None)
 
 
+# JIP LN NVSE (docs/handoff/jip-tasks.md, task J1): a JIP or LU (Lutana, now part of
+# JIP) function gets `jip_family`, its wiki category without the "(JIP)" suffix, and
+# `jip_probe`, how a probe can call it: "pure" (numbers, strings or axes only, no calling
+# reference: a runtime-compiled capture query can), "form" (it needs forms or a calling
+# reference, built with BuildRef), "none" (variables, arrays or other arguments, or a
+# setter returning nothing: a GECK-compiled probe).
+JIP_ORIGINS = {"JIP", "LU"}
+PURE_KINDS = {"int", "float", "string", "axis"}
+FORM_KINDS = PURE_KINDS | {"reference", "form", "actor_value"}
+
+
+def jip_family(rec):
+    """The JIP family of a function (its first wiki category, "(JIP)" ones first), or None."""
+    if rec["origin"] not in JIP_ORIGINS:
+        return None
+    cats = [c for c in rec.get("categories", []) if not c.startswith("Functions")]
+    own = [c for c in cats if c.endswith(" (JIP)")]
+    pick = (own or cats or [None])[0]
+    return pick[:-len(" (JIP)")] if pick and pick.endswith(" (JIP)") else pick
+
+
+def jip_probe(rec):
+    """How a probe can call a JIP function: "pure", "form" or "none"."""
+    kinds = {p.get("kind") for p in rec.get("params", [])}
+    ret = ((rec.get("returns") or {}).get("type") or "").lower()
+    if ret in ("void", "none", "nothing"):
+        return "none"
+    if kinds <= PURE_KINDS and not rec.get("calling_reference"):
+        return "pure"
+    if kinds <= FORM_KINDS:
+        return "form"
+    return "none"
+
+
 # Statement opcodes below 0x1000 seen in shipped bytecode, named by lining up the source
 # line [observed]. Function opcodes are 0x1000 and above.
 STATEMENT_OPCODES = {0x10: "Begin", 0x11: "End", 0x15: "Set", 0x16: "If", 0x17: "Else",
@@ -518,6 +552,9 @@ def build(wiki, scan, xedit, notes):
         e["family"] = "vanilla" if vanilla else "extender"
         if not vanilla and core_family(e):
             e["core_family"] = core_family(e)
+        if not vanilla and jip_family(e):
+            e["jip_family"] = jip_family(e)
+            e["jip_probe"] = jip_probe(e)
         if e.get("page"):
             e["wiki"] = WIKI_URL + e["page"].replace(" ", "_")
         ops = observed.get(key, {})

@@ -113,6 +113,10 @@ pub struct Vfs {
     /// broken mod must not stop the game). Kept so a caller whose log is not up yet can
     /// report them later.
     skipped: Vec<(String, String)>,
+    /// Archives that cannot be opened or whose tables are damaged ([`fnv_bsa::check`]),
+    /// with why. The game will not start with one (engine `main.rs`); tools go on with
+    /// what reads.
+    broken: Vec<(String, String)>,
 }
 
 impl Vfs {
@@ -160,7 +164,7 @@ impl Vfs {
     /// Open the archives (lowest precedence first) and index loose files under `data_dir`.
     pub fn open(data_dir: &Path, archives: &[String]) -> Result<Vfs, VfsError> {
         let mut vfs =
-            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), skipped: Vec::new() };
+            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), skipped: Vec::new(), broken: Vec::new() };
         for name in archives {
             // A bad or wrong-version archive is skipped; the others still load.
             let a = match Archive::open(data_dir.join(name)) {
@@ -168,9 +172,14 @@ impl Vfs {
                 Err(e) => {
                     tracing::warn!(archive = %name, error = %e, "archive skipped: cannot be read");
                     vfs.skipped.push((name.clone(), e.to_string()));
+                    vfs.broken.push((name.clone(), e.to_string()));
                     continue;
                 }
             };
+            if let Err(e) = a.check_tables() {
+                tracing::warn!(archive = %name, error = %e, "archive damaged: its tables point past the end");
+                vfs.broken.push((name.clone(), e.to_string()));
+            }
             let ai = vfs.archives.len();
             for e in a.entries() {
                 vfs.index.insert(
@@ -232,6 +241,11 @@ impl Vfs {
     /// Archives and loose folders skipped because they could not be read: (name, why).
     pub fn skipped(&self) -> &[(String, String)] {
         &self.skipped
+    }
+
+    /// Archives that cannot be opened or whose header or tables are damaged: (name, why).
+    pub fn broken_archives(&self) -> &[(String, String)] {
+        &self.broken
     }
 
     pub fn exists(&self, path: &str) -> bool {
@@ -375,7 +389,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A broken archive (here an empty file) is skipped, not fatal; loose files still load.
+    /// A broken archive (here an empty file) is skipped, not fatal here; loose files still load.
     #[test]
     fn a_bad_archive_is_skipped() {
         let dir = std::env::temp_dir().join(format!("nvf-vfs-bad-{}", std::process::id()));
@@ -385,6 +399,10 @@ mod tests {
         let vfs = Vfs::open(&dir, &["Broken.bsa".to_string(), "Missing.bsa".to_string()]).unwrap();
         assert_eq!(vfs.archives().count(), 0);
         assert_eq!(vfs.skipped().len(), 2);
+        // Both are named for the start-up check, with why.
+        let broken: Vec<&str> = vfs.broken_archives().iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(broken, ["Broken.bsa", "Missing.bsa"]);
+        assert!(vfs.broken_archives()[0].1.contains("0 bytes"), "{:?}", vfs.broken_archives());
         assert!(vfs.exists("meshes/a.nif"));
         std::fs::remove_dir_all(&dir).unwrap();
     }

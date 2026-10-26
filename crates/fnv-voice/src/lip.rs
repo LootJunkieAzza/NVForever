@@ -35,6 +35,11 @@ pub const HEADER_BYTES: usize = 12;
 /// What the header's second field exceeds the unpacked body's size by.
 pub const DECLARED_EXTRA: u32 = 16;
 
+/// The most bytes a body may unpack to, whatever its header declares: 64 MB, over four
+/// hours of frames [engineering choice: a broken header declaring 4 GB, with zero runs of
+/// 65,535 bytes from 3 packed, would otherwise unpack a small file to gigabytes].
+pub const MAX_UNPACKED: usize = 64 << 20;
+
 /// Channel names: the game's phoneme numbers 0–15 followed by its modifier numbers 0–16
 /// [documented: GECK wiki, "ModifyFaceGen" (the console command's Phoneme and Modifier
 /// IDs); the spelling follows the morph labels of the head `.tri` files where the two
@@ -172,7 +177,7 @@ impl Lip {
             return Err(LipError::NoHeader { have: bytes.len() });
         }
         let (version, declared, flag) = (u32_at(bytes, 0), u32_at(bytes, 4), u32_at(bytes, 8));
-        let raw = unpack_at_most(&bytes[HEADER_BYTES..], (declared as usize).saturating_sub(DECLARED_EXTRA as usize))?;
+        let raw = unpack_at_most(&bytes[HEADER_BYTES..], (declared as usize).saturating_sub(DECLARED_EXTRA as usize).min(MAX_UNPACKED))?;
         if u64::from(declared) != raw.len() as u64 + u64::from(DECLARED_EXTRA) {
             return Err(LipError::Size { declared, unpacked: raw.len() });
         }
@@ -240,7 +245,7 @@ impl Lip {
     pub fn sample(&self, seconds: f64) -> Option<[f32; CHANNELS]> {
         let x = seconds * FRAMES_PER_SECOND - f64::from(self.start_frame);
         let last = self.frames.len().checked_sub(1)?;
-        if x < -1e-9 || x > last as f64 + 1e-9 {
+        if !x.is_finite() || x < -1e-9 || x > last as f64 + 1e-9 {
             return None;
         }
         let x = x.clamp(0.0, last as f64);
@@ -447,5 +452,45 @@ mod tests {
         assert_eq!(j["channels"][2]["first_frame"], 1);
         assert!(j["channels"][3]["values"].is_null());
         assert_eq!(j["speech_frames"], serde_json::json!([1, 2]));
+    }
+
+    #[test]
+    fn corrupt_files_do_not_panic_or_balloon() {
+        // A header declaring 4 GB over a small file of zero runs: refused at the cap,
+        // never unpacked to gigabytes.
+        let mut huge = 1u32.to_le_bytes().to_vec();
+        huge.extend(u32::MAX.to_le_bytes());
+        huge.extend(1u32.to_le_bytes());
+        for _ in 0..2000 {
+            huge.extend([0, 0xFF, 0xFF]);
+        }
+        assert_eq!(Lip::parse(&huge), Err(LipError::TooLong { limit: MAX_UNPACKED }));
+        // A frame count of 4 billion over an 8-byte body: named, not allocated.
+        let mut raw = u32::MAX.to_le_bytes().to_vec();
+        raw.extend(0i32.to_le_bytes());
+        let mut f = 1u32.to_le_bytes().to_vec();
+        f.extend((raw.len() as u32 + DECLARED_EXTRA).to_le_bytes());
+        f.extend(1u32.to_le_bytes());
+        f.extend(pack(&raw));
+        assert!(matches!(Lip::parse(&f), Err(LipError::Frames { .. })));
+        // Every cut and every flipped byte of a good file: an error or a lip, no panic.
+        let good = Lip { version: 1, flag: 1, start_frame: -3, frames: vec![frame(&[(0, 0.5)]), frame(&[]), frame(&[(16, 1.0)])] }.to_bytes();
+        for n in 0..good.len() {
+            let _ = Lip::parse(&good[..n]);
+        }
+        for i in 0..good.len() {
+            for b in [0x00, 0xFF, 0x7F, 0x80] {
+                let mut bad = good.clone();
+                bad[i] = b;
+                if let Ok(l) = Lip::parse(&bad) {
+                    assert!(l.frames.iter().flatten().all(|x| x.is_finite()));
+                }
+            }
+        }
+        // A clock that is not a number samples nothing.
+        let l = Lip::parse(&good).unwrap();
+        assert_eq!(l.sample(f64::NAN), None);
+        assert_eq!(l.sample(f64::INFINITY), None);
+        assert_eq!(l.sample(f64::NEG_INFINITY), None);
     }
 }

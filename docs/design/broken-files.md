@@ -62,8 +62,18 @@ smoke scenario `broken-files` uses it in the Bison Steve lobby.
   so is every plugin that needs it (`fnv_esm::loadorder::drop_unloadable`; the strict
   `LoadOrder::new` stays for the tools). So is a plugin that cannot be read. [design:
   the original refuses to start in that case; the owner's rule is that the game goes on.]
-- An archive (`.bsa`) that cannot be opened, and a folder of `Data` that cannot be
-  read, are left out with a warning (`Vfs::skipped`).
+- A folder of `Data` that cannot be read is left out with a warning (`Vfs::skipped`).
+- An archive (`.bsa`) the game would load (the game's list, `Update.bsa`, the loaded
+  plugins' own) that cannot be opened, has a bad magic, version, header, folder or file
+  table, or whose file records point past its end **stops the start** [owner
+  2026-10-25]: a message box names each archive and what is wrong (none in unattended
+  runs or a handoff's new run, whose old run shows it), the run log's "stopped at the
+  start" line has the same reason, and no save or world is loaded
+  (`fnv_bsa::check` = `Archive::open` + `check_tables`, `Vfs::broken_archives`, engine
+  `main.rs` `damaged_archives`). Headers and tables only, nothing decompressed: a file
+  inside a readable archive that fails to decompress later is that file's error (§2).
+  `fnvtool bsa check <archives>` runs the same check; smoke `damaged-archive-stops-start`
+  and `bsa-check-shipped`. The tools still open what reads (`Vfs::skipped`).
 - Lists that name themselves (leveled lists, head parts, collision list shapes) are
   walked once per entry (visited sets); counts and sizes from files are checked against
   the bytes there are before anything is allocated (NIF arrays, saves, FaceGen, lip

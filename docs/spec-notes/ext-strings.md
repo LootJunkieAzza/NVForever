@@ -283,3 +283,34 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | ToNumber | `#` (operator) | string; hexadecimal bool?; reportError bool? (6.2.9) | float | number in the text; `0x…` read as hex | with reportError a bad string raises an extender error (TestExpr catches); without: open |
 | NumToHex | IntToHex (6.2.9) | int; width int? (default 8); addPrefix bool? (default 0, 6.2.9) | string | upper-case hex, zero-padded to width; `0x` with the flag | width too small is widened; at most 8; negatives: open |
 | GetFormIDString | — | ref variable | string | hex form ID | a form named directly does not compile; load-order dependent; padding/case: open |
+
+## Observed in the original game (2026-10-26)
+
+[observed: <id>] = tools/capture/ext-probes, run unattended in the original game (xNVSE 6.4.9, JIP 57.30) on 2026-10-26 by tools/capture/ext_probe_run.py from the owner's private test plugin; the results file is private (`C:\fnv-private\goldens\ext\`). Where a row settles an "open" point above, the observation wins.
+
+| Probe | Input | Result | So |
+|---|---|---|---|
+| len.empty | Sv_Length of "" | 0 | an empty string has length 0 |
+| len.destructed | Sv_Length after Sv_Destruct | -1 | a destructed string counts as invalid |
+| find.range | Sv_Find "e" in "Hello there", start 5, 6 chars | 8 | positions count from the start of the string, not of the range |
+| count.overlap | Sv_Count "aa" in "aaaa" | 2 | matches do not overlap |
+| replace.empty_old | Sv_Replace "\|x" (empty old text) | **crashes the game** | unguarded in xNVSE; NVForever chooses a safe answer |
+| insert.end | Sv_Insert at the string's length | [Hello] | inserting at the end appends |
+| insert.past_end | Sv_Insert "x" at 99 into "abc" | [abc] | past the end: nothing happens |
+| erase.past_end | Sv_Erase 4, 99 on "abcdef" | [abcd] | a count past the end erases to the end |
+| slice.out_of_range | "abcdef"[4:10] | [ef] | a slice is clamped to the string |
+| getchar.out | Sv_GetChar position 9 of "Abc" | -1 | out of range gives -1 |
+| split.double | Sv_Split "a,,b" on "," | 2 pieces | empty pieces are dropped |
+| upper.source_kept | sv_ToUpper, then the source | [Mix] | the source is unchanged |
+| compare.case_flag | Sv_Compare "abc" with "ABC", case-sensitive | 1 | the case flag makes them differ |
+| eq.case | "abc" == "ABC" | 1 | string == ignores case |
+| tostring.int | $ of int 5 | 5 | no decimals for whole numbers |
+| tostring.float | $ of 2.5 / -0.25 | 2.5 / -0.25 | shortest form, no padding |
+| tostring.form | $ of PlayerREF | the player's name | as documented |
+| tostring.unset_ref | $ of an empty ref | <NULL> | the text for no form |
+| tonumber.bad / .empty | # of "abc" / "" | 0 / 0 | no number gives 0, no error |
+| tonumber.trailing | # of "12abc" | 12 | reading stops at the first non-number character |
+| tonumeric.none | Sv_ToNumeric of "abc" | 0 | as ToNumber |
+| hex.over8 | NumToHex 42, 10 | 0000002A | the width is capped at 8 |
+| hex.negative | NumToHex -1 | FFFFFFFF | two's complement, 8 digits |
+| formid.player | GetFormIDString of PlayerREF | 00000014 | 8 digits, upper case |

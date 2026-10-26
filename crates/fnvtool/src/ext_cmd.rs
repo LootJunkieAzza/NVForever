@@ -47,6 +47,30 @@ pub enum ExtCmd {
         #[arg(long)]
         functions: Option<PathBuf>,
     },
+    /// Run one probe set's quests headless (tools/capture/ext-probes/<set>) and collect
+    /// the EXTPROBE lines they print, as the in-game collector does (fnv.ext.probes/1).
+    Probes {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Layer 1 schema directory (schemas/fnv).
+        #[arg(long)]
+        schema: PathBuf,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// The probe set: strings, expressions, arrays, loops or udf.
+        #[arg(long)]
+        probes: String,
+        /// The probe sources (default: tools/capture/ext-probes).
+        #[arg(long, default_value = "tools/capture/ext-probes")]
+        probes_dir: PathBuf,
+        /// Frames to run after starting each quest.
+        #[arg(long, default_value_t = 600)]
+        frames: u64,
+        /// Also run the runaway loop and the deep recursion.
+        #[arg(long)]
+        risky: bool,
+    },
 }
 
 pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
@@ -57,6 +81,35 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let order = LoadOrder::new(&plugins)?;
             let schema = Schema::load_dir(&schema)?;
             scan(&order, &schema, &fp)
+        }
+        ExtCmd::Probes { lo, schema, functions, probes, probes_dir, frames, risky } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let plans = probe_plans(&probes_dir.join(&probes), risky)?;
+            let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
+            let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
+            let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let forms = fnv_sim::FormStore::build(&order, &schema);
+            let refs = fnv_sim::RefTable::build(&order, &schema);
+            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            let mut lines = Vec::new();
+            let mut runs = Vec::new();
+            for plan in &plans {
+                let input: fnv_game::runner::Input = serde_json::from_value(plan.input(frames)).context("probe actions")?;
+                match fnv_game::runner::run(&data, &forms, &refs, &input) {
+                    Ok(trace) => {
+                        let before = lines.len();
+                        probe_lines(&trace, &mut lines);
+                        runs.push(json!({"quest": plan.quest, "which": plan.which, "lines": lines.len() - before}));
+                    }
+                    Err(e) => runs.push(json!({"quest": plan.quest, "which": plan.which, "error": e})),
+                }
+            }
+            let mut doc = probes_doc(&probes, &lines);
+            doc["runs"] = json!(runs);
+            Ok(doc)
         }
     }
 }
@@ -274,6 +327,116 @@ pub(crate) fn report(units: &[ScriptUnit], cat: &Catalogue, table: &FunctionTabl
     })
 }
 
+/// One headless run: a probe quest, and for a selector script the probe number.
+pub(crate) struct ProbePlan {
+    pub quest: String,
+    pub which: Option<u32>,
+}
+
+impl ProbePlan {
+    /// The fnv.script.actions/1 document of the run.
+    fn input(&self, frames: u64) -> Value {
+        let mut actions = vec![json!({"op": "start_quest", "quest": self.quest})];
+        if let Some(k) = self.which {
+            actions.push(json!({"op": "wait_frames", "frames": frames / 2}));
+            actions.push(json!({"op": "set_quest_var", "quest": self.quest, "var": "iWhich", "value": k}));
+        }
+        actions.push(json!({"op": "wait_frames", "frames": frames}));
+        json!({"format": "fnv.script.actions/1", "new_game": false, "actions": actions})
+    }
+}
+
+/// Scripts the in-game runner also leaves out unless asked (they hang or crash the
+/// original): the runaway loop and the deep recursion.
+const RISKY: [&str; 2] = ["ExtProbeLoops09", "ExtProbeUdf05"];
+
+/// The runs for a probe folder, as tools/capture/ext_probe_run.py plans them: every
+/// `scn` file's quest (script name + "Q"), a selector script (one with `iWhich`) once per
+/// probe number.
+pub(crate) fn probe_plans(dir: &Path, risky: bool) -> anyhow::Result<Vec<ProbePlan>> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| dir.display().to_string())?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+        .collect();
+    files.sort();
+    let mut out = Vec::new();
+    for f in files {
+        let text = std::fs::read_to_string(&f).with_context(|| f.display().to_string())?;
+        let Some(name) = text.lines().next().and_then(|l| l.strip_prefix("scn ")).map(str::trim) else { continue };
+        if !risky && RISKY.contains(&name) {
+            continue;
+        }
+        let quest = format!("{name}Q");
+        let n = text
+            .lines()
+            .map(str::trim_start)
+            .filter(|t| t.starts_with("if iWhich == ") || t.starts_with("elseif iWhich == "))
+            .filter(|t| t.rsplit(' ').next().is_some_and(|n| n.parse::<u32>().is_ok()))
+            .count() as u32;
+        if n == 0 {
+            out.push(ProbePlan { quest, which: None });
+        } else {
+            out.extend((1..=n).map(|k| ProbePlan { quest: quest.clone(), which: Some(k) }));
+        }
+    }
+    Ok(out)
+}
+
+/// Every printed line of a run's trace that carries a probe result: any event text with
+/// `EXTPROBE|` (the VM's script-print events).
+pub(crate) fn probe_lines(trace: &Value, out: &mut Vec<String>) {
+    match trace {
+        Value::Object(m) => {
+            if let Some(Value::String(t)) = m.get("text") {
+                if let Some(i) = t.find("EXTPROBE|") {
+                    out.push(t[i..].trim_end().to_string());
+                }
+            }
+            m.values().for_each(|v| probe_lines(v, out));
+        }
+        Value::Array(a) => a.iter().for_each(|v| probe_lines(v, out)),
+        _ => {}
+    }
+}
+
+/// fnv.ext.probes/1 from probe lines, as tools/capture/ext_probes.py writes it: rows in
+/// first-seen order (the last value of a repeated id wins), begin/end markers per script.
+pub(crate) fn probes_doc(set: &str, lines: &[String]) -> Value {
+    let mut order: Vec<String> = Vec::new();
+    let mut values: HashMap<String, String> = HashMap::new();
+    let mut dups = Vec::new();
+    let mut files: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    for l in lines {
+        let Some(rest) = l.strip_prefix("EXTPROBE|") else { continue };
+        let Some((id, value)) = rest.split_once('|') else { continue };
+        if id.contains('/') && (value == "begin" || value == "end") {
+            let f = files.entry(id.to_string()).or_default();
+            if value == "begin" {
+                f.0 = true
+            } else {
+                f.1 = true
+            }
+            continue;
+        }
+        match values.get(id) {
+            Some(old) if old != value => dups.push(json!({"id": id, "values": [old, value]})),
+            Some(_) => {}
+            None => order.push(id.to_string()),
+        }
+        values.insert(id.to_string(), value.to_string());
+    }
+    json!({
+        "format": "fnv.ext.probes/1",
+        "set": set,
+        "version": "nvforever",
+        "sources": ["fnvtool ext probes"],
+        "rows": order.iter().map(|id| json!({"id": id, "value": values[id]})).collect::<Vec<_>>(),
+        "files": files.iter().map(|(n, (b, e))| json!({"name": n, "begun": b, "ended": e})).collect::<Vec<_>>(),
+        "duplicates": dups,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +539,44 @@ End
         for (k, n) in [("let", 4), ("assign", 3), ("compound", 1), ("if_eval", 1), ("string_var", 1), ("array_var", 1), ("begin_override", 1), ("subscript", 1), ("member", 0)] {
             assert_eq!(syn[k].as_u64(), Some(n), "{k}");
         }
+    }
+
+    #[test]
+    fn probe_plans_follow_the_probe_folder() {
+        let dir = std::env::temp_dir().join(format!("ext_probe_plans_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("01_a.txt"), "scn ExtProbeX01\nBegin GameMode\nEnd\n").unwrap();
+        std::fs::write(dir.join("02_sel.txt"), "scn ExtProbeX02\nint iWhich\nBegin GameMode\n    if iWhich == 1\n    elseif iWhich == 2\n    endif\nEnd\n").unwrap();
+        std::fs::write(dir.join("09_run.txt"), "scn ExtProbeLoops09\nBegin GameMode\nEnd\n").unwrap();
+        std::fs::write(dir.join("README.md"), "not a script").unwrap();
+        let plans = probe_plans(&dir, false).unwrap();
+        let got: Vec<(String, Option<u32>)> = plans.iter().map(|p| (p.quest.clone(), p.which)).collect();
+        assert_eq!(got, vec![("ExtProbeX01Q".into(), None), ("ExtProbeX02Q".into(), Some(1)), ("ExtProbeX02Q".into(), Some(2))]);
+        assert_eq!(probe_plans(&dir, true).unwrap().len(), 4, "--risky adds the runaway loop");
+        let input = plans[1].input(600);
+        assert_eq!(input["actions"][1], json!({"op": "wait_frames", "frames": 300}));
+        assert_eq!(input["actions"][2], json!({"op": "set_quest_var", "quest": "ExtProbeX02Q", "var": "iWhich", "value": 1}));
+        let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn probe_lines_and_document() {
+        let trace = json!({"events": [
+            {"kind": "script_print", "unit": "u", "text": "EXTPROBE|strings/S|begin"},
+            {"kind": "script_print", "unit": "u", "text": "console: EXTPROBE|len.basic|5\n"},
+            {"kind": "other", "text": "no probe here"},
+            {"kind": "script_print", "unit": "u", "text": "EXTPROBE|replace.result|[a|b]"},
+            {"kind": "script_print", "unit": "u", "text": "EXTPROBE|len.basic|6"},
+        ]});
+        let mut lines = Vec::new();
+        probe_lines(&trace, &mut lines);
+        assert_eq!(lines.len(), 4);
+        let doc = probes_doc("strings", &lines);
+        assert_eq!(doc["format"], "fnv.ext.probes/1");
+        assert_eq!(doc["rows"], json!([{"id": "len.basic", "value": "6"}, {"id": "replace.result", "value": "[a|b]"}]));
+        assert_eq!(doc["duplicates"][0]["values"], json!(["5", "6"]));
+        assert_eq!(doc["files"], json!([{"name": "strings/S", "begun": true, "ended": false}]));
     }
 
     #[test]

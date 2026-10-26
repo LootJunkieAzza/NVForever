@@ -694,6 +694,21 @@ fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen:
     })
 }
 
+/// The archives that stop the start ([`fnv_vfs::Vfs::broken_archives`]): the run log's
+/// one-line reason and the message box's text. None when every archive reads.
+fn damaged_archives(broken: &[(String, String)]) -> Option<(String, String)> {
+    if broken.is_empty() {
+        return None;
+    }
+    const ADVICE: &str = "Reinstall or remove the mod the archive came with (for the game's own archives, verify the game files in Steam), then start NVForever again.";
+    let list: Vec<String> = broken.iter().map(|(name, why)| format!("{name}: {why}")).collect();
+    let why = format!("damaged archive, the game will not start: {}. {ADVICE}", list.join("; "));
+    let (what, are) = if broken.len() == 1 { ("an archive", "is") } else { ("archives", "are") };
+    let items: Vec<String> = list.iter().map(|l| format!("\u{2022} {l}")).collect();
+    let text = format!("NVForever cannot start: {what} it would load {are} damaged.\n\n{}\n\n{ADVICE}", items.join("\n"));
+    Some((why, text))
+}
+
 /// Which archives the game reads, lowest precedence first (mods' archives follow their
 /// plugins; loose files override them all).
 fn report_archives(data: Res<GameData>, world: Res<WorldData>) {
@@ -849,6 +864,13 @@ fn main() -> AppExit {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
+    // A damaged archive stops the start (owner 2026-10-25): the player is told which one
+    // and why, and no save or world loads with its assets missing. A file inside a
+    // readable archive that fails later is only that file's error.
+    if let Some((why, text)) = damaged_archives(game.vfs.broken_archives()) {
+        crash::tell_player_at_start(&text, args.handoff.is_some());
+        return fail(why);
+    }
     let t0 = std::time::Instant::now();
     let world = match WorldData::open(&args.esm_schema, opened, &args.world) {
         Ok(w) => w,
