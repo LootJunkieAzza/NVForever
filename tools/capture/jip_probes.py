@@ -539,17 +539,129 @@ MISC_PROBES = (
        for w in ("low", "high")]
 )
 
+# Fourteenth set: quaternion and vector functions, the legacy ones (results written to
+# variables named by strings) and their 6.4.8 "Ex" forms (variables passed directly).
+# Each probe returns the result components as one text, "%.4f" each, in the order the
+# function writes them (W X Y Z, or X Y Z). Read-only.
+_V4 = "float fQw\nfloat fQx\nfloat fQy\nfloat fQz\nBegin Function { }\n"
+_OUT4 = 'SetFunctionValue (sv_Construct "%.4f %.4f %.4f %.4f" fQw fQx fQy fQz)'
+_OUT3 = 'SetFunctionValue (sv_Construct "%.4f %.4f %.4f" fQx fQy fQz)'
+
+
+def _q4(pid, call):
+    return (pid, _V4 + call + "\n" + _OUT4, True, None, "")
+
+
+def _q3(pid, call):
+    return (pid, _V4 + call + "\n" + _OUT3, True, None, "")
+
+
+_N4 = '"fQw" "fQx" "fQy" "fQz"'
+_N3 = '"fQx" "fQy" "fQz"'
+MATH_PROBES = [
+    _q4("qfromeuler.x90", f"QFromEuler {_N4} 90 0 0"),
+    _q4("qfromeuler.y90", f"QFromEuler {_N4} 0 90 0"),
+    _q4("qfromeuler.z90", f"QFromEuler {_N4} 0 0 90"),
+    _q4("qfromeuler.xyz", f"QFromEuler {_N4} 30 45 60"),
+    _q4("qfromeuler.xyz.pitchyaw", f"QFromEuler {_N4} 30 45 60 1"),
+    _q4("qfromeulerex.xyz", "QFromEulerEx fQw fQx fQy fQz 30 45 60"),
+    _q3("qtoeuler.z90", f"QToEuler {_N3} 0.7071 0 0 0.7071"),
+    _q3("qtoeuler.xyz", f"QToEuler {_N3} 0.8224 0.0222 0.4396 0.3604"),
+    _q3("qtoeulerex.z90", "QToEulerEx fQx fQy fQz 0.7071 0 0 0.7071"),
+    _q4("qmult.qq", f"QMultQuatQuat {_N4} 0.7071 0.7071 0 0 0.7071 0 0 0.7071"),
+    _q4("qmultex.qq", "QMultQuatQuatEx fQw fQx fQy fQz 0.7071 0.7071 0 0 0.7071 0 0 0.7071"),
+    _q3("qmult.qv", f"QMultQuatVector3 {_N3} 0.7071 0 0 0.7071 1 0 0"),
+    _q3("qmultex.qv", "QMultQuatVector3Ex fQx fQy fQz 0.7071 0 0 0.7071 1 0 0"),
+    _q4("qnorm", f"QNormalize {_N4} 2 0 0 2"),
+    _q4("qnormex", "QNormalizeEx fQw fQx fQy fQz 2 0 0 2"),
+    _q4("qinterp.half", f"QInterpolate {_N4} 1 0 0 0 0.7071 0 0 0.7071 0.5"),
+    _q4("qinterp.half.sli", f"QInterpolate {_N4} 1 0 0 0 0.7071 0 0 0.7071 0.5 1"),
+    _q4("qinterpex.half", "QInterpolateEx fQw fQx fQy fQz 1 0 0 0 0.7071 0 0 0.7071 0.5"),
+    _q4("qfromaa.z90", f"QFromAxisAngle {_N4} 0 0 1 90"),
+    _q4("qfromaaex.z90", "QFromAxisAngleEx fQw fQx fQy fQz 0 0 1 90"),
+    _q3("v3norm", f"V3Normalize {_N3} 3 0 4"),
+    _q3("v3normex", "V3NormalizeEx fQx fQy fQz 3 0 4"),
+    _q3("v3cross.xy", f"V3Crossproduct {_N3} 1 0 0 0 1 0"),
+    _q3("v3crossex.xy", "V3CrossproductEx fQx fQy fQz 1 0 0 0 1 0"),
+]
+
+# Fifteenth set: mod local data (Set/Get/Exists/Remove/GetAllModLocalData) with a
+# number, a string and a form, and the keys of GetUserTime (values change, so only the
+# shape is probed). Mod local data belongs to the calling script's mod; a
+# runtime-compiled script belongs to none, whatever that means for the store. Every key
+# set is removed in the same probe. Session only.
+def _ml(pid, body, text=False, exp=None, page=""):
+    return (pid, "ref rF\nfloat fRes\nBegin Function { }\n" + _form("rF", NF["pistol10"]) + body, text, exp, page)
+
+
+DATA_PROBES = [
+    _ml("mld.number", 'SetModLocalData "nvfNum" 5.5\nlet fRes := GetModLocalData "nvfNum"\nRemoveModLocalData "nvfNum"\nSetFunctionValue fRes', exp="5.5", page="SetModLocalData / GetModLocalData"),
+    _ml("mld.string", 'SetModLocalData "nvfStr" "abc"\nSetFunctionValue (GetModLocalData "nvfStr")\nRemoveModLocalData "nvfStr"', True, "abc", "SetModLocalData (a string)"),
+    _ml("mld.form", 'SetModLocalData "nvfForm" rF\nSetFunctionValue (GetFormIDString (GetModLocalData "nvfForm"))\nRemoveModLocalData "nvfForm"', True, "0000434F", "SetModLocalData (a form)"),
+    _ml("mld.exists", 'SetModLocalData "nvfNum" 1\nlet fRes := ModLocalDataExists "nvfNum"\nRemoveModLocalData "nvfNum"\nSetFunctionValue fRes', exp="1", page="ModLocalDataExists"),
+    _ml("mld.exists.none", 'SetFunctionValue (ModLocalDataExists "nvfNone")', exp="0", page="ModLocalDataExists"),
+    _ml("mld.get.none", 'SetFunctionValue (GetModLocalData "nvfNone")', exp="0", page="GetModLocalData (0 when no data)"),
+    _ml("mld.case", 'SetModLocalData "nvfCase" 7\nlet fRes := GetModLocalData "NVFCASE"\nRemoveModLocalData "nvfCase"\nSetFunctionValue fRes'),
+    _ml("mld.remove.existed", 'SetModLocalData "nvfNum" 1\nSetFunctionValue (RemoveModLocalData "nvfNum")', exp="1", page="RemoveModLocalData"),
+    _ml("mld.remove.none", 'SetFunctionValue (RemoveModLocalData "nvfNone")', exp="0", page="RemoveModLocalData (0 if none existed)"),
+    _ml("mld.all.size", 'SetModLocalData "nvfA" 1\nSetModLocalData "nvfB" 2\nlet fRes := ar_Size (GetAllModLocalData)\nRemoveModLocalData "nvfA"\nRemoveModLocalData "nvfB"\nSetFunctionValue fRes'),
+    _ml("mld.all.haskey", 'SetModLocalData "nvfA" 1\nlet fRes := ar_HasKey (GetAllModLocalData) "nvfA"\nRemoveModLocalData "nvfA"\nSetFunctionValue fRes'),
+    _ml("usertime.size", "SetFunctionValue (ar_Size (GetUserTime))"),
+] + [_ml(f"usertime.has.{k}", f'SetFunctionValue (ar_HasKey (GetUserTime) "{k}")', exp="1", page="GetUserTime")
+     for k in ("Year", "Month", "DayOfWeek", "Day", "Hour", "Minute", "Second", "Millisecond")]
+
+# Sixteenth set: inventory references and clones. A 10mm pistol is added to the player,
+# equipped, looked at through foreach (inventory references), unequipped and removed,
+# one step each, in order; clones are made with TempCloneForm (never saved). Session
+# only. The player may own 10mm pistols in the save, so counts are compared before and
+# after the add.
+def _inv(pid, body, text=False, exp=None, page=""):
+    return (pid, "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + _form("rGun", NF["pistol10"]) + body, text, exp, page)
+
+
+def _each(expr):
+    """fRes := expr for the pistol's inventory reference, computed inside foreach. Breaking
+    out and reading the loop variable after the loop left the function without a value
+    in the game [observed; which of the two caused it is not known]."""
+    return ("let fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n"
+            f"    let fRes := {expr}\n  endif\nloop\nSetFunctionValue fRes")
+INV_PROBES = [
+    # Ordered steps (the game runs one per loop; an added or equipped item may only show
+    # up a loop later): count, add, look, equip, look, unequip, look, remove.
+    _inv("inv.count.before", "SetFunctionValue (ar_Size (rPlayer.GetInvRefsForItem rGun))"),
+    _inv("inv.add", "rPlayer.AddItem rGun 1 1\nSetFunctionValue 1", exp="1", page="AddItem"),
+    _inv("inv.count.after", "SetFunctionValue (ar_Size (rPlayer.GetInvRefsForItem rGun))"),
+    _inv("invref.found", _each("rItem.GetBaseObject == rGun"), exp="1", page="foreach over a container"),
+    _inv("invref.foreach", _each("rItem.IsInventoryRef"), exp="1", page="IsInventoryRef"),
+    _inv("inv.equip", "rPlayer.EquipItem rGun 0 1\nSetFunctionValue 1", exp="1", page="EquipItem"),
+    _inv("equipped.after.equip", _each("rItem.IsEquipped")),
+    _inv("getequipped.after.equip", "SetFunctionValue (rPlayer.GetEquipped rGun)", exp="1", page="GetEquipped"),
+    _inv("inv.unequip", "rPlayer.UnequipItem rGun 0 1\nSetFunctionValue 1", exp="1", page="UnequipItem"),
+    _inv("equipped.not", _each("rItem.IsEquipped")),
+    _inv("inv.remove", "rPlayer.RemoveItem rGun 1 1\nSetFunctionValue 1", exp="1", page="RemoveItem"),
+    _inv("clone.iscloned", "let rItem := TempCloneForm rGun\nSetFunctionValue (IsClonedForm rItem)", exp="1", page="IsClonedForm"),
+    _inv("clone.original", "SetFunctionValue (IsClonedForm rGun)", exp="0", page="IsClonedForm"),
+    _inv("clone.name", "let rItem := TempCloneForm rGun\nSetFunctionValue (GetName rItem)", True),
+    _inv("clone.modindex", "let rItem := TempCloneForm rGun\nSetFunctionValue (GetSourceModIndex rItem)"),
+    _inv("clone.type", "let rItem := TempCloneForm rGun\nSetFunctionValue (GetType rItem)"),
+    _inv("clone.clip", "let rItem := TempCloneForm rGun\nSetFunctionValue (GetWeaponClipRounds rItem)"),
+    _inv("clone.indexed.iscloned", "let rItem := TempCloneForm rGun 1\nSetFunctionValue (IsClonedForm rItem)"),
+    _inv("clone.indexed.modindex", "let rItem := TempCloneForm rGun 1\nSetFunctionValue (GetSourceModIndex rItem)"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
-        "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES}
+        "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES, "nvse-math": MATH_PROBES,
+        "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
-WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters"}
+WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv"}
 
 
 def script(body):
-    if body.startswith("ref "):
+    if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"
     return "Begin Function { }\n" + body + "\nEnd\n"
 

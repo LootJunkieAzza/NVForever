@@ -1,0 +1,104 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_inv",
+ "title": "nvse-inv, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_Size (rPlayer.GetInvRefsForItem rGun))\nEnd\n",
+   "label": "inv.count.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrPlayer.AddItem rGun 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "inv.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_Size (rPlayer.GetInvRefsForItem rGun))\nEnd\n",
+   "label": "inv.count.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    let fRes := rItem.GetBaseObject == rGun\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "invref.found",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    let fRes := rItem.IsInventoryRef\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "invref.foreach",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrPlayer.EquipItem rGun 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "inv.equip",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    let fRes := rItem.IsEquipped\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "equipped.after.equip",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rPlayer.GetEquipped rGun)\nEnd\n",
+   "label": "getequipped.after.equip",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrPlayer.UnequipItem rGun 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "inv.unequip",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rGun\n    let fRes := rItem.IsEquipped\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "equipped.not",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrPlayer.RemoveItem rGun 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "inv.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun\nSetFunctionValue (IsClonedForm rItem)\nEnd\n",
+   "label": "clone.iscloned",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (IsClonedForm rGun)\nEnd\n",
+   "label": "clone.original",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun\nSetFunctionValue (GetName rItem)\nEnd\n",
+   "label": "clone.name",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun\nSetFunctionValue (GetSourceModIndex rItem)\nEnd\n",
+   "label": "clone.modindex",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun\nSetFunctionValue (GetType rItem)\nEnd\n",
+   "label": "clone.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun\nSetFunctionValue (GetWeaponClipRounds rItem)\nEnd\n",
+   "label": "clone.clip",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun 1\nSetFunctionValue (IsClonedForm rItem)\nEnd\n",
+   "label": "clone.indexed.iscloned",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rGun\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rItem := TempCloneForm rGun 1\nSetFunctionValue (GetSourceModIndex rItem)\nEnd\n",
+   "label": "clone.indexed.modindex",
+   "field": "value"
+  }
+ ]
+}
