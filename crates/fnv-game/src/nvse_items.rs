@@ -72,14 +72,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Ammo [documented: GetWeaponCanUseAmmo; HasAmmoEquipped;
         // GetEquippedWeaponCanUseAmmo; IsEquippedAmmoInList; GetEquippedWeaponUsesAmmoList;
         // GetPlayerCurrentAmmo].
+        // The weapon is the calling reference (an inventory reference works), the ammo the
+        // argument [observed: nvse-fourth, 10mm 1, 5.56 0; two form arguments crash the
+        // original, so the compiler keeps refusing them].
         "getweaponcanuseammo" => {
-            // The weapon and the ammo, in either order [hypothesis: the page lists one].
-            let (a, b) = (form(args, 0), form(args, 1).or(subject));
-            let (w, ammo) = match (a, b) {
-                (Some(x), Some(y)) if g.data.sig(base(g, x)) == Some(*b"WEAP") => (base(g, x), y),
-                (Some(x), Some(y)) => (base(g, y), x),
-                _ => return Some(Ok(XVal::Num(0.0))),
-            };
+            let (Some(w), Some(ammo)) = (subject.map(|s| base(g, s)), form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
             yes(g.weapon_ammo(w).contains(&ammo))
         }
         "hasammoequipped" => {
@@ -104,6 +101,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             yes(matches!((nam0, form(args, 0)), (Some(XVal::Ref(r)), Some(l)) if r == l.0))
         }
         "getplayercurrentammo" => XVal::Ref(g.ammo_in_use(FormId::PLAYER_REF).map_or(0, |a| a.0)),
+        // [documented: GetPlayerCurrentAmmoRounds; observed: 12, a full clip, after
+        // equipping a 10mm pistol with 20 rounds carried] the engine's magazine count;
+        // without one (headless) the clip as it would be loaded [hypothesis].
+        "getplayercurrentammorounds" => {
+            let n = match g.player_magazine {
+                Some(m) => f64::from(m),
+                None => {
+                    let w = crate::functions::items::equipped_weapon(g, FormId::PLAYER_REF);
+                    let clip = match w.and_then(|w| crate::nvse::record_value(g, w, "DATA", "clip_size")) {
+                        Some(XVal::Num(x)) => x,
+                        _ => 0.0,
+                    };
+                    let carried = g.ammo_in_use(FormId::PLAYER_REF).map_or(0, |a| g.world.inventory_mut(FormId::PLAYER_REF).map(|inv| inv.count(a)).unwrap_or(0));
+                    clip.min(f64::from(carried))
+                }
+            };
+            XVal::Num(n)
+        }
         // Condition [documented: GetEquippedCurrentHealth; GetCurrentHealth;
         // SetCurrentHealth; SetEquippedCurrentHealth]: health points, the item's full
         // health times its condition.
@@ -156,9 +171,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // Setters [documented: SetIsPlayable; SetQuestItem] `flag [item]`.
+        // On a weapon IsPlayable keeps reading the record [observed: nvse-fourth,
+        // SetIsPlayable 0 on the 10mm pistol leaves IsPlayable 1].
         "setisplayable" => {
             let it = form(args, 1).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            g.playable_overrides.insert(it, args.first().is_some_and(XVal::truthy));
+            if g.data.sig(it) != Some(*b"WEAP") {
+                g.playable_overrides.insert(it, args.first().is_some_and(XVal::truthy));
+            }
             XVal::Num(0.0)
         }
         "setquestitem" => {
@@ -172,18 +191,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (Some((c, item)), Some(to)) = (subject.and_then(|r| g.temp_item(r)), form(args, 0)) else {
                 return Some(Ok(if name == "copyir" { XVal::Num(0.0) } else { XVal::Ref(0) }));
             };
-            let n = g.world.inventory_mut(c).map(|inv| inv.count(item)).unwrap_or(1).max(1);
-            let ok = g.world.add_item(to, item, n).is_ok();
+            // One item, not the stack [observed: nvse-fourth, Doc's stimpaks 2 to 3].
+            let _ = c;
+            let ok = g.world.add_item(to, item, 1).is_ok();
             if name == "copyir" { yes(ok) } else { XVal::Ref(if ok { g.temp_ref(to, item).0 } else { 0 }) }
         }
         "removemeir" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(XVal::Num(0.0))) };
             let n = g.world.inventory_mut(c).map(|inv| inv.count(item)).unwrap_or(0);
+            // The whole stack; with a target it moves there and the call gives 1, without
+            // one 0 [observed: nvse-fourth].
             let gone = g.world.remove_item(c, item, n).unwrap_or(0);
-            if let (Some(to), true) = (form(args, 0), gone > 0) {
-                let _ = g.world.add_item(to, item, gone);
+            match (form(args, 0), gone > 0) {
+                (Some(to), true) => XVal::Num(f64::from(u8::from(g.world.add_item(to, item, gone).is_ok()))),
+                _ => XVal::Num(0.0),
             }
-            XVal::Num(0.0)
         }
         "equipme" | "unequipme" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(XVal::Num(0.0))) };
@@ -218,6 +240,26 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getlocalrefindex" => XVal::Num(f64::from(form(args, 0).or(subject).map_or(0, |f| f.0 & 0x00FF_FFFF))),
         // [documented: GetSelfAlt] the calling reference, or none.
         "getselfalt" => XVal::Ref(ctx.self_ref.map_or(0, |r| r.0)),
+        // [documented: GetAgeClass; observed: nvse-fourth, -1 for Doc Mitchell and Sunny]
+        // -1 [hypothesis: the same for every actor the base game ships].
+        "getageclass" => XVal::Num(-1.0),
+        // [documented: GetHeadParts; observed: Doc 2, [0] 0B5BEA] the NPC's PNAM head
+        // parts in record order.
+        "getheadparts" => {
+            let a = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let items: Vec<XVal> = g
+                .data
+                .record_fields
+                .get(&a)
+                .into_iter()
+                .flatten()
+                .filter(|(s, _)| s == b"PNAM")
+                .filter_map(|(_, v)| v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()))
+                .map(XVal::Ref)
+                .collect();
+            let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+        }
         // [documented: GetGridsToLoad] uGridsToLoad: 5 [hypothesis: the game's default,
         // NVForever has no such setting].
         "getgridstoload" => XVal::Num(5.0),
@@ -257,11 +299,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))
         }
-        // [documented: CompareScripts] the two scripts' compiled bytes are the same.
-        "comparescripts" => {
-            let s = |k: usize| form(args, k).and_then(|f| g.data.script(f)).map(|c| c.unit.bytes.clone());
-            yes(matches!((s(0), s(1)), (Some(a), Some(b)) if a == b))
-        }
+        // [documented: CompareScripts "true if the compiled scripts are identical";
+        // observed: nvse-fourth, a script against itself gives 0 in xNVSE 6.4.9, and two
+        // different ones 0] 0.
+        "comparescripts" => XVal::Num(0.0),
         // [documented: ResetAllVariables] every variable of the reference's (or quest's)
         // script to 0.
         "resetallvariables" => {

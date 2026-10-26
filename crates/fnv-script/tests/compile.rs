@@ -256,7 +256,10 @@ fn a_functions_argument_is_an_operand() {
 fn extender_functions_are_named() {
     let t = table();
     let c = compile("int a\nbegin GameMode\nlet a := Ar_Size b\nend", &t, &World, None);
-    assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), ["unresolved_name"], "b is not declared");
+    // An undeclared word is its own text, with a warning [observed: nvse-fourth, the
+    // editor's "Unquoted argument"].
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    assert!(c.diags.iter().any(|d| d.kind == "unquoted_argument" && !d.error), "b is not declared: {:?}", c.diags);
     let c = compile("int a\nint b\nbegin GameMode\nlet a := Ar_Size b\nend", &t, &World, None);
     assert!(c.errors().next().is_none(), "{:?}", c.diags);
     let p = decode(&c.bytes, &t).program;

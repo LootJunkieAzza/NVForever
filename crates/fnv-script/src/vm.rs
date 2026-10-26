@@ -190,6 +190,11 @@ pub trait Host {
     fn ext_call(&mut self, _name: &str, _on: Option<Value>, _args: &[XVal]) -> Option<Result<XVal, String>> {
         None
     }
+    /// The script form the running code belongs to; `None` for a result script or a
+    /// runtime-compiled one (GetCurrentScript).
+    fn current_script(&mut self) -> Option<u32> {
+        None
+    }
     /// A local variable of the running script, by name (the quaternion functions write
     /// into variables named by strings).
     fn local_var(&mut self, _name: &str) -> Option<VarRef> {
@@ -2483,7 +2488,9 @@ impl Vm<'_, '_> {
                 };
                 // A form made at run time (a clone) reads 255 [observed: nvse-inv,
                 // TempCloneForm].
-                XVal::Num(f.map_or(255, |f| if f >> 24 >= 0xFE { 255 } else { f >> 24 }) as f64)
+                // No form: -1 [observed: nvse-fourth, GetSourceModIndex of a runtime query's
+                // GetCurrentScript].
+                XVal::Num(f.map_or(-1.0, |f| if f >> 24 >= 0xFE { 255.0 } else { f64::from(f >> 24) }))
             }
             // The extender's math [documented: each page; the trigonometric functions in
             // degrees, observed: `Sin 90 > 0.5` is 1 in the original game].
@@ -2734,6 +2741,8 @@ impl Vm<'_, '_> {
                 let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
                 Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
             }
+            // [documented: GetCurrentScript; observed: none in a runtime query].
+            "getcurrentscript" => Ok(XVal::Ref(self.host.current_script().unwrap_or(0))),
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
