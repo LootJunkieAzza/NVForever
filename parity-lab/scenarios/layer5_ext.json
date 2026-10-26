@@ -367,6 +367,21 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "fifth"]
+  },
+  {
+   "id": "L5.ext.nvse.sixth",
+   "layer": 5,
+   "description": "Tokens, INI settings (read, set and put back), event-handler lists around one SetEventHandler lambda, GetCommandOpcode and the debug functions; set nvse-sixth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; the INI rows read the owner's install, the candidate the game's Fallout_default.ini.",
+   "oracle": {"golden": "jip/nvse-sixth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_sixth.steps.json", "--start-cell", "0x000DEB16",
+             "--ini", "{data_dir}/../Fallout_default.ini"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "sixth"]
   }
  ]
 }

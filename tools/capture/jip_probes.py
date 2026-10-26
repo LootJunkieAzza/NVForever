@@ -1117,17 +1117,89 @@ NVSE_FIFTH_PROBES = (
            "rPlayer.RemoveItem rOther 20 1\nSetFunctionValue 1", exp="1", page="cleanup")]
 )
 
+# Twenty-third set: tokens, INI settings, event-handler lists, command opcodes and the
+# debug functions, probed before NVForever builds them. Steps in order; every change
+# is put back (session only). The player carries stimpaks in the owner's save; the
+# collar key (175A56) is not carried. The INI settings read are in Fallout.ini /
+# FalloutPrefs.ini of the owner's install.
+_HE = ("ref rPlayer\nref rObj\nref rOther\nfloat fRes\nstring_var sText\narray_var aList\nBegin Function { }\n"
+       + _form("rPlayer", NF["player"]))
+
+
+def _f6(pid, body, text=False, exp=None, page=""):
+    return (pid, _HE + body, text, exp, page)
+
+
+_LAMBDA = "(Begin Function {ref rA, ref rB}\nEnd)"
+SIXTH_PROBES = [
+    # Tokens: value and ref on a carried item and on an item not carried.
+    _f6("token.value.before", _o4("stimpak") + "SetFunctionValue (rPlayer.GetTokenValue rObj)"),
+    _f6("token.ref.before", _o4("stimpak") + "SetFunctionValue (GetFormIDString (rPlayer.GetTokenRef rObj))", True),
+    _f6("token.setvalue", _o4("stimpak") + "rPlayer.SetTokenValue rObj 65.5\nSetFunctionValue (rPlayer.GetTokenValue rObj)"),
+    _f6("token.value.next", _o4("stimpak") + "SetFunctionValue (rPlayer.GetTokenValue rObj)"),
+    _f6("token.setref", _o4("stimpak", "pistol10") + "rPlayer.SetTokenRef rObj rOther\nSetFunctionValue (GetFormIDString (rPlayer.GetTokenRef rObj))", True),
+    _f6("token.setboth", _o4("stimpak", "docbase") + "rPlayer.SetTokenValueAndRef rObj 7 rOther\n"
+        'SetFunctionValue (sv_Construct "%g %z" (rPlayer.GetTokenValue rObj) (GetFormIDString (rPlayer.GetTokenRef rObj)))', True),
+    _f6("token.notcarried", _o4("collarkey") + "rPlayer.SetTokenValue rObj 3\nSetFunctionValue (rPlayer.GetTokenValue rObj)"),
+    # INI settings.
+    _f6("ini.grids", 'SetFunctionValue (GetNumericINISetting "uGridsToLoad:General")'),
+    _f6("ini.grids.alias", 'SetFunctionValue (GetNumericIniSetting "uGridsToLoad:General")'),
+    _f6("ini.fov", 'SetFunctionValue (GetNumericINISetting "fDefaultFOV:Display")'),
+    _f6("ini.case", 'SetFunctionValue (GetNumericINISetting "UGRIDSTOLOAD:GENERAL")'),
+    _f6("ini.missing", 'SetFunctionValue (GetNumericINISetting "nvfNoSuchSetting:General")'),
+    _f6("ini.nocategory", 'SetFunctionValue (GetNumericINISetting "uGridsToLoad")'),
+    _f6("ini.string", 'SetFunctionValue (GetStringIniSetting "sLanguage:General")', True),
+    _f6("ini.string.missing", 'SetFunctionValue (GetStringIniSetting "nvfNoSuchSetting:General")', True),
+    _f6("ini.set.numeric", 'let fRes := GetNumericINISetting "fDefaultFOV:Display"\n'
+        'let fRes := (SetNumericINISetting "fDefaultFOV:Display" 80) * 1000 + (GetNumericINISetting "fDefaultFOV:Display")\n'
+        'SetNumericINISetting "fDefaultFOV:Display" 75\nSetFunctionValue fRes'),
+    _f6("ini.set.numeric.missing", 'SetFunctionValue (SetNumericINISetting "nvfNoSuchSetting:General" 1)'),
+    _f6("ini.fov.after", 'SetFunctionValue (GetNumericINISetting "fDefaultFOV:Display")'),
+    # The original's value (ENGLISH, observed above) is put back as a literal: a string_var
+    # given to SetStringIniSetting is taken as its name ("sText") [observed: first run].
+    _f6("ini.set.string", 'SetStringIniSetting "sLanguage:General" "NVF"\n'
+        'let fRes := (GetStringIniSetting "sLanguage:General") == "NVF"\nSetStringIniSetting "sLanguage:General" "ENGLISH"\nSetFunctionValue fRes'),
+    _f6("ini.set.string.var", 'let sText := "NVF"\nSetStringIniSetting "sLanguage:General" sText\n'
+        'let sText := GetStringIniSetting "sLanguage:General"\nSetStringIniSetting "sLanguage:General" "ENGLISH"\nSetFunctionValue sText', True),
+    _f6("ini.string.after", 'SetFunctionValue (GetStringIniSetting "sLanguage:General")', True),
+    _f6("gmst.setex", 'let sText := GetStringSetting "sTraitMenuTitleText"\nSetStringGameSettingEx "sTraitMenuTitleText|NVF title"\n'
+        'let fRes := (GetStringSetting "sTraitMenuTitleText") == "NVF title"\nSetStringSetting "sTraitMenuTitleText" sText\nSetFunctionValue fRes'),
+    # Event-handler lists around one registered lambda (removed at the end).
+    _f6("events.count.before", 'SetFunctionValue (ar_Size (GetEventHandlers "OnActorEquip"))'),
+    _f6("events.register", f'SetEventHandler "OnActorEquip" {_LAMBDA}\nSetFunctionValue (ar_Size (GetEventHandlers "OnActorEquip"))'),
+    _f6("events.all.haskey", 'SetFunctionValue (ar_HasKey (GetEventHandlers) "OnActorEquip")'),
+    _f6("events.all.type", 'SetFunctionValue (TypeOf (GetEventHandlers))', True),
+    _f6("events.filtered.type", 'SetFunctionValue (TypeOf (GetEventHandlers "OnActorEquip"))', True),
+    _f6("events.unknown.size", 'SetFunctionValue (ar_Size (GetEventHandlers "nvfNoSuchEvent"))'),
+    _f6("events.count.after", 'let aList := GetEventHandlers "OnActorEquip"\nSetFunctionValue (ar_Size aList)'),
+    # Commands and debug.
+    _f6("opcode.activate", 'SetFunctionValue (GetCommandOpcode "Activate")', exp="4109", page="GetCommandOpcode (Activate 4109)"),
+    _f6("opcode.case", 'SetFunctionValue (GetCommandOpcode "activate")'),
+    _f6("opcode.nvse", 'SetFunctionValue (GetCommandOpcode "GetNVSEVersion")'),
+    _f6("opcode.svlength", 'SetFunctionValue (GetCommandOpcode "Sv_Length")'),
+    _f6("opcode.jip", 'SetFunctionValue (GetCommandOpcode "GetLNVersion")'),
+    _f6("opcode.alias", 'SetFunctionValue (GetCommandOpcode "GetType")'),
+    _f6("opcode.unknown", 'SetFunctionValue (GetCommandOpcode "nvfNoSuchCommand")'),
+    _f6("debugmode", "SetFunctionValue (GetDebugMode)"),
+    _f6("debugmode.0", "SetFunctionValue (GetDebugMode 0)"),
+    _f6("printdebug", 'PrintDebug "nvf"\nSetFunctionValue 1'),
+    _f6("assert.true", "Assert 1\nSetFunctionValue 1"),
+    _f6("assert.false", "Assert 0\nSetFunctionValue 1"),
+    _f6("ar_dumpid", "let aList := Ar_List 1 2\nAr_DumpID aList\nSetFunctionValue 1"),
+    _f6("debugselection", "SetFunctionValue (GetFormIDString (GetDebugSelection))", True),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
         "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES, "nvse-math": MATH_PROBES,
         "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES, "nvse-second": SECOND_PROBES,
         "nvse-keynames": KEYNAME_PROBES, "nvse-third": THIRD_PROBES, "nvse-fourth": FOURTH_PROBES,
-        "jip-fifth": FIFTH_PROBES, "nvse-fifth": NVSE_FIFTH_PROBES}
+        "jip-fifth": FIFTH_PROBES, "nvse-fifth": NVSE_FIFTH_PROBES, "nvse-sixth": SIXTH_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth"}
 
 
 def script(body):
