@@ -127,6 +127,12 @@ impl FullscreenMaterial for ImageSpaceGrade {
     }
 }
 
+/// A camera whose grade holds only the modifiers held in a 3D scope's lens
+/// ([`ScreenModifiers::hold_lens`]), not the image space's or the screen's: its picture is
+/// drawn on the lens and graded with the rest of the screen by the main camera after.
+#[derive(Component, Clone, Copy, Default)]
+pub struct LensGrade;
+
 /// A modifier put on the screen from the command line (`--imod`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Forced {
@@ -144,6 +150,9 @@ pub struct ScreenModifiers {
     /// Modifiers the engine holds on the screen at their first keys while a state lasts:
     /// a night-vision scope's (`scope_view.rs`, docs/spec-notes/weapon-scopes.md §4).
     pub held: Vec<u32>,
+    /// Modifiers held the same way in a 3D scope's lens only ([`LensGrade`]): a
+    /// night-vision scope's while the scope is shown in the lens.
+    pub lens_held: Vec<u32>,
     /// Modifiers the engine plays once (an explosion's, `shot_fx`): the record and when it
     /// started, in `Time::elapsed_secs`.
     played: Vec<(u32, f32)>,
@@ -179,6 +188,15 @@ impl ScreenModifiers {
         self.held.retain(|f| *f != form);
         if on {
             self.held.push(form);
+        }
+    }
+
+    /// Hold modifier `form` in a 3D scope's lens ([`LensGrade`]) at its first keys (`on`),
+    /// or take it off.
+    pub fn hold_lens(&mut self, form: u32, on: bool) {
+        self.lens_held.retain(|f| *f != form);
+        if on {
+            self.lens_held.push(form);
         }
     }
 
@@ -504,7 +522,7 @@ fn update_grade(
     ),
     (sim, aim): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>),
     mut mods: ResMut<ScreenModifiers>,
-    mut grades: Query<&mut ImageSpaceGrade>,
+    mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
 ) {
     let now = time.elapsed_secs();
@@ -595,8 +613,30 @@ fn update_grade(
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
         reproject: Mat4::IDENTITY,
     };
-    for mut grade in &mut grades {
-        *grade = g;
+    // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
+    let lens = match &world {
+        Some(w) if !mods.lens_held.is_empty() => {
+            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| m.at(0.0))).collect();
+            let e = combine(&effects);
+            let c = graded(&fnv_world::imagespace::Cinematic::default(), &e);
+            let r = &e.radial;
+            ImageSpaceGrade {
+                tint: Vec4::new(c.tint[0], c.tint[1], c.tint[2], c.tint_amount),
+                radial: Vec4::new(r.strength, r.ramp_up, r.start, r.ramp_down),
+                radial2: Vec4::new(r.down_start, r.center[0], r.center[1], e.double_vision),
+                saturation: c.saturation,
+                contrast: c.contrast,
+                contrast_avg_lum: c.contrast_avg_lum,
+                brightness: c.brightness,
+                blur: e.blur_radius,
+                time: now,
+                ..ImageSpaceGrade::default()
+            }
+        }
+        _ => ImageSpaceGrade { time: now, ..ImageSpaceGrade::default() },
+    };
+    for (mut grade, in_lens) in &mut grades {
+        *grade = if in_lens { lens } else { g };
     }
 }
 

@@ -231,8 +231,13 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
     let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     for s in &model.shapes {
         let name = s.name.as_deref().unwrap_or("").to_ascii_lowercase();
-        // The black mask (vanilla `keepScope01:0`; `MaskRing*` in the other layouts).
-        if name.starts_with("keepscope") || name.starts_with("maskring") {
+        // The reticle only: not the black mask (vanilla `keepScope01:0`; `MaskRing*` in
+        // the other layouts), nor the tint ring, the glare (`Additive01:5`) or the inner
+        // shading, which over the lens drew as a dark veil (drawn into a clear image they
+        // keep their alpha) [observed: scope-3d-lens-interior, the lens much darker than
+        // the door behind it until they were left out].
+        let veil = ["keepscope", "maskring", "tintring", "additive", "inner lens shading"];
+        if veil.iter().any(|v| name.starts_with(v)) {
             continue;
         }
         let world = place * model.root * s.transform;
@@ -255,8 +260,9 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
             ))
             .id(),
     );
-    // The zoomed world: the main camera's view without the arms and body, the decals
-    // (which need the main camera's prepass) and the scope's own layer.
+    // The zoomed world: the main camera's view without the arms and body and the scope's
+    // own layer; the impact decals too (they need a depth prepass, which it has). Its own
+    // grade holds only what belongs in the lens (a night-vision scope's modifier).
     let world_image = target_image(&mut models.images, LENS_WORLD_PX, true);
     let lens_cam = commands
         .spawn((
@@ -271,7 +277,8 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
             Projection::Perspective(PerspectiveProjection { fov: 0.1, near: 5.0, far: crate::sky::OUTDOOR_FAR, aspect_ratio: 1.0, ..default() }),
             crate::sky::initial_fog(),
             bevy::core_pipeline::prepass::DepthPrepass,
-            RenderLayers::from_layers(&[0, crate::reflection::WATER_LAYER]),
+            RenderLayers::from_layers(&[0, crate::reflection::WATER_LAYER, crate::decals::DECAL_LAYER]),
+            (crate::imagespace::ImageSpaceGrade::default(), crate::imagespace::LensGrade),
             Transform::IDENTITY,
         ))
         .id();
@@ -295,12 +302,13 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
 #[allow(clippy::type_complexity)]
 fn lens_camera(
     zoom: Option<Res<nvf_play::aim_zoom::AimZoom>>,
+    (player, sway): (Option<Res<Player>>, Res<nvf_play::aim_zoom::LensSway>),
     main: Query<(&GlobalTransform, &Projection, &DistanceFog), (With<PlayerCamera>, Without<LensCamera>)>,
-    mut lens: Query<(&mut Projection, &mut DistanceFog), With<LensCamera>>,
+    mut lens: Query<(&mut Projection, &mut DistanceFog, &mut Transform), With<LensCamera>>,
     mounts: Query<(&GlobalTransform, &LensMount)>,
     mut told: Local<Option<i32>>,
 ) {
-    let Ok((mut proj, mut fog)) = lens.single_mut() else {
+    let Ok((mut proj, mut fog, mut turn)) = lens.single_mut() else {
         *told = None;
         return;
     };
@@ -319,6 +327,20 @@ fn lens_camera(
         }
     }
     *fog = main_fog.clone();
+    // The sway turns the lens's view with the gun, off the main view's (§5): the turn
+    // from the view's direction to the swayed one, in the main camera's frame.
+    let local = match player.as_deref() {
+        Some(p) if *sway != nvf_play::aim_zoom::LensSway::default() => {
+            let dir = |d: [f32; 3]| nvf_play::space::to_bevy(d) - nvf_play::space::to_bevy([0.0; 3]);
+            let (from, to) = (dir(nvf_play::space::look_dir(p.heading, p.pitch)), dir(sway.look_dir(p.heading, p.pitch)));
+            let r = cam.compute_transform().rotation;
+            r.inverse() * Quat::from_rotation_arc(from.normalize_or(Vec3::NEG_Z), to.normalize_or(Vec3::NEG_Z)) * r
+        }
+        _ => Quat::IDENTITY,
+    };
+    if turn.rotation != local {
+        turn.rotation = local;
+    }
     let deg = (fov.to_degrees() * 10.0).round() as i32;
     if told.is_none_or(|t| (t - deg).abs() > 5) {
         *told = Some(deg);
@@ -327,19 +349,22 @@ fn lens_camera(
 }
 
 /// Hold the night-vision scope's modifier on the screen while it gives night vision.
-fn night_vision(scope: Res<Scope>, sky: Option<Res<SkyState>>, world: Option<Res<WorldData>>, mut mods: ResMut<ScreenModifiers>, mut state: Local<(Option<Option<u32>>, bool)>) {
+fn night_vision(scope: Res<Scope>, sky: Option<Res<SkyState>>, world: Option<Res<WorldData>>, mut mods: ResMut<ScreenModifiers>, mut state: Local<(Option<Option<u32>>, bool, bool)>) {
     let night = sky.as_deref().is_some_and(|s| s.interior.is_some() || is_night(s.hour, s.climate.sunrise.0, s.climate.sunset.1));
     let on = scope.on && scope.night_vision && night;
-    if on == state.1 {
+    // A 3D scope gives its night vision in the lens only [design].
+    let lens = on && scope.lens_3d;
+    if (on, lens) == (state.1, state.2) {
         return;
     }
-    state.1 = on;
+    (state.1, state.2) = (on, lens);
     let Some(world) = world else { return };
     let form = *state.0.get_or_insert_with(|| fnv_world::image_modifier::find_image_modifier(world.lo, world.schema, NIGHT_SCOPE_IMAD));
     match form {
         Some(f) => {
-            mods.hold(f, on);
-            info!("scope: night vision {NIGHT_SCOPE_IMAD} {}", if on { "on" } else { "off" });
+            mods.hold(f, on && !lens);
+            mods.hold_lens(f, lens);
+            info!("scope: night vision {NIGHT_SCOPE_IMAD} {}", if lens { "on in the lens" } else if on { "on" } else { "off" });
         }
         None if on => warn!("scope: no image space modifier {NIGHT_SCOPE_IMAD}; the night-vision scope shows no night vision"),
         None => {}
@@ -411,6 +436,7 @@ fn sway(
     sim: Option<Res<nvf_play::sim::SimState>>,
     data: Option<Res<GameData>>,
     mut player: ResMut<Player>,
+    mut lens_sway: ResMut<nvf_play::aim_zoom::LensSway>,
     mut st: Local<SwayState>,
 ) {
     let want = if scope.on {
@@ -441,12 +467,18 @@ fn sway(
         st.told = false;
         [0.0, 0.0]
     };
-    if want == st.last {
+    // A 3D scope sways the gun and its lens (`LensSway`); the picture sways the view.
+    let (view, lens) = if scope.lens_3d { ([0.0, 0.0], want) } else { (want, [0.0, 0.0]) };
+    let turn = nvf_play::aim_zoom::LensSway { yaw: lens[0].to_radians(), pitch: lens[1].to_radians() };
+    if *lens_sway != turn {
+        *lens_sway = turn;
+    }
+    if view == st.last {
         return;
     }
-    player.heading += (want[0] - st.last[0]).to_radians();
-    player.pitch = (player.pitch + (want[1] - st.last[1]).to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
-    st.last = want;
+    player.heading += (view[0] - st.last[0]).to_radians();
+    player.pitch = (player.pitch + (view[1] - st.last[1]).to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+    st.last = view;
 }
 
 #[cfg(test)]

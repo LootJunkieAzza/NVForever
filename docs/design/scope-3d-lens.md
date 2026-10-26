@@ -248,11 +248,41 @@ True iron sights, and `--scope-3d` on the command line turns it on.
   copies the main view's fog and far plane.
 - **The main view** goes `LENS_MAIN_SHARE` (0.2) of the way to the Sight FOV
   (`aim_zoom.rs`). The arms stay drawn and the crosshair stays hidden.
-- **Not done**: night vision still covers the whole screen. The sway still turns the
-  whole view. The lens camera has no auto exposure of its own and draws no impact
-  decals. Frame time is not measured. Binoculars and the camera keep the picture.
-- **Smoke**: `scope-3d-lens` (sniper rifle) and `scope-3d-lens-tube` (Ratslayer).
-  Both passed on 2026-10-26 [observed: `play-14s.png` / `play-15s.png` at 1280 × 800,
+- **Night vision** (2026-10-26): a night-vision scope's `NightScopeISFX` is held in the
+  lens only (`ScreenModifiers::hold_lens`). The lens camera has an image-space grade of
+  its own (`imagespace::LensGrade`) that holds only the lens's modifiers on a neutral
+  grade. The main camera then grades the lens with the rest of the screen [design].
+  [observed: `scope_3d_night.png`, Ratslayer at 23:00: the lens green and bright, the
+  night around it as without the scope.]
+- **Sway** (2026-10-26): with a 3D scope the wobble of weapon-scopes.md §5 no longer
+  turns the view. It turns the gun (the sights correction's direction), the lens camera
+  (turned off the main camera by the same angles) and the shots
+  (`nvf_play::aim_zoom::LensSway`, `combat::fire`). The world around the scope stays
+  still [design].
+- **Brightness** (2026-10-26): the lens shows the zoomed world as lit, and the main
+  camera's tonemapping applies the eye adaptation to the lens with the rest of the
+  screen. Bevy's auto exposure adds its value to the view's colour-grading exposure,
+  which the tonemapping pass multiplies in [observed: bevy_post_process 0.19.1
+  `auto_exposure.wgsl`, bevy_core_pipeline `tonemapping_shared.wgsl`]. In the first cut
+  the lens was much darker than the room in an interior. The cause was the MOD3's glare
+  (`Additive01`), tint ring and inner shading: drawn into a clear image they kept their
+  alpha and lay over the lens as a dark veil. Now only the reticle is drawn
+  [observed: `scope_3d_interior.png` with them, without the reticle disc, and with the
+  reticle alone; the lens matches the door panel behind it]. Light clustering was ruled
+  out: one cluster changed nothing.
+- **Impact decals** (2026-10-26): the lens camera draws `decals::DECAL_LAYER` (it has a
+  depth prepass) [observed: `scope_3d_shots.png` against the same frame without the
+  shot, the sniper rifle at the rock by the Prospector Saloon: the hole's mark under the
+  reticle].
+- **Cost** (2026-10-26) [observed: `--log-frame-times 1`, Goodsprings at noon, the
+  sniper rifle aimed for ~28 s, light glow on, 1280 × 800, this machine, other sessions'
+  work possibly running]: the overlay 5.6-5.8 ms a frame while aimed, the 3D lens
+  7.0-7.9 ms (about +1.7 ms, +30 %). Unaimed, both 5.6 ms. The lens camera's own sun
+  shadow cascades are the likeliest share (Bevy makes them per view); not split further.
+- **Still not done**: the lens camera has no motion blur or depth of field of its own.
+  Binoculars and the camera keep the picture.
+- **Smoke**: `scope-3d-lens` (sniper rifle), `scope-3d-lens-tube` (Ratslayer),
+  `scope-3d-lens-night`, `scope-3d-lens-shots` and `scope-3d-lens-interior`. The first two passed on 2026-10-26 [observed: `play-14s.png` / `play-15s.png` at 1280 × 800,
   not committed]. The zoomed bushes and the red mil-dot / black duplex reticle show
   inside the scope's rear ring, the house and the yard unzoomed around it, the arms
   holding the gun. Logged: lens camera FOV ~6° for the sniper rifle (Sight FOV 25°,

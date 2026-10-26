@@ -105,11 +105,27 @@ pub struct Scope3d {
     pub lens: bool,
 }
 
+/// A 3D scope's sway (nvforever `scope_view.rs`, weapon-scopes.md §5): the gun, its lens
+/// and the shots turn by it (radians, added to the heading and the pitch) while the view
+/// stays still. Zero otherwise; the full-screen picture sways the view itself.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub struct LensSway {
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+impl LensSway {
+    /// The direction (game space) a look along `heading`, `pitch` turns to.
+    pub fn look_dir(&self, heading: f32, pitch: f32) -> [f32; 3] {
+        crate::space::look_dir(heading + self.yaw, pitch + self.pitch)
+    }
+}
+
 pub struct AimZoomPlugin;
 
 impl Plugin for AimZoomPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AimZoom>().init_resource::<TrueSights>().init_resource::<Scope>().init_resource::<Scope3d>().add_systems(Update, zoom.in_set(PlaySet::Sync));
+        app.init_resource::<AimZoom>().init_resource::<TrueSights>().init_resource::<Scope>().init_resource::<Scope3d>().init_resource::<LensSway>().add_systems(Update, zoom.in_set(PlaySet::Sync));
     }
 }
 

@@ -158,8 +158,8 @@ the spec it links to.
 33. **3D scopes (test version built, off by default).** The gun stays on screen and the
     zoomed world shows in its scope's lens: "3D scopes (test)" on the settings page, or
     `--scope-3d`. It works for 17 scope models (sniper, hunting, varmint/Ratslayer, 9mm,
-    laser, trail carbine); other scoped guns keep the original overlay. It costs a second
-    world render while aiming. Keep it, make it the default, and should the view around
+    laser, trail carbine); other scoped guns keep the original overlay. It costs about
+    1.7 ms a frame while aiming (5.7 → 7.4 ms in Goodsprings). Keep it, make it the default, and should the view around
     the lens zoom a little (now 0.2 of the way) or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)

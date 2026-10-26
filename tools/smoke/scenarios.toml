@@ -6767,6 +6767,48 @@ expect = [
 ]
 
 [[scenario]]
+name = "scope-3d-lens-night"
+source = "owner 2026-10-26: a 3D scope's night vision in its lens only (docs/design/scope-3d-lens.md §7, imagespace.rs LensGrade)"
+note = "Ratslayer (000E5B17) with --scope-3d drawn at 9 s, Block held 12-16 s at 23:00; screenshot at 15 s: green in the lens, the night around it"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/scope_view.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "000E5B17", NVF_PLAY_TEST_GIVE = "0007EA27:20", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,16:aim", NVF_PLAY_TEST_SHOTS = "15:scope_3d_night.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "23", "--scope-3d"]
+run_seconds = 20
+expect = [
+  { re = 'scope: night vision NightScopeISFX on in the lens', label = "night vision comes on in the lens" },
+  { re = 'image space modifiers on the screen: .*NightScopeISFX', count = 0, label = "not on the whole screen" },
+  { re = 'scope: night vision NightScopeISFX off', label = "and goes when the scope goes down" },
+]
+
+[[scenario]]
+name = "scope-3d-lens-shots"
+source = "owner 2026-10-26: shots through a 3D scope follow the swayed gun and their bullet holes show in the lens (docs/design/scope-3d-lens.md §7)"
+note = "the sniper rifle with --scope-3d at the rock NVNRockCanyon12 by the Prospector Saloon (impact-decals-bullets' spot): aimed 4.5-10 s, shots at 6 and 7.5 s without spread, a frame at 9 s"
+areas = ["combat", "camera", "effects"]
+paths = ["engine/nvforever/src/scope_view.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/decals.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "00004353", NVF_PLAY_TEST_GIVE = "0006B53C:20", NVF_PLAY_TEST_LOOK = "2:97:-4", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:aim,6:fire,7.5:fire,10:aim", NVF_PLAY_TEST_SHOTS = "9:scope_3d_shots.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12", "--scope-3d"]
+run_seconds = 12
+expect = [
+  { re = 'scope: shown in the weapon.s lens \(3D scope\)', label = "the scope comes up in the lens" },
+  { re = 'decals: Ballistic\w*Impact leaves Decal\w+Ballistic', label = "the shots leave bullet holes" },
+]
+
+[[scenario]]
+name = "scope-3d-lens-interior"
+source = "owner 2026-10-26: a 3D scope's lens in a dim interior is as bright as the room around it (docs/design/scope-3d-lens.md §7)"
+note = "the sniper rifle with --scope-3d in the Prospector Saloon, Block held 8-12 s; a frame at 11 s"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/scope_view.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "00004353", NVF_PLAY_TEST_GIVE = "0006B53C:20", NVF_PLAY_TEST_CONTROL = "5:weapon,8:aim,12:aim", NVF_PLAY_TEST_SHOTS = "11:scope_3d_interior.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--scope-3d"]
+run_seconds = 14
+expect = [
+  { re = 'scope view: \S+ in the lens \(3D scope\)', label = "the lens is drawn indoors" },
+]
+
+[[scenario]]
 name = "scope-night-vision"
 source = "ESM gap audit row 10: a night-vision scope (WEAP Scope has NightVision) gives night vision at night, NightScopeISFX held on the screen (docs/spec-notes/weapon-scopes.md §4)"
 note = "Ratslayer (000E5B17, night-vision scope) drawn at 9 s, Block held 12-15 s at 23:00"
