@@ -161,18 +161,22 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             l.flags = num(args, 1, 0.0) as i64 as u8;
             zero
         }
-        // `list form level count health`: in level order, after the entries of the same
-        // or a lower level [observed: an NPC at level 1 went in at index 0 of a list of
-        // level-33 entries]; health 0–1, 0 or 1 meaning whole [documented: "pass in 0.0
-        // as the health argument" for a list].
+        // `list form level count health`: any kind of form; the newest entry first, at
+        // index 0; an entry above the player's level is not added [observed:
+        // lu-leveled2, the player at level 1: adds at level 1 went in, newest first,
+        // levels 2 and 7 did not; hypothesis: the rule is "above the player's level", only
+        // level 1 seen]; health 0–1, 0 or 1 meaning whole [documented: "pass in 0.0 as
+        // the health argument" for a list].
         "leveledlistaddform" => {
             let Some(item) = form(args, 1) else { return Some(Ok(zero)) };
             let level = num(args, 2, 1.0).clamp(0.0, f64::from(u16::MAX)) as u16;
+            if f64::from(level) > g.player_level() {
+                return Some(Ok(zero));
+            }
             let count = num(args, 3, 1.0).clamp(0.0, f64::from(u16::MAX)) as u16;
             let h = num(args, 4, 0.0);
             let condition = (h > 0.0 && h < 1.0).then_some(h as f32);
-            let at = l.entries.iter().position(|e| e.0 > level).unwrap_or(n);
-            l.entries.insert(at, (level, item, count, condition));
+            l.entries.insert(0, (level, item, count, condition));
             zero
         }
         // Every entry of the form; gives how many [documented].
