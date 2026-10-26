@@ -216,6 +216,11 @@ pub trait Host {
     fn mod_name(&mut self, _index: u32) -> Option<String> {
         None
     }
+    /// A decoded record field (JIP's trait getters, jip-records.md): subrecord `sub`,
+    /// field path `path`; a number, a form or a string.
+    fn record_field(&mut self, _form: u32, _sub: &str, _path: &str) -> Option<XVal> {
+        None
+    }
     /// The reference the script runs on, if any (JIP's stores default to it).
     fn calling_ref(&mut self) -> Option<u32> {
         None
@@ -2463,6 +2468,9 @@ impl Vm<'_, '_> {
         }
         // JIP LN's and lutana's functions (catalogue origins JIP, LU).
         let origin = self.table.unnumbered.get(&lname).map(|u| u.origin.clone()).unwrap_or_default();
+        if lname == "validateregex" {
+            return self.regex_function(&lname, c);
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
