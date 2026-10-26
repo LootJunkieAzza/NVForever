@@ -450,7 +450,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 }
             }
         }
-        "clearfilecacheshowoff" => zero,
         _ => {
             let _ = ctx;
             return None;
