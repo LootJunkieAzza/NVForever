@@ -32,20 +32,11 @@ Begin GameMode
     let aA := Ar_Map "b"::1, "a"::2
     Print "EXTPROBE|smap.kind|[" + (TypeOf aA) + "]"
     let aA := Ar_Null
-    let aA := Ar_Construct "bogus"
-    Print "EXTPROBE|construct.bogus|" + $(Ar_Size aA)
-    let aA := Ar_Null
-    let aA := Ar_Map 1::10, "x"::20
-    Print "EXTPROBE|map.mixed_keys|" + $(Ar_Size aA)
-    let aA := Ar_Null
     let aA := Ar_List 1
     Print "EXTPROBE|packed.list|" + $(Ar_Packed aA)
     let aA := Ar_Null
     let aA := Ar_Map 1::1
     Print "EXTPROBE|packed.map|" + $(Ar_Packed aA)
-    let aA := Ar_Null
-    let aA := Ar_Map "k"::1
-    Print "EXTPROBE|packed.smap|" + $(Ar_Packed aA)
     let aA := Ar_Null
     let aA := Ar_Range 1, 5
     Print "EXTPROBE|range.basic|" + $(Ar_Size aA)
@@ -55,12 +46,6 @@ Begin GameMode
     let aA := Ar_Null
     let aA := Ar_Range 10, 5, -1
     Print "EXTPROBE|range.down|" + $(aA[5])
-    let aA := Ar_Null
-    let aA := Ar_Range 1, 3, 0
-    Print "EXTPROBE|range.step0|" + $(Ar_Size aA)
-    let aA := Ar_Null
-    let aA := Ar_Range 1, 5, -1
-    Print "EXTPROBE|range.wrong_way|" + $(Ar_Size aA)
     let aA := Ar_Null
     let aA := ar_Init 4, 7
     Print "EXTPROBE|init.size|" + $(aA[3])

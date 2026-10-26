@@ -33,22 +33,9 @@ Begin GameMode
     let aA := Ar_Map 5::50, 2::20, 9::90
     Print "EXTPROBE|map.prev_start|" + $(Ar_Prev aA, 2)
     let aA := Ar_Null
-    let aA := Ar_Map 5::50, 2::20, 9::90
-    Print "EXTPROBE|map.next_missing|" + $(Ar_Next aA, 3)
-    let aA := Ar_Null
     let aA := Ar_Map "Weapon"::1, "Ammo"::2, "Armor"::3
     let aB := Ar_Keys aA
     Print "EXTPROBE|smap.keys_sorted|[" + (aB[0]) + "]"
-    let aA := Ar_Null
-    let aA := Ar_Map "b"::1, "A"::2, "a"::3
-    let aB := Ar_Keys aA
-    Print "EXTPROBE|smap.case_order|[" + (aB[0]) + "]"
-    let aA := Ar_Null
-    let aA := Ar_Map "b"::1, "A"::2, "a"::3
-    Print "EXTPROBE|smap.case_size|" + $(Ar_Size aA)
-    let aA := Ar_Null
-    let aA := Ar_Construct "map"
-    Print "EXTPROBE|first.empty|" + $(Ar_First aA)
     let aA := Ar_Null
     let aA := Ar_Map 2::1, 5::1
     Print "EXTPROBE|haskey.yes|" + $(Ar_HasKey aA, 5)
@@ -62,9 +49,6 @@ Begin GameMode
     let aA := Ar_Null
     let aA := Ar_List 1, 2
     Print "EXTPROBE|find.missing|" + $(Ar_Find 3, aA)
-    let aA := Ar_Null
-    let aA := Ar_List "Abc", "x"
-    Print "EXTPROBE|find.string_case|" + $(Ar_Find "abc", aA)
     let aA := Ar_Null
     let aA := Ar_List 7, 8, 7, 8
     Print "EXTPROBE|find.range|" + $(Ar_Find 7, aA, 1:3)

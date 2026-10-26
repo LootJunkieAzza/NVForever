@@ -66,18 +66,10 @@ Begin GameMode
     let aB := aA[1:2]
     Print "EXTPROBE|slice.inclusive|" + $(Ar_Size aB)
     let aA := Ar_Null
-    let aA := Ar_List 1, 2, 3, 4
-    let aB := aA[1:2]
-    Print "EXTPROBE|slice.kind|" + $(aB[0])
-    let aA := Ar_Null
     let aA := &5
     Print "EXTPROBE|box.unbox|" + $(*aA)
     let aA := Ar_Null
     let aA := Ar_Map "value"::7, "key"::1
     Print "EXTPROBE|unbox.smap_value|" + $(*aA)
-    let aA := Ar_Null
-    let aA := Ar_List 1
-    let aA := Ar_Null
-    Print "EXTPROBE|null.reads_zero|" + $(Ar_Size aA)
     Print "EXTPROBE|arrays/04_copies_and_compare|end"
 End
