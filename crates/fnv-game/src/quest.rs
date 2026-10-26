@@ -64,6 +64,8 @@ pub struct QuestDef {
     pub conditions: Vec<Condition>,
     pub stages: BTreeMap<i32, Vec<StageEntry>>,
     pub objectives: BTreeMap<i32, Objective>,
+    /// The objective indexes in record order (GetNthQuestObjective).
+    pub objective_order: Vec<i32>,
     pub next_quest: Option<FormId>,
 }
 
@@ -80,6 +82,7 @@ impl Default for QuestDef {
             conditions: Vec::new(),
             stages: BTreeMap::new(),
             objectives: BTreeMap::new(),
+            objective_order: Vec::new(),
             next_quest: None,
         }
     }

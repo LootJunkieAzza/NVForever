@@ -2420,6 +2420,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         stage = None;
                         if let Some(i) = i {
                             q.objectives.insert(i, Objective { index: i, ..Default::default() });
+                            q.objective_order.push(i);
                         }
                         at = At::Quest;
                     }

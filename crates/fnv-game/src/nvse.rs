@@ -363,12 +363,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // he has a template] the actor's own race record, as the character creator or
         // AgeRace changed it.
         "getrace" => {
-            let a = subject.or(as_form(args.first())).unwrap_or(FormId(0));
+            // The argument first: `GetRace rF` on a base form [observed: nvse-forms].
+            let a = as_form(args.first()).or(subject).unwrap_or(FormId(0));
             let own = (a != FormId::PLAYER_REF && g.extra.get(&a).and_then(|e| e.race).is_none())
-                .then(|| crate::functions::base_of(g, a).and_then(|b| match field(g, b, "RNAM", "") {
+                .then(|| match field(g, crate::functions::base_of(g, a).unwrap_or(a), "RNAM", "") {
                     Some(XVal::Ref(r)) if r != 0 => Some(FormId(r)),
                     _ => None,
-                }))
+                })
                 .flatten();
             XVal::Ref(own.or_else(|| g.actor_race(a)).map_or(0, |r| r.0))
         }
@@ -380,7 +381,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         "getequiptype" => num_of(field(g, item(g, 0).unwrap_or(FormId(0)), "ETYP", "")),
         // [documented: GetRepairList; GetModelPath; GetIconPath].
         "getrepairlist" => form_of(field(g, item(g, 0).unwrap_or(FormId(0)), "REPL", "")),
-        "getmodelpath" | "geticonpath" => {
+        // GetTexturePath: the icon (ICON) [observed: nvse-misc, pistol, stimpak, caps, the
+        // Action Boy perk].
+        "getmodelpath" | "geticonpath" | "gettexturepath" => {
             let f = item(g, 0).unwrap_or(FormId(0));
             let sub = if name == "getmodelpath" { "MODL" } else { "ICON" };
             match field(g, f, sub, "").or_else(|| field(g, f, sub, "model")) {
@@ -395,7 +398,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         "getbasenumfactions" | "getbasenthfaction" | "getbasenthrank" => {
             let n = int_of(args.first(), 0);
             let a = if name == "getbasenumfactions" { item(g, 0) } else { item(g, 1) }.unwrap_or(FormId(0));
-            let f = g.data.actors.get(&a).map(|d| d.factions.clone()).unwrap_or_default();
+            // Counted from the record's last SNAM back [observed: nvse-actors, Sunny's
+            // and Doc's factions].
+            let mut f = g.data.actors.get(&a).map(|d| d.factions.clone()).unwrap_or_default();
+            f.reverse();
             let nth = usize::try_from(n).ok().and_then(|n| f.get(n));
             match name {
                 "getbasenumfactions" => XVal::Num(f.len() as f64),
@@ -440,6 +446,60 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 _ => 0,
             };
             XVal::Num(if name.ends_with("low") { (bits & 0xFFFF) as f64 } else { (bits >> 16) as f64 })
+        }
+        // AI packages of the reference's base (its template's when the template supplies
+        // them) [documented: GetPackageCount; GetNthPackage; observed: nvse-misc, Doc 9,
+        // 0 = 15ED62].
+        "getpackagecount" | "getnthpackage" => {
+            let b = item(g, usize::MAX).unwrap_or(FormId(0));
+            let def = g.data.actors.get(&b);
+            let own = def.map(|d| d.packages.clone()).unwrap_or_default();
+            let list = match def.and_then(|d| d.template.filter(|_| d.template_packages)) {
+                Some(t) if own.is_empty() => g.data.actors.get(&t).map(|d| d.packages.clone()).unwrap_or_default(),
+                _ => own,
+            };
+            if name == "getpackagecount" {
+                XVal::Num(list.len() as f64)
+            } else {
+                XVal::Ref(usize::try_from(int_of(args.first(), -1)).ok().and_then(|n| list.get(n)).map_or(0, |p| p.0))
+            }
+        }
+        // [documented: GetPackageTargetDistance] the target's count / distance.
+        "getpackagetargetdistance" => {
+            let p = as_form(args.first()).unwrap_or(FormId(0));
+            XVal::Num(g.data.package_defs.get(&p).and_then(|d| d.target).map_or(0.0, |t| f64::from(t.count_distance)))
+        }
+        "getcurrentpackage" => XVal::Ref(as_form(args.first()).or(subject).and_then(|a| g.current_package(a)).map_or(0, |p| p.0)),
+        // [documented: GetQuestObjectiveCount; GetNthQuestObjective; observed: nvse-misc,
+        // VCG02 9 objectives, 0–3 = 10, 5, 20, 30: record order].
+        "getquestobjectivecount" | "getnthquestobjective" => {
+            let q = g.data.quests.get(&as_form(args.first()).unwrap_or(FormId(0)));
+            let order = q.map(|q| q.objective_order.clone()).unwrap_or_default();
+            if name == "getquestobjectivecount" {
+                XVal::Num(order.len() as f64)
+            } else {
+                XVal::Num(usize::try_from(int_of(args.get(1), -1)).ok().and_then(|n| order.get(n)).map_or(-1.0, |&i| f64::from(i)))
+            }
+        }
+        // [documented: GetParentCellOwner; GetOwningFactionRequiredRank] the cell's owner
+        // and the faction rank a reference's owner needs.
+        "getparentcellowner" => XVal::Ref(subject.and_then(|r| g.cell_of(r)).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
+        "getowningfactionrequiredrank" => XVal::Num(subject.and_then(|r| g.data.owner_ranks.get(&r)).map_or(0.0, |&r| f64::from(r))),
+        // `GetBipedModelPath which [form]`: 0 male biped (MODL), 1 female biped (MOD3),
+        // 2 male ground (MOD2), 3 female ground (MOD4) [observed: nvse-misc, leather armor].
+        "getbipedmodelpath" => {
+            let f = item(g, 1).unwrap_or(FormId(0));
+            let sub = match int_of(args.first(), -1) {
+                0 => "MODL",
+                1 => "MOD3",
+                2 => "MOD2",
+                3 => "MOD4",
+                _ => "",
+            };
+            match field(g, f, sub, "").or_else(|| field(g, f, sub, "model")) {
+                Some(XVal::Str(t)) => XVal::Str(t),
+                _ => XVal::Str(String::new()),
+            }
         }
         // [documented: GetNumRanks; GetNthFactionRankName] a faction's ranks.
         "getnumranks" => XVal::Num(g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0))).len() as f64),
