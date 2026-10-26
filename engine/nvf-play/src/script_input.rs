@@ -91,7 +91,13 @@ fn script_input(
 }
 
 /// The rounds in the player's magazine for GetPlayerCurrentAmmoRounds.
-fn tell_magazine(combat: Option<Res<crate::combat::Combat>>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+fn tell_magazine(mut combat: Option<ResMut<crate::combat::Combat>>, mut script: Option<ResMut<crate::script::ScriptState>>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    // SetPlayerCurrentAmmoRounds: the rounds go in the weapon in hand.
+    if let (Some(n), Some(c)) = (rt.game.other.set_magazine.take(), combat.as_deref_mut()) {
+        if let Some((w, _)) = c.magazine_for_save() {
+            c.restore_magazine((w, n));
+        }
+    }
     rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
 }

@@ -1929,3 +1929,22 @@ fn message_box_ex_alt_runs_its_callback_with_the_button() {
     let read = g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"*btn\")\nEnd\n", ctx()).unwrap();
     assert_eq!(read, XVal::Num(1.0));
 }
+
+#[test]
+fn player_control_locks_are_kept_per_plugin() {
+    // [documented: DisablePlayerControlsAlt] "stored on a per-mod basis": a group stays
+    // locked until every plugin that locked it gives it back.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    q(&mut g, "DisablePlayerControlsAltEx (1 << 3)");
+    assert_eq!(g.controls_locked(), [false, false, true, false, false, false, false], "bit 3 is fighting");
+    g.other.alt_locks.insert("other.esp".into(), [true, false, false, false, false, false, false]);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabledAlt 0 1)"), XVal::Num(0.0), "movement is the other plugin's");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabledAlt 1 1)"), XVal::Num(1.0), "any plugin's");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabled)"), XVal::Num(0.0), "not the vanilla locks");
+    q(&mut g, "EnablePlayerControlsAlt");
+    assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
+}

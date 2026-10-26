@@ -191,11 +191,17 @@ pub(crate) fn find_target(
     let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
+    let mut far_ref = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
         filter.exclude_layers.insert(layers::TRIGGER);
-        far = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter).map(|h| h.distance);
+        let far_hit = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter);
+        far = far_hit.as_ref().map(|h| h.distance);
+        far_ref = far_hit.and_then(|h| match h.owner {
+            Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
+            _ => None,
+        });
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
         let form_id = match h.owner {
             // An actor's hit volume (combat C3) targets the actor.
@@ -217,6 +223,9 @@ pub(crate) fn find_target(
     });
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+        // GetCrosshairRef: what is in activation reach; GetCrosshairRefEx: at any range.
+        rt.game.senses.crosshair_ref = hit.as_ref().and_then(|h| h.form_id).map(FormId);
+        rt.game.senses.crosshair_far = far_ref.map(FormId);
     }
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked

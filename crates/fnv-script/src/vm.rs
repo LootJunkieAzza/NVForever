@@ -2186,6 +2186,14 @@ impl Vm<'_, '_> {
         Ok(Some(match n {
             // [documented: Sv Construct] a new string from the format and its values.
             "sv_construct" => XVal::Str(self.format_arg(c, 0)?.0),
+            // [documented: Sv_Set] `"format" values… stringVar`: the variable gets the text.
+            "sv_set" => {
+                let (t, k) = self.format_arg(c, 0)?;
+                if let Some(XExpr::Var { var, .. }) = c.args.get(k) {
+                    self.write_var(var, XVal::Str(t))?;
+                }
+                XVal::Num(0.0)
+            }
             // [documented: Sv Length] -1 for an invalid string.
             "sv_length" => {
                 // A destructed or never-set string variable is not a valid string: -1
@@ -2764,6 +2772,22 @@ impl Vm<'_, '_> {
             "getcurrentscript" => Ok(XVal::Ref(self.host.current_script().unwrap_or(0))),
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
+            // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
+            // `"format" values… faction rank [female]`]: formatted here, set by the game
+            // (SetName's change; the rank title).
+            "setnameex" | "setnthfactionranknameex" => {
+                let (t, k) = self.format_arg(c, 0)?;
+                let mut args = vec![XVal::Str(t)];
+                for e in c.args.iter().skip(k) {
+                    args.push(self.xeval(e)?);
+                }
+                let to = if lname == "setnameex" { "setname" } else { "setnthfactionranknameex" };
+                match self.host.ext_call(to, None, &args) {
+                    Some(r) => r.map_err(VmError::Host)?,
+                    None => XVal::Num(0.0),
+                };
+                Ok(XVal::Num(0.0))
+            }
             _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
         }
     }

@@ -182,8 +182,8 @@ game. Nothing here is urgent; each item unblocks part of the work.
 5. *Done 2026-10-26:* the N2 scan ran over your MO2 profile `Talon` (128 plugins):
    docs/handoff/modlist-scan-2026-10-26.md. NVForever builds 44% of the extender uses
    there. The most used functions not built are the UI ones (SetUIFloat and friends,
-   16 plugins), which wait on the UI decision (extender-compat.md §5.6): that is now the
-   most valuable open extender decision. Your saves with their `.nvse` co-saves
+   16 plugins). *Answered 2026-10-26:* a tile tree (§5.6 option A), to make the UI
+   modular for modders; its own session writes docs/design/ui-tile-tree.md and the tasks. Your saves with their `.nvse` co-saves
    (`F:\Modding\MO2\profiles\Talon\saves`) may be read, read-only, for save rows.
 
 ## xNVSE probe results: decisions taken while you were away (2026-10-26)
@@ -217,7 +217,7 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
   from observations alone. jip-math-utility.md §1.
 - **`GetLNVersion` returns 57.3** in your game, where the wiki says it always returns 0;
   NVForever follows the game.
-- **UI functions (J8)** still wait on your call (extender-compat.md §5.6).
+- **UI functions (J8):** *answered 2026-10-26*, a tile tree (extender-compat.md §5.6 A).
 - **Three wiki pages missing from the export:** *Auxiliary Variables*, *RefMap Array* and
   *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
   variable temporary. It did not show how a variable becomes private or public
@@ -252,7 +252,7 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
     cells within two squares of it, as loaded (uGridsToLoad 5). Elsewhere only
     persistent references count, which matches your save's rows for the saloon.
   - The remaining xNVSE functions, by family, are in docs/handoff/xnvse-remaining.md.
-    The UI ones still wait on your call (extender-compat.md §5.6).
+    The UI ones wait on the tile tree (§5.6 A, chosen 2026-10-26).
 
 ## Extender lab: rows that depend on your save (2026-10-26)
 

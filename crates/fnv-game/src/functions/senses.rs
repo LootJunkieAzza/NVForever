@@ -55,6 +55,10 @@ pub struct Senses {
     /// The crosshair's ray as the engine last cast it (PlaceAtReticle); `None` before the
     /// engine told it (a headless run).
     pub reticle: Option<Reticle>,
+    /// The reference the player would activate (GetCrosshairRef) and the first one the
+    /// crosshair's ray meets at any range (GetCrosshairRefEx), as the engine tells them.
+    pub crosshair_ref: Option<FormId>,
+    pub crosshair_far: Option<FormId>,
     /// The reference the player holds with the grab (`nvf-play` grab.rs), told by the
     /// engine ([`Game::set_player_grab`]); `None` while the player holds nothing. Not
     /// part of the saved state: a grab ends with the frame the game is saved in.
@@ -93,7 +97,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, crosshair_ref: None, crosshair_far: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new() }
     }
 }
 
