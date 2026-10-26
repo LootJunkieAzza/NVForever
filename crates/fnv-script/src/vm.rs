@@ -179,6 +179,12 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// An extender function the VM does not build, by catalogue name (lower case), on a
+    /// reference if given, with its arguments evaluated (an axis as its letter); `None`
+    /// when the host does not build it either.
+    fn ext_call(&mut self, _name: &str, _on: Option<Value>, _args: &[XVal]) -> Option<Result<XVal, String>> {
+        None
+    }
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
     fn show_text(&mut self, _text: &str, _buttons: Vec<String>) {}
     /// The calling script's plugin's debug mode (DebugPrint), after setting it when `set`
@@ -2545,7 +2551,7 @@ impl Vm<'_, '_> {
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
-                None => Err(VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
+                None => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
             };
         }
         let arg = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
@@ -2652,9 +2658,82 @@ impl Vm<'_, '_> {
             // game); [documented: GetGameRestarted] true once per script per session.
             "getgameloaded" => Ok(XVal::Num(if self.host.game_loaded(false) { 1.0 } else { 0.0 })),
             "getgamerestarted" => Ok(XVal::Num(if self.host.game_loaded(true) { 1.0 } else { 0.0 })),
+            // Characters as ASCII codes [documented: IsDigit; IsLetter; IsPrintable;
+            // IsPunctuation; IsUpperCase; ToUpper; ToLower; CharToAscii; AsciiToChar].
+            "isdigit" | "isletter" | "isprintable" | "ispunctuation" | "isuppercase" | "toupper" | "tolower" => {
+                let code = arg(self, 0)?.num()? as i64;
+                let ch = u8::try_from(code).ok();
+                let t = |f: fn(&u8) -> bool| XVal::Num(f64::from(u8::from(ch.as_ref().is_some_and(f))));
+                Ok(match name.to_ascii_lowercase().as_str() {
+                    "isdigit" => t(u8::is_ascii_digit),
+                    "isletter" => t(u8::is_ascii_alphabetic),
+                    "isprintable" => t(|c| (0x20..0x7F).contains(c)),
+                    "ispunctuation" => t(u8::is_ascii_punctuation),
+                    "isuppercase" => t(u8::is_ascii_uppercase),
+                    "toupper" => XVal::Num(ch.map_or(code, |c| i64::from(c.to_ascii_uppercase())) as f64),
+                    _ => XVal::Num(ch.map_or(code, |c| i64::from(c.to_ascii_lowercase())) as f64),
+                })
+            }
+            "chartoascii" => Ok(XVal::Num(match arg(self, 0)? {
+                XVal::Str(s) => s.bytes().next().map_or(-1.0, f64::from),
+                _ => -1.0,
+            })),
+            "asciitochar" => {
+                let code = arg(self, 0)?.num()? as i64;
+                Ok(XVal::Str(u8::try_from(code).ok().filter(|c| *c > 0).map(|c| char::from(c).to_string()).unwrap_or_default()))
+            }
+            // Bits of 32-bit integers [documented: GetBit; SetBit; ClearBit; LeftShift;
+            // RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot]; the shifts are on
+            // the unsigned value [hypothesis].
+            "getbit" | "setbit" | "clearbit" | "leftshift" | "rightshift" | "logicaland" | "logicalor" | "logicalxor" => {
+                let a = arg(self, 0)?.num()? as i64 as u32;
+                let b = arg(self, 1)?.num()? as i64;
+                let bit = if (0..32).contains(&b) { 1u32 << b } else { 0 };
+                let sh = u32::try_from(b).unwrap_or(32);
+                let on = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_none_or(|v| v.truthy());
+                let r: u32 = match name.to_ascii_lowercase().as_str() {
+                    "getbit" => u32::from(a & bit != 0),
+                    "setbit" if on => a | bit,
+                    "setbit" | "clearbit" => a & !bit,
+                    "leftshift" => a.checked_shl(sh).unwrap_or(0),
+                    "rightshift" => a.checked_shr(sh).unwrap_or(0),
+                    "logicaland" => a & b as u32,
+                    "logicalor" => a | b as u32,
+                    _ => a ^ b as u32,
+                };
+                Ok(XVal::Num(f64::from(r as i32)))
+            }
+            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32) as i32))),
+            // [documented: IntToBin] padded to the width; the prefix is "0b" [hypothesis:
+            // the page names the option without showing it].
+            "inttobin" => {
+                let v = arg(self, 0)?.num()? as i64 as u32;
+                let width = c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
+                Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
+            }
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
-            _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+            _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+        }
+    }
+
+    /// An extender function the host builds (`Host::ext_call`); `None` when it does not.
+    fn host_function(&mut self, lname: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for a in &c.args {
+            args.push(match a {
+                XExpr::Axis { c } => XVal::Str(c.to_string()),
+                other => self.xeval(other)?,
+            });
+        }
+        match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map(Some).map_err(VmError::Host),
+            None => Ok(None),
         }
     }
 }

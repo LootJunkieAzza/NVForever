@@ -451,6 +451,10 @@ pub fn get_is_creature(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 
 /// The members of a form list: authored, plus those added at run time.
 pub fn list_members(g: &Game, list: FormId) -> Vec<FormId> {
+    // ListAddForm and the ListRemove… functions keep the whole list for the session.
+    if let Some(v) = g.list_edits.get(&list) {
+        return v.clone();
+    }
     let mut v = g.form_lists.get(&list).cloned().unwrap_or_default();
     v.extend(g.data.form_lists.get(&list).into_iter().flatten().copied());
     v
@@ -483,6 +487,12 @@ pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     let f = a.form(1)?;
     if g.data.sig(list).as_ref() != Some(b"FLST") {
         return Err(format!("{} is not a form list", g.data.name(list)));
+    }
+    // A list the xNVSE functions edited this session gets the form too, at the top.
+    if let Some(e) = g.list_edits.get_mut(&list) {
+        if !e.contains(&f) {
+            e.insert(0, f);
+        }
     }
     let added = g.form_lists.entry(list).or_default();
     if let Some(i) = added.iter().position(|&x| x == f) {

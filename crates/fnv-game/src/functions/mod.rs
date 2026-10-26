@@ -22,7 +22,7 @@ pub mod console;
 mod fighting;
 pub mod toggles;
 pub(crate) mod furniture;
-mod items;
+pub(crate) mod items;
 mod magic;
 pub mod misc;
 pub mod navigation;

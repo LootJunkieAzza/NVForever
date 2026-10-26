@@ -982,6 +982,13 @@ pub struct Game<'a> {
     /// and item, id [`TEMP_REF_BASE`] + index; gone at the next frame [observed: probe
     /// loops/02, valid after the loop, invalid a frame later].
     pub(crate) temp_refs: Vec<(FormId, FormId)>,
+    /// Form lists as ListAddForm and the ListRemove… functions left them, for the
+    /// session only [documented: ListAddForm, its changes are not saved].
+    pub(crate) list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
+    /// xNVSE's queued delayed calls (`crate::delayed`); not saved [documented].
+    pub(crate) delayed: Vec<crate::delayed::Delayed>,
+    /// What GetNextRef gives next (GetFirstRef's walk).
+    pub(crate) ref_walk: Vec<FormId>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
     /// [hypothesis: the page gives no lifetime].
     debug_plugins: BTreeSet<String>,
@@ -1563,6 +1570,9 @@ impl<'a> Game<'a> {
             jip: Default::default(),
             debug_plugins: BTreeSet::new(),
             temp_refs: Vec::new(),
+            list_edits: std::collections::HashMap::new(),
+            delayed: Vec::new(),
+            ref_walk: Vec::new(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
@@ -2517,8 +2527,10 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.temp_refs.clear();
-        // JIP's SetGameMainLoopCallback functions due this frame (task J6).
+        // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
+        // delayed calls.
         self.run_main_loop();
+        self.run_delayed();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -4420,6 +4432,12 @@ impl Host for Exec<'_, '_> {
 
     fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
         self.game.data.body_part_name(FormId(form), part)
+    }
+
+    fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
+        let on = on.and_then(|v| v.as_form()).map(FormId);
+        let ctx = self.ctx;
+        crate::nvse::call(self.game, &ctx, name, on, args)
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {

@@ -768,6 +768,32 @@ fn a_signed_number_after_a_space_starts_the_next_argument() {
 }
 
 #[test]
+fn character_and_bit_functions() {
+    let h = run("float d
+float u
+float a
+float b
+float s
+float x
+string_var t
+string_var c
+begin GameMode
+let d := IsDigit 55
+let u := ToUpper 97
+let a := CharToAscii \"Az\"
+let b := GetBit 5, 2
+let s := SetBit 0, 3
+let x := LogicalXor 6, 3
+let t := IntToBin 5, 8, 1
+let c := AsciiToChar 66
+end");
+    assert_eq!((h.0[&1], h.0[&2], h.0[&3]), (Value::Num(1.0), Value::Num(65.0), Value::Num(65.0)));
+    assert_eq!((h.0[&4], h.0[&5], h.0[&6]), (Value::Num(1.0), Value::Num(8.0), Value::Num(5.0)));
+    assert_eq!(h.text(7), "0b00000101");
+    assert_eq!(h.text(8), "B");
+}
+
+#[test]
 fn jip_reports_and_pure_functions() {
     let h = run(
         "float i
