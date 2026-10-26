@@ -72,7 +72,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // with AddToFaction and the rest.
         "getactivefactions" | "getactiveranks" => {
             let a = form(args, 0).or(subject).unwrap_or(FormId(0));
-            let fs = crate::functions::actor::factions_of(g, a);
+            // In the base factions' reversed order [observed: nvse-second, Sunny's [0] is
+            // her record's last SNAM].
+            let mut fs = crate::functions::actor::factions_of(g, a);
+            fs.reverse();
             let items = fs
                 .into_iter()
                 .map(|f| if name == "getactivefactions" { XVal::Ref(f.0) } else { XVal::Num(f64::from(crate::functions::actor::faction_rank(g, a, f))) })
