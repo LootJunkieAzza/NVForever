@@ -175,3 +175,20 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | CallWhile | — | udf; condition udf; flags int? (0); up to 15 args | none | runs udf every frame while condition is true; never again once false | flags: 1 args to udf, 2 args to condition (6.2.6), 4 not MenuMode, 8 not GameMode (6.2.8), 16 wait in paused menus (6.3.0); dropped on load |
 | CallWhen | — | udf; condition udf; flags int? (0); up to 15 args | none | runs udf once, the first frame condition is true (6.2.4) | flags as CallWhile; dropped on load |
 | CallWhilePerSeconds | — | interval float; udf; condition udf; flags int? (0); up to 15 args | none | runs udf every interval seconds until condition is false (6.2.8) | flags as CallWhile; dropped on load |
+
+## Observed in the original game (2026-10-26)
+
+[observed: <id>] = tools/capture/ext-probes, run unattended in the original game (xNVSE 6.4.9, JIP 57.30) on 2026-10-26 by tools/capture/ext_probe_run.py from the owner's private test plugin; the results file is private (`C:\fnv-private\goldens\ext\`). Where a row settles an "open" point above, the observation wins.
+
+| Probe | Input | Result | So |
+|---|---|---|---|
+| udf.num_by_value | the function sets its number parameter to 99 | caller still 5 | numbers pass by value |
+| udf.str_after_call | the function appends to its string parameter | caller still [hi] | strings pass as a copy |
+| udf.arr_after_call | the function writes element 0 | caller sees 99 | arrays are shared |
+| udf.no_value | no SetFunctionValue (the target held 42) | 0 | Call gives 0 |
+| udf.return_stops | SetFunctionValue 3; Return; SetFunctionValue 4 | 3 | Return ends the function and keeps the value |
+| udf.return_value | a function whose body is Return 7 | 0 | Return x compiles but its value is ignored |
+| udf.this_player | PlayerREF.Call, `this` inside | PlayerREF | this is the calling reference |
+| udf.getself_no_ref | GetSelf in a Call without a calling reference | <NULL>, and an extender error in nvse.log | an error, not 0 |
+| udf.caller_valid / caller_text | GetCallingScript from a quest script | valid; $ gives <no name> | scripts have no name text |
+| lambda.result | a lambda {} => iP += 1 | 6 | += yields the assigned value |

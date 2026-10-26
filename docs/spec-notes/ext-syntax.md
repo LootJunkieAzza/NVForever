@@ -250,3 +250,32 @@ apart; `&&` against the compound assignments at the same level; short-circuit ou
 `eval`; the let macro's other operators; inline-declared variable scope; `Return` in a
 loop; hex digit case; nested and unclosed block comments; break/continue in nested loops;
 GoTo across blocks.
+
+## Observed in the original game (2026-10-26)
+
+[observed: <id>] = tools/capture/ext-probes, run unattended in the original game (xNVSE 6.4.9, JIP 57.30) on 2026-10-26 by tools/capture/ext_probe_run.py from the owner's private test plugin; the results file is private (`C:\fnv-private\goldens\ext\`). Where a row settles an "open" point above, the observation wins.
+
+| Probe | Input | Result | So |
+|---|---|---|---|
+| assoc.pow / sub / div / mod | 2^3^2, 10-4-3, 64/4/2, 17%5%3 | 64, 3, 8, 2 | all four group left to right |
+| shift.right_neg | -8 >> 1 | -4 | the shift keeps the sign |
+| bitor.neg_fraction | -5.7 \\| 0 | -5 | fractions are truncated toward zero |
+| mod.fraction | 7.5 % 2 | 1 | % works on integers |
+| rand.comma / rand_nocomma | Rand 5, 5 and Rand 5 5 | 5 and 5 | equal bounds give that value; arguments without a comma are accepted |
+| chain.compound | let x += y += 1 (x=1, y=1) | x 3, y 2 | compound assignments are right-associative |
+| and.vs_compound | let iR := 1 && iX += 5 | run-time error, iX unchanged | grouped as (1 && iX) += 5: same level, left to right |
+| fn.abs_swallow / fn.sin_eq | Abs -3 + 1; Sin 90 > 0.5 (ordinary block) | 4; 1 | a call's argument is one operand |
+| override.abs_swallow | Abs -3 + 1 under Begin _GameMode | 2 | the call takes the arithmetic after it |
+| override.sin_eq | Sin 90 > 0.5 under Begin _GameMode | 1 | **differs from the wiki's Sin 14 == 1 example**: the comparison is not taken into the argument |
+| neg.not / not.neg | -!0 / !-1 | -1 / refused to compile | ! straight before unary - is refused |
+| nested.inner_break / continue | break / continue in an inner while | 3 / 6 | they act on the innermost loop |
+| foreach.formlist | foreach over ExtProbeList, directly and via a ref | 3 = ListGetCount | form lists work both ways (the refusal seen earlier was the list missing) |
+| foreach.container | foreach over the player's inventory | 27 = GetNumItems | one entry per item kind |
+| foreach.tempref | an inventory entry kept after the loop | valid that frame, invalid the next | temporary references last the frame |
+| change.forward_erase | erase even values in a forward while over 1..6 | size 3 | no error; the stale size reads past the end silently |
+| change.foreach_sees_write | write element 2 during foreach | 99 | foreach reads live values |
+
+Under the compiler override, then, a call's argument takes the arithmetic after it
+(`Abs -3 + 1` is 2) but stops at a comparison (`Sin 90 > 0.5` is 1) [observed: both rows;
+the rule is a hypothesis drawn from two cases]. Whether `==`, as in the wiki's example,
+behaves like `>`: open.
