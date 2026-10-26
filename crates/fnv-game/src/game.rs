@@ -1459,6 +1459,10 @@ struct LambdaDef<'a> {
     key: String,
     lambda: fnv_script::ir::XExpr,
     inst: Option<InstKey>,
+    /// The variables of a maker that has no instance (a function script, a result
+    /// script) when the lambda was made: the lambda reads them [observed: jip-events
+    /// ev.this, a handler lambda compares GetSelf with the query's own variable].
+    captured: Option<BTreeMap<u16, Value>>,
 }
 
 /// What lasts for the session across a load ([`Game::take_session`]).
@@ -2050,7 +2054,7 @@ impl<'a> Game<'a> {
             let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
             let locals = match inst {
                 Some(k) => Locals::Instance(k),
-                None => Locals::Temp(BTreeMap::new()),
+                None => Locals::Temp(d.captured.unwrap_or_default()),
             };
             (unit, params, body, value.map(|v| *v), locals)
         } else {
@@ -2084,8 +2088,9 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        // A function script's own strings and arrays go with it.
-        if let Locals::Temp(m) = &ex.locals {
+        // A function script's own strings and arrays go with it (a lambda's variables are
+        // its maker's).
+        if let (true, Locals::Temp(m)) = (id < LAMBDA_BASE, &ex.locals) {
             for (&index, v) in m {
                 match unit.var_type(index) {
                     Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
@@ -3991,7 +3996,7 @@ impl<'a> Game<'a> {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
             let unit = data.units.iter().find(|u| u.key() == l.unit);
-            g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst });
+            g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
@@ -4272,7 +4277,11 @@ impl Host for Exec<'_, '_> {
             return Ok(fnv_script::vm::XVal::Ref(id));
         }
         let id = LAMBDA_BASE + self.game.lambdas.len() as u32;
-        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.1 });
+        let captured = match &self.locals {
+            Locals::Temp(m) => Some(m.clone()),
+            Locals::Instance(_) => None,
+        };
+        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.1, captured });
         self.game.lambda_ids.insert(key, id);
         Ok(fnv_script::vm::XVal::Ref(id))
     }
@@ -4344,6 +4353,10 @@ impl Host for Exec<'_, '_> {
 
     fn hit_value(&mut self, actor: u32, what: &str, k: i64) -> Option<fnv_script::vm::XVal> {
         self.game.hit_value(FormId(actor), what, k)
+    }
+
+    fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
+        self.game.data.body_part_name(FormId(form), part)
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {

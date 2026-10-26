@@ -226,6 +226,10 @@ pub trait Host {
     fn hit_value(&mut self, _actor: u32, _what: &str, _k: i64) -> Option<XVal> {
         None
     }
+    /// The name of a body part, by part type (GetBodyPartName).
+    fn body_part_name(&mut self, _form: u32, _part: i64) -> Option<String> {
+        None
+    }
     /// A game setting (GMST) by Editor ID, without regard to case.
     fn game_setting(&mut self, _name: &str) -> Option<XVal> {
         None

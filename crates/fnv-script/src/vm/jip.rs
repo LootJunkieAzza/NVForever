@@ -408,6 +408,13 @@ impl Vm<'_, '_> {
                     _ => XVal::Str(String::new()),
                 }))
             }
+            // [documented: GetBodyPartName; observed: NVGecko part 0 "Torso", 14 ""] by part
+            // type: 0 torso, 1–2 head … 14 weapon.
+            "getbodypartname" => {
+                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let part = val(self, 1)?.num()? as i64;
+                Ok(Some(XVal::Str(self.host.body_part_name(f, part).unwrap_or_default())))
+            }
             // [documented: GetObjectiveText; observed: objective 9999 gives ""].
             "getobjectivetext" => {
                 let q = val(self, 0)?.value()?.as_form().unwrap_or(0);
