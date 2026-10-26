@@ -829,6 +829,8 @@ pub struct ControlInput<'w, 's> {
     pub free_cam: Option<Res<'w, crate::free_cam::FreeCam>>,
     pub pads: Query<'w, 's, &'static Gamepad>,
     pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
+    /// Keys and buttons scripts disabled (DisableKey, DisableControl; task D6).
+    pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
 }
 
 /// How a controller input is asked about.
@@ -881,7 +883,15 @@ impl ControlInput<'_, '_> {
             return self.pad_is(c, Ask::Pressed);
         }
         let b = self.bindings.get(c);
-        b.key.is_some_and(|k| self.keys.pressed(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m))
+        b.key.is_some_and(|k| self.keys.pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m) && self.open_button(m))
+    }
+
+    fn open_key(&self, k: KeyCode) -> bool {
+        !self.blocked.as_ref().is_some_and(|b| b.keys.contains(&k))
+    }
+
+    fn open_button(&self, m: MouseButton) -> bool {
+        !self.blocked.as_ref().is_some_and(|b| b.mouse.contains(&m))
     }
 
     pub fn just_pressed(&self, c: Control) -> bool {
@@ -892,7 +902,7 @@ impl ControlInput<'_, '_> {
             return self.pad_is(c, Ask::JustPressed);
         }
         let b = self.bindings.get(c);
-        b.key.is_some_and(|k| self.keys.just_pressed(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m))
+        b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m))
     }
 
     /// Released this frame, and neither of its inputs is still down.

@@ -987,6 +987,8 @@ pub struct Game<'a> {
     pub(crate) list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
     /// xNVSE's queued delayed calls (`crate::delayed`); not saved [documented].
     pub(crate) delayed: Vec<crate::delayed::Delayed>,
+    /// The input the extender's input functions read (task D6); the engine fills it.
+    pub input: crate::script_input::ScriptInput,
     /// What GetNextRef gives next (GetFirstRef's walk).
     pub(crate) ref_walk: Vec<FormId>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
@@ -1573,6 +1575,7 @@ impl<'a> Game<'a> {
             list_edits: std::collections::HashMap::new(),
             delayed: Vec::new(),
             ref_walk: Vec::new(),
+            input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
@@ -1915,6 +1918,11 @@ impl<'a> Game<'a> {
     /// Read a variable of an instance (0 when never written).
     pub fn var(&self, key: InstKey, index: u16) -> Value {
         self.instances.get(&key).and_then(|i| i.vars.get(&index)).copied().unwrap_or_default()
+    }
+
+    /// Store into a variable as given, whatever its declared type (xNVSE's SetVariable).
+    pub(crate) fn store_raw(&mut self, key: InstKey, script: Option<FormId>, index: u16, v: Value) {
+        self.instance(key, script).vars.insert(index, v);
     }
 
     /// Store into a variable by its declared type: integer variables truncate (see

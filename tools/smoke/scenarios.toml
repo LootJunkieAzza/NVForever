@@ -9776,6 +9776,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "script-input-keys"
+source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
+areas = ["console", "scripts", "input"]
+paths = ["crates/fnv-game/src/script_input.rs", "engine/nvf-play/src/script_input.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_KEYS = "10:g:4", NVF_PLAY_TEST_CONSOLE = "11:PrintC \"nvf held %g\", (IsKeyPressed 34);11.5:DisableKey 34;12:PrintC \"nvf disabled %g %g %g\", (IsKeyPressed 34), (IsKeyPressed 34 2), (IsKeyDisabled 34);12.5:EnableKey 34;13:PrintC \"nvf enabled %g\", (IsKeyPressed 34)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'script: print "nvf held 1"', label = "a held key is pressed" },
+  { re = 'script: print "nvf disabled 0 1 1"', label = "a disabled key: not pressed, pressed with ignoreStatus 2, disabled" },
+  { re = 'script: print "nvf enabled 1"', label = "enabled again it is pressed" },
+]
+
+[[scenario]]
 name = "scripts-from-source"
 source = "extender task A6 (fnv_game::source_compile): NVF_COMPILE_SOURCE=always runs every shipped unit from its source text, compiled by NVForever; the game starts and runs its scripts as from the bytes"
 areas = ["scripts"]

@@ -78,6 +78,7 @@ pub mod jip_events;
 pub mod nvse;
 pub mod delayed;
 pub mod nvse_refs;
+pub mod script_input;
 pub mod levelup;
 pub mod lockpick;
 pub mod magic_archetypes;
