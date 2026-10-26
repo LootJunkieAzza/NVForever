@@ -2340,12 +2340,12 @@ expect = [
 [[scenario]]
 name = "semi-auto-rate"
 source = "owner playtest 2026-10-19: the 9mm pistol and varmint rifle fire slower than in the original"
-note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later. The pulls start at 14 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded; until 12.1 s on the world aids' clock when the scripts start at 6.5 s or later): while one is open the player is held in a menu (script::hold_player) and the attack cycle stands still, so boxes open 0.18 s after the second shot kept its cooldown past the third pull [observed: smoke log of 2026-10-20, scripts ready in 12.36 s, 9 shots]"
+note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later. The pulls start at 20 s, after the message boxes the scripts open: the pre-order packs' and most add-ons' about 5 s after they first run, Gun Runners' Arsenal's at about 15.6 s on the aids' clock (its quest counts down after SetQuestDelay 5) [observed: smoke logs of 2026-10-26, 15.58-16.40 s in 6 runs on main 8945d56b and 8356e4a7; with the pulls at 14-17.34 s the box fell in a shot's cooldown in 3 of 6 runs, 7-9 shots]. While a box is open the player is held in a menu (script::hold_player) and the attack cycle stands still, so a box opened in a shot's cooldown keeps it past the next pull [observed: smoke log of 2026-10-20, boxes 0.18 s after the second shot, 9 shots]"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,14:fire,14.1:fire,14.36:fire,14.46:fire,14.72:fire,14.82:fire,15.08:fire,15.18:fire,15.44:fire,15.54:fire,15.8:fire,15.9:fire,16.16:fire,16.26:fire,16.52:fire,16.62:fire,16.88:fire,16.98:fire,17.24:fire,17.34:fire" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,20:fire,20.1:fire,20.36:fire,20.46:fire,20.72:fire,20.82:fire,21.08:fire,21.18:fire,21.44:fire,21.54:fire,21.8:fire,21.9:fire,22.16:fire,22.26:fire,22.52:fire,22.62:fire,22.88:fire,22.98:fire,23.24:fire,23.34:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
-run_seconds = 21
+run_seconds = 27
 expect = [
   { re = 'combat: (?P<n>\d+) shots \(', range = [10, 10], label = "every pull 0.36 s apart fires" },
 ]
