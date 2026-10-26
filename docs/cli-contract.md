@@ -559,3 +559,15 @@ Their JSON layouts are defined by the code and the spec notes named; `fnvtool <g
 | `voice lip` | `fnv.voice.lip_files/1` | a response's `.lip` file decoded, one weight track per channel at 30 frames a second (`fnv.voice.lip/1` per file; spec-notes/lipsync.md) |
 | `voice lip-file <files…>` | `fnv.voice.lip_files/1` | loose `.lip` files decoded |
 | `voice lip-coverage` | `fnv.voice.lip_coverage/1` | every `.lip` file of the install decoded and counted |
+
+## `fnvtool ext probes <data_dir> <plugins…> --schema s --probes <set> [--probes-dir d] [--frames n] [--risky]` → `fnv.ext.probes/1`
+
+The candidate side of the extender probe scenarios (`L5.ext.nvse.<set>`,
+parity-lab/scenarios/layer5_ext.json). For every probe quest of
+`<probes-dir>/<set>` (script name + `Q`; a selector script with `iWhich` once per probe
+number, `iWhich` set halfway) it runs a headless game (`fnv_game::runner`, `new_game`
+false: start the quest, wait `--frames`, default 600) and keeps every trace event text
+containing `EXTPROBE|`. Output: the same document `tools/capture/ext_probes.py collect`
+writes from the original game's console (`rows` `{id, value}`, `files` with begin/end
+markers, `duplicates`), plus `runs` (`{quest, which, lines}` or `{…, error}`). The runaway
+loop and deep recursion run only with `--risky`.
