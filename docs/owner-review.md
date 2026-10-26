@@ -155,6 +155,12 @@ the spec it links to.
     critical on an unseen target) show nothing on screen; the game files have only the
     icon setting `sCriticalStrikeIcon`. Show a message or the icon?
     ([combat-rules §4](spec-notes/combat-rules.md))
+33. **3D scopes (not built).** You asked about the mod look: the gun stays on screen and
+    the zoomed world shows in the scope's lens. It can be built. Weapons with no lens in
+    their model get a measured disc, and a few scopes keep the original overlay. It
+    costs a second world render while aiming. Planned as a Gameplay switch, off = the
+    original overlay. Should it be on by default, and should the view around the lens
+    zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
