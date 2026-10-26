@@ -43,6 +43,12 @@ class Job(unittest.TestCase):
                 if verb in body:
                     self.assertIn(undo, body, pid)
 
+    def test_event_set_undoes_its_damage(self):
+        ids = [pid for pid, *_ in jp.EVENT_PROBES]
+        self.assertLess(ids.index("ev.damage"), ids.index("ev.amount"))
+        self.assertEqual(ids[-1], "ev.cleanup")
+        self.assertIn("RestoreAV Health 1", jp.EVENT_PROBES[-1][1])
+
     def test_only_getters(self):
         for pid, body, _, _, _ in [p for k, probes in jp.SETS.items() if k not in jp.WRITING_SETS for p in probes]:
             words = body.replace("(", " ").split()
