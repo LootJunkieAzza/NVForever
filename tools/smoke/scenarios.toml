@@ -9823,3 +9823,21 @@ expect = [
   { json = "built", schema = "fnv.ui.menus/1", equals = 49, label = "all 49 vanilla menus build" },
   { json = "globals_warnings", schema = "fnv.ui.menus/1", equals = 0, label = "globals.xml reads without mending" },
 ]
+
+[[scenario]]
+name = "boone-night-nest"
+source = "owner 2026-10-26: Boone never reached the dinosaur's mouth on his night shift; his package only ran once the player had been in his room. The actors of interiors reached by doors from the loaded cells now live by their packages (the original's Mid-Low process level, fnv_ai::process)"
+areas = ["ai", "navigation"]
+paths = ["engine/nvforever/src/residents.rs", "crates/fnv-ai/src/process.rs"]
+args = ["--cell", "Novac", "--pos=24300,-31700,7050", "--play", "--hour", "20.95", "--no-voice", "--no-messages"]
+run_seconds = 150
+expect = [
+  # His NovacBoonePatrolToNest (21:00): out of his room to XMarkerBoonePatrolOutside,
+  # through the gift shop, out to NovacSniperIdleMarker (0x000CB0EF) in the mouth.
+  { re = 'CraigBooneREF: walks to .* \(patrol point XMarkerBoonePatrolOutside\): \d+ units, 1 doors', label = "Boone leaves his room for his night patrol, the player never in it" },
+  { re = 'CraigBooneREF: walks to .* in NovacGiftShop \(patrol point XMarkerBoonePatrolGiftShop\)', label = "he goes through the gift shop" },
+  { re = 'CraigBooneREF: walks to \(25415, -32822, 8082\) in WastelandNV \(patrol point 0x000CB0EF\)', label = "he heads for the sniper marker in the dinosaur's mouth" },
+  { re = 'MannyVargasREF: walks to .* in NovacVargasRoom', label = "Manny Vargas goes home at the end of his day shift" },
+]
+# 2026-10-26 run: Boone left at 21:08 and stood at (25400, -32813) by the end; before the
+# fix he was never handed to the AI (the AI only took actors of cells that had loaded).
