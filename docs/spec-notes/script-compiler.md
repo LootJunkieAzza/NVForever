@@ -266,7 +266,10 @@ expression parser), `vm.rs` (`xeval`).
   compiler-override block: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script Compiler
   Override, which says the override reads such lines differently]. Arguments are separated
   by a comma or by two operands meeting without an operator, and a `-` starts the first
-  argument (`Abs -3`) [hypothesis; probes in tools/capture/ext-probes/expressions]. In a parameter that takes an actor value, an axis or a
+  argument or one after a comma (`Abs -3`, `Rand -5, -1`) [hypothesis; probes in
+  tools/capture/ext-probes/expressions]. A function with a format string takes all the
+  arguments that follow (up to 20 values [documented: String Formatting]); the catalogue
+  marks those as a parameter named or typed "Formatting"/"formatable". In a parameter that takes an actor value, an axis or a
   string, a lone name is that name. A function the catalogue lists without an opcode (the
   extender's own) is kept by its catalogue name (`FuncId::Name`). A local variable's name
   hides a function of the same name, as in vanilla.
@@ -385,6 +388,29 @@ rules; what NVForever decides where they are open is tagged here.
   255th plugin]. `Call f args` runs it; the `{params} => expr` form returns its
   expression's value [documented: Lambda]. A lambda made by a result script has fresh
   variables of its own [hypothesis].
+
+- **Formats** (C4; docs/spec-notes/ext-format.md): a format string's values are as many
+  as its codes [documented]. `%X.Yf`, `%g` (an integer, 1,000,000 and up as `1E+006`),
+  `%.Ne` (`1.230E+005`), the `+` ` ` `-` `0` switches, `%%`, `%a`, `%i`, `%n`, `%v`,
+  `%x` with its width digit, `%z`, `%{ … %}` [documented: String Formatting]. `%g` rounds
+  half away from zero [hypothesis]. `%B`/`%b` write nothing [decision: no colours in
+  NVForever's console]. `%k` writes the scancode's number until the scancode table is
+  in hand [hypothesis]; `%c` and `%po`/`%pp`/`%ps` take their values and write nothing
+  yet. `%q`, `%r` and a bare `%e` work in every string literal [documented].
+- **String functions** (D1; ext-strings.md's table): Sv_Construct, Sv_Length (−1 for no
+  string), Sv_Destruct, Sv_Find (from a position, within a length, without regard to case
+  unless asked; −1 when absent), Sv_Replace (`"old|new"`, in place, every match without
+  regard to case by default; the number replaced), Sv_Split (by delimiter characters, or
+  the whole delimiter with the flag), Sv_ToNumeric, Sv_GetChar, NumToHex/IntToHex,
+  GetFormIDString [documented: each page].
+- **Output** (D4 in part): PrintToConsole/PrintC (a format) and Print (an expression)
+  print to the console [documented]; the game records them as `ScriptPrint` trace lines.
+  MessageEx, MessageBoxEx, DebugPrint and SetDebugMode: not yet.
+- **What the engine reports** (C5; ext-version.md): GetNVSEVersion 6, GetNVSERevision 4,
+  GetNVSEBeta 0 [decision: the xNVSE 6.4 behaviour these tasks follow; how a version
+  splits into the three numbers is open]. IsPluginInstalled gives 0 and GetPluginVersion
+  −1 for every plugin until NVForever has that plugin's functions [documented: −1 when
+  absent; decision]. The `[Extenders]` switch per module is C2's.
 
 ## 10. Open
 

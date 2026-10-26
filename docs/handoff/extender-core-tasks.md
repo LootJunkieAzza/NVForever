@@ -70,9 +70,10 @@ go on (script-compiler.md §9). **B3 and most of D2:** arrays with reference cou
 `[]`, `->`, slices, box/unbox, foreach over arrays and strings, 27 ar_* functions and TypeOf
 (script-compiler.md §9). **B7, B8:** Call, SetFunctionValue, GetCallingScript, the
 30-call limit, lambdas over the parent's variables, and the ar_* functions that take a
-function. **F1:** strings, arrays and lambdas in NVForever's save (`GameSnapshot`). Next:
-C2/C5 (the extender module and what the engine reports), D1 (the sv_* functions), then
-route 1 from the observed bytes (docs/spec-notes/ext-bytecode.md).
+function. **F1:** strings, arrays and lambdas in NVForever's save (`GameSnapshot`). **C4, D1, C5, D4 in part:** formats, the sv_* functions, PrintC and
+Print, the version reports (script-compiler.md §9). Next: the event dispatcher (E1–E3), D5
+(forms and types), D6 (input), then route 1 from the observed bytes
+(docs/spec-notes/ext-bytecode.md).
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any

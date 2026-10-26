@@ -279,7 +279,13 @@ impl Gen<'_> {
         let named = u.params.iter().filter(|p| !p.name.is_empty()).count();
         let params = if u.name.eq_ignore_ascii_case("call") {
             Some(16)
-        } else if u.params.iter().any(|p| p.name.starts_with("...")) {
+        // A format string takes up to 20 values [documented: String Formatting]; the
+        // catalogue marks them as a parameter named or typed "Formatting"/"formatable".
+        } else if u.params.iter().any(|p| {
+            p.name.starts_with("...")
+                || p.name.to_ascii_lowercase().contains("format")
+                || p.wiki_type.as_deref().is_some_and(|t| t.to_ascii_lowercase().contains("format"))
+        }) {
             None
         } else {
             Some(named)
@@ -338,10 +344,13 @@ impl Gen<'_> {
             if f.params.is_some_and(|n| args.len() >= n) {
                 break;
             }
+            let mut comma = false;
             if !args.is_empty() && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
                 p.next();
+                comma = true;
             }
-            let minus_first = args.is_empty() && f.params != Some(0) && p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
+            // A `-` starts the first argument, or one after a comma (`Rand -5, -1`).
+            let minus_first = (comma || args.is_empty()) && f.params != Some(0) && p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
             if !starts_operand(p.peek()) && !minus_first {
                 break;
             }

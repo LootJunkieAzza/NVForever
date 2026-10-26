@@ -614,3 +614,46 @@ fn temporary_arrays_are_freed() {
     assert_eq!(h.0[&2], Value::Num(3.0));
     assert!(h.1.arrays.is_empty(), "nothing holds any array at the end: {:?}", h.1.arrays.keys().collect::<Vec<_>>());
 }
+
+// ---- string functions, formats, output, version reports (D1, C4, D4, C5) ------------------
+
+#[test]
+fn format_codes() {
+    // [documented: String Formatting] "i = %g and f = %.2f" with 42 and 3.1415926535.
+    let h = run("string_var s\nstring_var t\nbegin GameMode\nlet s := Sv_Construct \"i = %g and f = %.2f\", 42, 3.1415926535\nlet t := Sv_Construct \"%x4|%5.1f|%-4g|%+g|%05.1f|%%|%{%g%}\", 255, 2.25, 7, 3, -1.5, 0, 9\nend");
+    assert_eq!(h.text(1), "i = 42 and f = 3.14");
+    assert_eq!(h.text(2), "00FF|  2.2|7   |+3|-01.5|%|");
+}
+
+#[test]
+fn big_numbers_in_g_are_scientific() {
+    let h = run("string_var s\nbegin GameMode\nlet s := Sv_Construct \"%g %.3e\", 1000000, 123000\nend");
+    assert_eq!(h.text(1), "1E+006 1.230E+005");
+}
+
+#[test]
+fn literal_codes_in_any_string() {
+    let h = run("string_var s\nbegin GameMode\nlet s := \"say %qhi%q%rnext%e\"\nend");
+    assert_eq!(h.text(1), "say \"hi\"\nnext");
+}
+
+#[test]
+fn sv_functions() {
+    let h = run(
+        "string_var s\narray_var a\nfloat f\nfloat g\nfloat r\nfloat n\nstring_var x\nbegin GameMode\nlet s := \"One two ONE three\"\nlet f := Sv_Find \"one\", s, 1\nlet g := Sv_Length s\nlet r := Sv_Replace \"one|1\", s\nlet a := Sv_Split \"a,b;c\", \",;\"\nlet n := Sv_ToNumeric \"  -12.5e1xyz\" + Sv_GetChar \"A\", 0\nlet x := NumToHex 255, 4, 1\nend",
+    );
+    assert_eq!(h.0[&3], Value::Num(8.0), "found from position 1, without regard to case");
+    assert_eq!(h.0[&4], Value::Num(17.0));
+    assert_eq!(h.0[&5], Value::Num(2.0));
+    assert_eq!(h.text(1), "1 two 1 three");
+    assert_eq!(h.0[&6], Value::Num(-125.0 + 65.0));
+    assert_eq!(h.text(7), "0x00FF");
+}
+
+#[test]
+fn printc_and_version_reports() {
+    let h = run("float v\nfloat p\nbegin GameMode\nPrintC \"v%g\", 1\nPrint \"x\" + $2\nlet v := GetNVSEVersion\nlet p := GetPluginVersion \"JIP NVSE Plugin\"\nend");
+    assert_eq!(h.4, ["v1", "x2"]);
+    assert_eq!(h.0[&1], Value::Num(6.0));
+    assert_eq!(h.0[&2], Value::Num(-1.0), "no plugin is reported until its module exists");
+}

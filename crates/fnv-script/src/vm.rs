@@ -877,6 +877,105 @@ pub fn text_number(s: &str) -> f64 {
     t.parse::<f64>().unwrap_or(0.0)
 }
 
+/// A number by a printf-style code of the base game [documented: String Formatting,
+/// "Vanilla Game Options"]: `%X.Yf` (width X, Y decimals), `%g` (an integer; 1,000,000 and
+/// above in scientific form), `%.Ne` (scientific, `1.23E+005`); switches `+`, space, `-`
+/// (left-aligned), `0` (zero padding). How `%g` rounds is open; it rounds half away from
+/// zero here [hypothesis].
+fn printf_number(spec: &str, code: char, x: f64) -> String {
+    let flags: String = spec.chars().take_while(|c| "+- 0".contains(*c)).collect();
+    let rest = &spec[flags.len()..];
+    let (w, p) = match rest.split_once('.') {
+        Some((w, p)) => (w, Some(p.parse::<usize>().unwrap_or(0))),
+        None => (rest, None),
+    };
+    let width: usize = w.parse().unwrap_or(0);
+    let sci = |x: f64, digits: usize| {
+        let s = format!("{:.*E}", digits, x);
+        match s.split_once('E') {
+            Some((m, e)) => {
+                let e: i32 = e.parse().unwrap_or(0);
+                format!("{m}E{}{:03}", if e < 0 { '-' } else { '+' }, e.abs())
+            }
+            None => s,
+        }
+    };
+    let mut body = match code {
+        'f' => format!("{:.*}", p.unwrap_or(6), x),
+        'e' => sci(x, p.unwrap_or(6)),
+        _ if x.abs() >= 1_000_000.0 => {
+            let s = sci(x, 5);
+            // `1E+006`: no trailing zeros in the mantissa.
+            match s.split_once('E') {
+                Some((m, e)) => format!("{}E{e}", m.trim_end_matches('0').trim_end_matches('.')),
+                None => s,
+            }
+        }
+        _ => format!("{}", x.round() as i64),
+    };
+    if x >= 0.0 {
+        if flags.contains('+') {
+            body.insert(0, '+');
+        } else if flags.contains(' ') {
+            body.insert(0, ' ');
+        }
+    }
+    if body.chars().count() < width {
+        let pad = width - body.chars().count();
+        if flags.contains('-') {
+            body.push_str(&" ".repeat(pad));
+        } else if flags.contains('0') {
+            let sign = body.starts_with(['-', '+', ' ']);
+            let at = usize::from(sign);
+            body.insert_str(at, &"0".repeat(pad));
+        } else {
+            body.insert_str(0, &" ".repeat(pad));
+        }
+    }
+    body
+}
+
+/// `%q`, `%r` and a bare `%e` in a string literal: a double quote, a line break, nothing
+/// [documented: String Formatting, they work in any string literal]. `%%` stays for the
+/// format functions.
+fn literal_codes(s: &str) -> String {
+    if !s.contains('%') {
+        return s.to_string();
+    }
+    let cs: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < cs.len() {
+        if cs[i] == '%' {
+            match cs.get(i + 1) {
+                Some('%') => {
+                    out.push_str("%%");
+                    i += 2;
+                    continue;
+                }
+                Some('q') => {
+                    out.push('"');
+                    i += 2;
+                    continue;
+                }
+                Some('r') => {
+                    out.push('\n');
+                    i += 2;
+                    continue;
+                }
+                Some('e') => {
+                    i += 2;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(cs[i]);
+        i += 1;
+    }
+    out
+}
+
 /// A position in a string: from the end when negative [documented: NVSE Expressions,
 /// for slices; for one character, hypothesis].
 fn position(i: f64, len: usize) -> Option<usize> {
@@ -956,7 +1055,7 @@ impl Vm<'_, '_> {
     pub fn xeval(&mut self, e: &XExpr) -> Result<XVal, VmError> {
         Ok(match e {
             XExpr::Num { value, text } => XVal::Num(literal(text, *value)),
-            XExpr::Str { s } => XVal::Str(s.clone()),
+            XExpr::Str { s } => XVal::Str(literal_codes(s)),
             XExpr::Var { var } => self.read_var(var)?,
             XExpr::Ref { r } => XVal::from_value(self.host.ref_value(*r).map_err(VmError::Host)?),
             XExpr::Enum { code } => XVal::Num(*code as f64),
@@ -1610,9 +1709,311 @@ impl Vm<'_, '_> {
         }
     }
 
-    /// The extender's own functions, by catalogue name (task D): the conversions of B1 and
-    /// the arrays of D2 so far.
+    /// How many values a format string takes: one per code that takes one
+    /// [documented: String Formatting, the count must match exactly].
+    fn format_values(fmt: &str) -> usize {
+        let cs: Vec<char> = fmt.chars().collect();
+        let mut n = 0;
+        let mut i = 0;
+        while i < cs.len() {
+            if cs[i] != '%' {
+                i += 1;
+                continue;
+            }
+            i += 1;
+            while i < cs.len() && "+- 0123456789.".contains(cs[i]) {
+                i += 1;
+            }
+            match cs.get(i) {
+                Some('f' | 'g' | 'a' | 'i' | 'k' | 'n' | 'v' | 'x' | 'z' | '{') => n += 1,
+                Some('c') => n += 2,
+                Some('p') => {
+                    n += 1;
+                    i += 1;
+                }
+                Some('e') if cs[i - 1] != '%' => n += 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        n
+    }
+
+    /// Expand a format string with its values [documented: String Formatting; ext-format.md
+    /// §2–3]. `%B`/`%b` (console colours) write nothing here [decision: NVForever's console
+    /// has no colours]; `%k` writes the scancode's number [hypothesis until the scancode
+    /// table is in the export]; `%c` and the `%p` pronouns need form data (task D4) and
+    /// write nothing yet.
+    fn format(&mut self, fmt: &str, values: &[XVal]) -> Result<String, VmError> {
+        let cs: Vec<char> = fmt.chars().collect();
+        let mut out = String::new();
+        let mut vals = values.iter();
+        let mut next = |what: &str| vals.next().cloned().ok_or_else(|| VmError::Type(format!("a format string's {what} has no value")));
+        let mut skip_depth = 0usize;
+        let mut i = 0;
+        while i < cs.len() {
+            let c = cs[i];
+            if c != '%' {
+                if skip_depth == 0 {
+                    out.push(c);
+                }
+                i += 1;
+                continue;
+            }
+            i += 1;
+            let start = i;
+            while i < cs.len() && "+- 0123456789.".contains(cs[i]) {
+                i += 1;
+            }
+            let spec: String = cs[start..i].iter().collect();
+            let Some(&code) = cs.get(i) else {
+                return Err(VmError::Type("a format string ends with %".into()));
+            };
+            i += 1;
+            let text = match code {
+                '%' => "%".to_string(),
+                'q' => "\"".to_string(),
+                'r' => "\n".to_string(),
+                'B' | 'b' => String::new(),
+                'e' if spec.is_empty() => String::new(),
+                'f' | 'g' | 'e' => printf_number(&spec, code, next("number")?.num()?),
+                'a' => char::from_u32(next("character")?.num()? as u32).map(String::from).unwrap_or_default(),
+                'i' => {
+                    let v = next("form")?;
+                    format!("{:08X}", v.value()?.as_form().unwrap_or(0))
+                }
+                'n' => {
+                    let v = next("form")?;
+                    let f = v.value()?.as_form().unwrap_or(0);
+                    self.host.form_text(f).unwrap_or_default()
+                }
+                'v' => {
+                    let code = next("actor value")?.num()? as u16;
+                    self.table.enum_name("actor_value", code).unwrap_or_default().to_string()
+                }
+                'x' => {
+                    // `%x4`: the digit after the code is the width [documented].
+                    let mut width = 0;
+                    if let Some(d) = cs.get(i).and_then(|d| d.to_digit(10)) {
+                        width = d as usize;
+                        i += 1;
+                    }
+                    format!("{:0width$X}", next("number")?.num()? as i64)
+                }
+                'z' => match next("string")? {
+                    XVal::Str(s) => s,
+                    other => self.text_of(&other)?,
+                },
+                'k' => format!("{}", next("key")?.num()? as i64),
+                'c' => {
+                    next("form")?;
+                    next("index")?;
+                    String::new()
+                }
+                'p' => {
+                    i += 1;
+                    next("form")?;
+                    String::new()
+                }
+                // `%{ … %}`: left out when the value is 0 [documented].
+                '{' => {
+                    if skip_depth > 0 || !next("condition")?.truthy() {
+                        skip_depth += 1;
+                    }
+                    String::new()
+                }
+                '}' => {
+                    skip_depth = skip_depth.saturating_sub(1);
+                    String::new()
+                }
+                other => format!("%{spec}{other}"),
+            };
+            if skip_depth == 0 {
+                out.push_str(&text);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The string of a format argument at `k` and its values, and the index after them.
+    fn format_arg(&mut self, c: &XCall, k: usize) -> Result<(String, usize), VmError> {
+        let fmt = match c.args.get(k) {
+            Some(a) => self.xeval(a)?,
+            None => return Err(VmError::Expression("a format string is missing".into())),
+        };
+        let fmt = match fmt {
+            XVal::Str(s) => s,
+            other => self.text_of(&other)?,
+        };
+        let n = Self::format_values(&fmt);
+        let mut vals = Vec::with_capacity(n);
+        for j in 0..n {
+            match c.args.get(k + 1 + j) {
+                Some(a) => vals.push(self.xeval(a)?),
+                None => return Err(VmError::Type(format!("the format string takes {n} values"))),
+            }
+        }
+        Ok((self.format(&fmt, &vals)?, k + 1 + n))
+    }
+
+    /// The `sv_*` functions, the string helpers and the version reports (tasks D1, D4, C5).
+    fn string_function(&mut self, n: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+        let val = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
+            match c.args.get(k) {
+                Some(a) => vm.xeval(a),
+                None => Err(VmError::Expression(format!("{n} without argument {}", k + 1))),
+            }
+        };
+        let opt = |vm: &mut Self, k: usize| -> Result<Option<XVal>, VmError> { c.args.get(k).map(|a| vm.xeval(a)).transpose() };
+        let text = |v: XVal| -> Option<String> { if let XVal::Str(s) = v { Some(s) } else { None } };
+        Ok(Some(match n {
+            // [documented: Sv Construct] a new string from the format and its values.
+            "sv_construct" => XVal::Str(self.format_arg(c, 0)?.0),
+            // [documented: Sv Length] -1 for an invalid string.
+            "sv_length" => XVal::Num(text(val(self, 0)?).map_or(-1.0, |s| s.chars().count() as f64)),
+            // [documented: Sv Destruct] the variable's string goes; it reads 0 after.
+            "sv_destruct" => {
+                for a in &c.args {
+                    if let XExpr::Var { var } = a {
+                        let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
+                        self.store()?.destroy(id);
+                        self.host.set_var(var, Value::ZERO).map_err(VmError::Host)?;
+                    }
+                }
+                XVal::Num(0.0)
+            }
+            // [documented: Sv Find] the first match from startPos within numChars, without
+            // regard to case unless asked; -1 when absent.
+            "sv_find" => {
+                let (needle, k) = self.format_arg(c, 0)?;
+                let hay = text(val(self, k)?).unwrap_or_default();
+                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
+                let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
+                let chars: Vec<char> = hay.chars().collect();
+                let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
+                let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
+                let found = if case { region.find(&needle) } else { region.to_lowercase().find(&needle.to_lowercase()) };
+                XVal::Num(found.map_or(-1.0, |b| (start + region[..b].chars().count()) as f64))
+            }
+            // [documented: Sv Replace] "old|new", in place, every match without regard to
+            // case by default; the number replaced.
+            "sv_replace" => {
+                let (pair, k) = self.format_arg(c, 0)?;
+                let Some(XExpr::Var { var }) = c.args.get(k) else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let s = text(self.read_var(var)?).unwrap_or_default();
+                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
+                let max = opt(self, k + 4)?.map(|v| v.num()).transpose()?.map(|m| m as usize);
+                let (old, new) = pair.split_once('|').unwrap_or((pair.as_str(), ""));
+                if old.is_empty() {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let chars: Vec<char> = s.chars().collect();
+                let (head, tail): (String, String) = (chars[..start.min(chars.len())].iter().collect(), chars[start.min(chars.len())..].iter().collect());
+                let (mut out, mut count, mut rest) = (head, 0usize, tail.as_str());
+                loop {
+                    let at = if case { rest.find(old) } else { rest.to_lowercase().find(&old.to_lowercase()) };
+                    match at {
+                        Some(b) if max.is_none_or(|m| count < m) => {
+                            out.push_str(&rest[..b]);
+                            out.push_str(new);
+                            rest = &rest[b + old.len()..];
+                            count += 1;
+                        }
+                        _ => break,
+                    }
+                }
+                out.push_str(rest);
+                self.write_var(var, XVal::Str(out))?;
+                XVal::Num(count as f64)
+            }
+            // [documented: Sv Split] the pieces between delimiter characters; with the flag
+            // the whole delimiter string separates.
+            "sv_split" => {
+                let s = text(val(self, 0)?).unwrap_or_default();
+                let d = text(val(self, 1)?).unwrap_or_default();
+                let whole = opt(self, 2)?.is_some_and(|v| v.truthy());
+                let pieces: Vec<String> = if d.is_empty() {
+                    vec![s]
+                } else if whole {
+                    s.split(d.as_str()).map(str::to_string).collect()
+                } else {
+                    s.split(|ch| d.contains(ch)).map(str::to_string).collect()
+                };
+                let es = pieces.into_iter().enumerate().map(|(i, p)| (XKey::Num(i as f64), XVal::Str(p))).collect();
+                XVal::Array(self.store()?.new_array(ArrayKind::List, es))
+            }
+            // [documented: Sv ToNumeric] sign, digits and exponent, up to the first other
+            // character.
+            "sv_tonumeric" => {
+                let s = text(val(self, 0)?).unwrap_or_default();
+                let t = s.trim_start();
+                let mut end = 0;
+                for (i, ch) in t.char_indices() {
+                    let ok = ch.is_ascii_digit() || ch == '.' || ((ch == '-' || ch == '+') && (i == 0 || t[..i].ends_with(['e', 'E']))) || ((ch == 'e' || ch == 'E') && i > 0);
+                    if !ok {
+                        break;
+                    }
+                    end = i + ch.len_utf8();
+                }
+                let mut num = &t[..end];
+                while !num.is_empty() && num.parse::<f64>().is_err() {
+                    num = &num[..num.len() - 1];
+                }
+                XVal::Num(num.parse().unwrap_or(0.0))
+            }
+            // [documented: Sv GetChar] the character's ASCII code.
+            "sv_getchar" => {
+                let s = text(val(self, 0)?).unwrap_or_default();
+                let p = val(self, 1)?.num()?;
+                XVal::Num(position(p, s.chars().count()).and_then(|p| s.chars().nth(p)).map_or(-1.0, |ch| ch as u32 as f64))
+            }
+            // [documented: NumToHex] upper-case hex, zero-padded to the width (default 8, at
+            // most 8), `0x` with the flag.
+            "numtohex" | "inttohex" => {
+                let v = val(self, 0)?.num()? as i64 as u32;
+                let width = opt(self, 1)?.map(|w| w.num()).transpose()?.unwrap_or(8.0).clamp(0.0, 8.0) as usize;
+                let prefix = opt(self, 2)?.is_some_and(|p| p.truthy());
+                XVal::Str(format!("{}{v:0width$X}", if prefix { "0x" } else { "" }))
+            }
+            // [documented: GetFormIDString] the form ID in hex.
+            "getformidstring" => {
+                let v = val(self, 0)?;
+                XVal::Str(format!("{:08X}", v.value()?.as_form().unwrap_or(0)))
+            }
+            // [documented: PrintToConsole; Print] to the console.
+            "printtoconsole" | "printc" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                self.host.print(&t);
+                XVal::Num(0.0)
+            }
+            "print" => {
+                let v = val(self, 0)?;
+                let t = self.text_of(&v)?;
+                self.host.print(&t);
+                XVal::Num(0.0)
+            }
+            // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4
+            // [decision: the version whose behaviour these tasks follow; how a version
+            // splits into the three numbers is open]. No extender plugin is reported until
+            // its module exists: IsPluginInstalled 0, GetPluginVersion -1 [documented: -1
+            // when absent].
+            "getnvseversion" => XVal::Num(6.0),
+            "getnvserevision" => XVal::Num(4.0),
+            "getnvsebeta" => XVal::Num(0.0),
+            "isplugininstalled" => XVal::Num(0.0),
+            "getpluginversion" => XVal::Num(-1.0),
+            _ => return Ok(None),
+        }))
+    }
+
+    /// The extender's own functions, by catalogue name (task D): the conversions of B1,
+    /// the arrays of D2, the strings of D1, output and the version reports so far.
     fn ext_function(&mut self, name: &str, c: &XCall) -> Result<XVal, VmError> {
+        if let Some(v) = self.string_function(&name.to_ascii_lowercase(), c)? {
+            return Ok(v);
+        }
         let arg = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
             match c.args.get(k) {
                 Some(a) => vm.xeval(a),
