@@ -1892,3 +1892,25 @@ fn message_ex_box_ex_and_debug_print() {
     }).collect();
     assert_eq!(printed, ["shown"]);
 }
+
+#[test]
+fn delayed_calls_run_when_due() {
+    // Task D3 [documented: CallAfterFrames (catalogue), CallWhile, CallWhen].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), ctx()).unwrap();
+    q(&mut g, "CallAfterFrames 2 ({} => AuxVarSetFlt \"*a\" 1 -1)
+CallWhile ({} => AuxVarSetFlt \"*w\" 1 -1) ({} => (AuxVarSize \"*w\") < 3)
+CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
+    g.frames(1);
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(0.0), "not yet");
+    g.frames(5);
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(1.0), "once");
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*w\")"), XVal::Num(3.0), "while the condition holds");
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
+}
