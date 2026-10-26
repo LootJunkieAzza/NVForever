@@ -146,6 +146,52 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let code = u16::try_from(int(args, 0, -1)).ok();
             XVal::Num(f64::from(u8::from(code.is_some_and(|c| g.input.is_bound(c)))))
         }
+        // [documented: GetBasePackages] GetNthPackage's list as an array.
+        "getbasepackages" => {
+            let b = item(g, 0);
+            let def = g.data.actors.get(&b);
+            let own = def.map(|d| d.packages.clone()).unwrap_or_default();
+            let ps = match def.and_then(|d| d.template.filter(|_| d.template_packages)) {
+                Some(t) if own.is_empty() => g.data.actors.get(&t).map(|d| d.packages.clone()).unwrap_or_default(),
+                _ => own,
+            };
+            let items = ps.into_iter().map(|p| XVal::Ref(p.0)).collect();
+            list(g, items)
+        }
+        // [documented: GetBaseSpellListSpells] the record's actor effects (SPLO), the
+        // template's when it supplies them.
+        "getbasespelllistspells" => {
+            let b = item(g, 0);
+            let def = g.data.actors.get(&b);
+            let src = match def.and_then(|d| d.template.filter(|_| d.template_spells)) {
+                Some(t) => g.data.actors.get(&t),
+                None => def,
+            };
+            let items = src.map(|d| d.spells.iter().map(|s| XVal::Ref(s.0)).collect()).unwrap_or_default();
+            list(g, items)
+        }
+        // [documented: GetEquipmentSlotsMask; GetEquipmentBipedMask] the BMDT biped
+        // flags; the "equipment flags" BMDT's general flags [hypothesis from the names].
+        "getequipmentslotsmask" | "getequipmentbipedmask" => {
+            let path = if name == "getequipmentslotsmask" { "biped_flags" } else { "general_flags" };
+            num(field(g, item(g, 0), "BMDT", path))
+        }
+        // [documented: GetObjectEffect] the item's object effect (EITM).
+        "getobjecteffect" => match field(g, item(g, 0), "EITM", "") {
+            Some(XVal::Ref(r)) => XVal::Ref(r),
+            _ => XVal::Ref(0),
+        },
+        // [documented: GetNameOfClass] the actor's class's name.
+        "getnameofclass" => {
+            let class = g.data.actors.get(&item(g, 0)).and_then(|d| d.class);
+            XVal::Str(class.and_then(|c| g.data.full_names.get(&c).cloned()).unwrap_or_default())
+        }
+        // [documented: IsPlayerSwimming].
+        "isplayerswimming" => XVal::Num(f64::from(u8::from(g.motion(FormId::PLAYER_REF).swimming))),
+        // [documented: GetDialogueTarget; GetDialogueSubject; GetDialogueSpeaker] the
+        // player's conversation: the actor in it [hypothesis: the player's partner stands
+        // for target, subject and speaker alike].
+        "getdialoguetarget" | "getdialoguesubject" | "getdialoguespeaker" => XVal::Ref(g.dialogue.as_ref().map_or(0, |c| c.actor.0)),
         _ => return None,
     };
     Some(Ok(v))
