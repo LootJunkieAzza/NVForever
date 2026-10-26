@@ -725,6 +725,30 @@ end", &t, &World, None);
 }
 
 #[test]
+fn jip_regex_follows_the_probes() {
+    // [observed: jip-forms regex.* rows, jip-strings.md §1].
+    let src = [
+        "string_var t\nstring_var r\nstring_var e\nfloat a\nfloat b\nfloat c\nfloat n\nfloat v\narray_var m\nbegin GameMode",
+        "let t := \"Whatchamacallit\"",
+        "let a := Sv_RegexMatch t, \"(What)(.*)\"",
+        "let b := Sv_RegexMatch t, \"What\"",
+        "let c := Sv_RegexMatch t, \"x(.*)\"",
+        "let t := \"This subject has a submarine as a subsequence\"",
+        "let m := Sv_RegexSearch t, \"\\b(sub)([^ ]*)\"",
+        "let n := Ar_Size m",
+        "let r := Sv_RegexReplace t, \"blip!|\\b(sub)([^ ]*)\"",
+        "let v := ValidateRegex \"[\", e",
+        "end",
+    ]
+    .join("\n");
+    let h = run(&src);
+    assert_eq!((h.0[&4], h.0[&5], h.0[&6]), (Value::Num(1.0), Value::Num(0.0), Value::Num(0.0)), "whole-string match");
+    assert_eq!(h.0[&7], Value::Num(3.0));
+    assert_eq!(h.text(2), "This blip! has a blip! as a blip!");
+    assert_eq!(h.0[&8], Value::Num(5.0));
+}
+
+#[test]
 fn jip_reports_and_pure_functions() {
     let h = run(
         "float i

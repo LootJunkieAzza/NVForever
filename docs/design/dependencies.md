@@ -25,6 +25,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | — | `tracing` + `tracing-subscriber` | debug events for data accepted without being reported; `NVFOREVER_LOG=debug` |
 | — | `proptest` | malformed-input properties for every parser; `cargo-fuzz` (nightly) not set up |
 | — | `cargo-deny` | `deny.toml`: licences, RustSec advisories, sources; runs in CI |
+| — | `fancy-regex` 0.14 (MIT) | JIP's Sv_RegexMatch/Search/Replace and ValidateRegex in fnv-script (jip-strings.md §1): ECMAScript-style patterns need back-references, which the `regex` crate lacks |
 
 ## Engine layers (candidates, to evaluate when each layer starts)
 

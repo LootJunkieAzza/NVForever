@@ -211,8 +211,156 @@ impl Vm<'_, '_> {
                 };
                 num(if axis == 'Z' { -98.1 } else { 0.0 })
             }
+            // Record traits and flags (jip-records.md): each number is the decoded field
+            // the original's value equalled [observed: jip-records rows]. A number outside
+            // the table gives 0 [hypothesis].
+            "getprojectiletraitnumeric" | "getexplosiontraitnumeric" | "getammotraitnumeric" | "getexplosiontraitform" | "getprojectileflag" | "getexplosionflag" => {
+                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let k = val(self, 1)?.num()? as i64;
+                let field = match (n, k) {
+                    ("getprojectiletraitnumeric", 0) => Some(("DATA", "type")),
+                    ("getprojectiletraitnumeric", 1) => Some(("DATA", "gravity")),
+                    ("getprojectiletraitnumeric", 2) => Some(("DATA", "speed")),
+                    ("getprojectiletraitnumeric", 3) => Some(("DATA", "range")),
+                    ("getprojectiletraitnumeric", 4) => Some(("DATA", "tracer_chance")),
+                    ("getprojectiletraitnumeric", 5) => Some(("DATA", "explosion_alt_trigger_proximity")),
+                    ("getprojectiletraitnumeric", 6) => Some(("DATA", "explosion_alt_trigger_timer")),
+                    ("getprojectiletraitnumeric", 7) => Some(("DATA", "muzzle_flash_duration")),
+                    ("getprojectiletraitnumeric", 8) => Some(("DATA", "fade_duration")),
+                    ("getprojectiletraitnumeric", 9) => Some(("DATA", "impact_force")),
+                    ("getprojectiletraitnumeric", 10) => Some(("DATA", "rotation.x")),
+                    ("getprojectiletraitnumeric", 11) => Some(("DATA", "rotation.y")),
+                    ("getprojectiletraitnumeric", 12) => Some(("DATA", "rotation.z")),
+                    ("getprojectiletraitnumeric", 13) => Some(("DATA", "bouncy_mult")),
+                    ("getprojectiletraitnumeric", 14) => Some(("VNAM", "")),
+                    ("getexplosiontraitnumeric", 0) => Some(("DATA", "force")),
+                    ("getexplosiontraitnumeric", 1) => Some(("DATA", "damage")),
+                    ("getexplosiontraitnumeric", 2) => Some(("DATA", "radius")),
+                    ("getexplosiontraitnumeric", 3) => Some(("DATA", "is_radius")),
+                    ("getexplosiontraitnumeric", 4) => Some(("DATA", "radiation_level")),
+                    ("getexplosiontraitnumeric", 5) => Some(("DATA", "radiation_dissipation_time")),
+                    ("getexplosiontraitnumeric", 6) => Some(("DATA", "radiation_radius")),
+                    ("getexplosiontraitnumeric", 7) => Some(("DATA", "sound_level")),
+                    ("getexplosiontraitform", 0) => Some(("DATA", "light")),
+                    ("getexplosiontraitform", 1) => Some(("DATA", "sound_1")),
+                    ("getexplosiontraitform", 2) => Some(("DATA", "sound_2")),
+                    ("getexplosiontraitform", 3) => Some(("DATA", "impact_dataset")),
+                    ("getexplosiontraitform", 4) => Some(("INAM", "")),
+                    ("getexplosiontraitform", 5) => Some(("EITM", "")),
+                    ("getexplosiontraitform", 6) => Some(("MNAM", "")),
+                    ("getammotraitnumeric", 0) => Some(("DATA", "speed")),
+                    ("getammotraitnumeric", 1) => Some(("DAT2", "projectiles_per_shot")),
+                    ("getammotraitnumeric", 2) => Some(("DAT2", "consumed_percentage")),
+                    ("getammotraitnumeric", 3) => Some(("DATA", "clip_rounds")),
+                    ("getprojectileflag" | "getexplosionflag", _) => Some(("DATA", "flags")),
+                    _ => None,
+                };
+                let v = field.and_then(|(sub, path)| self.host.record_field(f, sub, path));
+                Ok(Some(match n {
+                    // Bit n of the flags [observed: projflag.*, explflag.*]; explosion IDs
+                    // start at 1.
+                    "getprojectileflag" | "getexplosionflag" => {
+                        let bits = v.map_or(Ok(0.0), |v| v.num())? as u64;
+                        let on = (0..64).contains(&k) && !(n == "getexplosionflag" && k == 0) && bits & (1 << k) != 0;
+                        XVal::Num(f64::from(u8::from(on)))
+                    }
+                    "getexplosiontraitform" => match v {
+                        Some(XVal::Ref(r)) => XVal::Ref(r),
+                        _ => XVal::Ref(0),
+                    },
+                    _ => match v {
+                        Some(XVal::Num(x)) => XVal::Num(x),
+                        _ => XVal::Num(0.0),
+                    },
+                }))
+            }
+            // [observed: projexpl.*, projlight.slug, ammoproj.*] form fields.
+            "getprojectileexplosion" | "getprojectilelight" | "getammoprojectile" => {
+                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let (sub, path) = match n {
+                    "getprojectileexplosion" => ("DATA", "explosion"),
+                    "getprojectilelight" => ("DATA", "light"),
+                    _ => ("DAT2", "projectile"),
+                };
+                Ok(Some(match self.host.record_field(f, sub, path) {
+                    Some(XVal::Ref(r)) => XVal::Ref(r),
+                    _ => XVal::Ref(0),
+                }))
+            }
+            "sv_regexmatch" | "sv_regexsearch" | "sv_regexreplace" | "validateregex" => self.regex_function(n, c).map(Some),
             _ => self.jip_store_function(n, c),
         }
+    }
+
+    /// The regular-expression functions (jip-strings.md §1). The dialect is ECMAScript's
+    /// [hypothesis from ValidateRegex's error kinds]; `fancy-regex` has its groups,
+    /// classes and back-references. An invalid pattern is a run-time error [decision: the
+    /// original crashes, documented].
+    pub(super) fn regex_function(&mut self, n: &str, c: &XCall) -> Result<XVal, VmError> {
+        let target = |vm: &mut Self| -> Result<String, VmError> {
+            match c.args.first() {
+                Some(a) => Ok(match vm.xeval(a)? {
+                    XVal::Str(s) => s,
+                    other => vm.text_of(&other)?,
+                }),
+                None => Err(VmError::Expression(format!("{n} without a string"))),
+            }
+        };
+        let build = |p: &str| fancy_regex::Regex::new(p).map_err(|e| VmError::Type(format!("{n}: the pattern {p:?} is not valid ({e})")));
+        Ok(match n {
+            // [documented: ValidateRegex; observed: "[" gives 5] 0 when valid. Which
+            // fancy-regex error is which code is our reading of the error names
+            // [hypothesis].
+            "validateregex" => {
+                let p = match c.args.first() {
+                    Some(a) => match self.xeval(a)? {
+                        XVal::Str(s) => s,
+                        _ => return Ok(XVal::Num(-1.0)),
+                    },
+                    None => return Ok(XVal::Num(-1.0)),
+                };
+                match fancy_regex::Regex::new(&p) {
+                    Ok(_) => XVal::Num(0.0),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if let Some(XExpr::Var { var, .. }) = c.args.get(1) {
+                            self.write_var(var, XVal::Str(msg.clone()))?;
+                        }
+                        XVal::Num(regex_error_code(&msg))
+                    }
+                }
+            }
+            // [observed: regex.match, regex.partial] the whole target must match.
+            "sv_regexmatch" => {
+                let t = target(self)?;
+                let (p, _) = self.format_arg(c, 1)?;
+                let re = build(&format!("^(?:{p})$"))?;
+                XVal::Num(f64::from(u8::from(re.is_match(&t).map_err(|e| VmError::Type(e.to_string()))?)))
+            }
+            // [documented: Sv RegexSearch; observed: regex.search] every match, in order.
+            "sv_regexsearch" => {
+                let t = target(self)?;
+                let (p, _) = self.format_arg(c, 1)?;
+                let re = build(&p)?;
+                let mut found = Vec::new();
+                for m in re.find_iter(&t) {
+                    found.push(XVal::Str(m.map_err(|e| VmError::Type(e.to_string()))?.as_str().to_string()));
+                }
+                self.jlist(found)?
+            }
+            // [documented: Sv RegexReplace; observed: regex.replace] "replacement|pattern"
+            // as one string; split at the first `|` [hypothesis].
+            "sv_regexreplace" => {
+                let t = target(self)?;
+                let (both, _) = self.format_arg(c, 1)?;
+                let Some((with, p)) = both.split_once('|') else {
+                    return Err(VmError::Type(format!("{n} needs \"replacement|pattern\"")));
+                };
+                let re = build(p)?;
+                XVal::Str(re.replace_all(&t, with).into_owned())
+            }
+            _ => unreachable!("routed by name"),
+        })
     }
 
     /// Argument `k`, or `None` when left out.
@@ -460,5 +608,30 @@ impl Vm<'_, '_> {
         let low = u32::from_str_radix(hex.trim(), 16).ok()? & 0x00FF_FFFF;
         let f = (i << 24) | low;
         self.host.form_sig(f).map(|_| f)
+    }
+}
+
+/// ValidateRegex's code for a pattern error [documented: ValidateRegex lists the codes;
+/// which message is which is our reading, hypothesis]: 5 brackets, 6 parentheses,
+/// 7 braces, 3 escape, 4 back-reference, 9 range, 11 repeat, else 14 (unknown).
+fn regex_error_code(msg: &str) -> f64 {
+    let m = msg.to_ascii_lowercase();
+    let has = |w: &[&str]| w.iter().any(|w| m.contains(w));
+    if has(&["class", "bracket"]) {
+        5.0
+    } else if has(&["paren", "group"]) {
+        6.0
+    } else if has(&["brace", "counted", "repetition quantifier"]) {
+        7.0
+    } else if has(&["backref"]) {
+        4.0
+    } else if has(&["escape"]) {
+        3.0
+    } else if has(&["range"]) {
+        9.0
+    } else if has(&["repeat", "repetition"]) {
+        11.0
+    } else {
+        14.0
     }
 }

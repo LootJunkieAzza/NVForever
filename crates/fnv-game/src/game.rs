@@ -4293,6 +4293,18 @@ impl Host for Exec<'_, '_> {
         crate::functions::base_of(self.game, FormId(form)).map(|b| b.0)
     }
 
+    fn record_field(&mut self, form: u32, sub: &str, path: &str) -> Option<fnv_script::vm::XVal> {
+        use fnv_script::vm::XVal;
+        let v = self.game.data.record_field(FormId(form), sub, path)?;
+        Some(match v {
+            serde_json::Value::Number(n) => XVal::Num(n.as_f64()?),
+            // Form IDs decode as "0x0007EA31"; the null form is no form.
+            serde_json::Value::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
+            serde_json::Value::String(s) => XVal::Str(s.clone()),
+            _ => return None,
+        })
+    }
+
     fn calling_ref(&mut self) -> Option<u32> {
         self.ctx.self_ref.map(|f| f.0)
     }
