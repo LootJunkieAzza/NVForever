@@ -109,8 +109,11 @@ GetArmorClass: ArmorMetal 3 (heavy), ArmorLeather 1 (light); 0 means none or an 
 [documented: GetArmorClass; observed: armorclass.*]. Field: BMDT general_flags. Metal
 has bit 7 (Heavy) set and gives 3; leather has neither bit 3 (Medium) nor bit 7 and
 gives 1 [observed, decoded]. So Heavy gives 3, Medium 2 [hypothesis: no medium armor
-probed], neither 1. GetArmorRCT ArmorMetal → "" (no
-ragdoll constraint template) [observed: armorrct.metal].
+probed], neither 1. GetArmorRCT reads the ARMO **BMCT**
+subrecord: ArmorPowerT45d → `RagdollConstraint\default.rdt` (its BMCT); ArmorMetal has
+no BMCT → "" [observed: armorrct.t45d, armorrct.metal; decoded]. In FalloutNV.esm only
+power armor (and a few Enclave outfits) carry a BMCT, all with that same path [observed:
+a byte search of FalloutNV.esm for `.rdt`, 16 records].
 
 ## 6. For NVForever (J5)
 
