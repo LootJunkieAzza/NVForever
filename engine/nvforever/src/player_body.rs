@@ -228,23 +228,35 @@ fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -
 
 /// Keep the [`ArmsShade`] light: there while the arms rig is drawn and the sun casts
 /// shadows, so that nothing pays for it otherwise.
+///
+/// The light is despawned when not wanted, never hidden. A hidden directional light
+/// keeps its shadow views in Bevy 0.19.1's render world, and when it is shown again
+/// Bevy gives it a new set without despawning the old (`add_light_view_entities`
+/// replaces the light's `DirectionalLightViewEntities`, which runs no removal hook).
+/// The old views keep their place among the views, so the light's shadow phase was
+/// batched once per set every frame, and the doubled batch sets upset the shadow
+/// passes' shared indirect draw buffers: the sun's cascades lost or gained whole
+/// batch sets from frame to frame, hillsides flickering between lit and shadowed in
+/// first person, more often the more times the arms had been hidden and shown
+/// [observed 2026-10-26: owner's captures; gone with GPU culling off or without this
+/// light; a probe in the batching saw this light's 12 batch sets prepared as 24].
 #[allow(clippy::type_complexity)]
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
     sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
-    mut shade: Query<(&mut DirectionalLight, &mut Visibility), With<ArmsShade>>,
+    mut shade: Query<(Entity, &mut DirectionalLight), With<ArmsShade>>,
 ) {
     // A sun casting no shadows has no shade light either.
     let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
     let on = arms_drawn && sun_light.shadow_maps_enabled;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
-    if let Ok((mut light, mut v)) = shade.single_mut() {
-        if v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden }) {
-            debug!("arms shade light {}", if on { "on" } else { "off" });
-        }
-        if on && (light.color != sun_light.color || light.illuminance != illuminance) {
+    if let Ok((e, mut light)) = shade.single_mut() {
+        if !on {
+            debug!("arms shade light off");
+            commands.entity(e).despawn();
+        } else if light.color != sun_light.color || light.illuminance != illuminance {
             light.color = sun_light.color;
             light.illuminance = illuminance;
         }
@@ -257,6 +269,7 @@ fn shade_light(
             overlap_proportion: 0.0,
         }
         .build();
+        debug!("arms shade light on");
         commands.spawn((
             Name::new("Arms shade light"),
             ArmsShade,
