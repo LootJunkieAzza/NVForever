@@ -998,6 +998,8 @@ pub struct Game<'a> {
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
+    /// SetIsPlayable's changes, for the session.
+    pub(crate) playable_overrides: std::collections::HashMap<FormId, bool>,
     /// What GetNextRef gives next (GetFirstRef's walk).
     pub(crate) ref_walk: Vec<FormId>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
@@ -1589,6 +1591,7 @@ impl<'a> Game<'a> {
             mod_data: BTreeMap::new(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
+            playable_overrides: std::collections::HashMap::new(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),

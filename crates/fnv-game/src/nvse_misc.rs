@@ -45,7 +45,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: IsQuestItem; IsPlayable; IsPowerArmor] the item's flags, scripts'
         // SetQuestObject included.
         "isquestitem" => yes(g.world.is_quest_item(item(g, 0))),
-        "isplayable" => yes(g.world.forms.item(item(g, 0)).is_some_and(|i| !i.non_playable)),
+        "isplayable" => {
+            let it = item(g, 0);
+            yes(g.playable_overrides.get(&it).copied().unwrap_or_else(|| g.world.forms.item(it).is_some_and(|i| !i.non_playable)))
+        }
         "ispowerarmor" => yes(g.world.forms.item(item(g, 0)).is_some_and(|i| i.power_armor)),
         // [documented: IsModLoaded] a plugin of the load order, by file name.
         "ismodloaded" => {
@@ -82,6 +85,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: GetRefCount] the count of a stacked reference (1 without one).
         "getrefcount" => {
             let r = subject.unwrap_or(FormId(0));
+            // An inventory reference: its container's stack (1 for CreateTempRef's).
+            if let Some((c, it)) = g.temp_item(r) {
+                let n = if c.0 == 0 { 1 } else { g.world.inventory_mut(c).map(|inv| inv.count(it)).unwrap_or(0) };
+                return Some(Ok(XVal::Num(f64::from(n))));
+            }
             let n = g.world.peek(r).map(|s| s.count).or_else(|| g.world.placed.get(r).map(|p| p.count.unwrap_or(1))).unwrap_or(0);
             XVal::Num(f64::from(n))
         }

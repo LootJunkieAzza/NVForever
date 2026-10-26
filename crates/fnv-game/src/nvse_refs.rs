@@ -25,7 +25,7 @@ impl Game<'_> {
 
     /// The cells GetFirstRef scans: the cell, and in an exterior the cells within
     /// `depth` grid squares of it (depth 1: 9 cells, 2: 25) [documented].
-    fn scan_cells(&self, cell: FormId, depth: i64) -> Vec<FormId> {
+    pub(crate) fn scan_cells(&self, cell: FormId, depth: i64) -> Vec<FormId> {
         let Some(world) = self.world.placed.world_of(cell) else { return vec![cell] };
         let Some(grid) = self.world.placed.world_grid.get(&world) else { return vec![cell] };
         let Some(&(x, y)) = grid.iter().find(|(_, &c)| c == cell).map(|(g, _)| g) else { return vec![cell] };
