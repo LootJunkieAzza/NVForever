@@ -59,11 +59,27 @@ impl Game<'_> {
         }
     }
 
-    /// The references a walk covers.
+    /// The references a walk covers. In a cell that is not loaded only the persistent
+    /// ones [documented: GetFirstRefInCell; observed: nvse-refs, an unloaded house counts
+    /// its persistent references only]. Loaded: the player's cell and, outside, the cells
+    /// within two squares of it [hypothesis: uGridsToLoad 5].
     fn ref_walk_list(&self, cell: Option<FormId>, code: i64, depth: i64, taken: bool) -> Vec<FormId> {
-        let Some(cell) = cell.or_else(|| self.cell_of(FormId::PLAYER_REF)) else { return Vec::new() };
+        let here = self.cell_of(FormId::PLAYER_REF);
+        let Some(cell) = cell.or(here) else { return Vec::new() };
+        let loaded: Vec<FormId> = here.map(|h| self.scan_cells(h, 2)).unwrap_or_default();
         let cells = if depth > 0 { self.scan_cells(cell, depth) } else { vec![cell] };
-        cells.into_iter().flat_map(|c| self.refs_in_cell(c, taken)).filter(|&r| self.ref_of_type(r, code)).collect()
+        cells
+            .into_iter()
+            .flat_map(|c| {
+                let open = loaded.contains(&c);
+                self.refs_in_cell(c, taken).into_iter().filter(move |&r| open || self.persistent(r))
+            })
+            .filter(|&r| self.ref_of_type(r, code))
+            .collect()
+    }
+
+    fn persistent(&self, r: FormId) -> bool {
+        r == FormId::PLAYER_REF || self.world.placed.get(r).is_some_and(|p| p.flags & 0x400 != 0 || p.in_persistent_group)
     }
 }
 
@@ -113,8 +129,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // Persistent: the record's flag (0x400) or a cell's persistent group [documented:
         // IsPersistent; the flag bit, xEdit REFR record flags].
         "ispersistent" => {
-            let p = subject.and_then(|r| g.world.placed.get(r)).is_some_and(|p| p.flags & 0x400 != 0 || p.in_persistent_group);
-            XVal::Num(f64::from(u8::from(p || subject == Some(FormId::PLAYER_REF))))
+            XVal::Num(f64::from(u8::from(subject.is_some_and(|r| g.persistent(r)))))
         }
         // [documented: GetOwner] the reference's owner (XOWN): a faction or an NPC.
         "getowner" => XVal::Ref(subject.and_then(|r| g.world.placed.get(r)).and_then(|p| p.owner).map_or(0, |o| o.0)),

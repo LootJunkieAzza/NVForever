@@ -133,6 +133,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         let v = field(g, w, sub, path);
         return Some(Ok(match name {
             "getweaponammo" | "getweaponprojectile" | "getweaponcriteffect" => form_of(v),
+            // An index into the page's own list, not the record's code [documented:
+            // GetWeaponAttackAnimation; observed: nvse-forms, pistol 9, hunting rifle 1].
+            "getweaponattackanimation" => XVal::Num(match num_of(v) {
+                XVal::Num(c) => attack_animation_index(c as i64),
+                _ => 0.0,
+            }),
+            // The record's DEFAULT (255) reads 0 [observed: nvse-forms]; HandGrip1–6 as 1–6
+            // [hypothesis: the page's grip table is not in the export].
+            "getweaponhandgrip" => XVal::Num(match num_of(v) {
+                XVal::Num(c) if (230.0..=235.0).contains(&c) => c - 229.0,
+                _ => 0.0,
+            }),
             // None (-1) reads as unsigned [observed: nvse-forms, 4294967295].
             "getweaponresisttype" => match num_of(v) {
                 XVal::Num(x) if x < 0.0 => XVal::Num(x + 4_294_967_296.0),
@@ -246,7 +258,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             let now = g.var(key, i);
             match name {
                 "hasvariable" => XVal::Num(1.0),
-                "getvariable" => XVal::Num(now.num()),
+                // A ref variable reads as its form ID's bits taken as a double [observed:
+                // nvse-vars, the player gives 9.88131e-323].
+                "getvariable" => XVal::Num(match now {
+                    fnv_script::vm::Value::Ref(f) => f64::from_bits(u64::from(f)),
+                    fnv_script::vm::Value::Num(x) => x,
+                }),
                 "getrefvariable" => XVal::Ref(now.as_form().unwrap_or(0)),
                 "getstringvariable" => XVal::Str(g.ext.text(now.num() as u32).unwrap_or_default().to_string()),
                 "getarrayvariable" => XVal::Array(now.num() as u32),
@@ -255,7 +272,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                         Some(XVal::Num(x)) => *x,
                         _ => 0.0,
                     };
-                    g.store(key, Some(script), i, fnv_script::vm::Value::Num(v), "SetVariable", false);
+                    // Stored as given, an int variable too [observed: nvse-vars, 2.75 reads
+                    // back 2.75].
+                    g.store_raw(key, Some(script), i, fnv_script::vm::Value::Num(v));
                     XVal::Num(0.0)
                 }
                 "setrefvariable" => {
@@ -285,9 +304,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             let s = g.data.script_of_base(f);
             if name == "getscript" { XVal::Ref(s.map_or(0, |s| s.0)) } else { XVal::Num(f64::from(u8::from(s.is_some()))) }
         }
-        // [documented: GetRace; observed: nvse-forms rows] the actor's race, as the
-        // character creator or AgeRace left it.
-        "getrace" => XVal::Ref(subject.or(as_form(args.first())).and_then(|a| g.actor_race(a)).map_or(0, |r| r.0)),
+        // [documented: GetRace; observed: nvse-forms, Doc Mitchell 0042C3, his RNAM though
+        // he has a template] the actor's own race record, as the character creator or
+        // AgeRace changed it.
+        "getrace" => {
+            let a = subject.or(as_form(args.first())).unwrap_or(FormId(0));
+            let own = (a != FormId::PLAYER_REF && g.extra.get(&a).and_then(|e| e.race).is_none())
+                .then(|| crate::functions::base_of(g, a).and_then(|b| g.data.actors.get(&b)).and_then(|d| d.race))
+                .flatten();
+            XVal::Ref(own.or_else(|| g.actor_race(a)).map_or(0, |r| r.0))
+        }
         // [documented: GetNthModName] the plugin's file name at a load-order index.
         "getnthmodname" => XVal::Str(usize::try_from(int_of(args.first(), -1)).ok().and_then(|i| g.data.load_order.get(i).cloned()).unwrap_or_default()),
         "getnumloadedmods" => XVal::Num(g.data.load_order.len() as f64),
@@ -371,4 +397,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         _ => return None,
     };
     Some(Ok(v))
+}
+
+/// GetWeaponAttackAnimation's index of a WEAP DNAM attack-animation code [documented:
+/// GetWeaponAttackAnimation's list; the codes are the schema's, WeaponDNAM].
+fn attack_animation_index(code: i64) -> f64 {
+    let order: [i64; 23] = [255, 38, 44, 50, 56, 62, 68, 26, 74, 32, 80, 86, 114, 120, 126, 132, 138, 102, 108, 144, 150, 156, 162];
+    order.iter().position(|&c| c == code).map_or(0.0, |i| i as f64)
 }

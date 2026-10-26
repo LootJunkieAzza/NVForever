@@ -1920,6 +1920,11 @@ impl<'a> Game<'a> {
         self.instances.get(&key).and_then(|i| i.vars.get(&index)).copied().unwrap_or_default()
     }
 
+    /// Store into a variable as given, whatever its declared type (xNVSE's SetVariable).
+    pub(crate) fn store_raw(&mut self, key: InstKey, script: Option<FormId>, index: u16, v: Value) {
+        self.instance(key, script).vars.insert(index, v);
+    }
+
     /// Store into a variable by its declared type: integer variables truncate (see
     /// [`to_int_storage`]), float/ref variables keep the value.
     pub fn store(&mut self, key: InstKey, script: Option<FormId>, index: u16, v: Value, unit: &str, letter_int: bool) {
