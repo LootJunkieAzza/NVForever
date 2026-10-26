@@ -26,6 +26,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | — | `proptest` | malformed-input properties for every parser; `cargo-fuzz` (nightly) not set up |
 | — | `cargo-deny` | `deny.toml`: licences, RustSec advisories, sources; runs in CI |
 | — | `fancy-regex` 0.14 (MIT) | JIP's Sv_RegexMatch/Search/Replace and ValidateRegex in fnv-script (jip-strings.md §1): ECMAScript-style patterns need back-references, which the `regex` crate lacks |
+| — | `chrono` 0.4 (MIT/Apache-2.0), `clock` only | xNVSE GetUserTime in fnv-game (the computer's local time); the standard library has no time zones |
 
 ## Engine layers (candidates, to evaluate when each layer starts)
 

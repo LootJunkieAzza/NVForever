@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod jip;
+mod quat;
 pub use jip::{JIP_NAMES, JIP_VERSION};
 
 /// A script value. Numbers are kept as `f64` [observed: float variables keep
@@ -183,6 +184,11 @@ pub trait Host {
     /// reference if given, with its arguments evaluated (an axis as its letter); `None`
     /// when the host does not build it either.
     fn ext_call(&mut self, _name: &str, _on: Option<Value>, _args: &[XVal]) -> Option<Result<XVal, String>> {
+        None
+    }
+    /// A local variable of the running script, by name (the quaternion functions write
+    /// into variables named by strings).
+    fn local_var(&mut self, _name: &str) -> Option<VarRef> {
         None
     }
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
@@ -2464,7 +2470,9 @@ impl Vm<'_, '_> {
                         None => None,
                     },
                 };
-                XVal::Num(f.map_or(255, |f| f >> 24) as f64)
+                // A form made at run time (a clone) reads 255 [observed: nvse-inv,
+                // TempCloneForm].
+                XVal::Num(f.map_or(255, |f| if f >> 24 >= 0xFE { 255 } else { f >> 24 }) as f64)
             }
             // The extender's math [documented: each page; the trigonometric functions in
             // degrees, observed: `Sin 90 > 0.5` is 1 in the original game].
@@ -2547,6 +2555,9 @@ impl Vm<'_, '_> {
         let origin = self.table.unnumbered.get(&lname).map(|u| u.origin.clone()).unwrap_or_default();
         if lname == "validateregex" {
             return self.regex_function(&lname, c);
+        }
+        if let Some(v) = self.quat_function(&lname, c)? {
+            return Ok(v);
         }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
