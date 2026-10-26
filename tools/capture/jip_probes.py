@@ -259,8 +259,66 @@ def _hit_steps():
 
 HIT_PROBES = _hit_steps()
 
+# Sixth set: JIP getters of record fields (weapons, ammo, projectiles, explosions,
+# armor), on the forms the wiki pages use as examples; IDs from fnvtool esm inventory
+# [observed]. NVForever reads the same fields from the records, so these pin which field
+# each trait number means. Read-only.
+REC = {
+    "slug.proj": "1572C5", "ammo12": "8ECF5", "slug.ammo": "13E447", "gren.expl": "7EA31",
+    "gren.proj": "7EA30", "laser": "4336", "hunting": "4333", "sledge": "4352", "rev44": "8F215",
+    "pistol10": "434F", "carbine": "8F21E", "gatling": "432E", "metal": "3307F", "leather": "20423",
+    "ammo10": "4241", "proj10": "2CD5F",
+}
+REC_EXPECTED = {
+    "killimpulse.laser": ("0", "GetWeaponKillImpulse (WeapLaserRifle: 0)"),
+    "killimpulse.hunting": ("26", "GetWeaponKillImpulse (WeapHuntingRifle: 26)"),
+    "impulsedist.laser": ("0", "GetWeaponImpulseDistance (WeapLaserRifle: 0)"),
+    "vatseffect.sledge": ("0010F09F", "GetWeaponVATSEffect (WeapSuperSledge: MaulerKnockdownSpell)"),
+}
+
+
+def _rec(pid, key, expr, text=False):
+    exp, page = REC_EXPECTED.get(pid, (None, ""))
+    return (pid, _with(REC[key], f"SetFunctionValue ({expr})"), text, exp, page)
+
+
+RECORD_PROBES = (
+    [_rec(f"projtrait.slug.{i}", "slug.proj", f"GetProjectileTraitNumeric rF {i}") for i in range(15)]
+    + [_rec(f"projtrait.gren.{i}", "gren.proj", f"GetProjectileTraitNumeric rF {i}") for i in (0, 1, 2, 3, 5, 6)]
+    + [_rec(f"projflag.slug.{i}", "slug.proj", f"GetProjectileFlag rF {i}") for i in range(12)]
+    + [_rec(f"projflag.gren.{i}", "gren.proj", f"GetProjectileFlag rF {i}") for i in (0, 1, 10)]
+    + [_rec("projexpl.gren", "gren.proj", "GetFormIDString (GetProjectileExplosion rF)", True),
+       _rec("projexpl.slug", "slug.proj", "GetFormIDString (GetProjectileExplosion rF)", True),
+       _rec("projlight.slug", "slug.proj", "GetFormIDString (GetProjectileLight rF)", True)]
+    + [_rec(f"expltrait.gren.{i}", "gren.expl", f"GetExplosionTraitNumeric rF {i}") for i in range(8)]
+    + [_rec(f"explflag.gren.{i}", "gren.expl", f"GetExplosionFlag rF {i}") for i in range(1, 7)]
+    + [_rec(f"expltraitform.gren.{i}", "gren.expl", f"GetFormIDString (GetExplosionTraitForm rF {i})", True) for i in range(7)]
+    + [_rec(f"ammotrait.ammo12.{i}", "ammo12", f"GetAmmoTraitNumeric rF {i}") for i in range(4)]
+    + [_rec(f"ammotrait.ammo10.{i}", "ammo10", f"GetAmmoTraitNumeric rF {i}") for i in range(4)]
+    + [_rec("ammoproj.slug", "slug.ammo", "GetFormIDString (GetAmmoProjectile rF)", True),
+       _rec("ammoproj.ammo10", "ammo10", "GetFormIDString (GetAmmoProjectile rF)", True)]
+    + [_rec("killimpulse.laser", "laser", "GetWeaponKillImpulse rF"),
+       _rec("killimpulse.hunting", "hunting", "GetWeaponKillImpulse rF"),
+       _rec("impulsedist.laser", "laser", "GetWeaponImpulseDistance rF"),
+       _rec("impulsedist.hunting", "hunting", "GetWeaponImpulseDistance rF"),
+       _rec("critflags.laser", "laser", "GetWeaponCritFlags rF"),
+       _rec("critflags.hunting", "hunting", "GetWeaponCritFlags rF"),
+       _rec("vatseffect.sledge", "sledge", "GetFormIDString (GetWeaponVATSEffect rF)", True),
+       _rec("vatseffect.laser", "laser", "GetFormIDString (GetWeaponVATSEffect rF)", True),
+       _rec("onhit.rev44", "rev44", "GetWeaponOnHitSetting rF"),
+       _rec("semiauto.rev44.0", "rev44", "GetWeaponSemiAutoFireDelay rF 0"),
+       _rec("semiauto.rev44.1", "rev44", "GetWeaponSemiAutoFireDelay rF 1"),
+       _rec("impactset.pistol10", "pistol10", "GetFormIDString (GetImpactDataSet rF)", True),
+       _rec("model.carbine.0", "carbine", "GetWeaponModel rF 0", True),
+       _rec("model.gatling.3", "gatling", "GetWeaponModel rF 3", True),
+       _rec("model.pistol10.7", "pistol10", "GetWeaponModel rF 7", True),
+       _rec("armorclass.metal", "metal", "GetArmorClass rF"),
+       _rec("armorclass.leather", "leather", "GetArmorClass rF"),
+       _rec("armorrct.metal", "metal", "GetArmorRCT rF", True)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
-        "jip-hits": HIT_PROBES}
+        "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES and HIT_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits"}
 
