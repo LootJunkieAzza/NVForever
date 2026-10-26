@@ -301,7 +301,8 @@ impl Clip {
             priorities,
             skipped,
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
-            text_keys: seq.text_keys.clone(),
+            // A text key at no finite time marks nothing (its phase would be NaN).
+            text_keys: seq.text_keys.iter().filter(|(t, _)| t.is_finite()).cloned().collect(),
             visibility,
             emitters,
             materials,
@@ -316,7 +317,7 @@ impl Clip {
     /// the limits above. A broken file's NaN would otherwise reach the bones, and from
     /// them the physics bodies that follow them.
     pub fn check(&self) -> Result<(), String> {
-        if ![self.start, self.stop].iter().all(|v| v.is_finite()) || !frequency_ok(self.frequency) {
+        if ![self.start, self.stop, self.stop - self.start].iter().all(|v| v.is_finite()) || !frequency_ok(self.frequency) {
             return Err(format!("timing out of range (start {}, stop {}, frequency {})", self.start, self.stop, self.frequency));
         }
         let cycles = self.free.iter().map(|f| &f.2).chain(self.free_visibility.iter().map(|f| &f.2)).chain(self.materials.iter().filter_map(|m| m.cycle.as_ref()));
@@ -490,7 +491,8 @@ impl Playing {
         if let (Some(root), Some(track)) = (root, track) {
             let at = |t: f32| track.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
             if let Some(k) = self.tracks.iter().position(|(e, _)| *e == root) {
-                self.root_motion = Some((k, at(clip.stop) - at(clip.start)));
+                // Keys far apart enough to overflow give no travel to remove.
+                self.root_motion = Some((k, finite_or_zero(at(clip.stop) - at(clip.start))));
             }
         }
         self
@@ -614,7 +616,7 @@ impl BoundClip {
             let tt = &tracks[k].1;
             let at = |t: f32| tt.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
             let start = at(clip.start);
-            (k, at(clip.stop) - start, start.z)
+            (k, finite_or_zero(at(clip.stop) - start), start.z)
         });
         BoundClip { clip, tracks, root, root_track }
     }
@@ -712,7 +714,22 @@ fn blend_by_priority(c: &mut [Contrib], bind: Transform) -> Transform {
     if left > 1e-3 {
         mix.add(bind.translation, bind.rotation, bind.scale.x, left);
     }
-    Transform { translation: mix.t, rotation: mix.r.normalize(), scale: Vec3::splat(mix.s) }
+    let out = Transform { translation: mix.t, rotation: mix.r.normalize(), scale: Vec3::splat(mix.s) };
+    // Finite samples far enough apart can still overflow the mix: the rest pose then.
+    if out.translation.is_finite() && out.rotation.is_finite() && out.scale.is_finite() {
+        out
+    } else {
+        bind
+    }
+}
+
+/// `v`, or zero where a part of it is not a finite number.
+fn finite_or_zero(v: Vec3) -> Vec3 {
+    if v.is_finite() {
+        v
+    } else {
+        Vec3::ZERO
+    }
 }
 
 /// Poses a skeleton from up to [`MAX_LAYERS`] weighted clips (docs/spec-notes/actors.md
@@ -788,9 +805,12 @@ impl BlendPlayer {
         out.clear();
         let mut sampled = 0;
         let layers = std::mem::take(&mut self.layers);
-        for layer in layers.iter().flatten().filter(|l| l.weight > 0.0) {
+        // A weight or phase that is not a finite number (a clip of no length divided by)
+        // gives no layer or the cycle's start, never NaN bones.
+        for layer in layers.iter().flatten().filter(|l| l.weight > 0.0 && l.weight.is_finite()) {
             let (bc, w) = (&layer.clip, layer.weight);
-            let time = cycle_time(bc.time_at(layer.phase), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
+            let at = if layer.phase.is_finite() { layer.phase } else { 0.0 };
+            let time = cycle_time(bc.time_at(at), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
             let phase = if bc.clip.stop > bc.clip.start { (time - bc.clip.start) / (bc.clip.stop - bc.clip.start) } else { 0.0 };
             for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
                 let b = self.rest_of(*i);
@@ -1143,6 +1163,10 @@ mod tests {
         Arc::new(TransformTrack { translation: t, rotation: r, euler: None, scale: Channel::Static(None) })
     }
 
+    fn key3(time: f32, value: [f32; 3]) -> Key<3> {
+        Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }
+    }
+
     fn clip(len: f32, tracks: Vec<(&str, Arc<TransformTrack>)>) -> Arc<Clip> {
         prio_clip(len, tracks.into_iter().map(|(n, t)| (n, t, 30)).collect())
     }
@@ -1307,6 +1331,38 @@ mod tests {
         let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
         assert_eq!(get(1), Vec3::ZERO);
         assert_eq!(get(2).z, 61.0);
+    }
+
+    #[test]
+    fn broken_layers_and_overflowing_keys_give_finite_bones() {
+        let (mut p, ix) = player();
+        // Keys finite each (Clip::check passes them) but far enough apart to overflow
+        // between them, a root whose travel overflows, NaN keys.
+        let lerp = |a: f32, b: f32| Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key3(0.0, [a; 3]), key3(1.0, [b; 3])] });
+        let wild = prio_clip(1.0, vec![("Bip01", track(lerp(-3.0e38, 3.0e38), Channel::Static(Some([1.0e30, 1.0e30, 0.0, 0.0]))), 30), ("Other", track(lerp(f32::NAN, 0.0), Channel::Static(None)), 30)]);
+        assert_eq!(wild.check().map_err(|_| ()), Err(()));
+        let mut finite = (*wild).clone();
+        finite.tracks.truncate(1);
+        assert_eq!(finite.check(), Ok(()));
+        // Two clips at one priority whose finite poses overflow their mix.
+        let far = |x: f32| Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([x, 0.0, 0.0]), 30)]), &ix));
+        let (a, b) = (far(3.0e38), far(-3.0e38));
+        let bound = Arc::new(BoundClip::bind(Arc::new(finite), &ix));
+        let broken_wild = Arc::new(BoundClip::bind(wild, &ix));
+        let mut out = Vec::new();
+        for (phase, weight) in [(f32::NAN, 1.0), (f32::INFINITY, 1.0), (0.5, f32::INFINITY), (0.5, f32::NAN), (0.3, 1.0)] {
+            let layer = |c: &Arc<BoundClip>| Some(Layer { clip: c.clone(), phase, weight });
+            p.layers = [layer(&bound), layer(&broken_wild), layer(&a), layer(&b), None, None, None];
+            p.sample(&mut out);
+            for (i, t) in &out {
+                assert!(t.translation.is_finite() && t.rotation.is_finite() && t.scale.is_finite(), "node {i} at phase {phase}, weight {weight}: {t:?}");
+                assert!((t.rotation.length() - 1.0).abs() < 1e-3, "{t:?}");
+            }
+        }
+        // A clip whose length overflows cannot be played.
+        assert!(prio_clip(1.0, Vec::new()).as_ref().clone().check().is_ok());
+        let long = Clip { start: -3.0e38, stop: 3.0e38, ..prio_clip(1.0, Vec::new()).as_ref().clone() };
+        assert!(long.check().is_err());
     }
 
     #[test]

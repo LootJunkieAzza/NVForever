@@ -206,6 +206,10 @@ collision hits (walls and floors do not stop it) and those whose render bounds i
 enters, ordered by the collision hit, else by where the ray enters the bounds. A
 reference selected with `prid` that is not on the last click's ray is not stepped from.
 
+Clicking the selected reference again unselects it (2026-10-25, owner's request)
+[design]: the details and box go, calls without a reference run with none, and the log
+says `console: unselected <FormID>`.
+
 ## Keys
 
 Enter runs the line, Up/Down recall earlier lines, Page Up/Down scroll the scrollback.

@@ -1,0 +1,8 @@
+scn ExtCase12
+string_var sText
+int iLen
+Begin GameMode
+    let sText := "first"
+    let sText += " second"
+    let iLen := sv_Length sText
+End

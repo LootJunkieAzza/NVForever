@@ -38,6 +38,11 @@ pub const SIZE_COMPRESSION_TOGGLE: u32 = 0x4000_0000;
 /// Size field bit 31: meaning undocumented; preserved.
 pub const SIZE_UNKNOWN_BIT31: u32 = 0x8000_0000;
 pub const SIZE_MASK: u32 = 0x3FFF_FFFF;
+/// Largest decompressed size a compressed file may declare: the largest a stored file
+/// can be (`SIZE_MASK`, 1 GiB). The shipped archives' largest file is 11,184,976 bytes
+/// (a Textures2 DDS) [observed]; the cap only stops a small block that claims, or
+/// inflates to, gigabytes (a zip bomb) from being allocated.
+pub const MAX_DECOMPRESSED_FILE: usize = SIZE_MASK as usize;
 
 // Messages embed the inner error, so no variant declares a #[source]: an error
 // chain printer would otherwise repeat it.
@@ -208,6 +213,9 @@ impl Archive {
     pub fn open(path: impl AsRef<Path>) -> Result<Archive, BsaError> {
         let mut file = File::open(path.as_ref())?;
         let file_len = file.metadata()?.len();
+        if file_len < HEADER_SIZE as u64 {
+            return Err(BsaError::Truncated(format!("the file is {file_len} bytes, shorter than the {HEADER_SIZE}-byte header")));
+        }
         let mut hb = [0u8; 36];
         file.read_exact(&mut hb).map_err(|_| BsaError::NotBsa)?;
         let mut c = Cursor::new(&hb);
@@ -421,6 +429,27 @@ impl Archive {
         Ok(Archive { header, folders, warnings, name_block_tail, file, file_len })
     }
 
+    /// The tables' half of [`check`]: every file record's data lies inside the file. An
+    /// archive that fails it still opens (the files inside the file read), but its tables
+    /// are damaged.
+    pub fn check_tables(&self) -> Result<(), BsaError> {
+        let mut past = self
+            .folders
+            .iter()
+            .flat_map(|f| f.files.iter().map(move |r| (f, r)))
+            .filter(|(_, r)| r.offset as u64 + r.stored_size() as u64 > self.file_len);
+        let Some((f, r)) = past.next() else { return Ok(()) };
+        Err(BsaError::Layout(format!(
+            "{} file record(s) point past the end of the file ({} bytes); first {}\\{} at offset {}, {} bytes",
+            1 + past.count(),
+            self.file_len,
+            cp1252::decode(&f.name),
+            cp1252::decode(&r.name),
+            r.offset,
+            r.stored_size()
+        )))
+    }
+
     pub fn file_len(&self) -> u64 {
         self.file_len
     }
@@ -531,6 +560,13 @@ impl Archive {
     }
 }
 
+/// The start-up check of an archive the game will load: it opens, its header, folder and
+/// file tables read, and every file's data lies inside the file. Headers and tables only;
+/// nothing is decompressed (a file that fails to decompress later is that file's error).
+pub fn check(path: impl AsRef<Path>) -> Result<(), BsaError> {
+    Archive::open(path)?.check_tables()
+}
+
 /// Decode one stored data block.
 pub fn decode_block(raw: &[u8], compressed: bool, embedded_name: bool, label: &str) -> Result<Vec<u8>, BsaError> {
     decode_block_checked(raw, compressed, embedded_name, label).map(|(d, _)| d)
@@ -559,6 +595,9 @@ pub fn decode_block_checked(
         return Err(BsaError::Truncated(format!("{label}: compressed block shorter than 4 bytes")));
     }
     let orig = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
+    if orig > MAX_DECOMPRESSED_FILE {
+        return Err(BsaError::Decompress { path: label.to_string(), err: fnv_inflate::InflateError::OutputLimit });
+    }
     if orig == 0 && body.len() == 4 {
         // Observed: Fallout - Misc.bsa, menus\do_not_delete.txt.
         return Ok((Vec::new(), Trailer::Verified));
@@ -1077,6 +1116,61 @@ mod tests {
     }
 
     #[test]
+    fn the_start_up_check_names_what_is_wrong() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.bsa");
+        let mut good = Vec::new();
+        write_archive(&mut good, 3, 0, 0, &sample()).unwrap();
+        let check_bytes = |bytes: &[u8]| {
+            std::fs::write(&p, bytes).unwrap();
+            check(&p)
+        };
+        assert!(check_bytes(&good).is_ok());
+        // Missing file.
+        assert!(matches!(check(dir.path().join("missing.bsa")), Err(BsaError::Io(_))));
+        // Zero bytes, and a header cut short.
+        let zero = check_bytes(&[]).unwrap_err();
+        assert!(matches!(zero, BsaError::Truncated(_)) && zero.to_string().contains("0 bytes"), "{zero}");
+        assert!(matches!(check_bytes(&good[..20]), Err(BsaError::Truncated(_))));
+        // Bad magic.
+        let mut bad = good.clone();
+        bad[0] = b'X';
+        assert!(matches!(check_bytes(&bad), Err(BsaError::NotBsa)));
+        // Bad version (Oblivion's 103, Skyrim SE's 105).
+        for v in [103u32, 105] {
+            let mut bad = good.clone();
+            bad[4..8].copy_from_slice(&v.to_le_bytes());
+            assert!(matches!(check_bytes(&bad), Err(BsaError::UnsupportedVersion(x)) if x == v));
+        }
+        // Folder and file tables longer than the file: a folder count of a million, and
+        // the folder table offset past the end.
+        let mut bad = good.clone();
+        bad[16..20].copy_from_slice(&1_000_000u32.to_le_bytes());
+        assert!(matches!(check_bytes(&bad), Err(BsaError::Truncated(_))));
+        let mut bad = good.clone();
+        bad[8..12].copy_from_slice(&(good.len() as u32 + 100).to_le_bytes());
+        assert!(matches!(check_bytes(&bad), Err(BsaError::Truncated(_))));
+        // A folder record claiming more files than the tables hold.
+        let mut bad = good.clone();
+        bad[36 + 8..36 + 12].copy_from_slice(&50_000u32.to_le_bytes());
+        assert!(check_bytes(&bad).is_err());
+        // Tables intact, data cut short: a file record points past the end. It still
+        // opens (the files inside the file read) but the check refuses it.
+        let cut = &good[..good.len() - 10];
+        std::fs::write(&p, cut).unwrap();
+        assert!(Archive::open(&p).is_ok());
+        let e = check(&p).unwrap_err();
+        assert!(matches!(e, BsaError::Layout(_)) && e.to_string().contains("textures\\c.dds"), "{e}");
+        // A file offset field pointing far past the end.
+        let a = Archive::open({ std::fs::write(&p, &good).unwrap(); &p }).unwrap();
+        let first = &a.folders[0].files[0];
+        let at = good.windows(4).position(|w| w == first.offset.to_le_bytes()).unwrap();
+        let mut bad = good.clone();
+        bad[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(check_bytes(&bad), Err(BsaError::Layout(_))));
+    }
+
+    #[test]
     fn rejects_garbage() {
         let dir = std::env::temp_dir().join(format!("fnv-bsa-bad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1088,5 +1182,26 @@ mod tests {
         std::fs::write(&p, &bytes[..60]).unwrap();
         assert!(matches!(Archive::open(&p), Err(BsaError::Truncated(_))));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn bad_compressed_blocks_are_errors() {
+        let block = |declared: u32, stream: &[u8]| {
+            let mut b = declared.to_le_bytes().to_vec();
+            b.extend_from_slice(stream);
+            decode_block_checked(&b, true, false, "x")
+        };
+        let z = fnv_inflate::zlib_store(b"abc");
+        assert_eq!(block(3, &z).unwrap().0, b"abc");
+        // A declared size over the cap is refused before anything is inflated.
+        let over = block(MAX_DECOMPRESSED_FILE as u32 + 1, &z).unwrap_err();
+        assert!(matches!(over, BsaError::Decompress { err: fnv_inflate::InflateError::OutputLimit, .. }));
+        assert!(block(u32::MAX, &z).is_err());
+        assert!(block(4, &z).is_err());
+        assert!(block(3, b"garbage!").is_err());
+        assert!(block(3, &z[..4]).is_err());
+        assert!(decode_block_checked(&[1, 2], true, false, "x").is_err());
+        // An embedded name longer than the block.
+        assert!(decode_block_checked(&[200, b'a'], false, true, "x").is_err());
     }
 }

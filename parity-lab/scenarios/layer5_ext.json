@@ -1,0 +1,64 @@
+{
+ "scenarios": [
+  {
+   "id": "L5.ext.nvse.strings",
+   "layer": 5,
+   "description": "Extender string probes (tools/capture/ext-probes/strings): every EXTPROBE line the probe quests print, keyed by probe id. Oracle: the original game with xNVSE, collected by tools/capture/ext_probe_run.py from the owner's private test plugin NVFExtProbe.esp. Candidate: fnvtool ext probes, the same quests run headless (docs/spec-notes/ext-strings.md).",
+   "oracle": {"golden": "ext/strings.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "probes", "{data_dir}", "FalloutNV.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--probes", "strings", "--probes-dir", "{lab_root}/../tools/capture/ext-probes"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "strings"]
+  },
+  {
+   "id": "L5.ext.nvse.expressions",
+   "layer": 5,
+   "description": "Extender expression probes (tools/capture/ext-probes/expressions): operator grouping, &&/|| values, unary operators, argument reach, bitwise operators on fractions; keyed by probe id. Oracle and candidate as L5.ext.nvse.strings (docs/spec-notes/ext-syntax.md).",
+   "oracle": {"golden": "ext/expressions.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "probes", "{data_dir}", "FalloutNV.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--probes", "expressions", "--probes-dir", "{lab_root}/../tools/capture/ext-probes"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "expressions"]
+  },
+  {
+   "id": "L5.ext.nvse.arrays",
+   "layer": 5,
+   "description": "Extender array probes (tools/capture/ext-probes/arrays), the edge-case selector run once per probe number; keyed by probe id. Oracle and candidate as L5.ext.nvse.strings (docs/spec-notes/ext-arrays.md).",
+   "oracle": {"golden": "ext/arrays.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "probes", "{data_dir}", "FalloutNV.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--probes", "arrays", "--probes-dir", "{lab_root}/../tools/capture/ext-probes"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "arrays"]
+  },
+  {
+   "id": "L5.ext.nvse.loops",
+   "layer": 5,
+   "description": "Extender loop probes (tools/capture/ext-probes/loops), without the runaway loop; keyed by probe id. Oracle and candidate as L5.ext.nvse.strings (docs/spec-notes/ext-syntax.md section 6).",
+   "oracle": {"golden": "ext/loops.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "probes", "{data_dir}", "FalloutNV.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--probes", "loops", "--probes-dir", "{lab_root}/../tools/capture/ext-probes"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "loops"]
+  },
+  {
+   "id": "L5.ext.nvse.udf",
+   "layer": 5,
+   "description": "Extender user-defined function probes (tools/capture/ext-probes/udf), without the deep recursion; keyed by probe id. Oracle and candidate as L5.ext.nvse.strings (docs/spec-notes/ext-udf.md).",
+   "oracle": {"golden": "ext/udf.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "probes", "{data_dir}", "FalloutNV.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--probes", "udf", "--probes-dir", "{lab_root}/../tools/capture/ext-probes"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "udf"]
+  }
+ ]
+}

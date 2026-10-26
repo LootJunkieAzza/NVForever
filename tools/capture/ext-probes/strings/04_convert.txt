@@ -1,0 +1,57 @@
+scn ExtProbeStrings04
+; ToString, ToNumber, $, #, Sv_ToNumeric, NumToHex, GetFormIDString (tools/capture/ext-probes/strings/README.md)
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/04_convert|begin"
+    let iI := 5
+    Print "EXTPROBE|tostring.int|[" + ($iI) + "]"
+    let fF := 2.5
+    Print "EXTPROBE|tostring.float|[" + ($fF) + "]"
+    let fF := -0.25
+    Print "EXTPROBE|tostring.neg|[" + ($fF) + "]"
+    let rRef := PlayerREF
+    Print "EXTPROBE|tostring.form|[" + ($rRef) + "]"
+    let rRef := 0
+    Print "EXTPROBE|tostring.unset_ref|[" + ($rRef) + "]"
+    let sS := "1969"
+    Print "EXTPROBE|tonumber.int|" + $(#sS)
+    let sS := "3.14"
+    Print "EXTPROBE|tonumber.float|" + $(#sS)
+    let sS := "0x1F"
+    Print "EXTPROBE|tonumber.hex_prefix|" + $(ToNumber sS)
+    let sS := "1F"
+    Print "EXTPROBE|tonumber.hex_flag|" + $(ToNumber sS, 1)
+    let sS := "abc"
+    Print "EXTPROBE|tonumber.bad|" + $(#sS)
+    let sS := ""
+    Print "EXTPROBE|tonumber.empty|" + $(#sS)
+    let sS := "12abc"
+    Print "EXTPROBE|tonumber.trailing|" + $(#sS)
+    let sS := "-55"
+    Print "EXTPROBE|tonumeric.neg|" + $(Sv_ToNumeric sS)
+    let sS := "12abc"
+    Print "EXTPROBE|tonumeric.stops|" + $(Sv_ToNumeric sS)
+    let sS := "1e3"
+    Print "EXTPROBE|tonumeric.exponent|" + $(Sv_ToNumeric sS)
+    let sS := "abc"
+    Print "EXTPROBE|tonumeric.none|" + $(Sv_ToNumeric sS)
+    Print "EXTPROBE|hex.width|[" + (NumToHex 42, 2) + "]"
+    Print "EXTPROBE|hex.default_width|[" + (NumToHex 42) + "]"
+    Print "EXTPROBE|hex.widened|[" + (NumToHex 255, 1) + "]"
+    Print "EXTPROBE|hex.prefix|[" + (NumToHex 42, 2, 1) + "]"
+    Print "EXTPROBE|hex.over8|[" + (NumToHex 42, 10) + "]"
+    Print "EXTPROBE|hex.negative|[" + (NumToHex -1) + "]"
+    let rRef := PlayerREF
+    Print "EXTPROBE|formid.player|[" + (GetFormIDString rRef) + "]"
+    Print "EXTPROBE|strings/04_convert|end"
+End

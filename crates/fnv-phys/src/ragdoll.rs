@@ -55,6 +55,10 @@ const MAX_LIMIT: f32 = 3.0;
 /// other, game units [design].
 pub const SELF_COLLISION_GAP: f32 = 1.0;
 
+/// How far past its limits (radians) a placed object's joint may start and still keep
+/// them ([`PhysWorld::add_object_ragdoll`]) [design].
+pub const START_SLACK: f32 = 0.05;
+
 /// How to start a ragdoll.
 #[derive(Debug, Clone, Copy)]
 pub struct RagdollStart<'a> {
@@ -83,6 +87,9 @@ pub struct RagdollReport {
     /// Pairs of bodies of the ragdoll that collide with each other.
     pub self_pairs: usize,
     pub errors: Vec<ConvertError>,
+    /// A placed object's joints built without their limits, by stored index: they
+    /// started outside them.
+    pub freed: Vec<usize>,
 }
 
 /// A ragdoll in the world.
@@ -339,11 +346,28 @@ impl PhysWorld {
                 report.errors.push(ConvertError::BadDimension);
                 continue;
             }
-            rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, joint(j, f * k)));
+            // A placed object's joint that starts outside its own limits (the swinging log's
+            // rear chain meets the ram turned 90 degrees past a twist limit of 5) is built
+            // without them, a ball joint: held to its limits it wrenches the whole object
+            // from the first step [observed: traps.md §4; design: the original's handling
+            // is not known].
+            let starts_outside = object && matches!((nodes.get(j.a), nodes.get(j.b)), (Some(Some(na)), Some(Some(nb))) if !j.within(&j.angles(na, nb), START_SLACK));
+            let built = if starts_outside {
+                report.freed.push(ji);
+                joint(&RagdollJoint { kind: JointKind::Ball, ..j.clone() }, f * k)
+            } else {
+                joint(j, f * k)
+            };
+            rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, built));
             report.joints += 1;
         }
         let gap = SELF_COLLISION_GAP * f * k;
-        for i in 0..n.min(64) {
+        // A placed object's parts do not meet each other: its bodies share one Havok
+        // collision group (a swinging trap's chains and weight, UPB `ColGroupInfo`), and
+        // Havok does not collide bodies of one group [observed: traps.md §4; hypothesis:
+        // the group's rule]. Left to collide, one chain's links knocked the other's about.
+        let pairs = if object { 0 } else { n.min(64) };
+        for i in 0..pairs {
             for j in i + 1..n.min(64) {
                 if joined[i] & (1 << j) != 0 {
                     continue;

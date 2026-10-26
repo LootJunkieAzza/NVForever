@@ -12,6 +12,11 @@ pub const RECORD_HEADER_SIZE: usize = 24;
 pub const GROUP_HEADER_SIZE: usize = 24;
 pub const GRUP: [u8; 4] = *b"GRUP";
 pub const XXXX: [u8; 4] = *b"XXXX";
+/// Largest decompressed size a compressed record may declare. The shipped masters'
+/// largest is 42,112 bytes (a FalloutNV.esm LAND) and their largest uncompressed record
+/// 621,700 bytes (NAVI) [observed]; 64 MiB leaves mods a hundredfold room while a
+/// record of a few MB inflating to gigabytes (a zip bomb) is refused before it is built.
+pub const MAX_DECOMPRESSED_RECORD: usize = 64 << 20;
 
 /// Record flag bits whose meaning is relied upon by the structural layer.
 pub mod record_flags {
@@ -191,6 +196,13 @@ impl Record {
             });
         }
         let size = u32::from_le_bytes([self.raw[0], self.raw[1], self.raw[2], self.raw[3]]) as usize;
+        if size > MAX_DECOMPRESSED_RECORD {
+            return Err(EsmError::Decompress {
+                offset: self.offset,
+                form_id: self.header.form_id,
+                msg: format!("declared decompressed size {size} is over the {MAX_DECOMPRESSED_RECORD}-byte limit"),
+            });
+        }
         fnv_inflate::zlib_decompress_ex(&self.raw[4..], Some(size))
             .map(|(d, t)| (Cow::Owned(d), t))
             .map_err(|e| EsmError::Decompress { offset: self.offset, form_id: self.header.form_id, msg: e.to_string() })
@@ -445,5 +457,98 @@ mod tests {
         bad[gpos + 4..gpos + 8].copy_from_slice(&9999u32.to_le_bytes());
         assert!(parse_nodes(&Bytes::from(bad), 0, file.len(), 0).is_err());
         assert!(parse_nodes(&file.slice(..file.len() - 3), 0, file.len() - 3, 0).is_err());
+    }
+
+    fn grup(size: u32, body: &[u8]) -> Vec<u8> {
+        let mut v = b"GRUP".to_vec();
+        v.extend_from_slice(&size.to_le_bytes());
+        v.extend_from_slice(&[0; 16]);
+        v.extend_from_slice(body);
+        v
+    }
+
+    fn record(flags: u32, payload: &[u8]) -> Vec<u8> {
+        let mut v = b"GLOB".to_vec();
+        v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        v.extend_from_slice(&flags.to_le_bytes());
+        v.extend_from_slice(&[0; 12]);
+        v.extend_from_slice(payload);
+        v
+    }
+
+    fn only_record(data: Vec<u8>) -> Record {
+        let b = Bytes::from(data);
+        match parse_nodes(&b, 0, b.len(), 0).unwrap().remove(0) {
+            Node::Record(r) => r,
+            Node::Group(_) => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn groups_nested_too_deep_are_an_error() {
+        let nest = |levels: usize| {
+            let mut body = Vec::new();
+            for _ in 0..levels {
+                body = grup((24 + body.len()) as u32, &body);
+            }
+            Bytes::from(body)
+        };
+        let ok = nest(16);
+        assert!(parse_nodes(&ok, 0, ok.len(), 0).is_ok());
+        // Thousands of levels must not recurse that deep (stack overflow).
+        for levels in [17, 5000] {
+            let deep = nest(levels);
+            let e = parse_nodes(&deep, 0, deep.len(), 0).unwrap_err().to_string();
+            assert!(e.contains("nested deeper"), "{e}");
+        }
+    }
+
+    #[test]
+    fn group_sizes_below_the_header_or_past_the_parent_are_errors() {
+        // A size under 24 would make the walk stand still or step backwards.
+        for size in [0u32, 1, 23] {
+            let b = Bytes::from(grup(size, &[0; 8]));
+            assert!(parse_nodes(&b, 0, b.len(), 0).is_err(), "size {size}");
+        }
+        // An inner group that runs past its parent, and sizes that overflow on addition.
+        for inner in [100u32, u32::MAX] {
+            let b = Bytes::from(grup(48, &grup(inner, &[])));
+            assert!(parse_nodes(&b, 0, b.len(), 0).is_err(), "inner {inner}");
+        }
+        let mut r = record(0, b"EDID\x02\x00x\0");
+        r[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        let b = Bytes::from(r);
+        assert!(parse_nodes(&b, 0, b.len(), 0).is_err());
+    }
+
+    #[test]
+    fn bad_compressed_payloads_are_errors() {
+        let comp = |declared: u32, stream: &[u8]| {
+            let mut p = declared.to_le_bytes().to_vec();
+            p.extend_from_slice(stream);
+            only_record(record(record_flags::COMPRESSED, &p))
+        };
+        let good = fnv_inflate::zlib_store(b"EDID\x02\x00x\0");
+        assert_eq!(comp(8, &good).subrecords().unwrap().len(), 1);
+        // Declared size wrong, over the cap, garbage stream, cut stream, no size at all.
+        assert!(comp(9, &good).payload().is_err());
+        let e = comp(u32::MAX, &good).payload().unwrap_err().to_string();
+        assert!(e.contains("limit"), "{e}");
+        assert!(comp(MAX_DECOMPRESSED_RECORD as u32 + 1, &good).payload().is_err());
+        assert!(comp(8, b"not zlib at all").payload().is_err());
+        assert!(comp(8, &good[..good.len() / 2]).payload().is_err());
+        assert!(only_record(record(record_flags::COMPRESSED, &[1, 0])).payload().is_err());
+    }
+
+    #[test]
+    fn xxxx_sizes_past_the_payload_are_errors() {
+        let mut p = b"XXXX\x04\x00".to_vec();
+        p.extend_from_slice(&u32::MAX.to_le_bytes());
+        p.extend_from_slice(b"OFST\x00\x00abc");
+        assert!(parse_subrecords(&p).is_err());
+        // Two XXXX in a row: the second size wins, and it still has to fit.
+        let mut p = b"XXXX\x04\x00\x00\x00\x00\x10XXXX\x04\x00\x03\x00\x00\x00".to_vec();
+        p.extend_from_slice(b"OFST\x00\x00abc");
+        assert_eq!(parse_subrecords(&p).unwrap()[0].data, b"abc");
     }
 }

@@ -19,6 +19,7 @@ committed**. Recommended layout:
   bsa/<Archive>.listing.json      oracle_bsa.py   (e.g. "DeadMoney - Main.bsa.listing.json")
   sim/containers.json             oracle_sim.py containers (ten masters)
   sim/items.json                  oracle_sim.py items (ten masters)
+  ext/<set>.json                  ext_probes.py collect (extender probe runs)
 ```
 
 Point the lab at it through its `goldens_dir` setting in an uncommitted local overlay or an
@@ -585,6 +586,26 @@ through `capture_run.py` from the save `nvftest`; `ours` runs `fnvtool script ru
 runner's `call` action. `function_coverage.py` writes the coverage doc's tables from
 `fnvtool script coverage`, `fnvtool script uses`, `function_systems.toml` and the
 comparison.
+
+## 12. `ext_probes.py` — extender probe runs (scripting, xNVSE baseline)
+
+The probe scripts in `ext-probes/` (strings, expressions, arrays, loops, udf; each folder's
+README says how to compile and run them in the GECK with xNVSE) print
+`EXTPROBE|<id>|<value>` lines to the console. Save the console text (or the game log)
+privately, then:
+
+```
+python tools/capture/ext_probes.py collect console.txt --set strings --version 6.4.9
+python tools/capture/ext_probes.py compare C:/fnv-private/goldens/ext/strings.json tools/capture/ext-probes/strings/README.md
+```
+
+`collect` writes `<goldens>/ext/<set>.json` (`fnv.ext.probes/1`: set, xNVSE version,
+sources, rows `{id, value}`, begin/end markers per script, duplicate ids). `compare`
+checks a run against the README's Expected column (numbers by value, the rest as text)
+and lists mismatches, missing ids, the "observe" rows with what the run printed, ids the
+README does not know and scripts that never printed their end marker; it exits 1 on a
+mismatch or a missing id. The results then go into the matching
+`docs/spec-notes/ext-*.md` as `[observed]`.
 
 ## Tests
 

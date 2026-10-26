@@ -3,7 +3,7 @@
 Status: first set built 2026-10-12 (branch `claude/graphics-engine`, PR #236); follow-ups
 (temporal anti-aliasing, sun shafts, screen-space water reflections; Bevy's volumetric fog tried
 and dropped) the same day (branch `claude/graphics-2`). Owner's request (playtest
-list 2, docs/handoff/playtest-2026-10-12.md): "Add any modern engine level graphics rendering
+list 2, docs/handoff/archive/playtest-2026-10-12.md): "Add any modern engine level graphics rendering
 functionality to improve the game visual without modifying the base assets or implementing new
 ones."
 

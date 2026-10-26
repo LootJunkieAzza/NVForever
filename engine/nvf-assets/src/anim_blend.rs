@@ -492,7 +492,11 @@ impl Animator {
                 s += free * bind.scale.x;
             }
             let rotation = if q.length_squared() > 1e-12 { Quat::from_vec4(q).normalize() } else { bind.rotation };
-            self.locals[bone] = Transform { translation: t, rotation, scale: Vec3::splat(s) };
+            let posed = Transform { translation: t, rotation, scale: Vec3::splat(s) };
+            // Finite samples far enough apart can still overflow the sum: the rest pose then.
+            if posed.translation.is_finite() && posed.rotation.is_finite() && posed.scale.is_finite() {
+                self.locals[bone] = posed;
+            }
         }
     }
 

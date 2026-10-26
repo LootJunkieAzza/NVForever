@@ -168,7 +168,7 @@ and Layer 4 can produce:
 | OnMagicEffectHit | a magic effect reaches the reference (an applied hit effect or spell; a weapon's object effect on an object it hits) | `Game::apply_magic_item_with`, `Game::magic_effect_hits` |
 | OnSell | never: it never ran in the original either [documented: GECK wiki event handler table, "never ran prior to xNVSE v6.2.8"] | — |
 | OnTriggerEnter/Leave/OnTrigger | an actor enters, leaves or stays in a trigger volume | physics sensors (5D) |
-| OnDeath, OnHit, OnStartCombat, OnCombatEnd, SayToDone, OnPackage* | Layer 6 events | scripted runner inputs until Layer 6 |
+| OnDeath, OnHit, OnStartCombat, OnCombatEnd, SayToDone, OnPackage* | Layer 6 events | fired by the Layer 6 systems in `--play` (deaths, hits, combat, SayTo, packages: `Game::kill`, `fnv_game::awareness`, the package change in `game.rs`); scripted runner inputs in tests |
 
 Timing values (the default quest delay, whether GameMode runs on the frame of activation,
 the order of scripts within a frame) are [hypothesis] until 5C captures them. The runner

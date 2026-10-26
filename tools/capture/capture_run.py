@@ -136,6 +136,8 @@ def job_status(path):
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue  # a line being written
+            if not isinstance(rec, dict):
+                continue  # a cut line that still parses (e.g. a bare string)
             kind = rec.get("kind")
             if kind == "end":
                 status = "ended"

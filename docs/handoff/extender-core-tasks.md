@@ -31,6 +31,26 @@ What already exists (checked 2026-10-25):
 - The console splits statements on `;` itself (docs/design/console.md).
 - `nvf_capture` runs inside FNV with xNVSE and receives its events (docs/spec-notes/xnvse-capture.md).
 
+## Progress (main at #800, 2026-10-25)
+
+| Task | State | Where |
+|---|---|---|
+| A1–A5 | Done: vanilla source compiles to the editor's bytes, 14,489 of 14,511 units identical | #765, §3 below |
+| A6–A12 | Not started | — |
+| G1 | Waiting for the owner (the private test plugin in the GECK) | owner-review.md, extender section |
+| G2 | Cases written: 23 sources in `tools/capture/ext-compile/`; the Observed column waits for the owner's GECK run | #767 |
+| G3 | Probe sets written (strings, expressions, arrays, loops, udf in `tools/capture/ext-probes/`) and their collector `tools/capture/ext_probes.py` (collect, compare); no golden yet | #783–#788, #791 |
+| G4 | Done: the eight skeletons, since filled from the wiki export and the owner's pasted pages, plus `ext-forms.md`, `ext-input.md` and `ext-version.md` | #761, #769–#799 |
+| G5 | Not started (needs G3's goldens) | — |
+| N1 | Done: `core_family` on the 77 core functions; the wiki lists only three aliases for these families, all already in the catalogue | #768 |
+| N2 | Tool built: `fnvtool ext scan` counts extender functions, syntax lines and source-less extender units per plugin (every count 0 over the ten masters); the ranked table waits for the owner's mod list | #797 |
+| C1 | Built except the per-mod log of unregistered extender functions, which needs extender dispatch: name-keyed `ext_registry()`, one name index over the game, console and extender registries, alias lookup, `origin` in `fnvtool script stubs` | #762, #773 |
+| C2–C4 | Not started | — |
+| C5 | Spec written (`ext-version.md`); not built | #798 |
+| D1–D6 | Spec only: implementation tables for D1–D5 (`ext-strings`, `ext-arrays`, `ext-udf`, `ext-format`, `ext-forms`), D6 in `ext-input.md`; no code | #789, #790, #796 |
+| E1–E3 | Spec only: function and event tables in `ext-events.md` | #781, #799 |
+| B1–B8, F1–F2 | Not started | — |
+
 ## 1. Evidence tooling (G): starts first, runs alongside everything else
 
 | ID | Task | Size | Needs | Done when |

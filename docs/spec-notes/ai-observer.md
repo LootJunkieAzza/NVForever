@@ -677,6 +677,15 @@ measured is in actors.md §8.10.
   run; walks set `place`'s `av` (`[["Aggression", 0]]`: actor values set on the spawned
   creature with SetAV before any StartCombat) so creatures without a faction to join
   wander too. Ranged robots and the alien stand off and shoot instead of running.
+- **A run on demand** (`creature_flee`'s `pkg_*`, the owner's idea, 2026-10-25): `place`'s
+  `package` gives a spawned creature a package by AddScriptPackage (a script statement);
+  VEFR02NCRBad2MoveToPlayer (0015FB7E: Travel, Always Run, to within 1,000 of the
+  player, no conditions) made every creature tried, ranged robots included, run 1,700
+  units down the runway from 2,700 off (the player in its factions, Aggression 0).
+  Fighting robots stood off and shot instead, and fleeing (Confidence 0) took only with
+  the player outside the creature's factions. This round ran with JIP LN NVSE and
+  JohnnyGuitar NVSE installed (the owner's choice; the run reports list them), so its
+  facts carry that tag (ai-observer-jip.md).
 
 ## 15. A gunman's facing while it fights: Fiends against a standing player [observed 2026-10-25, plugin version 7]
 

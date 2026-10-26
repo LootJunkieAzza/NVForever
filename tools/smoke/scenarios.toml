@@ -518,7 +518,7 @@ args = ["--cell", "TestTraps", "--pos=2960,6004,8700", "--heading", "90", "--pla
 run_seconds = 16
 expect = [
   { re = 'swing traps: 00165273 is let go', label = "the first trapUpdate lets the log go" },
-  { re = 'swing traps: 00165273 let go: 16 bodies \(13 moving\), 14 joints', label = "its 16 bodies on 14 constraints, the 3 anchors fixed" },
+  { re = 'swing traps: 00165273 let go: 16 bodies \(13 moving\), 14 joints \(1 started outside its limits and swings free of them: LinkR06 - Ram\)', label = "its 16 bodies on 14 constraints, the 3 anchors fixed; the rear chain's last joint, past its limits at rest, free of them" },
   { re = 'swing traps: 00165273 hits 00000014 at \d+ units/s: 40 damage', label = "the log hits the player standing under it, at the script's first damage (40)" },
 ]
 
@@ -527,8 +527,8 @@ name = "swing-trap-look"
 source = "docs/spec-notes/traps.md §4: the swinging log 00165273 of TestTraps watched from the west, end on: frames swing_look_0 (held back), swing_look_1..3 (swinging) in target/smoke"
 areas = ["physics"]
 paths = ["engine/nvforever/src/swing_traps.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:0x00165273", NVF_PLAY_TEST_SHOTS = "5.5:swing_look_0.png,6.5:swing_look_1.png,7:swing_look_2.png,7.6:swing_look_3.png" }
-args = ["--cell", "TestTraps", "--pos=2500,6004,8700", "--heading", "90", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:0x00165273", NVF_PLAY_TEST_SHOTS = "5.5:swing_look_0.png,6.5:swing_look_1.png,7:swing_look_2.png,7.6:swing_look_3.png,6.00:swing_close_00.png,6.15:swing_close_01.png,6.30:swing_close_02.png,6.45:swing_close_03.png,6.60:swing_close_04.png,6.75:swing_close_05.png,6.90:swing_close_06.png,7.05:swing_close_07.png,7.20:swing_close_08.png,7.35:swing_close_09.png,7.50:swing_close_10.png,7.65:swing_close_11.png,7.80:swing_close_12.png,7.95:swing_close_13.png,8.10:swing_close_14.png,8.25:swing_close_15.png" }
+args = ["--cell", "TestTraps", "--pos=2700,6004,8700", "--heading", "90", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [{ re = 'swing traps: 00165273 swings: body 1 at .* (1\d\d|[2-9]\d\d) units/s', label = "the log swings" }, "Screenshot saved to swing_look_3.png"]
 
@@ -3415,6 +3415,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "damaged-archive-stops-start"
+source = "owner 2026-10-25: a corrupt BSA that cannot be read stops the start with a message naming it (fnv_bsa::check through fnv_vfs::Vfs::broken_archives, engine main.rs damaged_archives); the archive order is replaced (NVF_ARCHIVE_ORDER) by a text file that is not an archive, so no game file is touched. A test aid is set, so no message box waits (crash.rs tell_player_at_start); the world is never opened"
+areas = ["crash", "assets"]
+paths = ["crates/fnv-bsa/", "crates/fnv-vfs/", "engine/nvforever/src/crash.rs", "tools/smoke/fixtures/not-an-archive.txt"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_ARCHIVE_ORDER = "{repo}/tools/smoke/fixtures/not-an-archive.txt" }
+args = ["--play", "--cell", "GSDocMitchellHouse", "--no-voice", "--no-messages"]
+run_seconds = 10
+exit = 1
+ends = "error: damaged archive, the game will not start:"
+expect = [
+  { re = 'error: damaged archive, the game will not start: .*not-an-archive\.txt: not a BSA archive \(bad magic\)\. Reinstall or remove the mod', label = "the damaged archive is named, with why" },
+]
+forbid = [{ text = "world index built", label = "the world is not opened" }]
+
+[[scenario]]
+name = "bsa-check-shipped"
+kind = "tool"
+source = "owner 2026-10-25: the start-up archive check (fnv_bsa::check) passes every archive in the Data folder, the game's own and the add-ons' (a false alarm would stop the game)"
+areas = ["assets"]
+paths = ["crates/fnv-bsa/", "crates/fnvtool/src/bsa_cmd.rs"]
+commands = [["bsa", "check", "{data}/*.bsa"]]
+expect = [
+  { json = "ok", schema = "fnv.bsa.check/1", equals = true, label = "every archive passes" },
+  { json = "archives.#", schema = "fnv.bsa.check/1", range = [17, 1000], label = "the game's and the add-ons' archives were checked" },
+]
+
+[[scenario]]
 name = "visibility-arcs-vault22"
 source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": placed models play the NiVisController tracks of their Idle sequence on every playing clip (anim_play::Playing::show), not only where a script runtime drives object groups; Vault 22's common area (Vault22d) has 14 electric arcs (fxelectricarc01/02.nif, refs 000F27A2-000F27AF) whose Idle shows their BrightSpots node about one frame in ten; the exit line counts the switches (no frames: the arcs sit behind a wall from the cell's start point)"
 areas = ["effects", "animation"]
@@ -5006,14 +5033,15 @@ name = "console-wheel"
 source = "owner 2026-10-23: after a click, the mouse wheel selects the next reference behind (up) or in front (down) along the click, round at the ends (docs/design/console.md, Selecting by clicking)"
 areas = ["console"]
 paths = ["engine/nvf-play/src/console.rs"]
-env = { NVF_PLAY_TEST_CONSOLE = "10:click 0.5 0.5;11:wheel 1;12:wheel 1;13:wheel -2;14:wheel -1;15:close" }
+env = { NVF_PLAY_TEST_CONSOLE = "10:click 0.5 0.5;11:wheel 1;12:wheel 1;13:wheel -2;14:wheel -1;15:click 0.5 0.5;15.5:click 0.5 0.5;16:close" }
 args = ["--cell", "Gomorrah00", "--play", "--no-voice"]
-run_seconds = 18
+run_seconds = 19
 expect = [
   { re = 'console: picked 0x[0-9A-F]{8} at \d+ by \w+; ([3-9]|\d{2,}) along the ray', label = "the click finds three or more references along its ray" },
   { re = 'console: wheel \+1 selects 0x[0-9A-F]{8} \(2 of \d+ along the click\)', label = "wheel up selects the next one further" },
   { re = 'console: wheel -2 selects 0x[0-9A-F]{8} \(1 of \d+ along the click\)', label = "wheel down comes back to the clicked one" },
   { re = 'console: wheel -1 selects 0x[0-9A-F]{8} \((\d+) of \1 along the click\)', label = "down past the nearest goes round to the furthest" },
+  { re = 'console: unselected 0x[0-9A-F]{8}', label = "clicking the selected reference again unselects it" },
 ]
 
 [[scenario]]
@@ -6762,6 +6790,25 @@ expect = [
   { re = 'creature pace: VSpawnTier3Cazador\S* 0x\w+ walks 228 and runs 573 units/s, turns 150 degrees/s, alert 313 and 573', label = "a young cazador's speeds (observed 228 and up to 576)" },
   { re = 'creature pace: VSpawnTier4Cazador\S* 0x\w+ walks 379 and runs 955 units/s, turns 300 degrees/s, alert 522 and 955', label = "a medium cazador's speeds (observed 380 and up to 974)" },
   { re = 'creature pace summary: .*alert stance taken 0 times.* [1-9]\d+ frames of their moves, [0-3] changes between walk and run clips', label = "calm cazadors walking with at most 3 walk/run changes" },
+]
+
+[[scenario]]
+name = "creature-pace-skeletons"
+source = "docs/spec-notes/actors.md §8.10 Every skeleton (engine/nvforever/src/creature_pace.rs, crates/fnv-actor/src/locomotion.rs clip_candidates): creatures of several skeletons get the speeds measured in the original game on the Searchlight Airport runway (campaigns creature_runs_all, creature_flee): nightstalker 100.6 / 498.8 (misspelt mtfoward/mtfastfoward), protectron 22.2 / 84.4 (walk share 0.88), Dead Money ghost person (scale 1.25, no run clip) 106.7 / 105.4, lakelurk 27.9–31.4 / 358, sentry bot 96.2 / 383.7, alien 86–91 / 420.8 (forwardwalk/fastforward, no mt), sonic-bark cyberdog 57.5 / 333.1 on its mt run (no alert stance)"
+note = "each base placed beside the player by PlaceAtMe (GOD) from 3 s; a creature's speeds are logged once it is drawn. Expected values are clip root motion × scale × Speed Mult (all 100) × share, rounded as the log prints them"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier4NightStalkerMed:1:600:0,3.5:call:player:PlaceAtMe:VCrTier0CrProtectron:1:600:1,4:call:player:PlaceAtMe:NVDLC01CrGhost:1:600:2,4.5:call:player:PlaceAtMe:NVCrLakelurk:1:600:3,5:call:player:PlaceAtMe:CrSentryBotRHQ:1:800:0,5.5:call:player:PlaceAtMe:CrAlien:1:800:1,6:call:player:PlaceAtMe:NVDLC03CrCyberDogMilitary01Ranged:1:800:2" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'creature pace: VCrTier4NightStalkerMed 0x\w+ walks 101 and runs 500 units/s', label = "the nightstalker walks 101 and runs 500 (observed 100.6 and 498.8)" },
+  { re = 'creature pace: VCrTier0CrProtectron 0x\w+ walks 22 and runs 83 units/s', label = "the protectron walks 22 and runs 83 (observed 22.2 and 84.4)" },
+  { re = 'creature pace: NVDLC01CrGhost 0x\w+ walks 10[45] and runs 10[45] units/s', label = "the ghost person runs at its walk's pace, 105 (observed 106.7 and 105.4)" },
+  { re = 'creature pace: NVCrLakelurk 0x\w+ walks 30 and runs 356 units/s', label = "the lakelurk walks 30 and runs 356 on its mtfastforward (observed 27.9–31.4 and 358)" },
+  { re = 'creature pace: CrSentryBotRHQ 0x\w+ walks 96 and runs 384 units/s', label = "the sentry bot walks 96 and runs 384 (observed 96.2 and 383.7)" },
+  { re = 'creature pace: CrAlien 0x\w+ walks 90 and runs 420 units/s', label = "the alien walks 90 and runs 420 on forwardwalk/fastforward (observed 86–91 and 420.8)" },
+  { re = 'creature pace: NVDLC03CrCyberDogMilitary01Ranged 0x\w+ walks 57 and runs 333 units/s, turns \d+ degrees/s \(scale', label = "the sonic-bark cyberdog walks 57 and runs 333, with no alert stance (observed 57.5 and 333.1 on its mt run)" },
 ]
 
 [[scenario]]
@@ -8812,7 +8859,7 @@ expect = [
 
 [[scenario]]
 name = "dismember-chet"
-source = "dismemberment (docs/spec-notes/dismemberment.md): overkill explodes a crippled part with an Explode Only weapon (.308) [observed: owner], a blade severs a corpse's limb (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit], KillActor's limb dismembers a dead actor [documented: GECK wiki KillActor]; an exploded part throws its limb replacement model's pieces and its debris, owned by the corpse [observed: owner]"
+source = "dismemberment (docs/spec-notes/dismemberment.md): a killing head shot with an Explode Only weapon (.308) explodes the head (75 %, the fixed rolls) [observed: dismember_odds], a blade severs a corpse's limb (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit], KillActor's limb dismembers a dead actor [documented: GECK wiki KillActor]; an exploded part throws its limb replacement model's pieces and its debris, owned by the corpse [observed: owner]"
 note = "the hit aid kills Chet with a sniper rifle on the head (500 damage, so the overkill passes the head's share: the explode chance is 100 %), then knifes his corpse's left arm four times (50 % each, seeded rolls), then the console has KillActor explode his left leg; screenshots before and after for a look"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/gore.rs", "engine/nvf-assets/src/actor.rs"]

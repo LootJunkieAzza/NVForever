@@ -108,6 +108,31 @@ class WikiParsing(unittest.TestCase):
             self.assertEqual(sf.xedit_from_catalogue(p), {1: ("GetDistance", ["ptReference"]),
                                                           5: ("GetLocked", [])})
 
+    def test_jip_family_and_probe(self):
+        rec = {"name": "GetHitAttacker", "origin": "JIP", "categories": ["Functions (JIP)", "Actor Functions", "Actor Functions (JIP)"],
+               "calling_reference": "reference", "returns": {"type": "ref"}}
+        self.assertEqual(sf.jip_family(rec), "Actor Functions")
+        self.assertEqual(sf.jip_probe(rec), "form")
+        pure = {"name": "Pow2", "origin": "JIP", "categories": ["Math Functions"],
+                "params": [{"name": "x", "kind": "float"}], "returns": {"type": "float"}}
+        self.assertEqual((sf.jip_family(pure), sf.jip_probe(pure)), ("Math Functions", "pure"))
+        setter = dict(pure, returns={"type": "void"})
+        self.assertEqual(sf.jip_probe(setter), "none")
+        arr = dict(pure, params=[{"name": "a", "kind": "array"}])
+        self.assertEqual(sf.jip_probe(arr), "none")
+        self.assertIsNone(sf.jip_family({"name": "Sv_Length", "origin": "NVSE"}))
+
+    def test_core_family(self):
+        def fam(name, origin="NVSE"):
+            return sf.core_family({"name": name, "origin": origin})
+        self.assertEqual(fam("Sv_Length"), "strings")
+        self.assertEqual(fam("ar_Size", "FOSE1"), "arrays")
+        self.assertEqual(fam("SetEventHandler"), "events")
+        self.assertEqual(fam("call"), "udf")
+        self.assertEqual(fam("TypeOf"), "values")
+        self.assertIsNone(fam("GetDistance"))
+        self.assertIsNone(fam("Ar_Whatever", "JIP"))   # a plugin's, not core
+
 
 class Bytecode(unittest.TestCase):
     def test_statements_with_reference_prefix(self):

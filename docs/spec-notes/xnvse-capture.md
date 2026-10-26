@@ -166,7 +166,17 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
 - **Do not compile**: any Editor ID of a base form or a reference (`Caps001`,
   `GSDocMitchellHouseIntDoorREF`) — the runtime does not keep those names
   [hypothesis for the reason]; hex literals (`0x38F7`); `ref` and `string_var` variables
-  declared inside the block; any `string_var` assignment (`let`, or `set … sv_Construct`).
+  declared inside the block; a `string_var` assignment to a variable declared there.
+- **But** (2026-10-26, JIP 57.30 loaded): a `string_var` declared **before**
+  `Begin Function` takes `let s := "Whatchamacallit"` and can be passed on
+  (`sv_RegexMatch s "(What)(.*)"` = 1), and `(sv_Construct "…")` works as a string_var
+  argument; a literal string where a string_var parameter is expected does not compile
+  (`sv_RegexMatch "abc" "abc"`) [observed: jip_rx_trial, tools/capture/jip_probes.py].
+- **Lambdas** compile at run time as arguments (`SetOnHealthDamageEventHandler (Begin
+  Function {float fD, ref rS} … End) 1 rP`, `SetGameMainLoopCallback (Begin Function { }
+  … End) 1 1 1`) and the handlers run later in the session. Their parameters must be typed
+  in the braces; inside them `GetSelf` works and `this` does not compile
+  [observed: jip_ev_trial2, jip_ev_trial3; jip-events set].
 - Globals are set with console lines (`set <Global> to <n>`), as a player would.
 - **Crash when the clock moves at a low TimeScale**: with TimeScale 1 the game crashed
   (access violation, FalloutNV.exe+0x477C6D, every time) when `set GameHour` moved the

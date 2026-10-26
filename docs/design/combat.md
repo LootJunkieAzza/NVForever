@@ -73,6 +73,9 @@ Layer 6 work (§8). Requests 3 and 4 make combat the first system in the project
 
 ## 3. What's missing
 
+The gaps as of 2026-10-09, before steps C1–C8; all seven have been built since
+(docs/status.md §6, Combat, player side).
+
 1. **Weapon and projectile data**: WEAP `DNAM` (the weapon's main data block) is read
    as raw bytes. PROJ, EXPL and BPTD have no record layout (layer1.md §2 lists EXPL
    and BPTD among the types still undecoded).
@@ -417,7 +420,8 @@ role; their exact names come from C1.
       is lower than the eye. Far things are for the view to decide.
   - Without a muzzle (no player body, the weapon model has no such node) everything
     is as before: drawn from the eye.
-  - Not built: the same for NPCs' shots (NPCs do not shoot yet); melee is unchanged.
+  - Not built: the same for NPCs' shots (NPCs did not shoot yet; they do since CA1,
+    combat-ai.md, which this note does not follow); melee is unchanged.
   - Open (docs/owner-review.md, "Shots leave the barrel"): in third person the view
     ray starts at the character's head while the camera sits over the shoulder
     (40 units to the right by default), so the ray runs parallel to the crosshair's

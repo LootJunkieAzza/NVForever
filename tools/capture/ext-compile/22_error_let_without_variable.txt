@@ -1,0 +1,4 @@
+scn ExtCase22
+Begin GameMode
+    let := 5
+End

@@ -32,6 +32,7 @@ mod dialogue_cmd;
 mod spt_cmd;
 mod esm_cmd;
 mod esm_fields;
+mod ext_cmd;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
@@ -125,6 +126,10 @@ enum Cmd {
     /// Dialogue voice files: a line's sound path and length, coverage over a load order.
     #[command(subcommand)]
     Voice(voice_cmd::VoiceCmd),
+    /// Script-extender use in a load order's scripts: functions, syntax, units without
+    /// source (counts and names only).
+    #[command(subcommand)]
+    Ext(ext_cmd::ExtCmd),
 }
 
 #[derive(Subcommand)]
@@ -914,6 +919,9 @@ pub enum BsaCmd {
     },
     /// Byte-identical rewrite check plus decode of every file.
     Verify { archive: PathBuf },
+    /// The game's start-up check (headers and tables only, nothing decompressed); fails
+    /// when any archive fails it.
+    Check { archives: Vec<PathBuf> },
 }
 
 #[derive(Subcommand)]
@@ -1105,6 +1113,7 @@ fn main() -> ExitCode {
         Cmd::Nav(c) => nav_cmd::run(c),
         Cmd::Ai(c) => ai_cmd::run(c),
         Cmd::Voice(c) => voice_cmd::run(c),
+        Cmd::Ext(c) => ext_cmd::run(c),
     };
     match res {
         Ok(v) => {

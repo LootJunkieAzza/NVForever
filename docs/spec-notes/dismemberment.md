@@ -8,6 +8,8 @@ GetKillingBlowLimb, Bloody Mess perk text), the masters read with `fnvtool esm d
 
 ## 1. What the original does, as seen by the owner [observed: owner, 2026-10-20]
 
+The measured odds are in §4.1: overkill turned out not to matter there.
+
 - Overkill damage is what makes a limb explode.
 - Some calibres never dismember; .308 and .50 BMG are very likely to explode a limb.
 - An exploded limb leaves broken pieces of that part (leg bits; skull bits and eyeballs from a
@@ -131,43 +133,132 @@ Bloody Mess (PERK 0x94EBA) gives the ability `PerkBloodyMess` (SPEL 0x79AE3, eff
 That the effect raises the actor value, and that the value is what the rule reads, is a
 **[hypothesis]**.
 
-## 4. The rule (NVForever) [hypothesis unless tagged]
+## 4. How often a kill dismembers
+
+### 4.1 Measured in the original [observed: capture campaign `dismember_odds`, 2026-10-25]
+
+`tools/capture/observe/dismember_odds.campaign.json`, save `nvfairport` (the Searchlight Airport
+runway, its creatures killed), 23:00, player at level 50 with god mode and Sneak 100. A
+Wastelander (WastelanderAM 0x0002E29D) with its items taken, restrained and turned away is
+placed 300 units north of the player (the missile launcher 600); its health is set to 25, 75, 125
+and 175 in turn, so the overkill runs from about 5 to 400. The player is turned to its head
+(120 units above its feet) or its torso (85) every game loop and fires once a second with
+`player.FireWeapon` and the equipped weapon (TapControl does nothing while the game is not in
+front; JIP `TogglePlayerSneaking` and `SetWeaponOut` set the posture). The kills read as the
+player's: sneaking, every hit carried JIP's Sneak Attack and Critical Hit flags, and Lucky's head
+shot did 190.2 (30 × 2 head × 2 sneak, + 30 critical, + the skill bonus). Melee could not be
+driven this way (JIP `FireWeaponEx` with a machete killed nothing), so blades and hammers are
+not measured.
+
+Per kill, at the first sample the target is dead: GetHitLocation (the part hit), IsLimbGone 0–14
+within 10 samples, JIP GetHitExtendedFlag (1 critical, 3 dismembered, 4 exploded, 5 crippled,
+7 sneak attack), GetHitHealthDamage, GetHitLimbDamage, and the health before and after
+(health stays below 0 on a corpse: 25 − 91.1 read as −66.1, so overkill = −health after).
+
+**Exploded or severed.** IsLimbGone does not tell them apart, and JIP's Limb Exploded flag
+is unreliable (set on kills where nothing went, clear on heads that went). What separates
+them: a part gone **with** the Dismembered flag never came with a new live explosion, and a
+part gone **without** it came with one (GetNumRefs 81, the LimbExplosion of §2.2) in 7 of 7
+trial kills and in most campaign kills (the count misses when an earlier explosion ends in the
+same sample). So: gone + Dismembered = severed, gone otherwise = exploded. GetKillingBlowLimb
+answers −1 on kills where nothing went, so kills are filed by GetHitLocation.
+
+Counts: exploded + severed / kills, by the part the killing hit landed on (sneaking: every
+kill a sneak attack critical, about 2,000 kills):
+
+
+| Weapon | On Hit | Dmg | Head | Torso | Head, Bloody Mess | Torso, Bloody Mess |
+|---|---|---|---|---|---|---|
+| 9mm pistol | Normal | 16 | 16+6/39 | 0+0/29 | 19+10/29 | 24+2/35 |
+| .357 revolver | Normal | 26 | 15+3/23 | 0+0/23 | 20+5/25 | 8+2/30 |
+| Lucky | Normal | 30 | 18+4/29 | 0+0/28 | 19+8/27 | 15+1/32 |
+| This Machine | Normal | 55 | 18+7/32 | 0+0/90 | 19+10/29 | 32+4/61 |
+| Plasma rifle | Normal | 47 | 23+9/35 | 1+0/38 | 21+8/29 | 27+1/33 |
+| Missile launcher | Normal | 125 | 13+4/17 | 7+1/10 | 13+5/18 | 16+2/18 |
+| Hunting revolver | Explode Only | 58 | 19+0/25 | 0+0/34 | 33+0/33 | 19+0/30 |
+| Hunting rifle | Explode Only | 52 | 22+0/27 | 0+0/32 | 34+0/34 | 22+0/28 |
+| Sniper rifle | Explode Only | 45 | 17+0/26 | 0+0/34 | 38+0/38 | 19+0/29 |
+| Anti-materiel rifle | Explode Only | 110 | 20+0/24 | 0+0/38 | 37+0/39 | 22+0/26 |
+| Hunting shotgun | Explode Only | 70 | 7+0/8 | 1+0/32 | 30+0/30 | 14+0/15 |
+| Laser rifle | Dismember Only | 22 | 11+9/31 | 0+0/35 | 18+16/34 | 11+6/32 |
+| Varmint rifle | No Dismember/Explode | 18 | 0+0/16 | 0+0/35 | 13+0/26 | 6+0/23 |
+
+
+Standing (no sneak attack; criticals only by chance), the sessions that finished before the
+game hung on loading the save (`load nvfairport`, 2026-10-25); the rest are open (§7):
+
+| Weapon | On Hit | Head | Torso | Head, Bloody Mess | Torso, Bloody Mess |
+|---|---|---|---|---|---|
+| 9mm pistol | Normal | 4+3/9 | 0+0/5 | – | – |
+| .357 revolver | Normal | 5+2/8 | 0+0/16 | – | – |
+| Lucky | Normal | 8+6/16 | 0+0/16 | – | – |
+| This Machine | Normal | 1+2/6 | 0+0/1 | – | – |
+| Anti-materiel rifle | Explode Only | – | – | – | 21+0/29 |
+| Hunting shotgun | Explode Only | – | – | 6+0/6 | 25+0/27 |
+| Laser rifle | Dismember Only | – | – | 5+7/12 | 2+2/7 |
+| Varmint rifle | No Dismember/Explode | – | – | 3+0/6 | 7+0/12 |
+
+What the counts say:
+
+- **Overkill does not matter.** Head kills without Bloody Mess went 65–75 % of the time in every
+  band of overkill ÷ the head's health share, from under 0.5 to over 4; so did kills that did
+  not cripple the head (19 of 27). The owner's "overkill explodes a limb" (§1) is the high
+  damage weapons being Explode Only (§2.1), not the damage.
+- **Without Bloody Mess the torso never goes** (1 of 340 bullet kills, a plasma kill), and the
+  head goes about three times in four: Normal weapons 87 of 123 (71 %), Explode Only 85 of 110
+  (77 %); standing, 31 of 39. Arms hit by the killing shot went 5 of 9.
+- **The weapon's On Hit decides the way**, not its ammunition: the .308 This Machine (Normal)
+  severed 7 of the 25 heads it took, the .308 hunting and sniper rifles (Explode Only) none.
+  Normal weapons sever 23 % of the parts they take (20 of 87; standing 13 of 31: open).
+  No Dismember/Explode (the varmint rifle) took nothing in 51 kills.
+- **Bloody Mess** takes the head every time (Normal 110 of 110, Explode Only 172 of 174;
+  Normal severs 30 % of them) and the torso: 168 of 211 (80 %) when the hit crippled it, 16 of 75
+  (21 %) when it did not. It overrides No Dismember/Explode at about half the rate: the varmint
+  rifle exploded 13 of 26 heads and 6 of 23 torsos.
+- **Energy weapons** kill with their critical effects: every plasma sneak kill was in the goo
+  stage and every laser one disintegrated (IsInCriticalStage), so their "gone" counts are not
+  dismemberment and are left out of the fit.
+- **Explosions** (the missile launcher) take several parts at once: head and arms, both legs,
+  without the perk never the torso; with Bloody Mess often every part (8 of 18 head kills).
+
+The owner's two nvforever kills with Lucky from sneak both blew apart (2026-10-25). In the
+original, base Lucky head kills from sneak take the head 76 % of the time (22 of 29; 18
+exploded, 4 severed) and torso kills never (0 of 28). The old NVForever rule gave such a head
+kill 100 % and a torso kill 100 %: the torso part was the error.
+
+### 4.2 The rule (NVForever)
 
 `fnv_combat::dismember`. Two hits can dismember:
 
 - a hit that **kills** its target;
 - a hit on a **corpse** ("KillActor can be called on dead actors to dismember limbs"
   [documented: GECK wiki KillActor]; shooting corpses dismembers them, an everyday sight in the
-  original).
+  original). A corpse hit uses the killing hit's odds, its part counted as crippled
+  [hypothesis: not measured].
 
 The hit must land on a body part: a projectile's or the player's blow's; since 2026-10-25 a
 blast's, the part the line from the blast's centre to the actor first meets, and an NPC's
 blow's, the part a short line along the blow meets at its landing point [design: as a
 shot's part is the one its ray meets; `nvf_play::combat::facing_part`]. A blast is judged
-by its weapon's On Hit (most grenades and every mine are No Dismember/Explode, §2.1). Then:
+by its weapon's On Hit (most grenades and every mine are No Dismember/Explode, §2.1). Then
+one roll decides, with these odds [observed, §4.1, unless tagged]:
 
-1. **The weapon allows it.** Explode only when On Hit is Normal or Explode Only. Sever only when
-   it is Normal or Dismember Only. A hit with no weapon (KillActor aside) does neither.
-2. **The limb is ready.** It is ready if it is crippled: its condition is at or below 0 after this
-   hit. On a corpse every part is ready. With the attacker's Bloody Mess, intact limbs are ready too.
-3. **Overkill.** `overkill` is the damage beyond what the target had left (on a corpse, the
-   whole damage). `limb health` is the part's share of the target's maximum health
-   (BPTD health percent), at least 1.
-4. **Explode** (the part is Explodable and step 1 allows it) when
-   `overkill ≥ limb health`. The chance is
-   `part explode % + iCombatExplodePartChance × min(1, (overkill − limb health) / limb health)`.
-   With Bloody Mess, add iMessCrippledLimbExplodeBonus (crippled) or iMessIntactLimbExplodeBonus
-   (intact), and iMessTorsoExplodeChance for the torso. This is the owner's "overkill explodes
-   a limb". A .308 head shot that kills overkills the head's 20 % share and explodes it more
-   often than not. A 9 mm kill rarely clears the threshold.
-5. **Sever**, if it did not explode (the part is Severable and step 1 allows it), with chance
-   iCombatDismemberPartChance for a crippled limb or a corpse, and
-   iMessIntactLimbDismemberChance for an intact one under Bloody Mess. Weapons that only sever
-   (blades) never spend the hit on the explode roll. That is why knives and swords cut parts off
-   more often.
-6. The part and every severable or explodable part sharing its actor value are gone (§2.2).
+1. **A severable part** (head, arm, leg): 75 % on a kill, 100 % with the attacker's Bloody
+   Mess. Overkill and crippling do not change it.
+2. **The torso** (explodable only): never without Bloody Mess; with it 80 % if the hit crippled
+   the torso (its condition at or below 0 after the hit), 20 % if not.
+3. **No Dismember/Explode** weapons: nothing without Bloody Mess; with it half the odds above.
+4. **Which way**: Explode Only explodes; Dismember Only severs [hypothesis for the rate: the
+   laser's kills were disintegrations]; Normal severs a quarter of the parts it takes and
+   explodes the rest; Bloody Mess explodes what the weapon could not take otherwise (No
+   Dismember/Explode, the torso).
+5. The part and every severable or explodable part sharing its actor value are gone (§2.2).
    Only the Explodable ones among them explode; the others are severed.
-7. The torso is never severed (not Severable in any people's BPTD), and only explodes.
+
+The masters' settings of §3 are not read: iCombatExplodePartChance 75 equals the measured
+chance and iMess* names fit Bloody Mess, but no reading of them gives every measured rate
+(the head's 75 % without the perk and 100 % with it, the torso's 0 % / 80 % / 20 %) [hypothesis].
+Only fExplodeLimbRemovalDelay is read.
 
 Rolls use their own generator (`nvf_play::dismember::Dismemberment`) so other rolls, and
 smoke timings, keep their sequences.
@@ -274,6 +365,13 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
 ## 7. Not built
 
+- The standing cells not measured: sessions 61–99 of `dismember_odds` (This Machine and the
+  plasma rifle onward without the perk, every weapon but four with it) did not run: the game
+  hung loading the save twice. Run them with `observe.py run … --only <name>` and add them to
+  §4.1; the Normal sever share (23 % sneaking, 13 of 31 standing) wants them.
+- A blast takes several parts at once in the original (§4.1); NVForever judges one part per blast.
+- Melee odds (blades, hammers) are not measured (§4.1).
+
 - Decals (blood on the ground and walls).
 - Pins Limbs projectiles (two in the masters) pinning a severed part to a wall.
 - Creature gore beyond the BPTD data: insect and robot bits come from their own BPTD records and
@@ -281,4 +379,5 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 - VATS: "targeted limb" bonus (iMessTargetedLimbExplodeBonus is 0) and the VATS removal delay.
 - Weapons dropping from an exploded hand.
 - Living actors losing limbs: dismemberment here happens only on the killing hit or on a corpse.
-  The original does not dismember living actors either [hypothesis].
+  The original does not dismember living actors either [observed: no target in §4.1 lost a part
+  to a hit that did not kill it].

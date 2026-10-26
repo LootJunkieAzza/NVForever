@@ -129,6 +129,18 @@ pub fn clip_candidates(folder: &str, body: Body, prefix: &str, m: Move) -> Vec<S
     if matches!(m, Move::Forward | Move::FastForward) {
         v.push(format!("{folder}\\locomotion\\{prefix}{}.kf", m.group().to_ascii_lowercase().replace("forward", "foward")));
     }
+    // The alien's walk and run have no `mt`: `locomotion\forwardwalk.kf` (89.89 units/s)
+    // and `locomotion\fastforward.kf` (419.9), and its walk with a weapon drawn
+    // `locomotion\1hmforwardwalk.kf` [observed: `fnvtool actor locomotion --folder
+    // meshes\dlc05\creatures\alien`, 2026-10-25; no other creature folder the base game
+    // and add-ons place names them so]; the original walks it at 86–91 and runs it at 420
+    // (actors.md §8.10): looked for last.
+    let bare = if prefix == "mt" { "" } else { prefix };
+    match m {
+        Move::Forward => v.push(format!("{folder}\\locomotion\\{bare}forwardwalk.kf")),
+        Move::FastForward if prefix == "mt" => v.push(format!("{folder}\\locomotion\\fastforward.kf")),
+        _ => {}
+    }
     v
 }
 
@@ -332,6 +344,7 @@ pub fn foot_phase_of(start: f32, stop: f32, text_keys: &[(f32, String)]) -> Opti
         .iter()
         .find(|(_, k)| k.trim().strip_prefix("Enum:").is_some_and(|r| r.trim().eq_ignore_ascii_case("left")))
         .map(|(t, _)| ((t - start) / len).clamp(0.0, 1.0))
+        .filter(|p| p.is_finite())
 }
 
 /// Frames per second of the `Blend: N` text key [hypothesis, actors.md §8.3].
@@ -348,7 +361,7 @@ pub fn blend_time_of(text_keys: &[(f32, String)]) -> Option<f32> {
         let r = k.trim();
         let head = r.get(..5).filter(|h| h.eq_ignore_ascii_case("blend"))?;
         let n = r[head.len()..].trim_start().strip_prefix(':')?;
-        n.trim().parse::<f32>().ok().filter(|n| *n >= 0.0).map(|n| n / BLEND_KEY_FPS)
+        n.trim().parse::<f32>().ok().filter(|n| n.is_finite() && *n >= 0.0).map(|n| n / BLEND_KEY_FPS)
     })
 }
 
@@ -633,6 +646,29 @@ mod tests {
     }
 
     #[test]
+    fn the_aliens_bare_walk_and_run_are_found() {
+        let folder = "meshes\\dlc05\\creatures\\alien";
+        let files = [
+            "meshes\\dlc05\\creatures\\alien\\locomotion\\forwardwalk.kf",
+            "meshes\\dlc05\\creatures\\alien\\locomotion\\fastforward.kf",
+            "meshes\\dlc05\\creatures\\alien\\locomotion\\1hmforwardwalk.kf",
+            "meshes\\dlc05\\creatures\\alien\\mtidle.kf",
+        ];
+        let set = LocomotionSet::find(folder, Body::Male, "mt", |p| files.contains(&p));
+        assert_eq!(set.clips.get(&Move::Forward).map(String::as_str), Some(files[0]));
+        assert_eq!(set.clips.get(&Move::FastForward).map(String::as_str), Some(files[1]));
+        assert_eq!(set.clips.get(&Move::Idle).map(String::as_str), Some(files[3]));
+        let armed = LocomotionSet::find(folder, Body::Male, "1hm", |p| files.contains(&p));
+        assert_eq!(armed.clips.get(&Move::Forward).map(String::as_str), Some(files[2]));
+        // The `mt` clips come first where a folder has them.
+        let c = clip_candidates("meshes\\creatures\\dog", Body::Male, "mt", Move::FastForward);
+        assert_eq!(c[1], "meshes\\creatures\\dog\\locomotion\\mtfastforward.kf");
+        assert_eq!(c.last().map(String::as_str), Some("meshes\\creatures\\dog\\locomotion\\fastforward.kf"));
+        // A weapon stance's run is not looked for without its prefix.
+        assert!(clip_candidates(folder, Body::Male, "1hm", Move::FastForward).iter().all(|p| !p.ends_with("\\fastforward.kf")));
+    }
+
+    #[test]
     fn root_motion_of_a_walk() {
         let s = walk(1.2, 102.308, &[]);
         let rm = root_motion(&s);
@@ -673,6 +709,11 @@ mod tests {
         assert_eq!(blend_time(&s), None);
         let ci = ClipInfo::of(&walk(0.8, 283.1, &[]));
         assert!((ci.speed - 353.875).abs() < 1e-2 && ci.blend_time == DEFAULT_BLEND && ci.foot_phase == 0.0);
+        // A broken file: a footfall at no finite time, blend times past the float range.
+        let s = walk(1.0, 0.0, &[(f32::NAN, "Enum: Left"), (0.0, "Blend: inf"), (0.0, "Blend: 1e40")]);
+        assert_eq!((foot_phase(&s), blend_time(&s)), (None, None));
+        let ci = ClipInfo::from_parts(0.0, f32::NAN, &[(0.5, "Enum: Left".to_string())], None);
+        assert!(ci.duration == 0.0 && ci.foot_phase == 0.0 && ci.speed == 0.0);
     }
 
     #[test]

@@ -1,0 +1,50 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "goodsprings_fight_jip",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q11, Q21): the Goodsprings gunfight with each fighter's combat targets and allies, the package held under combat, and the hit details of every OnHit",
+ "save": "nvfCombatTown",
+ "defaults": {
+  "every": 5,
+  "depth": 2,
+  "console_first": [
+   "tgm"
+  ],
+  "track": [
+   "DocMitchellREF",
+   "SunnyRef",
+   "TrudyRef",
+   "RingoRef",
+   "EasyPeteRef",
+   "GSChetRef",
+   "GSJoeCobbRef",
+   "CheyenneREF",
+   "GSVictorRef",
+   "GoodspringsSettler01Ref",
+   "GoodspringsSettler02Ref",
+   "GoodspringsSettler03Ref",
+   "GoodspringsSettler04Ref",
+   "GSPG01Ref",
+   "GSPG02Ref",
+   "GSPG03Ref",
+   "GSPG04Ref",
+   "GSPG05Ref",
+   "GSPG06Ref"
+  ],
+  "jip": true
+ },
+ "sessions": [
+  {
+   "name": "gunfight",
+   "hours": 1,
+   "settle_frames": 1,
+   "walk": {
+    "to": "SunnyRef",
+    "within": 200,
+    "follow": true,
+    "approach": 0,
+    "max_frames": 0
+   },
+   "events": "fight"
+  }
+ ]
+}

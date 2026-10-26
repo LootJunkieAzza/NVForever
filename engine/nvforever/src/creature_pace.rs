@@ -24,7 +24,8 @@
 //!   the mirelurk king) moves on them while it is not in the Normal detection state
 //!   (Alert, Combat, Lost: `locomotion::Locomotion::set_alert`), on its `mt` clips
 //!   otherwise; the cazador scurries along the ground while calm and flies when alert
-//!   [observed: the owner, 2026-10-16]. Its speeds follow the stance's clips.
+//!   [observed: the owner, 2026-10-16]. Its speeds follow the stance's clips. The
+//!   sonic-bark cyberdog, in the dog's folder, keeps its `mt` clips ([`has_alert_stance`]).
 //!
 //! Speeds are given once the creature is drawn (its clips are then loaded), so one walking
 //! off-screen before that moves at the people's speeds.
@@ -57,32 +58,52 @@ use nvf_play::script::ScriptState;
 /// tunnelers, yao guai, roboscorpions, trogs, holograms and ghost people.
 pub const CREATURE_SPEED_FIT: f32 = 1.0;
 
-/// A skeleton's own share of its clips' pace, walking and running alike
-/// ([`CREATURE_SPEED_FIT`] for every other) [observed: the AI observer in the original
-/// game]:
-/// - cazadors (`nvcazadores`) 0.70 (2026-10-16: young ones at the Tribal Village walked
-///   228 against a clip pace of 325, medium ones 380 against 542; charging, 576 and 974
-///   against 818 and 1364). Why is open: no game setting gives 0.70, every other flyer
-///   keeps the whole pace, and on the airport runway (2026-10-25, `creature_runs_all`) a
-///   young cazador at Aggression 0 flew at 443 for 27 s, its `h2hforward` 298.15 × 0.5 ×
-///   3.0 = 447 whole;
-/// - protectrons 0.88 (2026-10-25, `creature_runs_all`: VCrTier0CrProtectron walked 22.2
-///   and 22.0 in two sessions against its `mtforward` 25.25; the run not measured, a
-///   hypothesis that it keeps the same share).
+/// A skeleton's shares of its clips' pace, walking and running ([`clip_speeds`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Share {
+    pub walk: f32,
+    pub run: f32,
+}
+
+/// A skeleton's own shares of its clips' pace ([`CREATURE_SPEED_FIT`] for every other)
+/// [observed: the AI observer in the original game]:
+/// - cazadors (`nvcazadores`) 0.70 walking and running (2026-10-16: young ones at the
+///   Tribal Village walked 228 against a clip pace of 325, medium ones 380 against 542;
+///   charging, 576 and 974 against 818 and 1364). Why is open: no game setting gives 0.70,
+///   every other flyer keeps the whole pace, and on the airport runway (2026-10-25,
+///   `creature_runs_all`, `creature_flee`) a young cazador at Aggression 0 flew at
+///   440–443 in three sessions, its `h2hforward` 298.15 × 0.5 × 3.0 = 447 whole, and dashed
+///   at 680–1,090 for under a second;
+/// - protectrons 0.88 walking, 1 running (2026-10-25: VCrTier0CrProtectron walked 22.0,
+///   22.2 and 22.6 in three sessions against its `mtforward` 25.25, and ran a mean of 84.4
+///   over 17 s against its `mtfastforward` 83.37).
 ///
-/// The shares fitted before the airport
-/// runs (brahmin 1.4, mole rats 0.80, giant rats 0.76, deathclaws and feral ghouls 0.70)
-/// came from a room without navmesh, a pack brahmin keeping step with its merchant and a
-/// mole rat charging uphill (actors.md §8.10).
-pub fn skeleton_share(skeleton: &str) -> f32 {
+/// The shares fitted before the airport runs (brahmin 1.4, mole rats 0.80, giant rats 0.76,
+/// deathclaws and feral ghouls 0.70) came from a room without navmesh, a pack brahmin
+/// keeping step with its merchant and a mole rat charging uphill (actors.md §8.10).
+pub fn skeleton_share(skeleton: &str) -> Share {
     let path = fnv_vfs::normalize(skeleton);
+    let whole = Share { walk: CREATURE_SPEED_FIT, run: CREATURE_SPEED_FIT };
     if path.contains("creatures\\nvcazadores\\") {
-        0.70
+        Share { walk: 0.70, run: 0.70 }
     } else if path.contains("creatures\\protectron\\") {
-        0.88
+        Share { walk: 0.88, ..whole }
     } else {
-        CREATURE_SPEED_FIT
+        whole
     }
+}
+
+/// Whether a creature of `skeleton` takes its folder's alert stance (`h2h` movement clips,
+/// [`stance`]): every one but the sonic-bark cyberdog (`creatures\dog\skeleton_sonicbark.nif`)
+/// [observed: the AI observer in the original game, 2026-10-25, campaign
+/// `creature_runs_all`: NVDLC03CrCyberDogMilitary01Ranged (03015800, scale 1, Speed Mult
+/// 100, a ranged attacker) charged at 333.1 on the `mt` run (`mtfastforward` 333.07), not
+/// the dog folder's `h2hfastforward` 454.75, on which the plain dog charges (363 at scale
+/// 0.8); hypothesis: that a creature attacking with a ranged weapon keeps its `mt` clips
+/// when alert, not measured on any other skeleton]. Without it the cyberdog keeps its calm
+/// clips, and its calm limp, in combat.
+pub fn has_alert_stance(skeleton: &str) -> bool {
+    !fnv_vfs::normalize(skeleton).ends_with("creatures\\dog\\skeleton_sonicbark.nif")
 }
 
 /// A creature's turn rate at scale 1, degrees per second, walking and standing; it
@@ -133,11 +154,19 @@ struct PaceStats {
 }
 
 /// A clip set's walk and run speeds for a creature: its clips' root motion × `scale` ×
-/// `speed_mult` (percent) × its skeleton's `share`; a move without a clip keeps
-/// `default`'s speed.
-pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, share: f32, default: Speeds) -> Speeds {
-    let of = |m: Move, d: f32| set.info(m).map(|i| i.speed).filter(|v| *v > 1.0).map_or(d, |v| v * scale * speed_mult / 100.0 * share);
-    Speeds { walk: of(Move::Forward, default.walk), run: of(Move::FastForward, default.run) }
+/// `speed_mult` (percent) × its skeleton's `share`. Without a run clip it runs at its walk
+/// clip's pace [observed: the AI observer in the original game, 2026-10-25,
+/// `creature_flee`: told to run (an Always Run travel package), Dead Money's ghost people
+/// ran a mean of 105.4 against their walk's 104.5, its holograms 102.9 against 102.3, Old
+/// World Blues' 86.1 against 85.3]; a move without a clip keeps `default`'s speed. The
+/// lakelurk has a run clip, `locomotion\mtfastforward.kf` (sequence `Fastforward`,
+/// 355.95), and ran a mean of 358 over 3.9 s [observed, the same campaign].
+pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, share: Share, default: Speeds) -> Speeds {
+    let k = scale * speed_mult / 100.0;
+    let clip = |m: Move| set.info(m).map(|i| i.speed).filter(|v| *v > 1.0);
+    let walk = clip(Move::Forward).map(|v| v * k * share.walk);
+    let run = clip(Move::FastForward).map(|v| v * k * share.run).or(walk);
+    Speeds { walk: walk.unwrap_or(default.walk), run: run.unwrap_or(default.run) }
 }
 
 /// The share of the people's speeds (`fnv_ai::NPC_WALK`, `NPC_RUN`) a person keeps for
@@ -248,7 +277,7 @@ fn give_speeds(
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
             // Its skeleton's share; the clips play at that pace.
             let share = skeleton_share(&rig.skeleton);
-            lo.pace = mult / 100.0 * share;
+            lo.pace = mult / 100.0 * share.walk;
             let calm = clip_speeds(&lo.stand, scale, mult, share, default);
             let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, share, default));
             info!(
@@ -359,14 +388,15 @@ mod tests {
     #[test]
     fn skeletons_keep_their_measured_shares() {
         let s = |p: &str| skeleton_share(p);
-        assert_eq!(s("creatures\\nvcazadores\\skeleton.nif"), 0.70);
-        assert_eq!(s("meshes/Creatures/NVCazadores/Skeleton.nif"), 0.70);
-        assert_eq!(s("Creatures\\Protectron\\skeleton.nif"), 0.88);
-        for other in ["Creatures\\Brahmin\\Skeleton.nif", "Creatures\\MoleRat\\Skeleton.nif", "creatures\\NVgiantrat\\skeleton.nif",
+        let whole = Share { walk: 1.0, run: 1.0 };
+        assert_eq!(s("creatures\\nvcazadores\\skeleton.nif"), Share { walk: 0.70, run: 0.70 });
+        assert_eq!(s("meshes/Creatures/NVCazadores/Skeleton.nif").run, 0.70);
+        assert_eq!(s("Creatures\\Protectron\\skeleton.nif"), Share { walk: 0.88, ..whole });
+        for other in ["Creatures\\MirelurkKing\\Skeleton.nif","Creatures\\Brahmin\\Skeleton.nif", "Creatures\\MoleRat\\Skeleton.nif", "creatures\\NVgiantrat\\skeleton.nif",
                       "Creatures\\Dog\\Skeleton.nif", "Creatures\\DeathClaw\\Skeleton.nif", "Creatures\\Ghoul\\Skeleton.nif",
                       "Creatures\\MisterGutsy\\Skeleton.nif", "Creatures\\SentryBot\\Skeleton.nif",
-                      "NVDLC03\\Creatures\\Roboscorpion\\skeleton_RoboScopion.nif"] {
-            assert_eq!(s(other), 1.0, "{other}");
+                      "NVDLC03\\Creatures\\Roboscorpion\\skeleton_RoboScopion.nif", "NVDLC01\\Creatures\\Ghosts\\skeleton.nif"] {
+            assert_eq!(s(other), whole, "{other}");
         }
         // Measured in the original (campaign creature_runs): the dog (scale 0.8) charges on
         // its h2hfastforward at 363 and walks 45.9; the coyote (Speed Mult 110) charges at
@@ -387,6 +417,42 @@ mod tests {
         let claw = clip_speeds(&set(120.0, Some(599.99)), 1.0, 100.0, s("creatures\\deathclaw\\skeleton.nif"), d);
         near(claw.run, 600.0);
         near(claw.walk, 120.0);
+        // Measured (campaign creature_flee): the protectron walks 22.2 and runs 84.4; ghost
+        // people (scale 1.25), with no run clip, run at their walk's pace, 105.4; the
+        // lakelurk runs 358 on its mtfastforward (355.95).
+        let pro = clip_speeds(&set(25.25, Some(83.37)), 1.0, 100.0, s("creatures\\protectron\\skeleton.nif"), d);
+        near(pro.walk, 22.2);
+        near(pro.run, 84.4);
+        let ghost = clip_speeds(&set(83.62, None), 1.25, 100.0, s("nvdlc01\\creatures\\ghosts\\skeleton.nif"), d);
+        near(ghost.run, 105.4);
+        near(clip_speeds(&set(30.16, Some(355.95)), 1.0, 100.0, s("creatures\\mirelurkking\\skeleton.nif"), d).run, 358.0);
+        // Measured (campaign creature_runs_all): the alien walks 86–91 and runs 420.8 on its
+        // forwardwalk (89.89) and fastforward (419.9); the nightstalker walks 100.6 and
+        // runs 498.8 on its mtfoward (100.7) and mtfastfoward (500.0); the sentry bot
+        // walks 96.2 and runs 383.7 on 96.0 and 384.0.
+        let alien = clip_speeds(&set(89.89, Some(419.9)), 1.0, 100.0, s("dlc05\\creatures\\alien\\skeleton.nif"), d);
+        near(alien.walk, 88.5);
+        near(alien.run, 420.8);
+        let stalker = clip_speeds(&set(100.7, Some(500.0)), 1.0, 100.0, s("creatures\\nightstalker\\skeleton.nif"), d);
+        near(stalker.walk, 100.6);
+        near(stalker.run, 498.8);
+        let sentry = clip_speeds(&set(96.0, Some(384.0)), 1.0, 100.0, s("creatures\\sentrybot\\skeleton.nif"), d);
+        near(sentry.walk, 96.2);
+        near(sentry.run, 383.7);
+    }
+
+    #[test]
+    fn the_sonic_bark_cyberdog_keeps_its_calm_clips_when_alert() {
+        // Observed: NVDLC03CrCyberDogMilitary01Ranged charged at 333.1 on the mt run; the
+        // plain dog charges on the h2h run.
+        assert!(!has_alert_stance("meshes\\creatures\\dog\\skeleton_sonicbark.nif"));
+        assert!(!has_alert_stance("Creatures\\Dog\\Skeleton_SonicBark.NIF"));
+        for other in ["meshes\\creatures\\dog\\skeleton.nif", "creatures\\nvcazadores\\skeleton.nif", "creatures\\mirelurkking\\skeleton.nif"] {
+            assert!(has_alert_stance(other), "{other}");
+        }
+        let d = Speeds { walk: 85.3, run: 344.0 };
+        let share = skeleton_share("creatures\\dog\\skeleton_sonicbark.nif");
+        assert!((clip_speeds(&set(57.36, Some(333.07)), 1.0, 100.0, share, d).run - 333.1).abs() < 333.1 * 0.03);
     }
     use nvf_assets::anim_play::{BoundClip, Clip};
     use std::sync::Arc;
@@ -444,7 +510,7 @@ mod tests {
         lo.step(0.016);
         assert_eq!(lo.blend.cur.mv, Move::FastForward);
         let mut lo = Locomotion::new(Arc::new(caz.clone()), 0.0);
-        lo.pace = 2.5 * share;
+        lo.pace = 2.5 * share.walk;
         lo.velocity = [0.0, medium.walk];
         lo.step(0.016);
         assert_eq!(lo.blend.cur.mv, Move::Forward);
@@ -470,7 +536,7 @@ mod tests {
             gaits.push(lo.blend.cur.mv);
         }
         assert!(gaits.iter().all(|m| *m == Move::Forward), "{gaits:?}");
-        // No run clip: the default run.
-        assert_eq!(clip_speeds(&set(100.0, None), 1.0, 100.0, share, d).run, 344.0);
+        // No run clip: the walk's pace.
+        assert!((clip_speeds(&set(100.0, None), 1.0, 100.0, share, d).run - 70.0).abs() < 0.01);
     }
 }

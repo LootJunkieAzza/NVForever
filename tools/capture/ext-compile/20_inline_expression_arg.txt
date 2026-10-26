@@ -1,0 +1,4 @@
+scn ExtCase20
+Begin GameMode
+    PlayerREF.SetActorValue Health (PlayerREF.GetActorValue Health + 50)
+End

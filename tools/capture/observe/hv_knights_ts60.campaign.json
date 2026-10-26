@@ -1,0 +1,33 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "hv_knights_ts60",
+ "title": "Plain run (docs/handoff/observer-jip-audit-2026-10-25.md Q17): owner_decisions hv_knights at TimeScale 60 instead of 30. If the knights' SetPackDuration switches keep their real-time spacing (twice as many game minutes apart), the unit is real seconds; if they keep their game-time spacing, game time",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1
+ },
+ "sessions": [
+  {
+   "name": "hv_knights_ts60",
+   "go": {
+    "coc": "HiddenValley02"
+   },
+   "hour": 6,
+   "hours": 12,
+   "track": [
+    "0x000A41D9",
+    "0x000A41DA",
+    "0x000A41DB",
+    "0x000A41DC",
+    "0x000A41DD",
+    "0x000A46C5"
+   ],
+   "events": "packages",
+   "console_first": [
+    "SetAlly 0001D3FE 0001B2A4"
+   ],
+   "timescale": 60
+  }
+ ]
+}

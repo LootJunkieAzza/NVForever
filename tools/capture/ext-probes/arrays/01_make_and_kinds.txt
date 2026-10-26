@@ -1,0 +1,68 @@
+scn ExtProbeArrays01
+; Ar_Construct, Ar_List, Ar_Map, Ar_Range, ar_Init, TypeOf, Ar_Packed, Ar_Size (tools/capture/ext-probes/arrays/README.md)
+array_var aA
+array_var aB
+array_var aC
+array_var aD
+array_var aE
+string_var sS
+string_var sT
+int iR
+int iDone
+array_var aX
+array_var aY
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|arrays/01_make_and_kinds|begin"
+    let aA := Ar_Null
+    Print "EXTPROBE|size.unset|" + $(Ar_Size aD)
+    let aA := Ar_Null
+    let aA := Ar_List 10, 20, 30
+    Print "EXTPROBE|list.size|" + $(Ar_Size aA)
+    let aA := Ar_Null
+    let aA := Ar_List 10, 20, 30
+    Print "EXTPROBE|list.kind|[" + (TypeOf aA) + "]"
+    let aA := Ar_Null
+    let aA := Ar_Map 2::10, 1::20
+    Print "EXTPROBE|map.kind|[" + (TypeOf aA) + "]"
+    let aA := Ar_Null
+    let aA := Ar_Map "b"::1, "a"::2
+    Print "EXTPROBE|smap.kind|[" + (TypeOf aA) + "]"
+    let aA := Ar_Null
+    let aA := Ar_Construct "bogus"
+    Print "EXTPROBE|construct.bogus|" + $(Ar_Size aA)
+    let aA := Ar_Null
+    let aA := Ar_Map 1::10, "x"::20
+    Print "EXTPROBE|map.mixed_keys|" + $(Ar_Size aA)
+    let aA := Ar_Null
+    let aA := Ar_List 1
+    Print "EXTPROBE|packed.list|" + $(Ar_Packed aA)
+    let aA := Ar_Null
+    let aA := Ar_Map 1::1
+    Print "EXTPROBE|packed.map|" + $(Ar_Packed aA)
+    let aA := Ar_Null
+    let aA := Ar_Map "k"::1
+    Print "EXTPROBE|packed.smap|" + $(Ar_Packed aA)
+    let aA := Ar_Null
+    let aA := Ar_Range 1, 5
+    Print "EXTPROBE|range.basic|" + $(Ar_Size aA)
+    let aA := Ar_Null
+    let aA := Ar_Range 0, 30, 10
+    Print "EXTPROBE|range.step|" + $(aA[3])
+    let aA := Ar_Null
+    let aA := Ar_Range 10, 5, -1
+    Print "EXTPROBE|range.down|" + $(aA[5])
+    let aA := Ar_Null
+    let aA := Ar_Range 1, 3, 0
+    Print "EXTPROBE|range.step0|" + $(Ar_Size aA)
+    let aA := Ar_Null
+    let aA := Ar_Range 1, 5, -1
+    Print "EXTPROBE|range.wrong_way|" + $(Ar_Size aA)
+    let aA := Ar_Null
+    let aA := ar_Init 4, 7
+    Print "EXTPROBE|init.size|" + $(aA[3])
+    Print "EXTPROBE|arrays/01_make_and_kinds|end"
+End

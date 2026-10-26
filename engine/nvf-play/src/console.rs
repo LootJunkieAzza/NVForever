@@ -34,7 +34,8 @@
 //!   Editor ID, base form, cell, position, enabled, script, health of an actor. The
 //!   mouse wheel then steps the selection along that click's ray: up to the next
 //!   reference further away (behind walls too), down to the next nearer, round to the
-//!   other end past either end ([`along_ray`]).
+//!   other end past either end ([`along_ray`]). Clicking the selected reference again
+//!   unselects it.
 //! - Keys: Enter runs the line, Up/Down recall earlier lines, Page Up/Down scroll, `` ` ``
 //!   or Esc close it.
 //! - **Several statements on a line** (2026-10-19) [design; docs/design/console.md]: `;`
@@ -780,6 +781,14 @@ fn click(
         })
         .collect();
     match pick::choose(hit, bounds.iter().copied(), CLICK_REACH, |_| true) {
+        // Clicking the selected reference again unselects it.
+        Some(p) if c.selected == Some(p.form_id) => {
+            info!("console: unselected {}", FormId(p.form_id));
+            c.selected = None;
+            c.selected_text.clear();
+            c.along.clear();
+            c.print(format!("Unselected {}", FormId(p.form_id)));
+        }
         Some(p) => {
             let refs = hits.iter().filter_map(|&(id, d)| Some((id?, d)));
             c.along = along_ray(p.form_id, refs, bounds.iter().copied().filter(|&(_, d)| d <= CLICK_REACH));

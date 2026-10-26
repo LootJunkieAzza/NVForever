@@ -1,0 +1,66 @@
+scn ExtProbeLoops02
+; foreach over a list, a string map, a string, a form list and a container (tools/capture/ext-probes/loops/README.md)
+int iI
+int iJ
+int iR
+int iN
+int iFrame
+ref rItem
+ref rKeep
+ref rForm
+array_var aA
+array_var aE
+string_var sS
+string_var sC
+Begin GameMode
+    let iFrame += 1
+    if iFrame == 1
+        Print "EXTPROBE|loops/ExtProbeLoops02|begin"
+        let aA := Ar_List 10, 20, 30
+        let iR := 0
+        foreach aE <- aA
+            let iR := iR * 10 + aE["key"]
+        loop
+        Print "EXTPROBE|foreach.list_keys|" + $iR
+        let iR := 0
+        foreach aE <- aA
+            let iR += *aE
+        loop
+        Print "EXTPROBE|foreach.list_values|" + $iR
+        let aA := Ar_Map "b"::2, "a"::1, "c"::3
+        let sS := ""
+        foreach aE <- aA
+            let sS += aE["key"]
+        loop
+        Print "EXTPROBE|foreach.smap_order|[" + sS + "]"
+        let sS := "xyz"
+        let iR := 0
+        foreach sC <- sS
+            let iR += 1
+        loop
+        Print "EXTPROBE|foreach.string_count|" + $iR
+        let sS := "xyz"
+        let aA := Ar_Construct "array"
+        foreach sC <- sS
+            Ar_Append aA, sC
+        loop
+        Print "EXTPROBE|foreach.string_last|[" + aA[2] + "]"
+        let iR := 0
+        foreach rForm <- ExtProbeList
+            let iR += 1
+        loop
+        Print "EXTPROBE|foreach.formlist_count|" + $iR
+        Print "EXTPROBE|foreach.formlist_listcount|" + $(ListGetCount ExtProbeList)
+        let iR := 0
+        foreach rItem <- PlayerREF
+            let iR += 1
+            let rKeep := rItem
+        loop
+        Print "EXTPROBE|foreach.container_entries|" + $iR
+        Print "EXTPROBE|foreach.container_kinds|" + $(PlayerREF.GetNumItems)
+        Print "EXTPROBE|foreach.tempref_after_loop|" + $(IsFormValid rKeep)
+    elseif iFrame == 2
+        Print "EXTPROBE|foreach.tempref_next_frame|" + $(IsFormValid rKeep)
+        Print "EXTPROBE|loops/ExtProbeLoops02|end"
+    endif
+End

@@ -4,7 +4,11 @@
   `tools/capture/script_functions.py`; do not edit by hand. Every script function known to
   the GECK wiki (base game and script extenders) with parameters, calling reference,
   return type, opcode (observed in shipped bytecode, or from xEdit's condition index) and
-  usage counts from the shipped masters.
+  usage counts from the shipped masters. Core xNVSE functions (strings, arrays, user
+  functions, events, value types) carry `core_family`, naming the
+  `docs/spec-notes/ext-<family>.md` note that covers them.
+  JIP and Lutana functions carry `jip_family` (their wiki category) and `jip_probe`
+  (`pure`, `form` or `none`: how a probe can call them; docs/handoff/jip-tasks.md J1).
 - `notes.json` (`fnv.script.notes/1`), **hand-maintained**: our own paraphrased summary,
   behaviour notes and original-engine bugs for each base-game function, keyed by wiki
   page. Edit this file, then regenerate.

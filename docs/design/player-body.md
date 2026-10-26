@@ -57,7 +57,7 @@ controls.md (bindings).
 | Block | right mouse, Left Alt | held: guns aim down the sights (`AimIS`), fists and melee block (`blockidle`) |
 | Toggle POV | F, middle mouse | tap: first/third person; held while the mouse moves: the camera circles the player (not turning them) and swings back when let go; wheel zooms in third person |
 | Activate | E | as before |
-| Menu Mode | Tab | tapped, the inventory (the Pip-Boy is not built); held 1 s, the flashlight on or off (`nvf-play` `flashlight.rs`, owner request 2026-10-11) |
+| Menu Mode | Tab | tapped, the Pip-Boy (docs/spec-notes/pipboy.md; the inventory when this was written); held 1 s, the flashlight on or off (`nvf-play` `flashlight.rs`, owner request 2026-10-11) |
 | Ammo Swap | 2 | the next carried ammo type down the weapon's list, then a reload (combat C4) |
 | Rest | T | the Wait menu, or the Sleep menu while lying on a bed (docs/spec-notes/wait-menu.md) |
 | Vats, Hotkeys 1 and 3–8, QuickSave F5, QuickLoad F9 | | bound; pressing one shows "… : not available yet" |
@@ -386,8 +386,9 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
 3. The Pip-Boy (drawn on the left forearm in both views since 2026-10-10, actors.md
    §1.2). Answered 2026-10-10: the three orange button lights are always lit; the
    outfit's `PipBoyOn` sleeve shows in first person too (now drawn). Open: (a) is the
-   screen dark with the light off, as drawn now? (b) The light itself is not built: the
-   glow shape is hidden until it is.
+   screen dark with the light off, as drawn now? (b) The light itself was not built then (the
+   glow shape was hidden); holding Tab now switches a light (`nvf-play` `flashlight.rs`,
+   2026-10-11).
 4. In-game references would settle the hypotheses of animation.md §9 (captures listed
    in its §7): holster positions, aim poses, sneak speeds sideways and backwards.
 5. Third person with a rifle out, walking and running while looking steeply up or down:

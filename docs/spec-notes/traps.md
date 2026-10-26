@@ -129,9 +129,28 @@ trap models read with `fnvtool nif decode`, the placed references read from the 
     `fTrapPushBack / PUSH_SPEED`; a knockdown) and sets `bTrapHasHit` [hypothesis: the
     variables' meanings from their names]. The ragdoll does not push characters itself
     [design: the overlap test stands in for Havok's contacts].
+  - **The chains** (owner's playtest 2026-10-25: "the chain physics look kind of wonky",
+    "the back chain looks like it messes up the front chain's movement"). Three causes,
+    fixed:
+    - The parts collided with each other, as an actor's ragdoll's do: the rear chain's
+      links knocked the front chain about. A placed object's parts no longer meet: the
+      model's bodies share one Havok collision group (UPB `ColGroupInfo = 1073741838` on
+      every link) [observed], and Havok does not collide bodies of one group
+      [hypothesis].
+    - The rear chain's last joint (LinkR06 - Ram) starts 90 degrees past its twist limit
+      of ±5 [observed: the model's rest pose; the other 13 joints start inside theirs];
+      held to it, the solver wrenched the ram and both chains from the first step. A
+      placed object's joint that starts more than 0.05 rad outside its limits is built as
+      a free ball joint and logged [design: how the original treats it is not known].
+    - Each link's node was placed against its parent's place of the last frame; the links
+      are nodes inside one another, so the lag added up down the chain and the links were
+      drawn apart. Each node is now placed under where its parent goes this frame.
+    - Measured (`swings:` log lines, the most a joint's two ends come apart): 28-40 units
+      before, about 5 after (23 once at the fastest moment).
   - A trap whose cell unloads loses its ragdoll; drawn again it hangs held as the file
     draws it [design]. Nothing is saved.
-  - Checks: fnv-phys `an_object_ragdoll_swings_from_its_fixed_anchor`; nvforever
+  - Checks: fnv-phys `an_object_ragdoll_swings_from_its_fixed_anchor`,
+    `an_object_joint_starting_outside_its_limits_is_built_free`; nvforever
     `the_gap_to_an_upright_capsule`; smoke `swing-trap-log` (the log let go in TestTraps
     hits the player under it: 40 damage, knocked down) and `swing-trap-look` (frames).
   - Not built: the other TrapMaceSCRIPT bases were not run (same code); jointed

@@ -229,8 +229,12 @@ impl Anims {
     }
 
     /// A creature's alert-stance set (`ClipSet::alert_from`: its `h2h` movement clips over
-    /// `calm`), loaded once per skeleton.
+    /// `calm`), loaded once per skeleton; none for a skeleton that keeps its calm clips
+    /// (`creature_pace::has_alert_stance`).
     pub fn alert_set(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        if !crate::creature_pace::has_alert_stance(skeleton) {
+            return None;
+        }
         self.set_or_load((fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE), || {
             let (stance, line) = ClipSet::load_stance(ctx, skeleton, skel, Body::Male, crate::locomotion::ALERT_STANCE);
             let set = ClipSet::alert_from(stance, calm);

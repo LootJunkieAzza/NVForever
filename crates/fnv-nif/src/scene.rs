@@ -50,7 +50,7 @@ impl Transform {
         let t = s.floats("translation")?;
         let r = s.floats("rotation")?;
         Some(Transform {
-            translation: [t[0], t[1], t[2]],
+            translation: t.try_into().ok()?,
             rotation: r.try_into().ok()?,
             scale: s.float("scale")?,
         })
@@ -102,6 +102,10 @@ pub fn geometry_order(objects: &[SceneObject]) -> std::collections::HashMap<usiz
 pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
     let n = file.blocks.len();
     let mut parent: Vec<Option<usize>> = vec![None; n];
+    // Each block's way up to its tree's root, shortened as it is walked: a block without
+    // a parent is a root, so it is an ancestor of `i` exactly when it is `i`'s root. A
+    // walk up `parent` per link instead took a time quadratic in a deep chain's length.
+    let mut up: Vec<usize> = (0..n).collect();
     for i in 0..n {
         if !dec.is_a(i, "NiNode") {
             continue;
@@ -109,8 +113,9 @@ pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
         if let Some(children) = dec.blocks[i].as_ref().ok().and_then(|s| s.refs("children")) {
             for &c in children {
                 if let Ok(c) = usize::try_from(c) {
-                    if c < n && parent[c].is_none() && !is_ancestor(&parent, c, i) {
+                    if c < n && parent[c].is_none() && root_of(&mut up, i) != c {
                         parent[c] = Some(i);
+                        up[c] = i;
                     }
                 }
             }
@@ -141,18 +146,20 @@ pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
     out
 }
 
-/// Whether `a` is `b` or one of its ancestors by the links in `parent` (a tree so far).
-fn is_ancestor(parent: &[Option<usize>], a: usize, b: usize) -> bool {
-    let mut cur = Some(b);
-    // The links form a tree, so the walk ends within `parent.len()` steps.
-    for _ in 0..=parent.len() {
-        match cur {
-            Some(x) if x == a => return true,
-            Some(x) => cur = parent[x],
-            None => return false,
-        }
+/// The root of `b`'s tree by the links in `up` (each block's parent or a block further
+/// up), pointing every block on the way at it.
+fn root_of(up: &mut [usize], b: usize) -> usize {
+    let mut r = b;
+    while up[r] != r {
+        r = up[r];
     }
-    true
+    let mut x = b;
+    while up[x] != r {
+        let next = up[x];
+        up[x] = r;
+        x = next;
+    }
+    r
 }
 
 /// Summary of one geometry-data block (NiTriShapeData / NiTriStripsData).
@@ -191,7 +198,7 @@ pub fn shape_summary(block: usize, type_name: &str, s: &Struct) -> ShapeSummary 
         Some((lo, hi))
     };
     let sphere = s.strukt("bounding_sphere");
-    let c = sphere.and_then(|b| b.floats("center")).unwrap_or(&[0.0, 0.0, 0.0]);
+    let c: [f32; 3] = sphere.and_then(|b| b.floats("center")).and_then(|c| c.try_into().ok()).unwrap_or([0.0; 3]);
     ShapeSummary {
         block,
         type_name: type_name.to_string(),
@@ -201,7 +208,7 @@ pub fn shape_summary(block: usize, type_name: &str, s: &Struct) -> ShapeSummary 
         has_tangents: s.get("tangents").is_some(),
         uv_sets: s.list("uv_sets").map_or(0, |l| l.len()),
         has_vertex_colors: s.get("vertex_colors").is_some(),
-        bound_center: [c[0], c[1], c[2]],
+        bound_center: c,
         bound_radius: sphere.and_then(|b| b.float("radius")).unwrap_or(0.0),
         aabb,
     }

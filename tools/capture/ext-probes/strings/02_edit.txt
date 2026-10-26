@@ -1,0 +1,63 @@
+scn ExtProbeStrings02
+; Sv_Replace, Sv_Insert, Sv_Erase, Sv_SubString, slices, Sv_GetChar (tools/capture/ext-probes/strings/README.md)
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/02_edit|begin"
+    let sS := "a-b-c"
+    Print "EXTPROBE|replace.count|" + $(Sv_Replace "-|+", sS)
+    let sS := "a-b-c"
+    Sv_Replace "-|+", sS
+    Print "EXTPROBE|replace.result|[" + (sS) + "]"
+    let sS := "a-b-c"
+    Sv_Replace "-|+", sS, 0, 5, 0, 1
+    Print "EXTPROBE|replace.max1|[" + (sS) + "]"
+    let sS := "AbAb"
+    Sv_Replace "ab|x", sS
+    Print "EXTPROBE|replace.nocase|[" + (sS) + "]"
+    let sS := "abc"
+    Sv_Replace "|x", sS
+    Print "EXTPROBE|replace.empty_old|[" + (sS) + "]"
+    let sS := "lo"
+    Sv_Insert "Hel", sS, 0
+    Print "EXTPROBE|insert.start|[" + (sS) + "]"
+    let sS := "Hel"
+    Sv_Insert "lo", sS, 3
+    Print "EXTPROBE|insert.end|[" + (sS) + "]"
+    let sS := "abc"
+    Sv_Insert "x", sS, 99
+    Print "EXTPROBE|insert.past_end|[" + (sS) + "]"
+    let sS := "abcdef"
+    Sv_Erase sS, 1, 2
+    Print "EXTPROBE|erase.count|[" + (sS) + "]"
+    let sS := "abcdef"
+    Sv_Erase sS, 2
+    Print "EXTPROBE|erase.to_end|[" + (sS) + "]"
+    let sS := "abcdef"
+    Sv_Erase sS, 4, 99
+    Print "EXTPROBE|erase.past_end|[" + (sS) + "]"
+    let sS := "abcdef"
+    Print "EXTPROBE|substring|[" + (Sv_SubString sS, 1, 3) + "]"
+    let sS := "abcdef"
+    Print "EXTPROBE|slice.inclusive|[" + (sS[1:3]) + "]"
+    let sS := "abcdef"
+    Print "EXTPROBE|slice.negative|[" + (sS[-3:-1]) + "]"
+    let sS := "abcdef"
+    Print "EXTPROBE|slice.out_of_range|[" + (sS[4:10]) + "]"
+    let sS := "abcdef"
+    Print "EXTPROBE|subscript|[" + (sS[0]) + "]"
+    let sS := "Abc"
+    Print "EXTPROBE|getchar|" + $(Sv_GetChar sS, 0)
+    let sS := "Abc"
+    Print "EXTPROBE|getchar.out|" + $(Sv_GetChar sS, 9)
+    Print "EXTPROBE|strings/02_edit|end"
+End

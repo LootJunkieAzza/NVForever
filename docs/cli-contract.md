@@ -1,4 +1,7 @@
-# Candidate CLI contract (Layer 1)
+# fnvtool CLI contract
+
+Every `fnvtool` command, from Layer 1 on; the sections follow the layers, and the commands
+added without a section of their own are listed at the end.
 
 The parity lab runs `fnvtool` and compares its stdout (one JSON document) with oracle
 goldens of the **same schema**. Any oracle tool (xEdit export script, independent
@@ -85,6 +88,7 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 |---|---|---|
 | `bsa verify <archive>` | `fnv.bsa.verify/1` | byte-identical rebuild + decode every file |
 | `bsa extract <archive> <path> <out>` | `fnv.bsa.extract/1` | write one decoded file |
+| `bsa check <archive>…` | `fnv.bsa.check/1` | the game's start-up check (header, folder and file tables, data inside the file; nothing decompressed); fails naming each damaged archive |
 | `esm header <plugin>` | (header object above) | TES4 summary |
 | `esm verify <plugin>` | `fnv.esm.verify/1` | byte-identical rebuild, decompression, subrecord round-trip, zlib trailer anomalies |
 | `esm coverage <plugin> --schema <dir>` | `fnv.esm.coverage/1` | schema decode coverage + ranked work queue |
@@ -496,3 +500,74 @@ targets, schedules, a replay of the choice), `ai run` (`fnv.ai.run/1`, actors ca
 their packages out over the navmesh, alone or against observer samples) and `ai reach`
 (`fnv.ai.reach/1`, whether every actor can reach where each of its packages sends it) are
 defined in docs/spec-notes/packages.md §5 together with the package notes.
+
+## `fnvtool ext scan <data_dir> <plugins…> --schema s [--functions f]` → `fnv.ext.scan/1`
+
+Script-extender use in a load order's scripts (task N2, docs/handoff/extender-core-tasks.md;
+`crates/fnvtool/src/ext_cmd.rs`). Only names and counts; no script text.
+
+- `summary`: `plugins`, `units` (units with compiled bytes or source), `units_with_extender_use`,
+  `units_without_source`, `units_without_source_using_extender` (no `SCTX`, and the compiled
+  bytes call an opcode at or above 0x1400, past the base game's range [documented: GECK wiki
+  "NVSE Opcode Base"]).
+- `functions`: `[{name, origin, calls, plugins}]`, ranked by `plugins`, then `calls`: catalogue
+  functions of family `extender` named in the source (name or alias, any case; `;` comments,
+  quoted text and the unit's own variable names left out). A word that also names a base-game
+  function is not counted.
+- `syntax`: line counts of `let`, `assign` (`:=`), `compound` (`+=` `-=` `*=` `/=` `^=` `%=`
+  `|=` `&=`), `if_eval`, `while`, `foreach`, `string_var`, `array_var`, `begin_override`
+  (`Begin _Block`), `subscript` (`[`), `member` (`->`).
+- `per_plugin`: the same per plugin.
+
+Over the ten masters every extender count is 0 (14,907 units, 3 without source), as the
+base game uses no extender (script-functions.md §2).
+
+# Commands without a section above (listed 2026-10-25)
+
+Their JSON layouts are defined by the code and the spec notes named; `fnvtool <group>
+<command> --help` gives the arguments.
+
+| Command | Schema | Purpose |
+|---|---|---|
+| `setup --game <dir>` | — | record the game folder (read-only) in NVForever.ini and create NVForever's home; refused when the game lacks files NVForever needs (design/install-layout.md) |
+| `paths` | — | where NVForever keeps its files |
+| `nif coverage <sources…> --schema s` | `fnv.nif.coverage/1` | per block type, how many decode exactly and re-encode byte-identically (the Layer 2 work queue) |
+| `nif anim <archive>` | `fnv.nif.anim/1` | animation sequences of every .kf/.nif, with sanity statistics for the evaluated tracks |
+| `nif textures` | `fnv.nif.textures/1` | every texture path every mesh names, and whether it resolves (archives in order + loose files) |
+| `nif decode` | `fnv.nif.decode/1` | one file's blocks decoded with the schema |
+| `world alt-textures` | `fnv.world.alt_textures/1` | records' alternate textures (MODS/MO2S/MO3S/MO4S): texture set, shapes, whether the files exist (spec-notes/texture-swaps.md) |
+| `sim items` | `fnv.sim.items/1` | every inventory item base with value, weight, health and body slots |
+| `sim sample` | `fnv.sim.samples/1` | leveled-list outcome histograms for the cases of a `fnv.sim.cases/1` file |
+| `sim activator-models` | `fnv.sim.activator_models/1` | activators and talking activators: their models' controller sequences and what the tracks drive |
+| `sim playgroup-calls` | `fnv.sim.playgroup_calls/1` | scripts' PlayGroup and IsAnimPlaying calls and whether the object's model has that sequence |
+| `script compile` | `fnv.script.compile/1` | compile every unit's source and compare with its compiled bytes (spec-notes/script-compiler.md; lab `L5.script.compile.vanilla`) |
+| `script stubs` | `fnv.script.stubs/1` | every stubbed function, why, its use in the scripts, and functions the scripts use that are not registered; `origin` per row (design/script-stubs.md) |
+| `script uses` | `fnv.script.uses/1` | per quest, the functions its scripts call and its conditions test, by the intro chain's rule |
+| `actor values` | `fnv.actor.values/1` | the actor values of named actors in a fresh game; `--survey` for the records (spec-notes/actor-values.md) |
+| `actor aid` | `fnv.actor.aid/1` | every ingestible with flags, addiction and effects; `--use` for what using them does (spec-notes/aid-items.md §8) |
+| `actor chargen` | `fnv.actor.chargen/1` | character creation as a new player sees it (spec-notes/chargen.md §6) |
+| `actor factions` | `fnv.actor.factions/1` | named actors' template chains, factions and stand towards the player (spec-notes/factions.md) |
+| `actor karma` | `fnv.actor.karma/1` | karma and crime settings, actors' karma and kill karma, cells' owners (spec-notes/crime-karma.md) |
+| `actor fidgets` | `fnv.actor.fidgets/1` | drawn-weapon fidgets from the IDLE tree; `--furniture` the furniture ones (spec-notes/idles.md §11) |
+| `actor gestures` | `fnv.actor.gestures/1` | talking and listening gestures picked from the IDLE tree (spec-notes/idles.md §12) |
+| `actor detect` | `fnv.actor.detect/1` | one actor's detection numbers against a target at several distances (design/detection.md §4) |
+| `actor creator` | `fnv.actor.creator/1` | the character creator's races, hairs, eyes, faces, beards, colours and named FaceGen sliders (spec-notes/character-creator.md §7) |
+| `actor creature-weapons` | `fnv.actor.creature_weapons/1` | every weapon each placed creature base can carry and whether it is drawn (spec-notes/actors.md §10.4) |
+| `actor tri` | `fnv.actor.tri/1` | FaceGen `.tri` morph labels and whether each matches its model's vertices |
+| `combat fx` | `fnv.combat.fx/1` | a weapon's sounds, casing, projectile and explosion sounds, and impacts by material |
+| `nav cells` | `fnv.world.cells/1` | cells of a worldspace, or every interior cell |
+| `voice lip` | `fnv.voice.lip_files/1` | a response's `.lip` file decoded, one weight track per channel at 30 frames a second (`fnv.voice.lip/1` per file; spec-notes/lipsync.md) |
+| `voice lip-file <files…>` | `fnv.voice.lip_files/1` | loose `.lip` files decoded |
+| `voice lip-coverage` | `fnv.voice.lip_coverage/1` | every `.lip` file of the install decoded and counted |
+
+## `fnvtool ext probes <data_dir> <plugins…> --schema s --probes <set> [--probes-dir d] [--frames n] [--risky]` → `fnv.ext.probes/1`
+
+The candidate side of the extender probe scenarios (`L5.ext.nvse.<set>`,
+parity-lab/scenarios/layer5_ext.json). For every probe quest of
+`<probes-dir>/<set>` (script name + `Q`; a selector script with `iWhich` once per probe
+number, `iWhich` set halfway) it runs a headless game (`fnv_game::runner`, `new_game`
+false: start the quest, wait `--frames`, default 600) and keeps every trace event text
+containing `EXTPROBE|`. Output: the same document `tools/capture/ext_probes.py collect`
+writes from the original game's console (`rows` `{id, value}`, `files` with begin/end
+markers, `duplicates`), plus `runs` (`{quest, which, lines}` or `{…, error}`). The runaway
+loop and deep recursion run only with `--risky`.

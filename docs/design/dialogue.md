@@ -42,6 +42,9 @@ decide how every quest moves. The screen's look is Layer 7 and can be plain for 
 
 ## 2. What's missing
 
+The plan as of 2026-10-10. Items 1–4 have been built since (the status line above,
+dialogue-play.md); the captures of item 5 are tracked in §6.
+
 1. The rest of the two records: topic name, type, priority and flags; a line's type,
    flags, prompt, responses (text, emotion, sound), choices, link-from topics, follow-up
    topics, added topics and speech challenge.
