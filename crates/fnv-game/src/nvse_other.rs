@@ -47,6 +47,10 @@ pub struct OtherState {
     pub scof: Option<String>,
     /// AddAnimation's and DelAnimation's lists, by actor base.
     pub animations: HashMap<FormId, Vec<String>>,
+    /// SetLeveledListFlags' raw flags of item lists (the list keeps three bits).
+    pub lev_flags: HashMap<FormId, u8>,
+    /// Edited actor lists (LVLN, LVLC) (`Game::lev_list`).
+    pub lev_actors: HashMap<FormId, crate::nvse_leveled::LevList>,
     /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
     pub generic: HashMap<(i64, FormId), Vec<FormId>>,
 }
