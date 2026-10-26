@@ -1,0 +1,198 @@
+//! More of xNVSE's functions on the game (docs/handoff/xnvse-remaining.md): item and
+//! form tests, game settings, doors, form-list editing by replacement, and a few
+//! actor and quest lookups [documented: their pages].
+
+use crate::game::Game;
+use fnv_script::vm::{ArrayKind, XKey, XVal};
+use fnv_sim::FormId;
+
+fn form(args: &[XVal], k: usize) -> Option<FormId> {
+    match args.get(k)? {
+        XVal::Ref(0) => None,
+        XVal::Ref(r) => Some(FormId(*r)),
+        XVal::Num(x) if *x >= 1.0 && x.fract() == 0.0 => Some(FormId(*x as u32)),
+        _ => None,
+    }
+}
+
+fn int(args: &[XVal], k: usize, dflt: i64) -> i64 {
+    match args.get(k) {
+        Some(XVal::Num(x)) => *x as i64,
+        _ => dflt,
+    }
+}
+
+fn text(args: &[XVal], k: usize) -> String {
+    match args.get(k) {
+        Some(XVal::Str(s)) => s.clone(),
+        _ => String::new(),
+    }
+}
+
+fn yes(b: bool) -> XVal {
+    XVal::Num(f64::from(u8::from(b)))
+}
+
+/// The functions of this file; `None` for any other name. `subject` is the reference
+/// called on, else the calling reference.
+pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+    let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
+    // A form argument at `k`, else the calling reference's base form.
+    let item = |g: &Game, k: usize| form(args, k).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+    let v = match name {
+        // [documented: GetBaseForm] the base form of a (leveled) reference.
+        "getbaseform" => XVal::Ref(subject.map_or(0, |r| base(g, r).0)),
+        // [documented: IsQuestItem; IsPlayable; IsPowerArmor] the item's flags, scripts'
+        // SetQuestObject included.
+        "isquestitem" => yes(g.world.is_quest_item(item(g, 0))),
+        "isplayable" => yes(g.world.forms.item(item(g, 0)).is_some_and(|i| !i.non_playable)),
+        "ispowerarmor" => yes(g.world.forms.item(item(g, 0)).is_some_and(|i| i.power_armor)),
+        // [documented: IsModLoaded] a plugin of the load order, by file name.
+        "ismodloaded" => {
+            let n = text(args, 0);
+            yes(g.data.load_order.iter().any(|p| p.eq_ignore_ascii_case(&n)))
+        }
+        // [documented: GetRawFormIDString] eight hex digits, valid form or not.
+        "getrawformidstring" => XVal::Str(format!(
+            "{:08X}",
+            match args.first() {
+                Some(XVal::Ref(r)) => *r,
+                Some(XVal::Num(x)) => *x as u32,
+                _ => 0,
+            }
+        )),
+        // [documented: GetNumericGameSetting; GetStringGameSetting; SetNumericGameSetting].
+        "getnumericgamesetting" => XVal::Num(g.world.setting_f32(&text(args, 0)).map_or(0.0, f64::from)),
+        "getstringgamesetting" => XVal::Str(match g.world.setting_value(&text(args, 0)) {
+            Some(fnv_sim::settings::Setting::Str(s)) => s.clone(),
+            _ => String::new(),
+        }),
+        "setnumericgamesetting" => {
+            use fnv_sim::settings::Setting;
+            let n = text(args, 0);
+            let x = match args.get(1) {
+                Some(XVal::Num(x)) => *x,
+                _ => 0.0,
+            };
+            let v = if n.to_ascii_lowercase().starts_with('i') { Setting::Int(x as i32) } else { Setting::Float(x as f32) };
+            yes(g.world.change_setting(&n, v).is_ok())
+        }
+        // [documented: GetClass] the actor base's class.
+        "getclass" => XVal::Ref(g.data.actors.get(&item(g, 0)).and_then(|d| d.class).map_or(0, |c| c.0)),
+        // [documented: GetRefCount] the count of a stacked reference (1 without one).
+        "getrefcount" => {
+            let r = subject.unwrap_or(FormId(0));
+            let n = g.world.peek(r).map(|s| s.count).or_else(|| g.world.placed.get(r).map(|p| p.count.unwrap_or(1))).unwrap_or(0);
+            XVal::Num(f64::from(n))
+        }
+        // Doors [documented: GetLinkedDoor; GetTeleportCell; IsLoadDoor]: the reference's
+        // teleport (XTEL).
+        "getlinkeddoor" | "getteleportcell" | "isloaddoor" => {
+            let t = subject.and_then(|r| g.world.placed.get(r)).and_then(|p| p.teleport.as_ref()).map(|t| t.door);
+            match name {
+                "getlinkeddoor" => XVal::Ref(t.map_or(0, |d| d.0)),
+                "getteleportcell" => XVal::Ref(t.and_then(|d| g.cell_of(d)).map_or(0, |c| c.0)),
+                _ => yes(t.is_some()),
+            }
+        }
+        // [documented: GetCurrentQuest] the player's active quest.
+        "getcurrentquest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),
+        // [documented: IsRefInList] the exact form's index, else its base form's; -1.
+        "isrefinlist" => {
+            let m = crate::functions::list_members(g, form(args, 0).unwrap_or(FormId(0)));
+            let f = form(args, 1).unwrap_or(FormId(0));
+            let b = base(g, f);
+            XVal::Num(m.iter().position(|&x| x == f).or_else(|| m.iter().position(|&x| x == b)).map_or(-1.0, |i| i as f64))
+        }
+        // [documented: GetListForms] the list as an array.
+        "getlistforms" => {
+            let m = crate::functions::list_members(g, form(args, 0).unwrap_or(FormId(0)));
+            let entries = m.into_iter().enumerate().map(|(i, f)| (XKey::Num(i as f64), XVal::Ref(f.0))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+        }
+        // [documented: ListReplaceForm] the index replaced, -1 when absent [hypothesis].
+        "listreplaceform" => {
+            let (l, with, old) = (form(args, 0).unwrap_or(FormId(0)), form(args, 1), form(args, 2));
+            let list = g.edited_list(l);
+            match (with, old.and_then(|o| list.iter().position(|&x| x == o))) {
+                (Some(w), Some(i)) => {
+                    list[i] = w;
+                    XVal::Num(i as f64)
+                }
+                _ => XVal::Num(-1.0),
+            }
+        }
+        // [documented: ListReplaceNthForm] the form that was there; without an index the
+        // last [hypothesis, as ListRemoveNthForm].
+        "listreplacenthform" => {
+            let (l, with) = (form(args, 0).unwrap_or(FormId(0)), form(args, 1));
+            let list = g.edited_list(l);
+            let n = int(args, 2, list.len() as i64 - 1);
+            match (with, usize::try_from(n).ok().filter(|&n| n < list.len())) {
+                (Some(w), Some(n)) => XVal::Ref(std::mem::replace(&mut list[n], w).0),
+                _ => XVal::Ref(0),
+            }
+        }
+        // [documented: ListAddReference] ListAddForm of the calling reference.
+        "listaddreference" => {
+            let l = form(args, 0).unwrap_or(FormId(0));
+            let Some(r) = subject else { return Some(Ok(XVal::Num(-1.0))) };
+            let at = int(args, 1, -2);
+            let dupes = args.get(2).is_some_and(XVal::truthy);
+            let list = g.edited_list(l);
+            if dupes && list.contains(&r) {
+                return Some(Ok(XVal::Num(-1.0)));
+            }
+            let i = usize::try_from(at).ok().filter(|&i| i <= list.len()).unwrap_or(list.len());
+            list.insert(i, r);
+            XVal::Num(i as f64)
+        }
+        // [documented: PickOneOf] a random item both in the inventory and the list; 0
+        // when none.
+        "pickoneof" => {
+            let m = crate::functions::list_members(g, form(args, 0).unwrap_or(FormId(0)));
+            let held: Vec<FormId> = subject
+                .and_then(|r| g.world.inventory_mut(r).ok().map(|inv| inv.iter().filter(|(i, n)| *n > 0 && m.contains(i)).map(|(i, _)| i).collect()))
+                .unwrap_or_default();
+            if held.is_empty() {
+                XVal::Ref(0)
+            } else {
+                use rand_core::RngCore;
+                let k = g.rng.next_u32() as usize % held.len();
+                XVal::Ref(held[k].0)
+            }
+        }
+        // [documented: ActorValueToString] the actor value's display name: the FULL of its
+        // AVIF record, found by Editor ID "AV" + the value's name [observed: AVIF Editor
+        // IDs, functions/actor.rs]; "" when none matches.
+        "actorvaluetostring" | "actorvaluetostringc" => {
+            let code = match args.first() {
+                Some(XVal::Num(x)) => usize::try_from(*x as i64).ok(),
+                Some(XVal::Str(s)) => crate::functions::av_code(g, s).ok().map(usize::from),
+                _ => None,
+            };
+            // Guns is AVSmallGuns and Survival AVThrowing [observed: functions/actor.rs].
+            let edid = code.and_then(|c| crate::functions::actor::AV_NAMES.get(c)).map(|n| match *n {
+                "Guns" => "SmallGuns".to_string(),
+                "Survival" => "Throwing".to_string(),
+                n => n.replace(' ', ""),
+            });
+            let avif = edid.and_then(|n| g.data.edids.get(&format!("av{}", n.to_ascii_lowercase())));
+            XVal::Str(avif.and_then(|f| g.data.full_names.get(f).cloned()).unwrap_or_default())
+        }
+        // [documented: CompareNames] the two full names compared without regard to case:
+        // -1, 0 or 1 [hypothesis: the sign convention].
+        "comparenames" => {
+            let a = form(args, 1).or(subject).map(|f| base(g, f));
+            let b = form(args, 0).map(|f| base(g, f));
+            let name_of = |f: Option<FormId>| f.and_then(|f| g.name_overrides.get(&f).or_else(|| g.data.full_names.get(&f)).cloned()).unwrap_or_default().to_lowercase();
+            XVal::Num(match name_of(a).cmp(&name_of(b)) {
+                std::cmp::Ordering::Less => -1.0,
+                std::cmp::Ordering::Equal => 0.0,
+                std::cmp::Ordering::Greater => 1.0,
+            })
+        }
+        _ => return None,
+    };
+    Some(Ok(v))
+}

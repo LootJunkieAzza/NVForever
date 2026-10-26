@@ -106,7 +106,7 @@ fn weapon_field(name: &str) -> Option<(&'static str, &'static str)> {
 
 impl Game<'_> {
     /// The members of a form list, with the session's ListAddForm/ListRemove… edits.
-    fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
+    pub(crate) fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
         if !self.list_edits.contains_key(&list) {
             let now = crate::functions::list_members(self, list);
             self.list_edits.insert(list, now);
@@ -126,6 +126,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     }
     let subject = on.or(ctx.self_ref);
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_misc::call(g, name, subject, args) {
         return Some(r);
     }
     // The item a getter reads: its argument, else the calling reference's base form.
