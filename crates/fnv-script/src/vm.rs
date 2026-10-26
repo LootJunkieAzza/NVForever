@@ -184,10 +184,19 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A script error worth the console's attention: a call that crashes the original
+    /// game answers its default value here and says so [decision: the owner, 2026-10-26,
+    /// "scripts should never crash the game; log it on the console as a script error"].
+    fn script_error(&mut self, _text: &str) {}
     /// An extender function the VM does not build, by catalogue name (lower case), on a
     /// reference if given, with its arguments evaluated (an axis as its letter); `None`
     /// when the host does not build it either.
     fn ext_call(&mut self, _name: &str, _on: Option<Value>, _args: &[XVal]) -> Option<Result<XVal, String>> {
+        None
+    }
+    /// The plugin the running script comes from; `None` for a runtime-compiled or console
+    /// script (JIP's private variable stores are per plugin).
+    fn calling_plugin(&mut self) -> Option<String> {
         None
     }
     /// The script form the running code belongs to; `None` for a result script or a
@@ -1887,8 +1896,11 @@ impl Vm<'_, '_> {
             "ar_range" => {
                 let (a, b) = (val(self, 0)?.num()?.trunc(), val(self, 1)?.num()?.trunc());
                 let step = if nargs > 2 { val(self, 2)?.num()?.trunc() } else { 1.0 };
+                // A step of 0 crashes the original: here no array and a script error on the
+                // console [decision: the owner, 2026-10-26].
                 if step == 0.0 {
-                    return Err(VmError::Type("Ar_Range with a step of 0".into()));
+                    self.host.script_error("Ar_Range with a step of 0");
+                    return Ok(XVal::Array(0));
                 }
                 let mut es = Vec::new();
                 let mut x = a;
@@ -2238,7 +2250,10 @@ impl Vm<'_, '_> {
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let max = opt(self, k + 4)?.map(|v| v.num()).transpose()?.map(|m| m as usize);
                 let (old, new) = pair.split_once('|').unwrap_or((pair.as_str(), ""));
+                // An empty old text crashes the original: here nothing is replaced, 0, and a
+                // script error on the console [decision: the owner, 2026-10-26].
                 if old.is_empty() {
+                    self.host.script_error("Sv_Replace with an empty text to replace");
                     return Ok(Some(XVal::Num(0.0)));
                 }
                 let chars: Vec<char> = s.chars().collect();

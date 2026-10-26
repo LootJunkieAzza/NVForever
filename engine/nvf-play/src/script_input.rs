@@ -13,7 +13,9 @@ pub struct ScriptInputPlugin;
 
 impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ScriptBlocked>().add_systems(PreUpdate, script_input.after(bevy::input::InputSystems));
+        app.init_resource::<ScriptBlocked>()
+            .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
+            .add_systems(Update, tell_magazine);
     }
 }
 
@@ -86,4 +88,10 @@ fn script_input(
             tapped.push(c);
         }
     }
+}
+
+/// The rounds in the player's magazine for GetPlayerCurrentAmmoRounds.
+fn tell_magazine(combat: Option<Res<crate::combat::Combat>>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
 }

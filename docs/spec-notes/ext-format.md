@@ -43,7 +43,7 @@ from a cited document or from compiling our own test scripts with xNVSE,
 | `%g` | the number as an integer; 1,000,000 and above in scientific form (`1E+006`) |
 | `%.3e` | scientific form with 3 decimals (123000 → `1.23E+005`) |
 | `%%` | a percent sign |
-| Player Character String Codes | the player's name, race, sex or pronouns (that page is not exported) |
+| Player Character String Codes | the player's name, race, sex or pronouns: see §6 |
 | `sUActn…` | the key bound to a control, in messages, terminals, dialogue and notes; `&-` before it adds " button", `p&-` adds "Press … button" (`p&-sUActnForward` → "Press W button") [documented: sUActn, pasted by the owner from geckwiki.com, 2026-10-25] |
 
 Switches, in any order straight after the `%`: `+` (a plus sign on positive numbers),
@@ -114,3 +114,22 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | MessageBoxEx | — | fmt; `\|` separates up to 10 buttons | none | shows a message box; GetButtonPressed reads the choice | button numbering from 0 ("Cancel" in `Text\|Ok\|Cancel` is 1) |
 | Print | — | expression | none | prints a string expression (joins, `$`) (NVSE) | not in D4's list; related |
 | PrintDebug | PrintD | expression | none | as Print, only in debug mode (NVSE) | not in D4's list; related |
+
+## 6. Player character string codes
+
+[documented: Player Character String Codes, pasted by the owner 2026-10-26] Codes in the
+text of messages, terminals, dialogue and notes show a trait of the player character:
+
+| Code | Shows |
+|---|---|
+| `&PCName;` | the player character's name |
+| `&PCRace;` | the player character's race |
+| `&PCSex;` | male / female |
+| `&PCSexPronoun;` | he / she |
+| `&PCSexPossessive;` | his / her |
+| `&<game setting>;` | the string stored in that game setting (`&sVampireFeed;`) |
+
+They cannot be used in scripts: the compiler takes the `;` as the start of a comment;
+scripts use string formatting instead (§1–3) [documented]. A code that names nothing is
+left as written [hypothesis]. NVForever expands them where the text is shown
+(`fnv_game::text_codes`).
