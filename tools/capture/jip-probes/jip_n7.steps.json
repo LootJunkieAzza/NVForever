@@ -221,7 +221,7 @@
   },
   {
    "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nMessageExAlt 2 \"NVF probe message\"\nSetFunctionValue 1\nEnd\n",
-   "label": "messageexalt",
+   "label": "n7.messageexalt",
    "field": "value"
   },
   {
@@ -231,7 +231,7 @@
   },
   {
    "query": "ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rPlayer.IsInAir)\nEnd\n",
-   "label": "inair.player",
+   "label": "n7.inair.player",
    "field": "value"
   },
   {

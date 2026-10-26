@@ -1669,10 +1669,10 @@ N7_PROBES = [
     _n7("name.set.byref", 'LNSetName "NVF Doc Ref" rDoc\nSetFunctionValue (GetName rBase)', True),
     _n7("name.restore", 'LNSetName "Doc Mitchell" rBase\nSetFunctionValue (GetName rBase)', True),
     # Message.
-    _n7("messageexalt", 'MessageExAlt 2 "NVF probe message"\nSetFunctionValue 1'),
+    _n7("n7.messageexalt", 'MessageExAlt 2 "NVF probe message"\nSetFunctionValue 1'),
     # Water, air.
     _n7v("inwater.player", "rPlayer.IsInWater"),
-    _n7v("inair.player", "rPlayer.IsInAir"),
+    _n7v("n7.inair.player", "rPlayer.IsInAir"),
     _n7v("inwater.doc", "rDoc.IsInWater"),
     _n7v("inair.doc", "rDoc.IsInAir"),
     # Killer.
