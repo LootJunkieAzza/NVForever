@@ -85,6 +85,8 @@ pub mod nvse_items;
 pub mod nvse_amata;
 pub mod nvse_jip;
 pub mod nvse_other;
+pub mod nvse_console;
+pub mod nvse_lists;
 pub mod nvse_settings;
 pub mod nvse_tokens;
 pub mod nvse_handler_lists;

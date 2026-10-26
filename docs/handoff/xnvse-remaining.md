@@ -79,8 +79,12 @@ console echo's start state. Next:
    `Game::package_list` carry the scripts' package changes to every reader, the record
    header flags are kept in `GameData::form_flags`.) Claimed by the peer session the
    same day: quaternion Ex forms, settings and INI, tokens (GetPaired with them),
-   event-handler lists, debug and docs. Left here: animations, generic forms, console;
-   UI waits on the tile tree (#834).
+   event-handler lists, debug and docs (merged with #844). Animations, generic forms
+   (`nvse_lists.rs`) and the console functions (`nvse_console.rs`, each runs
+   NVForever's console command; output only with the console echo on) done the same
+   day; the tile tree (#834) merged into this branch and its UI functions wired into
+   `nvse::call` (`ui_functions.rs`), SetUIStringEx and InjectUIComponent formatted by
+   the VM.
 3. Was: Packages and paths setters, form flags (needs the records' header flags kept).
 3. Event-handler lists, tokens, animations, generic forms.
 4. Console (`con_*`) and debug/documentation commands; UI waits on the owner

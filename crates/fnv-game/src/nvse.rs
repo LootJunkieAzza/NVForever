@@ -159,6 +159,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_other::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_console::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_lists::call(g, name, subject, args) {
+        return Some(r);
+    }
+    // The UI functions, over the menus' tile tree (docs/design/ui-tile-tree.md).
+    if let Some(r) = crate::ui_functions::call(g, name, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_settings::call(g, name, args) {
         return Some(r);
     }
