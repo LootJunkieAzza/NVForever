@@ -99,3 +99,17 @@ left is functions not built, ranked by calls at run time:
 | ~1,800 each | IsInKillCam, GetPCUsingScope, GetPCUsingIronSights, GetAutoMove, GetActorVelocity, IsIdlePlayingEx (JIP) | N7 |
 | 258 · 240 | GetCurrentWeather, ModelHasBlock (JIP) | N4, N6 |
 | 65 · 53 · 36 | SetNthPerkEntryValue1, GetINIFloatOrCreate_Cached, GetINIFloat | N7, N3 |
+
+## 6. Progress (2026-10-26, claude/ext-compiler)
+
+| # | State |
+|---|---|
+| N1 | Done (516f58f5, 174bb870): the item resolver reads the edits; actor lists edited for the functions, spawning from an edited actor list not hooked yet. |
+| N3 | Done (79cd56b1): `crate::mod_files`, writes under NVForever's mods layer only; `fnvtool script run --config`. |
+| N7, N8 | Done (b470a964), with the sweep's player-state getters; Disable/EnableNavMeshAlt left (no observable state). |
+| N9 | Done but ForceCrouch/ForceCombatTarget (ITR not installed in the probe game). |
+| N10 | Done (6d7597ab), §5. |
+| N14 | Done (6d7597ab): bit 0x40 = talked to the player. |
+| N4, N5 | Probed in the game (sets skysound, knvse-anim on claude/jip-lab); to build. |
+| N2 | Outside the pause menu MCM's functions give 0 [observed]; the in-menu rows wait on a way to open StartMenu (UI T7). |
+| N6, N11–N13 | Open. |
