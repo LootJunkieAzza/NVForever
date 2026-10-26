@@ -523,6 +523,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "projectile"]
+  },
+  {
+   "id": "L5.ext.jip.skysound",
+   "layer": 5,
+   "description": "JIP sound, weather and image-space traits (Get/SetSoundTraitNumeric, Get/SetSoundSourceFile, IsSoundPlaying, Get/SetWeatherTraitNumeric, Get/SetWeatherRGBColor, GetWeatherImageSpaceMod, Get/SetImageSpaceTrait, Get/SetImageSpaceModTrait) with read-back and restore; set sky-sound of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/sky-sound.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/sky_sound.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "skysound"]
   }
  ]
 }

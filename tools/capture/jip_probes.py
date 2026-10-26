@@ -1993,6 +1993,80 @@ def _proj_steps():
 
 PROJECTILE_PROBES = _proj_steps()
 
+# Thirty-fifth set (next batch N4): JIP's sound, weather and image-space traits. Trait
+# ID ranges from the function pages [documented: GetSoundTraitNumeric 0-12,
+# GetWeatherTraitNumeric 0-20, GetWeatherRGBColor types 0-9 / times 0-5 / layers 0-3,
+# GetImageSpaceTrait 0-32, GetImageSpaceModTrait 0-67]. Forms from fnvtool esm inventory
+# [observed]: EMTMedicalBeep01 (SOUN) 174325, HazmatImageSpace (IMGS) 0542F2,
+# FadeToBlack9sISFX (IMAD) 173904; the weather is whatever GetCurrentWeather gives at the
+# airport. A string_var as SetSoundSourceFile's path does not compile ($sText), so
+# the sound's path is put back as a literal. Each setter's row is followed by a row putting the old value back (session
+# only, never saved).
+FX.update(beep="174325", hazmat="542F2", fadeblack="173904")
+
+
+def _sk(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+def _skv(pid, pre, expr, text=False):
+    return _sk(pid, pre + f"SetFunctionValue ({expr})", text)
+
+
+_SND = _form("rObj", FX["beep"])
+_IMGS = _form("rObj", FX["hazmat"])
+_IMAD = _form("rObj", FX["fadeblack"])
+_WTH = "let rW8 := GetCurrentWeather\n"
+
+SKY_SOUND_PROBES = (
+    # Sound.
+    [_skv(f"snd.trait.{i}", _SND, f"GetSoundTraitNumeric rObj {i}") for i in range(13)]
+    + [_skv("snd.trait.past", _SND, "GetSoundTraitNumeric rObj 13"),
+       _sk("snd.trait.set", _SND + 'let fRes := GetSoundTraitNumeric rObj 3\nrPlayer.AuxVarSetFlt "*nvfSN" fRes\n'
+           "SetFunctionValue (SetSoundTraitNumeric rObj 3 7)"),
+       _skv("snd.trait.set.read", _SND, "GetSoundTraitNumeric rObj 3"),
+       _skv("snd.trait.restore", _SND + 'SetSoundTraitNumeric rObj 3 (rPlayer.AuxVarGetFlt "*nvfSN")\nrPlayer.AuxVarErase "*nvfSN"\n',
+            "GetSoundTraitNumeric rObj 3"),
+       _skv("snd.file", _SND, "GetSoundSourceFile rObj", True),
+       _sk("snd.file.set", _SND + 'let sText := GetSoundSourceFile rObj\nrPlayer.AuxVarSetStr "*nvfSF" sText\n'
+           'SetSoundSourceFile rObj "fx\\nvf\\probe.wav"\nSetFunctionValue (GetSoundSourceFile rObj)', True),
+       _sk("snd.file.restore", _SND + 'SetSoundSourceFile rObj "fx\\emt\\medicalbeep\\emtmedicalbeep01.wav"\nrPlayer.AuxVarErase "*nvfSF"\n'
+           "SetFunctionValue (GetSoundSourceFile rObj)", True),
+       _skv("snd.playing.before", _SND, "IsSoundPlaying rObj"),
+       _sk("snd.play", _SND + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)"),
+       _skv("snd.playing.next", _SND, "IsSoundPlaying rObj")]
+    # Weather.
+    + [_skv("wth.current", _WTH, "GetFormIDString rW8", True),
+       _skv("wth.percent", "", "Ceil ((GetCurrentWeatherPercent) * 100)")]
+    + [_skv(f"wth.trait.{i}", _WTH, f"GetWeatherTraitNumeric rW8 {i}") for i in range(21)]
+    + [_sk("wth.trait.set", _WTH + 'let fRes := GetWeatherTraitNumeric rW8 4\nrPlayer.AuxVarSetFlt "*nvfWT" fRes\n'
+           "SetFunctionValue (SetWeatherTraitNumeric rW8 4 0.5)"),
+       _skv("wth.trait.set.read", _WTH, "GetWeatherTraitNumeric rW8 4"),
+       _skv("wth.trait.restore", _WTH + 'SetWeatherTraitNumeric rW8 4 (rPlayer.AuxVarGetFlt "*nvfWT")\nrPlayer.AuxVarErase "*nvfWT"\n',
+            "GetWeatherTraitNumeric rW8 4")]
+    + [_skv(f"wth.rgb.type{k}.day", _WTH, f"sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 {k} 1)", True) for k in range(10)]
+    + [_skv(f"wth.rgb.ambient.time{t}", _WTH, f"sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 {t})", True) for t in range(6)]
+    + [_skv(f"wth.rgb.clouds.layer{c}", _WTH, f"sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1 {c})", True) for c in range(4)]
+    + [_sk("wth.rgb.set", _WTH + 'let fRes := GetWeatherRGBColor rW8 3 1\nrPlayer.AuxVarSetFlt "*nvfWC" fRes\n'
+           "SetFunctionValue (SetWeatherRGBColor rW8 3 1 16711935)"),
+       _skv("wth.rgb.set.read", _WTH, 'sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1)', True),
+       _skv("wth.rgb.restore", _WTH + 'SetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt "*nvfWC")\nrPlayer.AuxVarErase "*nvfWC"\n',
+            'sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1)', True)]
+    + [_skv(f"wth.imod.time{t}", _WTH, f"GetFormIDString (GetWeatherImageSpaceMod rW8 {t})", True) for t in range(4)]
+    # Image space and image-space modifier.
+    + [_skv(f"imgs.trait.{i}", _IMGS, f"GetImageSpaceTrait rObj {i}") for i in range(33)]
+    + [_sk("imgs.trait.set", _IMGS + 'let fRes := GetImageSpaceTrait rObj 15\nrPlayer.AuxVarSetFlt "*nvfIS" fRes\n'
+           "SetImageSpaceTrait rObj 15 3.25\nSetFunctionValue (GetImageSpaceTrait rObj 15)"),
+       _skv("imgs.trait.restore", _IMGS + 'SetImageSpaceTrait rObj 15 (rPlayer.AuxVarGetFlt "*nvfIS")\nrPlayer.AuxVarErase "*nvfIS"\n',
+            "GetImageSpaceTrait rObj 15")]
+    + [_skv(f"imad.trait.{i}", _IMAD, f"GetImageSpaceModTrait rObj {i}") for i in range(68)]
+    + [_sk("imad.trait.set", _IMAD + 'let fRes := GetImageSpaceModTrait rObj 0\nrPlayer.AuxVarSetFlt "*nvfIM" fRes\n'
+           "SetImageSpaceModTrait rObj 0 4.5\nSetFunctionValue (GetImageSpaceModTrait rObj 0)"),
+       _skv("imad.trait.restore", _IMAD + 'SetImageSpaceModTrait rObj 0 (rPlayer.AuxVarGetFlt "*nvfIM")\nrPlayer.AuxVarErase "*nvfIM"\n',
+            "GetImageSpaceModTrait rObj 0")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2010,11 +2084,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "mcm": MCM_PROBES,
         "plugin-odds": N9_PROBES,
         "lu-leveled2": LEVELED2_PROBES,
-        "projectile": PROJECTILE_PROBES}
+        "projectile": PROJECTILE_PROBES,
+        "sky-sound": SKY_SOUND_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound"}
 
 
 def script(body):

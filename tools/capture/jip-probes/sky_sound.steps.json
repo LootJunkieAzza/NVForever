@@ -1,0 +1,943 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "sky_sound",
+ "title": "sky-sound, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 0)\nEnd\n",
+   "label": "snd.trait.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 1)\nEnd\n",
+   "label": "snd.trait.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 2)\nEnd\n",
+   "label": "snd.trait.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 3)\nEnd\n",
+   "label": "snd.trait.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 4)\nEnd\n",
+   "label": "snd.trait.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 5)\nEnd\n",
+   "label": "snd.trait.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 6)\nEnd\n",
+   "label": "snd.trait.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 7)\nEnd\n",
+   "label": "snd.trait.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 8)\nEnd\n",
+   "label": "snd.trait.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 9)\nEnd\n",
+   "label": "snd.trait.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 10)\nEnd\n",
+   "label": "snd.trait.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 11)\nEnd\n",
+   "label": "snd.trait.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 12)\nEnd\n",
+   "label": "snd.trait.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 13)\nEnd\n",
+   "label": "snd.trait.past",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nlet fRes := GetSoundTraitNumeric rObj 3\nrPlayer.AuxVarSetFlt \"*nvfSN\" fRes\nSetFunctionValue (SetSoundTraitNumeric rObj 3 7)\nEnd\n",
+   "label": "snd.trait.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundTraitNumeric rObj 3)\nEnd\n",
+   "label": "snd.trait.set.read",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetSoundTraitNumeric rObj 3 (rPlayer.AuxVarGetFlt \"*nvfSN\")\nrPlayer.AuxVarErase \"*nvfSN\"\nSetFunctionValue (GetSoundTraitNumeric rObj 3)\nEnd\n",
+   "label": "snd.trait.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (GetSoundSourceFile rObj)\nEnd\n",
+   "label": "snd.file",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nlet sText := GetSoundSourceFile rObj\nrPlayer.AuxVarSetStr \"*nvfSF\" sText\nSetSoundSourceFile rObj \"fx\\nvf\\probe.wav\"\nSetFunctionValue (GetSoundSourceFile rObj)\nEnd\n",
+   "label": "snd.file.set",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetSoundSourceFile rObj \"fx\\emt\\medicalbeep\\emtmedicalbeep01.wav\"\nrPlayer.AuxVarErase \"*nvfSF\"\nSetFunctionValue (GetSoundSourceFile rObj)\nEnd\n",
+   "label": "snd.file.restore",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "snd.playing.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nPlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "snd.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "snd.playing.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetFormIDString rW8)\nEnd\n",
+   "label": "wth.current",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Ceil ((GetCurrentWeatherPercent) * 100))\nEnd\n",
+   "label": "wth.percent",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 0)\nEnd\n",
+   "label": "wth.trait.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 1)\nEnd\n",
+   "label": "wth.trait.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 2)\nEnd\n",
+   "label": "wth.trait.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 3)\nEnd\n",
+   "label": "wth.trait.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 4)\nEnd\n",
+   "label": "wth.trait.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 5)\nEnd\n",
+   "label": "wth.trait.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 6)\nEnd\n",
+   "label": "wth.trait.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 7)\nEnd\n",
+   "label": "wth.trait.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 8)\nEnd\n",
+   "label": "wth.trait.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 9)\nEnd\n",
+   "label": "wth.trait.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 10)\nEnd\n",
+   "label": "wth.trait.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 11)\nEnd\n",
+   "label": "wth.trait.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 12)\nEnd\n",
+   "label": "wth.trait.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 13)\nEnd\n",
+   "label": "wth.trait.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 14)\nEnd\n",
+   "label": "wth.trait.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 15)\nEnd\n",
+   "label": "wth.trait.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 16)\nEnd\n",
+   "label": "wth.trait.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 17)\nEnd\n",
+   "label": "wth.trait.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 18)\nEnd\n",
+   "label": "wth.trait.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 19)\nEnd\n",
+   "label": "wth.trait.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 20)\nEnd\n",
+   "label": "wth.trait.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nlet fRes := GetWeatherTraitNumeric rW8 4\nrPlayer.AuxVarSetFlt \"*nvfWT\" fRes\nSetFunctionValue (SetWeatherTraitNumeric rW8 4 0.5)\nEnd\n",
+   "label": "wth.trait.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetWeatherTraitNumeric rW8 4)\nEnd\n",
+   "label": "wth.trait.set.read",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherTraitNumeric rW8 4 (rPlayer.AuxVarGetFlt \"*nvfWT\")\nrPlayer.AuxVarErase \"*nvfWT\"\nSetFunctionValue (GetWeatherTraitNumeric rW8 4)\nEnd\n",
+   "label": "wth.trait.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 0 1))\nEnd\n",
+   "label": "wth.rgb.type0.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 1 1))\nEnd\n",
+   "label": "wth.rgb.type1.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1))\nEnd\n",
+   "label": "wth.rgb.type2.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "label": "wth.rgb.type3.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 4 1))\nEnd\n",
+   "label": "wth.rgb.type4.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 5 1))\nEnd\n",
+   "label": "wth.rgb.type5.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 6 1))\nEnd\n",
+   "label": "wth.rgb.type6.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 7 1))\nEnd\n",
+   "label": "wth.rgb.type7.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 8 1))\nEnd\n",
+   "label": "wth.rgb.type8.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 9 1))\nEnd\n",
+   "label": "wth.rgb.type9.day",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 0))\nEnd\n",
+   "label": "wth.rgb.ambient.time0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "label": "wth.rgb.ambient.time1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 2))\nEnd\n",
+   "label": "wth.rgb.ambient.time2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 3))\nEnd\n",
+   "label": "wth.rgb.ambient.time3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 4))\nEnd\n",
+   "label": "wth.rgb.ambient.time4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 5))\nEnd\n",
+   "label": "wth.rgb.ambient.time5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1 0))\nEnd\n",
+   "label": "wth.rgb.clouds.layer0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1 1))\nEnd\n",
+   "label": "wth.rgb.clouds.layer1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1 2))\nEnd\n",
+   "label": "wth.rgb.clouds.layer2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1 3))\nEnd\n",
+   "label": "wth.rgb.clouds.layer3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nlet fRes := GetWeatherRGBColor rW8 3 1\nrPlayer.AuxVarSetFlt \"*nvfWC\" fRes\nSetFunctionValue (SetWeatherRGBColor rW8 3 1 16711935)\nEnd\n",
+   "label": "wth.rgb.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "label": "wth.rgb.set.read",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt \"*nvfWC\")\nrPlayer.AuxVarErase \"*nvfWC\"\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "label": "wth.rgb.restore",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetFormIDString (GetWeatherImageSpaceMod rW8 0))\nEnd\n",
+   "label": "wth.imod.time0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetFormIDString (GetWeatherImageSpaceMod rW8 1))\nEnd\n",
+   "label": "wth.imod.time1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetFormIDString (GetWeatherImageSpaceMod rW8 2))\nEnd\n",
+   "label": "wth.imod.time2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetFormIDString (GetWeatherImageSpaceMod rW8 3))\nEnd\n",
+   "label": "wth.imod.time3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 0)\nEnd\n",
+   "label": "imgs.trait.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 1)\nEnd\n",
+   "label": "imgs.trait.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 2)\nEnd\n",
+   "label": "imgs.trait.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 3)\nEnd\n",
+   "label": "imgs.trait.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 4)\nEnd\n",
+   "label": "imgs.trait.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 5)\nEnd\n",
+   "label": "imgs.trait.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 6)\nEnd\n",
+   "label": "imgs.trait.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 7)\nEnd\n",
+   "label": "imgs.trait.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 8)\nEnd\n",
+   "label": "imgs.trait.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 9)\nEnd\n",
+   "label": "imgs.trait.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 10)\nEnd\n",
+   "label": "imgs.trait.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 11)\nEnd\n",
+   "label": "imgs.trait.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 12)\nEnd\n",
+   "label": "imgs.trait.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 13)\nEnd\n",
+   "label": "imgs.trait.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 14)\nEnd\n",
+   "label": "imgs.trait.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 15)\nEnd\n",
+   "label": "imgs.trait.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 16)\nEnd\n",
+   "label": "imgs.trait.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 17)\nEnd\n",
+   "label": "imgs.trait.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 18)\nEnd\n",
+   "label": "imgs.trait.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 19)\nEnd\n",
+   "label": "imgs.trait.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 20)\nEnd\n",
+   "label": "imgs.trait.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 21)\nEnd\n",
+   "label": "imgs.trait.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 22)\nEnd\n",
+   "label": "imgs.trait.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 23)\nEnd\n",
+   "label": "imgs.trait.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 24)\nEnd\n",
+   "label": "imgs.trait.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 25)\nEnd\n",
+   "label": "imgs.trait.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 26)\nEnd\n",
+   "label": "imgs.trait.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 27)\nEnd\n",
+   "label": "imgs.trait.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 28)\nEnd\n",
+   "label": "imgs.trait.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 29)\nEnd\n",
+   "label": "imgs.trait.29",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 30)\nEnd\n",
+   "label": "imgs.trait.30",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 31)\nEnd\n",
+   "label": "imgs.trait.31",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetFunctionValue (GetImageSpaceTrait rObj 32)\nEnd\n",
+   "label": "imgs.trait.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nlet fRes := GetImageSpaceTrait rObj 15\nrPlayer.AuxVarSetFlt \"*nvfIS\" fRes\nSetImageSpaceTrait rObj 15 3.25\nSetFunctionValue (GetImageSpaceTrait rObj 15)\nEnd\n",
+   "label": "imgs.trait.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"542F2\"\nSetImageSpaceTrait rObj 15 (rPlayer.AuxVarGetFlt \"*nvfIS\")\nrPlayer.AuxVarErase \"*nvfIS\"\nSetFunctionValue (GetImageSpaceTrait rObj 15)\nEnd\n",
+   "label": "imgs.trait.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 0)\nEnd\n",
+   "label": "imad.trait.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 1)\nEnd\n",
+   "label": "imad.trait.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 2)\nEnd\n",
+   "label": "imad.trait.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 3)\nEnd\n",
+   "label": "imad.trait.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 4)\nEnd\n",
+   "label": "imad.trait.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 5)\nEnd\n",
+   "label": "imad.trait.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 6)\nEnd\n",
+   "label": "imad.trait.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 7)\nEnd\n",
+   "label": "imad.trait.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 8)\nEnd\n",
+   "label": "imad.trait.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 9)\nEnd\n",
+   "label": "imad.trait.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 10)\nEnd\n",
+   "label": "imad.trait.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 11)\nEnd\n",
+   "label": "imad.trait.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 12)\nEnd\n",
+   "label": "imad.trait.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 13)\nEnd\n",
+   "label": "imad.trait.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 14)\nEnd\n",
+   "label": "imad.trait.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 15)\nEnd\n",
+   "label": "imad.trait.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 16)\nEnd\n",
+   "label": "imad.trait.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 17)\nEnd\n",
+   "label": "imad.trait.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 18)\nEnd\n",
+   "label": "imad.trait.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 19)\nEnd\n",
+   "label": "imad.trait.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 20)\nEnd\n",
+   "label": "imad.trait.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 21)\nEnd\n",
+   "label": "imad.trait.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 22)\nEnd\n",
+   "label": "imad.trait.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 23)\nEnd\n",
+   "label": "imad.trait.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 24)\nEnd\n",
+   "label": "imad.trait.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 25)\nEnd\n",
+   "label": "imad.trait.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 26)\nEnd\n",
+   "label": "imad.trait.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 27)\nEnd\n",
+   "label": "imad.trait.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 28)\nEnd\n",
+   "label": "imad.trait.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 29)\nEnd\n",
+   "label": "imad.trait.29",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 30)\nEnd\n",
+   "label": "imad.trait.30",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 31)\nEnd\n",
+   "label": "imad.trait.31",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 32)\nEnd\n",
+   "label": "imad.trait.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 33)\nEnd\n",
+   "label": "imad.trait.33",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 34)\nEnd\n",
+   "label": "imad.trait.34",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 35)\nEnd\n",
+   "label": "imad.trait.35",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 36)\nEnd\n",
+   "label": "imad.trait.36",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 37)\nEnd\n",
+   "label": "imad.trait.37",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 38)\nEnd\n",
+   "label": "imad.trait.38",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 39)\nEnd\n",
+   "label": "imad.trait.39",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 40)\nEnd\n",
+   "label": "imad.trait.40",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 41)\nEnd\n",
+   "label": "imad.trait.41",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 42)\nEnd\n",
+   "label": "imad.trait.42",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 43)\nEnd\n",
+   "label": "imad.trait.43",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 44)\nEnd\n",
+   "label": "imad.trait.44",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 45)\nEnd\n",
+   "label": "imad.trait.45",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 46)\nEnd\n",
+   "label": "imad.trait.46",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 47)\nEnd\n",
+   "label": "imad.trait.47",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 48)\nEnd\n",
+   "label": "imad.trait.48",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 49)\nEnd\n",
+   "label": "imad.trait.49",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 50)\nEnd\n",
+   "label": "imad.trait.50",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 51)\nEnd\n",
+   "label": "imad.trait.51",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 52)\nEnd\n",
+   "label": "imad.trait.52",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 53)\nEnd\n",
+   "label": "imad.trait.53",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 54)\nEnd\n",
+   "label": "imad.trait.54",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 55)\nEnd\n",
+   "label": "imad.trait.55",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 56)\nEnd\n",
+   "label": "imad.trait.56",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 57)\nEnd\n",
+   "label": "imad.trait.57",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 58)\nEnd\n",
+   "label": "imad.trait.58",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 59)\nEnd\n",
+   "label": "imad.trait.59",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 60)\nEnd\n",
+   "label": "imad.trait.60",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 61)\nEnd\n",
+   "label": "imad.trait.61",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 62)\nEnd\n",
+   "label": "imad.trait.62",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 63)\nEnd\n",
+   "label": "imad.trait.63",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 64)\nEnd\n",
+   "label": "imad.trait.64",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 65)\nEnd\n",
+   "label": "imad.trait.65",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 66)\nEnd\n",
+   "label": "imad.trait.66",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetFunctionValue (GetImageSpaceModTrait rObj 67)\nEnd\n",
+   "label": "imad.trait.67",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nlet fRes := GetImageSpaceModTrait rObj 0\nrPlayer.AuxVarSetFlt \"*nvfIM\" fRes\nSetImageSpaceModTrait rObj 0 4.5\nSetFunctionValue (GetImageSpaceModTrait rObj 0)\nEnd\n",
+   "label": "imad.trait.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rW8\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"173904\"\nSetImageSpaceModTrait rObj 0 (rPlayer.AuxVarGetFlt \"*nvfIM\")\nrPlayer.AuxVarErase \"*nvfIM\"\nSetFunctionValue (GetImageSpaceModTrait rObj 0)\nEnd\n",
+   "label": "imad.trait.restore",
+   "field": "value"
+  }
+ ]
+}
