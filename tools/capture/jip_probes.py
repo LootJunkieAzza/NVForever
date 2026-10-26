@@ -1591,6 +1591,143 @@ INI_FILE_PROBES = [
     _ini("mcm.set.lu", 'SetFunctionValue (GetINIFloat "General:fMcm" "NVFExtProbe.ini")'),
 ]
 
+# Twenty-ninth set (next batch N7): JIP and LU actor and game odds. Forms from fnvtool
+# esm inventory [observed]: Water2 161902, Rad1 0335A2, MaleAdult11 173561, Toughness
+# 031DE0, Chet 104C79, the dead ACRE near the airport 14DEE2, Doc's house 103DF9.
+# Settings changed are put back where a getter can read the old value; the player is
+# moved into Doc's house last. Session only, never saved. Left out: Disable/
+# EnableNavMeshAlt (navmesh edits) and GetProjectileRefImpactRef (needs a live
+# projectile inside an impact handler).
+FX.update(water2="161902", rad1="335A2", maleadult11="173561", toughness="31DE0")
+_H9 = ("ref rPlayer\nref rDoc\nref rBase\nref rObj\nref rOther\nref rF\nfloat fRes\nstring_var sText\nBegin Function { }\n"
+       + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + _form("rBase", NF["doc"]))
+
+
+def _n7(pid, body, text=False):
+    return (pid, _H9 + body, text, None, "")
+
+
+def _n7v(pid, expr, text=False):
+    return _n7(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _n7id(pid, expr, pre=""):
+    return _n7(pid, pre + f"SetFunctionValue (GetFormIDString ({expr}))", True)
+
+
+_POS = 'SetFunctionValue (sv_Construct "%.0f %.0f %.0f" (rObj.GetPos X) (rObj.GetPos Y) (rObj.GetPos Z))'
+
+N7_PROBES = [
+    # Keywords.
+    _n7v("kw.none", 'HasKeyword rBase "NVFKey"'),
+    _n7("kw.assign", 'AssignKeyword rBase "NVFKey"\nSetFunctionValue (HasKeyword rBase "NVFKey")'),
+    _n7v("kw.ref", 'HasKeyword rDoc "NVFKey"'),
+    _n7v("kw.case", 'HasKeyword rBase "nvfkey"'),
+    _n7v("kw.other", 'HasKeyword rBase "NVFOther"'),
+    _n7(f"kw.list", _o4("list127") + 'AssignKeyword rObj "NVFListKey"\nlet rOther := ListGetNthForm rObj 0\n'
+        'SetFunctionValue (HasKeyword rOther "NVFListKey")'),
+    _n7(f"kw.list.self", _o4("list127") + 'SetFunctionValue (HasKeyword rObj "NVFListKey")'),
+    # Hardcore stages and tracking.
+    _n7(f"hc.water2", _o4("water2") + "SetFunctionValue (GetHardcoreStageThreshold rObj)"),
+    _n7(f"hc.rad1", _o4("rad1") + "SetFunctionValue (GetHardcoreStageThreshold rObj)"),
+    _n7(f"hc.water2.set", _o4("water2") + "let fRes := GetHardcoreStageThreshold rObj\nrPlayer.AuxVarSetFlt \"*nvfHC\" fRes\n"
+        "SetHardcoreStageThreshold rObj 321\nSetFunctionValue (GetHardcoreStageThreshold rObj)"),
+    _n7(f"hc.water2.restore", _o4("water2") + 'SetHardcoreStageThreshold rObj (rPlayer.AuxVarGetFlt "*nvfHC")\n'
+        'rPlayer.AuxVarErase "*nvfHC"\nSetFunctionValue (GetHardcoreStageThreshold rObj)'),
+    _n7(f"hc.notstage", _o4("pistol10") + "SetFunctionValue (GetHardcoreStageThreshold rObj)"),
+    _n7("hc.tracking.off", "SetFunctionValue (ToggleHardcoreTracking 0)"),
+    _n7("hc.tracking.on", "SetFunctionValue (ToggleHardcoreTracking 1)"),
+    # Voice type.
+    _n7id("voice.ref", "rDoc.GetActorVoiceType"),
+    _n7id("voice.base", "GetActorVoiceType rBase"),
+    _n7("voice.set", _o4("maleadult11") + "let rOther := rDoc.GetActorVoiceType\nrPlayer.AuxVarSetRef \"*nvfVT\" rOther\n"
+        "rDoc.SetActorVoiceType rObj\nSetFunctionValue (GetFormIDString (rDoc.GetActorVoiceType))", True),
+    _n7id("voice.set.base", "GetActorVoiceType rBase"),
+    _n7("voice.restore", 'let rOther := rPlayer.AuxVarGetRef "*nvfVT"\nrDoc.SetActorVoiceType rOther\nrPlayer.AuxVarErase "*nvfVT"\n'
+        "SetFunctionValue (GetFormIDString (rDoc.GetActorVoiceType))", True),
+    # Base karma.
+    _n7v("karma.base", "GetBaseKarma rBase"),
+    _n7v("karma.ref", "rDoc.GetBaseKarma"),
+    _n7("karma.save", 'let fRes := GetBaseKarma rBase\nrPlayer.AuxVarSetFlt "*nvfKA" fRes\nSetFunctionValue (rPlayer.AuxVarGetFlt "*nvfKA")'),
+    _n7("karma.set", "SetBaseKarma 37.5 rBase\nSetFunctionValue (GetBaseKarma rBase)"),
+    _n7("karma.set.int", "SetBaseKarma 37 rBase\nSetFunctionValue (GetBaseKarma rBase)"),
+    _n7("karma.set.calling", "rBase.SetBaseKarma 21\nSetFunctionValue (GetBaseKarma rBase)"),
+    _n7("karma.set.ref", "rDoc.SetBaseKarma -12\nSetFunctionValue (GetBaseKarma rBase)"),
+    _n7("karma.restore", 'SetBaseKarma (rPlayer.AuxVarGetFlt "*nvfKA") rBase\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue (GetBaseKarma rBase)'),
+    # Perk entries.
+    _n7(f"perk.v1.0", _o4("toughness") + "SetFunctionValue (GetNthPerkEntryValue1 rObj 0)"),
+    _n7(f"perk.v1.past", _o4("toughness") + "SetFunctionValue (GetNthPerkEntryValue1 rObj 99)"),
+    _n7(f"perk.v1.set", _o4("toughness") + 'let fRes := GetNthPerkEntryValue1 rObj 0\nrPlayer.AuxVarSetFlt "*nvfPK" fRes\n'
+        "SetNthPerkEntryValue1 rObj 0 9\nSetFunctionValue (GetNthPerkEntryValue1 rObj 0)"),
+    _n7(f"perk.v1.restore", _o4("toughness") + 'SetNthPerkEntryValue1 rObj 0 (rPlayer.AuxVarGetFlt "*nvfPK")\nrPlayer.AuxVarErase "*nvfPK"\n'
+        "SetFunctionValue (GetNthPerkEntryValue1 rObj 0)"),
+] + [_n7v(f"perkmod.{f}", f"rPlayer.GetPerkModifier {f} 100") for f in (0, 1, 2, 10, 37)] + [
+    # Names.
+    _n7v("name.before", "GetName rBase", True),
+    _n7("name.set", 'LNSetName "NVF Doc" rBase\nSetFunctionValue (GetName rBase)', True),
+    _n7v("name.set.ref", "rDoc.GetName", True),
+    _n7("name.set.byref", 'LNSetName "NVF Doc Ref" rDoc\nSetFunctionValue (GetName rBase)', True),
+    _n7("name.restore", 'LNSetName "Doc Mitchell" rBase\nSetFunctionValue (GetName rBase)', True),
+    # Message.
+    _n7("messageexalt", 'MessageExAlt 2 "NVF probe message"\nSetFunctionValue 1'),
+    # Water, air.
+    _n7v("inwater.player", "rPlayer.IsInWater"),
+    _n7v("inair.player", "rPlayer.IsInAir"),
+    _n7v("inwater.doc", "rDoc.IsInWater"),
+    _n7v("inair.doc", "rDoc.IsInAir"),
+    # Killer.
+    _n7(f"killer.acre", _form("rF", "14DEE2") + "SetFunctionValue (GetFormIDString (rF.GetKiller))", True),
+    _n7id("killer.alive", "rDoc.GetKiller"),
+    _n7("killer.placed", _form("rObj", "14DEE2") + 'let rObj := rObj.GetBaseObject\nlet rF := rPlayer.PlaceAtMe rObj 1\n'
+        'rPlayer.AuxVarSetRef "*nvfKL" rF\nrF.Kill rPlayer\nSetFunctionValue 1'),
+    _n7("killer.placed.next", 'let rF := rPlayer.AuxVarGetRef "*nvfKL"\nSetFunctionValue (sv_Construct "%g " (rF.GetDead) + GetFormIDString (rF.GetKiller))', True),
+    _n7("killer.placed.nokiller", _form("rObj", "14DEE2") + 'let rObj := rObj.GetBaseObject\nlet rF := rPlayer.PlaceAtMe rObj 1\n'
+        'rPlayer.AuxVarSetRef "*nvfKL2" rF\nrF.Kill\nSetFunctionValue 1'),
+    _n7("killer.placed.nokiller.next", 'let rF := rPlayer.AuxVarGetRef "*nvfKL2"\nSetFunctionValue (GetFormIDString (rF.GetKiller))', True),
+    _n7("killer.cleanup", 'let rF := rPlayer.AuxVarGetRef "*nvfKL"\nrF.Disable\nrF.MarkForDelete\nlet rF := rPlayer.AuxVarGetRef "*nvfKL2"\n'
+        'rF.Disable\nrF.MarkForDelete\nrPlayer.AuxVarErase "*nvfKL"\nrPlayer.AuxVarErase "*nvfKL2"\nSetFunctionValue 1'),
+    # Speed multiplier.
+    _n7v("speed.before", 'rDoc.GetActorValue "SpeedMult"'),
+    _n7("speed.set", 'rDoc.SetSpeedMult 150\nSetFunctionValue (rDoc.GetActorValue "SpeedMult")'),
+    _n7v("speed.set.next", 'rDoc.GetActorValue "SpeedMult"'),
+    _n7("speed.restore", 'rDoc.SetSpeedMult 100\nSetFunctionValue (rDoc.GetActorValue "SpeedMult")'),
+    # Linked reference.
+    _n7id("linked.before", "rDoc.GetLinkedRef"),
+    _n7id("linked.set", "rDoc.GetLinkedRef", "rDoc.SetLinkedReference rPlayer\n"),
+    _n7id("linked.reset", "rDoc.GetLinkedRef", "rDoc.SetLinkedReference\n"),
+    # UnequipItemAlt.
+    _n7("unequipalt.add", _o4("pistol10") + "rPlayer.AddItem rObj 1 1\nSetFunctionValue 1"),
+    _n7("unequipalt.equip", _o4("pistol10") + "rPlayer.EquipItem rObj 0 1\nSetFunctionValue 1"),
+    _n7v("unequipalt.equipped", "rPlayer.GetEquipped " + "(GetFormFromMod \"FalloutNV.esm\" \"434F\")"),
+    _n7("unequipalt", _o4("pistol10") + "rPlayer.UnequipItemAlt rObj 0 1\nSetFunctionValue (rPlayer.GetEquipped rObj)"),
+    _n7("unequipalt.next", _o4("pistol10") + "SetFunctionValue (rPlayer.GetEquipped rObj)"),
+    _n7("unequipalt.cleanup", _o4("pistol10") + "rPlayer.RemoveItem rObj 1 1\nSetFunctionValue 1"),
+    # Reference flags (LU).
+] + [_n7v(f"refflag.doc.{f}", f"rDoc.GetReferenceFlag {f}") for f in (1, 64, 1024, 2048, 524288)] + [
+    _n7(f"refflag.chet.64", _o4("chetref") + "SetFunctionValue (rObj.GetReferenceFlag 64)"),
+    _n7(f"refflag.door.set", _o4("saloondoor") + "rObj.SetReferenceFlag 128 1\nSetFunctionValue (GetFlagsLow rObj)"),
+    _n7(f"refflag.door.get", _o4("saloondoor") + "SetFunctionValue (rObj.GetReferenceFlag 128)"),
+    _n7(f"refflag.door.clear", _o4("saloondoor") + "rObj.SetReferenceFlag 128 0\nSetFunctionValue (GetFlagsLow rObj)"),
+    # CastImmediate: a stimpak on the damaged player.
+    _n7("cast.damage", 'rPlayer.DamageActorValue "Health" 40\nSetFunctionValue (rPlayer.GetActorValue "Health")'),
+    _n7("cast.stimpak", _o4("stimpak") + 'rPlayer.CastImmediate rObj\nSetFunctionValue (rPlayer.GetActorValue "Health")'),
+    _n7v("cast.next", 'rPlayer.GetActorValue "Health"'),
+    _n7v("cast.next2", 'rPlayer.GetActorValue "Health"'),
+    _n7("cast.heal", 'rPlayer.RestoreActorValue "Health" 1000\nSetFunctionValue (rPlayer.GetActorValue "Health")'),
+    # MoveToEditorPosition on Chet.
+    _n7("editorpos.before", _o4("chetref") + _POS, True),
+    _n7("editorpos.moved", _o4("chetref") + "rObj.MoveTo rPlayer\nSetFunctionValue 1"),
+    _n7("editorpos.moved.pos", _o4("chetref") + 'SetFunctionValue (GetFormIDString (rObj.GetParentCell))', True),
+    _n7("editorpos.reset", _o4("chetref") + "SetFunctionValue (rObj.MoveToEditorPosition 1)"),
+    _n7("editorpos.after", _o4("chetref") + _POS, True),
+    _n7("editorpos.after.cell", _o4("chetref") + 'SetFunctionValue (GetFormIDString (rObj.GetParentCell))', True),
+    _n7v("editorpos.player", "rPlayer.MoveToEditorPosition 0"),
+    # MoveToCell: the player into Doc's house (last).
+    _n7("movetocell", _form("rF", CELLS["doc"]) + "SetFunctionValue (rPlayer.MoveToCell rF 0 0 0)"),
+    _n7id("movetocell.cell", "rPlayer.GetParentCell"),
+    _n7id("movetocell.cell2", "rPlayer.GetParentCell"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1602,11 +1739,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nvse-eighth": EIGHTH_PROBES,
         "lu-leveled": LEVELED_PROBES,
         "nvse-flags": FLAG_PROBES,
-        "ini-files": INI_FILE_PROBES}
+        "ini-files": INI_FILE_PROBES,
+        "jip-n7": N7_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7"}
 
 
 def script(body):
