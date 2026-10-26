@@ -2141,7 +2141,10 @@ def _nbv(pid, expr, text=False):
     return _nb(pid, _GETA + f"SetFunctionValue ({expr})", text)
 
 
-_V3 = 'SetFunctionValue (sv_Construct "%.2f %.2f %.2f" aA[0] aA[1] aA[2])'
+# Array elements go through float variables first: sv_Construct with aA[0] as an
+# argument fails at run time ("script call failed" with a 3-element array).
+_V3 = ('let fX := aA[0]\nlet fY := aA[1]\nlet fZ := aA[2]\n'
+       'SetFunctionValue (sv_Construct "%.2f %.2f %.2f" fX fY fZ)')
 
 NIF_PROBES = [
     _nb("nb.place", _form("rObj", NF["doc"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKA" rA\nSetFunctionValue 1'),
@@ -2187,6 +2190,20 @@ NIF_PROBES = [
     _nb("nb.hasblock.missing", _form("rObj", NF["pistol10"]) + 'SetFunctionValue (ModelHasBlock rObj "NVFNone")'),
     _nb("nb.hasblock.case", _form("rObj", NF["pistol10"]) + 'SetFunctionValue (ModelHasBlock rObj "projectilenode")'),
     _nb("nb.player.children", 'let aA := rPlayer.GetChildBlocks "Bip01" 2\n' + _JOIN, True),
+    # A world object: the 10mm pistol placed as an item beside the player.
+    _nb("nb.obj.place", _form("rObj", NF["pistol10"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKO" rA\nSetFunctionValue 1'),
+] + [_nb(f"nb.obj.settle{i}", "SetFunctionValue 1") for i in range(5)] + [
+    _nb("nb.obj.trans.size", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nlet aA := rA.GetNifBlockTranslation "ProjectileNode" 0\nSetFunctionValue (ar_Size aA)'),
+    _nb("nb.obj.rot.size", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nlet aA := rA.GetNifBlockRotation "ProjectileNode" 0\nSetFunctionValue (ar_Size aA)'),
+    _nb("nb.obj.trans", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nlet aA := rA.GetNifBlockTranslation "ProjectileNode" 0\n' + _V3, True),
+    _nb("nb.obj.rot", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nlet aA := rA.GetNifBlockRotation "ProjectileNode" 0\n' + _V3, True),
+    _nb("nb.obj.trans.set", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nrA.SetNifBlockTranslation "ProjectileNode" 1 2 3\n'
+        'let aA := rA.GetNifBlockTranslation "ProjectileNode" 0\n' + _V3, True),
+    _nb("nb.obj.rot.set", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nrA.SetNifBlockRotation "ProjectileNode" 10 20 30 0\n'
+        'let aA := rA.GetNifBlockRotation "ProjectileNode" 0\n' + _V3, True),
+    _nb("nb.obj.scale", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nSetFunctionValue (rA.GetNifBlockScale "ProjectileNode")'),
+    _nb("nb.obj.children", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nlet aA := rA.GetChildBlocks "10MMPistol"\n' + _JOIN, True),
+    _nb("nb.obj.cleanup", 'let rA := rPlayer.AuxVarGetRef "*nvfKO"\nrA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKO"\nSetFunctionValue 1'),
     _nb("nb.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
 ]
 
