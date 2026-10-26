@@ -396,6 +396,21 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "seventh"]
+  },
+  {
+   "id": "L5.ext.nvse.eighth",
+   "layer": 5,
+   "description": "Animations (AddAnimation, DelAnimation, DelAnimations, GetNthAnimation) and the generic form lists (GenericGetForm, GenericAddForm, GenericDeleteForm, GenericReplaceForm) on Doc Mitchell, con_ console functions (con_SetGameSetting, Con_TFC, con_Get/SetINISetting), UI traits, and form flags of references around the player and in Doc's house; set nvse-eighth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters, with the default INI as L5.ext.nvse.sixth.",
+   "oracle": {"golden": "jip/nvse-eighth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_eighth.steps.json", "--start-cell", "0x000DEB16",
+             "--ini", "{data_dir}/../Fallout_default.ini"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "eighth"]
   }
  ]
 }

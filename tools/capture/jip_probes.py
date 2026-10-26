@@ -1261,6 +1261,99 @@ SEVENTH_PROBES = [
     _f7("pkg.count.after.removeall", "SetFunctionValue (rDoc.GetPackageCount)"),
 ]
 
+# Twenty-fifth set: the extender core's last families, as it asked: animations and the
+# generic form lists on Doc Mitchell, the con_ console functions, UI traits; and which
+# references carry form flag 64 (Doc's reference reads 1097 in the game, 1033 + 64).
+# Forms from fnvtool esm inventory [observed]: CaucasianOld 0042C3, EyebrowM 0B5BEA,
+# BeardMustacheOld 07B47B. Game settings, INI values and head parts are put back; the
+# package and animation edits on Doc are not (session only, never saved). Con_SCOF is
+# left out: it writes a file into the owner's game folder (owner-review, J9).
+FX.update(caucold="42C3", beardold="7B47B", list127="1613D5")
+_H8 = ("ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\n"
+       "Begin Function { }\n" + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + _form("rBase", NF["doc"]))
+_WALK8 = ("let fRes := 0\nlet sText := \"\"\nwhile IsFormValid rItem && fRes < 40\n"
+          "  let sText += (GetFormIDString rItem) + (sv_Construct \":%g:%g \" (GetFlagsLow rItem) (GetType (rItem.GetBaseObject)))\n"
+          "  let fRes += 1\n  let rItem := GetNextRef\nloop\nSetFunctionValue sText")
+
+
+def _f8(pid, body, text=False, exp=None, page=""):
+    return (pid, _H8 + body, text, exp, page)
+
+
+def _id8(pid, expr):
+    return _f8(pid, f"SetFunctionValue (GetFormIDString ({expr}))", True)
+
+
+EIGHTH_PROBES = [
+    # Form flags: single references, then walks of Doc's house (not loaded in the save:
+    # persistent references only) and the player's own cell (loaded).
+    _f8("flags.player", "SetFunctionValue (GetFlagsLow rPlayer)"),
+    _f8("flags.docref", "SetFunctionValue (GetFlagsLow rDoc)"),
+    _f8("flags.chet", _o4("chetref") + "SetFunctionValue (GetFlagsLow rObj)"),
+    _f8("flags.saloondoor", _o4("saloondoor") + "SetFunctionValue (GetFlagsLow rObj)"),
+    _f8("walk.doccell", _form("rF", CELLS["doc"]) + "let rItem := GetFirstRefInCell rF 0 0 0\n" + _WALK8, True),
+    _f8("walk.here.actors", "let rItem := GetFirstRef 200 0 0\n" + _WALK8, True),
+    _f8("walk.here", "let rItem := GetFirstRef 0 0 0\n" + _WALK8, True),
+    # Animations (KFFZ): the base's list or the reference's.
+    _f8("anim.base.0", "SetFunctionValue (GetNthAnimation 0 rBase)", True),
+    _f8("anim.ref.0", "SetFunctionValue (rDoc.GetNthAnimation 0)", True),
+    _f8("anim.add", 'SetFunctionValue (AddAnimation "nvf\\test.kf" rBase)'),
+    _f8("anim.add.base.0", "SetFunctionValue (GetNthAnimation 0 rBase)", True),
+    _f8("anim.add.ref.0", "SetFunctionValue (rDoc.GetNthAnimation 0)", True),
+    _f8("anim.add2", 'SetFunctionValue (AddAnimation "nvf\\second.kf" rBase)'),
+    _f8("anim.add2.1", "SetFunctionValue (GetNthAnimation 1 rBase)", True),
+    _f8("anim.del", 'SetFunctionValue (DelAnimation "nvf\\test.kf" rBase)'),
+    _f8("anim.del.0", "SetFunctionValue (GetNthAnimation 0 rBase)", True),
+    _f8("anim.del.missing", 'SetFunctionValue (DelAnimation "nvf\\none.kf" rBase)'),
+    _f8("anim.delall", "SetFunctionValue (DelAnimations rBase)"),
+    _f8("anim.delall.0", "SetFunctionValue (GetNthAnimation 0 rBase)", True),
+    # Generic form lists.
+    _id8("generic.10.ref.0", "GenericGetForm 10 rDoc 0"),
+    _id8("generic.10.base.0", "GenericGetForm 10 rBase 0"),
+    _id8("generic.10.ref.1", "GenericGetForm 10 rDoc 1"),
+    _id8("generic.5.ref.0", "GenericGetForm 5 rDoc 0"),
+    _id8("generic.5.base.0", "GenericGetForm 5 rBase 0"),
+    _f8("generic.race.0", _o4("caucold") + "SetFunctionValue (GetFormIDString (GenericGetForm 0 rObj 0))", True),
+    _f8("generic.race.1", _o4("caucold") + "SetFunctionValue (GetFormIDString (GenericGetForm 1 rObj 0))", True),
+    _f8("generic.list.13.0", _o4("list127") + "SetFunctionValue (GetFormIDString (GenericGetForm 13 rObj 0))", True),
+    _f8("generic.list.13.1", _o4("list127") + "SetFunctionValue (GetFormIDString (GenericGetForm 13 rObj 1))", True),
+    _f8("generic.10.replace", _o4("beardold") + "let rItem := GenericGetForm 10 rDoc 0\nrPlayer.AuxVarSetRef \"*nvfHP\" rItem\n"
+        "SetFunctionValue (GetFormIDString (GenericReplaceForm 10 rDoc rObj 0))", True),
+    _id8("generic.10.after.replace", "GenericGetForm 10 rDoc 0"),
+    _f8("generic.10.restore", 'let rItem := rPlayer.AuxVarGetRef "*nvfHP"\nlet rOther := GenericReplaceForm 10 rDoc rItem 0\n'
+        'rPlayer.AuxVarErase "*nvfHP"\nSetFunctionValue (GetFormIDString (GenericGetForm 10 rDoc 0))', True),
+    _f8("generic.5.add", _o4("stayput") + "SetFunctionValue (GenericAddForm 5 rDoc rObj 0)"),
+    _id8("generic.5.after.add", "rDoc.GetNthPackage 0"),
+    _id8("generic.5.delete", "GenericDeleteForm 5 rDoc 0"),
+    _id8("generic.5.after.delete", "rDoc.GetNthPackage 0"),
+    _f8("generic.5.add.minus2", _o4("stayput") + "SetFunctionValue (GenericAddForm 5 rDoc rObj -2)"),
+    _f8("generic.5.count.minus2", "SetFunctionValue (rDoc.GetPackageCount)"),
+    _id8("generic.5.last.minus2", "rDoc.GetNthPackage ((rDoc.GetPackageCount) - 1)"),
+    # Console functions.
+    _f8("con.echo", "SetConsoleEcho 1\nSetFunctionValue (GetConsoleEcho)"),
+    _f8("con.gmst.before", 'SetFunctionValue (GetNumericGameSetting "fJumpFallHeightMin")'),
+    _f8("con.gmst.set", 'con_SetGameSetting "fJumpFallHeightMin" "100"\nSetFunctionValue (GetNumericGameSetting "fJumpFallHeightMin")'),
+    _f8("con.gmst.restore", 'con_SetGameSetting "fJumpFallHeightMin" "600"\nSetFunctionValue (GetNumericGameSetting "fJumpFallHeightMin")'),
+    _f8("con.scof.name", "SetFunctionValue (GetConsoleOutputFilename)", True),
+    _f8("con.scof.has", "SetFunctionValue (HasConsoleOutputFilename)"),
+    _f8("con.tfc.before", "SetFunctionValue (GetTFC)"),
+    _f8("con.tfc.on", "Con_TFC\nSetFunctionValue (GetTFC)"),
+    _f8("con.tfc.on.next", "SetFunctionValue (GetTFC)"),
+    _f8("con.tfc.off", "Con_TFC\nSetFunctionValue (GetTFC)"),
+    _f8("con.tfc.off.next", "SetFunctionValue (GetTFC)"),
+    _f8("con.ini.get", 'SetFunctionValue (con_GetINISetting "fDefaultFOV:Display")'),
+    _f8("con.ini.set", 'con_SetINISetting "fDefaultFOV:Display" "80"\nSetFunctionValue (GetNumericINISetting "fDefaultFOV:Display")'),
+    _f8("con.ini.restore", 'con_SetINISetting "fDefaultFOV:Display" "75"\nSetFunctionValue (GetNumericINISetting "fDefaultFOV:Display")'),
+    _f8("con.echo.off", "SetConsoleEcho 0\nSetFunctionValue (GetConsoleEcho)"),
+    # UI traits.
+    _f8("ui.x", 'SetFunctionValue (GetUIFloat "HUDMainMenu/_X")'),
+    _f8("ui.visible", 'SetFunctionValue (GetUIFloat "HUDMainMenu/visible")'),
+    _f8("ui.missing", 'SetFunctionValue (GetUIFloat "NVFNoMenu/_nvf")'),
+    _f8("ui.user.set", 'SetUIFloat "HUDMainMenu/_nvfprobe" 5\nSetFunctionValue (GetUIFloat "HUDMainMenu/_nvfprobe")'),
+    _f8("ui.user.next", 'SetFunctionValue (GetUIFloat "HUDMainMenu/_nvfprobe")'),
+    _f8("ui.stringex", 'SetUIStringEx "HUDMainMenu/_nvfstr" "n%g" 3\nSetFunctionValue (GetUIString "HUDMainMenu/_nvfstr")', True),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1268,11 +1361,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES, "nvse-second": SECOND_PROBES,
         "nvse-keynames": KEYNAME_PROBES, "nvse-third": THIRD_PROBES, "nvse-fourth": FOURTH_PROBES,
         "jip-fifth": FIFTH_PROBES, "nvse-fifth": NVSE_FIFTH_PROBES, "nvse-sixth": SIXTH_PROBES,
-        "nvse-seventh": SEVENTH_PROBES}
+        "nvse-seventh": SEVENTH_PROBES,
+        "nvse-eighth": EIGHTH_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth"}
 
 
 def script(body):
