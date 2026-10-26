@@ -2287,6 +2287,82 @@ NVSE_EVENT_PROBES = (
     ]
 )
 
+# Thirty-ninth set (N11, JIP and JohnnyGuitar handlers): the SetOn...EventHandler events
+# a script can cause without a menu or input: FireWeapon (player), UseAidItem (a stimpak
+# used through EquipItem), CrippledLimb and PlayGroup (a placed copy of Doc's NPC),
+# Ragdoll (a placed creature killed), NoteAdded (AddNote vYesManBunkerNote 177875,
+# fnvtool esm inventory [observed]) and JohnnyGuitar's ActorValueChange (ModAV on the
+# player). Each lambda takes the arguments the function page lists [documented] and
+# appends what it got to `*` auxiliary variables. Handlers die with the session.
+FX.update(note="177875")
+_HJ = ("ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rP", NF["player"]))
+
+
+def _je(pid, body, text=False):
+    return (pid, _HJ + body, text, None, "")
+
+
+def _jread(pid, expr, text=False):
+    return _je(pid, f"SetFunctionValue ({expr})", text)
+
+
+_JC = 'let rA := rP.AuxVarGetRef "*nvfJC"\n'
+_JN = 'let rB := rP.AuxVarGetRef "*nvfJN"\n'
+
+JIP_EVENT2_PROBES = [
+    # Actors to act on.
+    _je("je.place.creature", _form("rObj", "14DEE2") + 'let rObj := rObj.GetBaseObject\nlet rA := rP.PlaceAtMe rObj 1\n'
+        'rP.AuxVarSetRef "*nvfJC" rA\nSetFunctionValue 1'),
+    _je("je.place.npc", _form("rObj", NF["doc"]) + 'let rB := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfJN" rB\nSetFunctionValue 1'),
+] + [_je(f"je.settle{i}", "SetFunctionValue 1") for i in range(5)] + [
+    # Registrations.
+    _je("je.reg.fire", 'SetOnFireWeaponEventHandler (Begin Function {ref rWp}\n  rP.AuxVarSetFlt "*nvfJ.fire" (GetSelf == rP) -1\n'
+        '  rP.AuxVarSetRef "*nvfJ.fire.w" rWp -1\nEnd) 1 rP\nSetFunctionValue 1'),
+    _je("je.reg.aid", _form("rObj", NF["stimpak"]) + 'SetOnUseAidItemEventHandler (Begin Function {ref rIt}\n'
+        '  rP.AuxVarSetFlt "*nvfJ.aid" (GetSelf == rP) -1\n  rP.AuxVarSetRef "*nvfJ.aid.i" rIt -1\nEnd) 1 rObj\nSetFunctionValue 1'),
+    _je("je.reg.cripple", _JN + 'SetOnCrippledLimbEventHandler (Begin Function {int iLimb}\n'
+        '  rP.AuxVarSetFlt "*nvfJ.cripple" iLimb -1\nEnd) 1 rB\nSetFunctionValue 1'),
+    _je("je.reg.playgroup", _JN + 'SetOnPlayGroupEventHandler (Begin Function {int iGroup}\n'
+        '  rP.AuxVarSetFlt "*nvfJ.group" iGroup -1\nEnd) 1 rB Idle\nSetFunctionValue 1'),
+    _je("je.reg.ragdoll", _JC + 'SetOnRagdollEventHandler (Begin Function { }\n'
+        '  rP.AuxVarSetFlt "*nvfJ.ragdoll" (GetSelf == (rP.AuxVarGetRef "*nvfJC")) -1\nEnd) 1\nSetFunctionValue 1'),
+    _je("je.reg.note", 'SetOnNoteAddedEventHandler (Begin Function {ref rNote}\n  rP.AuxVarSetRef "*nvfJ.note" rNote -1\nEnd) 1\n'
+        'SetFunctionValue 1'),
+    # Three arguments [documented]; a handler taking four crashed the game when Health
+    # changed [observed: jip_events2 crash, 2026-10-26].
+    _je("je.reg.av", 'SetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\n'
+        '  rP.AuxVarSetFlt "*nvfJ.av" iAV -1\n  rP.AuxVarSetFlt "*nvfJ.av.d" (fNew - fOld) -1\nEnd) 0\nSetFunctionValue 1'),
+    # Causes.
+    _je("je.do.fire", _form("rObj", NF["pistol10"]) + "rP.FireWeapon rObj\nSetFunctionValue 1"),
+    _je("je.do.aid", _form("rObj", NF["stimpak"]) + "rP.EquipItem rObj 0 1\nSetFunctionValue 1"),
+    _je("je.do.cripple", _JN + 'rB.DamageAV LeftAttackCondition 200\nSetFunctionValue 1'),
+    _je("je.do.playgroup", _JN + "rB.PlayGroup Idle 1\nSetFunctionValue 1"),
+    _je("je.do.note", _form("rObj", FX["note"]) + "rP.AddNote rObj\nSetFunctionValue 1"),
+    _je("je.do.av", "rP.ModAV Health 5\nSetFunctionValue 1"),
+    _je("je.do.kill", _JC + "rA.Kill rP\nSetFunctionValue 1"),
+] + [_je(f"je.settle.after{i}", "SetFunctionValue 1") for i in range(4)] + [
+    # Reads: whether each fired, and its first values.
+    _jread("je.fire.fired", '(rP.AuxVarSize "*nvfJ.fire") > 0'),
+    _jread("je.fire.self", 'rP.AuxVarGetFlt "*nvfJ.fire" 0'),
+    _jread("je.fire.weapon", 'GetFormIDString (rP.AuxVarGetRef "*nvfJ.fire.w" 0)', True),
+    _jread("je.aid.fired", '(rP.AuxVarSize "*nvfJ.aid") > 0'),
+    _jread("je.aid.self", 'rP.AuxVarGetFlt "*nvfJ.aid" 0'),
+    _jread("je.aid.item", 'GetFormIDString (rP.AuxVarGetRef "*nvfJ.aid.i" 0)', True),
+    _jread("je.cripple.fired", '(rP.AuxVarSize "*nvfJ.cripple") > 0'),
+    _jread("je.cripple.limb", 'rP.AuxVarGetFlt "*nvfJ.cripple" 0'),
+    _jread("je.group.fired", '(rP.AuxVarSize "*nvfJ.group") > 0'),
+    _jread("je.group.index", 'rP.AuxVarGetFlt "*nvfJ.group" 0'),
+    _jread("je.ragdoll.fired", '(rP.AuxVarSize "*nvfJ.ragdoll") > 0'),
+    _jread("je.ragdoll.self", 'rP.AuxVarGetFlt "*nvfJ.ragdoll" 0'),
+    _jread("je.note.fired", '(rP.AuxVarSize "*nvfJ.note") > 0'),
+    _jread("je.note.form", 'GetFormIDString (rP.AuxVarGetRef "*nvfJ.note" 0)', True),
+    _jread("je.av.fired", '(rP.AuxVarSize "*nvfJ.av") > 0'),
+    _jread("je.av.code", 'rP.AuxVarGetFlt "*nvfJ.av" 0'),
+    _jread("je.av.delta", 'rP.AuxVarGetFlt "*nvfJ.av.d" 0'),
+    _je("je.cleanup", _JC + _JN + "rA.Disable\nrA.MarkForDelete\nrB.Disable\nrB.MarkForDelete\nrP.ModAV Health -5\n"
+        'rP.AuxVarErase "*nvfJC"\nrP.AuxVarErase "*nvfJN"\nSetFunctionValue 1'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2308,11 +2384,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "sky-sound": SKY_SOUND_PROBES,
         "knvse-anim": KNVSE_PROBES,
         "nif-blocks": NIF_PROBES,
-        "nvse-events": NVSE_EVENT_PROBES}
+        "nvse-events": NVSE_EVENT_PROBES,
+        "jip-events2": JIP_EVENT2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2"}
 
 
 def script(body):
