@@ -1393,9 +1393,9 @@ struct Read {
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 20] = [
+pub const FIELD_SIGS: [[u8; 4]; 21] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
-    *b"NPC_", *b"CREA", *b"FACT",
+    *b"NPC_", *b"CREA", *b"FACT", *b"RACE",
 ];
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base

@@ -28,6 +28,11 @@ fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     })
 }
 
+/// [`field`] for the sibling files.
+pub(crate) fn record_value(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
+    field(g, form, sub, path)
+}
+
 fn num_of(v: Option<XVal>) -> XVal {
     match v {
         Some(XVal::Num(x)) => XVal::Num(x),
@@ -137,6 +142,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         return Some(r);
     }
     if let Some(r) = crate::nvse_data::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_actor::call(g, name, subject, args) {
         return Some(r);
     }
     // The item a getter reads: its argument, else the calling reference's base form.
