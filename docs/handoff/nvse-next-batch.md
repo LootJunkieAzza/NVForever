@@ -71,3 +71,31 @@ their own workstream; T2 (wiring the UI functions) is done (dc19c50e). N2 waits 
   NVForever's own folder, mirroring the path; readers prefer that copy. Built that way
   unless the owner says otherwise.
 - **MCM** (N2): already asked in owner-review.md by the UI tile tree work.
+
+## 5. N10: the runtime sweep (VNV, 2026-10-26)
+
+`fnvtool script run` over the VNV profile's 41 plugins, 1,800 frames from the new-game
+state (the mods' quest scripts and their GameMode, main-loop and event callbacks)
+[observed]. What it found, fixed the same day:
+
+- **Mods' scripts failing to compile from source**, so they fell back to bytes NVForever
+  cannot run: one unknown name failed a whole unit. Fixed: an actor value the shipped
+  scripts never name (`IgnoreCrippledLimbs`, from xEdit's full list); the Let macro on a
+  subscripted or remote target (`aEvent["Count"] = …`, `Q.aItem[i] = 0`); a function on
+  a quest's ref variable (`JLM.rContainer.LNGetName`); an undocumented plugin function
+  at the start of a call line (TTW's `TTW_EnableRadioFix`) now compiles as a call that
+  reports "not built" instead of failing the unit (`Seed::unknown_calls`, the engine
+  only).
+- **The source-compile rule** missed units whose bytes call extender opcodes below the
+  highest one the table knows; it now asks whether the table has the opcode.
+
+Before: 14,392 script errors and 1,044 unreadable calls in 30 s. After: none; what is
+left is functions not built, ranked by calls at run time:
+
+| Calls / 1,800 frames | Function (origin) | Task |
+|---|---|---|
+| 10,806 · 7,200 · 5,401 · 3,600 | IsButtonPressed, GetController, GetLeftTrigger, GetRightTrigger (LU) | N8 |
+| 2,313 | GetWaterImmersionPerc (JIP) | N7 |
+| ~1,800 each | IsInKillCam, GetPCUsingScope, GetPCUsingIronSights, GetAutoMove, GetActorVelocity, IsIdlePlayingEx (JIP) | N7 |
+| 258 · 240 | GetCurrentWeather, ModelHasBlock (JIP) | N4, N6 |
+| 65 · 53 · 36 | SetNthPerkEntryValue1, GetINIFloatOrCreate_Cached, GetINIFloat | N7, N3 |

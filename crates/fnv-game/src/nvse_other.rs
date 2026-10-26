@@ -106,18 +106,32 @@ impl<'a> Game<'a> {
         self.package_overrides.insert(p, leaked);
     }
 
-    /// A form's record flags, SetFlagsLow/High's change first. A form from a master file
-    /// also has bits 0 and 3 (ESM, and "form cannot be saved" at run time) [observed:
-    /// nvse-seventh, the 10mm pistol 9 though its record has none, Doc's reference 1097
-    /// with 1024 in its record; hypothesis: the 64 of Doc's reference is not known].
+    /// A form's record flags, SetFlagsLow/High's change first, with the bits the game
+    /// sets at run time [observed: nvse-seventh and nvse-flags]:
+    /// - a form from a master file has bits 0 and 3 (ESM, "form cannot be saved"): the
+    ///   10mm pistol 9 though its record has none;
+    /// - an actor that has talked to the player has bit 6 (0x40): Doc and Ringo 1097,
+    ///   Chet, Sunny and Easy Pete 1033, none with 0x40 in its record (a REFR keeps its
+    ///   record's 0x40); hypothesis: the game keeps the same state as GetTalkedToPC;
+    /// - the player reads 0x408;
+    /// - a reference made at run time reads 0x108 (PlaceAtMe'd creature 264), with 0x400
+    ///   for an NPC (1288).
     fn record_flags(&self, f: FormId) -> u32 {
         if let Some(&v) = self.other.flags.get(&f) {
             return v;
         }
+        if f == FormId::PLAYER_REF {
+            return 0x408;
+        }
+        if self.world.placed.get(f).is_none() && self.world.peek(f).is_some() {
+            let npc = self.world.peek(f).is_some_and(|s| self.data.sig(s.base) == Some(*b"NPC_"));
+            return 0x108 | if npc { 0x400 } else { 0 };
+        }
         let f = self.unclone(f);
         let own = self.data.form_flags.get(&f).copied().unwrap_or(0);
         let master = self.data.load_order.get((f.0 >> 24) as usize).is_some_and(|p| p.to_ascii_lowercase().ends_with(".esm"));
-        own | if master { 0x9 } else { 0 }
+        let talked = self.extra.get(&f).is_some_and(|e| e.talked_to_pc);
+        own | if master { 0x9 } else { 0 } | if talked { 0x40 } else { 0 }
     }
 
     /// A base form's script, RemoveScript's and SetScript's changes first.

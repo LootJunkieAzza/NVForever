@@ -53,6 +53,11 @@ pub trait Env {
 pub struct Seed<'a> {
     pub variables: &'a [VarDecl],
     pub refs: &'a [RefSlot],
+    /// A call line that starts with a name nothing knows compiles as a call of that name
+    /// (it reports "not built" when it runs), so one undocumented plugin function does
+    /// not cost a mod's whole script [decision: for the engine's compile of mods' source;
+    /// the editor-parity compile keeps the error].
+    pub unknown_calls: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

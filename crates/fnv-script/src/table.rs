@@ -387,3 +387,20 @@ impl FunctionTable {
         self.enums.get(kind)?.get(&code).map(String::as_str)
     }
 }
+
+/// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
+/// `schemas/fnv/common.json`].
+pub const AV_NAMES: [&str; 77] = [
+    "Aggression", "Confidence", "Energy", "Responsibility", "Mood", "Strength", "Perception", "Endurance",
+    "Charisma", "Intelligence", "Agility", "Luck", "Action Points", "Carry Weight", "Critical Chance",
+    "Heal Rate", "Health", "Melee Damage", "Damage Resistance", "Poison Resistance", "Rad Resistance",
+    "Speed Multiplier", "Fatigue", "Karma", "XP", "Perception Condition", "Endurance Condition",
+    "Left Attack Condition", "Right Attack Condition", "Left Mobility Condition", "Right Mobility Condition",
+    "Brain Condition", "Barter", "Big Guns", "Energy Weapons", "Explosives", "Lockpick", "Medicine",
+    "Melee Weapons", "Repair", "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed",
+    "Inventory Weight", "Paralysis", "Invisibility", "Chameleon", "Night Eye", "Turbo", "Fire Resistance",
+    "Water Breathing", "Rad Level", "Bloody Mess", "Unarmed Damage", "Assistance", "Electric Resistance",
+    "Frost Resistance", "Energy Resistance", "EMP Resistance", "Variable01", "Variable02", "Variable03",
+    "Variable04", "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
+    "Ignore Crippled Limbs", "Dehydration", "Hunger", "Sleep Deprivation", "Damage Threshold",
+];

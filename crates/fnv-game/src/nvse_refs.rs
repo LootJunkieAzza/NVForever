@@ -74,7 +74,9 @@ impl Game<'_> {
                 let open = loaded.contains(&c);
                 self.refs_in_cell(c, taken).into_iter().filter(move |&r| open || self.persistent(r))
             })
-            .filter(|&r| self.ref_of_type(r, code))
+            // The player is not in the walk [observed: nvse-eighth, GetFirstRef 200 in the
+            // player's cell skips the player].
+            .filter(|&r| r != FormId::PLAYER_REF && self.ref_of_type(r, code))
             .collect()
     }
 

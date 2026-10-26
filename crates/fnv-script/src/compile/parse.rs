@@ -87,7 +87,24 @@ fn extender(l: &Line) -> Option<Kw> {
         ("continue", None) => Some(Kw::Continue),
         _ => {
             let x = xtokens(&l.text);
-            let assigns = x.len() > 2 && x[0].kind == XKind::Word && x[1].kind == XKind::Op && MACRO_OPS.contains(&x[1].text.as_str());
+            // The target may be subscripted (`aEvent["Count"] = …`, `Q.aItem[i] = 0`)
+            // [observed: JustAssortedMods.esp's event handlers compile so in the original].
+            let mut depth = 0i32;
+            let mut at = None;
+            for (i, t) in x.iter().enumerate() {
+                match t.kind {
+                    XKind::LBracket => depth += 1,
+                    XKind::RBracket => depth -= 1,
+                    XKind::Op if depth == 0 && MACRO_OPS.contains(&t.text.as_str()) => {
+                        at = Some(i);
+                        break;
+                    }
+                    XKind::Word if depth == 0 && i == 0 => {}
+                    _ if depth > 0 => {}
+                    _ => break,
+                }
+            }
+            let assigns = x.len() > 2 && x[0].kind == XKind::Word && at.is_some_and(|i| i + 1 < x.len());
             assigns.then_some(Kw::Let(x))
         }
     }

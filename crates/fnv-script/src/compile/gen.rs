@@ -69,6 +69,8 @@ pub(super) struct Gen<'a> {
     /// The spelling each reference list entry was first used with.
     claims: Vec<Option<String>>,
     seeded: bool,
+    /// [`Seed::unknown_calls`].
+    unknown_calls: bool,
     /// Lower-case names of the locals the source declares `ref`.
     ref_vars: std::collections::HashSet<String>,
     /// Seed reference list forms by lower-case Editor ID.
@@ -129,11 +131,18 @@ impl<'a> Gen<'a> {
                 blocks.insert(alias.to_string(), c);
             }
         }
-        let enums = table
+        let mut enums: HashMap<String, HashMap<String, u16>> = table
             .enums
             .iter()
             .map(|(k, m)| (k.clone(), m.iter().map(|(c, n)| (n.to_ascii_lowercase(), *c)).collect()))
             .collect();
+        // Actor values the shipped scripts never name still have their names, without
+        // spaces (`IgnoreCrippledLimbs`) [documented: xEdit ActorValue, `AV_NAMES`;
+        // observed: JustAssortedMods.esp names IgnoreCrippledLimbs].
+        let av = enums.entry("actor_value".into()).or_default();
+        for (c, n) in crate::table::AV_NAMES.iter().enumerate() {
+            av.entry(n.replace(' ', "").to_ascii_lowercase()).or_insert(c as u16);
+        }
         let mut seed_edids = HashMap::new();
         if let Some(s) = seed {
             for r in s.refs {
@@ -151,6 +160,7 @@ impl<'a> Gen<'a> {
             refs: seed.map(|s| s.refs.to_vec()).unwrap_or_default(),
             claims: Vec::new(),
             seeded: seed.is_some(),
+            unknown_calls: seed.is_some_and(|s| s.unknown_calls),
             ref_vars: Default::default(),
             seed_edids,
             blocks,
