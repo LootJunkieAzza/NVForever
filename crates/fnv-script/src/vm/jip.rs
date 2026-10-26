@@ -86,6 +86,19 @@ pub const JIP_VERSION: f64 = 57.3;
 /// The plugin names JIP LN registers [documented: ext-version.md §2a].
 pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 
+/// The extender plugins NVForever reports as installed, by the name each registers, at
+/// the version the owner's game reports (the one whose behaviour NVForever's functions
+/// follow, extender-compat.md §5.7) [observed: the peer's lu-leveled and mcm sets,
+/// nvse.log and GetPluginVersion, 2026-10-26; names are matched without regard to case].
+pub const PLUGINS: [(&str, f64); 6] = [
+    ("JIP NVSE Plugin", JIP_VERSION),
+    ("JIP LN NVSE", JIP_VERSION),
+    ("ShowOffNVSE Plugin", 184.0),
+    ("kNVSE", 37.0),
+    ("JohnnyGuitarNVSE", 528.0),
+    ("MCM Extensions", 1.0),
+];
+
 impl Vm<'_, '_> {
     /// A JIP LN function by catalogue name; `None` when it is not built yet.
     pub(super) fn jip_function(&mut self, n: &str, c: &XCall) -> Result<Option<XVal>, VmError> {

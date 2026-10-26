@@ -1,0 +1,461 @@
+//! JIP LN / LU / JohnnyGuitar / ShowOff functions of the next batch (N7, N8, N9 of
+//! docs/handoff/nvse-next-batch.md) [documented: their pages; observed: the peer's
+//! player-state, jip-n7 and plugin-odds sets in the original game].
+
+use crate::game::{Game, RunCtx};
+use fnv_script::vm::{ArrayKind, XKey, XVal};
+use fnv_sim::FormId;
+use std::collections::{HashMap, HashSet};
+
+/// The gamepad as the engine tells it each frame, and what scripts changed of it
+/// [documented: the Controller Functions pages; observed: player-state, buttons are a
+/// bit mask and Enable/DisableButton take several at once]. Button bits: 4 is DPad Left
+/// [documented: IsButtonPressed]; the rest in the same pad's order, 1 up, 2 down, 8
+/// right, 0x10 Start, 0x20 Back, 0x40/0x80 the sticks, 0x100/0x200 the shoulders,
+/// 0x1000 A, 0x2000 B, 0x4000 X, 0x8000 Y [hypothesis: the probes used 4096 and 8192 as
+/// buttons].
+#[derive(Debug, Default, Clone)]
+pub struct Pad {
+    pub connected: bool,
+    pub buttons: u32,
+    /// Left, right, 0–1.
+    pub triggers: [f32; 2],
+    /// Left x, y; right x, y; −1–1.
+    pub sticks: [f32; 4],
+    pub disabled_buttons: u32,
+    pub disabled_triggers: [bool; 2],
+    pub disabled_sticks: [bool; 2],
+    pub held_buttons: u32,
+    pub held_triggers: [bool; 2],
+    /// The dead zones SetDeadZoneLS/RS set (`None`: the engine's own).
+    pub dead_zones: [Option<f32>; 2],
+}
+
+/// What the engine tells about the player each frame for these functions.
+#[derive(Debug, Default, Clone)]
+pub struct PlayerTold {
+    pub auto_move: bool,
+    /// Block held with a gun out (aiming down the sights).
+    pub aiming: bool,
+    pub pad: Pad,
+}
+
+/// This batch's session state.
+#[derive(Debug, Default)]
+pub struct Jip2State {
+    pub told: PlayerTold,
+    /// AssignKeyword's keywords, lower case, by base form.
+    pub keywords: HashMap<FormId, HashSet<String>>,
+    /// SetHardcoreStageThreshold's thresholds.
+    pub stage_thresholds: HashMap<FormId, u32>,
+    pub hardcore_tracking_off: bool,
+    /// SetNthPerkEntryValue1's values: (perk, entry index).
+    pub perk_values: HashMap<(FormId, usize), f32>,
+    /// SetLinkedReference's links (`None`: cleared back to the record's).
+    pub links: HashMap<FormId, FormId>,
+    /// Actors GetActorVelocity follows: last position and the velocity from it.
+    pub velocity: HashMap<FormId, ([f32; 3], [f32; 3])>,
+    pub velocity_time: f64,
+    /// ShowOff's aux timers: (owner, name lower case) -> (seconds left, started at, paused).
+    pub timers: HashMap<(FormId, String), (f64, f64, bool)>,
+    /// JohnnyGuitar's extra misc stats.
+    pub misc_stats: HashMap<String, f64>,
+}
+
+fn form(args: &[XVal], k: usize) -> Option<FormId> {
+    match args.get(k)? {
+        XVal::Ref(0) => None,
+        XVal::Ref(r) => Some(FormId(*r)),
+        XVal::Num(x) if *x >= 1.0 && x.fract() == 0.0 => Some(FormId(*x as u32)),
+        _ => None,
+    }
+}
+
+fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
+    match args.get(k) {
+        Some(XVal::Num(x)) => *x,
+        _ => dflt,
+    }
+}
+
+fn text(args: &[XVal], k: usize) -> String {
+    match args.get(k) {
+        Some(XVal::Str(s)) => s.clone(),
+        _ => String::new(),
+    }
+}
+
+fn yes(b: bool) -> XVal {
+    XVal::Num(f64::from(u8::from(b)))
+}
+
+impl Game<'_> {
+    /// GetActorVelocity's followed actors move on (`Game::tick`).
+    pub(crate) fn track_velocity(&mut self) {
+        let dt = self.time - self.jip2.velocity_time;
+        self.jip2.velocity_time = self.time;
+        if self.jip2.velocity.is_empty() || dt <= 0.0 {
+            return;
+        }
+        let actors: Vec<FormId> = self.jip2.velocity.keys().copied().collect();
+        for a in actors {
+            let Some((p, _)) = self.ref_pos_rot(a) else { continue };
+            if let Some((last, v)) = self.jip2.velocity.get_mut(&a) {
+                *v = [0, 1, 2].map(|i| ((p[i] - last[i]) as f64 / dt) as f32);
+                *last = p;
+            }
+        }
+    }
+
+    /// Put a reference at a place, as MoveTo does (`functions::refs::move_ref`).
+    fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
+        let cell = cell.map(|c| self.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
+        let Ok(s) = self.world.get(r) else { return false };
+        s.cell = cell;
+        s.pos = pos;
+        if r != FormId::PLAYER_REF {
+            s.rot = rot;
+        }
+        if self.ref_script(r).is_some() {
+            self.moved.insert(r);
+        }
+        if r != FormId::PLAYER_REF {
+            self.teleported.insert(r);
+            if !crate::ai::is_actor_base(self.world.forms, crate::functions::base_of(self, r).unwrap_or(FormId(0))) {
+                self.turned.insert(r);
+            }
+        }
+        true
+    }
+
+    fn aux_timer_now(&self) -> f64 {
+        self.time
+    }
+}
+
+/// The functions of this file; `None` for any other name.
+pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+    let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
+    let zero = XVal::Num(0.0);
+    let pad = g.jip2.told.pad.clone();
+    let v = match name {
+        // ---- the gamepad (N8) ----
+        "getcontroller" => yes(pad.connected),
+        "getpressedbuttons" => XVal::Num(f64::from(pad.buttons | pad.held_buttons)),
+        "isbuttonpressed" => {
+            let m = num(args, 0, 0.0) as i64 as u32;
+            yes(m != 0 && (pad.buttons | pad.held_buttons) & m != 0)
+        }
+        "getlefttrigger" => XVal::Num(f64::from(if pad.held_triggers[0] { 1.0 } else { pad.triggers[0] })),
+        "getrighttrigger" => XVal::Num(f64::from(if pad.held_triggers[1] { 1.0 } else { pad.triggers[1] })),
+        "getleftstickx" => XVal::Num(f64::from(pad.sticks[0])),
+        "getleftsticky" => XVal::Num(f64::from(pad.sticks[1])),
+        "getrightstickx" => XVal::Num(f64::from(pad.sticks[2])),
+        "getrightsticky" => XVal::Num(f64::from(pad.sticks[3])),
+        "disablebutton" | "enablebutton" => {
+            let m = num(args, 0, 0.0) as i64 as u32;
+            let d = &mut g.jip2.told.pad.disabled_buttons;
+            if name == "disablebutton" { *d |= m } else { *d &= !m }
+            zero
+        }
+        "isbuttondisabled" => yes(pad.disabled_buttons & (num(args, 0, 0.0) as i64 as u32) != 0),
+        "holdbutton" | "releasebutton" | "tapbutton" => {
+            let m = num(args, 0, 0.0) as i64 as u32;
+            let h = &mut g.jip2.told.pad.held_buttons;
+            if name == "releasebutton" { *h &= !m } else { *h |= m }
+            zero
+        }
+        "isbuttonheld" => yes(pad.held_buttons & (num(args, 0, 0.0) as i64 as u32) != 0),
+        "disabletrigger" | "enabletrigger" | "istriggerdisabled" | "holdtrigger" | "releasetrigger" | "taptrigger" | "istriggerheld" => {
+            let k = usize::from(num(args, 0, 0.0) != 0.0);
+            let p = &mut g.jip2.told.pad;
+            match name {
+                "disabletrigger" => p.disabled_triggers[k] = true,
+                "enabletrigger" => p.disabled_triggers[k] = false,
+                "holdtrigger" | "taptrigger" => p.held_triggers[k] = true,
+                "releasetrigger" => p.held_triggers[k] = false,
+                "istriggerdisabled" => return Some(Ok(yes(p.disabled_triggers[k]))),
+                _ => return Some(Ok(yes(p.held_triggers[k]))),
+            }
+            zero
+        }
+        "setstickdisabled" => {
+            let k = usize::from(num(args, 0, 0.0) != 0.0);
+            g.jip2.told.pad.disabled_sticks[k] = num(args, 1, 0.0) != 0.0;
+            zero
+        }
+        "isstickdisabled" => yes(pad.disabled_sticks[usize::from(num(args, 0, 0.0) != 0.0)]),
+        "getdeadzonels" | "getdeadzoners" => XVal::Num(f64::from(pad.dead_zones[usize::from(name.ends_with("rs"))].unwrap_or(0.0))),
+        "setdeadzonels" | "setdeadzoners" => {
+            g.jip2.told.pad.dead_zones[usize::from(name.ends_with("rs"))] = Some(num(args, 0, 0.0) as f32);
+            zero
+        }
+        // ---- the player's state (sweep ranking) ----
+        "getautomove" => yes(g.jip2.told.auto_move),
+        // Aiming with a gun whose record has a scope model (MOD3) is the scope, without
+        // one the iron sights [hypothesis].
+        "getpcusingscope" | "getpcusingironsights" => {
+            let w = crate::functions::items::equipped_weapon(g, FormId::PLAYER_REF);
+            let scoped = w.is_some_and(|w| matches!(crate::nvse::record_value(g, w, "MOD3", ""), Some(XVal::Str(s)) if !s.is_empty()));
+            let aiming = g.jip2.told.aiming && w.is_some();
+            yes(aiming && (scoped == (name == "getpcusingscope")))
+        }
+        // NVForever has no kill camera [hypothesis: VATS and its kill cam are not built].
+        "isinkillcam" => zero,
+        "isincharGen" | "isinchargen" => zero,
+        // In water: the physics' swimming state [hypothesis: wading is not told];
+        // immersion 1 when swimming, else 0 [hypothesis].
+        "isinwater" | "getwaterimmersionperc" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            yes(g.senses.motion.get(&a).is_some_and(|m| m.swimming))
+        }
+        "isinair" => zero,
+        // Units per second on the axis (none given: the speed), measured frame to frame
+        // from the first call on [hypothesis: the first call gives 0].
+        "getactorvelocity" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let here = g.ref_pos_rot(a).map(|p| p.0).unwrap_or([0.0; 3]);
+            let v = g.jip2.velocity.entry(a).or_insert((here, [0.0; 3])).1;
+            let axis = match args.first() {
+                Some(XVal::Str(s)) => s.to_ascii_uppercase(),
+                Some(XVal::Num(n)) => match *n as i64 { 88 => "X".into(), 89 => "Y".into(), 90 => "Z".into(), _ => String::new() },
+                _ => String::new(),
+            };
+            XVal::Num(f64::from(match axis.as_str() {
+                "X" => v[0],
+                "Y" => v[1],
+                "Z" => v[2],
+                _ => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
+            }))
+        }
+        "isidleplayingex" => {
+            let a = subject.unwrap_or(FormId(0));
+            yes(form(args, 0).is_some_and(|i| g.idle_playing(a) == Some(i)))
+        }
+        "getcurrentweather" => XVal::Ref(g.weather.request.map(|r| r.weather).or(g.weather.shown).map_or(0, |w| w.0)),
+        // ---- N7: actors and the game ----
+        // Keywords: any text, without regard to case, on the base form; a form list
+        // assigns to its members [observed: jip-n7].
+        "assignkeyword" | "haskeyword" | "removekeyword" => {
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+            let k = text(args, 1).to_ascii_lowercase();
+            let targets: Vec<FormId> = if g.data.sig(f) == Some(*b"FLST") { crate::functions::list_members(g, f) } else { vec![base(g, f)] };
+            match name {
+                "haskeyword" => return Some(Ok(yes(g.jip2.keywords.get(&base(g, f)).is_some_and(|s| s.contains(&k))))),
+                "assignkeyword" => {
+                    for t in targets {
+                        g.jip2.keywords.entry(t).or_default().insert(k.clone());
+                    }
+                }
+                _ => {
+                    for t in targets {
+                        if let Some(s) = g.jip2.keywords.get_mut(&t) {
+                            s.remove(&k);
+                        }
+                    }
+                }
+            }
+            zero
+        }
+        // [observed: Water2 400, Rad1 200, a form that is no stage 0]
+        "gethardcorestagethreshold" => {
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+            let t = g.jip2.stage_thresholds.get(&f).copied().or_else(|| g.data.need_stages.values().flatten().find(|s| s.stage == f).map(|s| s.threshold));
+            XVal::Num(f64::from(t.unwrap_or(0)))
+        }
+        "sethardcorestagethreshold" => {
+            if let Some(f) = form(args, 0) {
+                g.jip2.stage_thresholds.insert(f, num(args, 1, 0.0).max(0.0) as u32);
+            }
+            zero
+        }
+        // Gives 0 either way [observed]; the switch is kept [hypothesis: needs read it].
+        "togglehardcoretracking" => {
+            g.jip2.hardcore_tracking_off = num(args, 0, 1.0) == 0.0;
+            zero
+        }
+        // The base's VTCK; the setter changes the base [observed: read back on the ref and
+        // the base].
+        "getactorvoicetype" | "setactorvoicetype" => {
+            let set = name == "setactorvoicetype";
+            let b = form(args, usize::from(set)).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            if set {
+                if let Some(v) = form(args, 0) {
+                    g.field_overrides.insert((b, "VTCK/".into()), XVal::Ref(v.0));
+                }
+                zero
+            } else {
+                match crate::nvse::record_value(g, b, "VTCK", "") {
+                    Some(XVal::Ref(r)) => XVal::Ref(r),
+                    Some(XVal::Str(s)) => XVal::Ref(u32::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0)),
+                    _ => XVal::Ref(0),
+                }
+            }
+        }
+        // ACBS karma [observed: Doc 500]; SetBaseKarma `value [base]` works with the base
+        // given or on a reference, not called on a base [observed].
+        "getbasekarma" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            match crate::nvse::record_value(g, b, "ACBS", "karma") {
+                Some(XVal::Num(x)) => XVal::Num(x),
+                _ => zero,
+            }
+        }
+        "setbasekarma" => {
+            let target = form(args, 1).or(subject.filter(|s| g.world.placed.get(*s).is_some() || g.world.peek(*s).is_some()));
+            if let Some(b) = target.map(|f| base(g, f)) {
+                g.field_overrides.insert((b, "ACBS/karma".into()), XVal::Num(num(args, 0, 0.0)));
+            }
+            zero
+        }
+        // The Nth entry's number [observed: Toughness 0 gives 3, past the end -1].
+        "getnthperkentryvalue1" | "setnthperkentryvalue1" => {
+            let Some(p) = form(args, 0) else { return Some(Ok(XVal::Num(-1.0))) };
+            let Ok(i) = usize::try_from(num(args, 1, -1.0) as i64) else { return Some(Ok(XVal::Num(-1.0))) };
+            let rec = g.data.perks.get(&p).and_then(|d| d.entries.get(i)).map(|e| match &e.effect {
+                crate::data::PerkEffect::EntryPoint(ep) => ep.value,
+                _ => None,
+            });
+            match (name, rec) {
+                (_, None) => XVal::Num(-1.0),
+                ("getnthperkentryvalue1", Some(v)) => XVal::Num(f64::from(g.jip2.perk_values.get(&(p, i)).copied().or(v).unwrap_or(0.0))),
+                _ => {
+                    g.jip2.perk_values.insert((p, i), num(args, 2, 0.0) as f32);
+                    zero
+                }
+            }
+        }
+        // `entryPoint base [form1] [form2]`: the base through the actor's perks at that
+        // entry point [observed: 100 stays 100 for the player with no such perk].
+        "getperkmodifier" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let point = num(args, 0, -1.0);
+            let v = num(args, 1, 0.0);
+            match u8::try_from(point as i64) {
+                Ok(pt) => {
+                    let tabs = [form(args, 2), form(args, 3)];
+                    XVal::Num(g.entry_point_with(a, pt, &tabs, v).0)
+                }
+                Err(_) => XVal::Num(v),
+            }
+        }
+        // `name [form]`: the base's name [observed: on the base and on its references].
+        "lnsetname" => {
+            let Some(f) = form(args, 1).or(subject).map(|f| base(g, f)) else { return Some(Ok(zero)) };
+            g.name_overrides.insert(f, text(args, 0));
+            zero
+        }
+        "getkiller" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.killer).map_or(0, |k| k.0)),
+        "setspeedmult" => {
+            let a = subject.unwrap_or(FormId(0));
+            let v = num(args, 0, 100.0);
+            if let Err(e) = crate::functions::console::call_words(g, Some(a), "SetActorValue", &["SpeedMult".into(), format!("{v}")], "SetSpeedMult") {
+                return Some(Err(e));
+            }
+            zero
+        }
+        // No target: back to the record's [observed].
+        "setlinkedreference" => {
+            let Some(r) = subject else { return Some(Ok(zero)) };
+            match form(args, 0) {
+                Some(t) => g.jip2.links.insert(r, t),
+                None => g.jip2.links.remove(&r),
+            };
+            zero
+        }
+        "unequipitemalt" => {
+            let (Some(a), Some(i)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
+            let words = vec![format!("{:08X}", base(g, i).0), format!("{}", num(args, 1, 0.0) as i64), format!("{}", num(args, 2, 0.0) as i64)];
+            if let Err(e) = crate::functions::console::call_words(g, Some(a), "UnequipItem", &words, "UnequipItemAlt") {
+                return Some(Err(e));
+            }
+            zero
+        }
+        // The reference's record flags (GetFlagsLow's) [observed: Doc 64 and 1024 set].
+        "getreferenceflag" | "setreferenceflag" => {
+            let r = subject.unwrap_or(FormId(0));
+            let bit = num(args, 0, 0.0) as i64 as u32;
+            let v = crate::nvse_other::record_flags_of(g, r);
+            if name == "getreferenceflag" {
+                return Some(Ok(yes(v & bit != 0)));
+            }
+            let new = if num(args, 1, 0.0) != 0.0 { v | bit } else { v & !bit };
+            g.other.flags.insert(r, new);
+            zero
+        }
+        // The effect is cast on the reference at once [observed: health back the next
+        // frame].
+        "castimmediate" => {
+            let (Some(r), Some(s)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
+            let caster = form(args, 1).or(Some(r));
+            g.apply_magic_item(r, s, caster, false);
+            zero
+        }
+        // Back to where the record placed it [observed: Chet back in his cell; the player
+        // gives 0].
+        "movetoeditorposition" => {
+            let Some(r) = subject.filter(|&r| r != FormId::PLAYER_REF) else { return Some(Ok(zero)) };
+            let Some(p) = g.world.placed.get(r).cloned() else { return Some(Ok(zero)) };
+            let rot = if num(args, 0, 0.0) != 0.0 { p.rot } else { g.ref_pos_rot(r).map_or(p.rot, |x| x.1) };
+            yes(g.place_ref(r, p.cell, p.pos, rot))
+        }
+        // `cell x y z` [observed: GetParentCell is the cell the next frame].
+        "movetocell" => {
+            let (Some(r), Some(c)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
+            let rot = g.ref_pos_rot(r).map_or([0.0; 3], |x| x.1);
+            let pos = [num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32, num(args, 3, 0.0) as f32];
+            yes(g.place_ref(r, Some(c), pos, rot))
+        }
+        // ---- N9: JohnnyGuitar, ShowOff ----
+        // Not clamped [observed: t 1.5 gives 15 between 0 and 10].
+        "lerp" => {
+            let (a, b, t) = (num(args, 0, 0.0), num(args, 1, 0.0), num(args, 2, 0.0));
+            XVal::Num(a + (b - a) * t)
+        }
+        // The Pip-Boy's mode [hypothesis: 0 while it is closed, as observed].
+        "getpipboymode" => zero,
+        // [observed: an unknown stat is -1, and ModExtraMiscStat did not create one]
+        "getextramiscstat" => XVal::Num(g.jip2.misc_stats.get(&text(args, 0).to_ascii_lowercase()).copied().unwrap_or(-1.0)),
+        "modextramiscstat" => zero,
+        "setcamerashakenohudshudder" => zero,
+        // Aux timers: per owner (the player when none), counting down in game seconds
+        // [observed: plugin-odds].
+        "auxtimerstart" | "auxtimerstop" | "auxtimertimeleft" | "auxtimertimeelapsed" | "auxtimerpaused" => {
+            let owner = subject.unwrap_or(FormId::PLAYER_REF);
+            let key = (owner, text(args, 0).to_ascii_lowercase());
+            let now = g.aux_timer_now();
+            let left = |t: &(f64, f64, bool)| if t.2 { t.0 } else { (t.0 - (now - t.1)).max(0.0) };
+            match name {
+                "auxtimerstart" => {
+                    g.jip2.timers.insert(key, (num(args, 1, 0.0), now, false));
+                    XVal::Num(1.0)
+                }
+                "auxtimerstop" => yes(g.jip2.timers.remove(&key).is_some()),
+                "auxtimertimeleft" => XVal::Num(g.jip2.timers.get(&key).map_or(-1.0, left)),
+                "auxtimertimeelapsed" => XVal::Num(g.jip2.timers.get(&key).map_or(-1.0, |t| t.0 - left(t))),
+                _ => {
+                    // Gives whether it was paused before; a value pauses or resumes.
+                    let Some(t) = g.jip2.timers.get_mut(&key) else { return Some(Ok(XVal::Num(-1.0))) };
+                    let before = t.2;
+                    if let Some(XVal::Num(p)) = args.get(1) {
+                        let want = *p != 0.0;
+                        if want && !t.2 {
+                            t.0 = (t.0 - (now - t.1)).max(0.0);
+                        } else if !want && t.2 {
+                            t.1 = now;
+                        }
+                        t.2 = want;
+                    }
+                    yes(before)
+                }
+            }
+        }
+        "clearfilecacheshowoff" => zero,
+        _ => {
+            let _ = ctx;
+            return None;
+        }
+    };
+    let _ = (ArrayKind::List, XKey::Num(0.0));
+    Some(Ok(v))
+}

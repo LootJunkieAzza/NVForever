@@ -182,6 +182,11 @@ impl Game<'_> {
     }
 }
 
+/// A form's record flags as GetFlagsLow sees them (GetReferenceFlag).
+pub(crate) fn record_flags_of(g: &Game, f: FormId) -> u32 {
+    g.record_flags(f)
+}
+
 /// Whether a block's code calls the opcode anywhere, in statements or expressions (the
 /// decoded program, searched as data).
 fn calls_opcode(v: &serde_json::Value, op: u64) -> bool {

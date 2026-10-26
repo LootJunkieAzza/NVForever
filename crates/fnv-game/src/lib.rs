@@ -88,6 +88,7 @@ pub mod nvse_other;
 pub mod nvse_console;
 pub mod nvse_lists;
 pub mod nvse_leveled;
+pub mod nvse_jip2;
 pub mod nvse_settings;
 pub mod nvse_tokens;
 pub mod nvse_handler_lists;
