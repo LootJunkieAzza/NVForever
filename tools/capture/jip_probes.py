@@ -505,10 +505,44 @@ SETTER_PROBES = [
     _set("name.npc.ref.lngetname", "doc", 'SetName "NVF Doc" rF\nSetFunctionValue (rD.LNGetName)\nSetName "Doc Mitchell" rF', text=True),
 ]
 
+# Thirteenth set: packages, quest objectives, ownership, model and texture paths and the
+# raw form flags, on vanilla forms. Read-only. Ids ending in `.save` read state of the
+# loaded save (Doc Mitchell's current package, equipment, the player's perks), so a run
+# without the owner's save may differ there.
+def _m(pid, body, text=False):
+    return (pid, "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\n" + _form("rD", NF["docref"])
+            + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _mf(pid, key, expr, text=False):
+    return _m(pid, _form("rF", NF[key]) + f"SetFunctionValue ({expr})", text)
+
+
+MISC_PROBES = (
+    [_m("pkg.count", "SetFunctionValue (rD.GetPackageCount)"),
+     _m("pkg.nth0", "SetFunctionValue (GetFormIDString (rD.GetNthPackage 0))", True),
+     _m("pkg.nth1", "SetFunctionValue (GetFormIDString (rD.GetNthPackage 1))", True),
+     _m("pkg.nth0.location", "let rG := rD.GetNthPackage 0\nSetFunctionValue (GetFormIDString (GetPackageLocation rG))", True),
+     _m("pkg.nth0.distance", "let rG := rD.GetNthPackage 0\nSetFunctionValue (GetPackageTargetDistance rG)"),
+     _m("pkg.current.save", "SetFunctionValue (GetFormIDString (rD.GetCurrentPackage))", True),
+     _mf("obj.count", "vcg02", "GetQuestObjectiveCount rF")]
+    + [_mf(f"obj.nth{i}", "vcg02", f"GetNthQuestObjective rF {i}") for i in range(4)]
+    + [_m("owner.cell.docref", "SetFunctionValue (GetFormIDString (rD.GetParentCellOwner))", True),
+       _m("owner.rank.docref", "SetFunctionValue (rD.GetOwningFactionRequiredRank)"),
+       _m("equip.health.doc.save", "SetFunctionValue (rD.GetEquippedCurrentHealth 5)"),
+       _m("equip.modflags.doc.save", "SetFunctionValue (rD.GetEquippedWeaponModFlags)"),
+       _mf("perk.player.save", "actionboy", "rP.GetPerkRank rF"),
+       _mf("altperk.player.save", "actionboy", "rP.GetAltPerkRank rF")]
+    + [_mf(f"biped.leather.{c}", "leather", f"GetBipedModelPath {c} rF", True) for c in range(4)]
+    + [_mf(f"texture.{k}", k, "GetTexturePath rF", True) for k in ("pistol10", "stimpak", "actionboy", "caps")]
+    + [_mf(f"flags.{k}.{w}", k, f"GetFlags{w.capitalize()} rF") for k in ("pistol10", "caps", "doc", "leather", "vcg02")
+       for w in ("low", "high")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
-        "nvse-setters": SETTER_PROBES}
+        "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters"}

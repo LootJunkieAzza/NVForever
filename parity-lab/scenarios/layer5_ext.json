@@ -227,6 +227,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "setters"]
+  },
+  {
+   "id": "L5.ext.nvse.misc",
+   "layer": 5,
+   "description": "Packages, quest objectives, ownership, biped model and texture paths and raw form flags on vanilla forms, set nvse-misc of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save (Doc Mitchell's current package, equipment, the player's perks).",
+   "oracle": {"golden": "jip/nvse-misc.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_misc.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "misc"]
   }
  ]
 }
