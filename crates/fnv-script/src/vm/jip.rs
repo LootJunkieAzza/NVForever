@@ -274,6 +274,41 @@ impl Vm<'_, '_> {
                     },
                 }))
             }
+            // Names and text fields (jip-strings.md §3): a missing entry is "" [observed].
+            "lngetname" => {
+                let f = match (c.args.first(), &c.on) {
+                    (Some(a), _) => self.xeval(a)?.value()?.as_form(),
+                    (None, Some(e)) => self.xeval(e)?.value()?.as_form(),
+                    (None, None) => self.host.calling_ref(),
+                };
+                Ok(Some(XVal::Str(f.and_then(|f| self.host.form_text(f)).unwrap_or_default())))
+            }
+            "getformdescription" | "getloadscreentexture" | "getprojectilemuzzleflash" => {
+                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let sub = match n {
+                    "getformdescription" => "DESC",
+                    "getloadscreentexture" => "ICON",
+                    _ => "NAM1",
+                };
+                Ok(Some(match self.host.record_field(f, sub, "") {
+                    Some(XVal::Str(s)) => XVal::Str(s),
+                    _ => XVal::Str(String::new()),
+                }))
+            }
+            // [documented: GetObjectiveText; observed: objective 9999 gives ""].
+            "getobjectivetext" => {
+                let q = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let i = val(self, 1)?.num()? as i32;
+                Ok(Some(XVal::Str(self.host.objective_text(q, i).unwrap_or_default())))
+            }
+            // [documented: GetStringSetting; observed: `%d` left in].
+            "getstringsetting" => {
+                let s = text(val(self, 0)?).unwrap_or_default();
+                Ok(Some(match self.host.game_setting(&s) {
+                    Some(XVal::Str(t)) => XVal::Str(t),
+                    _ => XVal::Str(String::new()),
+                }))
+            }
             // [observed: projexpl.*, projlight.slug, ammoproj.*] form fields.
             "getprojectileexplosion" | "getprojectilelight" | "getammoprojectile" => {
                 let f = val(self, 0)?.value()?.as_form().unwrap_or(0);

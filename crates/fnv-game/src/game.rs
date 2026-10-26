@@ -4305,6 +4305,21 @@ impl Host for Exec<'_, '_> {
         })
     }
 
+    fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
+        use fnv_script::vm::XVal;
+        if let Some(v) = self.game.world.setting_f32(name) {
+            return Some(XVal::Num(f64::from(v)));
+        }
+        match self.game.world.forms.settings.get(&name.to_ascii_lowercase())? {
+            fnv_sim::settings::Setting::Str(s) => Some(XVal::Str(s.clone())),
+            _ => None,
+        }
+    }
+
+    fn objective_text(&mut self, quest: u32, index: i32) -> Option<String> {
+        self.game.data.quests.get(&FormId(quest))?.objectives.get(&index)?.text.clone()
+    }
+
     fn calling_ref(&mut self) -> Option<u32> {
         self.ctx.self_ref.map(|f| f.0)
     }
