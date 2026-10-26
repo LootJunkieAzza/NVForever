@@ -12,9 +12,24 @@ use std::collections::BTreeSet;
 pub const MOUSE_BASE: u16 = 256;
 /// The number of controls [documented: IsControlPressed, codes 0–27].
 pub const CONTROLS: usize = 28;
-/// What GetControl gives for a control without a key or button [hypothesis: the INI's
-/// "none" byte, FF].
-pub const UNBOUND: f64 = 255.0;
+/// What GetControl gives for a control without a key or button [observed: nvse-controls].
+pub const UNBOUND: f64 = -1.0;
+
+/// The controls' bindings until the engine gives its own (a headless run): the game's
+/// `[Controls]` values, `00 KK MM JJ` (key scancode, mouse button, FF none) [observed:
+/// the owner's FalloutPrefs.ini 2026-10-09, engine bindings.rs; nvse-controls gives the
+/// same keys and buttons].
+const DEFAULT_CONTROLS: [u32; CONTROLS] = [
+    0x0011FF13, 0x001FFF14, 0x001EFF17, 0x0020FF16, 0x00FF0011, 0x0012FF0A, 0x00380110, 0x0013FF0C, 0x001DFF08, 0x002AFFFF, 0x003AFFFF, 0x0010FFFF, 0x0039FF0D,
+    0x0021020F, 0x000FFF0B, 0x0014FF07, 0x002FFF0E, 0x0002FFFF, 0x0003FF01, 0x0004FFFF, 0x0005FFFF, 0x0006FFFF, 0x0007FFFF, 0x0008FFFF, 0x0009FFFF, 0x003FFFFF,
+    0x0043FFFF, 0x002CFF09,
+];
+
+fn default_binding(c: usize) -> (Option<u16>, Option<u16>) {
+    let v = DEFAULT_CONTROLS[c];
+    let (k, m) = ((v >> 16) & 0xFF, (v >> 8) & 0xFF);
+    ((k != 0xFF).then_some(k as u16), (m != 0xFF).then_some(MOUSE_BASE + m as u16))
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ScriptInput {
@@ -33,7 +48,8 @@ pub struct ScriptInput {
 
 impl ScriptInput {
     fn binding(&self, control: i64) -> (Option<u16>, Option<u16>) {
-        usize::try_from(control).ok().and_then(|c| self.bindings.get(c)).copied().unwrap_or_default()
+        let Some(c) = usize::try_from(control).ok().filter(|&c| c < CONTROLS) else { return (None, None) };
+        self.bindings.get(c).copied().unwrap_or_else(|| default_binding(c))
     }
 
     /// Disabled by DisableKey, or bound to a control DisableControl disabled
@@ -91,11 +107,16 @@ pub(crate) fn call(input: &mut ScriptInput, name: &str, args: &[XVal]) -> Option
             let (k, m) = input.binding(int(args, 0, -1));
             yes([k, m].into_iter().flatten().any(|c| input.pressed(c, ignore)))
         }
-        // `GetControl control [type]`: 0 the key, 1 the mouse button [documented].
-        "getcontrol" | "getaltcontrol" => {
+        // `GetControl control [type]`: 0 the key, 1 the mouse button as 256 + n;
+        // GetAltControl the bare button n [documented; observed: nvse-controls].
+        "getcontrol" => {
             let (k, m) = input.binding(int(args, 0, -1));
-            let mouse = name == "getaltcontrol" || int(args, 1, 0) == 1;
-            XVal::Num((if mouse { m } else { k }).map_or(UNBOUND, f64::from))
+            let v = if int(args, 1, 0) == 1 { m } else { k };
+            XVal::Num(v.map_or(UNBOUND, f64::from))
+        }
+        "getaltcontrol" => {
+            let (_, m) = input.binding(int(args, 0, -1));
+            XVal::Num(m.map_or(UNBOUND, |m| f64::from(m - MOUSE_BASE)))
         }
         // The n-th key held, in scancode order [hypothesis: the order is open]; -1 when
         // fewer are held [hypothesis].

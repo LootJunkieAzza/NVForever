@@ -150,6 +150,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             "getarmorarmorrating" => Some(("DNAM", "dr")),
             "getarmordt" => Some(("DNAM", "dt")),
             "getammoconsumedpercent" => Some(("DAT2", "consumed_percentage")),
+            // [observed: nvse-setters, SetObjectHealth 123 then GetBaseHealth 123].
+            "getobjecthealth" => Some(("DATA", "health")),
             g2 => weapon_field(g2),
         };
         if let (Some((sub, path)), Some(v)) = (target, value) {
@@ -363,7 +365,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         "getrace" => {
             let a = subject.or(as_form(args.first())).unwrap_or(FormId(0));
             let own = (a != FormId::PLAYER_REF && g.extra.get(&a).and_then(|e| e.race).is_none())
-                .then(|| crate::functions::base_of(g, a).and_then(|b| g.data.actors.get(&b)).and_then(|d| d.race))
+                .then(|| crate::functions::base_of(g, a).and_then(|b| match field(g, b, "RNAM", "") {
+                    Some(XVal::Ref(r)) if r != 0 => Some(FormId(r)),
+                    _ => None,
+                }))
                 .flatten();
             XVal::Ref(own.or_else(|| g.actor_race(a)).map_or(0, |r| r.0))
         }
@@ -405,10 +410,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 "getnpcheight" => "NAM6",
                 _ => "NAM7",
             };
-            num_of(field(g, item(g, 0).unwrap_or(FormId(0)), sub, ""))
+            match num_of(field(g, item(g, 0).unwrap_or(FormId(0)), sub, "")) {
+                // A height of 0 in the record reads 1 [observed: nvse-actors, Doc, Sunny
+                // and Trudy].
+                XVal::Num(x) if name == "getnpcheight" && x == 0.0 => XVal::Num(1.0),
+                v => v,
+            }
         }
-        // `GetHairColor which [npc]`: 1 red, 2 green, 3 blue, 0 all as 0xRRGGBB
-        // [hypothesis: how "all" packs the three is not shown].
+        // `GetHairColor which [npc]`: 1 red, 2 green, 3 blue, 0 all packed as
+        // red + green × 256 + blue × 65536 [observed: nvse-actors, Doc 191/183/183 gives
+        // 12040127].
         "gethaircolor" => {
             let a = item(g, 1).unwrap_or(FormId(0));
             let c = |k: &str| match field(g, a, "HCLR", k) {
@@ -419,7 +430,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 1 => c("red"),
                 2 => c("green"),
                 3 => c("blue"),
-                _ => c("red") * 65536.0 + c("green") * 256.0 + c("blue"),
+                _ => c("red") + c("green") * 256.0 + c("blue") * 65536.0,
             })
         }
         // The ACBS flags' low and high 16 bits [hypothesis from the names].
@@ -432,6 +443,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         }
         // [documented: GetNumRanks; GetNthFactionRankName] a faction's ranks.
         "getnumranks" => XVal::Num(g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0))).len() as f64),
+        // [documented: GetFactionRankNames; GetFactionRankFemaleNames; observed:
+        // nvse-actors, BoS 8 names, [0] "Squire"] the titles as an array.
+        "getfactionranknames" | "getfactionrankfemalenames" => {
+            let ranks = g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0)));
+            let female = name.contains("female");
+            let entries = ranks.into_iter().enumerate().map(|(i, r)| (fnv_script::vm::XKey::Num(i as f64), XVal::Str(if female { r.1 } else { r.0 }))).collect();
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+        }
         "getnthfactionrankname" => {
             let ranks = g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0)));
             let r = usize::try_from(int_of(args.get(1), -1)).ok().and_then(|i| ranks.get(i));

@@ -91,7 +91,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let t = subject.and_then(|r| g.world.placed.get(r)).and_then(|p| p.teleport.as_ref()).map(|t| t.door);
             match name {
                 "getlinkeddoor" => XVal::Ref(t.map_or(0, |d| d.0)),
-                "getteleportcell" => XVal::Ref(t.and_then(|d| g.cell_of(d)).map_or(0, |c| c.0)),
+                // An exterior destination gives no cell [observed: nvse-actors, Doc's
+                // house door].
+                "getteleportcell" => XVal::Ref(t.filter(|&d| g.world.worldspace_of(d).is_none()).and_then(|d| g.cell_of(d)).map_or(0, |c| c.0)),
                 _ => yes(t.is_some()),
             }
         }
