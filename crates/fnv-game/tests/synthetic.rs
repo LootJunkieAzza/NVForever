@@ -1961,3 +1961,21 @@ fn a_string_variable_named_in_a_plain_string_parameter_is_its_name() {
     let q = "string_var s\nref r\nBegin Function { }\nlet s := \"nvfKey\"\nlet r := PlayerREF\nSetEditorID r s\nSetFunctionValue (EditorIDToFormID \"s\")\nEnd\n";
     assert_eq!(g.run_query(q, ctx()).unwrap(), XVal::Ref(0x14), "the editor ID is the text \"s\"");
 }
+
+#[test]
+fn main_loop_callbacks_of_function_scripts_outlive_a_load_unless_flag_8() {
+    // [documented: SetGameMainLoopCallback, 8 "auto-remove on load game"] TestSet sets
+    // TestGlobal to its parameter, 0 when called with none.
+    for (flags, ran) in [(1, true), (9, false)] {
+        let f = udf_fixture();
+        let mut g = game(&f);
+        g.run_source(&format!("SetGameMainLoopCallback TestSet 1 1 {flags}"), Default::default()).unwrap();
+        let session = g.take_session();
+        let mut g2 = game(&f);
+        g2.put_session(session);
+        g2.run_source("set TestGlobal to 5", Default::default()).unwrap();
+        g2.tick();
+        let v = g2.world.global(FormId(0x0000_0800)).unwrap();
+        assert_eq!(v == 0.0, ran, "flags {flags}: the callback {} after the load", if ran { "runs" } else { "is gone" });
+    }
+}

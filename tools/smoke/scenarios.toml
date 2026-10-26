@@ -9777,6 +9777,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-blocks-mirror"
+source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf blocks first %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12:PrintC \"nvf blocks %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12.5:PrintC \"nvf parents %g\", (Ar_Size (RingoRef.GetNifBlockParentNodes \"Bip01 Head\"));13:RingoRef.SetNifBlockScale \"Bip01 Head\" 1.5;14:PrintC \"nvf scale %.2f\", (RingoRef.GetNifBlockScale \"Bip01 Head\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'script: print "nvf blocks [1-9][0-9]*"', label = "the second call reads Ringo's Bip01 children from the mirror" },
+  { re = 'script: print "nvf parents [1-9]"', label = "the head has parent nodes" },
+  { re = 'script: print "nvf scale 1.50"', label = "a set scale holds over the animation and reads back" },
+]
+
+[[scenario]]
+name = "knvse-anim-replace"
+source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_anim.rs", "engine/nvforever/src/anim_paths.rs", "engine/nvforever/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf set %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters\\_male\\locomotion\\mtidle.kf\");13:PrintC \"nvf unset %g\", (RingoRef.SetActorAnimationPath 0 0 \"characters\\_male\\locomotion\\mtidle.kf\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf set 1"', label = "the file is there: the setter gives 1" },
+  { re = 'anim paths: 00104C7D plays 1 replaced move', label = "Ringo plays from his own set with Idle replaced" },
+  { re = 'script: print "nvf unset 1"', label = "taking it back gives 1" },
+]
+
+[[scenario]]
 name = "script-input-keys"
 source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
 areas = ["console", "scripts", "input"]

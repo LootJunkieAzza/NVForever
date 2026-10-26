@@ -1019,6 +1019,8 @@ pub struct Game<'a> {
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
     pub anim_paths: crate::nvse_anim::AnimPaths,
+    /// The node trees scripts asked about, as the engine tells them (`crate::nif_blocks`).
+    pub scene: crate::nif_blocks::SceneMirror,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
@@ -1536,6 +1538,10 @@ struct LambdaDef<'a> {
 /// What lasts for the session across a load ([`Game::take_session`]).
 pub struct Session {
     handlers: Vec<Handler>,
+    /// SetGameMainLoopCallback's callbacks of function scripts without flag 8
+    /// [documented: SetGameMainLoopCallback, 8 "auto-remove on load game"; observed:
+    /// save-read, runtime lambdas did not run after a load, flag 8 or not].
+    main_loop: Vec<crate::jip_events::MainLoop>,
     restarted_seen: BTreeSet<String>,
     handler_seq: u64,
 }
@@ -1647,6 +1653,7 @@ impl<'a> Game<'a> {
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
+            scene: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -2369,12 +2376,24 @@ impl<'a> Game<'a> {
             .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
             .cloned()
             .collect();
-        Session { handlers, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
+        let main_loop = self
+            .jip
+            .main_loop
+            .iter()
+            .filter(|m| m.flags & 8 == 0 && matches!(m.func, fnv_script::vm::XVal::Ref(f) if f < LAMBDA_BASE))
+            .cloned()
+            .map(|mut m| {
+                m.due = 0;
+                m
+            })
+            .collect();
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
     pub fn put_session(&mut self, s: Session) {
         self.handlers = s.handlers;
+        self.jip.main_loop = s.main_loop;
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
     }

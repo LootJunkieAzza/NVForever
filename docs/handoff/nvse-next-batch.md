@@ -115,4 +115,5 @@ left is functions not built, ranked by calls at run time:
 | N2 | Outside the pause menu MCM's functions give 0 [observed]; the in-menu rows wait on a way to open StartMenu (UI T7). |
 | N11 | Events sent at the points they happen: OnEquip/OnUnequip/OnActorUnequip, OnActorEquip, OnDrop, OnEnable/OnDisable, OnHit, OnHitWith, OnMagicEffectHit, OnLoad, OnPackageStart/Done/Change, OnCombatEnd, OnStartCombat (through `Game::ref_event`); OnAdd not sent for AddItem [observed]; OnSell not yet. |
 | N13 | TestExpr, GetFalloutDirectory, GetSoldItemInvRef, GetPaired (0, no tokens), GetCurrentQuestObjectiveTeleportLinks (targets, no doors); GetCalculatedWeaponDamage and PrintVar's names open. |
-| N6, N12 | Open (N6 probed: set nif-blocks). |
+| N6 | Done (fc35f2d8, docs/design/nif-blocks.md): the mirror and the engine bridge; AttachModel not drawn yet. |
+| N12 | Done: the peer's save-set/save-read rules hold (ext-save.md §7); main-loop callbacks of function scripts carry over a load. |
