@@ -91,6 +91,29 @@ pub enum ExtCmd {
         #[arg(long)]
         start_cell: Option<String>,
     },
+    /// Write the compiled script units that have no source text (route 1 input) to a
+    /// directory: each unit's bytes as `<n>.scda`, and `units.json` with its plugin, owner,
+    /// header, variables, references and whether its bytes call extender opcodes. Keep the
+    /// directory private: it holds a plugin's compiled scripts.
+    Units {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Layer 1 schema directory (schemas/fnv).
+        #[arg(long)]
+        schema: PathBuf,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Output directory (created).
+        #[arg(long)]
+        dump: PathBuf,
+        /// Only units of this plugin (file name, any case).
+        #[arg(long)]
+        plugin: Option<String>,
+        /// Also write units that do have source text.
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
@@ -149,7 +172,48 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let trace = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
             Ok(queries_doc(&set, &trace))
         }
+        ExtCmd::Units { lo, schema, functions, dump, plugin, all } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let (units, _) = read_load_order(&order, &schema);
+            dump_units(&units, &table, plugin.as_deref(), all, &dump)
+        }
     }
+}
+
+/// The units `ext units` writes: with compiled bytes, without source unless `all`, of
+/// `plugin` when given.
+pub(crate) fn units_to_dump<'a>(units: &'a [ScriptUnit], plugin: Option<&str>, all: bool) -> Vec<&'a ScriptUnit> {
+    units
+        .iter()
+        .filter(|u| u.has_scda && (all || u.source.is_none()))
+        .filter(|u| plugin.is_none_or(|p| u.plugin.eq_ignore_ascii_case(p)))
+        .collect()
+}
+
+fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>, all: bool, dir: &Path) -> anyhow::Result<Value> {
+    std::fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
+    let mut index = Vec::new();
+    for (n, u) in units_to_dump(units, plugin, all).into_iter().enumerate() {
+        let file = format!("{n:04}.scda");
+        std::fs::write(dir.join(&file), &u.bytes).with_context(|| file.clone())?;
+        index.push(json!({
+            "file": file,
+            "key": u.key(),
+            "plugin": u.plugin,
+            "owner": u.owner.label(),
+            "has_source": u.source.is_some(),
+            "bytes": u.bytes.len(),
+            "uses_extender": bytecode_uses_extender(&u.bytes, table),
+            "unit": u,
+        }));
+    }
+    let doc = json!({"format": "fnv.ext.units/1", "units": index});
+    std::fs::write(dir.join("units.json"), serde_json::to_string_pretty(&doc)?).context("units.json")?;
+    Ok(json!({"dir": dir.display().to_string(), "units": doc["units"].as_array().map_or(0, |a| a.len())}))
 }
 
 /// The probe set of a query job (its name with `_` as `-`, as jip_probes.py names the
@@ -658,6 +722,29 @@ End
         for (k, n) in [("let", 4), ("assign", 3), ("compound", 1), ("if_eval", 1), ("string_var", 1), ("array_var", 1), ("begin_override", 1), ("subscript", 1), ("member", 0)] {
             assert_eq!(syn[k].as_u64(), Some(n), "{k}");
         }
+    }
+
+    #[test]
+    fn units_dump_writes_the_units_without_source() {
+        let fp = root().join("schemas/script/functions.json");
+        let table = FunctionTable::load(&fp).unwrap();
+        let schema = Schema::load_dir(root().join("schemas/fnv")).unwrap();
+        let plugins = vec![Plugin::parse(&plugin(), "ExtScan.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let (units, _) = read_load_order(&lo, &schema);
+        assert_eq!(units_to_dump(&units, None, false).len(), 2);
+        assert_eq!(units_to_dump(&units, None, true).len(), 3);
+        assert_eq!(units_to_dump(&units, Some("other.esp"), false).len(), 0);
+        let dir = std::env::temp_dir().join(format!("nvf-ext-units-{}", std::process::id()));
+        let out = dump_units(&units, &table, Some("extscan.esm"), false, &dir).unwrap();
+        assert_eq!(out["units"], 2);
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("units.json")).unwrap()).unwrap();
+        assert_eq!(doc["format"], "fnv.ext.units/1");
+        let first = &doc["units"][0];
+        let bytes = std::fs::read(dir.join(first["file"].as_str().unwrap())).unwrap();
+        assert_eq!(bytes.len() as u64, first["bytes"].as_u64().unwrap());
+        assert_eq!(doc["units"].as_array().unwrap().iter().filter(|u| u["uses_extender"] == true).count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
