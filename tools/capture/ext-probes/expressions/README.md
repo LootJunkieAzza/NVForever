@@ -47,7 +47,7 @@ observe", with the readings it decides between under **Decides**.
 | 01_operators | `andor.prec2` | `let iR := 1 \|\| 0 && 0; print iR` | `1` | [documented: NVSE Expressions (`1 \|\| (0 && 0)`)] | `(1 \|\| 0) && 0` would give 0 |
 | 01_operators | `not.plus` | `print !0 + 1` | `2` | [documented: NVSE Expressions (`!` above `+`)] | 0 if `!` took `0 + 1` |
 | 01_operators | `neg.pow` | `print -2 ^ 2` | `4` | [documented: NVSE Expressions (unary `-` 12 above `^` 11)] | -4 if `^` bound tighter |
-| 10_not_neg | `not.neg` | `print !-1` | `0` | [documented: NVSE Expressions] | same under either order; checks it compiles. In 01 the GECK refused `$(!-1)` with "Too many operators." (2026-10-25), so both now have their own script |
+| 10_not_neg | `not.neg` | `print !-1` | `0` | [documented: NVSE Expressions] | **observed 2026-10-25: refused to compile, "Too many operators."** (also inside 01): `!` straight before a unary `-` is not accepted |
 | 11_neg_not | `neg.not` | `print -!0` | `-1` | [documented: NVSE Expressions] | same under either order; checks it compiles. In 01 the GECK refused `$(!-1)` with "Too many operators." (2026-10-25), so both now have their own script |
 | 01_operators | `shift.left` | `print 1 << 3` | `8` | [documented: NVSE Expressions] |  |
 | 01_operators | `shift.right_neg` | `print -8 >> 1` | to observe | — | -4 arithmetic; a large number if logical |

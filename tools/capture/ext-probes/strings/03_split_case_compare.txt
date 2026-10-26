@@ -13,9 +13,9 @@ Begin GameMode
     endif
     let iDone := 1
     Print "EXTPROBE|strings/03_split_case_compare|begin"
-    let aA := Sv_Split "a,b;c", ",;"
+    let aA := Sv_Split "a,b:c", ",:"
     Print "EXTPROBE|split.size|" + $(Ar_Size aA)
-    let aA := Sv_Split "a,b;c", ",;"
+    let aA := Sv_Split "a,b:c", ",:"
     Print "EXTPROBE|split.last|[" + (aA[2]) + "]"
     let aA := Sv_Split "a, b", ","
     Print "EXTPROBE|split.keeps_spaces|[" + (aA[1]) + "]"

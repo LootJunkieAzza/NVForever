@@ -1,0 +1,19 @@
+scn ExtProbeStrings10
+; one edge-case probe moved out of 02 (tools/capture/ext-probes/strings/README.md)
+string_var sS
+string_var sT
+array_var aA
+int iI
+float fF
+ref rRef
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/ExtProbeStrings10|begin"
+    let sS := "Abc"
+    Print "EXTPROBE|getchar.out|" + $(Sv_GetChar sS, 9)
+    Print "EXTPROBE|strings/ExtProbeStrings10|end"
+End
