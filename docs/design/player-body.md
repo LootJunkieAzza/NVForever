@@ -221,7 +221,15 @@ camera sees is as it was.
   colour out from two results of Bevy's lighting, with and without shadows (Bevy's
   lighting has no opening for another shadow value; the small share of light is what
   makes the sun's part of the light measurable that way). The light is there only while
-  the arms rig is drawn and the sun casts shadows.
+  the arms rig is drawn and the sun casts shadows, and is despawned otherwise, never
+  hidden: a hidden directional light keeps its shadow views in Bevy 0.19.1's render
+  world and gets a second set when shown again, and the doubled views upset the shadow
+  passes' shared indirect draw buffers, so the sun's cascades lost or gained whole
+  batch sets from frame to frame [observed 2026-10-26: hillsides flickering between
+  lit and shadowed in first person, worse the more often the arms had been hidden;
+  gone with GPU culling off, without the light, or with it despawned; the shadow probe
+  now counts views sharing a key and the `shadow-probe` smoke scenario switches view
+  four times and wants none].
 - **Cost.** While the arms rig is drawn: one more shadow cascade to render, one more
   directional light in every fragment's lighting, and a thousandth more sunlight on the
   world. Frame rates of 18 s runs before and after overlap (before 44.5 and 26.2 per

@@ -303,10 +303,10 @@ expect = [
 
 [[scenario]]
 name = "shadow-probe"
-source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, and the hidden third-person body stays body-sized"
+source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker; found 2026-10-26): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, the hidden third-person body stays body-sized, and switching view four times leaves no two render views with one key (player_body.rs shade_light)"
 areas = ["renderer", "player-body"]
 paths = ["engine/nvforever/src/shadow_probe.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/lod.rs"]
-env = { NVF_PLAY_DEBUG_SHADOWS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_LOOK = "10:90:-12,13:180:-12,16:270:-30,19:0:-5,22:90:-12" }
+env = { NVF_PLAY_DEBUG_SHADOWS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_LOOK = "10:90:-12,13:180:-12,16:270:-30,19:0:-5,22:90:-12", NVF_PLAY_TEST_KEYS = "14:f,16:f,18:f,20:f" }
 args = ["--cell", "Goodsprings", "--pos=-69698,2246,8500", "--play", "--no-voice", "--hour", "14", "--sun-shadows"]
 run_seconds = 30
 expect = [
@@ -315,6 +315,8 @@ expect = [
   { re = 'shadow probe: (skin of|cascade \d casts|.* is drawn (with|from))', count = 0, label = "no single finding" },
   { re = 'player body joints within (?P<n>\d+)', range = [30, 300], label = "the hidden body measured body-sized (about 70)" },
   { re = 'player body joints within ([3-9]\d\d|\d{4,})', count = 0, label = "the hidden body never wider than 300" },
+  { re = 'checks with views sharing a key 0(?!\d)', min = 3, label = "switching to third person and back four times leaves no shadow view behind (the arms' shade light is despawned, not hidden)" },
+  { re = 'views share one view key|checks with views sharing a key [1-9]', count = 0, label = "no two views ever share a key (the first-person shadow flicker of 2026-10-26)" },
   { re = 'shadow probe: frame \d+ .*LOD terrain casting per cascade \[\d+, \d+, \d+\] of casters', min = 1, label = "the per-frame LOD terrain line names the three cascades" },
 ]
 
@@ -2344,7 +2346,8 @@ note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,14:fire,14.1:fire,14.36:fire,14.46:fire,14.72:fire,14.82:fire,15.08:fire,15.18:fire,15.44:fire,15.54:fire,15.8:fire,15.9:fire,16.16:fire,16.26:fire,16.52:fire,16.62:fire,16.88:fire,16.98:fire,17.24:fire,17.34:fire" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+# Sun shadows off (on by default in play since 2026-10-26): the pulls have about two frames to spare.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--no-sun-shadows"]
 run_seconds = 21
 expect = [
   { re = 'combat: (?P<n>\d+) shots \(', range = [10, 10], label = "every pull 0.36 s apart fires" },
