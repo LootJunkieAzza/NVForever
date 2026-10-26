@@ -871,6 +871,10 @@ pub struct GameData {
     /// The decoded subrecords of the record types JIP's trait getters read
     /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers.
     pub record_fields: HashMap<FormId, Vec<([u8; 4], Json)>>,
+    /// The game's INI text the extender's INI functions read (GetNumericINISetting …),
+    /// later files overriding earlier ones; empty unless the host gives it
+    /// (`crate::nvse_settings`).
+    pub ini_texts: Vec<String>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
@@ -1553,6 +1557,7 @@ impl GameData {
             form_flags: winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect(),
             full_names: HashMap::new(),
             sigs: HashMap::new(),
+            ini_texts: Vec::new(),
             record_fields: winners
                 .par_iter()
                 .filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig))

@@ -2,10 +2,12 @@
 //! results into the calling script's variables named by the first string arguments, W X
 //! Y Z for a quaternion, X Y Z for a vector [observed: the peer's nvse-math probes in the
 //! original game, 2026-10-26; the conventions below are fitted to its values]. Angles are
-//! degrees.
+//! degrees. The xNVSE 6.4.8 "Ex" forms (QFromEulerEx …) do the same with the variables
+//! themselves as the first arguments [documented: their pages; the original refuses them
+//! in a runtime-compiled script, observed nvse-math, so a GECK test is open].
 
 use super::{Vm, VmError, XVal};
-use crate::ir::XCall;
+use crate::ir::{XCall, XExpr};
 
 type Quat = [f64; 4];
 
@@ -35,17 +37,30 @@ fn normalize(q: Quat) -> Quat {
 
 impl Vm<'_, '_> {
     /// The quaternion and vector functions; `None` for any other name.
-    pub(super) fn quat_function(&mut self, n: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+    pub(super) fn quat_function(&mut self, name: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+        let (n, ex) = match name.strip_suffix("ex") {
+            Some(base) if base.starts_with('q') || base.starts_with("v3") => (base, true),
+            _ => (name, false),
+        };
         let outs = match n {
             "qfromeuler" | "qmultquatquat" | "qnormalize" | "qinterpolate" | "qfromaxisangle" => 4,
             "qtoeuler" | "qmultquatvector3" | "v3normalize" | "v3crossproduct" => 3,
             _ => return Ok(None),
         };
-        let mut names = Vec::new();
+        // The result variables: named by strings, or (the Ex forms) given themselves.
+        let mut targets = Vec::new();
         for k in 0..outs {
-            match c.args.get(k).map(|a| self.xeval(a)).transpose()? {
-                Some(XVal::Str(s)) => names.push(s),
-                _ => return Err(VmError::Type(format!("{n} needs {outs} variable names"))),
+            if ex {
+                match c.args.get(k) {
+                    Some(XExpr::Var { var, .. }) => targets.push(*var),
+                    _ => return Err(VmError::Type(format!("{name} needs {outs} variables"))),
+                }
+            } else {
+                let var = match c.args.get(k).map(|a| self.xeval(a)).transpose()? {
+                    Some(XVal::Str(s)) => self.host.local_var(&s).ok_or_else(|| VmError::Type(format!("{n}: the script has no variable {s}")))?,
+                    _ => return Err(VmError::Type(format!("{n} needs {outs} variable names"))),
+                };
+                targets.push(var);
             }
         }
         let mut nums = Vec::new();
@@ -124,9 +139,8 @@ impl Vm<'_, '_> {
                 vec![b[1] * a[2] - b[2] * a[1], b[2] * a[0] - b[0] * a[2], b[0] * a[1] - b[1] * a[0]]
             }
         };
-        for (name, v) in names.iter().zip(out) {
-            let var = self.host.local_var(name).ok_or_else(|| VmError::Type(format!("{n}: the script has no variable {name}")))?;
-            self.write_var(&var, XVal::Num(v))?;
+        for (var, v) in targets.iter().zip(out) {
+            self.write_var(var, XVal::Num(v))?;
         }
         Ok(Some(XVal::Num(0.0)))
     }

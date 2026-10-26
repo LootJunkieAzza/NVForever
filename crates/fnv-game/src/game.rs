@@ -974,7 +974,7 @@ pub struct Game<'a> {
     lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
     /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
     /// lasts for the session; SetEventHandlerAlt is flushed on every load].
-    handlers: Vec<Handler>,
+    pub(crate) handlers: Vec<Handler>,
     handler_seq: u64,
     /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
     pub(crate) jip: crate::jip_events::JipEvents,
@@ -1012,6 +1012,8 @@ pub struct Game<'a> {
     pub(crate) package_overrides: std::collections::HashMap<FormId, &'a crate::package::PackageDef>,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
+    /// The INI settings the extender reads and sets (`crate::nvse_settings`).
+    pub ini: crate::nvse_settings::IniState,
     /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
     pub(crate) box_callback: Option<fnv_script::vm::XVal>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
@@ -1522,13 +1524,15 @@ pub struct Session {
 /// argument index (0 the calling reference), its priority, whether SetEventHandlerAlt set
 /// it, and its place in registration order.
 #[derive(Debug, Clone)]
-struct Handler {
-    event: String,
-    func: fnv_script::vm::XVal,
-    filters: Vec<(usize, fnv_script::vm::XVal)>,
-    priority: i32,
-    alt: bool,
-    seq: u64,
+pub(crate) struct Handler {
+    pub(crate) event: String,
+    /// The event's name as the script gave it (GetEventHandlers' StringMap keys).
+    pub(crate) name: String,
+    pub(crate) func: fnv_script::vm::XVal,
+    pub(crate) filters: Vec<(usize, fnv_script::vm::XVal)>,
+    pub(crate) priority: i32,
+    pub(crate) alt: bool,
+    pub(crate) seq: u64,
 }
 
 /// A user-defined function running: the value it set, and the script that called it.
@@ -1617,6 +1621,7 @@ impl<'a> Game<'a> {
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
             other: Default::default(),
+            ini: Default::default(),
             package_overrides: std::collections::HashMap::new(),
             input: Default::default(),
             event_names: Vec::new(),
@@ -2191,7 +2196,7 @@ impl<'a> Game<'a> {
         let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
         Ok(match c {
             EventCall::Set { event, func, pairs, alt } => {
-                let mut h = Handler { event: event.to_ascii_lowercase(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
+                let mut h = Handler { event: event.to_ascii_lowercase(), name: event.clone(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
                 for (k, v) in pairs {
                     match (key_text(&k).as_str(), &k) {
                         ("priority", _) => {

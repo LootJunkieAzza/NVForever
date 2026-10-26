@@ -1948,6 +1948,13 @@ impl Vm<'_, '_> {
                 self.host.print(&text);
                 num(0.0)
             }
+            // [documented: Ar DumpID] Ar_Dump by the array's id.
+            "ar_dumpid" => {
+                let id = val(self, 0)?.num()? as u32;
+                let text = if self.store()?.array(id).is_some() { self.dump(id) } else { "(no array)".into() };
+                self.host.print(&text);
+                num(0.0)
+            }
             // [documented: TypeOf] "Number", "Form", "String", "Array", "Map", "StringMap".
             "typeof" => {
                 let v = val(self, 0)?;
@@ -2404,6 +2411,29 @@ impl Vm<'_, '_> {
                 let (t, _) = self.format_arg(c, 0)?;
                 if self.host.debug_mode(None, None) {
                     self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            // [documented: PrintDebug] Print, only while the calling mod's debug mode is on.
+            "printdebug" | "printd" => {
+                let v = val(self, 0)?;
+                let t = self.text_of(&v)?;
+                if self.host.debug_mode(None, None) {
+                    self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            // [documented: GetDebugMode] the calling mod's debug mode, or the mod index's;
+            // 0 from a runtime script, which belongs to no mod [observed: nvse-sixth].
+            "getdebugmode" | "getdbmode" => {
+                let plugin = opt(self, 0)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
+                XVal::Num(f64::from(u8::from(self.host.debug_mode(None, plugin))))
+            }
+            // [documented: Assert] a false assertion is reported as a script error; the
+            // script goes on [observed: nvse-sixth, the step after Assert 0 still ran].
+            "assert" => {
+                if !val(self, 0)?.truthy() {
+                    self.host.script_error("Assert failed");
                 }
                 XVal::Num(0.0)
             }
