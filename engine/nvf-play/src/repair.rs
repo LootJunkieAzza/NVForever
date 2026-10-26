@@ -139,6 +139,9 @@ impl RepairServices {
 pub struct Open {
     vendor: FormId,
     selected: usize,
+    /// The list's first row shown: moved only to keep the choice in view, so the pointer
+    /// never scrolls the list.
+    first: usize,
     drawn: Option<View>,
 }
 
@@ -173,6 +176,8 @@ struct RowView {
 struct View {
     rows: Vec<RowView>,
     selected: usize,
+    /// The first row shown ([`window`]).
+    first: usize,
     skill: i32,
     caps: i32,
     /// What Repair All costs, and whether the player can pay it.
@@ -224,7 +229,7 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
         rows.sort_by(|a, b| b.ready.cmp(&a.ready).then_with(|| a.label.cmp(&b.label)).then(a.condition.total_cmp(&b.condition)));
         let total: u32 = rows.iter().filter_map(|r| r.quote.cost().map(|c| c * r.count.max(1) as u32)).sum();
         let selected = open.selected.min(rows.len().saturating_sub(1));
-        View { all_ready: total > 0 && total as i64 <= caps as i64, rows, selected, skill: skill.max(0.0).floor() as i32, caps, total }
+        View { all_ready: total > 0 && total as i64 <= caps as i64, rows, selected, first: open.first, skill: skill.max(0.0).floor() as i32, caps, total }
     })
 }
 
@@ -266,7 +271,7 @@ fn scripts_open(
     }
     let Some(r) = rt.game.repair_requests.pop() else { return };
     rt.game.repair_requests.clear();
-    let open = Open { vendor: r.vendor, selected: 0, drawn: None };
+    let open = Open { vendor: r.vendor, selected: 0, first: 0, drawn: None };
     let v = view(rt, &mut sim, combat.as_deref(), &open);
     let first: Vec<String> = v.rows.iter().take(6).map(|r| format!("{} {}%{}", r.label, (r.condition * 100.0).round(), r.quote.cost().map_or(" beyond".to_string(), |c| format!(" {c} caps")))).collect();
     info!(
@@ -448,10 +453,11 @@ fn card(p: &mut ChildSpawnerCommands, f: &Face, x: f32, y: f32, title: &str, val
     }
 }
 
-/// Which rows show: a window round the chosen one that fits the list's height.
+/// Which rows show: from the first shown, moved as little as keeps the chosen one in
+/// view, as many as fit the list's height.
 fn window(look: &RepairLook, v: &View) -> std::ops::Range<usize> {
     let heights: Vec<f32> = v.rows.iter().map(|r| row_height(&look.row, &r.label)).collect();
-    let mut first = 0;
+    let mut first = v.first.min(v.selected);
     loop {
         let mut used = 0.0;
         let mut end = first;
@@ -598,7 +604,9 @@ fn draw(
         return;
     };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    let v = view(rt, &mut sim, combat.as_deref(), open);
+    let mut v = view(rt, &mut sim, combat.as_deref(), open);
+    v.first = window(&look, &v).start;
+    open.first = v.first;
     if open.drawn.as_ref() == Some(&v) && !roots.is_empty() {
         return;
     }
