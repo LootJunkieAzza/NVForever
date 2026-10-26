@@ -172,6 +172,11 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
   (`sv_RegexMatch s "(What)(.*)"` = 1), and `(sv_Construct "…")` works as a string_var
   argument; a literal string where a string_var parameter is expected does not compile
   (`sv_RegexMatch "abc" "abc"`) [observed: jip_rx_trial, tools/capture/jip_probes.py].
+- **Lambdas** compile at run time as arguments (`SetOnHealthDamageEventHandler (Begin
+  Function {float fD, ref rS} … End) 1 rP`, `SetGameMainLoopCallback (Begin Function { }
+  … End) 1 1 1`) and the handlers run later in the session. Their parameters must be typed
+  in the braces; inside them `GetSelf` works and `this` does not compile
+  [observed: jip_ev_trial2, jip_ev_trial3; jip-events set].
 - Globals are set with console lines (`set <Global> to <n>`), as a player would.
 - **Crash when the clock moves at a low TimeScale**: with TimeScale 1 the game crashed
   (access violation, FalloutNV.exe+0x477C6D, every time) when `set GameHour` moved the

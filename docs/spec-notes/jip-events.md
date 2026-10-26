@@ -6,8 +6,11 @@ script to that event, with filters as arguments. Task J2 of
 `SetEventHandler` (ext-events.md, task E1). JIP's events reachable through
 `SetEventHandler` by name are in ext-events.md, not here.
 
-Every statement below is `[documented: <page>]` (private export
-`C:\fnv-private\geckwiki\`, in our own words). None is observed yet (see §4).
+Wiki statements are `[documented: <page>]` (private export `C:\fnv-private\geckwiki\`,
+in our own words). Results from the original game (JIP 57.30, xNVSE 6.4.9) are
+`[observed: jip-events/<id>]`: handlers registered as xNVSE lambdas by runtime-compiled
+queries (`tools/capture/jip_probes.py --set jip-events`, 2026-10-26, 17 rows, the 12
+documented values all match; golden private). See §4.
 
 ## 1. The common shape
 
@@ -59,12 +62,23 @@ page below].
 | SetOnMouseoverChangeEventHandler | menu ID (optional) | the menu ID | the highlighted item in that menu changes [documented] |
 | SetOnMenuClickEventHandler | tile path: `"Menu#<id>"`, a full path or a prefix | menu ID, tile id (-1 if none), tile name **lower-case**; list items get `:<index>` | a matching tile is clicked [documented] |
 
-Not documented on the pages: the order in which several handlers for one event run,
-and whether one handler can be registered twice. NVForever runs them in registration
-order, as SetEventHandler breaks priority ties (ext-events.md §7). A second identical
-registration is kept once [provisional decision until §4 probes it; ext-events.md leaves
-the same question open for SetEventHandler, while SetEventHandlerAlt runs duplicates
-twice].
+Observed with SetOnHealthDamageEventHandler on the player and `DamageAV Health 1`:
+- The handler gets -1 as the amount, and the actor is the calling reference (GetSelf is
+  the player). The source passed for DamageAV is null: storing it with AuxVarSetRef
+  leaves no element [observed: ev.amount, ev.this, ev.source.type]. All as documented.
+- **Several handlers for one event run newest first**: the second registration ran
+  before the first (two runs) [observed: ev.order.size = 2, ev.order.first = 2]. The
+  pages do not say. NVForever follows the game for JIP's events. This is the reverse
+  of SetEventHandler's tie order (ext-events.md §7).
+- **A handler that declares fewer parameters than the event passes never runs**:
+  handlers with no parameters and with one (the event passes two) were registered
+  (the call succeeded) but did not run [observed: ev.noparams.ran, ev.oneparam.ran = 0].
+  NVForever registers them and skips them, with an extender log line saying why
+  [decision: the game gives no message].
+- Not yet observed: whether one handler can be registered twice (a lambda is a new
+  script each time, so it needs a GECK-compiled UDF). A second identical registration
+  is kept once [provisional decision; ext-events.md leaves the same open for
+  SetEventHandler, while SetEventHandlerAlt runs duplicates twice].
 
 ## 3. SetGameMainLoopCallback (alias SGMLC)
 
@@ -76,16 +90,26 @@ default 3]` [documented: SetGameMainLoopCallback].
   player.
 - Example on the page: delay 30 is described as half a second, which assumes 60 frames
   per second. NVForever counts frames, as documented, not time [decision].
+- Observed: a lambda registered with delay 1 and flag 1 ran, with GetSelf the player
+  [observed: loop.ran, loop.this]. How many times per frame was not measured: a capture
+  query does not run on every game frame.
 
 ## 4. Evidence still to get
 
-These cannot be probed by a runtime query yet: a handler must be a UDF form, and
-runtime-compiled scripts cannot declare one. Two routes:
+Runtime queries reach the events through **lambdas** (§2, done for health damage and
+the main-loop callback). Rules for writing those probes [observed: jip_ev_trial2,
+jip_ev_trial3]:
+- type the parameters in the braces, `Begin Function {float fD, ref rS}`; parameters
+  declared before `Begin` do not compile;
+- use `GetSelf`, not `this` (`this` does not compile there);
+- the steps share the session: register, cause the event, then read.
+
+Still open:
 - **GECK-compiled probes** (when the owner is back): a quest registers handlers on
   GetGameLoaded, causes the event (SetStage, DamageAV, a forced reload), and prints
   `EXTPROBE|…` lines, in the same pattern as `tools/capture/ext-probes/udf`. Cases to
   settle: the order of two handlers, double registration, and whether a registration
   survives a load (the §1 hypothesis).
-- **Lambdas in runtime queries** (`Begin Function {…} … End` as an argument, xNVSE): to
-  be tried with SetOnQuestStageEventHandler plus a SetStage on a quest with no stage
-  script, writing to a `*` auxiliary variable read by a later query step (J3 batch 3).
+- More events by lambda, each with a harmless trigger inside the session: quest stage
+  (SetStage with skipScript), use aid item (a stimpak added and used), fire and reload
+  (an NPC's AI makes these slow to trigger by script).
