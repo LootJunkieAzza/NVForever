@@ -1937,11 +1937,8 @@ impl<'a> Game<'a> {
         } else {
             base
         };
-        // RemoveScript took it away.
-        if self.other.removed_scripts.contains(&base) {
-            return None;
-        }
-        self.data.script_of_base(base)
+        // RemoveScript's and SetScript's changes first.
+        self.base_script(base)
     }
 
     /// The instance that `form.var` addresses: a quest's script or a reference's.

@@ -2186,14 +2186,6 @@ impl Vm<'_, '_> {
         Ok(Some(match n {
             // [documented: Sv Construct] a new string from the format and its values.
             "sv_construct" => XVal::Str(self.format_arg(c, 0)?.0),
-            // [documented: Sv_Set] `"format" values… stringVar`: the variable gets the text.
-            "sv_set" => {
-                let (t, k) = self.format_arg(c, 0)?;
-                if let Some(XExpr::Var { var, .. }) = c.args.get(k) {
-                    self.write_var(var, XVal::Str(t))?;
-                }
-                XVal::Num(0.0)
-            }
             // [documented: Sv Length] -1 for an invalid string.
             "sv_length" => {
                 // A destructed or never-set string variable is not a valid string: -1

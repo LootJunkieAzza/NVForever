@@ -384,7 +384,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // [documented: GetScript; IsScripted] the base form's script.
         "getscript" | "isscripted" => {
             let f = item(g, 0).unwrap_or(FormId(0));
-            let s = g.data.script_of_base(f);
+            let s = g.base_script(f);
             if name == "getscript" { XVal::Ref(s.map_or(0, |s| s.0)) } else { XVal::Num(f64::from(u8::from(s.is_some()))) }
         }
         // [documented: GetRace; observed: nvse-forms, Doc Mitchell 0042C3, his RNAM though

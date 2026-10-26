@@ -307,7 +307,10 @@ impl Gen<'_> {
             Some(16)
         // A format string takes up to 20 values [documented: String Formatting]; the
         // catalogue marks them as a parameter named or typed "Formatting"/"formatable".
-        } else if u.params.iter().any(|p| {
+        // SetNameEx takes format values too, though its page shows none [observed:
+        // nvse-fifth, `SetNameEx "Gun %g" 5 rObj` compiles and names it "Gun 5"].
+        } else if u.name.eq_ignore_ascii_case("setnameex")
+            || u.params.iter().any(|p| {
             p.name.starts_with("...")
                 || p.name.to_ascii_lowercase().contains("format")
                 || p.wiki_type.as_deref().is_some_and(|t| t.to_ascii_lowercase().contains("format"))
