@@ -16,6 +16,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+/// The host's answer for a path in the archives too: 0 none, 1 a loose file, 2 inside an
+/// archive.
+pub type Lookup = Arc<dyn Fn(&str) -> u8 + Send + Sync>;
+
 /// Where the files are: `read` in order (NVForever's layer first, then the game's Data),
 /// `write` the layer, and `lookup` the host's answer for a path in the archives too
 /// (0 none, 1 a loose file, 2 inside an archive).
@@ -25,7 +29,7 @@ pub struct Roots {
     /// A folder standing for `Data\Config` before the read roots (`fnvtool --config`).
     pub config: Option<PathBuf>,
     pub write: Option<PathBuf>,
-    pub lookup: Option<Arc<dyn Fn(&str) -> u8 + Send + Sync>>,
+    pub lookup: Option<Lookup>,
 }
 
 static ROOTS: Mutex<Option<Roots>> = Mutex::new(None);
