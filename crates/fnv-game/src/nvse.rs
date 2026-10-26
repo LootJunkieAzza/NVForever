@@ -380,6 +380,61 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 _ => XVal::Str(String::new()),
             }
         }
+        // The actor base form [documented: GetBaseNumFactions; GetBaseNthFaction;
+        // GetBaseNthRank; GetHair; GetEyes; GetHairLength; GetHairColor; GetNPCHeight;
+        // GetNPCWeight; GetActorBaseFlagsLow/High]: the argument, else the calling
+        // reference's base.
+        "getbasenumfactions" | "getbasenthfaction" | "getbasenthrank" => {
+            let n = int_of(args.first(), 0);
+            let a = if name == "getbasenumfactions" { item(g, 0) } else { item(g, 1) }.unwrap_or(FormId(0));
+            let f = g.data.actors.get(&a).map(|d| d.factions.clone()).unwrap_or_default();
+            let nth = usize::try_from(n).ok().and_then(|n| f.get(n));
+            match name {
+                "getbasenumfactions" => XVal::Num(f.len() as f64),
+                "getbasenthfaction" => XVal::Ref(nth.map_or(0, |x| x.0 .0)),
+                _ => XVal::Num(nth.map_or(0.0, |x| f64::from(x.1))),
+            }
+        }
+        "gethair" | "geteyes" => form_of(field(g, item(g, 0).unwrap_or(FormId(0)), if name == "gethair" { "HNAM" } else { "ENAM" }, "")),
+        "gethairlength" | "getnpcheight" | "getnpcweight" => {
+            let sub = match name {
+                "gethairlength" => "LNAM",
+                "getnpcheight" => "NAM6",
+                _ => "NAM7",
+            };
+            num_of(field(g, item(g, 0).unwrap_or(FormId(0)), sub, ""))
+        }
+        // `GetHairColor which [npc]`: 1 red, 2 green, 3 blue, 0 all as 0xRRGGBB
+        // [hypothesis: how "all" packs the three is not shown].
+        "gethaircolor" => {
+            let a = item(g, 1).unwrap_or(FormId(0));
+            let c = |k: &str| match field(g, a, "HCLR", k) {
+                Some(XVal::Num(x)) => x,
+                _ => 0.0,
+            };
+            XVal::Num(match int_of(args.first(), 0) {
+                1 => c("red"),
+                2 => c("green"),
+                3 => c("blue"),
+                _ => c("red") * 65536.0 + c("green") * 256.0 + c("blue"),
+            })
+        }
+        // The ACBS flags' low and high 16 bits [hypothesis from the names].
+        "getactorbaseflagslow" | "getactorbaseflagshigh" => {
+            let bits = match field(g, item(g, 0).unwrap_or(FormId(0)), "ACBS", "flags") {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            XVal::Num(if name.ends_with("low") { (bits & 0xFFFF) as f64 } else { (bits >> 16) as f64 })
+        }
+        // [documented: GetNumRanks; GetNthFactionRankName] a faction's ranks.
+        "getnumranks" => XVal::Num(g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0))).len() as f64),
+        "getnthfactionrankname" => {
+            let ranks = g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0)));
+            let r = usize::try_from(int_of(args.get(1), -1)).ok().and_then(|i| ranks.get(i));
+            let female = args.get(2).is_some_and(XVal::truthy);
+            XVal::Str(r.map(|r| if female { r.1.clone() } else { r.0.clone() }).unwrap_or_default())
+        }
         // Form lists [documented: ListGetNthForm; ListGetFormIndex; ListAddForm;
         // ListRemoveForm; ListRemoveNthForm; ListClear]. The changes last for the session:
         // "Forms added to a list with this function will not persist across savegames"
