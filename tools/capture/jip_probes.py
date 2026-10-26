@@ -2363,6 +2363,37 @@ JIP_EVENT2_PROBES = [
         'rP.AuxVarErase "*nvfJC"\nrP.AuxVarErase "*nvfJN"\nSetFunctionValue 1'),
 ]
 
+# Fortieth set (next batch N13): xNVSE and JIP leftovers. GetFalloutDirectory gives a
+# path of the owner's machine, so the row keeps only whether it ends with the game
+# folder's name and a backslash. Read-only.
+_HL3 = ("ref rPlayer\nref rDoc\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\n"
+        + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]))
+
+
+def _lo(pid, body, text=False):
+    return (pid, _HL3 + body, text, None, "")
+
+
+N13_PROBES = [
+    _lo("lo.paired", _form("rObj", NF["stimpak"]) + "SetFunctionValue (rPlayer.GetPaired rObj rDoc)"),
+    _lo("lo.testexpr.ok", "SetFunctionValue (TestExpr (1 + 1))"),
+    _lo("lo.testexpr.badindex", "let aA := ar_List 1 2\nSetFunctionValue (TestExpr aA[5])"),
+    _lo("lo.testexpr.goodindex", "let aA := ar_List 1 2\nSetFunctionValue (TestExpr aA[1])"),
+    _lo("lo.testexpr.nullref", "SetFunctionValue (TestExpr (rObj.GetName))"),
+    _lo("lo.testexpr.uninitarray", "SetFunctionValue (TestExpr (ar_Size aA))"),
+    _lo("lo.testexpr.stringkey", 'let aA := ar_Map "a"::1\nSetFunctionValue (TestExpr aA["b"])'),
+    _lo("lo.falloutdir.end", 'let sText := GetFalloutDirectory\n'
+        'SetFunctionValue (sv_Find "Fallout New Vegas\\" sText) == ((sv_Length sText) - 18)'),
+    _lo("lo.falloutdir.len.positive", "let sText := GetFalloutDirectory\nSetFunctionValue ((sv_Length sText) > 0)"),
+    _lo("lo.calcdamage.base", _form("rObj", NF["pistol10"]) + "SetFunctionValue (GetCalculatedWeaponDamage rObj)"),
+    _lo("lo.calcdamage.hunting", _form("rObj", NF["hunting"]) + "SetFunctionValue (GetCalculatedWeaponDamage rObj)"),
+    _lo("lo.questlinks.size", "let aA := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue (ar_Size aA)"),
+    _lo("lo.printvar", "let fRes := 2.5\nPrintVar fRes\nSetFunctionValue 1"),
+    _lo("lo.printvar.many", 'let fRes := 2.5\nlet sText := "x"\nPrintVar fRes sText\nSetFunctionValue 1'),
+    _lo("lo.debugprintvar", "let fRes := 2.5\nDebugPrintVar fRes\nSetFunctionValue 1"),
+    _lo("lo.solditem", "SetFunctionValue (GetFormIDString (GetSoldItemInvRef))", True),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2385,11 +2416,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "knvse-anim": KNVSE_PROBES,
         "nif-blocks": NIF_PROBES,
         "nvse-events": NVSE_EVENT_PROBES,
-        "jip-events2": JIP_EVENT2_PROBES}
+        "jip-events2": JIP_EVENT2_PROBES,
+        "nvse-leftovers": N13_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers"}
 
 
 def script(body):
