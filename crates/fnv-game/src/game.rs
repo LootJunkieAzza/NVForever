@@ -989,6 +989,10 @@ pub struct Game<'a> {
     pub(crate) delayed: Vec<crate::delayed::Delayed>,
     /// The input the extender's input functions read (task D6); the engine fills it.
     pub input: crate::script_input::ScriptInput,
+    /// Record fields xNVSE's setters changed this session (`crate::nvse`), by form and
+    /// "SUB/path", and the names SetName gave.
+    pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
+    pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// What GetNextRef gives next (GetFirstRef's walk).
     pub(crate) ref_walk: Vec<FormId>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
@@ -1575,6 +1579,8 @@ impl<'a> Game<'a> {
             list_edits: std::collections::HashMap::new(),
             delayed: Vec::new(),
             ref_walk: Vec::new(),
+            field_overrides: std::collections::HashMap::new(),
+            name_overrides: std::collections::HashMap::new(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -4193,8 +4199,9 @@ impl Host for Exec<'_, '_> {
                 return Some(n);
             }
         }
-        let names = &self.game.data.full_names;
-        names.get(&f).cloned().or_else(|| crate::functions::base_of(self.game, f).and_then(|b| names.get(&b).cloned()))
+        let g = &*self.game;
+        let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&x)).cloned();
+        named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {

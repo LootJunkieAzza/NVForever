@@ -8,9 +8,13 @@ use crate::game::{Game, RunCtx};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 
-/// A record field of `form`: a number, a form or a string (`GameData::record_field`).
+/// A record field of `form`: a number, a form or a string (`GameData::record_field`),
+/// or what a setter put there this session.
 fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     use serde_json::Value as Json;
+    if let Some(v) = g.field_overrides.get(&(form, format!("{sub}/{path}"))) {
+        return Some(v.clone());
+    }
     Some(match g.data.record_field(form, sub, path)? {
         Json::Number(n) => XVal::Num(n.as_f64()?),
         Json::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
@@ -128,6 +132,52 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     let item = |g: &Game, k: usize| -> Option<FormId> {
         as_form(args.get(k)).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f))
     };
+    // Setters: `Set… value [form]` (SetBaseItemValue: `form value`) change the field the
+    // matching getter reads, for the session [documented: their pages; hypothesis: not
+    // saved, and only the getters see the change, not combat or the menus].
+    if let Some(rest) = name.strip_prefix("set") {
+        let get = format!("get{rest}");
+        let (value, form_at) = if name == "setbaseitemvalue" { (args.get(1), 0) } else { (args.first(), 1) };
+        let f = item(g, form_at).unwrap_or(FormId(0));
+        let target = match get.as_str() {
+            "getbaseitemvalue" => Some(("DATA", "value")),
+            "getweight" if g.data.sig(f) == Some(*b"AMMO") => Some(("DAT2", "weight")),
+            "getweight" if g.data.sig(f) == Some(*b"ALCH") => Some(("DATA", "")),
+            "getweight" => Some(("DATA", "weight")),
+            "getarmorarmorrating" => Some(("DNAM", "dr")),
+            "getarmordt" => Some(("DNAM", "dt")),
+            "getammoconsumedpercent" => Some(("DAT2", "consumed_percentage")),
+            g2 => weapon_field(g2),
+        };
+        if let (Some((sub, path)), Some(v)) = (target, value) {
+            g.field_overrides.insert((f, format!("{sub}/{path}")), v.clone());
+            return Some(Ok(XVal::Num(0.0)));
+        }
+        // The flag setters: one bit of DNAM's flags.
+        let bit = match name {
+            "setweaponisautomatic" => Some(("flags1", 1)),
+            "setweaponlongbursts" => Some(("flags2", 11)),
+            _ => None,
+        };
+        if let (Some((path, bit)), Some(v)) = (bit, value) {
+            let now = match field(g, f, "DNAM", path) {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            let new = if v.truthy() { now | (1 << bit) } else { now & !(1 << bit) };
+            g.field_overrides.insert((f, format!("DNAM/{path}")), XVal::Num(new as f64));
+            return Some(Ok(XVal::Num(0.0)));
+        }
+        // [documented: SetName] the base form's name.
+        if name == "setname" {
+            let text = match value {
+                Some(XVal::Str(t)) => t.clone(),
+                _ => String::new(),
+            };
+            g.name_overrides.insert(f, text);
+            return Some(Ok(XVal::Num(0.0)));
+        }
+    }
     if let Some((sub, path)) = weapon_field(name) {
         let w = item(g, 0).unwrap_or(FormId(0));
         let v = field(g, w, sub, path);
@@ -205,8 +255,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // [documented: GetName] the full name of a reference's base or a form; "" none.
         "getname" => {
             let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
-            let names = &g.data.full_names;
-            let n = names.get(&f).cloned().or_else(|| crate::functions::base_of(g, f).and_then(|b| names.get(&b).cloned()));
+            let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&x)).cloned();
+            let n = named(f).or_else(|| crate::functions::base_of(g, f).and_then(named));
             XVal::Str(n.unwrap_or_default())
         }
         // [documented: GetParentCell] the cell the reference is in.
