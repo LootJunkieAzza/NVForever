@@ -2067,6 +2067,68 @@ SKY_SOUND_PROBES = (
             "GetImageSpaceModTrait rObj 0")]
 )
 
+# Thirty-sixth set (next batch N5): kNVSE's animation functions on a loaded actor: a
+# copy of Doc Mitchell's NPC placed beside the player (his own reference's cell is not
+# loaded). KF paths from fnvtool bsa list of Fallout - Meshes.bsa [observed]. The copy is
+# removed at the end; the weapon override is undone.
+_KF_IDLE = "characters\\_male\\locomotion\\mtidle.kf"
+_KF_SMILE = "characters\\_male\\idleanims\\cg03dadsmilestanding.kf"
+_KF_H2H = "characters\\_male\\h2hidle.kf"
+_KF_JUMP = "characters\\_male\\1hpjumplandright.kf"
+_HK = ("ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\n"
+       + _form("rPlayer", NF["player"]))
+_GETA = 'let rA := rPlayer.AuxVarGetRef "*nvfKA"\n'
+_JOIN = ("let fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n"
+         "  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText")
+
+
+def _kn(pid, body, text=False):
+    return (pid, _HK + body, text, None, "")
+
+
+def _knv(pid, expr, text=False):
+    return _kn(pid, _GETA + f"SetFunctionValue ({expr})", text)
+
+
+KNVSE_PROBES = [
+    _kn("kn.place", _form("rObj", NF["doc"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKA" rA\nSetFunctionValue 1'),
+    _kn("kn.settle", "SetFunctionValue 1"),
+    _kn("kn.settle2", "SetFunctionValue 1"),
+    _kn("kn.playing.paths", _GETA + "let aA := rA.GetPlayingAnimSequencePaths\n" + _JOIN, True),
+    _kn("kn.active", _GETA + "let aA := rA.GetActiveAnims 0\n" + _JOIN, True),
+    _knv("kn.animplaying.idle", "rA.IsAnimPlayingAlt Idle"),
+    _knv("kn.seq.mtidle", f'rA.IsAnimSequencePlaying "{_KF_IDLE}"'),
+    _kn("kn.bygroup.idle", _GETA + "let aA := rA.GetAnimationsByAnimGroup Idle\n" + _JOIN, True),
+    _knv("kn.globaltime", "Ceil (rA.GetGlobalAnimTime 0)"),
+    # SetActorAnimationPath: an override of the Idle group.
+    _knv("kn.setpath", f'rA.SetActorAnimationPath 0 1 "{_KF_H2H}"'),
+    _kn("kn.setpath.bygroup", _GETA + "let aA := rA.GetAnimationsByAnimGroup Idle\n" + _JOIN, True),
+    _knv("kn.setpath.off", f'rA.SetActorAnimationPath 0 0 "{_KF_H2H}"'),
+    _kn("kn.setpath.off.bygroup", _GETA + "let aA := rA.GetAnimationsByAnimGroup Idle\n" + _JOIN, True),
+    _knv("kn.setpath.missing", 'rA.SetActorAnimationPath 0 1 "characters\\_male\\nvfnone.kf"'),
+    # PlayAnimationPath and ActivateAnim / DeactivateAnim.
+    _kn("kn.play", _GETA + f'rA.PlayAnimationPath "{_KF_SMILE}" 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_SMILE}")'),
+    _knv("kn.play.next", f'rA.IsAnimSequencePlaying "{_KF_SMILE}"'),
+    _kn("kn.play.attrs", _GETA + f'let aA := ar_Keys (rA.GetAnimationAttributes "{_KF_SMILE}")\n' + _JOIN, True),
+    _kn("kn.activate", _GETA + f'rA.ActivateAnim "{_KF_H2H}" 0 2 1 1 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_H2H}")'),
+    _knv("kn.activate.next", f'rA.IsAnimSequencePlaying "{_KF_H2H}"'),
+    _kn("kn.activate.active", _GETA + "let aA := rA.GetActiveAnims 0\n" + _JOIN, True),
+    _kn("kn.deactivate", _GETA + f'rA.DeactivateAnim "{_KF_H2H}" 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_H2H}")'),
+    _knv("kn.deactivate.next", f'rA.IsAnimSequencePlaying "{_KF_H2H}"'),
+    # ForcePlayIdle / ForceStopIdle.
+    _kn("kn.idle.play", _GETA + _form("rObj", FX["idlehouse"]) + "rA.ForcePlayIdle rObj\nSetFunctionValue (rA.IsIdlePlayingEx rObj)"),
+    _kn("kn.idle.next", _GETA + _form("rObj", FX["idlehouse"]) + "SetFunctionValue (rA.IsIdlePlayingEx rObj)"),
+    _kn("kn.idle.stop", _GETA + _form("rObj", FX["idlehouse"]) + "rA.ForceStopIdle\nSetFunctionValue (rA.IsIdlePlayingEx rObj)"),
+    _kn("kn.idle.stop.next", _GETA + _form("rObj", FX["idlehouse"]) + "SetFunctionValue (rA.IsIdlePlayingEx rObj)"),
+    # A weapon's animation override.
+    _kn("kn.weappath", _form("rObj", NF["pistol10"]) + f'SetFunctionValue (SetWeaponAnimationPath rObj 0 1 "{_KF_JUMP}")'),
+    _kn("kn.weappath.off", _form("rObj", NF["pistol10"]) + f'SetFunctionValue (SetWeaponAnimationPath rObj 0 0 "{_KF_JUMP}")'),
+    # The player (first person in the save).
+    _kn("kn.player.paths", "let aA := rPlayer.GetPlayingAnimSequencePaths\n" + _JOIN, True),
+    _kn("kn.player.animplaying.idle", "SetFunctionValue (rPlayer.IsAnimPlayingAlt Idle)"),
+    _kn("kn.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2085,11 +2147,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "plugin-odds": N9_PROBES,
         "lu-leveled2": LEVELED2_PROBES,
         "projectile": PROJECTILE_PROBES,
-        "sky-sound": SKY_SOUND_PROBES}
+        "sky-sound": SKY_SOUND_PROBES,
+        "knvse-anim": KNVSE_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim"}
 
 
 def script(body):

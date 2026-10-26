@@ -1,0 +1,171 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "knvse_anim",
+ "title": "knvse-anim, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef \"*nvfKA\" rA\nSetFunctionValue 1\nEnd\n",
+   "label": "kn.place",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "kn.settle",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "kn.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetPlayingAnimSequencePaths\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.playing.paths",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetActiveAnims 0\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.active",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.IsAnimPlayingAlt Idle)\nEnd\n",
+   "label": "kn.animplaying.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\locomotion\\mtidle.kf\")\nEnd\n",
+   "label": "kn.seq.mtidle",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetAnimationsByAnimGroup Idle\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.bygroup.idle",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (Ceil (rA.GetGlobalAnimTime 0))\nEnd\n",
+   "label": "kn.globaltime",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.SetActorAnimationPath 0 1 \"characters\\_male\\h2hidle.kf\")\nEnd\n",
+   "label": "kn.setpath",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetAnimationsByAnimGroup Idle\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.setpath.bygroup",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.SetActorAnimationPath 0 0 \"characters\\_male\\h2hidle.kf\")\nEnd\n",
+   "label": "kn.setpath.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetAnimationsByAnimGroup Idle\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.setpath.off.bygroup",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.SetActorAnimationPath 0 1 \"characters\\_male\\nvfnone.kf\")\nEnd\n",
+   "label": "kn.setpath.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nrA.PlayAnimationPath \"characters\\_male\\idleanims\\cg03dadsmilestanding.kf\" 0\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\idleanims\\cg03dadsmilestanding.kf\")\nEnd\n",
+   "label": "kn.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\idleanims\\cg03dadsmilestanding.kf\")\nEnd\n",
+   "label": "kn.play.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := ar_Keys (rA.GetAnimationAttributes \"characters\\_male\\idleanims\\cg03dadsmilestanding.kf\")\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.play.attrs",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nrA.ActivateAnim \"characters\\_male\\h2hidle.kf\" 0 2 1 1 0\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\h2hidle.kf\")\nEnd\n",
+   "label": "kn.activate",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\h2hidle.kf\")\nEnd\n",
+   "label": "kn.activate.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetActiveAnims 0\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.activate.active",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nrA.DeactivateAnim \"characters\\_male\\h2hidle.kf\" 0\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\h2hidle.kf\")\nEnd\n",
+   "label": "kn.deactivate",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nSetFunctionValue (rA.IsAnimSequencePlaying \"characters\\_male\\h2hidle.kf\")\nEnd\n",
+   "label": "kn.deactivate.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"176EE1\"\nrA.ForcePlayIdle rObj\nSetFunctionValue (rA.IsIdlePlayingEx rObj)\nEnd\n",
+   "label": "kn.idle.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"176EE1\"\nSetFunctionValue (rA.IsIdlePlayingEx rObj)\nEnd\n",
+   "label": "kn.idle.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"176EE1\"\nrA.ForceStopIdle\nSetFunctionValue (rA.IsIdlePlayingEx rObj)\nEnd\n",
+   "label": "kn.idle.stop",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"176EE1\"\nSetFunctionValue (rA.IsIdlePlayingEx rObj)\nEnd\n",
+   "label": "kn.idle.stop.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (SetWeaponAnimationPath rObj 0 1 \"characters\\_male\\1hpjumplandright.kf\")\nEnd\n",
+   "label": "kn.weappath",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (SetWeaponAnimationPath rObj 0 0 \"characters\\_male\\1hpjumplandright.kf\")\nEnd\n",
+   "label": "kn.weappath.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rPlayer.GetPlayingAnimSequencePaths\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "kn.player.paths",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsAnimPlayingAlt Idle)\nEnd\n",
+   "label": "kn.player.animplaying.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nrA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase \"*nvfKA\"\nSetFunctionValue 1\nEnd\n",
+   "label": "kn.cleanup",
+   "field": "value"
+  }
+ ]
+}
