@@ -353,6 +353,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "fifth"]
+  },
+  {
+   "id": "L5.ext.nvse.fifth",
+   "layer": 5,
+   "description": "The xNVSE other group and the player-control locks: DisablePlayerControlsAlt/AltEx bits, console echo, default forms, door teleports, explicit refs and script commands, permanent flags, RemoveScript/SetScript, RunScript, SetEditorID, SetNameEx, rank names, Sv_Set, power armour and control flags, hotkeys, owned items, open keys, the fly camera and the clip; set nvse-fifth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save.",
+   "oracle": {"golden": "jip/nvse-fifth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_fifth.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "fifth"]
   }
  ]
 }
