@@ -59,6 +59,78 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "udf"]
+  },
+  {
+   "id": "L5.ext.jip.getters",
+   "layer": 5,
+   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<set>.steps.json) as headless runner queries.",
+   "oracle": {"golden": "jip/jip-getters.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-getters.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "getters"]
+  },
+  {
+   "id": "L5.ext.jip.forms",
+   "layer": 5,
+   "description": "JIP LN NVSE runtime-query probes, set jip-forms: getters on vanilla forms and the regex functions (docs/spec-notes/jip-strings.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-forms.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-forms.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "forms"]
+  },
+  {
+   "id": "L5.ext.jip.stores",
+   "layer": 5,
+   "description": "JIP LN NVSE runtime-query probes, set jip-stores: auxiliary variables and RefMap arrays (docs/spec-notes/jip-variable-stores.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-stores.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-stores.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "stores"]
+  },
+  {
+   "id": "L5.ext.jip.events",
+   "layer": 5,
+   "description": "JIP LN NVSE runtime-query probes, set jip-events: event handlers registered as lambdas around one DamageAV (docs/spec-notes/jip-events.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-events.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-events.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "events"]
+  },
+  {
+   "id": "L5.ext.jip.hits",
+   "layer": 5,
+   "description": "JIP LN NVSE runtime-query probes, set jip-hits: hit information read in OnHit handlers during a placed explosion (docs/spec-notes/jip-hit-info.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-hits.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-hits.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "hits"]
+  },
+  {
+   "id": "L5.ext.jip.records",
+   "layer": 5,
+   "description": "JIP LN NVSE runtime-query probes, set jip-records: trait, flag and form getters of record fields (docs/spec-notes/jip-records.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-records.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip-records.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "records"]
   }
  ]
 }
