@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """JIP LN NVSE probes without the GECK (docs/handoff/jip-tasks.md, task J3).
 
-  jip_probes.py job [-o JOB.steps.json]           write the capture job
-  jip_probes.py collect OUT.jsonl [-o golden]      capture output -> fnv.ext.probes/1
+  jip_probes.py job [--set S] [-o JOB.steps.json]       write the capture job
+  jip_probes.py collect OUT.jsonl [--set S] [-o golden]  capture output -> fnv.ext.probes/1
   jip_probes.py compare GOLDEN.json                the golden against the expectations here
 
 Each probe is a function script that nvf_capture compiles inside the running game and
@@ -27,8 +27,6 @@ if HERE not in sys.path:
 import capture_steps as cs  # noqa: E402
 import ext_probes as ep  # noqa: E402
 
-SET = "jip-getters"
-JOB = "jip_getters"
 
 # (id, script body after `Begin Function { }`, text result?, expected or None, page)
 # A body that needs a ref variable declares it before Begin (only that works at run time).
@@ -78,16 +76,67 @@ PROBES = [
 ]
 
 
+def _form(var, fid):
+    """A ref variable set to a FalloutNV.esm form (ID without the mod index)."""
+    return f'let {var} := GetFormFromMod "FalloutNV.esm" "{fid}"\n'
+
+
+def _with(fid, body):
+    return "ref rF\nBegin Function { }\n" + _form("rF", fid) + body
+
+
+SUB = "This subject has a submarine as a subsequence"
+# Second set: JIP calls that take forms or strings (batch 2). The forms are vanilla
+# FalloutNV.esm records whose IDs come from `fnvtool esm inventory` [observed]; editor IDs
+# cannot be used at run time, so each is fetched with GetFormFromMod. Long game text
+# (descriptions, objective text) is recorded by its length only. A string_var parameter
+# refuses a literal string ("script did not compile"), so the regex targets go through
+# sv_Construct [observed: jip_rx_trial, 2026-10-26].
+FORM_PROBES = [
+    ("regex.match", f'SetFunctionValue (sv_RegexMatch (sv_Construct "Whatchamacallit") "(What)(.*)")', False, "1", "Sv RegexMatch"),
+    ("regex.nomatch", 'SetFunctionValue (sv_RegexMatch (sv_Construct "Whatchamacallit") "x(.*)")', False, None, ""),
+    ("regex.partial", 'SetFunctionValue (sv_RegexMatch (sv_Construct "Whatchamacallit") "What")', False, None, ""),
+    ("regex.replace", f'SetFunctionValue (sv_RegexReplace (sv_Construct "{SUB}") "blip!|\\b(sub)([^ ]*)")', True, "This blip! has a blip! as a blip!", "Sv RegexReplace"),
+    ("regex.search", f'SetFunctionValue (ar_Size (sv_RegexSearch (sv_Construct "{SUB}") "\\b(sub)([^ ]*)"))', False, "3", "Sv RegexSearch"),
+    ("regex.search0", f'SetFunctionValue ((sv_RegexSearch (sv_Construct "{SUB}") "\\b(sub)([^ ]*)")[0])', True, None, ""),
+    ("regex.validate", 'SetFunctionValue (ValidateRegex "[")', False, "5", "ValidateRegex (5 = Error_Brack)"),
+    ("reftostring.base", _with("104C0C", "SetFunctionValue (RefToString rF)"), True, "FalloutNV.esm:104C0C", "RefToString"),
+    ("reftostring.player", _with("14", "SetFunctionValue (rF.RefToString)"), True, None, ""),
+    ("stringtoref.modkey", 'ref rF\nBegin Function { }\nlet rF := StringToRef "FalloutNV.esm:104C0C"\nSetFunctionValue (GetFormIDString rF)', True, "00104C0C", "StringToRef (from RefToString's text)"),
+    ("lngetname.npc", _with("104C0C", "SetFunctionValue (LNGetName rF)"), True, None, ""),
+    ("lngetname.cell", _with("106185", "SetFunctionValue (LNGetName rF)"), True, "Prospector Saloon", "LNGetName"),
+    ("loadscreen.texture", _with("73857", "SetFunctionValue (GetLoadScreenTexture rF)"), True, "interface\\loading\\loading_billboard05.dds", "GetLoadScreenTexture"),
+    ("formdesc.perk.len", _with("31DBA", "SetFunctionValue (sv_Length (GetFormDescription rF))"), False, None, ""),
+    ("formdesc.npc.len", _with("104C0C", "SetFunctionValue (sv_Length (GetFormDescription rF))"), False, None, ""),
+    ("objective.len", _with("10A214", "SetFunctionValue (sv_Length (GetObjectiveText rF 30))"), False, None, ""),
+    ("objective.missing.len", _with("10A214", "SetFunctionValue (sv_Length (GetObjectiveText rF 9999))"), False, None, ""),
+    ("bodypart.torso", _with("10CD74", "SetFunctionValue (GetBodyPartName rF 0)"), True, None, ""),
+    ("bodypart.weapon", _with("10CD74", "SetFunctionValue (GetBodyPartName rF 14)"), True, None, ""),
+    ("perkentry.0", _with("31DBA", "SetFunctionValue (GetNthPerkEntryString rF 0)"), True, None, ""),
+    ("muzzleflash", _with("8F20F", "SetFunctionValue (GetProjectileMuzzleFlash rF)"), True, None, ""),
+    ("fontfile.2", "SetFunctionValue (GetFontFile 2)", True, None, ""),
+    ("fontfile.9", "SetFunctionValue (GetFontFile 9)", True, None, ""),
+    ("stringsetting", 'SetFunctionValue (GetStringSetting "sTraitMenuTitleText")', True, None, ""),
+]
+
+SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES}
+
+
 def script(body):
     if body.startswith("ref "):
         return body + "\nEnd\n"
     return "Begin Function { }\n" + body + "\nEnd\n"
 
 
-def job():
+def job_name(set_name):
+    return set_name.replace("-", "_")
+
+
+def job(set_name="jip-getters"):
     steps = [{"query": script(b), "label": pid, "field": "value", **({"text": True} if text else {})}
-             for pid, b, text, _, _ in PROBES]
-    return {"format": cs.STEPS_FORMAT, "name": JOB, "title": "JIP getters, runtime-compiled (read-only)",
+             for pid, b, text, _, _ in SETS[set_name]]
+    return {"format": cs.STEPS_FORMAT, "name": job_name(set_name),
+            "title": f"JIP {set_name[4:]}, runtime-compiled (read-only)",
             "start": "any save (read-only)", "steps": steps}
 
 
@@ -97,7 +146,7 @@ def _fmt(v):
     return "" if v is None else str(v)
 
 
-def collect(out_jsonl):
+def collect(out_jsonl, set_name="jip-getters"):
     rows, errors = [], []
     with open(out_jsonl, encoding="utf-8") as f:
         for line in f:
@@ -108,38 +157,41 @@ def collect(out_jsonl):
                 errors.append({"id": r["label"], "error": r["error"]})
             else:
                 rows.append({"id": r["label"], "value": _fmt(r.get("value"))})
-    return {"format": ep.FORMAT, "set": SET, "version": "JIP 57.30, xNVSE 6.4.9", "sources": [os.path.basename(out_jsonl)],
+    return {"format": ep.FORMAT, "set": set_name, "version": "JIP 57.30, xNVSE 6.4.9", "sources": [os.path.basename(out_jsonl)],
             "rows": rows, "files": [], "duplicates": [], "errors": errors}
 
 
-def expected():
-    return {pid: exp for pid, _, _, exp, _ in PROBES}
+def expected(set_name="jip-getters"):
+    return {pid: exp for pid, _, _, exp, _ in SETS[set_name]}
 
 
 def compare(golden):
-    return ep.compare(golden, expected())
+    return ep.compare(golden, expected(golden.get("set", "jip-getters")))
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     j = sub.add_parser("job")
-    j.add_argument("-o", "--out", default=f"{JOB}.steps.json")
+    j.add_argument("--set", default="jip-getters", choices=sorted(SETS))
+    j.add_argument("-o", "--out")
     c = sub.add_parser("collect")
     c.add_argument("output")
+    c.add_argument("--set", default="jip-getters", choices=sorted(SETS))
     c.add_argument("-o", "--out")
     k = sub.add_parser("compare")
     k.add_argument("golden")
     a = ap.parse_args(argv)
     if a.cmd == "job":
+        a.out = a.out or f"{job_name(a.set)}.steps.json"
         with open(a.out, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(job(), f, indent=1)
+            json.dump(job(a.set), f, indent=1)
             f.write("\n")
         print(a.out)
         return 0
     if a.cmd == "collect":
-        doc = collect(a.output)
-        out = a.out or os.path.join(str(ep.default_goldens()), "jip", f"{SET}.json")
+        doc = collect(a.output, a.set)
+        out = a.out or os.path.join(str(ep.default_goldens()), "jip", f"{a.set}.json")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, "w", encoding="utf-8") as f:
             json.dump(doc, f, indent=1, ensure_ascii=False)

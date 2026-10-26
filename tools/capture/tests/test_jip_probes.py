@@ -28,8 +28,17 @@ class Job(unittest.TestCase):
         q = next(s["query"] for s in jp.job()["steps"] if s["label"] == "formfrommod.player")
         self.assertTrue(q.startswith("ref rF\nBegin Function { }\n"))
 
+    def test_form_set(self):
+        job = jp.job("jip-forms")
+        self.assertEqual(job["name"], "jip_forms")
+        self.assertEqual(len(job["steps"]), len(jp.FORM_PROBES))
+        q = next(s["query"] for s in job["steps"] if s["label"] == "reftostring.base")
+        self.assertTrue(q.startswith('ref rF\nBegin Function { }\nlet rF := GetFormFromMod "FalloutNV.esm" "104C0C"\n'))
+        ids = [pid for probes in jp.SETS.values() for pid, *_ in probes]
+        self.assertEqual(len(ids), len(set(ids)), "probe ids are unique across sets")
+
     def test_only_getters(self):
-        for pid, body, _, _, _ in jp.PROBES:
+        for pid, body, _, _, _ in [p for probes in jp.SETS.values() for p in probes]:
             words = body.replace("(", " ").split()
             self.assertFalse(any(w.startswith(("Set", "Toggle", "Clear", "Write")) and w != "SetFunctionValue" for w in words), pid)
 
@@ -47,6 +56,7 @@ class Collect(unittest.TestCase):
             with open(p, "w", encoding="utf-8") as f:
                 f.write("\n".join(json.dumps(x) for x in lines) + "\n")
             doc = jp.collect(p)
+            self.assertEqual(jp.collect(p, "jip-forms")["set"], "jip-forms")
         self.assertEqual(doc["rows"][:2], [{"id": "fsin.90", "value": "1"}, {"id": "modname.0", "value": "FalloutNV"}])
         self.assertEqual(doc["errors"], [{"id": "fsqrt.16", "error": "did not compile"}])
         res = jp.compare(doc)
