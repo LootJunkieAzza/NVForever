@@ -6729,6 +6729,7 @@ expect = [
   { re = 'scope sway: PSp [\d.]+, radius [\d.]+°', label = "the view sways through the scope" },
   { re = 'scope: down', label = "letting go of Block takes the scope down" },
   { re = 'scope: night vision', count = 0, label = "a plain scope gives no night vision" },
+  { re = 'failed to process shader', count = 0, label = "the picture's materials compile in the scope's fog-less view (the picture was blank when they did not)" },
 ]
 
 [[scenario]]
