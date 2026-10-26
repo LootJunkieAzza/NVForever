@@ -64,10 +64,12 @@ L5.ext.nvse.*); all match except rows that depend on the owner's save.
 
 ## 4. Order
 
-1. Done 2026-10-26: references and cells, delayed calls, input (the table above is
-   from before them; rerun the count to refresh it).
-4. Weapon and item setters (SetWeapon…, SetWeight …): change the loaded form for the
-   session, as the base game's setters do; one session-only override table.
-5. Scripts and variables (GetVariable, SetVariable, HasVariable, GetScript,
-   IsScripted …), factions, packages, appearance.
-6. Console (`con_*`), UI (owner decision, extender-compat.md §5.6) and the rest.
+Done 2026-10-26: references and cells, delayed calls, input, setters, variables,
+factions, packages, appearance, weapon mods, quaternions, mod local data, clones, the
+ammo / condition / inventory-reference part of "other". Next:
+1. The rest of "other" (actor and script odds and ends), then the player-control locks
+   (DisablePlayerControlsAlt …, engine side like the key functions).
+2. Packages and paths setters, form flags (needs the records' header flags kept).
+3. Event-handler lists, tokens, animations, generic forms.
+4. Console (`con_*`) and debug/documentation commands; UI waits on the owner
+   (extender-compat.md §5.6).
