@@ -1193,6 +1193,9 @@ pub struct Game<'a> {
     pub instances: BTreeMap<InstKey, Instance>,
     pub extra: BTreeMap<FormId, RefExtra>,
     pub player: PlayerState,
+    /// Players 2–4 of a co-op game, in slot order (`crate::coop`; docs/design/coop-save.md).
+    /// Kept and saved; nothing plays them yet.
+    pub coop: Vec<crate::coop::CoopPlayer>,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -1439,6 +1442,9 @@ pub struct GameSnapshot {
     /// (`functions::misc::ScriptLooks::fade_moves`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fade_moves: BTreeMap<FormId, crate::functions::misc::FadeMove>,
+    /// Players 2–4 of a co-op game (`crate::coop`); absent in a one-player save.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coop: Vec<crate::coop::CoopPlayer>,
 }
 
 impl GameSnapshot {
@@ -1447,7 +1453,8 @@ impl GameSnapshot {
     /// loaded (`gone`), where a field and not a key names them. References whose base form
     /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
     /// dropped), script instances whose key or script is gone, magic effects whose effect,
-    /// source, target or script is gone (and their effect scripts), and the radio station
+    /// source, target or script is gone (and their effect scripts; a co-op player's
+    /// likewise), and the radio station
     /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
     /// fails as one of any form that does not exist [hypothesis: the original's behaviour
     /// with a missing plugin is not documented]. Returns how many were dropped.
@@ -1459,6 +1466,13 @@ impl GameSnapshot {
         let before = self.effects.len();
         self.effects.retain(|e| !gone(e.effect) && !gone(e.source) && !gone(e.target) && !e.script.is_some_and(&gone));
         n += before - self.effects.len();
+        // A co-op player's effects go as the game's own player's do; its inventory and
+        // values are keyed by form, which the remap already dropped.
+        for p in &mut self.coop {
+            let before = p.effects.len();
+            p.effects.retain(|e| !gone(e.effect) && !gone(e.source) && !e.script.is_some_and(&gone));
+            n += before - p.effects.len();
+        }
         let live: BTreeSet<u32> = self.effects.iter().map(|e| e.id).collect();
         let before = self.instances.len();
         self.instances.retain(|(k, inst)| {
@@ -1696,6 +1710,7 @@ impl<'a> Game<'a> {
             instances: BTreeMap::new(),
             extra: BTreeMap::new(),
             player: PlayerState::default(),
+            coop: Vec::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
@@ -4094,6 +4109,7 @@ impl<'a> Game<'a> {
             nav_switches: self.nav_switches.clone(),
             securitron_faces: self.texture_swaps.securitron.clone(),
             fade_moves: self.script_looks.fade_moves.clone(),
+            coop: self.coop.clone(),
         }
     }
 
@@ -4143,6 +4159,7 @@ impl<'a> Game<'a> {
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
         g.nav_switches = s.nav_switches.clone();
+        g.coop = crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;
         for (&on, texture) in &s.securitron_faces {
             g.texture_swaps.set_securitron(on, texture.clone());
         }

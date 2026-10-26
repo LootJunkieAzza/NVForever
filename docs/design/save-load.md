@@ -335,6 +335,13 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   next one shows where it stopped. The GRA boxes showing again after this load is
   expected: `save-write` saves before that quest shows them.
 
+### 6.0 Co-op players (2026-10-26)
+
+Saves keep players 2–4 of a co-op game beside the game's own player: each one's actor
+(inventory, place), actor values and health, character progression, effects and engine
+state; quests and the world stay shared. Optional fields, so the format versions stay.
+Design: [coop-save](coop-save.md).
+
 ### 6.1 Deleting a save (2026-10-19)
 
 On the pause menu's load page (also from the main menu's Load Game) Delete, or a click on
