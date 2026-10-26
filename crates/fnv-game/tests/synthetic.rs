@@ -1854,3 +1854,22 @@ fn queries_run_function_scripts_and_keep_what_they_change() {
     assert!(snap.ext.jip.aux[&FormId::PLAYER_REF.0].contains_key("nvfq"));
     assert!(serde_json::to_string(&snap).unwrap().contains("nvfq") && !serde_json::to_string(&snap).unwrap().contains("*nvft"), "a * name is not saved");
 }
+
+#[test]
+fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
+    // Tasks J6, J7 [documented: SetOnHitEventHandler, GetHitHealthDamage; observed:
+    // jip-hits, Health in the handler is the value before the hit].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let reg = "Begin Function { }\nSetOnHitEventHandler (Begin Function { }\nAuxVarSetFlt \"*hD\" (GetHitHealthDamage) -1\nAuxVarSetFlt \"*hH\" (GetAV Health) -1\nAuxVarSetFlt \"*hC\" (GetHitExtendedFlag 1) -1\nEnd) 1 PlayerREF\nEnd\n";
+    assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
+    let before = g.run_query("Begin Function { }\nSetFunctionValue (GetAV Health)\nEnd\n", ctx()).unwrap();
+    let info = fnv_game::combat::HitInfo { critical: true, location: -1, ..Default::default() };
+    g.hit(FormId::PLAYER_REF, 5.0, info);
+    let read = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (AuxVarGetFlt \"{s}\" 0)\nEnd\n"), ctx()).unwrap();
+    assert_eq!(read(&mut g, "*hD"), XVal::Num(5.0));
+    assert_eq!(read(&mut g, "*hH"), before, "the handler runs before the damage");
+    assert_eq!(read(&mut g, "*hC"), XVal::Num(1.0), "a critical hit");
+}

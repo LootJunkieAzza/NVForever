@@ -1436,6 +1436,33 @@ fn enums_to_numbers(schema: &Schema, t: &TypeDef, v: &mut Json) {
 }
 
 impl GameData {
+    /// The name (BPTN) of the part of body-part data `form` whose type (BPND part_type)
+    /// is `part`; "" for a part without a name, `None` when there is no such part. A
+    /// part's subrecords start with BPTN or BPNN [documented: xEdit BPTD, schema
+    /// combat.json].
+    pub fn body_part_name(&self, form: FormId, part: i64) -> Option<String> {
+        let subs = self.record_fields.get(&form)?;
+        let mut name = String::new();
+        let mut named = false;
+        for (sig, v) in subs {
+            match sig {
+                b"BPTN" => {
+                    name = v.as_str().unwrap_or_default().to_string();
+                    named = true;
+                }
+                b"BPNN" if !named => name.clear(),
+                b"BPND" => {
+                    if v.get("part_type").and_then(Json::as_i64) == Some(part) {
+                        return Some(name);
+                    }
+                    named = false;
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then
     /// `path` (field names split by `.`; empty for the whole subrecord). A flags field
     /// gives its number.

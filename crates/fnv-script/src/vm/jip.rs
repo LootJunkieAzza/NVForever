@@ -298,6 +298,95 @@ impl Vm<'_, '_> {
                 let r = self.host.event_call(super::EventCall::MainLoop { func, add, delay, flags, on }).map_err(VmError::Host)?;
                 Ok(Some(r))
             }
+            // Weapon and armor fields (jip-records.md §4–5, #829) [observed: jip-records
+            // weapon and armor rows equal the decoded fields].
+            "getweaponkillimpulse" | "getweaponimpulsedistance" | "getweaponcritflags" | "getweapononhitsetting" | "getweaponsemiautofiredelay" => {
+                let v0 = val(self, 0)?;
+                let w = self.jip_base(v0)?;
+                let (sub, path) = match n {
+                    "getweaponkillimpulse" => ("DNAM", "kill_impulse"),
+                    "getweaponimpulsedistance" => ("DNAM", "impulse_dist"),
+                    "getweaponcritflags" => ("CRDT", "flags"),
+                    "getweapononhitsetting" => ("DNAM", "on_hit"),
+                    _ if opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0) != 0.0 => ("DNAM", "semi_automatic_fire_delay_max"),
+                    _ => ("DNAM", "semi_automatic_fire_delay_min"),
+                };
+                Ok(Some(match self.host.record_field(w, sub, path) {
+                    Some(XVal::Num(x)) => XVal::Num(x),
+                    _ => XVal::Num(0.0),
+                }))
+            }
+            "getweaponvatseffect" | "getimpactdataset" => {
+                let v0 = val(self, 0)?;
+                let w = self.jip_base(v0)?;
+                let (sub, path) = if n == "getimpactdataset" { ("INAM", "") } else { ("VATS", "effect") };
+                Ok(Some(match self.host.record_field(w, sub, path) {
+                    Some(XVal::Ref(r)) => XVal::Ref(r),
+                    _ => XVal::Ref(0),
+                }))
+            }
+            // Mod mask 0 the plain model, 1–7 the MWD1–MWD7 models [documented:
+            // GetWeaponModel; observed].
+            "getweaponmodel" => {
+                let v0 = val(self, 0)?;
+                let w = self.jip_base(v0)?;
+                let mask = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0) as i64;
+                let sub = match mask {
+                    1..=7 => format!("MWD{mask}"),
+                    _ => "MODL".to_string(),
+                };
+                let v = self.host.record_field(w, &sub, "").or_else(|| self.host.record_field(w, &sub, "model"));
+                Ok(Some(match v {
+                    Some(XVal::Str(s)) => XVal::Str(s),
+                    _ => XVal::Str(String::new()),
+                }))
+            }
+            // [documented: GetArmorClass; observed: metal 3, leather 1] BMDT general flags:
+            // Heavy (bit 7) 3, Medium (bit 3) 2 [hypothesis: none probed], else 1; 0 when
+            // the form is no armor.
+            "getarmorclass" => {
+                let v0 = val(self, 0)?;
+                let a = self.jip_base(v0)?;
+                Ok(Some(XVal::Num(match self.host.record_field(a, "BMDT", "general_flags") {
+                    Some(XVal::Num(bits)) => {
+                        let bits = bits as u64;
+                        if bits & 0x80 != 0 {
+                            3.0
+                        } else if bits & 0x08 != 0 {
+                            2.0
+                        } else {
+                            1.0
+                        }
+                    }
+                    _ => 0.0,
+                })))
+            }
+            // The current or last hit of the actor it is called on (task J7,
+            // jip-hit-info.md §1): nothing, 0 or no form without a hit. Not built yet:
+            // projectiles and explosions (GetHitProjectile gives none, flag 8 0), fatigue
+            // damage, the 3D data.
+            "gethitattacker" | "gethitweapon" | "gethitprojectile" | "gethithealthdamage" | "gethitlimbdamage" | "gethitfatiguedamage" | "gethitbaseweapondamage" | "gethitextendedflag" | "gethit3ddata" => {
+                let who = match &c.on {
+                    Some(e) => self.xeval(e)?.value()?.as_form(),
+                    None => self.host.calling_ref(),
+                }
+                .unwrap_or(0);
+                let k = opt(self, 0)?.map(|v| v.num()).transpose()?.unwrap_or(0.0) as i64;
+                let what = match n {
+                    "gethitattacker" => "attacker",
+                    "gethitweapon" => "weapon",
+                    "gethithealthdamage" => "health",
+                    "gethitlimbdamage" => "limb",
+                    "gethitextendedflag" => "flag",
+                    "gethit3ddata" => return self.jlist(Vec::new()).map(Some),
+                    "gethitprojectile" => return Ok(Some(XVal::Ref(0))),
+                    _ => return Ok(Some(XVal::Num(0.0))),
+                };
+                Ok(Some(self.host.hit_value(who, what, k).unwrap_or(match what {
+                    "attacker" | "weapon" => XVal::Ref(0),
+                    _ => XVal::Num(0.0),
+                })))
+            }
             // Names and text fields (jip-strings.md §3): a missing entry is "" [observed].
             "lngetname" => {
                 let f = match (c.args.first(), &c.on) {
@@ -318,6 +407,13 @@ impl Vm<'_, '_> {
                     Some(XVal::Str(s)) => XVal::Str(s),
                     _ => XVal::Str(String::new()),
                 }))
+            }
+            // [documented: GetBodyPartName; observed: NVGecko part 0 "Torso", 14 ""] by part
+            // type: 0 torso, 1–2 head … 14 weapon.
+            "getbodypartname" => {
+                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+                let part = val(self, 1)?.num()? as i64;
+                Ok(Some(XVal::Str(self.host.body_part_name(f, part).unwrap_or_default())))
             }
             // [documented: GetObjectiveText; observed: objective 9999 gives ""].
             "getobjectivetext" => {
@@ -664,6 +760,12 @@ impl Vm<'_, '_> {
             entries.push((XKey::Str(k), XVal::Array(x.new_array(ArrayKind::List, inner))));
         }
         Ok(XVal::Array(x.new_array(ArrayKind::StringMap, entries)))
+    }
+
+    /// A form argument as a base form: a reference gives its base.
+    fn jip_base(&mut self, v: XVal) -> Result<u32, VmError> {
+        let f = v.value()?.as_form().unwrap_or(0);
+        Ok(self.host.base_form(f).unwrap_or(f))
     }
 
     /// The form `hex` (without the mod index) of plugin `name`.
