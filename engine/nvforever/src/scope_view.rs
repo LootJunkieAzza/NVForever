@@ -15,6 +15,12 @@
 //!   Formula (New Vegas)"] × `fGunWobbleMultScope`, × `fNonAttackGunWobbleMult` while the
 //!   player is not attacking [documented: the same page; hypothesis: the curve's meaning
 //!   and the axes, X up and down, Z sideways]. The shots follow the view.
+//! - **3D scopes** (`Scope::lens_3d`, a test version; docs/design/scope-3d-lens.md): the
+//!   picture is not shown and the arms stay. A second world camera, under the player's
+//!   camera, renders the zoomed world into a square image; a disc on the weapon's
+//!   eyepiece (`scope_lens::LensMount`) shows it, with the MOD3 reticle drawn over it
+//!   without its black mask. The camera's angle keeps the full zoom's magnification for
+//!   the lens's size on screen [design].
 
 use crate::imagespace::ScreenModifiers;
 use crate::sky::SkyState;
@@ -34,6 +40,9 @@ use nvf_assets::model::ModelCtx;
 use nvf_play::aim_zoom::Scope;
 use nvf_play::combat::Combat;
 use nvf_play::player::{Player, MAX_PITCH};
+use nvf_play::PlayerCamera;
+use crate::scope_lens::LensMount;
+use bevy::pbr::DistanceFog;
 use std::sync::Arc;
 
 /// The render layer of the scope's picture and its camera.
@@ -54,6 +63,18 @@ pub const WOBBLE_MODEL: &str = "meshes\\characters\\weaponwobbles\\scopewobble.n
 pub const SPREAD_TO_DEG: f32 = 5.955;
 /// A shot within this many seconds counts as attacking (full sway) [hypothesis].
 const ATTACK_SECONDS: f32 = 0.5;
+/// 3D scopes: the mask's inner circle (model units) the reticle is cut to [observed:
+/// `keepScope01:0`'s ring, weapon-scopes.md §3].
+const LENS_CIRCLE: f32 = 361.0;
+/// 3D scopes: the reticle's and the zoomed world's images (pixels, square) [design].
+const RETICLE_PX: u32 = 512;
+const LENS_WORLD_PX: u32 = 768;
+/// 3D scopes: the reticle drawn this far in front of the world disc (model units).
+const RETICLE_LIFT: f32 = 0.02;
+
+/// The second world camera of a 3D scope.
+#[derive(Component)]
+struct LensCamera;
 
 pub struct ScopeViewPlugin;
 
@@ -65,6 +86,7 @@ impl Plugin for ScopeViewPlugin {
                 show.after(nvf_play::PlaySet::Ui).before(nvf_play::PlaySet::Sync),
                 night_vision.after(nvf_play::PlaySet::Sync),
                 sway.in_set(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>),
+                lens_camera.after(show),
             ),
         );
     }
@@ -92,22 +114,25 @@ pub fn is_night(hour: f32, sunrise_begin: f32, sunset_end: f32) -> bool {
 struct Drawn {
     entities: Vec<Entity>,
     model: Option<String>,
+    lens: bool,
     size: UVec2,
     warned: Option<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn show(
     mut commands: Commands,
     scope: Res<Scope>,
     mut models: ModelCtx,
     mut plain: ResMut<Assets<StandardMaterial>>,
     window: Query<&Window, With<PrimaryWindow>>,
+    (mounts, main_cam): (Query<(Entity, &LensMount)>, Query<Entity, With<PlayerCamera>>),
     mut drawn: Local<Drawn>,
 ) {
     let size = window.single().map(|w| UVec2::new(w.physical_width().max(1), w.physical_height().max(1))).unwrap_or(UVec2::new(1280, 720));
     let want = scope.model.as_deref().filter(|_| scope.on).map(model_path);
-    if drawn.model.is_some() && (drawn.model != want || drawn.size != size) {
+    let lens = scope.lens_3d;
+    if drawn.model.is_some() && (drawn.model != want || drawn.lens != lens || (!lens && drawn.size != size)) {
         for e in drawn.entities.drain(..) {
             commands.entity(e).despawn();
         }
@@ -124,6 +149,14 @@ fn show(
         }
         return;
     };
+    if lens {
+        let (Some((mount, m)), Ok(cam)) = (mounts.iter().next(), main_cam.single()) else { return };
+        drawn.entities = draw_lens(&mut commands, &model, &mut models, &mut plain, mount, m.radius, cam);
+        info!("scope view: {path} in the lens (3D scope), radius {:.2}, reticle cut to {LENS_CIRCLE} units", m.radius);
+        drawn.model = Some(path);
+        drawn.lens = true;
+        return;
+    }
     let mut image = Image::new_fill(Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 }, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
     image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
     let image = models.images.add(image);
@@ -176,7 +209,121 @@ fn show(
     info!("scope view: {path} drawn ({} shapes), {VIEW_HEIGHT} units high", model.shapes.len());
     drawn.entities = entities;
     drawn.model = Some(path);
+    drawn.lens = false;
     drawn.size = size;
+}
+
+/// A square image to render into: `hdr` linear (the world, tonemapped by the main
+/// camera when drawn on the lens), else sRGB with alpha (the reticle).
+fn target_image(images: &mut Assets<Image>, px: u32, hdr: bool) -> Handle<Image> {
+    let format = if hdr { TextureFormat::Rgba16Float } else { TextureFormat::Bgra8UnormSrgb };
+    let mut image = Image::new_uninit(Extent3d { width: px, height: px, depth_or_array_layers: 1 }, TextureDimension::D2, format, RenderAssetUsages::default());
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    images.add(image)
+}
+
+/// The 3D scope: the reticle (the MOD3 model without its mask) and the zoomed world, each
+/// rendered into an image, shown on two discs at the eyepiece `mount`.
+fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, models: &mut ModelCtx, plain: &mut Assets<StandardMaterial>, mount: Entity, radius: f32, cam: Entity) -> Vec<Entity> {
+    let mut entities = Vec::new();
+    let reticle = target_image(&mut models.images, RETICLE_PX, false);
+    let layer = RenderLayers::layer(SCOPE_LAYER);
+    let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    for s in &model.shapes {
+        let name = s.name.as_deref().unwrap_or("").to_ascii_lowercase();
+        // The black mask (vanilla `keepScope01:0`; `MaskRing*` in the other layouts).
+        if name.starts_with("keepscope") || name.starts_with("maskring") {
+            continue;
+        }
+        let world = place * model.root * s.transform;
+        entities.push(commands.spawn((Name::new(format!("Scope lens reticle {name}")), Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone())).id());
+    }
+    let to = |p: Vec3| place.transform_point3(p);
+    entities.push(
+        commands
+            .spawn((
+                Name::new("Scope lens reticle camera"),
+                Camera3d::default(),
+                Camera { order: -5, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
+                RenderTarget::Image(ImageRenderTarget::from(reticle.clone())),
+                Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::FixedVertical { viewport_height: 2.0 * LENS_CIRCLE }, near: 0.0, far: 3000.0, ..OrthographicProjection::default_3d() }),
+                Tonemapping::None,
+                Msaa::Sample4,
+                AmbientLight { color: Color::WHITE, brightness: 500.0, ..default() },
+                Transform::from_translation(to(Vec3::new(0.0, -1000.0, 0.0))).looking_at(to(Vec3::ZERO), Vec3::Y),
+                layer,
+            ))
+            .id(),
+    );
+    // The zoomed world: the main camera's view without the arms and body, the decals
+    // (which need the main camera's prepass) and the scope's own layer.
+    let world_image = target_image(&mut models.images, LENS_WORLD_PX, true);
+    let lens_cam = commands
+        .spawn((
+            Name::new("Scope lens camera"),
+            LensCamera,
+            Camera3d::default(),
+            Camera { order: -4, ..default() },
+            RenderTarget::Image(ImageRenderTarget::from(world_image.clone())),
+            bevy::camera::Hdr,
+            Tonemapping::None,
+            Msaa::Sample4,
+            Projection::Perspective(PerspectiveProjection { fov: 0.1, near: 5.0, far: crate::sky::OUTDOOR_FAR, aspect_ratio: 1.0, ..default() }),
+            crate::sky::initial_fog(),
+            bevy::core_pipeline::prepass::DepthPrepass,
+            RenderLayers::from_layers(&[0, crate::reflection::WATER_LAYER]),
+            Transform::IDENTITY,
+        ))
+        .id();
+    commands.entity(cam).add_child(lens_cam);
+    entities.push(lens_cam);
+    let disc = models.meshes.add(Circle::new(radius));
+    let arms = RenderLayers::layer(crate::sky::ARMS_LAYER);
+    let world_mat = plain.add(StandardMaterial { base_color_texture: Some(world_image), unlit: true, fog_enabled: false, ..default() });
+    let reticle_mat = plain.add(StandardMaterial { base_color_texture: Some(reticle), unlit: true, fog_enabled: false, alpha_mode: AlphaMode::Blend, ..default() });
+    for (name, mat, z) in [("Scope lens world", world_mat, 0.0), ("Scope lens reticle", reticle_mat, RETICLE_LIFT)] {
+        let e = commands.spawn((Name::new(name), Mesh3d(disc.clone()), MeshMaterial3d(mat), Transform::from_xyz(0.0, 0.0, z), arms.clone(), bevy::light::NotShadowCaster)).id();
+        commands.entity(mount).add_child(e);
+        entities.push(e);
+    }
+    entities
+}
+
+/// Keep the 3D scope's camera on the main view's fog and far plane, and its angle such
+/// that the lens magnifies as the full zoom does: the lens's angular radius on screen
+/// (tan a) over the zoom's magnification tan(base/2) / tan(sight/2).
+#[allow(clippy::type_complexity)]
+fn lens_camera(
+    zoom: Option<Res<nvf_play::aim_zoom::AimZoom>>,
+    main: Query<(&GlobalTransform, &Projection, &DistanceFog), (With<PlayerCamera>, Without<LensCamera>)>,
+    mut lens: Query<(&mut Projection, &mut DistanceFog), With<LensCamera>>,
+    mounts: Query<(&GlobalTransform, &LensMount)>,
+    mut told: Local<Option<i32>>,
+) {
+    let Ok((mut proj, mut fog)) = lens.single_mut() else {
+        *told = None;
+        return;
+    };
+    let (Ok((cam, main_proj, main_fog)), Some((mount, m)), Some(z)) = (main.single(), mounts.iter().next(), zoom) else { return };
+    let (Some(base), Some(sight), Projection::Perspective(mp)) = (z.base(), z.sight, main_proj) else { return };
+    let centre = mount.translation();
+    let edge = mount.transform_point(Vec3::X * m.radius);
+    let tan_a = (edge - centre).length() / (centre - cam.translation()).length().max(1e-3);
+    let magnification = (base / 2.0).tan() / (sight / 2.0).tan().max(1e-4);
+    let fov = 2.0 * (tan_a / magnification.max(1e-3)).atan();
+    if let Projection::Perspective(p) = &mut *proj {
+        if (p.fov - fov).abs() > 1e-5 || p.far != mp.far {
+            p.fov = fov;
+            p.far = mp.far;
+            p.aspect_ratio = 1.0;
+        }
+    }
+    *fog = main_fog.clone();
+    let deg = (fov.to_degrees() * 10.0).round() as i32;
+    if told.is_none_or(|t| (t - deg).abs() > 5) {
+        *told = Some(deg);
+        info!("scope lens camera: FOV {:.1}°, the lens {:.1}° across on screen, magnification {magnification:.2}", fov.to_degrees(), 2.0 * tan_a.atan().to_degrees());
+    }
 }
 
 /// Hold the night-vision scope's modifier on the screen while it gives night vision.

@@ -168,6 +168,18 @@ pub fn register(app: &mut App) {
                 slider: None,
             },
         );
+        add_setting(
+            app,
+            Setting {
+                key: "scope-3d",
+                group: GROUP_MENUS,
+                label: "3D scopes (test)",
+                note: "On: aiming a scoped gun keeps the gun on screen and shows the zoomed view in its scope's lens, with the reticle; the view around it zooms only a little. Off: the full-screen scope picture with its black border, as in the original. Guns whose scope lens is not known yet keep the picture. (--scope-3d)",
+                get: |w| w.resource::<nvf_play::aim_zoom::Scope3d>().on,
+                set: |w, on| w.resource_mut::<nvf_play::aim_zoom::Scope3d>().on = on,
+                slider: None,
+            },
+        );
     }
     add_setting(
         app,

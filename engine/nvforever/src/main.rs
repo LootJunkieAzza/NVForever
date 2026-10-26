@@ -70,6 +70,7 @@ mod roulette_view;
 mod blackjack_view;
 mod body_weapons;
 mod terminal_view;
+mod scope_lens;
 mod scope_view;
 mod poker_view;
 mod lod;
@@ -606,6 +607,10 @@ struct Args {
     /// (iron_sights.rs); a switch of the settings page.
     #[arg(long, requires = "play")]
     no_true_iron_sights: bool,
+    /// 3D scopes: a scoped gun shows the zoomed world in its scope's lens instead of the
+    /// full-screen picture (scope_view.rs, a test version); a switch of the settings page.
+    #[arg(long, requires = "play")]
+    scope_3d: bool,
     /// Do not turn actors' heads to the player and to NPCs near them (head_look.rs,
     /// docs/spec-notes/actors.md §12).
     #[arg(long)]
@@ -1363,6 +1368,7 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).

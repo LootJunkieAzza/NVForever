@@ -1137,6 +1137,12 @@ impl Combat {
         (fov > 0.0).then_some((w, fov))
     }
 
+    /// The gun in use has its scope (weapon-scopes.md §2: Has Scope, with its scope mod
+    /// when the scope comes from one).
+    pub fn player_weapon_scoped(&self) -> bool {
+        self.sight_fov().and_then(|(w, _)| self.player_stats(w)).is_some_and(|s| s.scope_model().is_some())
+    }
+
     /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
     pub fn projectile(&self) -> Option<FormId> {
         self.forms.chain(self.weapon?, self.ammo)?.projectile

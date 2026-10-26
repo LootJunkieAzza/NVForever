@@ -441,6 +441,12 @@ struct Rig {
     /// The way down to the weapon model's `##SightingNode`, as `muzzle`
     /// (`iron_sights.rs`).
     sighting: Option<Vec<(Option<usize>, Transform)>>,
+    /// The weapon model's scope eyepiece, when `scope_lens` knows the model (3D scopes),
+    /// and the entity the lens is drawn on (`scope_lens::LensMount`, under the model).
+    scope_eye: Option<crate::scope_lens::Eyepiece>,
+    /// While a 3D scope is up: the eye goes behind the eyepiece instead of on the
+    /// sighting node (`line_up_sights`).
+    use_lens: bool,
     /// Third person: the entities drawn for the body's parts.
     drawn: Vec<Drawn>,
     /// First person: whether the rig is shown (last applied).
@@ -526,7 +532,7 @@ impl Rig {
     /// [observed: every `ProjectileNode` lies ahead along it]) along `view` (model
     /// space). Nothing when the weapon has no such node or does not hang below `t`.
     fn line_up_sights(&mut self, t: usize, share: f32, view: Vec3) {
-        let (Some(path), Some(camera), Some(hand)) = (self.sighting.as_deref(), self.camera, self.weapon_parent) else { return };
+        let (Some(camera), Some(hand)) = (self.camera, self.weapon_parent) else { return };
         let a = &self.animator;
         let mut up = Some(hand);
         while let Some(n) = up.filter(|&n| n != t) {
@@ -535,9 +541,21 @@ impl Rig {
         if up.is_none() {
             return;
         }
-        let (Some(sight), Some(model)) = (self.weapon_node_at(Transform::IDENTITY, path), self.weapon_node_at(Transform::IDENTITY, &path[..path.len() - 1])) else { return };
+        // A 3D scope: the point behind the eyepiece (`scope_lens`); else the sighting node.
+        let (sight, barrel) = match (self.use_lens.then_some(self.scope_eye).flatten(), self.sighting.as_deref()) {
+            (Some(e), _) => {
+                let Some(model) = self.weapon_node_at(Transform::IDENTITY, &[]) else { return };
+                (model.transform_point3(crate::scope_lens::eye_point(&e)), model.transform_vector3(Vec3::X))
+            }
+            (None, Some(path)) => {
+                let (Some(sight), Some(model)) = (self.weapon_node_at(Transform::IDENTITY, path), self.weapon_node_at(Transform::IDENTITY, &path[..path.len() - 1])) else { return };
+                (sight.translation.into(), model.transform_vector3(Vec3::X))
+            }
+            (None, None) => return,
+        };
+        let a = &self.animator;
         let eye: Vec3 = a.model_space(camera).translation.into();
-        let g = crate::iron_sights::correction(eye, view, sight.translation.into(), model.transform_vector3(Vec3::X), share);
+        let g = crate::iron_sights::correction(eye, view, sight, barrel, share);
         let parent = a.skel.parents[t].map_or(Affine3A::IDENTITY, |p| a.model_space(p));
         let moved = parent.inverse() * g * parent * affine(self.animator.locals[t]);
         self.animator.locals[t] = Transform::from_matrix(Mat4::from(moved));
@@ -992,6 +1010,7 @@ fn ensure_body(
         rig.casing = None;
         rig.casing_entity = None;
         rig.sighting = None;
+        rig.scope_eye = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -1053,6 +1072,16 @@ fn ensure_body(
                 rig.casing = casing.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 if rig.view == View::First {
+                    // 3D scopes: the lens is drawn on an entity at the eyepiece, its disc
+                    // (+Z of a Bevy circle) facing back up the barrel (−X), its up the
+                    // model's +Y, its right +Z.
+                    rig.scope_eye = crate::scope_lens::eyepiece(&path);
+                    if let Some(e) = rig.scope_eye {
+                        let turn = Quat::from_mat3(&Mat3::from_cols(Vec3::Z, Vec3::Y, Vec3::NEG_X));
+                        let mount = commands.spawn((Name::new("Scope lens mount"), crate::scope_lens::LensMount { radius: e.radius }, Transform::from_translation(e.centre).with_rotation(turn), Visibility::Inherited)).id();
+                        commands.entity(holder).add_child(mount);
+                        info!("scope lens: {path} eyepiece at ({:.2}, {:.2}, {:.2}), radius {:.2}", e.centre.x, e.centre.y, e.centre.z, e.radius);
+                    }
                     info!("player weapon model (First person): {}", if rig.sighting.is_some() { "a sighting node: aimed with the down-the-sights clips" } else { "no sighting node: aimed with the hip clips, the view zoomed" });
                 }
                 for s in &pm.shapes {
@@ -1253,6 +1282,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         casing: None,
         casing_entity: None,
         sighting: None,
+        scope_eye: None,
+        use_lens: false,
         drawn,
         shown: None,
         seen: None,
@@ -1989,7 +2020,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -1998,7 +2029,7 @@ fn drive_body(
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
-        (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>),
+        (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2324,7 +2355,19 @@ fn drive_body(
     // True iron sights: brought up at their own pace while the view zooms in, for the
     // guns whose model has a sighting node, while the player looks through the arms rig
     // by themself.
-    let sights_can = state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()) && combat.as_deref().is_some_and(|c| c.sight_fov().is_some());
+    // A 3D scope brings the gun's eyepiece to the eye the same way (`scope_lens`), on its
+    // own switch, for scoped guns whose model the table knows.
+    let has_lens = body.first.as_ref().is_some_and(|f| f.scope_eye.is_some());
+    if let Some(l) = lens3d.as_deref_mut() {
+        if l.lens != has_lens {
+            l.lens = has_lens;
+        }
+    }
+    let lens_aim = lens3d.as_deref().is_some_and(|l| l.on) && has_lens && combat.as_deref().is_some_and(|c| c.player_weapon_scoped());
+    if let Some(f) = body.first.as_mut() {
+        f.use_lens = lens_aim;
+    }
+    let sights_can = !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()) && (lens_aim || (state.true_iron_sights && body.first.as_ref().is_some_and(|f| f.sighting.is_some())));
     m.sights_share = if sights_can { crate::iron_sights::step(m.sights_share, zoom.as_deref().is_some_and(|z| z.aimed), dt) } else { 0.0 };
     let sights_in = Some(m.sights_share).filter(|s| *s > 0.0);
     // The view's direction in the arms rig's own frame (turned by the heading only).
@@ -2459,8 +2502,9 @@ fn drive_body(
     } else {
         Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
     };
-    // Through a scope the arms rig is not drawn (docs/spec-notes/weapon-scopes.md §2).
-    let scoped = scope.as_deref().is_some_and(|s| s.on);
+    // Through a scope the arms rig is not drawn (docs/spec-notes/weapon-scopes.md §2),
+    // unless the scope is shown in its lens (3D scopes).
+    let scoped = scope.as_deref().is_some_and(|s| s.on && !s.lens_3d);
     show_rigs(body, &mut commands, &mut visibility, seen, !third_view && !scoped);
 
     m.log_elapsed += dt;
