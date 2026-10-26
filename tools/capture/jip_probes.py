@@ -1189,17 +1189,90 @@ SIXTH_PROBES = [
     _f6("debugselection", "SetFunctionValue (GetFormIDString (GetDebugSelection))", True),
 ]
 
+# Twenty-fourth set: the extender core's packages, paths and form flags, as it asked.
+# Paths and flags are changed and put back; the package edits on Doc Mitchell run last
+# and are not put back (RemoveAllPackages empties his list; session only, never saved).
+# Forms from fnvtool esm inventory [observed]: DefaultStayAtEditorLocation 0200D5,
+# WeapSniperRifle 004353.
+FX.update(stayput="200D5", sniper="4353")
+_H7 = ("ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\n"
+       + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]))
+
+
+def _f7(pid, body, text=False, exp=None, page=""):
+    return (pid, _H7 + body, text, exp, page)
+
+
+SEVENTH_PROBES = [
+    # Paths.
+    _f7("scope.sniper", _o4("sniper") + "SetFunctionValue (GetScopeModelPath rObj)", True),
+    _f7("scope.set", _o4("sniper") + 'let sText := GetScopeModelPath rObj\nSetScopeModelPath "nvf\\scope.nif" rObj\n'
+        "let fRes := (GetScopeModelPath rObj) == \"nvf\\scope.nif\"\nSetScopeModelPath \"interface\\HUD\\mildotscope.NIF\" rObj\nSetFunctionValue fRes"),
+    _f7("scope.restored", _o4("sniper") + "SetFunctionValue (GetScopeModelPath rObj)", True),
+] + [_f7(f"bipedicon.leather.{c}", _o4("leather") + f"SetFunctionValue (GetBipedIconPath {c} rObj)", True) for c in range(4)] + [
+    _f7("modelpathex", _o4("pistol10") + 'SetModelPathEx "nvf\\gun.nif" rObj\nlet sText := GetModelPath rObj\n'
+        'SetModelPathEx "Weapons\\1HandPistol\\10mmPistol.NIF" rObj\nSetFunctionValue sText', True),
+    _f7("modelpathex.restored", _o4("pistol10") + "SetFunctionValue (GetModelPath rObj)", True),
+    _f7("bipedmodelpathex.format", _o4("leather") + 'SetBipedModelPathEx "b%g.nif" 2 1 rObj\nlet sText := GetBipedModelPath 1 rObj\n'
+        'SetBipedModelPathEx "Armor\\LeatherArmor\\F\\OutfitF.NIF" 1 rObj\nSetFunctionValue sText', True),
+    _f7("bipedmodelpathex.restored", _o4("leather") + "SetFunctionValue (GetBipedModelPath 1 rObj)", True),
+    # Form flags.
+    _f7("flags.pistol.low", _o4("pistol10") + "SetFunctionValue (GetFlagsLow rObj)"),
+    _f7("flags.pistol.high", _o4("pistol10") + "SetFunctionValue (GetFlagsHigh rObj)"),
+    _f7("flags.docref.low", "SetFunctionValue (GetFlagsLow rDoc)"),
+    _f7("flags.docref.high", "SetFunctionValue (GetFlagsHigh rDoc)"),
+    _f7("flags.docref.calling.low", "SetFunctionValue (rDoc.GetFlagsLow)"),
+    _f7("flags.pistol.set", _o4("pistol10") + "let fRes := GetFlagsLow rObj\nSetFlagsLow 1024 rObj\nlet rItem := rObj\n"
+        "let fRes := fRes * 10000 + (GetFlagsLow rObj)\nSetFlagsLow 9 rObj\nSetFunctionValue fRes"),
+    _f7("flags.pistol.restored", _o4("pistol10") + "SetFunctionValue (GetFlagsLow rObj)"),
+    # Hair and eyes flags.
+    _f7("hairflags.doc", _o4("docbase") + "SetFunctionValue (GetHairFlags (GetHair rObj))"),
+    _f7("eyesflags.doc", _o4("docbase") + "SetFunctionValue (GetEyesFlags (GetEyes rObj))"),
+    _f7("hairflags.set", _o4("docbase") + "let rItem := GetHair rObj\nlet fRes := GetHairFlags rItem\nrPlayer.AuxVarSetFlt \"*nvfHF\" fRes\n"
+        "SetHairFlags rItem 9\nSetFunctionValue (GetHairFlags rItem)"),
+    _f7("hairflags.restore", _o4("docbase") + 'let rItem := GetHair rObj\nSetHairFlags rItem (rPlayer.AuxVarGetFlt "*nvfHF")\n'
+        'rPlayer.AuxVarErase "*nvfHF"\nSetFunctionValue (GetHairFlags rItem)'),
+    # Weapon-mod flags of the equipped weapon.
+    _f7("modflags.add", _o4("pistol10", "ammo10") + "rPlayer.AddItem rObj 1 1\nrPlayer.AddItem rOther 20 1\nSetFunctionValue 1"),
+    _f7("modflags.equip", _o4("pistol10") + "rPlayer.EquipItem rObj 0 1\nSetFunctionValue 1"),
+    _f7("modflags.before", "SetFunctionValue (rPlayer.GetEquippedWeaponModFlags)"),
+    _f7("modflags.set1", "rPlayer.SetEquippedWeaponModFlags 1\nSetFunctionValue (rPlayer.GetEquippedWeaponModFlags)"),
+    _f7("modflags.set1.next", "SetFunctionValue (rPlayer.GetEquippedWeaponModFlags)"),
+    _f7("modflags.cleanup", _o4("pistol10", "ammo10") + "rPlayer.SetEquippedWeaponModFlags 0\nrPlayer.UnequipItem rObj 0 1\n"
+        "rPlayer.RemoveItem rObj 1 1\nrPlayer.RemoveItem rOther 20 1\nSetFunctionValue 1", exp="1", page="cleanup"),
+    # Packages on Doc (last: not put back).
+    _f7("pkg.nth0.before", "SetFunctionValue (GetFormIDString (rDoc.GetNthPackage 0))", True),
+    _f7("pkg.count.before", "SetFunctionValue (rDoc.GetPackageCount)"),
+    _f7("pkg.radius.0", "let rItem := rDoc.GetNthPackage 0\nSetFunctionValue (GetPackageLocationRadius rItem)"),
+    _f7("pkg.radius.set", "let rItem := rDoc.GetNthPackage 0\nlet fRes := GetPackageLocationRadius rItem\nSetPackageLocationRadius rItem 321\n"
+        "let fRes := fRes * 1000 + (GetPackageLocationRadius rItem)\nSetFunctionValue fRes"),
+    _f7("pkg.locref.set", "let rItem := rDoc.GetNthPackage 0\nrDoc.SetPackageLocationReference rItem rPlayer\nSetFunctionValue 1"),
+    _f7("pkg.target.set.calling", "let rItem := rDoc.GetNthPackage 0\nrDoc.SetPackageTargetReference rItem\nSetFunctionValue 1"),
+    _f7("pkg.addat0", _o4("stayput") + "SetFunctionValue (rDoc.AddPackageAt rObj 0)"),
+    _f7("pkg.nth0.after.add", "SetFunctionValue (GetFormIDString (rDoc.GetNthPackage 0))", True),
+    _f7("pkg.count.after.add", "SetFunctionValue (rDoc.GetPackageCount)"),
+    _f7("pkg.removeat0", "SetFunctionValue (GetFormIDString (rDoc.RemovePackageAt 0))", True),
+    _f7("pkg.nth0.after.remove", "SetFunctionValue (GetFormIDString (rDoc.GetNthPackage 0))", True),
+    _f7("pkg.addat.minus1", _o4("stayput") + "SetFunctionValue (rDoc.AddPackageAt rObj -1)"),
+    _f7("pkg.count.after.minus1", "SetFunctionValue (rDoc.GetPackageCount)"),
+    _f7("pkg.addat.past", _o4("stayput") + "SetFunctionValue (rDoc.AddPackageAt rObj 99)"),
+    _f7("pkg.count.after.past", "SetFunctionValue (rDoc.GetPackageCount)"),
+    _f7("pkg.removeall", "rDoc.RemoveAllPackages\nSetFunctionValue (GetFormIDString (rDoc.GetNthPackage 0))", True),
+    _f7("pkg.count.after.removeall", "SetFunctionValue (rDoc.GetPackageCount)"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
         "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES, "nvse-math": MATH_PROBES,
         "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES, "nvse-second": SECOND_PROBES,
         "nvse-keynames": KEYNAME_PROBES, "nvse-third": THIRD_PROBES, "nvse-fourth": FOURTH_PROBES,
-        "jip-fifth": FIFTH_PROBES, "nvse-fifth": NVSE_FIFTH_PROBES, "nvse-sixth": SIXTH_PROBES}
+        "jip-fifth": FIFTH_PROBES, "nvse-fifth": NVSE_FIFTH_PROBES, "nvse-sixth": SIXTH_PROBES,
+        "nvse-seventh": SEVENTH_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh"}
 
 
 def script(body):

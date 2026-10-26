@@ -382,6 +382,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "sixth"]
+  },
+  {
+   "id": "L5.ext.nvse.seventh",
+   "layer": 5,
+   "description": "Packages on Doc Mitchell (AddPackageAt, RemoveAllPackages, location radius and references), scope, biped icon and model paths (SetModelPathEx, SetBipedModelPathEx with a format value), form flags, hair and eyes flags, the equipped weapon's mod flags; set nvse-seventh of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-seventh.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_seventh.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "seventh"]
   }
  ]
 }
