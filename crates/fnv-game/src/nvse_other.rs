@@ -38,6 +38,11 @@ pub struct OtherState {
     pub echo: bool,
     /// SetPlayerCurrentAmmoRounds, for the engine's combat to take.
     pub set_magazine: Option<u32>,
+    /// AddPackageAt's, RemovePackageAt's and RemoveAllPackages' package lists, by actor
+    /// base form (`Game::package_list`).
+    pub package_lists: HashMap<FormId, Vec<FormId>>,
+    /// SetFlagsLow/High's record flags.
+    pub flags: HashMap<FormId, u32>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -84,7 +89,22 @@ fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7], short: [bool; 7]) -> [bo
     std::array::from_fn(|i| if i < args.len() { num(args, i, 0.0) != 0.0 } else { short[i] })
 }
 
-impl Game<'_> {
+impl<'a> Game<'a> {
+    /// Change a package for the session: a copy of its definition, changed, takes its
+    /// place for every reader (`Game::package_def`).
+    fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
+        let Some(def) = self.package_def(&p) else { return };
+        let mut new = def.clone();
+        change(&mut new);
+        let leaked: &'a crate::package::PackageDef = Box::leak(Box::new(new));
+        self.package_overrides.insert(p, leaked);
+    }
+
+    /// A form's record flags, SetFlagsLow/High's change first.
+    fn record_flags(&self, f: FormId) -> u32 {
+        self.other.flags.get(&f).copied().unwrap_or_else(|| self.data.form_flags.get(&self.unclone(f)).copied().unwrap_or(0))
+    }
+
     /// A base form's script, RemoveScript's and SetScript's changes first.
     pub fn base_script(&self, base: FormId) -> Option<FormId> {
         match self.other.scripts.get(&base) {
@@ -120,7 +140,7 @@ impl Game<'_> {
     }
 
     /// Where a load door leads: SetDoorTeleport's, else the record's (XTEL).
-    fn door_teleport(&self, door: FormId) -> Option<(FormId, [f32; 3], f32)> {
+    pub(crate) fn door_teleport(&self, door: FormId) -> Option<(FormId, [f32; 3], f32)> {
         if let Some(&t) = self.other.doors.get(&door) {
             return Some(t);
         }
@@ -440,6 +460,169 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 // A reference without a lock gets an open one with the key [hypothesis].
                 let lock = s.lock.get_or_insert(fnv_sim::world::LockState { level: 0, key: None, locked: false });
                 lock.key = Some(k);
+            }
+            zero
+        }
+        // Packages [documented: AddPackageAt `package [index, -1 the end] [actor]`, the
+        // index it went in at; RemovePackageAt `index [actor]`, the package now at that
+        // index; RemoveAllPackages]. The list is the actor's base form's [hypothesis: as
+        // the record's PKID list is], kept for the session.
+        "addpackageat" | "removepackageat" | "removeallpackages" => {
+            let a = form(args, if name == "addpackageat" { 2 } else { 1 }).or(subject).unwrap_or(FormId(0));
+            let b = base(g, a);
+            let mut list = g.package_list(a);
+            let out = match name {
+                "addpackageat" => {
+                    let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
+                    let i = num(args, 1, -1.0) as i64;
+                    let at = usize::try_from(i).ok().filter(|&i| i <= list.len()).unwrap_or(list.len());
+                    list.insert(at, p);
+                    XVal::Num(at as f64)
+                }
+                "removepackageat" => {
+                    let i = num(args, 0, -1.0) as i64;
+                    let at = if i < 0 { list.len().checked_sub(1) } else { usize::try_from(i).ok().filter(|&i| i < list.len()) };
+                    match at {
+                        Some(at) => {
+                            list.remove(at);
+                            XVal::Ref(list.get(at).map_or(0, |p| p.0))
+                        }
+                        None => XVal::Ref(0),
+                    }
+                }
+                _ => {
+                    list.clear();
+                    zero
+                }
+            };
+            g.other.package_lists.insert(b, list);
+            out
+        }
+        // [documented: GetPackageLocation; GetPackageLocationRadius] the package's first
+        // location (PLDT): its reference, cell or object, and radius.
+        "getpackagelocation" | "getpackagelocationradius" => {
+            let loc = form(args, 0).and_then(|p| g.package_def(&p)).and_then(|d| d.location);
+            if name == "getpackagelocationradius" {
+                XVal::Num(loc.map_or(0.0, |l| f64::from(l.radius)))
+            } else {
+                use crate::package::LocationKind as K;
+                let f = match loc.map(|l| l.kind) {
+                    Some(K::NearReference(f) | K::InCell(f) | K::ObjectId(f)) => f,
+                    _ => None,
+                };
+                XVal::Ref(f.map_or(0, |f| f.0))
+            }
+        }
+        // [documented: SetPackageLocationRadius; SetPackageLocationReference;
+        // SetPackageTargetReference, the calling reference when no target is given] the
+        // package changes for every actor that runs it, for the session [hypothesis].
+        "setpackagelocationradius" | "setpackagelocationreference" | "setpackagetargetreference" => {
+            let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
+            use crate::package::{Location, LocationKind, Target, TargetKind};
+            match name {
+                "setpackagelocationradius" => {
+                    let r = num(args, 1, 0.0) as i32;
+                    g.change_package(p, |d| match d.location.as_mut() {
+                        Some(l) => l.radius = r,
+                        None => d.location = Some(Location { kind: LocationKind::NearCurrent, radius: r }),
+                    });
+                }
+                "setpackagelocationreference" => {
+                    let Some(t) = form(args, 1) else { return Some(Ok(zero)) };
+                    g.change_package(p, |d| {
+                        let radius = d.location.map_or(0, |l| l.radius);
+                        d.location = Some(Location { kind: LocationKind::NearReference(Some(t)), radius });
+                    });
+                }
+                _ => {
+                    let Some(t) = form(args, 1).or(subject) else { return Some(Ok(zero)) };
+                    g.change_package(p, |d| {
+                        let count_distance = d.target.map_or(0, |x| x.count_distance);
+                        d.target = Some(Target { kind: TargetKind::Reference(Some(t)), count_distance });
+                    });
+                }
+            }
+            zero
+        }
+        // Paths [documented: GetScopeModelPath; SetScopeModelPath; GetBipedIconPath, codes
+        // 0 male and 1 female (ICON, ICO2), 2 and 3 the ground (none for icons
+        // [hypothesis]); SetModelPath(Ex), SetIconPath(Ex), SetTexturePath,
+        // SetBipedModelPath(Ex), SetBipedIconPath(Ex)]: the scope model is MOD3 [observed:
+        // the sniper rifle's MOD3 is interface\HUD\mildotscope.NIF]. The getters see the
+        // change; the drawn models do not [hypothesis: "If the replaced model is already
+        // loaded, then it will need to be reloaded"; NVForever reads the record's].
+        "getscopemodelpath" | "getbipediconpath" => {
+            let (sub, at) = if name == "getscopemodelpath" {
+                ("MOD3", 0)
+            } else {
+                (match num(args, 0, -1.0) as i64 { 0 => "ICON", 1 => "ICO2", _ => "" }, 1)
+            };
+            let f = form(args, at).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            match crate::nvse::record_value(g, f, sub, "").or_else(|| crate::nvse::record_value(g, f, sub, "model")) {
+                Some(XVal::Str(t)) if !sub.is_empty() => XVal::Str(t),
+                _ => XVal::Str(String::new()),
+            }
+        }
+        "setmodelpath" | "seticonpath" | "settexturepath" | "setscopemodelpath" | "setbipedmodelpath" | "setbipediconpath" => {
+            let Some(XVal::Str(path)) = args.first().cloned() else { return Some(Ok(zero)) };
+            let biped = name.starts_with("setbiped");
+            let code = if biped { num(args, 1, -1.0) as i64 } else { 0 };
+            let sub = match name {
+                "setmodelpath" => "MODL",
+                "setscopemodelpath" => "MOD3",
+                "setbipedmodelpath" => match code { 0 => "MODL", 1 => "MOD3", 2 => "MOD2", 3 => "MOD4", _ => "" },
+                "setbipediconpath" => match code { 0 => "ICON", 1 => "ICO2", _ => "" },
+                _ => "ICON",
+            };
+            let f = form(args, if biped { 2 } else { 1 }).or(subject).map(|f| base(g, f));
+            if let (Some(f), false) = (f, sub.is_empty()) {
+                g.field_overrides.insert((f, format!("{sub}/")), XVal::Str(path));
+            }
+            zero
+        }
+        // [documented: GetFlagsLow; GetFlagsHigh; SetFlagsLow; SetFlagsHigh] the record
+        // header flags, low and high 16 bits, of the form (a reference's own).
+        "getflagslow" | "getflagshigh" => {
+            let f = form(args, 0).or(subject).unwrap_or(FormId(0));
+            let v = g.record_flags(f);
+            XVal::Num(f64::from(if name == "getflagslow" { v & 0xFFFF } else { v >> 16 }))
+        }
+        "setflagslow" | "setflagshigh" => {
+            let f = form(args, 1).or(subject).unwrap_or(FormId(0));
+            let m = (num(args, 0, 0.0) as i64 as u32) & 0xFFFF;
+            let v = g.record_flags(f);
+            let new = if name == "setflagslow" { (v & 0xFFFF_0000) | m } else { (v & 0xFFFF) | (m << 16) };
+            g.other.flags.insert(f, new);
+            zero
+        }
+        // [documented: GetHairFlags; GetEyesFlags; SetHairFlags `hair mask`;
+        // SetEyesFlags `eyes mask`] the DATA flags (playable 1, not male 2, not female 4,
+        // fixed colour 8 on hair).
+        "gethairflags" | "geteyesflags" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            match crate::nvse::record_value(g, f, "DATA", "") {
+                Some(XVal::Num(x)) => XVal::Num(x),
+                _ => zero,
+            }
+        }
+        "sethairflags" | "seteyesflags" => {
+            if let Some(f) = form(args, 0) {
+                g.field_overrides.insert((f, "DATA/".into()), XVal::Num(num(args, 1, 0.0).trunc()));
+            }
+            zero
+        }
+        // [documented: SetEquippedWeaponModFlags] the mods of the calling actor's
+        // equipped weapon (1, 2, 4 for mods 1–3).
+        "setequippedweaponmodflags" => {
+            let a = subject.unwrap_or(FormId(0));
+            let m = (num(args, 0, 0.0) as i64 as u32 & 7) as u8;
+            if let Some(w) = crate::functions::items::equipped_weapon(g, a) {
+                if let Ok(inv) = g.world.inventory_mut(a) {
+                    let worn = inv.groups().find(|(i, e, _)| *i == w && e.equipped).map(|(_, e, _)| e);
+                    if let Some(e) = worn {
+                        inv.set_mods_one(w, e, m);
+                    }
+                }
             }
             zero
         }

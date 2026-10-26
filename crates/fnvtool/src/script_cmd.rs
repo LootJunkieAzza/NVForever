@@ -91,6 +91,10 @@ pub enum ScriptCmd {
         /// The environment variable FNVTOOL_VOICE_LENGTHS=0 does the same.
         #[arg(long)]
         no_voice_lengths: bool,
+        /// The game's INI files the extender's INI functions read (GetNumericINISetting
+        /// …), in order, later ones overriding earlier ones; only read.
+        #[arg(long)]
+        ini: Vec<PathBuf>,
     },
 }
 
@@ -160,7 +164,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(uses(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Run { a, actions, no_voice_lengths } => run_actions(&a, &actions, !no_voice_lengths),
+        ScriptCmd::Run { a, actions, no_voice_lengths, ini } => run_actions(&a, &actions, !no_voice_lengths, &ini),
     }
 }
 
@@ -920,7 +924,7 @@ fn stubs(l: &Loaded) -> Value {
 pub const VOICE_LENGTHS_ENV: &str = "FNVTOOL_VOICE_LENGTHS";
 
 /// `script run`: build the Layer 4 world and the Layer 5 data, run the actions.
-fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool) -> anyhow::Result<Value> {
+fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool, ini: &[PathBuf]) -> anyhow::Result<Value> {
     let text = std::fs::read_to_string(actions).with_context(|| actions.display().to_string())?;
     let input: fnv_game::runner::Input =
         serde_json::from_str(&text).with_context(|| format!("{}: not a fnv.script.actions/1 document", actions.display()))?;
@@ -933,7 +937,10 @@ fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool) -
     let schema = Schema::load_dir(&a.schema)?;
     let forms = fnv_sim::FormStore::build(&lo, &schema);
     let refs = fnv_sim::RefTable::build(&lo, &schema);
-    let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    let mut data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    for p in ini {
+        data.ini_texts.push(std::fs::read_to_string(p).with_context(|| p.display().to_string())?);
+    }
     let voice = voice_lengths_hook(a, &lo, voice_lengths);
     fnv_game::runner::run_with_voice(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)
 }

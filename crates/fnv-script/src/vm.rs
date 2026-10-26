@@ -1948,6 +1948,13 @@ impl Vm<'_, '_> {
                 self.host.print(&text);
                 num(0.0)
             }
+            // [documented: Ar DumpID] Ar_Dump by the array's id.
+            "ar_dumpid" => {
+                let id = val(self, 0)?.num()? as u32;
+                let text = if self.store()?.array(id).is_some() { self.dump(id) } else { "(no array)".into() };
+                self.host.print(&text);
+                num(0.0)
+            }
             // [documented: TypeOf] "Number", "Form", "String", "Array", "Map", "StringMap".
             "typeof" => {
                 let v = val(self, 0)?;
@@ -2407,6 +2414,29 @@ impl Vm<'_, '_> {
                 }
                 XVal::Num(0.0)
             }
+            // [documented: PrintDebug] Print, only while the calling mod's debug mode is on.
+            "printdebug" | "printd" => {
+                let v = val(self, 0)?;
+                let t = self.text_of(&v)?;
+                if self.host.debug_mode(None, None) {
+                    self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            // [documented: GetDebugMode] the calling mod's debug mode, or the mod index's;
+            // 0 from a runtime script, which belongs to no mod [observed: nvse-sixth].
+            "getdebugmode" | "getdbmode" => {
+                let plugin = opt(self, 0)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
+                XVal::Num(f64::from(u8::from(self.host.debug_mode(None, plugin))))
+            }
+            // [documented: Assert] a false assertion is reported as a script error; the
+            // script goes on [observed: nvse-sixth, the step after Assert 0 still ran].
+            "assert" => {
+                if !val(self, 0)?.truthy() {
+                    self.host.script_error("Assert failed");
+                }
+                XVal::Num(0.0)
+            }
             "setdebugmode" => {
                 let on = val(self, 0)?.truthy();
                 let plugin = opt(self, 1)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
@@ -2767,14 +2797,24 @@ impl Vm<'_, '_> {
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
             // `"format" values… faction rank [female]`]: formatted here, set by the game
             // (SetName's change; the rank title).
-            "setnameex" | "setnthfactionranknameex" => {
+            // [documented: SetModelPathEx; SetIconPathEx; SetBipedModelPathEx;
+            // SetBipedIconPathEx] likewise, then the plain setter.
+            "setnameex" | "setnthfactionranknameex" | "setmodelpathex" | "seticonpathex" | "setbipedmodelpathex" | "setbipediconpathex" => {
                 let (t, k) = self.format_arg(c, 0)?;
                 let mut args = vec![XVal::Str(t)];
                 for e in c.args.iter().skip(k) {
                     args.push(self.xeval(e)?);
                 }
-                let to = if lname == "setnameex" { "setname" } else { "setnthfactionranknameex" };
-                match self.host.ext_call(to, None, &args) {
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let to = match lname.as_str() {
+                    "setnameex" => "setname",
+                    "setnthfactionranknameex" => "setnthfactionranknameex",
+                    other => other.strip_suffix("ex").unwrap_or(other),
+                };
+                match self.host.ext_call(to, on, &args) {
                     Some(r) => r.map_err(VmError::Host)?,
                     None => XVal::Num(0.0),
                 };

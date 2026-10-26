@@ -245,9 +245,8 @@ impl<'a> Game<'a> {
     /// The actor's current package and its idle collection, when it has one with idles
     /// in it (the package the actor last chose; nothing is evaluated).
     pub fn package_idles(&self, actor: FormId) -> Option<(FormId, &'a IdleCollection)> {
-        let data = self.data;
         let p = self.extra.get(&actor)?.current_package?;
-        let c = data.package_defs.get(&p)?.idles.as_ref()?;
+        let c = self.package_def(&p)?.idles.as_ref()?;
         (!c.idles.is_empty()).then_some((p, c))
     }
 
@@ -464,7 +463,7 @@ impl<'a> Game<'a> {
     /// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
     /// ([`Game::package_event`]).
     pub(crate) fn ask_package_idle(&mut self, actor: FormId, package: FormId, which: usize) {
-        let Some(def) = self.data.package_defs.get(&package) else { return };
+        let Some(def) = self.package_def(&package) else { return };
         let source = [IdleSource::PackageBegin, IdleSource::PackageEnd, IdleSource::PackageChange][which.min(2)];
         if let Some(idle) = def.events[which.min(2)].idle {
             self.ask_idle(actor, idle, source);

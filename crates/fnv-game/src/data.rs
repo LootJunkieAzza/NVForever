@@ -863,12 +863,18 @@ pub struct GameData {
     /// Lower-case Editor ID → FormID (every winning record with an EDID).
     pub edids: HashMap<String, FormId>,
     pub edid_of: HashMap<FormId, String>,
+    /// Record header flags of the winning records that have any (GetFlagsLow/High).
+    pub form_flags: HashMap<FormId, u32>,
     /// The name the player sees (FULL) of every winning record that has one.
     pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// The decoded subrecords of the record types JIP's trait getters read
     /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers.
     pub record_fields: HashMap<FormId, Vec<([u8; 4], Json)>>,
+    /// The game's INI text the extender's INI functions read (GetNumericINISetting …),
+    /// later files overriding earlier ones; empty unless the host gives it
+    /// (`crate::nvse_settings`).
+    pub ini_texts: Vec<String>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
@@ -1393,9 +1399,9 @@ struct Read {
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 21] = [
+pub const FIELD_SIGS: [[u8; 4]; 23] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
-    *b"NPC_", *b"CREA", *b"FACT", *b"RACE",
+    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES",
 ];
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
@@ -1548,8 +1554,10 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            form_flags: winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect(),
             full_names: HashMap::new(),
             sigs: HashMap::new(),
+            ini_texts: Vec::new(),
             record_fields: winners
                 .par_iter()
                 .filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig))

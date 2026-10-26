@@ -75,7 +75,36 @@ Hypotheses waiting on the peer's probes: the AltEx bits of looking/rollover/snea
 (1, 5, 6), SetDoorTeleport moving the player, RunScript on a non-function script, the
 console echo's start state. Next:
 1. (done)
-2. Packages and paths setters, form flags (needs the records' header flags kept).
+2. (done 2026-10-26: packages, paths and form flags; `Game::package_def` and
+   `Game::package_list` carry the scripts' package changes to every reader, the record
+   header flags are kept in `GameData::form_flags`.) Claimed by the peer session the
+   same day: quaternion Ex forms, settings and INI, tokens (GetPaired with them),
+   event-handler lists, debug and docs. Left here: animations, generic forms, console;
+   UI waits on the tile tree (#834).
+3. Was: Packages and paths setters, form flags (needs the records' header flags kept).
 3. Event-handler lists, tokens, animations, generic forms.
 4. Console (`con_*`) and debug/documentation commands; UI waits on the owner
    (extender-compat.md §5.6).
+
+## 5. Built by the peer session (claude/nvse-core-rest, 2026-10-27)
+
+Probed first in the original game (set nvse-sixth of tools/capture/jip_probes.py, #828):
+- **Settings and INI** (`nvse_settings.rs`): GetNumericINISetting (-1 when missing or
+  without a ":category"), GetStringIniSetting (no value when missing), SetNumericINISetting
+  (1 / 0), SetStringIniSetting, on `GameData::ini_texts` (the host passes the game's INI
+  text; `fnvtool script run --ini`), changed for the session only. Not built:
+  SetStringGameSettingEx (the original refuses it at compile: it is deprecated).
+- **Tokens** (`nvse_tokens.rs`): the five functions, with no item a token (a carried
+  stimpak keeps 0 in the game; the Category:Tokens page is missing). GetPaired: not built.
+- **Event-handler lists** (`nvse_handler_lists.rs`): GetEventHandlers (StringMap /
+  priority Map / ar_Null for an event nobody knows), DumpEventHandlers,
+  GetHigher/LowerPriorityEventHandlers, IsEventHandlerFirst/Last.
+- **Debug** (`nvse_debug.rs`, the VM): GetCommandOpcode from
+  `schemas/script/command_opcodes.json` (every catalogue name run through GetCommandOpcode
+  in the game: 2,922 opcodes, all 455 vanilla ones agreeing with the catalogue),
+  GetDebugSelection (none: the console selection is the engine's), PrintDebug,
+  GetDebugMode, Assert (a script error, the script goes on), Ar_DumpID. Not built: the
+  file writers (PrintF, PrintDebugF, Ar_DumpF, DecompileScript, DumpDocs,
+  DumpCommandWikiDoc: owner decision J9), CompileScript, PrintVar/DebugPrintVar (need the
+  variable's name from the compiler).
+- **Quaternion Ex forms** (vm/quat.rs): the nine, writing the variables given.

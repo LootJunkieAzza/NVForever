@@ -333,16 +333,14 @@ impl Game<'_> {
     /// Whether `actor`'s current package (as last chosen) has the PKDT general flag `flag`
     /// (`crate::package::flags`).
     pub fn package_has(&self, actor: FormId, flag: u32) -> bool {
-        let data = self.data;
-        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flag))
+        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flag))
     }
 
     /// Whether `actor`'s current package allows a Fallout behaviour (a
     /// `crate::package::fallout` bit): the bits count only on a package with "Skip
     /// Fallout Behavior" set (docs/spec-notes/packages.md §3); with no package, yes.
     pub fn package_allows(&self, actor: FormId, behaviour: u16) -> bool {
-        let data = self.data;
-        let def = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p));
+        let def = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p));
         def.is_none_or(|d| !d.has(crate::package::flags::SKIP_FALLOUT_BEHAVIOR) || d.fallout_flags & behaviour != 0)
     }
 

@@ -160,6 +160,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 Some(t) if own.is_empty() => g.data.actors.get(&t).map(|d| d.packages.clone()).unwrap_or_default(),
                 _ => own,
             };
+            // AddPackageAt's and RemovePackageAt's list first.
+            let ps = g.other.package_lists.get(&b).cloned().unwrap_or(ps);
             let items = ps.into_iter().map(|p| XVal::Ref(p.0)).collect();
             list(g, items)
         }
