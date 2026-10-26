@@ -730,6 +730,9 @@ pub fn actor_health(g: &mut Game, actor: FormId) -> Result<f64, String> {
 /// conditions (IsWeaponSkillType, IsInList) on the weapon itself, not on a reference
 /// (docs/spec-notes/perk-entry-points.md §3) [hypothesis].
 pub fn base_of(g: &Game, r: FormId) -> Option<FormId> {
+    if let Some((_, item)) = g.temp_item(r) {
+        return Some(item);
+    }
     match g.world.peek(r) {
         Some(s) => Some(s.base),
         None if r == FormId::PLAYER_REF => Some(FormId::PLAYER_BASE),

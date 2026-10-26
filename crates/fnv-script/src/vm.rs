@@ -1543,8 +1543,8 @@ impl Vm<'_, '_> {
             }
             // A form list's forms, or a container's or actor's items, one per kind of item
             // [documented: ForEach; observed: probe loops/02, as many as GetNumItems]. Each
-            // entry here is the item's base form [hypothesis: the original gives a temporary
-            // reference to the stack, valid until the next frame; B5].
+            // entry is what the host gives: the game makes a temporary reference per kind
+            // of item, valid until the next frame (B5) [observed: probe loops/02].
             XVal::Ref(f) => {
                 let Some(members) = self.host.members(f) else {
                     return Err(VmError::Type("foreach over a form that is neither a form list nor a container".into()));
@@ -2427,6 +2427,15 @@ impl Vm<'_, '_> {
                     (None, None) => self.host.calling_ref(),
                 };
                 XVal::Num(f.and_then(|f| self.host.members(f)).map_or(0, |m| m.len()) as f64)
+            }
+            // [documented: GetBaseObject] the base form of the reference it is called on.
+            "getbaseobject" => {
+                let f = match (&c.on, c.args.first()) {
+                    (Some(e), _) => self.xeval(e)?.value()?.as_form(),
+                    (None, Some(a)) => self.xeval(a)?.value()?.as_form(),
+                    (None, None) => self.host.calling_ref(),
+                };
+                XVal::Ref(f.and_then(|f| self.host.base_form(f)).unwrap_or(0))
             }
             // [documented: IsReference] a reference, not a base form.
             "isreference" => {

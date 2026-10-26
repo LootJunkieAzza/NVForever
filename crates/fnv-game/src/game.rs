@@ -978,6 +978,10 @@ pub struct Game<'a> {
     handler_seq: u64,
     /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
     pub(crate) jip: crate::jip_events::JipEvents,
+    /// The temporary inventory references foreach made this frame (task B5): container
+    /// and item, id [`TEMP_REF_BASE`] + index; gone at the next frame [observed: probe
+    /// loops/02, valid after the loop, invalid a frame later].
+    pub(crate) temp_refs: Vec<(FormId, FormId)>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
     /// [hypothesis: the page gives no lifetime].
     debug_plugins: BTreeSet<String>,
@@ -1501,6 +1505,8 @@ pub const MAX_UDF_DEPTH: usize = 30;
 /// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
 /// FormID this high needs a 255th plugin, which NVForever's load order never gives a
 /// lambda's place to; script-compiler.md §9].
+/// Ids of foreach's temporary inventory references (B5), below the lambdas'.
+pub const TEMP_REF_BASE: u32 = 0xFE40_0000;
 pub const LAMBDA_BASE: u32 = 0xFE80_0000;
 
 /// What a script run is attached to.
@@ -1556,6 +1562,7 @@ impl<'a> Game<'a> {
             handler_seq: 0,
             jip: Default::default(),
             debug_plugins: BTreeSet::new(),
+            temp_refs: Vec::new(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
@@ -2220,6 +2227,21 @@ impl<'a> Game<'a> {
         })
     }
 
+    /// A temporary inventory reference for one kind of item in a container (B5).
+    pub(crate) fn temp_ref(&mut self, container: FormId, item: FormId) -> FormId {
+        if let Some(i) = self.temp_refs.iter().position(|&(c, x)| c == container && x == item) {
+            return FormId(TEMP_REF_BASE + i as u32);
+        }
+        self.temp_refs.push((container, item));
+        FormId(TEMP_REF_BASE + self.temp_refs.len() as u32 - 1)
+    }
+
+    /// The container and item of a live temporary inventory reference.
+    pub fn temp_item(&self, r: FormId) -> Option<(FormId, FormId)> {
+        let i = r.0.checked_sub(TEMP_REF_BASE).filter(|_| r.0 < LAMBDA_BASE)?;
+        self.temp_refs.get(i as usize).copied()
+    }
+
     /// How many parameters a function script's Function block or a lambda declares;
     /// `None` when `f` is neither.
     pub(crate) fn function_arity(&self, f: &fnv_script::vm::XVal) -> Option<usize> {
@@ -2494,6 +2516,7 @@ impl<'a> Game<'a> {
     /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
+        self.temp_refs.clear();
         // JIP's SetGameMainLoopCallback functions due this frame (task J6).
         self.run_main_loop();
         self.turned.clear();
@@ -4355,8 +4378,10 @@ impl Host for Exec<'_, '_> {
         if self.game.data.sig(f) == Some(*b"FLST") {
             return Some(functions::list_members(self.game, f).into_iter().map(|m| m.0).collect());
         }
-        let inv = self.game.world.inventory_mut(f).ok()?;
-        Some(inv.iter().filter(|(_, n)| *n > 0).map(|(i, _)| i.0).collect())
+        // A container's items, one temporary reference per kind of item [documented:
+        // ForEach; observed: probe loops/02].
+        let items: Vec<FormId> = self.game.world.inventory_mut(f).ok()?.iter().filter(|(_, n)| *n > 0).map(|(i, _)| i).collect();
+        Some(items.into_iter().map(|i| self.game.temp_ref(f, i).0).collect())
     }
 
     fn random(&mut self) -> f64 {
@@ -4366,6 +4391,9 @@ impl Host for Exec<'_, '_> {
 
     fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
         let f = FormId(form);
+        if self.game.temp_item(f).is_some() {
+            return Some(*b"REFR");
+        }
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
     }

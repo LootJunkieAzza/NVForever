@@ -396,11 +396,15 @@ impl Vm<'_, '_> {
                 };
                 Ok(Some(XVal::Str(f.and_then(|f| self.host.form_text(f)).unwrap_or_default())))
             }
-            "getformdescription" | "getloadscreentexture" | "getprojectilemuzzleflash" => {
-                let f = val(self, 0)?.value()?.as_form().unwrap_or(0);
+            // GetArmorRCT: the ragdoll constraint template, ARMO BMCT [observed: #830,
+            // ArmorPowerT45d `RagdollConstraint\default.rdt`, ArmorMetal ""].
+            "getformdescription" | "getloadscreentexture" | "getprojectilemuzzleflash" | "getarmorrct" => {
+                let v0 = val(self, 0)?;
+                let f = if n == "getarmorrct" { self.jip_base(v0)? } else { v0.value()?.as_form().unwrap_or(0) };
                 let sub = match n {
                     "getformdescription" => "DESC",
                     "getloadscreentexture" => "ICON",
+                    "getarmorrct" => "BMCT",
                     _ => "NAM1",
                 };
                 Ok(Some(match self.host.record_field(f, sub, "") {
