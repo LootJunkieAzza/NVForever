@@ -364,6 +364,8 @@ impl Stats {
                 Stmt::While { .. } => "while",
                 Stmt::ForEach { .. } => "foreach",
                 Stmt::Break => "break",
+                Stmt::Label { .. } => "label",
+                Stmt::GoTo { .. } => "goto",
                 Stmt::Continue => "continue",
                 Stmt::Raw { .. } => "raw",
             };

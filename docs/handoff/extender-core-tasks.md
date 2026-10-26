@@ -74,6 +74,7 @@ function. **F1:** strings, arrays and lambdas in NVForever's save (`GameSnapshot
 Print, the version reports (script-compiler.md §9). **E1, E3, E2 in part:** the handler
 registry, filters, priorities, DispatchEvent(Alt), GetCurrentEventName; OnActivate and
 OnDeath, LoadGame, PostLoadGame and SaveGame fire; GetGameLoaded and GetGameRestarted.
+**D5**, and the first corrections from the in-game goldens (script-compiler.md §9).
 Next: more firing points (OnHit, OnAdd, OnDrop, NewGame…), D5 (forms and types), D6
 (input), then route 1 from the observed bytes (docs/spec-notes/ext-bytecode.md).
 

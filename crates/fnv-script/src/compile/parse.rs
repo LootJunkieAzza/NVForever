@@ -62,6 +62,9 @@ pub enum Kw {
     Loop,
     Break,
     Continue,
+    /// `Label n` / `GoTo n` [documented: Label; GoTo], n 0 when left out.
+    Label(i32),
+    GoTo(i32),
 }
 
 /// The assignments the Let macro takes without `let` [documented: Let Macro].
@@ -79,6 +82,8 @@ fn extender(l: &Line) -> Option<Kw> {
         ("foreach", _) => Some(Kw::ForEach(xtokens(&l.text)[1..].to_vec())),
         ("loop", None) => Some(Kw::Loop),
         ("break", None) => Some(Kw::Break),
+        ("label", _) => Some(Kw::Label(second.as_deref().and_then(|n| n.parse().ok()).unwrap_or(0))),
+        ("goto", _) => Some(Kw::GoTo(second.as_deref().and_then(|n| n.parse().ok()).unwrap_or(0))),
         ("continue", None) => Some(Kw::Continue),
         _ => {
             let x = xtokens(&l.text);
@@ -101,7 +106,7 @@ impl Kw {
     /// script-compiler.md §8).
     pub fn extended(&self) -> bool {
         match self {
-            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue => true,
+            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue | Kw::Label(_) | Kw::GoTo(_) => true,
             Kw::Decl { ty, init, .. } => matches!(ty, DeclType::String | DeclType::Array) || init.is_some(),
             // `Begin _GameMode`: a compiler-override block [documented: Script Compiler Override].
             Kw::Begin { block, .. } => block.starts_with('_') || block.eq_ignore_ascii_case("function"),

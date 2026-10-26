@@ -36,6 +36,9 @@ pub mod op {
     pub const X_CONTINUE: u16 = 0x00F5;
     /// NVForever's own expression statement (body: the expression as JSON).
     pub const X_EVAL: u16 = 0x00F6;
+    /// NVForever's own `Label n` / `GoTo n` (body: n as i32).
+    pub const X_LABEL: u16 = 0x00F7;
+    pub const X_GOTO: u16 = 0x00F8;
 }
 
 /// Something the decoder noticed that is not an unknown encoding: a skip count or block
@@ -534,6 +537,10 @@ fn piece(c: &mut Ctx<'_>, f: &Flat<'_>) -> Piece {
             Ok(expr) => Piece::Stmt(Stmt::Eval { expr }),
             Err(_) => raw(c, "unreadable extended statement"),
         },
+        op::X_LABEL | op::X_GOTO if f.body.len() == 4 => {
+            let n = i32::from_le_bytes([f.body[0], f.body[1], f.body[2], f.body[3]]);
+            Piece::Stmt(if f.opcode == op::X_LABEL { Stmt::Label { n } } else { Stmt::GoTo { n } })
+        }
         op::X_LOOP if empty => Piece::Loop,
         op::X_BREAK if empty => Piece::Stmt(Stmt::Break),
         op::X_CONTINUE if empty => Piece::Stmt(Stmt::Continue),

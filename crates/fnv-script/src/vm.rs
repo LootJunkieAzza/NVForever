@@ -189,6 +189,26 @@ pub trait Host {
     fn calling_script(&mut self) -> Option<u32> {
         None
     }
+    /// The forms of a form list, or the items (one per kind) a container or actor holds.
+    fn members(&mut self, _form: u32) -> Option<Vec<u32>> {
+        None
+    }
+    /// A random number in [0, 1) (Rand).
+    fn random(&mut self) -> f64 {
+        0.5
+    }
+    /// A form's record type (`REFR`, `NPC_` …), None for no such form.
+    fn form_sig(&mut self, _form: u32) -> Option<[u8; 4]> {
+        None
+    }
+    /// A reference's base form.
+    fn base_form(&mut self, _form: u32) -> Option<u32> {
+        None
+    }
+    /// A plugin's load-order index, by file name.
+    fn mod_index(&mut self, _name: &str) -> Option<u32> {
+        None
+    }
     /// GetGameLoaded (`restarted` false) or GetGameRestarted for the running script.
     fn game_loaded(&mut self, _restarted: bool) -> bool {
         false
@@ -233,6 +253,8 @@ enum Flow {
     /// `break` / `continue`: up to the innermost loop.
     Break,
     Continue,
+    /// `GoTo n`: up to the statement list that holds `Label n`.
+    GoTo(i32),
 }
 
 /// How a run ended.
@@ -265,7 +287,7 @@ impl<'t, 'h> Vm<'t, 'h> {
     pub fn run(&mut self, stmts: &[Stmt]) -> Result<Exit, VmError> {
         Ok(match self.list(stmts, false)? {
             Flow::Return => Exit::Returned,
-            Flow::Normal | Flow::Leave | Flow::Break | Flow::Continue => Exit::Finished,
+            Flow::Normal | Flow::Leave | Flow::Break | Flow::Continue | Flow::GoTo(_) => Exit::Finished,
         })
     }
 
@@ -278,7 +300,17 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Token::Var { var } => self.host.get_var(var).map_err(VmError::Host)?,
                 Token::Ref { r } => self.host.ref_value(*r).map_err(VmError::Host)?,
                 Token::Call { call } => self.call(call)?,
-                Token::X { e } => self.xeval(e)?.value()?,
+                // A failing extended condition counts as false and the script goes on
+                // [observed: probe loops/03, reading past a shrunk list in `if eval` does not
+                // stop the original's script]; strict runs stop.
+                Token::X { e } => match self.xeval(e).and_then(|v| v.value()) {
+                    Ok(v) => v,
+                    Err(err @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                        self.host.skipped(&err);
+                        Value::ZERO
+                    }
+                    Err(err) => return Err(err),
+                },
                 Token::Op { op } => {
                     let b = stack.pop().ok_or_else(|| VmError::Expression(format!("{} without operands", op.symbol())))?;
                     if *op == Op::Neg {
@@ -363,6 +395,13 @@ impl<'t, 'h> Vm<'t, 'h> {
                     let body = taken.or(otherwise.as_ref().map(|o| (o, true)));
                     if let Some((b, is_else)) = body {
                         match self.list(b, is_else)? {
+                            Flow::GoTo(n) => match label_at(stmts, n) {
+                                Some(at) => {
+                                    i = at;
+                                    continue;
+                                }
+                                None => return Ok(Flow::GoTo(n)),
+                            },
                             f @ (Flow::Return | Flow::Break | Flow::Continue) => return Ok(f),
                             Flow::Normal | Flow::Leave => {}
                         }
@@ -402,14 +441,23 @@ impl<'t, 'h> Vm<'t, 'h> {
                     match self.list(body, false)? {
                         Flow::Return => return Ok(Flow::Return),
                         Flow::Break => break,
+                        f @ Flow::GoTo(_) => return Ok(f),
                         Flow::Normal | Flow::Leave | Flow::Continue => {}
                     }
                 },
                 Stmt::ForEach { head, body } => {
-                    if self.foreach(head, body)? == Flow::Return {
-                        return Ok(Flow::Return);
+                    if let f @ (Flow::Return | Flow::GoTo(_)) = self.foreach(head, body)? {
+                        return Ok(f);
                     }
                 }
+                Stmt::Label { .. } => {}
+                Stmt::GoTo { n } => match label_at(stmts, *n) {
+                    Some(at) => {
+                        i = at;
+                        continue;
+                    }
+                    None => return Ok(Flow::GoTo(*n)),
+                },
                 Stmt::Break => return Ok(Flow::Break),
                 Stmt::Continue => return Ok(Flow::Continue),
                 Stmt::Unmatched { marker: Marker::EndIf, .. } => {}
@@ -900,9 +948,23 @@ pub fn number_text(x: f64) -> String {
 pub fn text_number(s: &str) -> f64 {
     let t = s.trim();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        return i64::from_str_radix(h, 16).map(|v| v as f64).unwrap_or(0.0);
+        return hex_prefix(h);
     }
-    t.parse::<f64>().unwrap_or(0.0)
+    // The number the text starts with: "12abc" is 12 [observed: probe strings/04].
+    let mut end = t.len();
+    while end > 0 {
+        if let Ok(v) = t[..end].parse::<f64>() {
+            return v;
+        }
+        end = t[..end].char_indices().last().map_or(0, |(i, _)| i);
+    }
+    0.0
+}
+
+/// The hex digits a text starts with, as a number.
+fn hex_prefix(h: &str) -> f64 {
+    let n = h.chars().take_while(|c| c.is_ascii_hexdigit()).count();
+    i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
 }
 
 /// A number by a printf-style code of the base game [documented: String Formatting,
@@ -1002,6 +1064,24 @@ fn literal_codes(s: &str) -> String {
         i += 1;
     }
     out
+}
+
+/// The form-type code of a record type [documented: Form Type IDs, docs/spec-notes/ext-forms.md
+/// appendix].
+pub fn form_type_code(sig: &[u8; 4]) -> Option<u16> {
+    const CODES: [&[u8; 4]; 121] = [
+        b"NONE", b"TES4", b"GRUP", b"GMST", b"TXST", b"MICN", b"GLOB", b"CLAS", b"FACT", b"HDPT", b"HAIR", b"EYES", b"RACE", b"SOUN", b"ASPC", b"SKIL",
+        b"MGEF", b"SCPT", b"LTEX", b"ENCH", b"SPEL", b"ACTI", b"TACT", b"TERM", b"ARMO", b"BOOK", b"CLOT", b"CONT", b"DOOR", b"INGR", b"LIGH", b"MISC",
+        b"STAT", b"SCOL", b"MSTT", b"PWAT", b"GRAS", b"TREE", b"FLOR", b"FURN", b"WEAP", b"AMMO", b"NPC_", b"CREA", b"LVLC", b"LVLN", b"KEYM", b"ALCH",
+        b"IDLM", b"NOTE", b"COBJ", b"PROJ", b"LVLI", b"WTHR", b"CLMT", b"REGN", b"NAVI", b"CELL", b"REFR", b"ACHR", b"ACRE", b"PMIS", b"PGRE", b"PBEA",
+        b"PFLA", b"WRLD", b"LAND", b"NAVM", b"TLOD", b"DIAL", b"INFO", b"QUST", b"IDLE", b"PACK", b"CSTY", b"LSCR", b"LVSP", b"ANIO", b"WATR", b"EFSH",
+        b"TOFT", b"EXPL", b"DEBR", b"IMGS", b"IMAD", b"FLST", b"PERK", b"BPTD", b"ADDN", b"AVIF", b"RADS", b"CAMS", b"CPTH", b"VTYP", b"IPCT", b"IPDS",
+        b"ARMA", b"ECZN", b"MESG", b"RGDL", b"DOBJ", b"LGTM", b"MUSC", b"IMOD", b"REPU", b"PCBE", b"RCPE", b"RCCT", b"CHIP", b"CSNO", b"LSCT", b"MSET",
+        b"ALOC", b"CHAL", b"AMEF", b"CCRD", b"CMNY", b"CDCK", b"DEHY", b"HUNG", b"SLPD",
+    ];
+    // The table lists ARMA as 96 and ARMO as "armor (armor addons too)": the code table
+    // is followed here [documented: Form Type IDs; which an addon reports is open].
+    CODES.iter().position(|c| *c == sig).map(|i| i as u16)
 }
 
 /// A position in a string: from the end when negative [documented: NVSE Expressions,
@@ -1154,6 +1234,10 @@ impl Vm<'_, '_> {
                 // Expressions, Slice]; `s[i]`: one character [documented: Subscript].
                 if let XExpr::Binary { op: XOp::Slice, l: lo, r: hi } = r.as_ref() {
                     let (a, b) = (self.xeval(lo)?.num()?, self.xeval(hi)?.num()?);
+                    // An end past the string stops at its last character [observed: probe
+                    // strings/02, "abcdef"[4:10] is "ef"].
+                    let last = chars.len().saturating_sub(1) as f64;
+                    let b = if b > last { last } else { b };
                     match (position(a, chars.len()), position(b, chars.len())) {
                         (Some(a), Some(b)) if a <= b => XVal::Str(chars[a..=b].iter().collect()),
                         _ => XVal::Str(String::new()),
@@ -1218,7 +1302,11 @@ impl Vm<'_, '_> {
         Ok(match v {
             XVal::Num(x) => number_text(*x),
             XVal::Str(s) => s.clone(),
-            XVal::Ref(f) => self.host.form_text(*f).unwrap_or_else(|| format!("{f:08X}")),
+            // `<NULL>` for no form and `<no name>` for one without a name [observed: probes
+            // strings/04 and udf/03 in the original game, against the page's "its FormID in
+            // hex"].
+            XVal::Ref(0) => "<NULL>".to_string(),
+            XVal::Ref(f) => self.host.form_text(*f).unwrap_or_else(|| "<no name>".to_string()),
             XVal::Array(id) => self.dump(*id),
         })
     }
@@ -1291,13 +1379,16 @@ impl Vm<'_, '_> {
                 let len = a.entries.len();
                 match *x {
                     i if i >= 0.0 && (i as usize) < len => Some(std::mem::replace(&mut a.entries[i as usize].1, v)),
-                    i if i as usize == len && i >= 0.0 => {
-                        a.entries.push((XKey::Num(i), v));
+                    // A key at or past the size appends at the end [observed: probe
+                    // arrays/03, `let aA[3] := 9` on a one-element list gives size 2; the page
+                    // calls a key beyond the size an error].
+                    i if i >= 0.0 => {
+                        a.entries.push((XKey::Num(len as f64), v));
                         None
                     }
                     i => {
                         store.release(&v);
-                        return Err(VmError::Type(format!("list key {i} is beyond the list's size {len}")));
+                        return Err(VmError::Type(format!("list key {i} is negative")));
                     }
                 }
             }
@@ -1370,7 +1461,7 @@ impl Vm<'_, '_> {
                     let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
                     self.write_var(var, XVal::Array(e))?;
                     match self.list(body, false)? {
-                        Flow::Return => break Flow::Return,
+                        f @ (Flow::Return | Flow::GoTo(_)) => break f,
                         Flow::Break => break Flow::Normal,
                         Flow::Normal | Flow::Leave | Flow::Continue => {}
                     }
@@ -1384,14 +1475,33 @@ impl Vm<'_, '_> {
                     self.step()?;
                     self.write_var(var, XVal::Str(ch.to_string()))?;
                     match self.list(body, false)? {
-                        Flow::Return => return Ok(Flow::Return),
+                        f @ (Flow::Return | Flow::GoTo(_)) => return Ok(f),
                         Flow::Break => break,
                         Flow::Normal | Flow::Leave | Flow::Continue => {}
                     }
                 }
                 Ok(Flow::Normal)
             }
-            _ => Err(VmError::NotBuilt("foreach over form lists and containers (B5)".into())),
+            // A form list's forms, or a container's or actor's items, one per kind of item
+            // [documented: ForEach; observed: probe loops/02, as many as GetNumItems]. Each
+            // entry here is the item's base form [hypothesis: the original gives a temporary
+            // reference to the stack, valid until the next frame; B5].
+            XVal::Ref(f) => {
+                let Some(members) = self.host.members(f) else {
+                    return Err(VmError::Type("foreach over a form that is neither a form list nor a container".into()));
+                };
+                for m in members {
+                    self.step()?;
+                    self.write_var(var, XVal::Ref(m))?;
+                    match self.list(body, false)? {
+                        f @ (Flow::Return | Flow::GoTo(_)) => return Ok(f),
+                        Flow::Break => break,
+                        Flow::Normal | Flow::Leave | Flow::Continue => {}
+                    }
+                }
+                Ok(Flow::Normal)
+            }
+            _ => Err(VmError::Type("foreach over something that is not an array, a string or a form".into())),
         }
     }
 
@@ -1412,7 +1522,8 @@ impl Vm<'_, '_> {
                     XVal::Str(s) if s.eq_ignore_ascii_case("array") => ArrayKind::List,
                     XVal::Str(s) if s.eq_ignore_ascii_case("map") => ArrayKind::Map,
                     XVal::Str(s) if s.eq_ignore_ascii_case("stringmap") => ArrayKind::StringMap,
-                    other => return Err(VmError::Type(format!("Ar_Construct of {other:?}"))),
+                    // An unknown kind makes a list [observed: probe arrays/01, size 0].
+                    _ => ArrayKind::List,
                 };
                 Ok(XVal::Array(self.store()?.new_array(kind, Vec::new())))
             }
@@ -1436,8 +1547,10 @@ impl Vm<'_, '_> {
                         XVal::Str(s) => (XKey::Str(s), ArrayKind::StringMap),
                         _ => return Err(VmError::Type("Ar_Map keys are numbers or strings".into())),
                     };
+                    // Keys of another kind than the first are dropped [observed: probe
+                    // arrays/01, `Ar_Map 1::10, "x"::20` has size 1].
                     if kind.is_some_and(|k| k != kk) {
-                        return Err(VmError::Type("Ar_Map keys mix numbers and strings".into()));
+                        continue;
                     }
                     kind = Some(kk);
                     es.push((key, v));
@@ -1484,6 +1597,9 @@ impl Vm<'_, '_> {
                 let got = match (n, from) {
                     ("ar_first", _) => arr.entries.first().map(|e| e.0.clone()),
                     ("ar_last", _) => arr.entries.last().map(|e| e.0.clone()),
+                    // A key the array does not have gives the bad index [observed: probe
+                    // arrays/02].
+                    (_, Some(k)) if arr.get(&k).is_none() => None,
                     ("ar_next", Some(k)) => arr.entries.iter().find(|e| e.0.cmp(&k) == std::cmp::Ordering::Greater).map(|e| e.0.clone()),
                     (_, Some(k)) => arr.entries.iter().rev().find(|e| e.0.cmp(&k) == std::cmp::Ordering::Less).map(|e| e.0.clone()),
                     _ => None,
@@ -1577,12 +1693,71 @@ impl Vm<'_, '_> {
                 let id = array_of(&a).ok_or_else(|| VmError::Type(format!("{n} of an empty array variable")))?;
                 Ok(XVal::Array(copy_array(self.store()?, id, n == "ar_deepcopy")))
             }
+            // [documented: Ar Find] optionally within a range of keys.
             "ar_find" => {
                 let (v, a) = (val(self, 0)?, val(self, 1)?);
                 let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_Find in an empty array variable".into()))?;
+                let range = match c.args.get(2) {
+                    Some(XExpr::Binary { op: XOp::Slice, l, r }) => {
+                        let (lo, hi) = (self.xeval(l)?, self.xeval(r)?);
+                        Some((self.key_for(id, &lo)?, self.key_for(id, &hi)?))
+                    }
+                    _ => None,
+                };
                 let store = self.store()?;
                 let arr = store.array(id).ok_or_else(|| VmError::Type("Ar_Find in an empty array".into()))?;
-                Ok(arr.entries.iter().find(|e| same(&e.1, &v)).map(|e| e.0.value()).unwrap_or_else(|| arr.bad_index()))
+                let inside = |k: &XKey| range.as_ref().is_none_or(|(lo, hi)| k.cmp(lo) != std::cmp::Ordering::Less && k.cmp(hi) != std::cmp::Ordering::Greater);
+                Ok(arr.entries.iter().find(|e| inside(&e.0) && same(&e.1, &v)).map(|e| e.0.value()).unwrap_or_else(|| arr.bad_index()))
+            }
+            // [documented: Ar InsertRange] Ar_Insert for every element of the other list.
+            "ar_insertrange" => {
+                let (a, i, b) = (val(self, 0)?, val(self, 1)?.num()?, val(self, 2)?);
+                let (Some(id), Some(other)) = (array_of(&a), array_of(&b)) else { return num(0.0) };
+                let store = self.store()?;
+                let vals: Vec<XVal> = store.array(other).map(|o| o.entries.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
+                let ok = store.array(id).is_some_and(|arr| arr.kind == ArrayKind::List && i >= 0.0 && i as usize <= arr.entries.len());
+                if ok {
+                    for v in &vals {
+                        store.retain(v);
+                    }
+                    if let Some(arr) = store.array_mut(id) {
+                        let at = i as usize;
+                        for (j, v) in vals.into_iter().enumerate() {
+                            arr.entries.insert(at + j, (XKey::Num(0.0), v));
+                        }
+                        arr.renumber();
+                    }
+                }
+                num(if ok { 1.0 } else { 0.0 })
+            }
+            // [documented: Ar CustomSort] `fn` gets two one-element arrays and says whether the
+            // first comes before the second; a list.
+            "ar_customsort" => {
+                let (a, f) = (val(self, 0)?, val(self, 1)?);
+                let reverse = nargs > 2 && val(self, 2)?.truthy();
+                let id = array_of(&a).ok_or_else(|| VmError::Type("Ar_CustomSort of an empty array variable".into()))?;
+                let mut vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
+                // Insertion sort with the script's test (a test that is not consistent cannot
+                // loop forever here).
+                for i in 1..vals.len() {
+                    let mut j = i;
+                    while j > 0 {
+                        let store = self.store()?;
+                        let x = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j].clone())]);
+                        let y = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j - 1].clone())]);
+                        let before = self.host.call_function(&f, None, vec![XVal::Array(x), XVal::Array(y)]).map_err(VmError::Host)?.truthy();
+                        if !before {
+                            break;
+                        }
+                        vals.swap(j, j - 1);
+                        j -= 1;
+                    }
+                }
+                if reverse {
+                    vals.reverse();
+                }
+                let es = vals.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+                Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
             }
             // [documented: Ar Sort] all of one type, else an empty array; strings without
             // regard to case, numbers by value, forms by FormID; a list.
@@ -1591,21 +1766,34 @@ impl Vm<'_, '_> {
                 let desc = nargs > 1 && val(self, 1)?.truthy();
                 let id = array_of(&a).ok_or_else(|| VmError::Type(format!("{n} of an empty array variable")))?;
                 let vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
-                let mut keyed: Vec<(String, f64, XVal)> = Vec::new();
+                // Ar_SortAlpha puts 9 before 10: numbers sort by value there too, ahead of
+                // the rest [observed: probe arrays in the original game, which beats the
+                // page's "as text"; numbers first, hypothesis].
+                let mut keyed: Vec<(u8, String, f64, XVal)> = Vec::new();
                 let alpha = n == "ar_sortalpha";
-                let same_kind = vals.windows(2).all(|w| std::mem::discriminant(&w[0]) == std::mem::discriminant(&w[1]));
+                // Ar_Sort keeps the elements of the first element's type and drops the rest
+                // ([3, "x"] → [3], ["x", 3] → ["x"]) [observed: the original game, which beats
+                // the page's "empty array"; with more elements of each type, hypothesis].
+                let vals: Vec<XVal> = if alpha {
+                    vals
+                } else {
+                    let first = vals.first().map(std::mem::discriminant);
+                    vals.into_iter().filter(|v| Some(std::mem::discriminant(v)) == first).collect()
+                };
+                let same_kind = true;
                 if alpha || same_kind {
                     for v in vals {
-                        let t = if alpha || matches!(v, XVal::Str(_)) { self.text_of(&v)?.to_lowercase() } else { String::new() };
-                        let x = if alpha { 0.0 } else { v.num().unwrap_or(0.0) };
-                        keyed.push((t, x, v));
+                        let is_num = matches!(v, XVal::Num(_));
+                        let t = if !is_num && (alpha || matches!(v, XVal::Str(_))) { self.text_of(&v)?.to_lowercase() } else { String::new() };
+                        let x = if is_num || !alpha { v.num().unwrap_or(0.0) } else { 0.0 };
+                        keyed.push((u8::from(!is_num), t, x, v));
                     }
-                    keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.partial_cmp(&q.1).unwrap_or(std::cmp::Ordering::Equal)));
+                    keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.cmp(&q.1)).then(p.2.partial_cmp(&q.2).unwrap_or(std::cmp::Ordering::Equal)));
                     if desc {
                         keyed.reverse();
                     }
                 }
-                let es = keyed.into_iter().enumerate().map(|(i, (_, _, v))| (XKey::Num(i as f64), v)).collect();
+                let es = keyed.into_iter().enumerate().map(|(i, (_, _, _, v))| (XKey::Num(i as f64), v)).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
             }
             // [documented: Ar Range] start to end, both included, `step` apart.
@@ -1898,7 +2086,36 @@ impl Vm<'_, '_> {
             // [documented: Sv Construct] a new string from the format and its values.
             "sv_construct" => XVal::Str(self.format_arg(c, 0)?.0),
             // [documented: Sv Length] -1 for an invalid string.
-            "sv_length" => XVal::Num(text(val(self, 0)?).map_or(-1.0, |s| s.chars().count() as f64)),
+            "sv_length" => {
+                // A destructed or never-set string variable is not a valid string: -1
+                // [documented: Sv Length; observed: probe strings, a destructed string].
+                if let Some(XExpr::Var { var }) = c.args.first() {
+                    if self.host.var_kind(var) == VarKind::String {
+                        let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
+                        if self.store()?.text(id).is_none() {
+                            return Ok(Some(XVal::Num(-1.0)));
+                        }
+                    }
+                }
+                XVal::Num(text(val(self, 0)?).map_or(-1.0, |s| s.chars().count() as f64))
+            }
+            // [documented: Sv Count; observed: probe strings, matches do not overlap] as
+            // Sv_Find, the number of matches.
+            "sv_count" => {
+                let (needle, k) = self.format_arg(c, 0)?;
+                let hay = text(val(self, k)?).unwrap_or_default();
+                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
+                let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
+                let chars: Vec<char> = hay.chars().collect();
+                let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
+                let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
+                if needle.is_empty() {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let n = if case { region.matches(needle.as_str()).count() } else { region.to_lowercase().matches(needle.to_lowercase().as_str()).count() };
+                XVal::Num(n as f64)
+            }
             // [documented: Sv Destruct] the variable's string goes; it reads 0 after.
             "sv_destruct" => {
                 for a in &c.args {
@@ -1956,8 +2173,65 @@ impl Vm<'_, '_> {
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(count as f64)
             }
+            // [documented: Sv Insert] the text into the variable at the position (past the
+            // end: at the end [hypothesis]).
+            "sv_insert" => {
+                let (ins, k) = self.format_arg(c, 0)?;
+                let Some(XExpr::Var { var }) = c.args.get(k) else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let s = text(self.read_var(var)?).unwrap_or_default();
+                let at = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let chars: Vec<char> = s.chars().collect();
+                let at = at.min(chars.len());
+                let out: String = chars[..at].iter().collect::<String>() + &ins + &chars[at..].iter().collect::<String>();
+                self.write_var(var, XVal::Str(out))?;
+                XVal::Num(0.0)
+            }
+            // [documented: Sv Erase] `count` characters from the position, to the end when
+            // left out or past it.
+            "sv_erase" => {
+                let Some(XExpr::Var { var }) = c.args.first() else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let s = text(self.read_var(var)?).unwrap_or_default();
+                let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
+                let chars: Vec<char> = s.chars().collect();
+                let at = at.min(chars.len());
+                let end = n.map_or(chars.len(), |n| (at + n.max(0.0) as usize).min(chars.len()));
+                let out: String = chars[..at].iter().chain(&chars[end..]).collect();
+                self.write_var(var, XVal::Str(out))?;
+                XVal::Num(0.0)
+            }
+            // [documented: Sv SubString] `count` characters from the position.
+            "sv_substring" => {
+                let s = text(val(self, 0)?).unwrap_or_default();
+                let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
+                let chars: Vec<char> = s.chars().collect();
+                let at = at.min(chars.len());
+                let end = n.map_or(chars.len(), |n| (at + n.max(0.0) as usize).min(chars.len()));
+                XVal::Str(chars[at..end].iter().collect())
+            }
+            // [documented: Sv ToUpper; Sv ToLower] a new string; the source is kept.
+            "sv_toupper" => XVal::Str(text(val(self, 0)?).unwrap_or_default().to_uppercase()),
+            "sv_tolower" => XVal::Str(text(val(self, 0)?).unwrap_or_default().to_lowercase()),
+            // [documented: Sv Percentify] every `%` doubled.
+            "sv_percentify" => XVal::Str(text(val(self, 0)?).unwrap_or_default().replace('%', "%%")),
+            // [documented: Sv Compare; observed: probe strings/03] 0 when equal, 1 when the
+            // format text sorts after the variable's, -1 before; without regard to case unless
+            // the flag is set.
+            "sv_compare" => {
+                let (a, k) = self.format_arg(c, 0)?;
+                let b = text(val(self, k)?).unwrap_or_default();
+                let case = opt(self, k + 1)?.is_some_and(|v| v.truthy());
+                let ord = if case { a.cmp(&b) } else { a.to_lowercase().cmp(&b.to_lowercase()) };
+                XVal::Num(match ord {
+                    std::cmp::Ordering::Less => -1.0,
+                    std::cmp::Ordering::Equal => 0.0,
+                    std::cmp::Ordering::Greater => 1.0,
+                })
+            }
             // [documented: Sv Split] the pieces between delimiter characters; with the flag
-            // the whole delimiter string separates.
+            // the whole delimiter string separates. Empty pieces are dropped [observed: probe
+            // strings/03, "a,,b" gives 2].
             "sv_split" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
                 let d = text(val(self, 1)?).unwrap_or_default();
@@ -1965,9 +2239,9 @@ impl Vm<'_, '_> {
                 let pieces: Vec<String> = if d.is_empty() {
                     vec![s]
                 } else if whole {
-                    s.split(d.as_str()).map(str::to_string).collect()
+                    s.split(d.as_str()).filter(|p| !p.is_empty()).map(str::to_string).collect()
                 } else {
-                    s.split(|ch| d.contains(ch)).map(str::to_string).collect()
+                    s.split(|ch| d.contains(ch)).filter(|p| !p.is_empty()).map(str::to_string).collect()
                 };
                 let es = pieces.into_iter().enumerate().map(|(i, p)| (XKey::Num(i as f64), XVal::Str(p))).collect();
                 XVal::Array(self.store()?.new_array(ArrayKind::List, es))
@@ -2022,6 +2296,101 @@ impl Vm<'_, '_> {
                 self.host.print(&t);
                 XVal::Num(0.0)
             }
+            // [documented: GetObjectType / GetType] the form-type code of a base form, or of
+            // a reference's base form (the codes: docs/spec-notes/ext-forms.md).
+            "getobjecttype" | "gettype" => {
+                let f = match c.args.first() {
+                    Some(a) => self.xeval(a)?.value()?.as_form(),
+                    None => match &c.on {
+                        Some(e) => self.xeval(e)?.value()?.as_form(),
+                        None => None,
+                    },
+                };
+                let Some(mut f) = f else { return Ok(Some(XVal::Num(0.0))) };
+                if self.host.form_sig(f).is_some_and(|s| matches!(&s, b"REFR" | b"ACHR" | b"ACRE" | b"PGRE" | b"PMIS" | b"PBEA" | b"PFLA")) {
+                    f = self.host.base_form(f).unwrap_or(f);
+                }
+                XVal::Num(self.host.form_sig(f).and_then(|s| form_type_code(&s)).unwrap_or(0) as f64)
+            }
+            // [documented: IsFormValid] a reference or base form that is there; every form
+            // of the load order is in memory here [hypothesis: NVForever keeps no form out
+            // of memory].
+            "isformvalid" => {
+                let v = val(self, 0)?;
+                let ok = v.value()?.as_form().is_some_and(|f| self.host.form_sig(f).is_some());
+                XVal::Num(if ok { 1.0 } else { 0.0 })
+            }
+            // [documented: IsReference] a reference, not a base form.
+            "isreference" => {
+                let v = val(self, 0)?;
+                let r = v.value()?.as_form().and_then(|f| self.host.form_sig(f)).is_some_and(|s| matches!(&s, b"REFR" | b"ACHR" | b"ACRE" | b"PGRE" | b"PMIS" | b"PBEA" | b"PFLA"));
+                XVal::Num(if r { 1.0 } else { 0.0 })
+            }
+            // [documented: GetModIndex] 255 when the plugin is not loaded.
+            "getmodindex" => {
+                let n = text(val(self, 0)?).unwrap_or_default();
+                XVal::Num(self.host.mod_index(&n).unwrap_or(255) as f64)
+            }
+            // [documented: GetSourceModIndex] the load-order index of the form's plugin: its
+            // FormID's top byte here, where FormIDs are load-order FormIDs.
+            "getsourcemodindex" => {
+                let f = match c.args.first() {
+                    Some(a) => self.xeval(a)?.value()?.as_form(),
+                    None => match &c.on {
+                        Some(e) => self.xeval(e)?.value()?.as_form(),
+                        None => None,
+                    },
+                };
+                XVal::Num(f.map_or(255, |f| f >> 24) as f64)
+            }
+            // The extender's math [documented: each page; the trigonometric functions in
+            // degrees, observed: `Sin 90 > 0.5` is 1 in the original game].
+            "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "log" | "log10" | "exp" | "floor" | "ceil"
+            | "squareroot" | "sqrt" => {
+                let x = val(self, 0)?.num()?;
+                let d = x.to_radians();
+                XVal::Num(match n {
+                    "sin" => d.sin(),
+                    "cos" => d.cos(),
+                    "tan" => d.tan(),
+                    "asin" => x.asin().to_degrees(),
+                    "acos" => x.acos().to_degrees(),
+                    "atan" => x.atan().to_degrees(),
+                    "sinh" => x.sinh(),
+                    "cosh" => x.cosh(),
+                    "tanh" => x.tanh(),
+                    "log" => x.ln(),
+                    "log10" => x.log10(),
+                    "exp" => x.exp(),
+                    "floor" => x.floor(),
+                    "ceil" => x.ceil(),
+                    _ => x.sqrt(),
+                })
+            }
+            "atan2" => {
+                let (y, x) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
+                XVal::Num(y.atan2(x).to_degrees())
+            }
+            "pow" => {
+                let (a, b) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
+                XVal::Num(a.powf(b))
+            }
+            // [documented: fmod] x modulo n, plus the offset.
+            "fmod" => {
+                let (x, m) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
+                let off = opt(self, 2)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                XVal::Num(if m == 0.0 { 0.0 } else { (x - off).rem_euclid(m) + off })
+            }
+            // [documented: Rand] a number from the minimum up to the maximum [observed: Rand 5,
+            // 5 gives 5].
+            "rand" => {
+                let (a, b) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
+                XVal::Num(a + (b - a) * self.host.random())
+            }
+            "v3length" => {
+                let (x, y, z) = (val(self, 0)?.num()?, val(self, 1)?.num()?, val(self, 2)?.num()?);
+                XVal::Num((x * x + y * y + z * z).sqrt())
+            }
             // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4
             // [decision: the version whose behaviour these tasks follow; how a version
             // splits into the three numbers is open]. No extender plugin is reported until
@@ -2055,10 +2424,16 @@ impl Vm<'_, '_> {
                 let v = arg(self, 0)?;
                 Ok(XVal::Str(self.text_of(&v)?))
             }
-            "tonumber" => Ok(match arg(self, 0)? {
-                XVal::Str(s) => XVal::Num(text_number(&s)),
-                other => XVal::Num(other.num()?),
-            }),
+            // With the hexadecimal flag the text is read as hex [documented: ToNumber;
+            // observed: "1F" gives 31].
+            "tonumber" => {
+                let hex = c.args.get(1).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
+                Ok(match arg(self, 0)? {
+                    XVal::Str(s) if hex => XVal::Num(hex_prefix(s.trim().trim_start_matches("0x").trim_start_matches("0X"))),
+                    XVal::Str(s) => XVal::Num(text_number(&s)),
+                    other => XVal::Num(other.num()?),
+                })
+            }
             n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
             // `[ref.]Call udf args…` [documented: Call; User Defined Function].
             "call" => {
@@ -2145,6 +2520,11 @@ impl Vm<'_, '_> {
             _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
         }
     }
+}
+
+/// Where `Label n` stands in a statement list.
+fn label_at(stmts: &[Stmt], n: i32) -> Option<usize> {
+    stmts.iter().position(|s| matches!(s, Stmt::Label { n: m } if *m == n))
 }
 
 /// The binary operator of a compound assignment.

@@ -913,6 +913,12 @@ impl<'a> Gen<'a> {
                 self.loops -= 1;
                 self.emit(None, op::X_LOOP, &[]);
             }
+            Kw::Label(n) => {
+                self.emit(None, op::X_LABEL, &n.to_le_bytes());
+            }
+            Kw::GoTo(n) => {
+                self.emit(None, op::X_GOTO, &n.to_le_bytes());
+            }
             Kw::Break | Kw::Continue => {
                 if self.loops == 0 {
                     self.diag("outside_a_loop", true, if matches!(kw, Kw::Break) { "break" } else { "continue" });
@@ -940,18 +946,9 @@ impl<'a> Gen<'a> {
                 }
             }
             Kw::Return => {
-                // `Return value` in a function [observed: the GECK with xNVSE compiles it,
-                // docs/spec-notes/ext-bytecode.md]: SetFunctionValue, then Return
-                // [hypothesis on its meaning].
-                let x = lex::xtokens(&self.text);
-                if self.extended && x.len() > 1 {
-                    let mut t = vec![lex::XTok { kind: lex::XKind::Word, text: "SetFunctionValue".into() }];
-                    t.extend_from_slice(&x[1..]);
-                    if let Some(e) = self.xwhole(&t) {
-                        let json = serde_json::to_vec(&e).unwrap_or_default();
-                        self.emit(None, op::X_EVAL, &json);
-                    }
-                }
+                // `Return value` compiles in a function and is a plain Return: Call gives
+                // what SetFunctionValue set, not the value [observed: probe
+                // udf.return_value, ext-bytecode.md].
                 self.emit(None, op::RETURN, &[]);
             }
             Kw::Set { target, expr } => {

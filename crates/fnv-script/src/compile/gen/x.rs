@@ -16,10 +16,10 @@
 //! [documented: Inline Expression; Let]. The arguments of an NVSE-aware function (the
 //! wiki's category: Call, Print, SetFunctionValue, the ar_* family…) are whole
 //! expressions [documented: Script Compiler Override, "Let, if eval, While, Print and any
-//! other NVSE-Aware Function"], and so is every argument inside a compiler-override block
-//! (`Begin _GameMode`): `Sin 14 == 1` is `Sin (14 == 1)`
-//! [documented: Script Compiler Override, "Unforeseen Consequences"; the page says the
-//! override evaluates such lines differently]. Arguments are separated by a comma or by two
+//! other NVSE-Aware Function"]. Inside a compiler-override block (`Begin _GameMode`) the
+//! wiki says `Sin 14 == 1` is `Sin (14 == 1)`, but xNVSE 6.4.9 gives `Sin 90 > 0.5` 1 there,
+//! but `Abs -3 + 1` 2 [observed: probes expressions/08, 09 in the original game, which beat
+//! the page]: there an argument takes arithmetic and stops at a comparison. Arguments are separated by a comma or by two
 //! operands meeting without an operator (`Rand 0, 10`, `Rand 0 10`), and a `-` starts the
 //! first argument (`Abs -3`) [hypothesis, probes in tools/capture/ext-probes/expressions].
 
@@ -125,8 +125,13 @@ const POSTFIX: u8 = 31;
 /// An argument of a function: an operand (prefix operators, `[]`, `->` and dot calls on
 /// it, no binary operator).
 const ARG: u8 = 25;
-/// An argument inside a compiler-override block: everything but the assignments.
+/// An argument of an NVSE-aware function: everything but the assignments.
 const ARG_OVERRIDE: u8 = 2;
+/// An argument inside a compiler-override block: arithmetic and the bitwise operators,
+/// not the comparisons (`Abs -3 + 1` is Abs(-3 + 1), `Sin 90 > 0.5` is (Sin 90) > 0.5)
+/// [observed: probes expressions/08, 09 in the original game; bitwise operators
+/// hypothesis].
+const ARG_IN_OVERRIDE: u8 = 13;
 
 fn starts_operand(t: Option<&XTok>) -> bool {
     match t {
@@ -207,8 +212,14 @@ impl Gen<'_> {
             left = match op {
                 Infix::Bin(op) => XExpr::Binary { op, l: Box::new(left), r: Box::new(right) },
                 Infix::Assign(op) => {
-                    if !matches!(left, XExpr::Var { .. } | XExpr::Binary { op: XOp::Subscript, .. } | XExpr::Member { .. }) {
+                    // `1 && iX += 5` compiles in the editor and fails when it runs, and the script
+                    // goes on [observed: probe expressions/04]: a warning here, a run-time
+                    // error in the VM; only a literal on the left is refused.
+                    if matches!(left, XExpr::Num { .. } | XExpr::Str { .. }) {
                         return self.xerr("bad_assignment_target", t.text.clone());
+                    }
+                    if !matches!(left, XExpr::Var { .. } | XExpr::Binary { op: XOp::Subscript, .. } | XExpr::Member { .. }) {
+                        self.diag("assignment_to_a_value", false, t.text.clone());
                     }
                     XExpr::Assign { op, target: Box::new(left), value: Box::new(right) }
                 }
@@ -360,7 +371,13 @@ impl Gen<'_> {
                 break;
             }
             let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
-            let min = if self.co || f.aware { ARG_OVERRIDE } else { ARG };
+            let min = if f.aware {
+                ARG_OVERRIDE
+            } else if self.co {
+                ARG_IN_OVERRIDE
+            } else {
+                ARG
+            };
             args.push(self.xarg(p, &enc, min)?);
         }
         Some(args)
@@ -372,7 +389,7 @@ impl Gen<'_> {
         // Outside an override block an argument is an operand, so what follows the name
         // (`Health + 50`) is not part of it.
         let single = p.peek().is_some_and(|t| matches!(t.kind, XKind::Word | XKind::Str))
-            && !p.peek2().is_some_and(|n| (self.co && infix(n).is_some()) || n.kind == XKind::LBracket || n.is(XKind::Op, "->"));
+            && !p.peek2().is_some_and(|n| n.kind == XKind::LBracket || n.is(XKind::Op, "->"));
         if single && *enc != ParamEnc::Value {
             let t = p.next()?;
             return match enc {

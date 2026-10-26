@@ -350,8 +350,8 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    // foreach over a container is B5.
-    let (_, p) = build("ref r\nbegin GameMode\nforeach r <- player\nloop\nend");
+    // MessageEx is not built yet (D4).
+    let (_, p) = build("ref r\nbegin GameMode\nMessageEx \"hi\"\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
     assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
@@ -455,13 +455,14 @@ fn calls_on_results_chain() {
 
 #[test]
 fn compiler_override_blocks_read_every_line_with_the_extender_grammar() {
-    // [documented: Script Compiler Override] under `Begin _GameMode`, `if Sin 14 == 1`
-    // evaluates 14 == 1 first; `set` takes extended expressions too.
+    // Under `Begin _GameMode` `if` and `set` take extended expressions [documented:
+    // Script Compiler Override]; xNVSE 6.4.9 reads `Sin 90 > 0.5` as (Sin 90) > 0.5 there
+    // [observed: probe expressions/09], not as the page's `Sin (14 == 1)`.
     let (_, p) = build("float f\nbegin _GameMode\nif Sin 14 == 1\nset f to f + 1\nendif\nend");
     assert_eq!(p.blocks[0].event, 0, "the block is GameMode");
     let Stmt::If { arms, .. } = &body(&p)[0] else { panic!() };
     let [Token::X { e }] = &arms[0].cond.0[..] else { panic!("an extended condition: {:?}", arms[0].cond) };
-    assert_eq!(x(e), "Sin((14 Eq 1))", "Sin is the extender's (no opcode)");
+    assert_eq!(x(e), "(Sin(14) Eq 1)", "Sin is the extender's (no opcode)");
     assert!(matches!(&arms[0].body[0], Stmt::Let { .. }));
     // The same line outside an override block: (Sin 14) == 1.
     let l = lets("float f\nbegin GameMode\nif eval Sin 14 == 1\nendif\nend");
@@ -656,4 +657,51 @@ fn printc_and_version_reports() {
     assert_eq!(h.4, ["v1", "x2"]);
     assert_eq!(h.0[&1], Value::Num(6.0));
     assert_eq!(h.0[&2], Value::Num(-1.0), "no plugin is reported until its module exists");
+}
+
+#[test]
+fn override_arguments_take_arithmetic_not_comparisons() {
+    // [observed: probes expressions/08, 09 in the original game] under _GameMode,
+    // `Abs -3 + 1` is 2 and `Sin 90 > 0.5` is (Sin 90) > 0.5.
+    let l = lets("float r\nbegin _GameMode\nlet r := Abs -3 + 1\nlet r := Sin 90 > 0.5\nend");
+    assert_eq!(l[0], "(v1 Set= 1221(((Neg 3) Add 1)))");
+    assert_eq!(l[1], "(v1 Set= (Sin(90) Gt 0.5))");
+}
+
+#[test]
+fn label_and_goto() {
+    // [observed: probe loops/04 gives 3].
+    let h = run("float r\nbegin GameMode\nlet r := 0\nLabel 1\nlet r += 1\nif r < 3\n  GoTo 1\nendif\nend");
+    assert_eq!(h.0[&1], Value::Num(3.0));
+}
+
+#[test]
+fn a_failing_condition_is_false_and_the_script_goes_on() {
+    // [observed: probe loops/03] erasing forward runs past the shrunk list; the original
+    // goes on and ends with 3 elements.
+    let t = table();
+    let src = "array_var a\nfloat i\nfloat n\nbegin GameMode\nlet a := Ar_List 1, 2, 3, 4, 5, 6\nlet i := -1\nlet n := Ar_Size a\nwhile n > (i += 1)\n  if eval a[i] % 2 == 0\n    Ar_Erase a, i\n  endif\nloop\nlet n := Ar_Size a\nend";
+    let (c, p) = build(src);
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts::default()).run(&p.blocks[0].body).expect("goes on");
+    assert_eq!(h.0[&3], Value::Num(3.0));
+}
+
+#[test]
+fn math_and_rand() {
+    let h = run("float s\nfloat r\nfloat f\nbegin GameMode\nlet s := (Sin 90) + Cos 0\nlet r := Rand 5, 5\nlet f := Floor 2.7 + Pow 2, 3\nend");
+    assert_eq!(h.0[&1], Value::Num(2.0), "degrees [observed]");
+    assert_eq!(h.0[&2], Value::Num(5.0));
+    assert_eq!(h.0[&3], Value::Num(10.0));
+}
+
+#[test]
+fn string_edits_from_the_probes() {
+    let h = run(
+        "string_var s\nstring_var t\nstring_var u\nfloat c\nbegin GameMode\nlet s := \"lo\"\nSv_Insert \"Hel\", s, 0\nlet t := \"abcdef\"\nSv_Erase t, 1, 2\nlet u := Sv_SubString \"abcdef\", 1, 3\nlet c := Sv_Compare \"Beta\", \"Alpha\"\nend",
+    );
+    assert_eq!(h.text(1), "Hello");
+    assert_eq!(h.text(2), "adef");
+    assert_eq!(h.text(3), "bcd");
+    assert_eq!(h.0[&4], Value::Num(1.0));
 }

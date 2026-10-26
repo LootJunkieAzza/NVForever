@@ -17,10 +17,10 @@ grammar.
 
 ## 1. Lines and tokens (`lex`)
 
-- A line ends at a line break. Comments run from `;` to the end of the line, also inside
-  double quotes [observed: the GECK with xNVSE reports "Mismatched quotes" for a `;` in a
-  string, docs/spec-notes/ext-bytecode.md; no shipped string holds one, so vanilla parity
-  is the same either way]. Blank lines and lines with no letter or digit produce no statement
+- A line ends at a line break. Comments run from `;` outside double quotes to the end of
+  the line [observed: probe strings/03 splits "a,b;c" by ",;" in the original game; a GECK
+  compile case reported "Mismatched quotes" for a `;` in a string (ext-bytecode.md), to be
+  reconciled; no shipped string holds one, so vanilla parity is the same either way]. Blank lines and lines with no letter or digit produce no statement
   [observed: scripts.md §3.4].
 - Tokens: words (letters, digits, `_`, `.`), quoted strings (an unterminated one runs to
   the end of the line), the operators `== != <= >= && || < > + - * / %`, parentheses, and
@@ -264,9 +264,10 @@ expression parser), `vm.rs` (`xeval`).
   an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50` [documented:
   Inline Expression; Let]. The arguments of an NVSE-aware function (the wiki's category,
   80 functions: Call, Print, SetFunctionValue, the ar_* family…) are whole expressions
-  [documented: Script Compiler Override], and so is every argument inside a
-  compiler-override block: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script Compiler
-  Override, which says the override reads such lines differently]. Arguments are separated
+  [documented: Script Compiler Override]. Inside a compiler-override block an argument
+  takes arithmetic but stops at a comparison: `Abs -3 + 1` is 2 and `Sin 90 > 0.5` is
+  `(Sin 90) > 0.5` [observed: probes expressions/08, 09 in xNVSE 6.4.9, against the page's
+  `Sin 14 == 1` example; the bitwise operators inside, hypothesis]. Arguments are separated
   by a comma or by two operands meeting without an operator, and a `-` starts the first
   argument or one after a comma (`Abs -3`, `Rand -5, -1`) [hypothesis; probes in
   tools/capture/ext-probes/expressions]. A function with a format string takes all the
@@ -448,9 +449,52 @@ rules; what NVForever decides where they are open is tagged here.
   takes the declared type at the same index.
 - **More of the editor's rules** [observed: ext-bytecode.md, the owner's GECK and game]:
   `!-1` is refused ("too many operators") and `-!0` compiles; `Return value` compiles in a
-  function, here SetFunctionValue then Return [meaning hypothesis]; `1 && iX += 5` reads
+  function and is a plain Return: Call gives what SetFunctionValue set, not the value, and
+  Return ends the function keeping it [observed: probe udf]; `1 && iX += 5` reads
   `(1 && iX) += 5` and fails, as the compiler here refuses it (an assignment to something
   that is not a variable).
+
+- **Forms and types** (D5; ext-forms.md): GetObjectType/GetType (the form-type code of a
+  base form, a reference's base form's; the codes of the Form Type IDs table),
+  IsFormValid, IsReference, GetModIndex (255 when not loaded), GetSourceModIndex (the
+  FormID's top byte, FormIDs being load-order FormIDs here) [documented: each page].
+  Every form of the load order is in memory, so IsFormValid is true for any form that
+  exists [hypothesis]; an armor addon reports 96, the table's ARMA code [documented: the
+  table lists both ARMA 96 and "ARMO, armor addons too"; which an addon reports, open].
+- **From the original game** [observed: the peer session's probe runs in xNVSE 6.4.9,
+  goldens in C:nv-private\goldens\ext, which beat the wiki]: Ar_Sort keeps the
+  elements of the first element's type (`[3, "x"]` → `[3]`); Ar_SortAlpha sorts numbers by
+  value (9 before 10), ahead of the rest [hypothesis on the mix]; Sv_Length of a destructed
+  or unset string is −1; Sv_Count counts matches that do not overlap; numbers pass to a
+  function by value, strings as a copy, arrays shared; nested break/continue act on the
+  inner loop. The two calls that crash the original get a safe answer here: Sv_Replace
+  with an empty old text replaces nothing (0), and Ar_Range with a step of 0 is a run-time
+  error the script survives [decision].
+
+- **From the first probe lab run** (173 of 228 rows equal at e63e5edd; the peer's
+  mismatch list) [observed unless tagged]: `$` of no form is `<NULL>` and of a form
+  without a name `<no name>` (the page says its FormID); `$PlayerREF` is the name typed in
+  the name menu; `#"12abc"` is 12; ToNumber's hex flag reads `"1F"` as 31; a string slice
+  ending past the string stops at its end; Sv_Split drops empty pieces; Sv_Insert,
+  Sv_Erase, Sv_SubString, sv_ToUpper/ToLower (the source kept), sv_Percentify and
+  Sv_Compare (1 when the format text sorts after the variable's, −1 before, without regard
+  to case unless the flag) [documented + observed]; the trigonometric functions take and
+  give degrees, Rand gives a number from its minimum up to its maximum; Ar_Construct of an
+  unknown kind makes a list; Ar_Map drops the keys of another kind than the first;
+  Ar_Next/Ar_Prev of a key the array lacks give the bad index; Ar_Find takes a key range;
+  Ar_InsertRange; Ar_CustomSort (its test says whether the first comes before the
+  second); writing a list key at or past its size appends (the page calls past the size
+  an error); `1 && iX += 5` compiles and fails when it runs.
+- **Label and GoTo** (A8): `Label n` marks a place, `GoTo n` goes on after the label of
+  that number in its statement list or one around it [documented: Label; GoTo; observed:
+  probe loops/04 counts to 3]. NVForever's own opcodes 0x00F7/0x00F8, body n as i32.
+- **A failing extended condition** (`if eval`, `while`) counts as false and the script
+  goes on [observed: probe loops/03 reads past a shrunk list and finishes].
+- **foreach over a form** (B5 in part): a form list gives its forms, a container or an
+  actor one entry per kind of item [documented: ForEach; observed: as many as
+  GetNumItems]; the entry here is the item's base form, where the original gives a
+  temporary reference to the stack that stops being valid the next frame [hypothesis
+  until B5 builds inventory references].
 
 ## 10. Open
 

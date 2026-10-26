@@ -4050,9 +4050,15 @@ impl Host for Exec<'_, '_> {
         Some(&mut self.game.ext)
     }
 
-    /// The form's name, a reference's its base form's [documented: ToString].
+    /// The form's name, a reference's its base form's [documented: ToString]; the player's
+    /// the name typed in the name menu [observed: probe strings/04 gives the player's name].
     fn form_text(&mut self, form: u32) -> Option<String> {
         let f = FormId(form);
+        if f == FormId::PLAYER_REF {
+            if let Some(n) = self.game.player.name.clone() {
+                return Some(n);
+            }
+        }
         let names = &self.game.data.full_names;
         names.get(&f).cloned().or_else(|| crate::functions::base_of(self.game, f).and_then(|b| names.get(&b).cloned()))
     }
@@ -4216,6 +4222,33 @@ impl Host for Exec<'_, '_> {
     fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
         let sender = self.unit.unit.plugin.clone();
         self.game.event_call(c, &sender)
+    }
+
+    fn members(&mut self, form: u32) -> Option<Vec<u32>> {
+        let f = FormId(form);
+        if self.game.data.sig(f) == Some(*b"FLST") {
+            return Some(functions::list_members(self.game, f).into_iter().map(|m| m.0).collect());
+        }
+        let inv = self.game.world.inventory_mut(f).ok()?;
+        Some(inv.iter().filter(|(_, n)| *n > 0).map(|(i, _)| i.0).collect())
+    }
+
+    fn random(&mut self) -> f64 {
+        use rand_core::RngCore;
+        self.game.rng.next_u32() as f64 / (u32::MAX as f64 + 1.0)
+    }
+
+    fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
+        let f = FormId(form);
+        self.game.data.sig(f)
+    }
+
+    fn base_form(&mut self, form: u32) -> Option<u32> {
+        crate::functions::base_of(self.game, FormId(form)).map(|b| b.0)
+    }
+
+    fn mod_index(&mut self, name: &str) -> Option<u32> {
+        self.game.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(name)).map(|i| i as u32)
     }
 
     fn game_loaded(&mut self, restarted: bool) -> bool {

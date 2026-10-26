@@ -272,6 +272,8 @@ impl Decompiler<'_> {
                     out.push("loop".into());
                 }
                 Stmt::Break => out.push("break".into()),
+                Stmt::Label { n } => out.push(format!("label {n}")),
+                Stmt::GoTo { n } => out.push(format!("goto {n}")),
                 Stmt::Continue => out.push("continue".into()),
                 Stmt::Unmatched { marker, cond, .. } => out.push(match marker {
                     Marker::Else => "else".into(),

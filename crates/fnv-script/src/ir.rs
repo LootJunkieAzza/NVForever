@@ -253,6 +253,10 @@ pub enum Stmt {
     While { cond: XExpr, body: Vec<Stmt> },
     /// `foreach <var> <- <source>` … `loop` [documented: ForEach].
     ForEach { head: XForEach, body: Vec<Stmt> },
+    /// `Label n` and `GoTo n` [documented: Label; GoTo]: a GoTo goes on after the label of
+    /// that number in its statement list or one around it.
+    Label { n: i32 },
+    GoTo { n: i32 },
     /// `break`: leave the innermost loop [documented: While; ForEach].
     Break,
     /// `continue`: the innermost loop's next round [documented: While; ForEach].
