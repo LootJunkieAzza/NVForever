@@ -807,6 +807,46 @@ End
 }
 
 #[test]
+fn quaternions_follow_the_probes() {
+    // [observed: nvse-math rows in the original game]. Results go to the named variables.
+    let t = table();
+    let (c, p) = build("float w
+float x
+float y
+float z
+begin GameMode
+QFromEuler \"w\" \"x\" \"y\" \"z\" 90 0 0
+end");
+    struct Named(Locals, Vec<(String, u16)>);
+    impl Host for Named {
+        fn var_kind(&mut self, v: &fnv_script::VarRef) -> fnv_script::vm::VarKind {
+            self.0.var_kind(v)
+        }
+        fn get_var(&mut self, v: &fnv_script::VarRef) -> Result<Value, String> {
+            self.0.get_var(v)
+        }
+        fn set_var(&mut self, v: &fnv_script::VarRef, x: Value) -> Result<(), String> {
+            self.0.set_var(v, x)
+        }
+        fn ref_value(&mut self, r: fnv_script::RefIndex) -> Result<Value, String> {
+            self.0.ref_value(r)
+        }
+        fn call(&mut self, o: u16, on: Option<Value>, a: &[ArgValue]) -> Result<Value, String> {
+            self.0.call(o, on, a)
+        }
+        fn local_var(&mut self, name: &str) -> Option<fnv_script::VarRef> {
+            let index = self.1.iter().find(|(n, _)| n == name)?.1;
+            Some(fnv_script::VarRef { on: None, var: VarSlot::Local { index, letter: fnv_script::ir::VarLetter::Float } })
+        }
+    }
+    let names = c.variables.iter().map(|v| (v.name.clone(), v.index as u16)).collect();
+    let mut h = Named(host_for(&c), names);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs");
+    let g = |i: u16| h.0 .0[&i].num();
+    assert!((g(1) - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-4 && (g(2) - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-4 && g(3).abs() < 1e-9 && g(4).abs() < 1e-9);
+}
+
+#[test]
 fn jip_reports_and_pure_functions() {
     let h = run(
         "float i

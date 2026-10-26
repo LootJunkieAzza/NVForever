@@ -993,6 +993,11 @@ pub struct Game<'a> {
     /// "SUB/path", and the names SetName gave.
     pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
+    /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
+    pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// TempCloneForm's clones and their originals (`crate::nvse_data`).
+    pub(crate) clones: std::collections::HashMap<FormId, FormId>,
+    pub(crate) clone_seq: u32,
     /// What GetNextRef gives next (GetFirstRef's walk).
     pub(crate) ref_walk: Vec<FormId>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
@@ -1581,6 +1586,9 @@ impl<'a> Game<'a> {
             ref_walk: Vec::new(),
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
+            mod_data: BTreeMap::new(),
+            clones: std::collections::HashMap::new(),
+            clone_seq: 0,
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -4200,7 +4208,7 @@ impl Host for Exec<'_, '_> {
             }
         }
         let g = &*self.game;
-        let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&x)).cloned();
+        let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
         named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
@@ -4421,6 +4429,7 @@ impl Host for Exec<'_, '_> {
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }
+        let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
     }
@@ -4447,6 +4456,11 @@ impl Host for Exec<'_, '_> {
 
     fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
         self.game.data.body_part_name(FormId(form), part)
+    }
+
+    fn local_var(&mut self, name: &str) -> Option<VarRef> {
+        let index = self.unit.var_index(name)?;
+        Some(VarRef { on: None, var: VarSlot::Local { index, letter: fnv_script::ir::VarLetter::Float } })
     }
 
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {

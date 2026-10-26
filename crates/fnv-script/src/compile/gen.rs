@@ -820,8 +820,11 @@ impl<'a> Gen<'a> {
             self.diag("mismatched_quotes", true, self.text.clone());
             return;
         }
-        // In a compiler-override block the vanilla statements take the extender's grammar.
-        if self.co {
+        // In a compiler-override block the vanilla statements take the extender's grammar,
+        // and so does a vanilla `if` or `set` that calls an extender function
+        // (`if rItem.GetBaseObject == rGun`) [observed: the peer's nvse-inv probes compile in
+        // the original with xNVSE].
+        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && self.calls_extender()) {
             let x = lex::xtokens(&self.text);
             let mapped = match kw {
                 Kw::If(_) => Some(Kw::IfEval(x[1..].to_vec())),
@@ -839,6 +842,15 @@ impl<'a> Gen<'a> {
             }
         }
         self.statement_inner(kw)
+    }
+
+    /// Whether the line names an extender function (one the vanilla table does not know),
+    /// alone or after a reference (`ref.Function`).
+    fn calls_extender(&self) -> bool {
+        lex::xtokens(&self.text).iter().filter(|t| t.kind == lex::XKind::Word).any(|t| {
+            let name = t.text.rsplit('.').next().unwrap_or(&t.text);
+            self.table.by_name(name).is_none() && self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) && self.var(name).is_none()
+        })
     }
 
     fn statement_inner(&mut self, kw: &Kw) {

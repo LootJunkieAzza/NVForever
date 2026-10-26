@@ -15,6 +15,11 @@ fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     if let Some(v) = g.field_overrides.get(&(form, format!("{sub}/{path}"))) {
         return Some(v.clone());
     }
+    // A clone reads its original's fields (TempCloneForm).
+    let form = g.unclone(form);
+    if let Some(v) = g.field_overrides.get(&(form, format!("{sub}/{path}"))) {
+        return Some(v.clone());
+    }
     Some(match g.data.record_field(form, sub, path)? {
         Json::Number(n) => XVal::Num(n.as_f64()?),
         Json::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
@@ -129,6 +134,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         return Some(r);
     }
     if let Some(r) = crate::nvse_misc::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_data::call(g, name, subject, args) {
         return Some(r);
     }
     // The item a getter reads: its argument, else the calling reference's base form.
@@ -260,7 +268,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // [documented: GetName] the full name of a reference's base or a form; "" none.
         "getname" => {
             let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
-            let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&x)).cloned();
+            let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
             let n = named(f).or_else(|| crate::functions::base_of(g, f).and_then(named));
             XVal::Str(n.unwrap_or_default())
         }
