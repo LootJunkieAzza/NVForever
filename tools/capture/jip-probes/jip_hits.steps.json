@@ -1,7 +1,7 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "jip_hits",
- "title": "JIP hits, runtime-compiled (read-only)",
+ "title": "jip-hits, runtime-compiled",
  "start": "any save (read-only)",
  "steps": [
   {

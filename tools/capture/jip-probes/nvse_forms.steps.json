@@ -1,0 +1,577 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_forms",
+ "title": "nvse-forms, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.ammo10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.caps",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.stimpak",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.docref",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.saloon",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.vcg02",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"31DBA\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.actionboy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1572C5\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.slugproj",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (GetType rF)\nEnd\n",
+   "label": "type.list127",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rF.GetBaseObject))\nEnd\n",
+   "label": "base.docref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rF.GetBaseObject))\nEnd\n",
+   "label": "base.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (IsReference rF)\nEnd\n",
+   "label": "isref.docref",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (IsReference rF)\nEnd\n",
+   "label": "isref.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (IsFormValid rF)\nEnd\n",
+   "label": "valid.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rF.GetParentCell))\nEnd\n",
+   "label": "cell.docref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString rF)\nEnd\n",
+   "label": "formid.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetName rF)\nEnd\n",
+   "label": "name.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetName rF)\nEnd\n",
+   "label": "name.caps",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"106185\"\nSetFunctionValue (GetName rF)\nEnd\n",
+   "label": "name.saloon",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetName rF)\nEnd\n",
+   "label": "name.docref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetName rF)\nEnd\n",
+   "label": "name.vcg02",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeight rF)\nEnd\n",
+   "label": "weight.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetWeight rF)\nEnd\n",
+   "label": "weight.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetWeight rF)\nEnd\n",
+   "label": "weight.caps",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetWeight rF)\nEnd\n",
+   "label": "weight.stimpak",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetWeight rF)\nEnd\n",
+   "label": "weight.ammo10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetItemValue rF)\nEnd\n",
+   "label": "value.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetItemValue rF)\nEnd\n",
+   "label": "value.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetItemValue rF)\nEnd\n",
+   "label": "value.caps",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetItemValue rF)\nEnd\n",
+   "label": "value.stimpak",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetItemValue rF)\nEnd\n",
+   "label": "value.ammo10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetBaseHealth rF)\nEnd\n",
+   "label": "health.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetBaseHealth rF)\nEnd\n",
+   "label": "health.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetEquipType rF)\nEnd\n",
+   "label": "equiptype.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetEquipType rF)\nEnd\n",
+   "label": "equiptype.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetEquipType rF)\nEnd\n",
+   "label": "equiptype.stimpak",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nSetFunctionValue (GetEquipType rF)\nEnd\n",
+   "label": "equiptype.ammo10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetRepairList rF))\nEnd\n",
+   "label": "repairlist.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetModelPath rF)\nEnd\n",
+   "label": "model.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetIconPath rF)\nEnd\n",
+   "label": "icon.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetArmorArmorRating rF)\nEnd\n",
+   "label": "ar.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetArmorDT rF)\nEnd\n",
+   "label": "dt.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetWeaponAmmo rF))\nEnd\n",
+   "label": "ammo.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetWeaponProjectile rF))\nEnd\n",
+   "label": "projectile.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetWeaponCritEffect rF))\nEnd\n",
+   "label": "criteffect.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponClipRounds rF)\nEnd\n",
+   "label": "weap.cliprounds.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponClipRounds rF)\nEnd\n",
+   "label": "weap.cliprounds.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetAttackDamage rF)\nEnd\n",
+   "label": "weap.attackdamage.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetAttackDamage rF)\nEnd\n",
+   "label": "weap.attackdamage.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponType rF)\nEnd\n",
+   "label": "weap.type.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponType rF)\nEnd\n",
+   "label": "weap.type.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponSkill rF)\nEnd\n",
+   "label": "weap.skill.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponSkill rF)\nEnd\n",
+   "label": "weap.skill.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponMinRange rF)\nEnd\n",
+   "label": "weap.minrange.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponMinRange rF)\nEnd\n",
+   "label": "weap.minrange.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponMaxRange rF)\nEnd\n",
+   "label": "weap.maxrange.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponMaxRange rF)\nEnd\n",
+   "label": "weap.maxrange.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponFireRate rF)\nEnd\n",
+   "label": "weap.firerate.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponFireRate rF)\nEnd\n",
+   "label": "weap.firerate.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponSpread rF)\nEnd\n",
+   "label": "weap.spread.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponSpread rF)\nEnd\n",
+   "label": "weap.spread.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponMinSpread rF)\nEnd\n",
+   "label": "weap.minspread.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponMinSpread rF)\nEnd\n",
+   "label": "weap.minspread.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponAnimJamTime rF)\nEnd\n",
+   "label": "weap.animjamtime.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponAnimJamTime rF)\nEnd\n",
+   "label": "weap.animjamtime.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponHandGrip rF)\nEnd\n",
+   "label": "weap.handgrip.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponHandGrip rF)\nEnd\n",
+   "label": "weap.handgrip.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponNumProjectiles rF)\nEnd\n",
+   "label": "weap.numprojectiles.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponNumProjectiles rF)\nEnd\n",
+   "label": "weap.numprojectiles.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponCritChance rF)\nEnd\n",
+   "label": "weap.critchance.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponCritChance rF)\nEnd\n",
+   "label": "weap.critchance.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponCritDamage rF)\nEnd\n",
+   "label": "weap.critdamage.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponCritDamage rF)\nEnd\n",
+   "label": "weap.critdamage.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponActionPoints rF)\nEnd\n",
+   "label": "weap.actionpoints.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponActionPoints rF)\nEnd\n",
+   "label": "weap.actionpoints.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponReach rF)\nEnd\n",
+   "label": "weap.reach.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponReach rF)\nEnd\n",
+   "label": "weap.reach.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponSightFOV rF)\nEnd\n",
+   "label": "weap.sightfov.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponSightFOV rF)\nEnd\n",
+   "label": "weap.sightfov.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponRequiredStrength rF)\nEnd\n",
+   "label": "weap.requiredstrength.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponRequiredStrength rF)\nEnd\n",
+   "label": "weap.requiredstrength.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponRequiredSkill rF)\nEnd\n",
+   "label": "weap.requiredskill.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponRequiredSkill rF)\nEnd\n",
+   "label": "weap.requiredskill.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponResistType rF)\nEnd\n",
+   "label": "weap.resisttype.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponResistType rF)\nEnd\n",
+   "label": "weap.resisttype.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponAttackAnimation rF)\nEnd\n",
+   "label": "weap.attackanimation.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponAttackAnimation rF)\nEnd\n",
+   "label": "weap.attackanimation.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponAimArc rF)\nEnd\n",
+   "label": "weap.aimarc.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponAimArc rF)\nEnd\n",
+   "label": "weap.aimarc.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponLongBursts rF)\nEnd\n",
+   "label": "weap.longbursts.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponLongBursts rF)\nEnd\n",
+   "label": "weap.longbursts.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponFlags1 rF)\nEnd\n",
+   "label": "weap.flags1.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponFlags1 rF)\nEnd\n",
+   "label": "weap.flags1.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponFlags2 rF)\nEnd\n",
+   "label": "weap.flags2.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponFlags2 rF)\nEnd\n",
+   "label": "weap.flags2.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponBaseVATSChance rF)\nEnd\n",
+   "label": "weap.basevatschance.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetWeaponBaseVATSChance rF)\nEnd\n",
+   "label": "weap.basevatschance.hunting",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (ListGetCount rF)\nEnd\n",
+   "label": "list.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (GetFormIDString (ListGetNthForm rF 0))\nEnd\n",
+   "label": "list.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (ListGetFormIndex rF (ListGetNthForm rF 0))\nEnd\n",
+   "label": "list.index",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetModIndex \"FalloutNV.esm\")\nEnd\n",
+   "label": "modindex.fnv",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetSourceModIndex rF)\nEnd\n",
+   "label": "sourcemod.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetNthModName 0)\nEnd\n",
+   "label": "nthmod.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (IsScripted rF)\nEnd\n",
+   "label": "scripted.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetScript rF))\nEnd\n",
+   "label": "script.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetRace rF))\nEnd\n",
+   "label": "race.doc",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

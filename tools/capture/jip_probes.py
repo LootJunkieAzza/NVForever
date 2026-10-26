@@ -319,8 +319,76 @@ RECORD_PROBES = (
        _rec("armorrct.t45d", "t45d", "GetArmorRCT rF", True)]
 )
 
+# Seventh set: core NVSE/FOSE form and reference getters (not JIP: asked for by the
+# extender core work to check its VM), on vanilla FalloutNV.esm forms; IDs from fnvtool
+# esm inventory [observed]. Read-only. Reference rows read the loaded save's state (Doc
+# Mitchell's cell), so they can differ in a run that starts from no save.
+NF = {
+    "pistol10": "434F", "hunting": "4333", "ammo10": "4241", "leather": "20423", "caps": "F",
+    "stimpak": "15169", "doc": "104C0C", "docref": "104C0F", "player": "14", "playerbase": "7",
+    "saloon": "106185", "vcg02": "10A214", "actionboy": "31DBA", "slugproj": "1572C5",
+    "list127": "1613D5",
+}
+
+
+def _nf(pid, key, expr, text=False):
+    return (pid, _with(NF[key], f"SetFunctionValue ({expr})"), text, None, "")
+
+
+def _nfid(pid, key, expr):
+    return _nf(pid, key, f"GetFormIDString ({expr})", True)
+
+
+_WEAPON_GETTERS = ["GetWeaponClipRounds", "GetAttackDamage", "GetWeaponType", "GetWeaponSkill",
+                   "GetWeaponMinRange", "GetWeaponMaxRange", "GetWeaponFireRate", "GetWeaponSpread",
+                   "GetWeaponMinSpread", "GetWeaponAnimJamTime", "GetWeaponHandGrip", "GetWeaponNumProjectiles",
+                   "GetWeaponCritChance", "GetWeaponCritDamage", "GetWeaponActionPoints", "GetWeaponReach",
+                   "GetWeaponSightFOV", "GetWeaponRequiredStrength", "GetWeaponRequiredSkill",
+                   "GetWeaponResistType", "GetWeaponAttackAnimation", "GetWeaponAimArc", "GetWeaponLongBursts",
+                   "GetWeaponFlags1", "GetWeaponFlags2", "GetWeaponBaseVATSChance"]
+
+NVSE_FORM_PROBES = (
+    [_nf(f"type.{k}", k, "GetType rF") for k in ("pistol10", "ammo10", "leather", "caps", "stimpak", "doc",
+                                                 "docref", "player", "saloon", "vcg02", "actionboy", "slugproj", "list127")]
+    + [_nfid("base.docref", "docref", "rF.GetBaseObject"),
+       _nfid("base.player", "player", "rF.GetBaseObject"),
+       _nf("isref.docref", "docref", "IsReference rF"),
+       _nf("isref.doc", "doc", "IsReference rF"),
+       _nf("valid.pistol10", "pistol10", "IsFormValid rF"),
+       _nfid("cell.docref", "docref", "rF.GetParentCell"),
+       _nf("formid.pistol10", "pistol10", "GetFormIDString rF", True),
+       _nf("name.pistol10", "pistol10", "GetName rF", True),
+       _nf("name.caps", "caps", "GetName rF", True),
+       _nf("name.saloon", "saloon", "GetName rF", True),
+       _nf("name.docref", "docref", "GetName rF", True),
+       _nf("name.vcg02", "vcg02", "GetName rF", True)]
+    + [_nf(f"weight.{k}", k, "GetWeight rF") for k in ("pistol10", "leather", "caps", "stimpak", "ammo10")]
+    + [_nf(f"value.{k}", k, "GetItemValue rF") for k in ("pistol10", "leather", "caps", "stimpak", "ammo10")]
+    + [_nf(f"health.{k}", k, "GetBaseHealth rF") for k in ("pistol10", "leather")]
+    + [_nf(f"equiptype.{k}", k, "GetEquipType rF") for k in ("pistol10", "leather", "stimpak", "ammo10")]
+    + [_nfid("repairlist.pistol10", "pistol10", "GetRepairList rF"),
+       _nf("model.pistol10", "pistol10", "GetModelPath rF", True),
+       _nf("icon.pistol10", "pistol10", "GetIconPath rF", True),
+       _nf("ar.leather", "leather", "GetArmorArmorRating rF"),
+       _nf("dt.leather", "leather", "GetArmorDT rF"),
+       _nfid("ammo.pistol10", "pistol10", "GetWeaponAmmo rF"),
+       _nfid("projectile.pistol10", "pistol10", "GetWeaponProjectile rF"),
+       _nfid("criteffect.pistol10", "pistol10", "GetWeaponCritEffect rF")]
+    + [_nf(f"weap.{g[9:].lower() if g.startswith('GetWeapon') else g[3:].lower()}.{k}", k, f"{g} rF")
+       for g in _WEAPON_GETTERS for k in ("pistol10", "hunting")]
+    + [_nf("list.count", "list127", "ListGetCount rF"),
+       _nfid("list.nth0", "list127", "ListGetNthForm rF 0"),
+       _nf("list.index", "list127", "ListGetFormIndex rF (ListGetNthForm rF 0)"),
+       _nf("modindex.fnv", "pistol10", 'GetModIndex "FalloutNV.esm"'),
+       _nf("sourcemod.pistol10", "pistol10", "GetSourceModIndex rF"),
+       _nf("nthmod.0", "pistol10", "GetNthModName 0", True),
+       _nf("scripted.pistol10", "pistol10", "IsScripted rF"),
+       _nfid("script.doc", "doc", "GetScript rF"),
+       _nfid("race.doc", "doc", "GetRace rF")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
-        "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES}
+        "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES and HIT_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits"}
 
@@ -348,7 +416,7 @@ def job(set_name="jip-getters"):
     steps = [{"query": script(b), "label": pid, "field": "value", **({"text": True} if text else {})}
              for pid, b, text, _, _ in SETS[set_name]]
     return {"format": cs.STEPS_FORMAT, "name": job_name(set_name),
-            "title": f"JIP {set_name[4:]}, runtime-compiled (read-only)",
+            "title": f"{set_name}, runtime-compiled" + ("" if set_name in WRITING_SETS else " (read-only)"),
             "start": "any save (read-only)", "steps": steps}
 
 

@@ -63,10 +63,12 @@
   {
    "id": "L5.ext.jip.getters",
    "layer": 5,
-   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<job>.steps.json) as headless runner queries.",
+   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<job>.steps.json) as headless runner queries. The load order is the one the game ran with: FalloutNV.esm, the nine DLC masters and NVFExtProbe.esp (GetNthModName 0-10 in the owner's game, 2026-10-26).",
    "oracle": {"golden": "jip/jip-getters.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_getters.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -78,7 +80,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-forms: getters on vanilla forms and the regex functions (docs/spec-notes/jip-strings.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-forms.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_forms.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -90,7 +94,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-stores: auxiliary variables and RefMap arrays (docs/spec-notes/jip-variable-stores.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-stores.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_stores.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -102,7 +108,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-events: event handlers registered as lambdas around one DamageAV (docs/spec-notes/jip-events.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-events.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_events.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -114,7 +122,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-hits: hit information read in OnHit handlers during a placed explosion (docs/spec-notes/jip-hit-info.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-hits.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -126,11 +136,27 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-records: trait, flag and form getters of record fields (docs/spec-notes/jip-records.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-records.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_records.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "records"]
+  },
+  {
+   "id": "L5.ext.nvse.forms",
+   "layer": 5,
+   "description": "Core NVSE/FOSE form and reference getters (GetType, GetBaseObject, GetName, item, weapon and armor getters, form lists, mod queries) on vanilla forms, set nvse-forms of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters. Doc Mitchell's cell comes from the loaded save in the oracle.",
+   "oracle": {"golden": "jip/nvse-forms.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_forms.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "forms"]
   }
  ]
 }
