@@ -170,8 +170,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let items = src.map(|d| d.spells.iter().map(|s| XVal::Ref(s.0)).collect()).unwrap_or_default();
             list(g, items)
         }
-        // [documented: GetEquipmentSlotsMask; GetEquipmentBipedMask] the BMDT biped
-        // flags; the "equipment flags" BMDT's general flags [hypothesis from the names].
+        // [documented: GetEquipmentSlotsMask; GetEquipmentBipedMask; observed: nvse-third,
+        // T-45d 40, metal armor 128, leather 0; slots 4 for all three] the BMDT biped flags;
+        // the "equipment flags" BMDT's general flags.
         "getequipmentslotsmask" | "getequipmentbipedmask" => {
             let path = if name == "getequipmentslotsmask" { "biped_flags" } else { "general_flags" };
             num(field(g, item(g, 0), "BMDT", path))
@@ -188,9 +189,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: IsPlayerSwimming].
         "isplayerswimming" => XVal::Num(f64::from(u8::from(g.motion(FormId::PLAYER_REF).swimming))),
-        // [documented: GetDialogueTarget; GetDialogueSubject; GetDialogueSpeaker] the
-        // player's conversation: the actor in it [hypothesis: the player's partner stands
-        // for target, subject and speaker alike].
+        // [documented: GetDialogueTarget; GetDialogueSubject; GetDialogueSpeaker; observed:
+        // nvse-third, all none without a conversation] the player's conversation: the actor
+        // in it [hypothesis: the player's partner stands for target, subject and speaker
+        // alike during one].
         "getdialoguetarget" | "getdialoguesubject" | "getdialoguespeaker" => XVal::Ref(g.dialogue.as_ref().map_or(0, |c| c.actor.0)),
         _ => return None,
     };
