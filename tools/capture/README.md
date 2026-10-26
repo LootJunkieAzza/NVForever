@@ -622,13 +622,15 @@ python tools/capture/jip_probes.py compare C:/fnv-private/goldens/jip/jip-getter
 `collect` writes `<goldens>/jip/jip-getters.json` (fnv.ext.probes/1); `compare` checks it
 against the expected values in the script (only those a wiki page states exactly).
 
-Four sets (`--set`, default `jip-getters`): `jip-getters` (numbers, strings, mod and
+Five sets (`--set`, default `jip-getters`): `jip-getters` (numbers, strings, mod and
 version queries), `jip-forms` (calls taking vanilla FalloutNV.esm forms, fetched with
 GetFormFromMod since editor IDs do not work at run time, and the regex functions) and
 `jip-stores` (auxiliary variables and RefMap arrays on the player: these write, but only
 into the session's stores, each name is erased in the same script, and the run never
 saves) and `jip-events` (event handlers registered with xNVSE lambdas, one DamageAV on
-the player, undone by the last step; its steps depend on each other). Each
+the player, undone by the last step; its steps depend on each other) and `jip-hits`
+(hit information read in SetOnHitEventHandler lambdas while a frag mine explodes at the
+player, Health raised by 1000 first and taken back at the end). Each
 writes its own job (`jip_forms.steps.json`) and golden (`jip-forms.json`). A string_var
 parameter refuses a literal string; wrap it in `sv_Construct "..."`, or declare a
 `string_var` before `Begin Function` (both compile at run time).

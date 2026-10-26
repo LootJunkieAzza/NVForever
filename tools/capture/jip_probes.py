@@ -212,9 +212,57 @@ EVENT_PROBES = [
     ("ev.cleanup", _pl('rP.RestoreAV Health 1\n' + "".join(f'rP.AuxVarErase "*nvf{n}"\n' for n in ("HD", "HS", "HT", "HO", "HN", "H1", "LC", "LT")) + "SetFunctionValue 1"), False, "1", "cleanup"),
 ]
 
-SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES}
-# Sets whose probes write (into the session only, see STORE_PROBES and EVENT_PROBES).
-WRITING_SETS = {"jip-stores", "jip-events"}
+# Fifth set: JIP's hit information, read inside SetOnHitEventHandler lambdas (OnHit
+# passes no arguments, so the lambdas take none). One handler per value appends it to a
+# `*` auxiliary variable on every firing; then a frag mine explosion (MineFragExplosion,
+# FalloutNV.esm 07078B [observed: fnvtool esm inventory]) is placed at the player, whose
+# Health is first raised by 1000 so the blast cannot kill. Reads give each firing's
+# value (index 0 = first firing). The last step takes the 1000 back, heals and erases.
+HIT_VALUES = [
+    ("count", "1"),
+    ("damage", "rP.GetHitHealthDamage"),
+    ("location", "rP.GetHitLocation"),
+    ("flag.explosion", "rP.GetHitExtendedFlag 8"),
+    ("flag.critical", "rP.GetHitExtendedFlag 1"),
+    ("projectile.isref", "IsReference (rP.GetHitProjectile)"),
+    ("projectile.type", "GetType (rP.GetHitProjectile)"),
+    ("attacker.isref", "IsReference (rP.GetHitAttacker)"),
+    ("weapon.valid", "IsFormValid (rP.GetHitWeapon)"),
+    ("pos.x", "(rP.GetHit3DData 0)[0]"),
+    ("health", "rP.GetAV Health"),
+]
+# Expected values the wiki states for an explosion hit [documented: the page named].
+HIT_EXPECTED = {
+    "hit.location.0": ("-1", "GetHitLocation (always -1 for explosion hits)"),
+    "hit.location.1": ("-1", "GetHitLocation (always -1 for explosion hits)"),
+    "hit.flag.explosion.1": ("1", "GetHitExtendedFlag (8: explosion hit)"),
+    "hit.pos.x.0": ("0", "GetHit3DData (all 0 for explosion hits)"),
+    "hit.health.0": ("1200", "SetOnHitEventHandler (runs before the damage)"),
+}
+
+
+def _hit_steps():
+    steps = [("hit.boost", _pl("rP.ModAV Health 1000\nSetFunctionValue (rP.GetAV Health)"), False, None, "")]
+    for name, expr in HIT_VALUES:
+        steps.append((f"hit.reg.{name}", _pl(f'SetOnHitEventHandler (Begin Function {{ }}\n  rP.AuxVarSetFlt "*nvfH.{name}" ({expr}) -1\nEnd) 1 rP\nSetFunctionValue 1'), False, "1", "SetOnHitEventHandler (registers)"))
+    steps.append(("hit.boom", _pl("rP.PlaceAtMe rB 1\nSetFunctionValue 1", "7078B"), False, "1", "PlaceAtMe"))
+    steps.append(("hit.settle", "SetFunctionValue 1", False, "1", "a step for the blast to land"))
+    for name, _ in HIT_VALUES:
+        steps.append((f"hit.{name}.size", _read(f'rP.AuxVarSize "*nvfH.{name}"'), False, None, ""))
+        for i in range(2):
+            exp, page = HIT_EXPECTED.get(f"hit.{name}.{i}", (None, ""))
+            steps.append((f"hit.{name}.{i}", _read(f'rP.AuxVarGetFlt "*nvfH.{name}" {i}'), False, exp, page))
+    steps.append(("hit.health.after", _read("rP.GetAV Health"), False, None, ""))
+    steps.append(("hit.cleanup", _pl("rP.ModAV Health -1000\nrP.RestoreAV Health 2000\n" + "".join(f'rP.AuxVarErase "*nvfH.{n}"\n' for n, _ in HIT_VALUES) + "SetFunctionValue 1"), False, "1", "cleanup"))
+    return steps
+
+
+HIT_PROBES = _hit_steps()
+
+SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
+        "jip-hits": HIT_PROBES}
+# Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES and HIT_PROBES).
+WRITING_SETS = {"jip-stores", "jip-events", "jip-hits"}
 
 
 def script(body):

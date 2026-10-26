@@ -49,6 +49,14 @@ class Job(unittest.TestCase):
         self.assertEqual(ids[-1], "ev.cleanup")
         self.assertIn("RestoreAV Health 1", jp.EVENT_PROBES[-1][1])
 
+    def test_hit_set_undoes_its_health_boost(self):
+        ids = [pid for pid, *_ in jp.HIT_PROBES]
+        self.assertEqual(ids[0], "hit.boost")
+        self.assertLess(ids.index("hit.boom"), ids.index("hit.damage.0"))
+        self.assertIn("ModAV Health -1000", jp.HIT_PROBES[-1][1])
+        for name, _ in jp.HIT_VALUES:
+            self.assertIn(f'AuxVarErase "*nvfH.{name}"', jp.HIT_PROBES[-1][1])
+
     def test_only_getters(self):
         for pid, body, _, _, _ in [p for k, probes in jp.SETS.items() if k not in jp.WRITING_SETS for p in probes]:
             words = body.replace("(", " ").split()
