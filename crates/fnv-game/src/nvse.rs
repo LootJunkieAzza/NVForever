@@ -117,6 +117,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::delayed::call(g, ctx, name, on, args) {
         return Some(r);
     }
+    if let Some(v) = crate::script_input::call(&mut g.input, name, args) {
+        return Some(Ok(v));
+    }
     let subject = on.or(ctx.self_ref);
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
         return Some(r);
