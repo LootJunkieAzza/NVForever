@@ -49,20 +49,17 @@ pub const MAX_LINE: usize = 512;
 
 /// The text of `line` before its comment.
 ///
-/// A `;` inside double quotes is text [observed: probe strings/03 splits "a,b;c" by ",;" into
-/// three in the original game; a GECK compile case reported "Mismatched quotes" for a `;` in
-/// a string (ext-bytecode.md), which is still to be reconciled; no shipped string holds a
-/// `;`, so vanilla parity is the same either way].
+/// A `;` starts a comment even inside double quotes [observed: the GECK refused
+/// `Sv_Split "a,b;c", ",;"` with "Mismatched quotes" (probe strings/03, ext-bytecode.md
+/// §7); the golden's three pieces came from the line rewritten without `;`]. No shipped
+/// string holds a `;`, so vanilla parity is the same either way.
 pub fn strip_comment(line: &str) -> &str {
-    let mut quoted = false;
-    for (i, ch) in line.char_indices() {
-        match ch {
-            '"' => quoted = !quoted,
-            ';' if !quoted => return &line[..i],
-            _ => {}
-        }
-    }
-    line
+    line.find(';').map_or(line, |i| &line[..i])
+}
+
+/// Whether a line's double quotes do not pair up (an unclosed string).
+pub fn unclosed_quote(line: &str) -> bool {
+    line.matches('"').count() % 2 == 1
 }
 
 /// A number as the compiler writes it: digits with at most one `.`, at least one digit
@@ -150,7 +147,7 @@ fn block_comments(line: &str, in_block: &mut bool) -> String {
         }
         match cs[i] {
             '"' => quoted = !quoted,
-            ';' if !quoted => {
+            ';' => {
                 out.extend(&cs[i..]);
                 break;
             }
@@ -309,8 +306,9 @@ mod tests {
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].no, 1);
         assert_eq!(l[1].no, 5);
-        // A `;` inside the quotes is text (probe strings/03).
-        assert_eq!(l[1].toks[3].text, "a;b");
+        // A `;` starts a comment even inside quotes (the GECK, probe strings/03); the
+        // vanilla line's unclosed string then runs to the end.
+        assert_eq!(l[1].toks[3].text, "a");
         assert!(long.is_empty());
     }
 

@@ -1835,3 +1835,22 @@ fn get_game_loaded_and_restarted_are_true_once_per_script() {
     g2.run_source("DispatchEventAlt \"NVFTestEvent\" 3", Default::default()).unwrap();
     assert_eq!(g2.world.global(FormId(0x0000_0800)).unwrap(), 3.0, "the handler lasted for the session");
 }
+
+#[test]
+fn queries_run_function_scripts_and_keep_what_they_change() {
+    // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
+    // query are read by the next, and the saved ones are in the snapshot.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let set = "Begin Function { }\nAuxVarSetFlt \"nvfQ\" 2.5\nAuxVarSetFlt \"*nvfT\" 1\nSetFunctionValue 7\nEnd\n";
+    assert_eq!(g.run_query(set, ctx()), Ok(XVal::Num(7.0)));
+    let get = "float x\nBegin Function { }\nlet x := AuxVarGetFlt \"NVFQ\"\nSetFunctionValue x * 2\nEnd\n";
+    assert_eq!(g.run_query(get, ctx()), Ok(XVal::Num(5.0)));
+    assert_eq!(g.run_query("Begin Function { }\nSetFunctionValue Sv_Construct \"a%gb\", 1\nEnd\n", ctx()), Ok(XVal::Str("a1b".into())));
+    assert_eq!(g.run_query("Begin Function { }\nlet x := 1\nEnd\n", ctx()), Err("script did not compile".into()));
+    let snap = g.snapshot();
+    assert!(snap.ext.jip.aux[&FormId::PLAYER_REF.0].contains_key("nvfq"));
+    assert!(serde_json::to_string(&snap).unwrap().contains("nvfq") && !serde_json::to_string(&snap).unwrap().contains("*nvft"), "a * name is not saved");
+}

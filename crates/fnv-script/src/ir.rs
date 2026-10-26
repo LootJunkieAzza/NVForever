@@ -434,7 +434,13 @@ pub enum XExpr {
     /// A number, with its text as written.
     Num { value: f64, text: String },
     Str { s: String },
-    Var { var: VarRef },
+    /// `form`: the variable was declared `ref`, so its unset 0 reads as no form (the
+    /// record's variable list cannot tell `ref` from `float`).
+    Var {
+        var: VarRef,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        form: bool,
+    },
     /// A reference list entry used as a value.
     Ref { r: RefIndex },
     /// A name in a parameter that takes an enumeration (an actor value), as its code.

@@ -1970,6 +1970,52 @@ impl<'a> Game<'a> {
         Ok(warnings)
     }
 
+    /// A whole function script from source, run once as nvf_capture's query step runs one
+    /// (xnvse-capture.md §5): its `Begin Function` block with fresh variables, on
+    /// `ctx.self_ref`; the value is what SetFunctionValue set (0 when nothing). The
+    /// extender's and JIP's stores, handlers and the game itself keep what it changed.
+    pub fn run_query(&mut self, src: &str, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::XVal;
+        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        if c.errors().next().is_some() {
+            return Err("script did not compile".into());
+        }
+        let d = fnv_script::decode(&c.bytes, &self.data.table);
+        let unit = fnv_script::ScriptUnit {
+            plugin: "query".into(),
+            owner: fnv_script::UnitOwner::Other { sig: "QURY".into(), form: 0, ordinal: 0 },
+            kind: fnv_script::ScriptKind::Object,
+            header: Default::default(),
+            variables: c.variables,
+            refs: c.refs,
+            has_scda: true,
+            bytes: c.bytes,
+            source: Some(src.to_string()),
+        };
+        // Leaked as the console's lines are: a lambda the query makes may outlive it.
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or("the script has no Function block")?;
+        let data = self.data;
+        let opts = self.opts();
+        self.udf.push(UdfFrame { value: None, caller: None });
+        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx };
+        let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
+        if let Locals::Temp(m) = &ex.locals {
+            for (&index, v) in m {
+                match unit.var_type(index) {
+                    Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
+                    Some(VarType::Other(t)) if t == "array_var" => ex.game.ext.release(&XVal::Array(v.num() as u32)),
+                    _ => {}
+                }
+            }
+        }
+        let frame = self.udf.pop();
+        let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
+        self.ext.hand_over(&v);
+        self.ext.sweep();
+        result.map(|_| v)
+    }
+
     /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
     /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
     /// lambda, over the variables of the script that made it [documented: Call; User
@@ -4245,6 +4291,10 @@ impl Host for Exec<'_, '_> {
 
     fn base_form(&mut self, form: u32) -> Option<u32> {
         crate::functions::base_of(self.game, FormId(form)).map(|b| b.0)
+    }
+
+    fn calling_ref(&mut self) -> Option<u32> {
+        self.ctx.self_ref.map(|f| f.0)
     }
 
     fn mod_name(&mut self, index: u32) -> Option<String> {

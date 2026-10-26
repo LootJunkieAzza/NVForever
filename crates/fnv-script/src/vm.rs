@@ -216,6 +216,10 @@ pub trait Host {
     fn mod_name(&mut self, _index: u32) -> Option<String> {
         None
     }
+    /// The reference the script runs on, if any (JIP's stores default to it).
+    fn calling_ref(&mut self) -> Option<u32> {
+        None
+    }
     /// An actor value's code by name, without regard to case.
     fn actor_value_code(&mut self, _name: &str) -> Option<u16> {
         None
@@ -699,6 +703,12 @@ pub struct ExtStore {
     /// Arrays made since the last [`ExtStore::sweep`].
     #[serde(skip)]
     fresh: Vec<u32>,
+    /// JIP LN's variable stores (`vm/jip.rs`; docs/spec-notes/jip-variable-stores.md):
+    /// the saved ones, and the temporary ones (names starting `*`) that are not.
+    #[serde(default, skip_serializing_if = "jip::JipStores::is_empty")]
+    pub jip: jip::JipStores,
+    #[serde(skip)]
+    pub jip_temp: jip::JipStores,
 }
 
 /// The longest string the extender keeps [documented: String Variable, 16,384
@@ -707,7 +717,7 @@ pub const MAX_STRING: usize = 16_384;
 
 impl ExtStore {
     pub fn is_empty(&self) -> bool {
-        self.strings.is_empty() && self.arrays.is_empty()
+        self.strings.is_empty() && self.arrays.is_empty() && self.jip.is_empty()
     }
 
     pub fn new_string(&mut self, text: String) -> u32 {
@@ -1175,7 +1185,12 @@ impl Vm<'_, '_> {
         Ok(match e {
             XExpr::Num { value, text } => XVal::Num(literal(text, *value)),
             XExpr::Str { s } => XVal::Str(literal_codes(s)),
-            XExpr::Var { var } => self.read_var(var)?,
+            // An unset `ref` variable is no form: ToString gives `<NULL>` [observed: probe
+            // strings tostring.unset_ref].
+            XExpr::Var { var, form } => match self.read_var(var)? {
+                XVal::Num(x) if *form => XVal::Ref(Value::Num(x).as_form().unwrap_or(0)),
+                v => v,
+            },
             XExpr::Ref { r } => XVal::from_value(self.host.ref_value(*r).map_err(VmError::Host)?),
             XExpr::Enum { code } => XVal::Num(*code as f64),
             XExpr::Axis { .. } => return Err(VmError::Expression("an axis outside a parameter".into())),
@@ -1290,7 +1305,7 @@ impl Vm<'_, '_> {
                 v
             }
             XExpr::Assign { op, target, value } => {
-                let XExpr::Var { var } = target.as_ref() else { unreachable!("guarded above") };
+                let XExpr::Var { var, .. } = target.as_ref() else { unreachable!("guarded above") };
                 let v = self.xeval(value)?;
                 let v = match op {
                     XAssign::Set => v,
@@ -1459,7 +1474,7 @@ impl Vm<'_, '_> {
     /// source is read element by element as the loop goes, so erasing during it skips
     /// elements, as documented [documented: Ar Erase]. Form lists and containers: B5.
     fn foreach(&mut self, head: &XForEach, body: &[Stmt]) -> Result<Flow, VmError> {
-        let XExpr::Var { var } = &head.var else { return Err(VmError::Type("foreach needs a variable".into())) };
+        let XExpr::Var { var, .. } = &head.var else { return Err(VmError::Type("foreach needs a variable".into())) };
         let src = self.xeval(&head.source)?;
         match src {
             XVal::Array(id) => {
@@ -2100,7 +2115,7 @@ impl Vm<'_, '_> {
             "sv_length" => {
                 // A destructed or never-set string variable is not a valid string: -1
                 // [documented: Sv Length; observed: probe strings, a destructed string].
-                if let Some(XExpr::Var { var }) = c.args.first() {
+                if let Some(XExpr::Var { var, .. }) = c.args.first() {
                     if self.host.var_kind(var) == VarKind::String {
                         let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
                         if self.store()?.text(id).is_none() {
@@ -2130,7 +2145,7 @@ impl Vm<'_, '_> {
             // [documented: Sv Destruct] the variable's string goes; it reads 0 after.
             "sv_destruct" => {
                 for a in &c.args {
-                    if let XExpr::Var { var } = a {
+                    if let XExpr::Var { var, .. } = a {
                         let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
                         self.store()?.destroy(id);
                         self.host.set_var(var, Value::ZERO).map_err(VmError::Host)?;
@@ -2156,7 +2171,7 @@ impl Vm<'_, '_> {
             // case by default; the number replaced.
             "sv_replace" => {
                 let (pair, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var }) = c.args.get(k) else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
@@ -2188,11 +2203,15 @@ impl Vm<'_, '_> {
             // end: at the end [hypothesis]).
             "sv_insert" => {
                 let (ins, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var }) = c.args.get(k) else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let chars: Vec<char> = s.chars().collect();
-                let at = at.min(chars.len());
+                // Past the end the string is left as it is [observed: probe strings/07
+                // insert.past_end].
+                if at > chars.len() {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
                 let out: String = chars[..at].iter().collect::<String>() + &ins + &chars[at..].iter().collect::<String>();
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(0.0)
@@ -2200,7 +2219,7 @@ impl Vm<'_, '_> {
             // [documented: Sv Erase] `count` characters from the position, to the end when
             // left out or past it.
             "sv_erase" => {
-                let Some(XExpr::Var { var }) = c.args.first() else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let Some(XExpr::Var { var, .. }) = c.args.first() else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
@@ -2330,6 +2349,17 @@ impl Vm<'_, '_> {
                 let v = val(self, 0)?;
                 let ok = v.value()?.as_form().is_some_and(|f| self.host.form_sig(f).is_some());
                 XVal::Num(if ok { 1.0 } else { 0.0 })
+            }
+            // [documented: ListGetCount; GetNumItems] the forms of a list; the kinds of item
+            // a container or actor holds [observed: probe loops/02, as many as foreach
+            // gives].
+            "listgetcount" | "getnumitems" => {
+                let f = match (c.args.first(), &c.on) {
+                    (Some(a), _) => self.xeval(a)?.value()?.as_form(),
+                    (None, Some(e)) => self.xeval(e)?.value()?.as_form(),
+                    (None, None) => self.host.calling_ref(),
+                };
+                XVal::Num(f.and_then(|f| self.host.members(f)).map_or(0, |m| m.len()) as f64)
             }
             // [documented: IsReference] a reference, not a base form.
             "isreference" => {

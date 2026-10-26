@@ -778,6 +778,16 @@ impl<'a> Gen<'a> {
     }
 
     fn statement(&mut self, kw: &Kw) {
+        // A line read with the extender's grammar must close its strings [observed: the
+        // GECK's "Mismatched quotes", ext-bytecode.md §7]; a vanilla line's unclosed string
+        // runs to the end of the line.
+        let x_line = self.co
+            || matches!(kw, Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_))
+            || matches!(kw, Kw::Call(toks) if self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open)));
+        if x_line && lex::unclosed_quote(&self.text) {
+            self.diag("mismatched_quotes", true, self.text.clone());
+            return;
+        }
         // In a compiler-override block the vanilla statements take the extender's grammar.
         if self.co {
             let x = lex::xtokens(&self.text);

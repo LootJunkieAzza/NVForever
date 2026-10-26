@@ -193,7 +193,7 @@ impl Decompiler<'_> {
         match e {
             XExpr::Num { value, .. } => number(*value),
             XExpr::Str { s } => format!("{s:?}"),
-            XExpr::Var { var } => self.var(var),
+            XExpr::Var { var, .. } => self.var(var),
             XExpr::Ref { r } => self.slot(*r),
             XExpr::Enum { code } => format!("#{code}"),
             XExpr::Axis { c } => c.to_ascii_lowercase().to_string(),

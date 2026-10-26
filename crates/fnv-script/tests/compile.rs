@@ -187,7 +187,7 @@ fn x(e: &XExpr) -> String {
     match e {
         XExpr::Num { text, .. } => text.clone(),
         XExpr::Str { s } => format!("{s:?}"),
-        XExpr::Var { var } => match var.var {
+        XExpr::Var { var, .. } => match var.var {
             VarSlot::Local { index, .. } => format!("v{index}"),
             VarSlot::Global { global } => format!("g{}", global.0),
         },
@@ -285,6 +285,7 @@ struct Locals(
     std::collections::BTreeSet<u16>,
     std::collections::BTreeSet<u16>,
     Vec<String>,
+    Option<u32>,
 );
 
 impl Host for Locals {
@@ -316,6 +317,9 @@ impl Host for Locals {
     fn call(&mut self, _opcode: u16, _on: Option<Value>, _args: &[ArgValue]) -> Result<Value, String> {
         Ok(Value::Num(4.0))
     }
+    fn calling_ref(&mut self) -> Option<u32> {
+        self.5
+    }
     fn mod_name(&mut self, index: u32) -> Option<String> {
         (index == 0).then(|| "FalloutNV.esm".to_string())
     }
@@ -333,7 +337,7 @@ impl Host for Locals {
 /// A host whose string variables are the compiled unit's `string_var`s.
 fn host_for(c: &Compiled) -> Locals {
     let of = |t: &str| c.variables.iter().filter(|v| v.ty == VarType::Other(t.into())).map(|v| v.index as u16).collect();
-    Locals(Default::default(), Default::default(), of("string_var"), of("array_var"), Vec::new())
+    Locals(Default::default(), Default::default(), of("string_var"), of("array_var"), Vec::new(), None)
 }
 
 fn run(src: &str) -> Locals {
@@ -708,6 +712,19 @@ fn math_and_rand() {
 }
 
 #[test]
+fn a_semicolon_in_an_extender_string_is_a_mismatched_quote() {
+    // [observed: the GECK refused this line of probe strings/03, ext-bytecode.md §7].
+    let t = table();
+    let c = compile("scn X
+array_var a
+begin GameMode
+let a := Sv_Split \"a,b;c\", \",;\"
+end", &t, &World, None);
+    let kinds: Vec<&str> = c.errors().map(|d| d.kind).collect();
+    assert!(kinds.contains(&"mismatched_quotes"), "{kinds:?}");
+}
+
+#[test]
 fn jip_reports_and_pure_functions() {
     let h = run(
         "float i
@@ -742,6 +759,55 @@ end",
     assert_eq!(h.0[&7], Value::Num(-1.0));
     assert_eq!(h.text(8), "FalloutNV");
     assert_eq!(h.text(9), "FalloutNV.esm:104C0C");
+}
+
+#[test]
+fn jip_aux_variables_and_refmaps_follow_the_probes() {
+    // [observed: jip-stores rows, jip-variable-stores.md] on the calling reference.
+    let src = [
+        "float a\nfloat b\nfloat c\nfloat d\nfloat e\nfloat f\nfloat g\nfloat h\nstring_var s\nfloat k\nfloat m\nfloat q\nbegin GameMode",
+        "AuxVarSetFlt \"nvfA\" 3.5",
+        "let a := AuxVarGetFlt \"NVFa\"",
+        "AuxiliaryVariableSetFloat \"nvfL\", 1, -1\nAuxiliaryVariableSetFloat \"nvfL\", 2, -1\nAuxiliaryVariableSetFloat \"nvfL\", 3, -1",
+        "let b := AuxiliaryVariableGetSize \"nvfL\"",
+        "let c := AuxiliaryVariableGetFloat \"nvfL\", -1",
+        "AuxiliaryVariableSetFloat \"nvfGap\" 1 5",
+        "let d := AuxiliaryVariableGetSize \"nvfGap\"",
+        "AuxiliaryVariableSetString \"nvfA\" \"abc\"",
+        "let e := AuxiliaryVariableGetType \"nvfA\"",
+        "let f := AuxiliaryVariableErase \"nvfL\" 0",
+        "let g := AuxiliaryVariableGetFloat \"nvfL\"",
+        "let h := AuxiliaryVariableErase \"nvfL\"",
+        "let s := AuxiliaryVariableGetString \"nvfA\"",
+        "RefMapArraySetFloat \"*nvfM\" 4.5\nRefMapArraySetFloat \"*nvfM\" 5.5",
+        "let k := RefMapArrayGetFloat \"*nvfM\"",
+        "let m := RefMapArrayGetSize \"*nvfM\"",
+        "let q := ar_Size (RefMapArrayGetNext \"*nvfM\")",
+        "end",
+    ]
+    .join("\n");
+    let t = table();
+    let (c, p) = build(&src);
+    let mut h = host_for(&c);
+    h.5 = Some(PLAYER);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs");
+    assert_eq!(h.0[&1], Value::Num(3.5), "names ignore case");
+    assert_eq!(h.0[&2], Value::Num(3.0), "-1 appends");
+    assert_eq!(h.0[&3], Value::Num(3.0), "-1 reads the last");
+    assert_eq!(h.0[&4], Value::Num(0.0), "past the end does nothing");
+    assert_eq!(h.0[&5], Value::Num(4.0), "a new type replaces the element");
+    assert_eq!(h.0[&6], Value::Num(2.0), "erase gives the new count");
+    assert_eq!(h.0[&7], Value::Num(2.0), "later elements move down");
+    assert_eq!(h.0[&8], Value::Num(-1.0), "erasing the whole variable gives -1");
+    assert_eq!(h.text(9), "abc");
+    assert_eq!(h.0[&10], Value::Num(5.5));
+    assert_eq!(h.0[&11], Value::Num(1.0), "one key, set twice");
+    // GetNext without a GetFirst starts at the first pair; ar_Size of ar_Null is -1 only
+    // after the last pair, here the pair itself has 2 elements.
+    assert_eq!(h.0[&12], Value::Num(2.0));
+    let x = &h.1;
+    assert!(x.jip_temp.refmaps.contains_key("*nvfm"), "a * name is temporary");
+    assert!(!x.jip.aux.is_empty() && x.jip.refmaps.is_empty());
 }
 
 #[test]

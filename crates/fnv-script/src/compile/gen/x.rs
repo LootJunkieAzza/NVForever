@@ -346,6 +346,7 @@ impl Gen<'_> {
         if let Some(v) = self.var(name) {
             return Some(XExpr::Var {
                 var: VarRef { on: None, var: VarSlot::Local { index: v.index as u16, letter: super::letter_of(&v.ty) } },
+                form: self.ref_vars.contains(&name.to_ascii_lowercase()),
             });
         }
         match self.form(name) {
@@ -414,9 +415,9 @@ impl Gen<'_> {
 fn val_expr(v: Val) -> XExpr {
     match v {
         Val::Num(text) => XExpr::Num { value: text.parse().unwrap_or(0.0), text },
-        Val::Local { index, letter } => XExpr::Var { var: VarRef { on: None, var: VarSlot::Local { index, letter } } },
-        Val::Global(r) => XExpr::Var { var: VarRef { on: None, var: VarSlot::Global { global: RefIndex(r) } } },
-        Val::Remote { on, index, letter } => XExpr::Var { var: VarRef { on: Some(RefIndex(on)), var: VarSlot::Local { index, letter } } },
+        Val::Local { index, letter } => XExpr::Var { var: VarRef { on: None, var: VarSlot::Local { index, letter } }, form: false },
+        Val::Global(r) => XExpr::Var { var: VarRef { on: None, var: VarSlot::Global { global: RefIndex(r) } }, form: false },
+        Val::Remote { on, index, letter } => XExpr::Var { var: VarRef { on: Some(RefIndex(on)), var: VarSlot::Local { index, letter } }, form: false },
         Val::Ref(r) => XExpr::Ref { r: RefIndex(r) },
     }
 }

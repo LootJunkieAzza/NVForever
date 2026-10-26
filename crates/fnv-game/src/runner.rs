@@ -332,6 +332,11 @@ pub enum Action {
     /// FormID text), and `stub` when the function is one; a statement leaves out `label`.
     /// The function probes' side of ours (tools/capture/function_probe.py).
     Call { line: String, #[serde(default)] label: Option<String> },
+    /// A whole function script compiled with the extender's compiler and run once on the
+    /// player, as nvf_capture's query step (`Game::run_query`). Observation `value` (a
+    /// number, a reference as its FormID text, or text), or `error`: "script did not
+    /// compile" or the run-time error. What it changes stays for later actions.
+    Query { script: String, label: String, #[serde(default)] text: bool },
     /// A console line run once per frame until it gives a non-zero number, at most
     /// `max_frames` times (the capture plugin's `until`). Observation `frames`, or an
     /// error when it never did.
@@ -393,7 +398,7 @@ fn frames_after(a: &Action) -> u64 {
         Action::SampleRefVar { .. } | Action::SampleItems { .. } | Action::MenuGap { .. } => 0,
         Action::Note { .. } => 0,
         // As the probes' game jobs: a query has no pause after it, an action 10 frames.
-        Action::Call { label: Some(_), .. } | Action::CallUntil { .. } => 0,
+        Action::Call { label: Some(_), .. } | Action::CallUntil { .. } | Action::Query { .. } => 0,
         Action::Call { label: None, .. } => 10,
         // Round 3 (layer5-captures.md §9.2).
         Action::SetReputation { .. } | Action::AddReputation { .. } | Action::RemoveReputation { .. } => 11,
@@ -1006,6 +1011,19 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 obs.insert("stub".into(), json!(why));
             }
             lab = l.clone();
+        }
+        Action::Query { script, label: l, text } => {
+            use fnv_script::vm::XVal;
+            let ctx = crate::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+            match g.run_query(script, ctx) {
+                Ok(XVal::Str(s)) => obs.insert("value".into(), json!(s)),
+                Ok(XVal::Ref(r)) if !*text => obs.insert("value".into(), json!(FormId(r).to_string())),
+                Ok(v) if *text => obs.insert("value".into(), json!(query_text(&v))),
+                Ok(XVal::Num(n)) => obs.insert("value".into(), json!(n)),
+                Ok(v) => obs.insert("value".into(), json!(query_text(&v))),
+                Err(e) => obs.insert("error".into(), json!(e)),
+            };
+            lab = Some(l.clone());
         }
         Action::CallUntil { line, max_frames, label: l } => {
             lab = Some(l.clone());
@@ -1952,7 +1970,7 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::WaitTalk { label, .. }
         | Action::SampleJumps { label, .. }
         | Action::Call { label, .. } => label.clone(),
-        Action::CallUntil { label, .. } => Some(label.clone()),
+        Action::CallUntil { label, .. } | Action::Query { label, .. } => Some(label.clone()),
         Action::DismissMessageBoxes { label, .. } => label.clone(),
         Action::WaitQuest { label, .. }
         | Action::WaitMenu { label, .. }
@@ -1964,5 +1982,16 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::MenuGap { label, .. }
         | Action::IsCurrentPackage { label, .. } => Some(label.clone()),
         _ => None,
+    }
+}
+
+/// A query's value as text (`text: true`): numbers as the extender prints them.
+fn query_text(v: &fnv_script::vm::XVal) -> String {
+    use fnv_script::vm::XVal;
+    match v {
+        XVal::Num(n) => fnv_script::vm::number_text(*n),
+        XVal::Str(s) => s.clone(),
+        XVal::Ref(r) => FormId(*r).to_string(),
+        XVal::Array(id) => format!("array #{id}"),
     }
 }
