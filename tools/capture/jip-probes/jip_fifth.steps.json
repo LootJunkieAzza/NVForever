@@ -122,13 +122,143 @@
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"38\"\nSetFunctionValue ((GetGlobalValue rOther) - (rPlayer.AuxVarGetFlt \"*nvfGH\"))\nEnd\n",
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"38\"\nlet fRes := (GetGlobalValue rOther) - (rPlayer.AuxVarGetFlt \"*nvfGH\")\nSetFunctionValue ((fRes > 0.99) && (fRes < 1.01))\nEnd\n",
    "label": "gamehour.after.minus.before",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"3A\"\nlet fRes := rPlayer.AuxVarGetFlt \"*nvfGH\"\nif (GetGlobalValue rObj) == 30\n  if fRes < 22\n    SetGameHour fRes\n  endif\nendif\nrPlayer.AuxVarErase \"*nvfGH\"\nSetFunctionValue 1\nEnd\n",
    "label": "gamehour.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"2A185\"\nlet rItem := GetHair rObj\nSetHair rOther rObj\nlet fRes := (GetHair rObj) == rOther\nSetHair rItem rObj\nSetFunctionValue fRes\nEnd\n",
+   "label": "amata.sethair",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString (GetHair rObj))\nEnd\n",
+   "label": "amata.sethair.restored",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nlet fRes := GetHairColor 0 rObj\nrPlayer.AuxVarSetFlt \"*nvfHC\" fRes\nSetHairColor 1193046 rObj\nSetFunctionValue (GetHairColor 0 rObj)\nEnd\n",
+   "label": "amata.sethaircolor",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (sv_Construct \"%.0f %.0f %.0f\" (GetHairColor 1 rObj) (GetHairColor 2 rObj) (GetHairColor 3 rObj))\nEnd\n",
+   "label": "amata.sethaircolor.parts",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetHairColor (rPlayer.AuxVarGetFlt \"*nvfHC\") rObj\nrPlayer.AuxVarErase \"*nvfHC\"\nSetFunctionValue (GetHairColor 0 rObj)\nEnd\n",
+   "label": "amata.sethaircolor.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fRes := rDoc.GetBaseAV Strength\nrDoc.ModBaseActorValue Strength 2\nlet fRes := (rDoc.GetBaseAV Strength) - fRes\nrDoc.ModBaseActorValue Strength -2\nSetFunctionValue fRes\nEnd\n",
+   "label": "amata.modbaseav",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rDoc.GetBaseAV Strength)\nEnd\n",
+   "label": "amata.modbaseav.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetNthEffectTraitNumeric rObj 0 0)\nEnd\n",
+   "label": "amata.effecttrait.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetNthEffectTraitNumeric rObj 0 2)\nEnd\n",
+   "label": "amata.effecttrait.get.duration",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet fRes := GetNthEffectTraitNumeric rObj 0 0\nSetNthEffectTraitNumeric rObj 0 0 (fRes + 5)\nlet fRes := (GetNthEffectTraitNumeric rObj 0 0) - fRes\nSetNthEffectTraitNumeric rObj 0 0 ((GetNthEffectTraitNumeric rObj 0 0) - 5)\nSetFunctionValue fRes\nEnd\n",
+   "label": "amata.effecttrait.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetNthEffectTraitNumeric rObj 0 0)\nEnd\n",
+   "label": "amata.effecttrait.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetValueAlt rObj)\nEnd\n",
+   "label": "amata.valuealt.stimpak",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetValueAlt rObj)\nEnd\n",
+   "label": "amata.valuealt.pistol",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C79\"\nSetFunctionValue (GetFormIDString (rObj.GetMerchantContainer))\nEnd\n",
+   "label": "amata.merchant.chet",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rDoc.GetMerchantContainer))\nEnd\n",
+   "label": "amata.merchant.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rDoc.IsFleeing)\nEnd\n",
+   "label": "amata.isfleeing.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (ar_Size (rDoc.GetAllItemRefs))\nEnd\n",
+   "label": "amata.allitemrefs.doc.size.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (ar_Size (rPlayer.GetAllItemRefs))\nEnd\n",
+   "label": "amata.allitemrefs.player.size.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rPlayer.GetCalculatedWeaponDamage rObj)\nEnd\n",
+   "label": "amata.calcdamage.pistol.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (GetCrosshairRefEx))\nEnd\n",
+   "label": "amata.crosshairex.save",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rDoc.ToggleTeammateKillable 1)\nEnd\n",
+   "label": "amata.teammatekillable",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rDoc.ToggleTeammateKillable 0)\nEnd\n",
+   "label": "amata.teammatekillable.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrDoc.SetWheelDisabled 1\nrDoc.SetWheelDisabled 0\nSetFunctionValue 1\nEnd\n",
+   "label": "amata.wheeldisabled",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nrDoc.Update3D\nSetFunctionValue 1\nEnd\n",
+   "label": "amata.update3d",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nToggleNoHealthReset 1 0.5\nToggleNoHealthReset 0 0.5\nSetFunctionValue 1\nEnd\n",
+   "label": "amata.nohealthreset",
    "field": "value"
   },
   {
@@ -177,6 +307,42 @@
    "field": "value"
   },
   {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rPlayer.GetCurrentAmmo))\nEnd\n",
+   "label": "amata.currentammo",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rObj\n    let fRes := rItem.GetItemRefCurrentHealth 0\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "amata.itemrefhealth.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rObj\n    let fRes := rItem.GetItemRefCurrentHealth 1\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "amata.itemrefhealth.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rObj\n    let fRes := rItem.GetItemRefCurrentHealth 2\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "amata.itemrefhealth.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nrPlayer.AddItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "fresh.leather.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rObj\n    let fRes := rItem.GetCurrentHealth\n  endif\nloop\nSetFunctionValue fRes\nEnd\n",
+   "label": "fresh.leather.health",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetBaseHealth rObj)\nEnd\n",
+   "label": "fresh.leather.base",
+   "field": "value"
+  },
+  {
    "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (rDoc.GetItemCount rObj)\nEnd\n",
    "label": "removeitemtarget.doc.before",
    "field": "value"
@@ -192,7 +358,7 @@
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\nrDoc.RemoveItem rOther 2 1\nSetFunctionValue 1\nEnd\n",
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\nrDoc.RemoveItem rOther 2 1\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nrPlayer.RemoveItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
    "label": "cleanup.fifth",
    "field": "value"
   }
