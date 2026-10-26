@@ -11,7 +11,10 @@
 //! value (set from the console), "all levels" with the player's level between entry
 //! levels or equal to one (eligible), a count without "each item in count" (one roll
 //! times N), and nesting 3–5 deep, including a count carried into an "each item"
-//! sublist as that many rolls.
+//! sublist as that many rolls; and for the `L4.sim.leveled.useall` cases [observed:
+//! 300 draws per case, 2026-10-26]: a count given to a list without "each item in
+//! count" multiplies what one roll of it gives, nested "each item" sublists included
+//! (`LootAmmo10mm` ×10 gave 50–130 rounds, always a multiple of 10).
 //!
 //! 1. Chance none: roll an integer 0–99; below `chance_none` (or the LVLG global's
 //!    value, when set) yields nothing.
@@ -21,8 +24,11 @@
 //!    from all levels" is set, else from the eligible entries of the highest level.
 //! 4. "Calculate for each item in count": a request for N items makes N independent
 //!    rolls of one; otherwise one roll whose result is multiplied by N.
-//! 5. An entry naming another leveled list is resolved recursively with
-//!    `entry.count × multiplier`.
+//! 5. An entry naming another leveled list is a request for `entry.count` of it (rolls,
+//!    if that list is "each item"); the multiplier of the lists above it applies to
+//!    everything it gives. A list without "each item" asked for N multiplies by N
+//!    whatever its entries give, so `LootAmmo10mm` ×10 rolls its "each item" sublists
+//!    12 times each and gives ten times that, not 120 rolls.
 //!
 //! Entries a script added at run time (AddItemToLeveledList, [`resolve_with`]) count as
 //! entries of the list, after the authored ones [documented: GECK wiki
@@ -103,7 +109,7 @@ pub fn resolve_with(
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
 ) -> Result<(), LeveledError> {
-    resolve_at(&Ctx { forms, globals, added }, item, count, None, level, rng, out, 0)
+    resolve_at(&Ctx { forms, globals, added }, item, count, 1, None, level, rng, out, 0)
 }
 
 /// The most times one "each item in count" list is rolled at once ([`resolve_at`]).
@@ -115,7 +121,8 @@ struct Ctx<'a> {
     added: &'a BTreeMap<FormId, Vec<LeveledEntry>>,
 }
 
-/// `condition`: the condition the entry that led here asked for (a script's added
+/// `count` of `item` is asked for, and everything that gives is multiplied by `mult`
+/// (rule 5). `condition`: the condition the entry that led here asked for (a script's added
 /// entry, [`LeveledEntry::condition`]); it carries down into nested lists unless one of
 /// their entries asks for its own [hypothesis].
 #[allow(clippy::too_many_arguments)]
@@ -123,6 +130,7 @@ fn resolve_at(
     cx: &Ctx,
     item: FormId,
     count: i32,
+    mult: i32,
     condition: Option<f32>,
     level: u16,
     rng: &mut impl RngCore,
@@ -135,7 +143,7 @@ fn resolve_at(
         return Ok(());
     }
     let Some(list) = cx.forms.leveled(item) else {
-        let mut e = Entry::new(item, count);
+        let mut e = Entry::new(item, count.saturating_mul(mult));
         e.extra.condition = condition;
         out.push(e);
         return Ok(());
@@ -153,14 +161,14 @@ fn resolve_at(
     // A list rolled for each of a huge count (a broken mod's entry or script) would
     // roll that many times: capped [hypothesis: our limit, far above any shipped count].
     let rolls = if list.each { count.min(MAX_LIST_ROLLS) } else { 1 };
-    let mult = if list.each { 1 } else { count };
+    let mult = if list.each { mult } else { mult.saturating_mul(count) };
     for _ in 0..rolls {
         if below(rng, 100) < chance_none || eligible.is_empty() {
             continue;
         }
         if list.use_all {
             for e in &eligible {
-                resolve_at(cx, e.item, (e.count as i32).saturating_mul(mult), e.condition.or(condition), level, rng, out, depth + 1)?;
+                resolve_at(cx, e.item, e.count as i32, mult, e.condition.or(condition), level, rng, out, depth + 1)?;
             }
             continue;
         }
@@ -171,7 +179,7 @@ fn resolve_at(
             eligible.iter().copied().filter(|e| e.level == top).collect()
         };
         let e = pool[below(rng, pool.len() as u32) as usize];
-        resolve_at(cx, e.item, (e.count as i32).saturating_mul(mult), e.condition.or(condition), level, rng, out, depth + 1)?;
+        resolve_at(cx, e.item, e.count as i32, mult, e.condition.or(condition), level, rng, out, depth + 1)?;
     }
     Ok(())
 }
@@ -207,6 +215,33 @@ mod tests {
         assert!((0..50).all(|_| rolls_none(&mut a, 100)));
         let n = (0..2000).filter(|_| rolls_none(&mut a, 50)).count();
         assert!((900..1100).contains(&n), "{n}");
+    }
+
+    /// A count given to a list without "each item" multiplies what one roll gives, an
+    /// "each item" sublist included (`LootAmmo10mm` ×10 in game: always a multiple of 10).
+    #[test]
+    fn a_count_multiplies_one_roll() {
+        use crate::forms::{BaseData, BaseForm, LeveledList};
+        let mut forms = FormStore::default();
+        let lists = [
+            (1u32, false, true, 0u8, vec![(2u32, 3u16)]), // Use All, ×3 of the sublist
+            (2, true, false, 50, vec![(9, 1)]),           // each item, chance none 50
+        ];
+        for (id, each, use_all, chance_none, es) in lists {
+            let entries = es.into_iter().map(|(item, count)| LeveledEntry { level: 1, item: FormId(item), count, condition: None }).collect();
+            let list = LeveledList { chance_none, all_levels: false, each, use_all, global: None, entries };
+            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::LeveledItem(list) };
+            forms.bases.insert(FormId(id), base);
+        }
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..400 {
+            let mut out = Vec::new();
+            resolve(&forms, FormId(1), 10, 1, &mut rng, &mut out).unwrap();
+            seen.insert(out.iter().map(|e| e.count).sum::<i32>());
+        }
+        // Three rolls of the sublist, times ten: 0, 10, 20 or 30, never 120 rolls' sums.
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(), [0, 10, 20, 30]);
     }
 
     /// A huge count (a broken mod) neither overflows nor rolls billions of times.
