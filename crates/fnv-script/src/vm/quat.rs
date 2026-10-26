@@ -73,7 +73,8 @@ impl Vm<'_, '_> {
                     vec![2.0 * x.atan2(w).to_degrees(), 0.0, 2.0 * z.atan2(w).to_degrees()]
                 } else {
                     let rx = (2.0 * (w * x + y * z)).atan2(1.0 - 2.0 * (x * x + y * y));
-                    let ry = (2.0 * (w * y - z * x)).clamp(-1.0, 1.0).asin();
+                    // Written as -2(xz - wy): the game prints -0 for z90 [observed].
+                    let ry = (-2.0 * (x * z - w * y)).clamp(-1.0, 1.0).asin();
                     let rz = (2.0 * (w * z + x * y)).atan2(1.0 - 2.0 * (y * y + z * z));
                     vec![rx.to_degrees(), ry.to_degrees(), rz.to_degrees()]
                 }
