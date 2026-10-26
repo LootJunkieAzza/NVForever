@@ -1,0 +1,458 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_controls",
+ "title": "nvse-controls, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 0 0)\nEnd\n",
+   "label": "control.0.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 0 1)\nEnd\n",
+   "label": "control.0.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 1 0)\nEnd\n",
+   "label": "control.1.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 1 1)\nEnd\n",
+   "label": "control.1.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 2 0)\nEnd\n",
+   "label": "control.2.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 2 1)\nEnd\n",
+   "label": "control.2.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 3 0)\nEnd\n",
+   "label": "control.3.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 3 1)\nEnd\n",
+   "label": "control.3.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 4 0)\nEnd\n",
+   "label": "control.4.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 4 1)\nEnd\n",
+   "label": "control.4.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 5 0)\nEnd\n",
+   "label": "control.5.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 5 1)\nEnd\n",
+   "label": "control.5.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 6 0)\nEnd\n",
+   "label": "control.6.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 6 1)\nEnd\n",
+   "label": "control.6.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 7 0)\nEnd\n",
+   "label": "control.7.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 7 1)\nEnd\n",
+   "label": "control.7.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 8 0)\nEnd\n",
+   "label": "control.8.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 8 1)\nEnd\n",
+   "label": "control.8.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 9 0)\nEnd\n",
+   "label": "control.9.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 9 1)\nEnd\n",
+   "label": "control.9.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 10 0)\nEnd\n",
+   "label": "control.10.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 10 1)\nEnd\n",
+   "label": "control.10.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 11 0)\nEnd\n",
+   "label": "control.11.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 11 1)\nEnd\n",
+   "label": "control.11.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 12 0)\nEnd\n",
+   "label": "control.12.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 12 1)\nEnd\n",
+   "label": "control.12.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 13 0)\nEnd\n",
+   "label": "control.13.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 13 1)\nEnd\n",
+   "label": "control.13.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 14 0)\nEnd\n",
+   "label": "control.14.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 14 1)\nEnd\n",
+   "label": "control.14.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 15 0)\nEnd\n",
+   "label": "control.15.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 15 1)\nEnd\n",
+   "label": "control.15.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 16 0)\nEnd\n",
+   "label": "control.16.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 16 1)\nEnd\n",
+   "label": "control.16.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 17 0)\nEnd\n",
+   "label": "control.17.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 17 1)\nEnd\n",
+   "label": "control.17.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 18 0)\nEnd\n",
+   "label": "control.18.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 18 1)\nEnd\n",
+   "label": "control.18.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 19 0)\nEnd\n",
+   "label": "control.19.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 19 1)\nEnd\n",
+   "label": "control.19.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 20 0)\nEnd\n",
+   "label": "control.20.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 20 1)\nEnd\n",
+   "label": "control.20.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 21 0)\nEnd\n",
+   "label": "control.21.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 21 1)\nEnd\n",
+   "label": "control.21.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 22 0)\nEnd\n",
+   "label": "control.22.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 22 1)\nEnd\n",
+   "label": "control.22.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 23 0)\nEnd\n",
+   "label": "control.23.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 23 1)\nEnd\n",
+   "label": "control.23.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 24 0)\nEnd\n",
+   "label": "control.24.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 24 1)\nEnd\n",
+   "label": "control.24.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 25 0)\nEnd\n",
+   "label": "control.25.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 25 1)\nEnd\n",
+   "label": "control.25.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 26 0)\nEnd\n",
+   "label": "control.26.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 26 1)\nEnd\n",
+   "label": "control.26.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 27 0)\nEnd\n",
+   "label": "control.27.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 27 1)\nEnd\n",
+   "label": "control.27.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 28 0)\nEnd\n",
+   "label": "control.28.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 28 1)\nEnd\n",
+   "label": "control.28.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 0)\nEnd\n",
+   "label": "control.0.default",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 4)\nEnd\n",
+   "label": "control.4.default",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetControl 27)\nEnd\n",
+   "label": "control.27.default",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 0)\nEnd\n",
+   "label": "alt.0",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 1)\nEnd\n",
+   "label": "alt.1",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 2)\nEnd\n",
+   "label": "alt.2",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 3)\nEnd\n",
+   "label": "alt.3",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 4)\nEnd\n",
+   "label": "alt.4",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 5)\nEnd\n",
+   "label": "alt.5",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 6)\nEnd\n",
+   "label": "alt.6",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 7)\nEnd\n",
+   "label": "alt.7",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 8)\nEnd\n",
+   "label": "alt.8",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 9)\nEnd\n",
+   "label": "alt.9",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 10)\nEnd\n",
+   "label": "alt.10",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 11)\nEnd\n",
+   "label": "alt.11",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 12)\nEnd\n",
+   "label": "alt.12",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 13)\nEnd\n",
+   "label": "alt.13",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 14)\nEnd\n",
+   "label": "alt.14",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 15)\nEnd\n",
+   "label": "alt.15",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 16)\nEnd\n",
+   "label": "alt.16",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 17)\nEnd\n",
+   "label": "alt.17",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 18)\nEnd\n",
+   "label": "alt.18",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 19)\nEnd\n",
+   "label": "alt.19",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 20)\nEnd\n",
+   "label": "alt.20",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 21)\nEnd\n",
+   "label": "alt.21",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 22)\nEnd\n",
+   "label": "alt.22",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 23)\nEnd\n",
+   "label": "alt.23",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 24)\nEnd\n",
+   "label": "alt.24",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 25)\nEnd\n",
+   "label": "alt.25",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 26)\nEnd\n",
+   "label": "alt.26",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 27)\nEnd\n",
+   "label": "alt.27",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetAltControl 28)\nEnd\n",
+   "label": "alt.28",
+   "field": "value"
+  }
+ ]
+}

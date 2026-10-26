@@ -439,12 +439,79 @@ REF_PROBES = (
        for c, fid in CELLS.items()]
 )
 
+# Tenth set: control bindings (GetControl code type, GetAltControl code) for the 28
+# control codes, keyboard (type 0) and mouse (type 1), plus one code past the range.
+# They read the owner's key bindings. Read-only.
+CONTROL_PROBES = (
+    [(f"control.{c}.{t}", f"SetFunctionValue (GetControl {c} {t})", False, None, "") for c in range(29) for t in (0, 1)]
+    + [(f"control.{c}.default", f"SetFunctionValue (GetControl {c})", False, None, "") for c in (0, 4, 27)]
+    + [(f"alt.{c}", f"SetFunctionValue (GetAltControl {c})", False, None, "") for c in range(29)]
+)
+
+# Eleventh set: doors, factions and NPC appearance on vanilla forms (Doc Mitchell's
+# house door, Doc, Sunny Smiles, Trudy; NCR and Goodsprings factions); IDs from fnvtool
+# esm inventory [observed]. Read-only.
+AF = {"door": "103E61", "doc": "104C0C", "sunny": "104E84", "trudy": "104C6C",
+      "ncr": "A46E7", "goodsprings": "104C6E", "bos": "1D3FE"}
+
+
+def _af(pid, key, expr, text=False):
+    return (pid, _with(AF[key], f"SetFunctionValue ({expr})"), text, None, "")
+
+
+ACTOR_PROBES = (
+    [_af("door.linked", "door", "GetFormIDString (rF.GetLinkedDoor)", True),
+     _af("door.teleportcell", "door", "GetFormIDString (rF.GetTeleportCell)", True),
+     _af("door.isload", "door", "rF.IsLoadDoor")]
+    + [x for k in ("doc", "sunny", "trudy") for x in (
+        [_af(f"factions.{k}", k, "GetBaseNumFactions rF")]
+        + [_af(f"faction.{k}.{i}", k, f"GetFormIDString (GetBaseNthFaction {i} rF)", True) for i in range(3)]
+        + [_af(f"rank.{k}.{i}", k, f"GetBaseNthRank {i} rF") for i in range(3)]
+        + [_af(f"hair.{k}", k, "GetFormIDString (GetHair rF)", True),
+           _af(f"eyes.{k}", k, "GetFormIDString (GetEyes rF)", True),
+           _af(f"hairlength.{k}", k, "GetHairLength rF"),
+           _af(f"haircolor.{k}.0", k, "GetHairColor 0 rF"),
+           _af(f"haircolor.{k}.1", k, "GetHairColor 1 rF"),
+           _af(f"haircolor.{k}.2", k, "GetHairColor 2 rF"),
+           _af(f"haircolor.{k}.3", k, "GetHairColor 3 rF"),
+           _af(f"height.{k}", k, "GetNPCHeight rF"),
+           _af(f"weight.{k}", k, "GetNPCWeight rF"),
+           _af(f"flagslow.{k}", k, "GetActorBaseFlagsLow rF"),
+           _af(f"flagshigh.{k}", k, "GetActorBaseFlagsHigh rF")])]
+    + [_af(f"ranks.{k}", k, "GetNumRanks rF") for k in ("ncr", "goodsprings", "bos")]
+    + [_af(f"ranknames.{k}.size", k, "ar_Size (GetFactionRankNames rF)") for k in ("ncr", "goodsprings", "bos")]
+    + [_af("ranknames.bos.0", "bos", "(GetFactionRankNames rF)[0]", True)]
+)
+
+# Twelfth set: base-form setters read back in the same session (SetWeaponClipRounds,
+# SetWeight, SetName, SetBaseItemValue, SetObjectHealth): whether the change shows through
+# the getter, and through a second form of access (a reference's base form, LNGetName).
+# Each probe puts the old value back. Session only: the run never saves.
+def _set(pid, key, body, text=False, exp=None, page=""):
+    return (pid, ("ref rF\nref rD\nfloat fO\nfloat fV\nBegin Function { }\n" + _form("rF", NF[key])
+                  + _form("rD", NF["docref"]) + body), text, exp, page)
+
+
+SETTER_PROBES = [
+    _set("clip.set.get", "pistol10", "let fO := GetWeaponClipRounds rF\nSetWeaponClipRounds 30 rF\nlet fV := GetWeaponClipRounds rF\nSetWeaponClipRounds fO rF\nSetFunctionValue fV", exp="30", page="SetWeaponClipRounds"),
+    _set("clip.restored", "pistol10", "SetFunctionValue (GetWeaponClipRounds rF)"),
+    _set("weight.set.get", "caps", "let fO := GetWeight rF\nSetWeight 0.5 rF\nlet fV := GetWeight rF\nSetWeight fO rF\nSetFunctionValue fV", exp="0.5", page="SetWeight"),
+    _set("value.set.get", "pistol10", "let fO := GetItemValue rF\nSetBaseItemValue rF 999\nlet fV := GetItemValue rF\nSetBaseItemValue rF fO\nSetFunctionValue fV"),
+    _set("health.set.get", "pistol10", "let fO := GetBaseHealth rF\nSetObjectHealth 123 rF\nlet fV := GetBaseHealth rF\nSetObjectHealth fO rF\nSetFunctionValue fV"),
+    _set("name.set.get", "pistol10", 'SetName "NVF Pistol" rF\nSetFunctionValue (GetName rF)\nSetName "10mm Pistol" rF', text=True, exp="NVF Pistol", page="SetName"),
+    _set("name.set.lngetname", "pistol10", 'SetName "NVF Pistol" rF\nSetFunctionValue (LNGetName rF)\nSetName "10mm Pistol" rF', text=True),
+    _set("name.restored", "pistol10", "SetFunctionValue (GetName rF)", text=True),
+    _set("name.npc.via.ref", "doc", 'SetName "NVF Doc" rF\nSetFunctionValue (GetName rD)\nSetName "Doc Mitchell" rF', text=True),
+    _set("name.npc.ref.lngetname", "doc", 'SetName "NVF Doc" rF\nSetFunctionValue (rD.LNGetName)\nSetName "Doc Mitchell" rF', text=True),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
-        "nvse-refs": REF_PROBES}
+        "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
+        "nvse-setters": SETTER_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
-WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars"}
+WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters"}
 
 
 def script(body):

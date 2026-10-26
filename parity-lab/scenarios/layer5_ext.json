@@ -185,6 +185,48 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "refs"]
+  },
+  {
+   "id": "L5.ext.nvse.controls",
+   "layer": 5,
+   "description": "Control bindings (GetControl for the 28 control codes, keyboard and mouse, GetAltControl); they read the owner's key bindings, set nvse-controls of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-controls.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_controls.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "controls"]
+  },
+  {
+   "id": "L5.ext.nvse.actors",
+   "layer": 5,
+   "description": "Doors (GetLinkedDoor, GetTeleportCell, IsLoadDoor), base factions and ranks, faction rank names, NPC hair, eyes, hair colour, height, weight and base flags on vanilla forms, set nvse-actors of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-actors.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_actors.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "actors"]
+  },
+  {
+   "id": "L5.ext.nvse.setters",
+   "layer": 5,
+   "description": "Base-form setters read back in the same session (SetWeaponClipRounds, SetWeight, SetBaseItemValue, SetObjectHealth, SetName through GetName, LNGetName and a reference), set nvse-setters of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-setters.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_setters.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "setters"]
   }
  ]
 }

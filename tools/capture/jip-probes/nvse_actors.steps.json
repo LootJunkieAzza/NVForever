@@ -1,0 +1,346 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_actors",
+ "title": "nvse-actors, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103E61\"\nSetFunctionValue (GetFormIDString (rF.GetLinkedDoor))\nEnd\n",
+   "label": "door.linked",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103E61\"\nSetFunctionValue (GetFormIDString (rF.GetTeleportCell))\nEnd\n",
+   "label": "door.teleportcell",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103E61\"\nSetFunctionValue (rF.IsLoadDoor)\nEnd\n",
+   "label": "door.isload",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetBaseNumFactions rF)\nEnd\n",
+   "label": "factions.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rF))\nEnd\n",
+   "label": "faction.doc.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 1 rF))\nEnd\n",
+   "label": "faction.doc.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 2 rF))\nEnd\n",
+   "label": "faction.doc.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetBaseNthRank 0 rF)\nEnd\n",
+   "label": "rank.doc.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetBaseNthRank 1 rF)\nEnd\n",
+   "label": "rank.doc.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetBaseNthRank 2 rF)\nEnd\n",
+   "label": "rank.doc.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetHair rF))\nEnd\n",
+   "label": "hair.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetEyes rF))\nEnd\n",
+   "label": "eyes.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetHairLength rF)\nEnd\n",
+   "label": "hairlength.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetHairColor 0 rF)\nEnd\n",
+   "label": "haircolor.doc.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetHairColor 1 rF)\nEnd\n",
+   "label": "haircolor.doc.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetHairColor 2 rF)\nEnd\n",
+   "label": "haircolor.doc.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetHairColor 3 rF)\nEnd\n",
+   "label": "haircolor.doc.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNPCHeight rF)\nEnd\n",
+   "label": "height.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNPCWeight rF)\nEnd\n",
+   "label": "weight.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetActorBaseFlagsLow rF)\nEnd\n",
+   "label": "flagslow.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetActorBaseFlagsHigh rF)\nEnd\n",
+   "label": "flagshigh.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetBaseNumFactions rF)\nEnd\n",
+   "label": "factions.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rF))\nEnd\n",
+   "label": "faction.sunny.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 1 rF))\nEnd\n",
+   "label": "faction.sunny.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 2 rF))\nEnd\n",
+   "label": "faction.sunny.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetBaseNthRank 0 rF)\nEnd\n",
+   "label": "rank.sunny.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetBaseNthRank 1 rF)\nEnd\n",
+   "label": "rank.sunny.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetBaseNthRank 2 rF)\nEnd\n",
+   "label": "rank.sunny.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString (GetHair rF))\nEnd\n",
+   "label": "hair.sunny",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString (GetEyes rF))\nEnd\n",
+   "label": "eyes.sunny",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetHairLength rF)\nEnd\n",
+   "label": "hairlength.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetHairColor 0 rF)\nEnd\n",
+   "label": "haircolor.sunny.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetHairColor 1 rF)\nEnd\n",
+   "label": "haircolor.sunny.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetHairColor 2 rF)\nEnd\n",
+   "label": "haircolor.sunny.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetHairColor 3 rF)\nEnd\n",
+   "label": "haircolor.sunny.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetNPCHeight rF)\nEnd\n",
+   "label": "height.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetNPCWeight rF)\nEnd\n",
+   "label": "weight.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetActorBaseFlagsLow rF)\nEnd\n",
+   "label": "flagslow.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetActorBaseFlagsHigh rF)\nEnd\n",
+   "label": "flagshigh.sunny",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetBaseNumFactions rF)\nEnd\n",
+   "label": "factions.trudy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 0 rF))\nEnd\n",
+   "label": "faction.trudy.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 1 rF))\nEnd\n",
+   "label": "faction.trudy.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetFormIDString (GetBaseNthFaction 2 rF))\nEnd\n",
+   "label": "faction.trudy.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetBaseNthRank 0 rF)\nEnd\n",
+   "label": "rank.trudy.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetBaseNthRank 1 rF)\nEnd\n",
+   "label": "rank.trudy.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetBaseNthRank 2 rF)\nEnd\n",
+   "label": "rank.trudy.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetFormIDString (GetHair rF))\nEnd\n",
+   "label": "hair.trudy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetFormIDString (GetEyes rF))\nEnd\n",
+   "label": "eyes.trudy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetHairLength rF)\nEnd\n",
+   "label": "hairlength.trudy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetHairColor 0 rF)\nEnd\n",
+   "label": "haircolor.trudy.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetHairColor 1 rF)\nEnd\n",
+   "label": "haircolor.trudy.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetHairColor 2 rF)\nEnd\n",
+   "label": "haircolor.trudy.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetHairColor 3 rF)\nEnd\n",
+   "label": "haircolor.trudy.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetNPCHeight rF)\nEnd\n",
+   "label": "height.trudy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetNPCWeight rF)\nEnd\n",
+   "label": "weight.trudy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetActorBaseFlagsLow rF)\nEnd\n",
+   "label": "flagslow.trudy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6C\"\nSetFunctionValue (GetActorBaseFlagsHigh rF)\nEnd\n",
+   "label": "flagshigh.trudy",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (GetNumRanks rF)\nEnd\n",
+   "label": "ranks.ncr",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6E\"\nSetFunctionValue (GetNumRanks rF)\nEnd\n",
+   "label": "ranks.goodsprings",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1D3FE\"\nSetFunctionValue (GetNumRanks rF)\nEnd\n",
+   "label": "ranks.bos",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (ar_Size (GetFactionRankNames rF))\nEnd\n",
+   "label": "ranknames.ncr.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C6E\"\nSetFunctionValue (ar_Size (GetFactionRankNames rF))\nEnd\n",
+   "label": "ranknames.goodsprings.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1D3FE\"\nSetFunctionValue (ar_Size (GetFactionRankNames rF))\nEnd\n",
+   "label": "ranknames.bos.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"1D3FE\"\nSetFunctionValue ((GetFactionRankNames rF)[0])\nEnd\n",
+   "label": "ranknames.bos.0",
+   "field": "value",
+   "text": true
+  }
+ ]
+}
