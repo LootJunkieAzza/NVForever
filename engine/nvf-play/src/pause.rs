@@ -762,7 +762,7 @@ struct PauseView {
     /// The slider whose meter is being dragged (pressed and held).
     dragging: Option<usize>,
     /// The settings page's (or the Controls tab's) first row shown, counted from its
-    /// category's first.
+    /// category's first; on the load page, the saves' first row shown.
     scroll: usize,
     /// The scroll bar's marker is being dragged.
     bar_dragging: bool,
@@ -805,7 +805,7 @@ struct Drawn {
     device: (&'static str, bool),
     /// The controller rumbles.
     rumble: bool,
-    /// The settings page's first row shown ([`PauseView::scroll`]).
+    /// The settings page's (or the load page's) first row shown ([`PauseView::scroll`]).
     scroll: usize,
     /// The list rows: each one's row, choices and chosen one.
     lists: Vec<(usize, Vec<String>, String)>,
@@ -858,7 +858,7 @@ fn group_rows(list: &[Setting], selected: usize) -> std::ops::Range<usize> {
 /// The first row shown of a list of `rows`, [`OPTION_ROWS`] at once: `first` moved as
 /// little as keeps `selected` in view.
 fn follow(first: usize, selected: usize, rows: usize) -> usize {
-    first.max((selected + 1).saturating_sub(OPTION_ROWS)).min(selected).min(rows.saturating_sub(OPTION_ROWS))
+    crate::menu::model::keep_in_view(first, selected, rows, OPTION_ROWS)
 }
 
 /// The height of the scroll bar's track, between its arrows.
@@ -1308,7 +1308,8 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, v: f32, 
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
-/// of [`LOAD_ROWS`] round the chosen one), left of the column.
+/// of [`LOAD_ROWS`] from [`PauseView::scroll`], moved only to keep the chosen one in
+/// view), left of the column.
 fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &LoadList, selected: usize) {
     let panel = |top: f32, height: f32| from_right(RIGHT + COLUMN, top, LOAD_WIDTH, height);
     if list.saves.is_empty() {
@@ -1316,7 +1317,7 @@ fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &LoadL
         return;
     }
     let n = list.saves.len();
-    let first = selected.saturating_sub(LOAD_ROWS / 2).min(n.saturating_sub(LOAD_ROWS));
+    let first = crate::menu::model::keep_in_view(d.scroll, selected, n, LOAD_ROWS);
     // The thumbnail, stretched to its frame.
     let frame = Node { position_type: PositionType::Absolute, right: u(RIGHT + COLUMN + LOAD_WIDTH - THUMB_DRAWN.x - 10.0), top: u(DETAILS_TOP - THUMB_DRAWN.y - 10.0), width: u(THUMB_DRAWN.x), height: u(THUMB_DRAWN.y), ..default() };
     match list.thumb.as_ref().filter(|(t, _)| *t == selected && d.thumb.is_some_and(|t| t.1)).and_then(|(_, h)| h.clone()) {
@@ -2057,6 +2058,11 @@ fn choose(
                 menu.loads.write(crate::save::LoadRequest { path: path.clone() });
             }
         }
+    }
+    // The saves' window follows the keys' choice; a row under the pointer is in it
+    // already, so hovering never scrolls it.
+    if let Page::Load { selected } = *page {
+        view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, menu.list.saves.len(), LOAD_ROWS);
     }
     // The settings page's and the Controls tab's window of rows: the wheel, the scroll
     // bar's arrows and its marker move it, and the choice with it where it would leave

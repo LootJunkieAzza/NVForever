@@ -305,7 +305,7 @@ expect = [
 name = "shadow-probe"
 source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, and the hidden third-person body stays body-sized"
 areas = ["renderer", "player-body"]
-paths = ["engine/nvforever/src/shadow_probe.rs", "engine/nvforever/src/player_body.rs"]
+paths = ["engine/nvforever/src/shadow_probe.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/lod.rs"]
 env = { NVF_PLAY_DEBUG_SHADOWS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_LOOK = "10:90:-12,13:180:-12,16:270:-30,19:0:-5,22:90:-12" }
 args = ["--cell", "Goodsprings", "--pos=-69698,2246,8500", "--play", "--no-voice", "--hour", "14", "--sun-shadows"]
 run_seconds = 30
@@ -315,6 +315,7 @@ expect = [
   { re = 'shadow probe: (skin of|cascade \d casts|.* is drawn (with|from))', count = 0, label = "no single finding" },
   { re = 'player body joints within (?P<n>\d+)', range = [30, 300], label = "the hidden body measured body-sized (about 70)" },
   { re = 'player body joints within ([3-9]\d\d|\d{4,})', count = 0, label = "the hidden body never wider than 300" },
+  { re = 'shadow probe: frame \d+ .*LOD terrain casting per cascade \[\d+, \d+, \d+\] of casters', min = 1, label = "the per-frame LOD terrain line names the three cascades" },
 ]
 
 [[scenario]]
@@ -1267,10 +1268,13 @@ kind = "tool"
 source = "ESM gap audit row 18 (docs/spec-notes/texture-swaps.md): records' alternate textures (MODS/MO2S/MO3S/MO4S) and the shapes they go to"
 areas = ["texture-swaps", "world"]
 paths = ["crates/fnv-world/src/alt_textures.rs", "crates/fnvtool/src/world_alt_textures.rs", "crates/fnv-nif/src/scene.rs", "schemas/fnv/common.json", "crates/fnv-esm/src/decode.rs", "crates/fnv-esm/src/schema.rs"]
-commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit"]]
+commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit", "--edid", "OutfitPrewarCasualwear2Dirty"]]
 # texture-swaps.md §1, §2: FalloutNV.esm's 433 records, 1,838 entries, 1,679 with their
 # named shape at the 3D Index; the Atomic Wrangler billboard's one shape; the radiation
-# suit's female model has two UpperBody shapes, each listed with its own index.
+# suit's female model has two UpperBody shapes, each listed with its own index. The
+# index decides over a stale name: Jeannie May Crawford's dirty relaxedwear lists
+# `pipboyoff` at 9, the female model's UpperBody (her dress), which takes the brown
+# texture set like her arms (owner, 2026-10-26).
 expect = [
   { json = "summary.records", equals = 433 },
   { json = "summary.entries", equals = 1838 },
@@ -1279,6 +1283,8 @@ expect = [
   { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.diffuse", equals = 'textures\clutter\billboards\atomicwrangler_billboard.dds' },
   { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.match", equals = "name_and_index" },
   { json = "records.?edid=CSArmorRadiationSuit.models.?sub=MOD3.entries.?shape=UpperBody.match", equals = "name_and_index", count = 2 },
+  { json = "records.?edid=OutfitPrewarCasualwear2Dirty.models.?sub=MOD3.entries.?index=9.targets.*.0", equals = "UpperBody", label = "the index decides: the dress gets the dirty texture set (§2)" },
+  { json = "records.?edid=OutfitPrewarCasualwear2Dirty.models.?sub=MOD3.entries.*.match", equals = "index_only", count = 1 },
 ]
 
 [[scenario]]
@@ -1291,6 +1297,19 @@ run_seconds = 12
 expect = [
   'meshes\dungeons\hotel lowend\htlrmcorout01.nif: texture swap: 1 entr(ies), 1 shape(s) retextured: OffRmCorOut01:1:0 → textures\dungeons\hotel lowend\presmetrofloor02.dds',
   { text = "offdoormetalsml01.nif: texture swap: 2 entr(ies), 0 shape(s) retextured", label = "NullTextureSet names no file: the door keeps its own textures (§3, hypothesis)" },
+]
+
+[[scenario]]
+name = "texture-swaps-worn"
+source = "owner 2026-10-26: Jeannie May Crawford's dress was drawn blue beside brown arms (docs/spec-notes/texture-swaps.md §2): her OutfitPrewarCasualwear2Dirty's female list names `pipboyoff` at 9, the model's UpperBody, and the index decides"
+areas = ["texture-swaps", "actors"]
+paths = ["engine/nvf-assets/src/actor.rs", "crates/fnv-world/src/alt_textures.rs"]
+env = { NVF_PLAY_TEST_FACE = "6:0008D74C", NVF_PLAY_TEST_SHOTS = "9:jeannie_may_dress.png" }
+args = ["--cell", "NovacMotelLobby", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+manual = "jeannie_may_dress.png in the run's folder: her dress the same dark brown as her sleeves, no blue"
+expect = [
+  { re = '1950stylecasual01\\f\\outfit\.nif: texture swap: 4 entr\(ies\), 4 shape\(s\) retextured: .*UpperBody → textures\\armor\\1950stylecasual01\\outfit02fold\.dds', label = "her dress takes the dirty texture set" },
 ]
 
 # ------------------------------------------------------------------ audio
@@ -2008,6 +2027,21 @@ expect = [
   "ui sounds: vigor tester accepted: OBJBookSpecialNumberFinished",
   "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
   { re = 'ui sounds summary:.*\b0 sounds not found' },
+]
+
+[[scenario]]
+name = "vigor-upload-budget"
+source = "owner report 2026-10-26: with VRP 4X textures (4096x4096 pages) the Vigor Tester menu showed only its bulb glows and arrows: its meshes waited behind the textures under the GPU upload limit and Bevy 0.19 never drew them (engine/nvforever/src/world.rs respecialize_late_meshes)"
+note = "a 2 MB upload limit makes the vanilla model's meshes wait as VRP's textures did; without the fix the 6 s screenshot shows only the two arrow buttons (checked 2026-10-26), with it the whole machine. The log cannot tell a drawn mesh from a lost one, so the expectations only show the marks were made"
+areas = ["vigor", "streaming", "render"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-play/src/chargen/vigor*"]
+env = { NVF_PLAY_TEST_UPLOAD_BYTES = "2000000", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_SHOTS = "6" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 9
+expect = [
+  "test aid NVF_PLAY_TEST_UPLOAD_BYTES: 2000000 bytes sent to the GPU a frame while playing",
+  "vigor tester: open",
+  { re = 'streaming summary: .*; (\d+) late-mesh marks', range = [500, 100000], label = "the menu model's meshes marked again while they waited" },
 ]
 
 [[scenario]]
@@ -5259,11 +5293,12 @@ name = "save-ai-write"
 source = "docs/design/save-load.md §3.3, §5 item 4: the residents' package progress (patrol points, sandbox days) goes into a save; save-ai-load reads it, so run them together"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
-env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
 run_seconds = 28
 expect = [
   { re = 'save: wrote .*smoke-ai\.nvfsave \(manual', label = "the save is written" },
+  { re = 'DocMitchellREF: put at .* by a script \(MoveTo\)', label = "Doc Mitchell is moved out of his house before the save" },
 ]
 
 [[scenario]]
@@ -5277,6 +5312,7 @@ run_seconds = 24
 expect = [
   { re = 'load: package progress of (?P<n>\d+) residents kept', range = [1, 1000], label = "the save holds progress" },
   { re = 'goes on with .*(from the save|its sandbox day as saved)', label = "a resident goes on where the save had it" },
+  { re = 'DocMitchellREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
 ]
 
 [[scenario]]
@@ -5440,7 +5476,7 @@ name = "crafting"
 source = "owner todo 5 item 72: the recipe menu (engine/nvf-play/src/crafting.rs, crates/fnv-game/src/crafting.rs) opened by ShowRecipeMenu, the campfire's recipes from the records, Antivenom refused without its ingredients then made with them; frame recipe_menu.png in the working folder"
 areas = ["crafting", "menus"]
 paths = ["engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs"]
-env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,24:exit" }
+env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,23.5:accept,24:exit" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 27
 expect = [
@@ -5449,11 +5485,12 @@ expect = [
   { re = 'recipe menu: cannot make "Antivenom": \[Ingredient', label = "without its ingredients Antivenom is refused" },
   { text = "ui sounds: recipe category changed: UIMenuPrevNext", label = "the arrows switch the subcategory" },
   { re = 'recipe menu: open Campfire \(\d+ recipes listed of \d+ known, 1 ready', label = "with the ingredients one recipe is ready" },
+  { re = 'recipe menu: how many\? 1 of 1 \("Antivenom"\)', label = "Accept asks how many even when only one can be made (owner 2026-10-26)" },
   { re = 'recipe menu: made "Antivenom" \(2 x Antivenom\)', label = "Antivenom is made" },
   { re = 'console: GetItemCount on player >> 0\.00', label = "its ingredients are used up" },
   "recipe menu: closed",
 ]
-order = [["recipe menu: cannot make", "recipe menu: made"]]
+order = [["recipe menu: cannot make", "recipe menu: how many? 1 of 1", "recipe menu: made"]]
 
 [[scenario]]
 name = "repair-services"
@@ -6729,6 +6766,7 @@ expect = [
   { re = 'scope sway: PSp [\d.]+, radius [\d.]+°', label = "the view sways through the scope" },
   { re = 'scope: down', label = "letting go of Block takes the scope down" },
   { re = 'scope: night vision', count = 0, label = "a plain scope gives no night vision" },
+  { re = 'failed to process shader', count = 0, label = "the picture's materials compile in the scope's fog-less view (the picture was blank when they did not)" },
 ]
 
 [[scenario]]
@@ -9801,4 +9839,16 @@ expect = [
   { re = 'scripts: 1[0-9]{4} units run from their source text, \d+ kept their bytes', label = "the shipped units run from their source" },
   { re = 'scripts ready in', label = "the scripts start" },
   { re = 'panicked', count = 0, label = "no panic" },
+]
+
+[[scenario]]
+name = "ui-menus"
+kind = "tool"
+source = "docs/spec-notes/menu-xml.md, docs/design/ui-tile-tree.md: every vanilla menu file under menus (archives of the owner's install) builds into the tile tree and its traits settle on one update; 49 files hold a <menu> (2026-10-26)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "menus", "--data", "{data}"]]
+expect = [
+  { json = "built", schema = "fnv.ui.menus/1", equals = 49, label = "all 49 vanilla menus build" },
+  { json = "globals_warnings", schema = "fnv.ui.menus/1", equals = 0, label = "globals.xml reads without mending" },
 ]

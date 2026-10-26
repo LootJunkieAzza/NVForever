@@ -155,6 +155,20 @@ the spec it links to.
     critical on an unseen target) show nothing on screen; the game files have only the
     icon setting `sCriticalStrikeIcon`. Show a message or the icon?
     ([combat-rules §4](spec-notes/combat-rules.md))
+33. **3D scopes (not built).** You asked about the mod look: the gun stays on screen and
+    the zoomed world shows in the scope's lens. It can be built. Weapons with no lens in
+    their model get a measured disc, and a few scopes keep the original overlay. It
+    costs a second world render while aiming. Planned as a Gameplay switch, off = the
+    original overlay. Should it be on by default, and should the view around the lens
+    zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
+34. **MCM and the pause menu (UI tile tree).** MCM lives in the original's StartMenu,
+    which is where our own pause and settings pages are. Chosen (not built yet): our
+    column and settings stay as they are. The game's StartMenu is built from its files
+    behind them while the pause or main menu is open, so MCM's scripts find their
+    tiles. A "Mods" entry joins our column only when a mod added one, and opens MCM's
+    page drawn from the game's files. If you rule otherwise, the whole pause menu is
+    drawn from the game's (or a mod's) start_menu.xml and our settings become one entry
+    in it. ([ui-tile-tree §7](design/ui-tile-tree.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
@@ -257,3 +271,11 @@ the player's inventory (27 item kinds). `fnvtool ext probes` loads no save, so i
 match them. Nothing is marked or loosened in the lab: they stay failing until the lab
 can start from a save. *Answered 2026-10-26:* the lab may read your save (read-only,
 private, like the goldens).
+
+## Two GECK compile cases for when you are back (2026-10-26)
+
+Runtime-compiled scripts in your game refuse two things the GECK may accept:
+`QFromEulerEx` and the other xNVSE 6.4.8 "Ex" quaternion functions, and a variable named
+like a command alias (`ref rK`, ReleaseKey's alias). NVForever refuses the alias name
+and accepts the Ex forms until the GECK says otherwise. Cases 24 and 25 in
+`tools/capture/ext-compile/` (README there says how): note whether each saves.

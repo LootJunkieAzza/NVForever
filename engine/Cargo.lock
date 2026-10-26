@@ -2853,6 +2853,7 @@ dependencies = [
  "fnv-esm",
  "fnv-script",
  "fnv-sim",
+ "fnv-ui",
  "fnv-util",
  "rand_chacha",
  "rand_core 0.9.5",
@@ -2962,6 +2963,10 @@ version = "0.1.0"
 dependencies = [
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "fnv-ui"
+version = "0.1.0"
 
 [[package]]
 name = "fnv-util"

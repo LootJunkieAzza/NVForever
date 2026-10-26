@@ -162,9 +162,14 @@ fn blend_colour_scale(a: f32) -> f32 {
 #ifndef PREPASS_PIPELINE
 // The image space's Emissive Mult over the worldspace base image space's (nvforever
 // fog.rs and sky.rs `emissive_scale`), which the view's game fog carries in `bi.y`; 1
-// with any other fog.
+// with any other fog, and in a view without fog (the scope's picture, which has no `fog`
+// binding).
 fn view_emissive_scale() -> f32 {
+#ifdef DISTANCE_FOG
     return select(1.0, fog.bi.y, fog.mode == FOG_MODE_ATMOSPHERIC && fog.bi.y > 0.0);
+#else
+    return 1.0;
+#endif
 }
 
 // Soft intersections (nif_material.rs module notes): the share of the shape kept at this

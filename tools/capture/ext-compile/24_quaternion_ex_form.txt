@@ -1,0 +1,8 @@
+scn ExtCase24
+float fQw
+float fQx
+float fQy
+float fQz
+Begin GameMode
+    QFromEulerEx fQw fQx fQy fQz 0 0 90
+End

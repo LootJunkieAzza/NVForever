@@ -62,7 +62,7 @@ use fnv_sim::{clock, FormId, FormStore, RefTable, SimConfig, World};
 use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
 use nvf_play::RefVisual;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::f32::consts::FRAC_PI_4;
 
 /// Where the function catalogue is when `NVF_PLAY_SCRIPT_FUNCTIONS` is not set (as
@@ -627,6 +627,8 @@ struct Core {
     known: HashSet<u32>,
     /// Cells whose actors were handed over (`all`).
     cells_seen: HashSet<CellKey>,
+    /// The game's loaded cells when actors placed elsewhere were last looked for there.
+    loaded_seen: BTreeSet<FormId>,
     clock: Clock,
     /// The game's clock was set and its periodic choice switched on.
     prepared: bool,
@@ -783,6 +785,7 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            loaded_seen: BTreeSet::new(),
             clock,
             prepared: false,
             clock_text: String::new(),
@@ -1073,6 +1076,33 @@ impl Core {
                 let label = self.list.last().map_or_else(|| id.to_string(), |r| r.label.clone());
                 info!("ai [{}] {label}: put at ({:.0}, {:.0}, {:.0}) in {cell} {why}: a resident from there", self.clock_text, pos[0], pos[1], pos[2]);
             }
+        }
+    }
+
+    /// With `all`: the placed actors that stand in a loaded cell other than the one they
+    /// were placed in (walked or moved there before a save, which puts them back there):
+    /// residents from where they are. [Until 2026-10-26 a loaded save left them out, so
+    /// they were not drawn while the compass still showed them: Jeannie May Crawford
+    /// and Victor in Novac, owner playtest.] Looked for when the loaded cells change.
+    fn take_placed_elsewhere(&mut self, game: &Game) {
+        if self.loaded_seen == game.loaded_cells {
+            return;
+        }
+        self.loaded_seen = game.loaded_cells.clone();
+        let refs = game.world.placed;
+        let found: Vec<FormId> = game
+            .world
+            .changed()
+            .filter(|(id, s)| *id < FormId::FIRST_DYNAMIC && !s.deleted && !self.known.contains(&id.0) && is_actor(refs, *id))
+            .filter(|(id, s)| s.cell.is_some_and(|c| game.loaded_cells.contains(&c)) && s.cell != refs.get(*id).and_then(|p| p.cell))
+            .map(|(id, _)| id)
+            .collect();
+        for id in found {
+            self.add(refs, id, None);
+            let Some(s) = game.world.peek(id) else { continue };
+            let label = self.list.last().map_or_else(|| id.to_string(), |r| r.label.clone());
+            let cell = s.cell.map_or_else(|| "no cell".to_string(), |c| game.data.name(c));
+            info!("ai [{}] {label}: at ({:.0}, {:.0}, {:.0}) in {cell}, away from the cell it was placed in: a resident from there", self.clock_text, s.pos[0], s.pos[1], s.pos[2]);
         }
     }
 
@@ -1857,6 +1887,7 @@ pub fn drive(
             res.core.check_rooted(&world, &models.data);
             res.core.take_moved(game, all, None);
             if all {
+                res.core.take_placed_elsewhere(game);
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
@@ -1883,6 +1914,7 @@ pub fn drive(
                 let mut phys = phys;
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
                 if all {
+                    core.take_placed_elsewhere(&rt.game);
                     if let Some(p) = phys.as_deref_mut() {
                         core.spread_created(&mut rt.game, p);
                     }

@@ -645,6 +645,24 @@ const TAKE_IN_BUDGET: std::time::Duration = std::time::Duration::from_millis(2);
 /// sends whole assets and stops after the first one over the limit].
 const UPLOAD_BYTES_PER_FRAME: usize = 24 << 20;
 
+/// The upload limit while playing: [`UPLOAD_BYTES_PER_FRAME`], or the test aid
+/// `NVF_PLAY_TEST_UPLOAD_BYTES=<bytes>` (a small limit makes every model wait for its
+/// meshes as large mod textures do, [`respecialize_late_meshes`]).
+fn upload_bytes_per_frame() -> usize {
+    static BYTES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| match std::env::var("NVF_PLAY_TEST_UPLOAD_BYTES").map(|v| v.trim().parse::<usize>()) {
+        Ok(Ok(n)) => {
+            info!("test aid NVF_PLAY_TEST_UPLOAD_BYTES: {n} bytes sent to the GPU a frame while playing");
+            n
+        }
+        Ok(Err(e)) => {
+            warn!("NVF_PLAY_TEST_UPLOAD_BYTES: {e}");
+            UPLOAD_BYTES_PER_FRAME
+        }
+        Err(_) => UPLOAD_BYTES_PER_FRAME,
+    })
+}
+
 /// Take in what worker threads prepared for the cells read ahead
 /// (`ModelCtx::take_fetched`), and set the GPU upload limit: both without limit behind a
 /// loading screen and before the start square is in.
@@ -657,21 +675,71 @@ pub fn take_cell_work(
 ) {
     let free = !streamer.settled || loading.is_some_and(|l| l.unseen_frames());
     models.take_fetched(time.elapsed_secs_f64(), (!free).then_some(TAKE_IN_BUDGET));
-    let limit = (!free).then_some(UPLOAD_BYTES_PER_FRAME);
+    let limit = (!free).then(upload_bytes_per_frame);
     if let Some(mut b) = bytes.filter(|b| b.max_bytes != limit) {
         b.max_bytes = limit;
     }
 }
 
+/// Frames after an entity is given its mesh under the upload limit at which its `Mesh3d`
+/// is marked changed again ([`respecialize_late_meshes`]): about 2 s at 60 frames a
+/// second [engineering choice: the limit holds back at most a few frames' worth of
+/// assets, and each mark costs the entity one more pipeline lookup].
+const LATE_MESH_FRAMES: [u32; 7] = [2, 4, 8, 16, 32, 64, 128];
+
+/// Entities given a mesh while the upload limit was on, with the frame they got it.
+#[derive(Resource, Default)]
+pub struct LateMeshes {
+    frame: u32,
+    waiting: Vec<(Entity, u32)>,
+    /// Marks made, for the exit summary.
+    marked: u64,
+}
+
+/// Mark the meshes of new entities changed again over the next frames while the upload
+/// limit is on. Bevy 0.19 never draws an entity whose mesh was not on the GPU yet when it
+/// first chose the entity's pipeline [observed: bevy_pbr 0.19.1 `specialize_material_meshes`
+/// skips such an entity without putting it in its pending queue, which it does for a
+/// material not ready; only a change to `Mesh3d` or `MeshMaterial3d` or their assets
+/// tries it again]. Under the limit a mesh can wait behind large textures: with 4096x4096
+/// mod textures (VRP 4X) the Vigor Tester's menu model lost all 275 meshes that way and
+/// showed only its glows (owner report 2026-10-26). A mark makes Bevy try again.
+#[allow(clippy::type_complexity)]
+pub fn respecialize_late_meshes(
+    mut late: ResMut<LateMeshes>,
+    bytes: Option<Res<bevy::render::render_asset::RenderAssetBytesPerFrame>>,
+    mut meshes: ParamSet<(Query<Entity, Added<Mesh3d>>, Query<&mut Mesh3d>)>,
+) {
+    let late = &mut *late;
+    late.frame = late.frame.wrapping_add(1);
+    if bytes.is_some_and(|b| b.max_bytes.is_some()) {
+        let frame = late.frame;
+        late.waiting.extend(meshes.p0().iter().map(|e| (e, frame)));
+    }
+    let mut meshes = meshes.p1();
+    let now = late.frame;
+    let mut marked = 0;
+    late.waiting.retain(|&(e, at)| {
+        let age = now.wrapping_sub(at);
+        if LATE_MESH_FRAMES.contains(&age) {
+            let Ok(mut m) = meshes.get_mut(e) else { return false };
+            m.set_changed();
+            marked += 1;
+        }
+        age < LATE_MESH_FRAMES[LATE_MESH_FRAMES.len() - 1]
+    });
+    late.marked += marked;
+}
+
 /// Log what streaming did at the exit (stress runs read it).
-pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>) {
+pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>) {
     if exit.read().last().is_none() {
         return;
     }
     let s = &streamer.stats;
     info!(
-        "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight",
-        s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight()
+        "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight; {} late-mesh marks",
+        s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
 }
 
