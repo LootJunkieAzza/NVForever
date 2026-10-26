@@ -425,3 +425,26 @@ fn companion_nerve_follows_the_players_charisma() {
     call(&mut g, MOD, PLAYER, &[code(av::CHARISMA), n(-30.0)]);
     assert!((g.companion_nerve(guard) - 0.05).abs() < 1e-9, "Charisma under 1 counts as 1");
 }
+
+#[test]
+fn the_character_revision_is_kept_from_an_add_on_copy_of_its_script() {
+    // Old World Blues carries VCG04ActivatorScript too, so the game runs that copy.
+    let f = fixture();
+    let mut g = game(&f);
+    let rev = |g: &mut Game, op: u16, on: Option<FormId>, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "OldWorldBlues.esm|SCPT 0x001164A4".into(), opcode: op, on, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args);
+    };
+    g.player.skill_points.insert(av::BARTER, 10.0);
+    call(&mut g, SET, PLAYER, &[code(av::LUCK), n(9.0)]);
+    let barter = call(&mut g, GET, PLAYER, &[code(av::BARTER)]);
+    let sum: i32 = fnv_game::chargen::SpecialSheet::of_player(&mut g).values.iter().sum();
+    rev(&mut g, SET, Some(FormId(PLAYER)), &[code(av::LUCK), n(5.0)]);
+    rev(&mut g, SET, Some(FormId(PLAYER)), &[code(av::BARTER), n(0.0)]);
+    assert_eq!(call(&mut g, GET, PLAYER, &[code(av::LUCK)]), 9.0);
+    assert_eq!(call(&mut g, GET, PLAYER, &[code(av::BARTER)]), barter);
+    // SetSPECIALPoints 40: the Vigor Tester opens on the kept attributes with all their points.
+    rev(&mut g, 0x1218, None, &[n(40.0)]);
+    let sheet = fnv_game::chargen::SpecialSheet::for_menu(&mut g);
+    assert_eq!((sheet.values[6], sheet.total, sheet.remaining()), (9, sum.max(40), sum.max(40) - sum));
+}

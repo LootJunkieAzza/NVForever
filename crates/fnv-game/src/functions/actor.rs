@@ -306,6 +306,9 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
         return none();
     }
+    if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (the Vigor Tester moves points)", AV_NAMES[code as usize])) {
+        return none();
+    }
     set_base(g, r, code, a.num(1)?)?;
     none()
 }
