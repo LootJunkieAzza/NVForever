@@ -75,6 +75,7 @@ pub mod game;
 pub mod idles;
 pub mod intro;
 pub mod jip_events;
+pub mod nvse;
 pub mod levelup;
 pub mod lockpick;
 pub mod magic_archetypes;

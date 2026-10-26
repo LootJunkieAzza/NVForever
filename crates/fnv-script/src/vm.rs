@@ -179,6 +179,12 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// An extender function the VM does not build, by catalogue name (lower case), on a
+    /// reference if given, with its arguments evaluated (an axis as its letter); `None`
+    /// when the host does not build it either.
+    fn ext_call(&mut self, _name: &str, _on: Option<Value>, _args: &[XVal]) -> Option<Result<XVal, String>> {
+        None
+    }
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
     fn show_text(&mut self, _text: &str, _buttons: Vec<String>) {}
     /// The calling script's plugin's debug mode (DebugPrint), after setting it when `set`
@@ -2545,7 +2551,7 @@ impl Vm<'_, '_> {
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
-                None => Err(VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
+                None => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
             };
         }
         let arg = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
@@ -2654,7 +2660,26 @@ impl Vm<'_, '_> {
             "getgamerestarted" => Ok(XVal::Num(if self.host.game_loaded(true) { 1.0 } else { 0.0 })),
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
-            _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+            _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+        }
+    }
+
+    /// An extender function the host builds (`Host::ext_call`); `None` when it does not.
+    fn host_function(&mut self, lname: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for a in &c.args {
+            args.push(match a {
+                XExpr::Axis { c } => XVal::Str(c.to_string()),
+                other => self.xeval(other)?,
+            });
+        }
+        match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map(Some).map_err(VmError::Host),
+            None => Ok(None),
         }
     }
 }
