@@ -130,6 +130,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         let v = field(g, w, sub, path);
         return Some(Ok(match name {
             "getweaponammo" | "getweaponprojectile" | "getweaponcriteffect" => form_of(v),
+            // None (-1) reads as unsigned [observed: nvse-forms, 4294967295].
+            "getweaponresisttype" => match num_of(v) {
+                XVal::Num(x) if x < 0.0 => XVal::Num(x + 4_294_967_296.0),
+                other => other,
+            },
             _ => num_of(v),
         }));
     }
@@ -156,10 +161,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         "getweight" | "getitemvalue" | "getbasehealth" | "getarmorarmorrating" | "getarmordt" => {
             let f = item(g, 0).unwrap_or(FormId(0));
             let alch = g.data.sig(f) == Some(*b"ALCH");
+            // [observed: nvse-forms, Stimpak value 0] an ALCH's value (ENIT) is not what
+            // GetItemValue reads.
+            if alch && name == "getitemvalue" {
+                return Some(Ok(XVal::Num(0.0)));
+            }
             let (sub, path) = match (name, alch) {
                 ("getweight", true) => ("DATA", ""),
+                // AMMO keeps its weight in DAT2 [observed: nvse-forms, 10mm ammo 0.033].
+                ("getweight", false) if g.data.sig(f) == Some(*b"AMMO") => ("DAT2", "weight"),
                 ("getweight", false) => ("DATA", "weight"),
-                ("getitemvalue", true) => ("ENIT", "value"),
                 ("getitemvalue", false) => ("DATA", "value"),
                 ("getbasehealth", _) => ("DATA", "health"),
                 ("getarmorarmorrating", _) => ("DNAM", "dr"),
@@ -207,6 +218,87 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                     _ => false,
                 });
                 XVal::Ref(hit.map_or(0, |f| f.0))
+            }
+        }
+        // Variables by name of a reference's or a quest's script [documented:
+        // GetVariable; SetVariable; HasVariable; GetRefVariable; SetRefVariable;
+        // GetStringVariable; SetStringVariable; GetArrayVariable]: the parent is the last
+        // argument, else the calling reference.
+        "getvariable" | "getrefvariable" | "hasvariable" | "getstringvariable" | "getarrayvariable" | "setvariable" | "setrefvariable" | "setstringvariable" => {
+            let setter = name.starts_with("set");
+            let var = match args.first() {
+                Some(XVal::Str(v)) => v.clone(),
+                _ => String::new(),
+            };
+            let parent = as_form(args.get(if setter { 2 } else { 1 })).or(subject).unwrap_or(FormId(0));
+            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script)?.var_index(&var)?)));
+            let Some((key, script, i)) = slot else {
+                return Some(Ok(match name {
+                    "getstringvariable" => XVal::Str(String::new()),
+                    "getrefvariable" => XVal::Ref(0),
+                    "getarrayvariable" => XVal::Array(0),
+                    _ => XVal::Num(0.0),
+                }));
+            };
+            let now = g.var(key, i);
+            match name {
+                "hasvariable" => XVal::Num(1.0),
+                "getvariable" => XVal::Num(now.num()),
+                "getrefvariable" => XVal::Ref(now.as_form().unwrap_or(0)),
+                "getstringvariable" => XVal::Str(g.ext.text(now.num() as u32).unwrap_or_default().to_string()),
+                "getarrayvariable" => XVal::Array(now.num() as u32),
+                "setvariable" => {
+                    let v = match args.get(1) {
+                        Some(XVal::Num(x)) => *x,
+                        _ => 0.0,
+                    };
+                    g.store(key, Some(script), i, fnv_script::vm::Value::Num(v), "SetVariable", false);
+                    XVal::Num(0.0)
+                }
+                "setrefvariable" => {
+                    let v = as_form(args.get(1)).map_or(0, |f| f.0);
+                    g.store(key, Some(script), i, fnv_script::vm::Value::Ref(v), "SetRefVariable", false);
+                    XVal::Num(0.0)
+                }
+                _ => {
+                    let text = match args.get(1) {
+                        Some(XVal::Str(t)) => t.clone(),
+                        _ => String::new(),
+                    };
+                    let id = now.num() as u32;
+                    if g.ext.text(id).is_some() {
+                        g.ext.set_text(id, text);
+                    } else {
+                        let id = g.ext.new_string(text);
+                        g.store(key, Some(script), i, fnv_script::vm::Value::Num(f64::from(id)), "SetStringVariable", false);
+                    }
+                    XVal::Num(0.0)
+                }
+            }
+        }
+        // [documented: GetScript; IsScripted] the base form's script.
+        "getscript" | "isscripted" => {
+            let f = item(g, 0).unwrap_or(FormId(0));
+            let s = g.data.script_of_base(f);
+            if name == "getscript" { XVal::Ref(s.map_or(0, |s| s.0)) } else { XVal::Num(f64::from(u8::from(s.is_some()))) }
+        }
+        // [documented: GetRace; observed: nvse-forms rows] the actor's race, as the
+        // character creator or AgeRace left it.
+        "getrace" => XVal::Ref(subject.or(as_form(args.first())).and_then(|a| g.actor_race(a)).map_or(0, |r| r.0)),
+        // [documented: GetNthModName] the plugin's file name at a load-order index.
+        "getnthmodname" => XVal::Str(usize::try_from(int_of(args.first(), -1)).ok().and_then(|i| g.data.load_order.get(i).cloned()).unwrap_or_default()),
+        "getnumloadedmods" => XVal::Num(g.data.load_order.len() as f64),
+        // [documented: GetEquipType; observed: nvse-forms, 10mm pistol 2, leather armor 7,
+        // stimpak 11, 10mm ammo 0] the item's ETYP.
+        "getequiptype" => num_of(field(g, item(g, 0).unwrap_or(FormId(0)), "ETYP", "")),
+        // [documented: GetRepairList; GetModelPath; GetIconPath].
+        "getrepairlist" => form_of(field(g, item(g, 0).unwrap_or(FormId(0)), "REPL", "")),
+        "getmodelpath" | "geticonpath" => {
+            let f = item(g, 0).unwrap_or(FormId(0));
+            let sub = if name == "getmodelpath" { "MODL" } else { "ICON" };
+            match field(g, f, sub, "").or_else(|| field(g, f, sub, "model")) {
+                Some(XVal::Str(t)) => XVal::Str(t),
+                _ => XVal::Str(String::new()),
             }
         }
         // Form lists [documented: ListGetNthForm; ListGetFormIndex; ListAddForm;
