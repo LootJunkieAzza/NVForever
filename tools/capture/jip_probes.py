@@ -2129,6 +2129,67 @@ KNVSE_PROBES = [
     _kn("kn.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
 ]
 
+# Thirty-seventh set (next batch N6): JIP's NIF block functions on a loaded actor (a
+# copy of Doc's NPC placed beside the player, as knvse-anim), by node name: the Bip01
+# skeleton. Changes are made on that reference only (InsertNode / AttachModel mode 3,
+# instantaneous) and go with it at the end. ModelHasBlock reads the 10mm pistol's model.
+def _nb(pid, body, text=False):
+    return (pid, _HK.replace("float fRes\n", "float fRes\nfloat fX\nfloat fY\nfloat fZ\n") + body, text, None, "")
+
+
+def _nbv(pid, expr, text=False):
+    return _nb(pid, _GETA + f"SetFunctionValue ({expr})", text)
+
+
+_V3 = 'SetFunctionValue (sv_Construct "%.2f %.2f %.2f" aA[0] aA[1] aA[2])'
+
+NIF_PROBES = [
+    _nb("nb.place", _form("rObj", NF["doc"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKA" rA\nSetFunctionValue 1'),
+    _nb("nb.settle", "SetFunctionValue 1"),
+    _nb("nb.settle2", "SetFunctionValue 1"),
+] + [_nb(f"nb.settle{i}", "SetFunctionValue 1") for i in range(3, 6)] + [
+    _nb("nb.trans.head.size", _GETA + 'let aA := rA.GetNifBlockTranslation "Bip01 Head" 0\nSetFunctionValue (ar_Size aA)'),
+    _nb("nb.trans.alt", _GETA.replace("", "") + 'let fRes := rA.GetNifBlockTranslationAlt "Bip01 Head" fX fY fZ 0\n'
+        'SetFunctionValue (sv_Construct "%g %.2f %.2f %.2f" fRes fX fY fZ)', True),
+    _nb("nb.rot.alt", _GETA + 'let fRes := rA.GetNifBlockRotationAlt "Bip01 Head" fX fY fZ 0\n'
+        'SetFunctionValue (sv_Construct "%g %.2f %.2f %.2f" fRes fX fY fZ)', True),
+    _nb("nb.children.bip01", _GETA + 'let aA := rA.GetChildBlocks "Bip01"\n' + _JOIN, True),
+    _nb("nb.children.head", _GETA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True),
+    _nb("nb.children.missing", _GETA + 'let aA := rA.GetChildBlocks "NVFNone"\nSetFunctionValue (ar_Size aA)'),
+    _nb("nb.parents.head", _GETA + 'let aA := rA.GetNifBlockParentNodes "Bip01 Head"\n' + _JOIN, True),
+    _nb("nb.trans.head", _GETA + 'let aA := rA.GetNifBlockTranslation "Bip01 Head" 0\n' + _V3, True),
+    _nb("nb.rot.head", _GETA + 'let aA := rA.GetNifBlockRotation "Bip01 Head" 0\n' + _V3, True),
+    _nb("nb.rot.head.local", _GETA + 'let aA := rA.GetNifBlockRotation "Bip01 Head" 2\n' + _V3, True),
+    _nb("nb.trans.missing", _GETA + 'let aA := rA.GetNifBlockTranslation "NVFNone" 0\nSetFunctionValue (ar_Size aA)'),
+    _nbv("nb.scale.head", 'rA.GetNifBlockScale "Bip01 Head"'),
+    _nbv("nb.scale.missing", 'rA.GetNifBlockScale "NVFNone"'),
+    _nb("nb.scale.set", _GETA + 'rA.SetNifBlockScale "Bip01 Head" 1.5\nSetFunctionValue (rA.GetNifBlockScale "Bip01 Head")'),
+    _nbv("nb.scale.next", 'rA.GetNifBlockScale "Bip01 Head"'),
+    _nb("nb.trans.set", _GETA + 'rA.SetNifBlockTranslation "Bip01 Head" 1 2 3\nlet aA := rA.GetNifBlockTranslation "Bip01 Head" 0\n' + _V3, True),
+    _nb("nb.rot.set", _GETA + 'rA.SetNifBlockRotation "Bip01 Head" 10 20 30 0\nlet aA := rA.GetNifBlockRotation "Bip01 Head" 0\n' + _V3, True),
+] + [_nbv(f"nb.flag.head.{f}", f'rA.GetNifBlockFlag "Bip01 Head" {f}') for f in range(4)] + [
+    _nb("nb.flag.set", _GETA + 'rA.SetNifBlockFlag "Bip01 Head" 0 1\nSetFunctionValue (rA.GetNifBlockFlag "Bip01 Head" 0)'),
+    _nb("nb.flag.clear", _GETA + 'rA.SetNifBlockFlag "Bip01 Head" 0 0\nSetFunctionValue (rA.GetNifBlockFlag "Bip01 Head" 0)'),
+    _nb("nb.rename", _GETA + 'SetFunctionValue (rA.RenameNifBlock "Bip01 Head" "NVFHead")'),
+    _nbv("nb.rename.new", 'rA.GetNifBlockScale "NVFHead"'),
+    _nbv("nb.rename.old", 'rA.GetNifBlockScale "Bip01 Head"'),
+    _nb("nb.rename.back", _GETA + 'SetFunctionValue (rA.RenameNifBlock "NVFHead" "Bip01 Head")'),
+    _nb("nb.insert", _GETA + 'SetFunctionValue (InsertNode rA 3 "Bip01 Head|NVFNode")'),
+    _nb("nb.insert.children", _GETA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True),
+    _nb("nb.insert.parent", _GETA + 'SetFunctionValue (InsertNode rA 3 "Bip01 Head|^NVFParent")'),
+    _nb("nb.insert.parent.parents", _GETA + 'let aA := rA.GetNifBlockParentNodes "Bip01 Head"\n' + _JOIN, True),
+    _nb("nb.insert.case", _GETA + 'SetFunctionValue (InsertNode rA 3 "bip01 head|NVFNode2")'),
+    _nb("nb.attach", _GETA + 'SetFunctionValue (AttachModel rA 3 "NVFNode|Weapons\\1HandPistol\\10mmPistol.NIF")'),
+    _nb("nb.attach.children", _GETA + 'let aA := rA.GetChildBlocks "NVFNode"\n' + _JOIN, True),
+    _nb("nb.remove", _GETA + 'SetFunctionValue (rA.RemoveNifBlock "NVFNode")'),
+    _nbv("nb.remove.scale", 'rA.GetNifBlockScale "NVFNode"'),
+    _nb("nb.hasblock.pistol", _form("rObj", NF["pistol10"]) + 'SetFunctionValue (ModelHasBlock rObj "ProjectileNode")'),
+    _nb("nb.hasblock.missing", _form("rObj", NF["pistol10"]) + 'SetFunctionValue (ModelHasBlock rObj "NVFNone")'),
+    _nb("nb.hasblock.case", _form("rObj", NF["pistol10"]) + 'SetFunctionValue (ModelHasBlock rObj "projectilenode")'),
+    _nb("nb.player.children", 'let aA := rPlayer.GetChildBlocks "Bip01" 2\n' + _JOIN, True),
+    _nb("nb.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2148,11 +2209,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "lu-leveled2": LEVELED2_PROBES,
         "projectile": PROJECTILE_PROBES,
         "sky-sound": SKY_SOUND_PROBES,
-        "knvse-anim": KNVSE_PROBES}
+        "knvse-anim": KNVSE_PROBES,
+        "nif-blocks": NIF_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks"}
 
 
 def script(body):
