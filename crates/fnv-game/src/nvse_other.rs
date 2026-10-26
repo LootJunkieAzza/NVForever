@@ -23,8 +23,9 @@ pub struct OtherState {
     pub defaults: HashMap<usize, FormId>,
     /// SetDoorTeleport's destinations: (door, position, z rotation in radians).
     pub doors: HashMap<FormId, (FormId, [f32; 3], f32)>,
-    /// Base forms whose script RemoveScript took away.
-    pub removed_scripts: HashSet<FormId>,
+    /// RemoveScript's and SetScript's changes: a base form's script, `None` when taken
+    /// away [observed: nvse-fifth, Doc's reference has no script after RemoveScript].
+    pub scripts: HashMap<FormId, Option<FormId>>,
     /// The hotkeys 1–8 (SetHotkeyItem).
     pub hotkeys: [Option<FormId>; 8],
     /// Keys SetIsControl made custom controls.
@@ -33,8 +34,8 @@ pub struct OtherState {
     pub ranks: HashMap<(FormId, usize, bool), String>,
     /// SetIsPowerArmor's changes.
     pub power_armor: HashMap<FormId, bool>,
-    /// SetConsoleEcho 0.
-    pub echo_off: bool,
+    /// SetConsoleEcho's state; off at the start [observed: nvse-fifth, GetConsoleEcho 0].
+    pub echo: bool,
     /// SetPlayerCurrentAmmoRounds, for the engine's combat to take.
     pub set_magazine: Option<u32>,
 }
@@ -43,8 +44,8 @@ pub struct OtherState {
 /// `Player::controls_disabled` (movement, Pip-Boy, fighting, POV, looking, rollover,
 /// sneaking). Movement 0, Pip-Boy 2, fighting 3, POV 4 [documented: DisablePlayerControlsAltEx,
 /// the default `(1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)` and "the Fighting flag is the
-/// fourth bit"]; looking 1, rollover 5, sneaking 6 [hypothesis: the page's flag table is
-/// not in the export; to probe].
+/// fourth bit"]; looking 1, rollover 5, sneaking 6, bit 7 nothing [observed: nvse-fifth,
+/// each bit read back through GetPlayerControlsDisabledAlt].
 pub const ALT_BITS: [u32; 7] = [0, 2, 3, 4, 1, 5, 6];
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -67,10 +68,12 @@ fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
 
-/// The groups a DisablePlayerControlsAlt-family call names: the seven flags in order
-/// (a left-out one is 0, untouched [hypothesis]), or the Ex form's bitmask; `dflt` when
-/// there is no argument.
-fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7]) -> [bool; 7] {
+/// The groups a DisablePlayerControlsAlt-family call names: the seven flags in order, a
+/// left-out one taking its place in `dflt`, or the Ex form's bitmask; `dflt` when there is
+/// no argument [observed: nvse-fifth, `DisablePlayerControlsAlt 1` also locked the
+/// Pip-Boy; hypothesis: the left-out flags are the no-argument default's]. The getters
+/// read only the flags they name (`short` all false) [hypothesis].
+fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7], short: [bool; 7]) -> [bool; 7] {
     if args.is_empty() {
         return dflt;
     }
@@ -78,7 +81,17 @@ fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7]) -> [bool; 7] {
         let bits = num(args, 0, 0.0) as u32;
         return ALT_BITS.map(|b| bits >> b & 1 != 0);
     }
-    std::array::from_fn(|i| num(args, i, 0.0) != 0.0)
+    std::array::from_fn(|i| if i < args.len() { num(args, i, 0.0) != 0.0 } else { short[i] })
+}
+
+impl Game<'_> {
+    /// A base form's script, RemoveScript's and SetScript's changes first.
+    pub fn base_script(&self, base: FormId) -> Option<FormId> {
+        match self.other.scripts.get(&base) {
+            Some(s) => *s,
+            None => self.data.script_of_base(base),
+        }
+    }
 }
 
 impl Game<'_> {
@@ -132,16 +145,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let zero = XVal::Num(0.0);
     let v = match name {
         // [documented: AddItemOwnership; AddItemHealthPercentOwner] `item count [health
-        // 0–1] owner rank`: the items come owned (the rank is not kept [hypothesis]).
-        // AddItem's 99.9% holds for weapons and armour without a health given [observed
-        // for AddItem; hypothesis here].
+        // 0–1] owner rank`: the items come owned (the rank is not kept [hypothesis]), at
+        // full health, not AddItem's 99.9% [observed: nvse-fifth, pistol 80 of 80, owner
+        // Doc; the health a fraction, 0.5 gives 40].
         "additemownership" | "additemhealthpercentowner" => {
             let (Some(to), Some(item)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
             let n = num(args, 1, 1.0).max(1.0) as i32;
             let health = name == "additemhealthpercentowner";
             let owner = form(args, if health { 3 } else { 2 });
-            let gear = matches!(g.data.sig(item), Some(s) if &s == b"WEAP" || &s == b"ARMO");
-            let condition = if health { Some(num(args, 2, 1.0).clamp(0.0, 1.0) as f32) } else { gear.then_some(crate::functions::items::ADDED_CONDITION) };
+            let condition = health.then(|| num(args, 2, 1.0).clamp(0.0, 1.0) as f32).filter(|&c| c < 1.0);
             match g.world.inventory_mut(to) {
                 Ok(inv) => {
                     inv.add_extra(item, n, fnv_sim::inventory::Extra { condition, owner, ..Default::default() });
@@ -176,10 +188,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getbasespelllistlevspells" => XVal::Array(g.ext.new_array(ArrayKind::List, Vec::new())),
         // [documented: GetConsoleEcho; SetConsoleEcho, which gives the state before]
         // [hypothesis: echo is on at the start].
-        "getconsoleecho" => yes(!g.other.echo_off),
+        "getconsoleecho" => yes(g.other.echo),
         "setconsoleecho" => {
-            let before = !g.other.echo_off;
-            g.other.echo_off = num(args, 0, 1.0) == 0.0;
+            let before = g.other.echo;
+            g.other.echo = num(args, 0, 1.0) != 0.0;
             yes(before)
         }
         // [documented: GetConsoleOutputFilename; HasConsoleOutputFileName] no SCOF file.
@@ -256,13 +268,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let rank = subject.and_then(|r| g.cell_of(r)).and_then(|c| g.cell_ownership(c)).and_then(|o| o.rank);
             XVal::Num(f64::from(rank.unwrap_or(0)))
         }
-        // [documented: GetPermanent] on a reference, persistent; given one, a quest item.
-        // [documented: SetPermanent] sets the base form's flag [hypothesis: the quest-item
-        // flag GetPermanent reads].
+        // [documented: GetPermanent] on a reference, persistent; given one, a quest item
+        // [observed: nvse-fifth, `GetPermanent rDoc` 1 though Doc is no quest item: the
+        // reference's persistence counts too]. [documented: SetPermanent] sets the base
+        // form's flag [hypothesis: the quest-item flag GetPermanent reads].
         "getpermanent" => match form(args, 0) {
             Some(r) => {
                 let b = base(g, r);
-                yes(g.world.is_quest_item(b))
+                yes(g.world.is_quest_item(b) || g.persistent(r))
             }
             None => return crate::nvse_refs::call(g, "ispersistent", subject, &[]),
         },
@@ -288,13 +301,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             yes(found)
         }
         // [documented: RemoveScript] the base form's script goes; gives it.
-        "removescript" => {
-            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            let s = if g.other.removed_scripts.contains(&b) { None } else { g.data.script_of_base(b) };
-            if s.is_some() {
-                g.other.removed_scripts.insert(b);
+        // [documented: SetScript] `script [form]`: the base form runs that script; gives
+        // the one before.
+        "removescript" | "setscript" => {
+            let set = name == "setscript";
+            let new = if set { form(args, 0) } else { None };
+            let b = form(args, usize::from(set)).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let before = g.base_script(b);
+            if before.is_some() || set {
+                g.other.scripts.insert(b, new);
             }
-            XVal::Ref(s.map_or(0, |s| s.0))
+            XVal::Ref(before.map_or(0, |s| s.0))
         }
         // [documented: RunScript] the script (or the scripted form's) runs once, with no
         // reference; true when it gave a true value [hypothesis: a script without a
@@ -327,6 +344,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
+        // [documented: Sv_Set; observed: nvse-fifth, `Sv_Set "n=%g" 3 sText` leaves the
+        // string empty] it does nothing [hypothesis: the function is left over].
+        "sv_set" => zero,
         // [documented: OutputLocalMapPicturesOverride; SetOutputLocalMapPicturesGrids]
         // NVForever writes no local map pictures.
         "outputlocalmappicturesoverride" | "setoutputlocalmappicturesgrids" => zero,
@@ -344,7 +364,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let ex = name.ends_with("ex");
             let disable = name.starts_with("disable");
             let dflt = if disable { [true, true, true, true, false, false, false] } else { [true; 7] };
-            let which = alt_groups(ex, args, dflt);
+            let which = alt_groups(ex, args, dflt, dflt);
             let key = g.other.plugin.clone();
             let locks = g.other.alt_locks.entry(key.clone()).or_default();
             for (l, w) in locks.iter_mut().zip(which) {
@@ -359,7 +379,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" => {
             let how = num(args, 0, 0.0) as i64;
-            let which = alt_groups(name.ends_with("ex"), args.get(1..).unwrap_or(&[]), [true; 7]);
+            let which = alt_groups(name.ends_with("ex"), args.get(1..).unwrap_or(&[]), [true; 7], [false; 7]);
             let mut locked = [false; 7];
             for (p, l) in &g.other.alt_locks {
                 if how >= 1 || *p == g.other.plugin {

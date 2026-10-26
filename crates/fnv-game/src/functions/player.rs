@@ -153,10 +153,11 @@ pub fn enable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
 }
 
 /// 1 when any of the selected groups is disabled (all groups when none is selected)
-/// [documented: catalogue summary].
+/// [documented: catalogue summary], by DisablePlayerControls or any plugin's
+/// DisablePlayerControlsAlt [observed: nvse-fifth, an Alt movement lock reads 1].
 pub fn get_player_controls_disabled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let which = controls(a, [true; 7], false);
-    yes(g.player.controls_disabled.iter().zip(which).any(|(d, w)| *d && w))
+    yes(g.controls_locked().iter().zip(which).any(|(d, w)| *d && w))
 }
 
 /// An actor's current level [documented: GECK wiki GetLevel]: the player's SetLevel,
