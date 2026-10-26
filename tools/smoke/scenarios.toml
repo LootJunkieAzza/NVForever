@@ -2011,6 +2011,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "vigor-upload-budget"
+source = "owner report 2026-10-26: with VRP 4X textures (4096x4096 pages) the Vigor Tester menu showed only its bulb glows and arrows: its meshes waited behind the textures under the GPU upload limit and Bevy 0.19 never drew them (engine/nvforever/src/world.rs respecialize_late_meshes)"
+note = "a 2 MB upload limit makes the vanilla model's meshes wait as VRP's textures did; without the fix the 6 s screenshot shows only the two arrow buttons (checked 2026-10-26), with it the whole machine. The log cannot tell a drawn mesh from a lost one, so the expectations only show the marks were made"
+areas = ["vigor", "streaming", "render"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-play/src/chargen/vigor*"]
+env = { NVF_PLAY_TEST_UPLOAD_BYTES = "2000000", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_SHOTS = "6" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 9
+expect = [
+  "test aid NVF_PLAY_TEST_UPLOAD_BYTES: 2000000 bytes sent to the GPU a frame while playing",
+  "vigor tester: open",
+  { re = 'streaming summary: .*; (\d+) late-mesh marks', range = [500, 100000], label = "the menu model's meshes marked again while they waited" },
+]
+
+[[scenario]]
 name = "quest-messages"
 note = "not shared with house-messages: there its 'Talk to Sunny Smiles' line was never shown on its own (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the quest lines at the left (docs/spec-notes/quest-messages.md §7)"
