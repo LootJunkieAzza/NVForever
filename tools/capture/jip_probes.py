@@ -1804,6 +1804,74 @@ MCM_PROBES = [
     _mc("mcm.menumode", "SetFunctionValue (MenuMode 1013)"),
 ]
 
+# Thirty-second set (next batch N9): JohnnyGuitar, ShowOff and ITR leftovers. ITR's
+# plugin is not installed in this game, so its rows show what a script gets without it.
+# Left out: SendStealingAlarm (karma loss and hostile owners). Extra misc stats and aux
+# timers live on the player for the session only, never saved.
+def _n9(pid, body, text=False):
+    return (pid, _H9.replace("string_var sText\n", "string_var sText\narray_var aF\n") + body, text, None, "")
+
+
+def _n9v(pid, expr, text=False):
+    return _n9(pid, f"SetFunctionValue ({expr})", text)
+
+
+_BASEFLAGS = ("let fRes := 0\nlet sText := \"\"\nwhile fRes < 32\n  if ActorHasBaseFlag fRes rObj\n"
+              "    let sText += sv_Construct \"%g \" fRes\n  endif\n  let fRes += 1\nloop\nSetFunctionValue sText")
+
+N9_PROBES = [
+    _n9v("jg.pipboy", "GetPipBoyMode"),
+    _n9v("jg.lerp", "Lerp 0 10 0.25"),
+    _n9v("jg.lerp.over", "Lerp 0 10 1.5"),
+    _n9v("jg.lerp.under", "Lerp 0 10 -0.5"),
+    _n9v("jg.lerp.desc", "Lerp 10 0 0.25"),
+    _n9v("jg.miscstat.none", 'GetExtraMiscStat "NVFStat"'),
+    _n9("jg.miscstat.mod", 'ModExtraMiscStat "NVFStat" 3\nSetFunctionValue (GetExtraMiscStat "NVFStat")'),
+    _n9("jg.miscstat.mod2", 'ModExtraMiscStat "NVFStat" -1\nSetFunctionValue (GetExtraMiscStat "NVFStat")'),
+    _n9v("jg.miscstat.case", 'GetExtraMiscStat "nvfstat"'),
+    _n9("jg.camshake", "SetCameraShakeNoHUDShudder 0.5 0.1\nSetFunctionValue 1"),
+    _n9(f"jg.armoralt.clear", _o4("leather") + "SetFunctionValue (ClearArmorAltTexture rObj 1 -1)"),
+    _n9(f"jg.armoralt.clear.idx", _o4("leather") + "SetFunctionValue (ClearArmorAltTexture rObj 1 0)"),
+    _n9(f"jg.weap1st.get", _o4("pistol10") + "SetFunctionValue (GetFormIDString (GetWeapon1stPersonModel rObj 0))", True),
+    _n9(f"jg.weap1st.same", _o4("pistol10") + "let rOther := GetWeapon1stPersonModel rObj 0\nSetWeapon1stPersonModel rObj 0 rOther\n"
+        "SetFunctionValue (GetFormIDString (GetWeapon1stPersonModel rObj 0))", True),
+    # ShowOff: actor base flags, as the list of set flag indices 0-31.
+    _n9("so.baseflags.doc", "let rObj := rBase\n" + _BASEFLAGS, True),
+    _n9("so.baseflags.player", _form("rObj", "7") + _BASEFLAGS, True),
+    _n9("so.baseflags.acre", _form("rObj", "14DEE2") + "let rObj := rObj.GetBaseObject\n" + _BASEFLAGS, True),
+    _n9v("so.baseflag.ref", "rDoc.ActorHasBaseFlag 1"),
+    # ShowOff aux timers (owner: the player when none is given).
+    _n9v("so.timer.left.none", 'AuxTimerTimeLeft "NVFT"'),
+    _n9v("so.timer.start", 'AuxTimerStart "NVFT" 5'),
+    _n9v("so.timer.left", 'Ceil (AuxTimerTimeLeft "NVFT")'),
+    _n9v("so.timer.elapsed", 'Ceil (AuxTimerTimeElapsed "NVFT" 0)'),
+    _n9v("so.timer.pause", 'AuxTimerPaused "NVFT" 1'),
+    _n9v("so.timer.paused", 'AuxTimerPaused "NVFT" 0'),
+    _n9v("so.timer.restart", 'AuxTimerStart "NVFT" 7'),
+    _n9v("so.timer.left.restart", 'Ceil (AuxTimerTimeLeft "NVFT")'),
+    _n9v("so.timer.stop", 'AuxTimerStop "NVFT" 0'),
+    _n9v("so.timer.left.stopped", 'AuxTimerTimeLeft "NVFT"'),
+    _n9v("so.timer.stop.again", 'AuxTimerStop "NVFT" 0'),
+    _n9v("so.timer.doc.start", 'rDoc.AuxTimerStart "NVFT" 3'),
+    _n9v("so.timer.doc.left.player", 'AuxTimerTimeLeft "NVFT"'),
+    _n9v("so.timer.doc.left", 'Ceil (rDoc.AuxTimerTimeLeft "NVFT")'),
+    _n9v("so.timer.doc.stop", 'rDoc.AuxTimerStop "NVFT" 0'),
+    _n9v("so.filecache.clear", 'ClearFileCacheShowOff "NVFExtProbe\\probe.ini" 1'),
+    # Files (read-only, relative to Data).
+    _n9v("file.esp", 'FileExists "NVFExtProbe.esp"'),
+    _n9v("file.bsa", 'FileExists "meshes\\weapons\\1handpistol\\10mmpistol.nif"'),
+    _n9v("file.none", 'FileExists "nvf\\none.nif"'),
+    _n9v("file.folder", 'FileExists "NVSE" 1'),
+    _n9v("file.folder.asfile", 'FileExists "NVSE"'),
+    _n9("files.plugins", 'let aF := GetFilesInFolder "NVSE\\Plugins" "*.dll"\n'
+        'SetFunctionValue (sv_Construct "%g " (ar_Size aF) + aF[0])', True),
+    _n9("files.plugins.all", 'let aF := GetFilesInFolder "NVSE\\Plugins"\nSetFunctionValue (ar_Size aF)'),
+    _n9("files.none", 'let aF := GetFilesInFolder "NVFNoFolder"\nSetFunctionValue (ar_Size aF)'),
+    # ITR (not installed).
+    _n9v("itr.crouch", "rDoc.ForceCrouch 1"),
+    _n9v("itr.target", "rDoc.ForceCombatTarget rPlayer"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1818,11 +1886,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "ini-files": INI_FILE_PROBES,
         "jip-n7": N7_PROBES,
         "player-state": PLAYER_STATE_PROBES,
-        "mcm": MCM_PROBES}
+        "mcm": MCM_PROBES,
+        "plugin-odds": N9_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds"}
 
 
 def script(body):

@@ -481,6 +481,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "mcm"]
+  },
+  {
+   "id": "L5.ext.plugin.odds",
+   "layer": 5,
+   "description": "JohnnyGuitar, ShowOff and ITR leftovers (GetPipBoyMode, Lerp, extra misc stats, camera shake, armor alt textures, 1st-person weapon models, ActorHasBaseFlag, aux timers, ClearFileCacheShowOff, FileExists, GetFilesInFolder, ForceCrouch, ForceCombatTarget); set plugin-odds of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/plugin-odds.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugin_odds.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "n9"]
   }
  ]
 }
