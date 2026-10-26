@@ -1393,16 +1393,25 @@ struct Read {
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 17] = [
+pub const FIELD_SIGS: [[u8; 4]; 20] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
+    *b"NPC_", *b"CREA", *b"FACT",
 ];
+
+/// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
+/// getters read.
+const ACTOR_SUBS: [[u8; 4]; 8] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
 fn numeric_fields(schema: &Schema, r: &Record) -> Vec<([u8; 4], Json)> {
     let mut ctx = DecodeCtx { schema, on_formid: None };
     let mut out = Vec::new();
+    let actor = matches!(&r.header.sig, b"NPC_" | b"CREA");
     for s in r.subrecords().unwrap_or_default() {
+        if actor && !ACTOR_SUBS.contains(&s.sig) {
+            continue;
+        }
         let Some(mut v) = decode_sub(&r.header.sig, &s, &mut ctx).value else { continue };
         if let Some(def) = schema.lookup(&r.header.sig, &s.sig) {
             enums_to_numbers(schema, &def.ty, &mut v);
@@ -1462,6 +1471,21 @@ impl GameData {
             }
         }
         None
+    }
+
+    /// A faction's ranks (FACT RNAM, then its MNAM / FNAM titles), in record order.
+    pub fn faction_ranks(&self, faction: FormId) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (sig, v) in self.record_fields.get(&faction).into_iter().flatten() {
+            let text = || v.as_str().unwrap_or_default().to_string();
+            match sig {
+                b"RNAM" => out.push(Default::default()),
+                b"MNAM" => out.last_mut().into_iter().for_each(|r| r.0 = text()),
+                b"FNAM" => out.last_mut().into_iter().for_each(|r| r.1 = text()),
+                _ => {}
+            }
+        }
+        out
     }
 
     /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then

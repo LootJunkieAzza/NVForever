@@ -8,9 +8,13 @@ use crate::game::{Game, RunCtx};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 
-/// A record field of `form`: a number, a form or a string (`GameData::record_field`).
+/// A record field of `form`: a number, a form or a string (`GameData::record_field`),
+/// or what a setter put there this session.
 fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     use serde_json::Value as Json;
+    if let Some(v) = g.field_overrides.get(&(form, format!("{sub}/{path}"))) {
+        return Some(v.clone());
+    }
     Some(match g.data.record_field(form, sub, path)? {
         Json::Number(n) => XVal::Num(n.as_f64()?),
         Json::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
@@ -102,7 +106,7 @@ fn weapon_field(name: &str) -> Option<(&'static str, &'static str)> {
 
 impl Game<'_> {
     /// The members of a form list, with the session's ListAddForm/ListRemove… edits.
-    fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
+    pub(crate) fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
         if !self.list_edits.contains_key(&list) {
             let now = crate::functions::list_members(self, list);
             self.list_edits.insert(list, now);
@@ -124,10 +128,61 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_misc::call(g, name, subject, args) {
+        return Some(r);
+    }
     // The item a getter reads: its argument, else the calling reference's base form.
     let item = |g: &Game, k: usize| -> Option<FormId> {
         as_form(args.get(k)).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f))
     };
+    // Setters: `Set… value [form]` (SetBaseItemValue: `form value`) change the field the
+    // matching getter reads, for the session [documented: their pages; hypothesis: not
+    // saved, and only the getters see the change, not combat or the menus].
+    if let Some(rest) = name.strip_prefix("set") {
+        let get = format!("get{rest}");
+        let (value, form_at) = if name == "setbaseitemvalue" { (args.get(1), 0) } else { (args.first(), 1) };
+        let f = item(g, form_at).unwrap_or(FormId(0));
+        let target = match get.as_str() {
+            "getbaseitemvalue" => Some(("DATA", "value")),
+            "getweight" if g.data.sig(f) == Some(*b"AMMO") => Some(("DAT2", "weight")),
+            "getweight" if g.data.sig(f) == Some(*b"ALCH") => Some(("DATA", "")),
+            "getweight" => Some(("DATA", "weight")),
+            "getarmorarmorrating" => Some(("DNAM", "dr")),
+            "getarmordt" => Some(("DNAM", "dt")),
+            "getammoconsumedpercent" => Some(("DAT2", "consumed_percentage")),
+            // [observed: nvse-setters, SetObjectHealth 123 then GetBaseHealth 123].
+            "getobjecthealth" => Some(("DATA", "health")),
+            g2 => weapon_field(g2),
+        };
+        if let (Some((sub, path)), Some(v)) = (target, value) {
+            g.field_overrides.insert((f, format!("{sub}/{path}")), v.clone());
+            return Some(Ok(XVal::Num(0.0)));
+        }
+        // The flag setters: one bit of DNAM's flags.
+        let bit = match name {
+            "setweaponisautomatic" => Some(("flags1", 1)),
+            "setweaponlongbursts" => Some(("flags2", 11)),
+            _ => None,
+        };
+        if let (Some((path, bit)), Some(v)) = (bit, value) {
+            let now = match field(g, f, "DNAM", path) {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            let new = if v.truthy() { now | (1 << bit) } else { now & !(1 << bit) };
+            g.field_overrides.insert((f, format!("DNAM/{path}")), XVal::Num(new as f64));
+            return Some(Ok(XVal::Num(0.0)));
+        }
+        // [documented: SetName] the base form's name.
+        if name == "setname" {
+            let text = match value {
+                Some(XVal::Str(t)) => t.clone(),
+                _ => String::new(),
+            };
+            g.name_overrides.insert(f, text);
+            return Some(Ok(XVal::Num(0.0)));
+        }
+    }
     if let Some((sub, path)) = weapon_field(name) {
         let w = item(g, 0).unwrap_or(FormId(0));
         let v = field(g, w, sub, path);
@@ -205,8 +260,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // [documented: GetName] the full name of a reference's base or a form; "" none.
         "getname" => {
             let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
-            let names = &g.data.full_names;
-            let n = names.get(&f).cloned().or_else(|| crate::functions::base_of(g, f).and_then(|b| names.get(&b).cloned()));
+            let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&x)).cloned();
+            let n = named(f).or_else(|| crate::functions::base_of(g, f).and_then(named));
             XVal::Str(n.unwrap_or_default())
         }
         // [documented: GetParentCell] the cell the reference is in.
@@ -310,7 +365,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         "getrace" => {
             let a = subject.or(as_form(args.first())).unwrap_or(FormId(0));
             let own = (a != FormId::PLAYER_REF && g.extra.get(&a).and_then(|e| e.race).is_none())
-                .then(|| crate::functions::base_of(g, a).and_then(|b| g.data.actors.get(&b)).and_then(|d| d.race))
+                .then(|| crate::functions::base_of(g, a).and_then(|b| match field(g, b, "RNAM", "") {
+                    Some(XVal::Ref(r)) if r != 0 => Some(FormId(r)),
+                    _ => None,
+                }))
                 .flatten();
             XVal::Ref(own.or_else(|| g.actor_race(a)).map_or(0, |r| r.0))
         }
@@ -329,6 +387,75 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 Some(XVal::Str(t)) => XVal::Str(t),
                 _ => XVal::Str(String::new()),
             }
+        }
+        // The actor base form [documented: GetBaseNumFactions; GetBaseNthFaction;
+        // GetBaseNthRank; GetHair; GetEyes; GetHairLength; GetHairColor; GetNPCHeight;
+        // GetNPCWeight; GetActorBaseFlagsLow/High]: the argument, else the calling
+        // reference's base.
+        "getbasenumfactions" | "getbasenthfaction" | "getbasenthrank" => {
+            let n = int_of(args.first(), 0);
+            let a = if name == "getbasenumfactions" { item(g, 0) } else { item(g, 1) }.unwrap_or(FormId(0));
+            let f = g.data.actors.get(&a).map(|d| d.factions.clone()).unwrap_or_default();
+            let nth = usize::try_from(n).ok().and_then(|n| f.get(n));
+            match name {
+                "getbasenumfactions" => XVal::Num(f.len() as f64),
+                "getbasenthfaction" => XVal::Ref(nth.map_or(0, |x| x.0 .0)),
+                _ => XVal::Num(nth.map_or(0.0, |x| f64::from(x.1))),
+            }
+        }
+        "gethair" | "geteyes" => form_of(field(g, item(g, 0).unwrap_or(FormId(0)), if name == "gethair" { "HNAM" } else { "ENAM" }, "")),
+        "gethairlength" | "getnpcheight" | "getnpcweight" => {
+            let sub = match name {
+                "gethairlength" => "LNAM",
+                "getnpcheight" => "NAM6",
+                _ => "NAM7",
+            };
+            match num_of(field(g, item(g, 0).unwrap_or(FormId(0)), sub, "")) {
+                // A height of 0 in the record reads 1 [observed: nvse-actors, Doc, Sunny
+                // and Trudy].
+                XVal::Num(x) if name == "getnpcheight" && x == 0.0 => XVal::Num(1.0),
+                v => v,
+            }
+        }
+        // `GetHairColor which [npc]`: 1 red, 2 green, 3 blue, 0 all packed as
+        // red + green × 256 + blue × 65536 [observed: nvse-actors, Doc 191/183/183 gives
+        // 12040127].
+        "gethaircolor" => {
+            let a = item(g, 1).unwrap_or(FormId(0));
+            let c = |k: &str| match field(g, a, "HCLR", k) {
+                Some(XVal::Num(x)) => x,
+                _ => 0.0,
+            };
+            XVal::Num(match int_of(args.first(), 0) {
+                1 => c("red"),
+                2 => c("green"),
+                3 => c("blue"),
+                _ => c("red") + c("green") * 256.0 + c("blue") * 65536.0,
+            })
+        }
+        // The ACBS flags' low and high 16 bits [hypothesis from the names].
+        "getactorbaseflagslow" | "getactorbaseflagshigh" => {
+            let bits = match field(g, item(g, 0).unwrap_or(FormId(0)), "ACBS", "flags") {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            XVal::Num(if name.ends_with("low") { (bits & 0xFFFF) as f64 } else { (bits >> 16) as f64 })
+        }
+        // [documented: GetNumRanks; GetNthFactionRankName] a faction's ranks.
+        "getnumranks" => XVal::Num(g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0))).len() as f64),
+        // [documented: GetFactionRankNames; GetFactionRankFemaleNames; observed:
+        // nvse-actors, BoS 8 names, [0] "Squire"] the titles as an array.
+        "getfactionranknames" | "getfactionrankfemalenames" => {
+            let ranks = g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0)));
+            let female = name.contains("female");
+            let entries = ranks.into_iter().enumerate().map(|(i, r)| (fnv_script::vm::XKey::Num(i as f64), XVal::Str(if female { r.1 } else { r.0 }))).collect();
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+        }
+        "getnthfactionrankname" => {
+            let ranks = g.data.faction_ranks(as_form(args.first()).unwrap_or(FormId(0)));
+            let r = usize::try_from(int_of(args.get(1), -1)).ok().and_then(|i| ranks.get(i));
+            let female = args.get(2).is_some_and(XVal::truthy);
+            XVal::Str(r.map(|r| if female { r.1.clone() } else { r.0.clone() }).unwrap_or_default())
         }
         // Form lists [documented: ListGetNthForm; ListGetFormIndex; ListAddForm;
         // ListRemoveForm; ListRemoveNthForm; ListClear]. The changes last for the session:

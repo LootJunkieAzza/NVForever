@@ -236,6 +236,22 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
     explosion damage in headless runs, the fire/reload/menu/key event firing points
     (engine side), GetFontFile (fonts, J8), the file functions (J9 waits on the
     proposal above).
+- **xNVSE choices made while you were away (branch claude/ext-compiler, 2026-10-26).**
+  *Check* any you would rather have differently:
+  - The base-form setters (SetWeapon…, SetWeight, SetBaseItemValue, SetName …) change
+    what the getters read for the session only. Combat, the menus and saves keep the
+    record's values. Whether the original saves them was not observed.
+  - DisableKey/DisableControl hide a key from the player's controls (the engine's
+    ControlInput) and from IsKeyPressed. GetControl of an unbound control gives 255
+    (the INI's "none"). Neither is observed.
+  - The delayed calls count game seconds, which stop while a menu is open, so a
+    CallAfterSeconds with runWhen 1 does not count down in a menu. The page says
+    the time counts there too.
+  - GetFirstRef and the …InCell functions treat the player's cell, and outside the
+    cells within two squares of it, as loaded (uGridsToLoad 5). Elsewhere only
+    persistent references count, which matches your save's rows for the saloon.
+  - The remaining xNVSE functions, by family, are in docs/handoff/xnvse-remaining.md.
+    The UI ones still wait on your call (extender-compat.md §5.6).
 
 ## Extender lab: rows that depend on your save (2026-10-26)
 
