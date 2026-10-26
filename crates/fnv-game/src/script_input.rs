@@ -62,6 +62,14 @@ impl ScriptInput {
             })
     }
 
+    /// Whether a game control uses the key or button.
+    pub fn is_bound(&self, code: u16) -> bool {
+        (0..CONTROLS).any(|c| {
+            let (k, m) = self.binding(c as i64);
+            k == Some(code) || m == Some(code)
+        })
+    }
+
     /// Every key and button the engine should treat as not pressed this frame.
     pub fn blocked(&self) -> BTreeSet<u16> {
         let mut out = self.disabled_keys.clone();

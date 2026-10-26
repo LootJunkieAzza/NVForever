@@ -80,6 +80,7 @@ pub mod delayed;
 pub mod nvse_refs;
 pub mod nvse_misc;
 pub mod nvse_data;
+pub mod nvse_actor;
 pub mod script_input;
 pub mod levelup;
 pub mod lockpick;
