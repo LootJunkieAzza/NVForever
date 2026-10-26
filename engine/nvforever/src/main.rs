@@ -279,11 +279,16 @@ struct Args {
     /// top of the death camera's own blur (`death_cam.rs`).
     #[arg(long, value_name = "MODIFIER")]
     death_imod: Option<String>,
-    /// The sun casts shadows. Off by default until their frame cost and flicker are fixed
-    /// (owner decision 2026-10-13; on by default from 2026-10-09); the original game casts
-    /// no sun shadows from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
+    /// The sun casts shadows; with --play it does unless --no-sun-shadows is given (owner
+    /// 2026-10-26, once the first-person flicker was fixed; off from 2026-10-13 for their
+    /// frame cost and that flicker). Runs without --play (screenshots, the parity lab)
+    /// keep them off: the original game casts no sun shadows from the world
+    /// (docs/spec-notes/world.md §6, "Sun path and shadows").
     #[arg(long)]
     sun_shadows: bool,
+    /// With --play: the sun casts no shadows (the settings page turns them on and off too).
+    #[arg(long, conflicts_with = "sun_shadows")]
+    no_sun_shadows: bool,
     /// Sun shadows reach this far from the camera (game units), with --sun-shadows or when
     /// turned on from the settings page; 0 keeps them off.
     #[arg(long, default_value_t = sky::DEFAULT_SHADOW_DISTANCE)]
@@ -958,7 +963,7 @@ fn main() -> AppExit {
             Err(_) => return fail(e),
         },
     };
-    sky_state.shadows = args.sun_shadows && args.shadow_distance > 0.0;
+    sky_state.shadows = (args.sun_shadows || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
     }
