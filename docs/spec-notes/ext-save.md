@@ -111,3 +111,23 @@ the missing-plugins warning [documented: NVSE Event Handling]; ext-events.md §2
 string_var contents across a save and load; forms inside saved arrays after a load-order
 change; whether xNVSE 6 frees strings outside handlers and functions; what "unloaded
 mod" means; functions in neither list of §4.
+
+## 7. Observed across a save and load (2026-10-26)
+
+The peer's save-set and save-read sets, one save made and loaded in the original game
+(xNVSE 6.4.9, JIP 57.3, ShowOff 184) [observed]:
+
+- Auxiliary variables and RefMaps with plain and `_` names keep their values; `*` names
+  come back empty. NVForever: `*` names live in `ExtStore::jip_temp`, which is not saved.
+- A quest's script variable is kept (an ordinary save).
+- DisablePlayerControlsAlt's locks are cleared by the load; vanilla DisablePlayerControls
+  is kept. NVForever: the Alt locks are session state (`OtherState`), the vanilla ones
+  saved.
+- SetGameMainLoopCallback: runtime-compiled lambdas did not run after the load, flag 8 or
+  not. NVForever keeps a function script's callback without flag 8 over a load
+  (`Game::take_session`) [documented: flag 8 "auto-remove on load game"] and drops
+  lambdas.
+- Session setters are not kept: SetSoundTraitNumeric, LU LeveledListAddForm and
+  LeveledListRemoveForm, ShowOff RemoveFormFromLeveledList (though its page says
+  savebaked), LNSetName, SetBaseKarma. NVForever: a load builds a new game, so all are
+  reset.
