@@ -154,10 +154,12 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
     let Some(d) = data.filter(|_| !*done) else { return };
     *done = true;
     let vfs = d.vfs.clone();
+    let reader_vfs = d.vfs.clone();
     let mods = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods());
     let data_dir = vfs.data_dir().to_path_buf();
     fnv_game::mod_files::update_roots(move |r| {
         r.read = mods.into_iter().chain(std::iter::once(data_dir)).collect();
+        r.reader = Some(std::sync::Arc::new(move |p: &str| reader_vfs.read(p).and_then(Result::ok)));
         r.lookup = Some(std::sync::Arc::new(move |p: &str| {
             if vfs.loose_path(p).is_some() {
                 1

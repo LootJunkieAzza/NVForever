@@ -20,6 +20,9 @@ use std::sync::{Arc, Mutex};
 /// archive.
 pub type Lookup = Arc<dyn Fn(&str) -> u8 + Send + Sync>;
 
+/// The host's reader of a Data path, archives included.
+pub type Reader = Arc<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>;
+
 /// Where the files are: `read` in order (NVForever's layer first, then the game's Data),
 /// `write` the layer, and `lookup` the host's answer for a path in the archives too
 /// (0 none, 1 a loose file, 2 inside an archive).
@@ -30,6 +33,7 @@ pub struct Roots {
     pub config: Option<PathBuf>,
     pub write: Option<PathBuf>,
     pub lookup: Option<Lookup>,
+    pub reader: Option<Reader>,
 }
 
 static ROOTS: Mutex<Option<Roots>> = Mutex::new(None);
@@ -47,6 +51,24 @@ pub fn update_roots(f: impl FnOnce(&mut Roots)) {
     if let Ok(mut g) = ROOTS.lock() {
         f(g.get_or_insert_with(Roots::default));
     }
+}
+
+/// A Data file's bytes through the host (archives included).
+pub fn read_data(path: &str) -> Option<Vec<u8>> {
+    roots().reader.as_ref().and_then(|f| f(path))
+}
+
+/// Whether a NIF names a block exactly so: its header's string table holds every name
+/// as a length and the characters [documented: nif.xml, the header's Strings list from
+/// version 20.1].
+pub fn nif_has_name(bytes: &[u8], name: &str) -> bool {
+    let n = name.as_bytes();
+    if n.is_empty() {
+        return false;
+    }
+    let mut pat = (n.len() as u32).to_le_bytes().to_vec();
+    pat.extend_from_slice(n);
+    bytes.windows(pat.len()).any(|w| w == pat.as_slice())
 }
 
 /// The game's Data folder, when the host gave one (the last read root).

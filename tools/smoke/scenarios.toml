@@ -9777,6 +9777,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-blocks-mirror"
+source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf blocks first %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12:PrintC \"nvf blocks %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12.5:PrintC \"nvf parents %g\", (Ar_Size (RingoRef.GetNifBlockParentNodes \"Bip01 Head\"));13:RingoRef.SetNifBlockScale \"Bip01 Head\" 1.5;14:PrintC \"nvf scale %.2f\", (RingoRef.GetNifBlockScale \"Bip01 Head\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'script: print "nvf blocks [1-9][0-9]*"', label = "the second call reads Ringo's Bip01 children from the mirror" },
+  { re = 'script: print "nvf parents [1-9]"', label = "the head has parent nodes" },
+  { re = 'script: print "nvf scale 1.50"', label = "a set scale holds over the animation and reads back" },
+]
+
+[[scenario]]
 name = "script-input-keys"
 source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
 areas = ["console", "scripts", "input"]

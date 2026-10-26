@@ -1019,6 +1019,8 @@ pub struct Game<'a> {
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
     pub anim_paths: crate::nvse_anim::AnimPaths,
+    /// The node trees scripts asked about, as the engine tells them (`crate::nif_blocks`).
+    pub scene: crate::nif_blocks::SceneMirror,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
@@ -1647,6 +1649,7 @@ impl<'a> Game<'a> {
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
+            scene: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),

@@ -172,12 +172,14 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             // Mods' files: the Data folder (and its archives) read-only, `--config` before
             // it; nothing is written to disk.
             let vfs = std::sync::Arc::new(fnv_vfs::Vfs::open_for_plugins(&a.lo.data_dir, &a.lo.plugins).ok());
+            let v2 = vfs.clone();
             let lookup: fnv_game::mod_files::Lookup = std::sync::Arc::new(move |p: &str| match vfs.as_ref() {
                 Some(v) if v.loose_path(p).is_some() => 1,
                 Some(v) if v.exists(p) => 2,
                 _ => 0,
             });
-            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![a.lo.data_dir.clone()], config: config.clone(), write: None, lookup: Some(lookup) });
+            let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(move |p: &str| v2.as_ref().as_ref().and_then(|v| v.read(p)).and_then(Result::ok));
+            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![a.lo.data_dir.clone()], config: config.clone(), write: None, lookup: Some(lookup), reader: Some(reader) });
             run_actions(&a, &actions, !no_voice_lengths, &ini)
         }
     }

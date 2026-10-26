@@ -16,6 +16,7 @@
 //! closes the open menu. `--play --menu` opens on the main menu (`nvf_play::main_menu`).
 
 mod activators;
+mod nif_mirror;
 mod actor_feet;
 mod actor_jumps;
 mod actor_materials;
@@ -1422,6 +1423,8 @@ fn main() -> AppExit {
             app.add_plugins(attack_anims::AttackAnimsPlugin);
             // What the actors' bodies do, told to the rules (anim_state.rs).
             app.add_plugins(anim_state::AnimStatePlugin);
+            // JIP's NIF block functions on the drawn nodes (nif_mirror.rs).
+            app.add_plugins(nif_mirror::NifMirrorPlugin);
         }
     }
     if play.is_some() {
