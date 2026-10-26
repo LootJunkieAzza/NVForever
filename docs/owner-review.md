@@ -201,3 +201,19 @@ results are in the ext-* spec notes under "Observed in the original game".
   `Sin 14 == 1` example says the comparison is taken).
 - **`Return 7`** compiles but returns nothing (the Call gives 0), so NVForever ignores a
   `Return` value as the game does.
+
+## JIP LN: decisions taken while you were away (2026-10-26)
+
+The JIP plan is docs/handoff/jip-tasks.md; read-only JIP getters were probed in your game
+by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* spec notes.
+- **File functions (J9).** JIP reads and writes files in the game folder; NVForever never
+  writes there. *Proposed:* writers write only under NVForever's own engine-home folder,
+  mirroring the relative path; readers prefer that copy, then the game folder (read-only).
+  docs/spec-notes/jip-math-utility.md §4. *Check:* say if you want something else.
+- **Arc tangents are approximate in JIP:** `fatan 1` and `fatan2 1 1` give 44.9998, not 45.
+  *Default:* NVForever computes the exact value and the lab accepts a small tolerance on
+  these two functions only, unless a sweep of probe points lets us fit the game's curve
+  from observations alone. jip-math-utility.md §1.
+- **`GetLNVersion` returns 57.3** in your game, where the wiki says it always returns 0;
+  NVForever follows the game.
+- **UI functions (J8)** still wait on your call (extender-compat.md §5.6).
