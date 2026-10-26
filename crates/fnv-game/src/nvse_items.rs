@@ -243,8 +243,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: GetAgeClass; observed: nvse-fourth, -1 for Doc Mitchell and Sunny]
         // -1 [hypothesis: the same for every actor the base game ships].
         "getageclass" => XVal::Num(-1.0),
-        // [documented: GetHeadParts; observed: Doc 2, [0] 0B5BEA] the NPC's PNAM head
-        // parts in record order.
+        // [documented: GetHeadParts; observed: Doc 2, [0] 0B5BEA, the record's last] the
+        // NPC's PNAM head parts, from the last back.
         "getheadparts" => {
             let a = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
             let items: Vec<XVal> = g
@@ -256,6 +256,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 .filter(|(s, _)| s == b"PNAM")
                 .filter_map(|(_, v)| v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()))
                 .map(XVal::Ref)
+                .rev()
                 .collect();
             let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))

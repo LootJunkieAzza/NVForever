@@ -450,6 +450,27 @@ impl Vm<'_, '_> {
                 }))
             }
             "sv_regexmatch" | "sv_regexsearch" | "sv_regexreplace" | "validateregex" => self.regex_function(n, c).map(Some),
+            // [documented: MessageBoxExAlt] `callback "^title^text|button|…" values…`: up to
+            // 255 buttons; the UDF gets the pressed button's index. The title is not shown
+            // [hypothesis: NVForever's box has none]. Without a button the box gets "Ok", as
+            // MessageBoxEx [hypothesis].
+            "messageboxexalt" => {
+                let func = val(self, 0)?;
+                let (t, _) = self.format_arg(c, 1)?;
+                let body = match t.strip_prefix('^').and_then(|r| r.split_once('^')) {
+                    Some((_, rest)) => rest.to_string(),
+                    None => t,
+                };
+                let mut parts = body.split('|').map(str::to_string);
+                let text = parts.next().unwrap_or_default();
+                let mut buttons: Vec<String> = parts.take(255).collect();
+                if buttons.is_empty() {
+                    buttons.push("Ok".into());
+                }
+                self.host.box_callback(func);
+                self.host.show_text(&text, buttons);
+                Ok(Some(XVal::Num(0.0)))
+            }
             _ => self.jip_store_function(n, c),
         }
     }

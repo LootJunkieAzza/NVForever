@@ -368,9 +368,10 @@ impl Gen<'_> {
                 Some(XExpr::Axis { c: name.to_ascii_uppercase().chars().next().unwrap_or('Z') })
             }
             // Any other bare word that names nothing is its own text, with the editor's
-            // "Unquoted argument" warning [observed: nvse-fourth, `SetFunctionValue
-            // GetFOSEVersion` returns the text "GetFOSEVersion" in xNVSE 6.4.9].
-            None if self.in_args => {
+            // "Unquoted argument" warning, parenthesised too [observed: nvse-fourth,
+            // `SetFunctionValue (GetFOSEVersion)` returns the text "GetFOSEVersion" in xNVSE
+            // 6.4.9].
+            None if self.in_arg_any => {
                 self.diag("unquoted_argument", false, name.to_string());
                 Some(XExpr::Str { s: name.to_string() })
             }
@@ -405,8 +406,10 @@ impl Gen<'_> {
                 ARG
             };
             let was = std::mem::replace(&mut self.in_args, true);
+            let was_any = std::mem::replace(&mut self.in_arg_any, true);
             let a = self.xarg(p, &enc, min);
             self.in_args = was;
+            self.in_arg_any = was_any;
             args.push(a?);
         }
         Some(args)
