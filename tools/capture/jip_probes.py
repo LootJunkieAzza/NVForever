@@ -423,8 +423,25 @@ VAR_PROBES = [
     ("ref.set.form", _q('SetRefVariable "rForm" rV rQ\nSetFunctionValue (GetFormIDString (GetRefVariable "rForm" rQ))'), True, "0010A214", "SetRefVariable (any form)"),
 ]
 
+# Ninth set: reference walking in named cells (GetNumRefsInCell, GetFirstRefInCell),
+# not around the player, so it does not depend on where the save stands. Doc Mitchell's
+# house and the Prospector Saloon are not loaded in the owner's save (it stands at the
+# airport), where only persistent references are seen [documented: GetFirstRefInCell].
+# Form type codes 0 any, 200 actors, 201 items, 42 NPC_ [documented: GetRefsEtc pages;
+# Form Type IDs]. Read-only.
+CELLS = {"doc": "103DF9", "saloon": "106185"}
+REF_PROBES = (
+    [(f"num.{c}.{t}", _with(fid, f"SetFunctionValue (GetNumRefsInCell rF {t} 0 0)"), False, None, "")
+     for c, fid in CELLS.items() for t in (0, 200, 201, 42)]
+    + [(f"num.{c}.taken", _with(fid, "SetFunctionValue (GetNumRefsInCell rF 0 0 1)"), False, None, "")
+       for c, fid in CELLS.items()]
+    + [(f"first.{c}.200", _with(fid, "SetFunctionValue (GetFormIDString (GetFirstRefInCell rF 200 0 0))"), True, None, "")
+       for c, fid in CELLS.items()]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
-        "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES}
+        "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
+        "nvse-refs": REF_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars"}

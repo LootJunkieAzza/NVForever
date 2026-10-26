@@ -171,6 +171,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "vars"]
+  },
+  {
+   "id": "L5.ext.nvse.refs",
+   "layer": 5,
+   "description": "Reference walking in named, unloaded cells (GetNumRefsInCell, GetFirstRefInCell for Doc Mitchell's house and the Prospector Saloon), set nvse-refs of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-refs.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_refs.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "refs"]
   }
  ]
 }
