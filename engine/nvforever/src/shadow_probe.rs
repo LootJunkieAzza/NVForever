@@ -24,13 +24,19 @@
 //!   the sun's cascades of the main camera casts from, with the cells fading in and out
 //!   and the LOD terrain chunks spawned anew, logged whenever one of them changes
 //!   or a cascade's casters change by more than a fifth in one frame
-//!   (`shadow probe: frame <n> …`, at most [`LOD_LINES`] lines). LOD terrain stays solid under a cell until it has
-//!   faded in (fade.rs), and casts from where it stands, not pushed behind [hypothesis
-//!   for the owner's 2026-10-26 capture: whole hillsides in one cascade turn dark and
-//!   back from frame to frame while the frame rate struggles].
+//!   (`shadow probe: frame <n> …`, at most [`LOD_LINES`] lines). LOD terrain stays solid
+//!   under a cell until it has faded in (fade.rs) and casts from where it stands, not
+//!   pushed behind. Written for the owner's 2026-10-26 captures (whole hillsides turning
+//!   dark and back from frame to frame); it showed no fades or LOD changes during the
+//!   flicker, whose cause was the next check's.
+//! - **Views sharing a key** (render world): two views with one `RetainedViewEntity`
+//!   are batched twice into the same phase; the arms' shade light left such views
+//!   behind when it was hidden and shown again (player_body.rs `shade_light`). Counted
+//!   in each summary, the first logged.
 //!
 //! Each finding is logged once per shape (`shadow probe: …`), with a summary every five
-//! seconds: `shadow probe: <n> skins; stretched … player body joints within <units>`.
+//! seconds: `shadow probe: <n> skins; stretched … player body joints within <units>;
+//! checks with views sharing a key <n>`.
 
 use crate::sky::Sun;
 use crate::world::bevy_to_game;
@@ -42,6 +48,7 @@ use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::render::batching::gpu_preprocessing::BatchedInstanceBuffers;
 use bevy::render::sync_world::MainEntity;
+use bevy::render::view::{ExtractedView, RetainedViewEntity};
 use bevy::render::{Render, RenderApp, RenderSystems};
 use std::sync::{Arc, Mutex};
 
@@ -68,6 +75,9 @@ struct Found {
     checked: u32,
     slots: Vec<Finding>,
     moved: Vec<Finding>,
+    /// Most views sharing one `RetainedViewEntity` in a check since the main world last
+    /// looked (render world; 1 is right).
+    shared_views: u32,
 }
 
 /// A shape and two numbers: the slot or vertex it is drawn with, and its skin's or mesh's.
@@ -96,6 +106,8 @@ struct Probe {
     lod_casting: (Vec<usize>, usize, usize, usize),
     /// Casters per cascade last frame.
     casters: Vec<usize>,
+    /// Render-world checks that found views sharing a key.
+    shared_views: u32,
     /// LOD lines logged (capped at [`LOD_LINES`]).
     lod_lines: u32,
 }
@@ -125,7 +137,9 @@ impl Plugin for ShadowProbePlugin {
         app.insert_resource(findings.clone()).init_resource::<Probe>().add_systems(Last, probe);
         info!("shadow probe: on (NVF_PLAY_DEBUG_SHADOWS)");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
-        render_app.insert_resource(findings).add_systems(Render, check_slots.in_set(RenderSystems::PrepareResourcesFlush).after(RenderSystems::PrepareMeshes));
+        render_app
+            .insert_resource(findings)
+            .add_systems(Render, (check_slots.after(RenderSystems::PrepareMeshes), check_views).in_set(RenderSystems::PrepareResourcesFlush));
     }
 }
 
@@ -239,16 +253,22 @@ fn probe(
         }
     }
     // Skin slots, from the render world.
-    let (taken, moved): (Vec<Finding>, Vec<Finding>) = {
+    let (taken, moved, shared): (Vec<Finding>, Vec<Finding>, u32) = {
         let Ok(mut f) = findings.0.lock() else { return };
         state.checked_slots = state.checked_slots.max(f.checked);
-        (std::mem::take(&mut f.slots), std::mem::take(&mut f.moved))
+        (std::mem::take(&mut f.slots), std::mem::take(&mut f.moved), std::mem::take(&mut f.shared_views))
     };
     for (e, had, now) in moved {
         state.moved += 1;
         if state.reported.insert(e) {
             let skinned = skins.get(e).is_ok();
             warn!("shadow probe: {} (skinned {skinned}) is drawn from vertex {had}, its mesh is now at vertex {now}", describe(e, &names));
+        }
+    }
+    if shared > 1 {
+        state.shared_views += 1;
+        if state.shared_views == 1 {
+            warn!("shadow probe: {shared} views share one view key (a light's shadow views kept from before it was hidden?)");
         }
     }
     for (e, had, now) in taken {
@@ -260,7 +280,7 @@ fn probe(
     if state.since_summary >= 5.0 {
         state.since_summary = 0.0;
         info!(
-            "shadow probe: {} skins; stretched {} big near casters {} wrong skin slots {} (of {} skinned instances checked); drawn from a mesh's old place {}; joints gone or at the origin {}; player body joints within {:.0}",
+            "shadow probe: {} skins; stretched {} big near casters {} wrong skin slots {} (of {} skinned instances checked); drawn from a mesh's old place {}; joints gone or at the origin {}; player body joints within {:.0}; checks with views sharing a key {}",
             skins.iter().count(),
             state.stretched,
             state.big,
@@ -268,9 +288,29 @@ fn probe(
             state.checked_slots,
             state.moved,
             state.lost_joints,
-            state.player_spread
+            state.player_spread,
+            state.shared_views
         );
         state.player_spread = 0.0;
+    }
+}
+
+/// Render world: views that share one `RetainedViewEntity`. Each view (a camera, a
+/// light's shadow cascade for a camera) has its own; two with one key are batched twice
+/// into the same phase, which upsets the shared indirect draw buffers (the first-person
+/// shadow flicker of 2026-10-26, player_body.rs `shade_light`).
+fn check_views(mut frame: Local<u32>, views: Query<&ExtractedView>, findings: Res<SlotFindings>) {
+    *frame = frame.wrapping_add(1);
+    if !frame.is_multiple_of(EVERY) {
+        return;
+    }
+    let mut count: HashMap<RetainedViewEntity, u32> = HashMap::default();
+    for v in &views {
+        *count.entry(v.retained_view_entity).or_default() += 1;
+    }
+    let most = count.values().copied().max().unwrap_or(0);
+    if let Ok(mut f) = findings.0.lock() {
+        f.shared_views = f.shared_views.max(most);
     }
 }
 
