@@ -6518,6 +6518,23 @@ expect = [
 order = [["pause menu: settings back to their defaults", "settings: hit-markers on"]]
 
 [[scenario]]
+name = "ui-colours"
+source = "owner 2026-10-26: colour pickers on the settings page for the HUD and the Pip-Boy's screens, amber the default; a preset and a slider change each colour at once and the Pip-Boy opens in its own"
+areas = ["settings", "hud", "pipboy"]
+paths = ["engine/nvf-play/src/ui_colour.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:hud-colour=Green,12:pipboy-colour=Blue,13:pipboy-red=0.2", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=items,20:close", NVF_PLAY_TEST_SHOTS = "19:ui_colours_pipboy.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--pos=-68375,4800,8700"]
+run_seconds = 22
+order = [[
+  "settings: hud-colour Green",
+  "interface colours: HUD [26, 255, 128], Pip-Boy [255, 182, 66]",
+  "settings: pipboy-colour Blue",
+  "interface colours: HUD [26, 255, 128], Pip-Boy [46, 207, 255]",
+  "settings: pipboy-red 51",
+  "interface colours: HUD [26, 255, 128], Pip-Boy [51, 207, 255]",
+]]
+
+[[scenario]]
 name = "settings-read"
 source = "owner 2026-10-16: the second half of the settings round trip: a new start in settings-write's home takes the switch it flipped from NVForever.ini"
 areas = ["main-menu", "save"]

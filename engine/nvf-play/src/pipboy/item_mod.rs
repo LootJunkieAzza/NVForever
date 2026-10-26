@@ -25,7 +25,7 @@
 
 use super::frame::{self, Align, Ctx, LINE, MAIN, TEXT};
 use super::{Page, PipBoy};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{Mode, Side};
 use crate::menu::ActiveMenu;
 use crate::sim::SimState;
