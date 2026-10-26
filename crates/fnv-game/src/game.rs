@@ -987,6 +987,8 @@ pub struct Game<'a> {
     pub(crate) list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
     /// xNVSE's queued delayed calls (`crate::delayed`); not saved [documented].
     pub(crate) delayed: Vec<crate::delayed::Delayed>,
+    /// What GetNextRef gives next (GetFirstRef's walk).
+    pub(crate) ref_walk: Vec<FormId>,
     /// Plugins whose debug mode is on (SetDebugMode, DebugPrint); not saved
     /// [hypothesis: the page gives no lifetime].
     debug_plugins: BTreeSet<String>,
@@ -1570,6 +1572,7 @@ impl<'a> Game<'a> {
             temp_refs: Vec::new(),
             list_edits: std::collections::HashMap::new(),
             delayed: Vec::new(),
+            ref_walk: Vec::new(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),

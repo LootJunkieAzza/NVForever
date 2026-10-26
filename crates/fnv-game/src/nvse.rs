@@ -118,6 +118,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         return Some(r);
     }
     let subject = on.or(ctx.self_ref);
+    if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
+        return Some(r);
+    }
     // The item a getter reads: its argument, else the calling reference's base form.
     let item = |g: &Game, k: usize| -> Option<FormId> {
         as_form(args.get(k)).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f))
