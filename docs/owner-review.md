@@ -304,6 +304,5 @@ The extender core asked for N12 probes: set aux variables, ref maps, arrays and 
 variables in the game, save, load, and read them back, to learn what the extenders keep in
 a save. In the original game a save is written to `Documents\My Games\FalloutNV\Saves`,
 which you have not cleared for probes the way you cleared the game install. Not done.
-*Check:* say whether probe runs may write one save there (named `nvfprobe`, removed after
-the run, your own saves untouched; the capture tool already backs up the rolling saves). Until then
-N12 is built from the wiki (ext-save.md) and NVForever's own round-trip tests.
+*Answered 2026-10-26:* yes, one save named `nvfprobe`, removed after the run, the owner's
+own saves untouched.

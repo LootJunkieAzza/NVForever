@@ -2411,6 +2411,81 @@ N13_PROBES = [
     _lo("lo.solditem", "SetFunctionValue (GetFormIDString (GetSoldItemInvRef))", True),
 ]
 
+# Forty-first and forty-second sets (next batch N12): what extender state survives a save
+# and load. save-set runs on nvfairport, sets everything and reads it back; the run then
+# ends with the console line "save nvfprobe" (capture_run --quit-console). save-read runs
+# on nvfprobe and reads it all again. The owner allowed this one save, removed after the
+# run with its co-save files (owner-review, 2026-10-26). Aux variable kinds by name:
+# plain (public), "_" (private to the mod), "*" (temporary) [documented: JIP's auxiliary
+# variable page names the prefixes; which survive is what is probed]. Forms as in
+# lu-leveled and sky-sound; ExtProbeLoops06Q (NVFExtProbe.esp B40) holds `int iR`.
+_HS = ("ref rP\nref rDoc\nref rBase\nref rObj\nref rQ\nfloat fRes\nBegin Function { }\n" + _form("rP", NF["player"])
+       + _form("rDoc", NF["docref"]) + _form("rBase", NF["doc"]) + 'let rQ := GetFormFromMod "NVFExtProbe.esp" "B40"\n')
+
+
+def _sv(pid, body, text=False):
+    return (pid, _HS + body, text, None, "")
+
+
+# What both runs read, in the same order.
+def _save_reads(tag):
+    rows = []
+    for pre in ("", "_", "*"):
+        k = {"": "pub", "_": "priv", "*": "temp"}[pre]
+        rows += [
+            _sv(f"{tag}.aux.flt.{k}", f'SetFunctionValue (rP.AuxVarGetFlt "{pre}nvfSF")'),
+            _sv(f"{tag}.aux.ref.{k}", f'SetFunctionValue (GetFormIDString (rP.AuxVarGetRef "{pre}nvfSR"))', True),
+            _sv(f"{tag}.aux.str.{k}", f'SetFunctionValue (rP.AuxVarGetStr "{pre}nvfSS")', True),
+            _sv(f"{tag}.refmap.{k}", f'SetFunctionValue (rDoc.RefMapGetFlt "{pre}nvfSM")'),
+        ]
+    rows += [
+        _sv(f"{tag}.questvar", 'SetFunctionValue (GetVariable "iR" rQ)'),
+        _sv(f"{tag}.controls.alt", "SetFunctionValue (GetPlayerControlsDisabledAlt 1)"),
+        _sv(f"{tag}.controls.vanilla", "SetFunctionValue (GetPlayerControlsDisabled)"),
+        _sv(f"{tag}.loop.keep", 'let fRes := rP.AuxVarGetFlt "nvfSL1"\nSetFunctionValue (fRes > 0)'),
+        _sv(f"{tag}.loop.auto", 'let fRes := rP.AuxVarGetFlt "nvfSL8"\nSetFunctionValue (fRes > 0)'),
+        _sv(f"{tag}.loop.keep.stamp", 'rP.AuxVarSetFlt "nvfSL1s" (rP.AuxVarGetFlt "nvfSL1")\nSetFunctionValue 1'),
+        _sv(f"{tag}.loop.auto.stamp", 'rP.AuxVarSetFlt "nvfSL8s" (rP.AuxVarGetFlt "nvfSL8")\nSetFunctionValue 1'),
+        _sv(f"{tag}.loop.wait1", "SetFunctionValue 1"),
+        _sv(f"{tag}.loop.wait2", "SetFunctionValue 1"),
+        _sv(f"{tag}.loop.keep.running", 'SetFunctionValue ((rP.AuxVarGetFlt "nvfSL1") > (rP.AuxVarGetFlt "nvfSL1s"))'),
+        _sv(f"{tag}.loop.auto.running", 'SetFunctionValue ((rP.AuxVarGetFlt "nvfSL8") > (rP.AuxVarGetFlt "nvfSL8s"))'),
+        _sv(f"{tag}.sound.trait3", _form("rObj", FX["beep"]) + "SetFunctionValue (GetSoundTraitNumeric rObj 3)"),
+        _sv(f"{tag}.lvli.lu.num", _form("rObj", FX["lvli"]) + "SetFunctionValue (GetNumLevItems rObj)"),
+        _sv(f"{tag}.lvln.showoff.num", _form("rObj", FX["lvln"]) + "SetFunctionValue (GetNumLevItems rObj)"),
+        _sv(f"{tag}.lvlc.lu.num", _form("rObj", FX["lvlc"]) + "SetFunctionValue (GetNumLevItems rObj)"),
+        _sv(f"{tag}.name", "SetFunctionValue (GetName rBase)", True),
+        _sv(f"{tag}.karma", "SetFunctionValue (GetBaseKarma rBase)"),
+    ]
+    return rows
+
+
+SAVE_SET_PROBES = (
+    [_sv(f"set.aux.{pre or 'pub'}", f'rP.AuxVarSetFlt "{pre}nvfSF" 2.5\nrP.AuxVarSetRef "{pre}nvfSR" rDoc\n'
+         f'rP.AuxVarSetStr "{pre}nvfSS" "kept?"\nrDoc.RefMapSetFlt "{pre}nvfSM" 4\nSetFunctionValue 1') for pre in ("", "_", "*")]
+    + [_sv("set.questvar", 'SetVariable "iR" 7 rQ\nSetFunctionValue (GetVariable "iR" rQ)'),
+       _sv("set.controls.alt", "DisablePlayerControlsAlt 0 0 0 1 0 0 0\nSetFunctionValue (GetPlayerControlsDisabledAlt 1)"),
+       _sv("set.controls.vanilla", "DisablePlayerControls 0 0 0 0 0 0 1\nSetFunctionValue (GetPlayerControlsDisabled)"),
+       _sv("set.loop.keep", 'SetGameMainLoopCallback (Begin Function { }\n  rP.AuxVarSetFlt "nvfSL1" ((rP.AuxVarGetFlt "nvfSL1") + 1)\nEnd) 1 1 1\n'
+           "SetFunctionValue 1"),
+       _sv("set.loop.auto", 'SetGameMainLoopCallback (Begin Function { }\n  rP.AuxVarSetFlt "nvfSL8" ((rP.AuxVarGetFlt "nvfSL8") + 1)\nEnd) 1 1 9\n'
+           "SetFunctionValue 1"),
+       _sv("set.sound", _form("rObj", FX["beep"]) + "SetSoundTraitNumeric rObj 3 7\nSetFunctionValue (GetSoundTraitNumeric rObj 3)"),
+       _sv("set.lvli.lu", _form("rObj", FX["lvli"]) + _form("rQ", FX["ammo556"]) + "LeveledListAddForm rObj rQ 1 1 1.0\nSetFunctionValue (GetNumLevItems rObj)"),
+       _sv("set.lvln.showoff", _form("rObj", FX["lvln"]) + "let rQ := GetNthLevItem rObj 0\nRemoveFormFromLeveledList rObj rQ\nSetFunctionValue (GetNumLevItems rObj)"),
+       _sv("set.lvlc.lu", _form("rObj", FX["lvlc"]) + "let rQ := GetNthLevItem rObj 0\nLeveledListRemoveForm rObj rQ\nSetFunctionValue (GetNumLevItems rObj)"),
+       _sv("set.name", 'LNSetName "NVF Saved Doc" rBase\nSetFunctionValue (GetName rBase)', True),
+       _sv("set.karma", "SetBaseKarma 77 rBase\nSetFunctionValue (GetBaseKarma rBase)")]
+    + [_sv(f"set.wait{i}", "SetFunctionValue 1") for i in range(3)]
+    + _save_reads("before")
+)
+
+SAVE_READ_PROBES = (
+    [_sv(f"read.wait{i}", "SetFunctionValue 1") for i in range(3)]
+    + _save_reads("after")
+    + [_sv("read.cleanup", "EnablePlayerControlsAlt\nEnablePlayerControls\nSetFunctionValue 1")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2434,11 +2509,13 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nif-blocks": NIF_PROBES,
         "nvse-events": NVSE_EVENT_PROBES,
         "jip-events2": JIP_EVENT2_PROBES,
-        "nvse-leftovers": N13_PROBES}
+        "nvse-leftovers": N13_PROBES,
+        "save-set": SAVE_SET_PROBES,
+        "save-read": SAVE_READ_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read"}
 
 
 def script(body):
