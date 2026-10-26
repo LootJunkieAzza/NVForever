@@ -269,9 +269,12 @@ fn legs_of(rig: &ActorRig) -> Result<Legs, String> {
 }
 
 /// Give every actor root a state, matching its skeleton once.
-fn attach(mut commands: Commands, mut stats: ResMut<FootIkStats>, new: Query<(Entity, &ActorRig), Without<FootIk>>, body: Option<Res<PlayerBody>>) {
+fn attach(mut commands: Commands, mut stats: ResMut<FootIkStats>, new: Query<(Entity, &ActorRig), Without<FootIk>>, placed: Query<(), With<FootIk>>, body: Option<Res<PlayerBody>>) {
+    // The player's body root carries no `ActorRig`: given its state once, like the rest
+    // (a fresh state every frame left its feet one ease step from the animation, the
+    // step changing with the frame time: the legs twitched on a slope).
     let player = body.as_deref().and_then(PlayerBody::third_rig);
-    let all = new.iter().map(|(e, r)| (e, r.clone())).chain(player.filter(|(e, _)| !new.contains(*e)));
+    let all = new.iter().map(|(e, r)| (e, r.clone())).chain(player.filter(|(e, _)| !new.contains(*e) && !placed.contains(*e)));
     for (e, rig) in all {
         let Ok(mut ec) = commands.get_entity(e) else { continue };
         let legs = match legs_of(&rig) {
