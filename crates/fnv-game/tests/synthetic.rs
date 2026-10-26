@@ -1914,3 +1914,18 @@ CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*w\")"), XVal::Num(3.0), "while the condition holds");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
 }
+
+#[test]
+fn message_box_ex_alt_runs_its_callback_with_the_button() {
+    // [documented: MessageBoxExAlt] the UDF gets the pressed button's index.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = "Begin Function { }\nMessageBoxExAlt (Begin Function {int b}\nPlayerREF.AuxVarSetFlt \"*btn\" b\nEnd) \"^Title^Pick|A|B\"\nEnd\n";
+    g.run_query(q, ctx()).unwrap();
+    g.press_button(1).unwrap();
+    g.tick();
+    let read = g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"*btn\")\nEnd\n", ctx()).unwrap();
+    assert_eq!(read, XVal::Num(1.0));
+}

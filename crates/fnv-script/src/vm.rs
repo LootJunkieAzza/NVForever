@@ -209,6 +209,8 @@ pub trait Host {
     fn local_var(&mut self, _name: &str) -> Option<VarRef> {
         None
     }
+    /// The UDF MessageBoxExAlt runs with the pressed button.
+    fn box_callback(&mut self, _func: XVal) {}
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
     fn show_text(&mut self, _text: &str, _buttons: Vec<String>) {}
     /// The calling script's plugin's debug mode (DebugPrint), after setting it when `set`

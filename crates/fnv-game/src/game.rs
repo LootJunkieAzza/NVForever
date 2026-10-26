@@ -1001,6 +1001,13 @@ pub struct Game<'a> {
     /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
     /// the engine's console takes them each frame.
     pub console_out: Vec<String>,
+    /// SetNthEffectTraitNumeric's changes: (form, entry, trait) -> value, the session's.
+    pub(crate) effect_overrides: std::collections::HashMap<(FormId, usize, usize), f64>,
+    /// JIP switches kept for the session (ToggleTeammateKillable, SetWheelDisabled,
+    /// ToggleNoHealthReset).
+    pub(crate) jip_flags: std::collections::HashSet<(FormId, &'static str)>,
+    /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
+    pub(crate) box_callback: Option<fnv_script::vm::XVal>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
     /// the engine).
     pub player_magazine: Option<u32>,
@@ -1600,6 +1607,9 @@ impl<'a> Game<'a> {
             playable_overrides: std::collections::HashMap::new(),
             player_magazine: None,
             console_out: Vec::new(),
+            effect_overrides: std::collections::HashMap::new(),
+            jip_flags: std::collections::HashSet::new(),
+            box_callback: None,
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -2564,6 +2574,7 @@ impl<'a> Game<'a> {
         // delayed calls.
         self.run_main_loop();
         self.run_delayed();
+        self.run_box_callback();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -4349,6 +4360,10 @@ impl Host for Exec<'_, '_> {
         let unit = self.unit.key();
         self.game.console_out.push(format!("Script error in {unit}: {text}"));
         self.game.emit(EventKind::ScriptError { unit, error: text.to_string() });
+    }
+
+    fn box_callback(&mut self, func: fnv_script::vm::XVal) {
+        self.game.box_callback = Some(func);
     }
 
     fn show_text(&mut self, text: &str, buttons: Vec<String>) {
