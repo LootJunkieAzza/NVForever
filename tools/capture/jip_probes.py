@@ -657,14 +657,85 @@ INV_PROBES = [
     _inv("clone.indexed.modindex", "let rItem := TempCloneForm rGun 1\nSetFunctionValue (GetSourceModIndex rItem)"),
 ]
 
+# Seventeenth set: the extender core's second-pass families. Weapon mods, faction
+# arrays, race lists, ownership and key names are read-only; the perk, item-walk and
+# disabled-key rows change the session only (each is undone in a later step) and run in
+# order. Ids ending in `.save` read state of the owner's save. Forms from fnvtool esm
+# inventory and world refs [observed]: WeapNVVarmintRifle 07EA24, Caucasian 000019,
+# Toughness 031DE0, Doc's dresser 103E37 (persistent), Sunny Smiles' reference 104E85 (in the
+# Prospector Saloon).
+SF = dict(NF, varmint="7EA24", sledge="4352", caucasian="19", toughness="31DE0", dresser="103E37",
+          door="103E61", sunnyref="104E85", sunny="104E84")
+
+
+def _s2(pid, body, text=False, exp=None, page=""):
+    return (pid, "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + body, text, exp, page)
+
+
+def _s2f(pid, key, expr, text=False, exp=None, page=""):
+    return _s2(pid, _form("rObj", SF[key]) + f"SetFunctionValue ({expr})", text, exp, page)
+
+
+_WALK = ("let fRes := 0\nlet rOther := rPlayer.GetFirstRefForItem rObj\nwhile IsFormValid rOther\n"
+         "  let fRes += 1\n  let rOther := rPlayer.GetNextRefForItem rObj\nloop\nSetFunctionValue fRes")
+
+
+SECOND_PROBES = (
+    [_s2f(f"mod.{w}.{i}", w, f"GetFormIDString (GetWeaponItemMod {i} rObj)", True) for w in ("pistol10", "varmint", "sledge") for i in (1, 2, 3)]
+    + [_s2f(f"modeffect.{w}.{i}", w, f"GetWeaponItemModEffect {i} rObj") for w in ("pistol10", "varmint", "sledge") for i in (1, 2, 3)]
+    + [_s2f(f"modvalue{v}.{w}.{i}", w, f"GetWeaponItemModValue{v} {i} rObj") for v in (1, 2) for w in ("pistol10", "varmint") for i in (1, 2, 3)]
+    + [x for k in ("doc", "sunny") for x in (
+        [_s2f(f"basefactions.{k}.size", k, "ar_Size (GetBaseFactions rObj)")]
+        + [_s2f(f"basefactions.{k}.{i}", k, f"GetFormIDString ((GetBaseFactions rObj)[{i}])", True) for i in range(3)]
+        + [_s2f(f"baseranks.{k}.size", k, "ar_Size (GetBaseRanks rObj)"),
+           _s2f(f"baseranks.{k}.0", k, "(GetBaseRanks rObj)[0]")])]
+    + [_s2f("activefactions.sunnyref.size.save", "sunnyref", "ar_Size (rObj.GetActiveFactions)"),
+       _s2f("activefactions.sunnyref.0.save", "sunnyref", "GetFormIDString ((rObj.GetActiveFactions)[0])", True),
+       _s2f("activeranks.sunnyref.0.save", "sunnyref", "(rObj.GetActiveRanks)[0]"),
+       _s2("activefactions.player.size.save", "SetFunctionValue (ar_Size (rPlayer.GetActiveFactions))")]
+    + [_s2f("racename.doc", "doc", "GetRaceName rObj", True),
+       _s2f("racename.sunny", "sunny", "GetRaceName rObj", True),
+       _s2f("racehairs.size", "caucasian", "ar_Size (GetRaceHairs rObj)"),
+       _s2f("racehairs.0", "caucasian", "GetFormIDString ((GetRaceHairs rObj)[0])", True),
+       _s2f("raceeyes.size", "caucasian", "ar_Size (GetRaceEyes rObj)"),
+       _s2f("raceeyes.0", "caucasian", "GetFormIDString ((GetRaceEyes rObj)[0])", True)]
+    + [_s2(f"owned.{t}.{o}", _form("rObj", SF[t]) + _form("rOther", SF[o]) + "SetFunctionValue (rObj.IsOwned rOther)")
+       for t in ("dresser", "door") for o in ("doc", "docref", "player")]
+    + [_s2(f"hasownership.{o}.{t}", _form("rObj", SF[t]) + _form("rOther", SF[o]) + "SetFunctionValue (rOther.HasOwnership rObj)")
+       for t in ("dresser", "door") for o in ("docref", "player")]
+    + [_s2(f"keyname.{k}", f"SetFunctionValue (GetKeyName {k})", True) for k in (17, 57, 256, 1, 0)]
+    + [_s2(f"iscontrol.{k}", f"SetFunctionValue (IsControl {k})") for k in (17, 99, 57)]
+    + [_s2("pressedkeys.size", "SetFunctionValue (ar_Size (GetPressedKeys))"),
+       _s2("disabledkeys.before", "SetFunctionValue (ar_Size (GetDisabledKeys))"),
+       _s2("disablekey.34", "DisableKey 34\nSetFunctionValue 1"),
+       _s2("disabledkeys.after", "SetFunctionValue (ar_Size (GetDisabledKeys))"),
+       _s2("disabledkeys.after.0", "SetFunctionValue ((GetDisabledKeys)[0])"),
+       _s2("enablekey.34", "EnableKey 34\nSetFunctionValue 1"),
+       _s2("disabledkeys.end", "SetFunctionValue (ar_Size (GetDisabledKeys))")]
+    + [_s2f("perk.before.save", "toughness", "rPlayer.GetPerkRank rObj"),
+       _s2f("altperk.before.save", "toughness", "rPlayer.GetAltPerkRank rObj"),
+       _s2("perk.add", _form("rObj", SF["toughness"]) + "rPlayer.AddPerk rObj\nSetFunctionValue 1", exp="1", page="AddPerk"),
+       _s2f("perk.after.add", "toughness", "rPlayer.GetPerkRank rObj"),
+       _s2("perk.remove", _form("rObj", SF["toughness"]) + "rPlayer.RemovePerk rObj\nSetFunctionValue 1", exp="1", page="RemovePerk"),
+       _s2f("perk.after.remove", "toughness", "rPlayer.GetPerkRank rObj")]
+    + [_s2f("items.before.save", "stimpak", "ar_Size (rPlayer.GetInvRefsForItem rObj)"),
+       _s2("items.add", _form("rObj", SF["stimpak"]) + "rPlayer.AddItem rObj 3 1\nSetFunctionValue 1", exp="1", page="AddItem"),
+       _s2("items.walk", _form("rObj", SF["stimpak"]) + _WALK),
+       _s2f("items.invrefs", "stimpak", "ar_Size (rPlayer.GetInvRefsForItem rObj)"),
+       _s2("items.remove", _form("rObj", SF["stimpak"]) + "rPlayer.RemoveItem rObj 3 1\nSetFunctionValue 1", exp="1", page="RemoveItem"),
+       _s2("items.walk.pistol.save", _form("rObj", SF["pistol10"]) + _WALK)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
         "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES, "nvse-math": MATH_PROBES,
-        "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES}
+        "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES, "nvse-second": SECOND_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
-WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv"}
+WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
+                "nvse-second"}
 
 
 def script(body):
