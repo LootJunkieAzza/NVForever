@@ -998,6 +998,9 @@ pub struct Game<'a> {
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
+    /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
+    /// the engine's console takes them each frame.
+    pub console_out: Vec<String>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
     /// the engine).
     pub player_magazine: Option<u32>,
@@ -1596,6 +1599,7 @@ impl<'a> Game<'a> {
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
             player_magazine: None,
+            console_out: Vec::new(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -4337,7 +4341,14 @@ impl Host for Exec<'_, '_> {
 
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
+        self.game.console_out.push(text.to_string());
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
+    }
+
+    fn script_error(&mut self, text: &str) {
+        let unit = self.unit.key();
+        self.game.console_out.push(format!("Script error in {unit}: {text}"));
+        self.game.emit(EventKind::ScriptError { unit, error: text.to_string() });
     }
 
     fn show_text(&mut self, text: &str, buttons: Vec<String>) {
@@ -4463,6 +4474,11 @@ impl Host for Exec<'_, '_> {
 
     fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
         self.game.data.body_part_name(FormId(form), part)
+    }
+
+    fn calling_plugin(&mut self) -> Option<String> {
+        let p = &self.unit.unit.plugin;
+        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
     }
 
     fn current_script(&mut self) -> Option<u32> {

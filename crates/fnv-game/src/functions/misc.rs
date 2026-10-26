@@ -27,6 +27,8 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
         let owner = Some(MessageBox::owner_of(ctx.inst, &ctx.unit));
         g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None, owner });
     }
+    // Player character string codes (`&PCName;` …) [documented: ext-format.md §6].
+    let text = text.map(|t| g.expand_codes(&t));
     g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone(), hidden });
     // A message box (MESG flag Message Box, or buttons) is a menu until the player closes
     // it [observed: MenuMode 1001 while the pack plugins' boxes were open,

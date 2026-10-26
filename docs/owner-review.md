@@ -173,17 +173,18 @@ game. Nothing here is urgent; each item unblocks part of the work.
    event priority and filtering pages and User-Defined Event, and `FOSE.xml` settled
    GetType (it is GetObjectType's alias), and you pasted Form Type IDs, the DirectX
    scancodes, the controller button and trigger codes, the known plugin names,
-   GetCurrentEventName, DispatchEventAlt and sUActn: thank you. Still missing, minor:
-   **Player Character String Codes** (ext-format.md).
+   GetCurrentEventName, DispatchEventAlt, sUActn and Player Character String Codes:
+   thank you.
 2. *Done 2026-10-25/26:* the GECK compile cases (results in ext-bytecode.md, #812), the
    probe sets with `ExtProbeList` (goldens collected; the L5.ext.nvse lab now matches
    225 of 228). Two newer GECK cases (24, 25) are in #831.
-4. **Which xNVSE version to target.** The captures so far ran under 6.4.9; the wiki
-   marks many features by version (6.1 through 6.4.9). *Default if you don't say:* match
-   6.4.9, the version installed.
-5. **Your mod list for the N2 scan** (`fnvtool ext scan`): the plugins you want to play
-   with, so the scan can rank which extender functions they use. Only counts and names
-   leave your machine.
+4. *Answered 2026-10-26:* target xNVSE 6.4.9.
+5. *Done 2026-10-26:* the N2 scan ran over your MO2 profile `Talon` (128 plugins):
+   docs/handoff/modlist-scan-2026-10-26.md. NVForever builds 44% of the extender uses
+   there. The most used functions not built are the UI ones (SetUIFloat and friends,
+   16 plugins), which wait on the UI decision (extender-compat.md §5.6): that is now the
+   most valuable open extender decision. Your saves with their `.nvse` co-saves
+   (`F:\Modding\MO2\profiles\Talon\saves`) may be read, read-only, for save rows.
 
 ## xNVSE probe results: decisions taken while you were away (2026-10-26)
 

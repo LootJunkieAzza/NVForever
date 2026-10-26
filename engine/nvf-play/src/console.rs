@@ -216,7 +216,7 @@ impl Plugin for ConsolePlugin {
             .insert_resource(ConsoleAid(aid))
             .init_resource::<SearchIndex>()
             .init_resource::<RenderToggles>()
-            .add_systems(Update, (toggle, typing, search_ready, replies, click, draw, outline).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (toggle, typing, search_ready, replies, script_lines, click, draw, outline).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close_on_exit);
     }
 }
@@ -277,6 +277,15 @@ fn close(c: &mut Console, next: &mut NextState<PlayState>, commands: &mut Comman
 }
 
 /// Something else left the menu state (a travel, a dialogue): the console goes too.
+/// What scripts printed and the script errors of this frame, on the console as in the
+/// original (PrintC writes there) [documented: PrintToConsole].
+fn script_lines(mut c: ResMut<Console>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    for line in std::mem::take(&mut rt.game.console_out) {
+        c.print(line);
+    }
+}
+
 fn close_on_exit(mut c: ResMut<Console>, mut commands: Commands, roots: Query<Entity, With<ConsoleRoot>>) {
     if c.open {
         c.open = false;
