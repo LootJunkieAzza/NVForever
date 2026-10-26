@@ -83,9 +83,13 @@ pub enum ExtCmd {
         /// Function catalogue (default: ../script/functions.json next to --schema).
         #[arg(long)]
         functions: Option<PathBuf>,
-        /// The job file (tools/capture/jip-probes/<set>.steps.json).
+        /// The job file (tools/capture/jip-probes/<job>.steps.json).
         #[arg(long)]
         steps: PathBuf,
+        /// Move the player to this cell (FormID or Editor ID) before the first step, to
+        /// start where the oracle's save stands.
+        #[arg(long)]
+        start_cell: Option<String>,
     },
 }
 
@@ -127,11 +131,11 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             doc["runs"] = json!(runs);
             Ok(doc)
         }
-        ExtCmd::Queries { lo, schema, functions, steps } => {
+        ExtCmd::Queries { lo, schema, functions, steps, start_cell } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let jtext = std::fs::read_to_string(&steps).with_context(|| steps.display().to_string())?;
             let job: Value = serde_json::from_str(&jtext).with_context(|| steps.display().to_string())?;
-            let (set, input) = query_input(&job)?;
+            let (set, input) = query_input(&job, start_cell.as_deref())?;
             let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
             let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
             let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
@@ -150,11 +154,15 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
 
 /// The probe set of a query job (its name with `_` as `-`, as jip_probes.py names the
 /// golden) and the runner input: one `query` action per step, in order, each followed by
-/// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4).
-pub(crate) fn query_input(job: &Value) -> anyhow::Result<(String, Value)> {
+/// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4); first a
+/// move to `start_cell` when given.
+pub(crate) fn query_input(job: &Value, start_cell: Option<&str>) -> anyhow::Result<(String, Value)> {
     anyhow::ensure!(job["format"] == "fnv.capture.steps/1", "not a fnv.capture.steps/1 job");
     let set = job["name"].as_str().context("job without a name")?.replace('_', "-");
     let mut actions = Vec::new();
+    if let Some(cell) = start_cell {
+        actions.push(json!({"op": "go_to_cell", "cell": cell}));
+    }
     for s in job["steps"].as_array().context("job without steps")? {
         let script = s["query"].as_str().context("a step without a query (only query jobs run here)")?;
         let label = s["label"].as_str().context("a step without a label")?;
@@ -697,13 +705,16 @@ End
             {"query": "Begin Function { }\nSetFunctionValue 1\nEnd\n", "label": "a", "field": "value"},
             {"query": "Begin Function { }\nSetFunctionValue (GetModName 0)\nEnd\n", "label": "b", "field": "value", "text": true},
         ]});
-        let (set, input) = query_input(&job).unwrap();
+        let (set, input) = query_input(&job, None).unwrap();
         assert_eq!(set, "jip-forms");
         assert_eq!(input["actions"][1], json!({"op": "wait_frames", "frames": 1}));
         assert_eq!(input["actions"][2]["op"], "query");
         assert_eq!(input["actions"][2]["text"], true);
         let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
-        assert!(query_input(&json!({"format": "fnv.capture.steps/1", "name": "x", "steps": [{"console": "tgm"}]})).is_err());
+        assert!(query_input(&json!({"format": "fnv.capture.steps/1", "name": "x", "steps": [{"console": "tgm"}]}), None).is_err());
+        let (_, moved) = query_input(&job, Some("0x000DEB16")).unwrap();
+        assert_eq!(moved["actions"][0], json!({"op": "go_to_cell", "cell": "0x000DEB16"}));
+        let _: fnv_game::runner::Input = serde_json::from_value(moved).expect("a valid actions document");
 
         let trace = json!({"observations": [
             {"label": "a", "step": 0, "value": 44.99977},
