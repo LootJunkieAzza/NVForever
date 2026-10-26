@@ -599,7 +599,7 @@ fn compile_all(
         .map(|u| {
             let pi = ix.plugin_index(&u.plugin).unwrap_or(0);
             let env = ix.env(pi);
-            let seed = (!fresh).then_some(Seed { variables: &u.variables, refs: &u.refs });
+            let seed = (!fresh).then_some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: false });
             let c = compile(u.source.as_deref().unwrap_or(""), &l.table, &env, seed);
             let ours_unit = ScriptUnit { variables: c.variables.clone(), refs: c.refs.clone(), bytes: c.bytes.clone(), ..u.clone() };
             let ours = decode(&c.bytes, &l.table);

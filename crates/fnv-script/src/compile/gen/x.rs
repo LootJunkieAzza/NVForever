@@ -335,6 +335,15 @@ impl Gen<'_> {
                 }
             }
         }
+        // `Quest.refVar.Function`: the function on the reference a quest variable holds
+        // [observed: JustAssortedMods.esp, `JLM.rContainer.LNGetName`].
+        if let Some((target, fname)) = w.rsplit_once('.').filter(|(t, _)| t.contains('.')) {
+            if let (Some(f), Some((q, v))) = (self.xfunction(fname), target.split_once('.')) {
+                let on = self.remote(q, v)?;
+                let args = self.xargs(p, &f)?;
+                return Some(XExpr::Call { call: XCall { on: Some(Box::new(val_expr(on))), func: f.func, args } });
+            }
+        }
         let (head, name) = match w.split_once('.') {
             Some((h, n)) if !h.is_empty() => (Some(h), n),
             Some((_, n)) => (None, n),
@@ -379,6 +388,17 @@ impl Gen<'_> {
             None if self.in_arg_any => {
                 self.diag("unquoted_argument", false, name.to_string());
                 Some(XExpr::Str { s: name.to_string() })
+            }
+            // A call line starting with an unknown name, in a mod's source compiled by the
+            // engine: a call of that name, reporting "not built" when it runs
+            // ([`super::super::Seed::unknown_calls`]) [observed: TaleOfTwoWastelands.esm
+            // SCPT 001880 calls TTW_EnableRadioFix and InitRockItLauncher, plugin functions
+            // the wiki does not document].
+            None if self.unknown_calls && self.call_line && !self.in_args && head.is_none() => {
+                self.diag("unknown_function", false, name.to_string());
+                let f = XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false };
+                let args = self.xargs(p, &f)?;
+                Some(XExpr::Call { call: XCall { on: None, func: f.func, args } })
             }
             None => self.xerr("unresolved_name", name.to_string()),
         }
