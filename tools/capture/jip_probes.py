@@ -751,16 +751,147 @@ THIRD_PROBES = (
        _s2("dialogue.speaker", "SetFunctionValue (GetFormIDString (rPlayer.GetDialogueSpeaker))", True)]
 )
 
+# Twentieth set: the extender core's "other" group. Steps run in order; the inventory
+# rows add a 10mm pistol, 20 rounds of 10mm and 3 stimpaks to the player, equip the
+# pistol, move stimpaks to Doc Mitchell's reference, and the last steps take all of it
+# back (session only; the run never saves). Forms from fnvtool esm inventory [observed]:
+# Ammo556mm 004240, AmmoList10mm 1537E6 (the pistol's NAM0), the leveled character
+# VarVHDNCRRanger9Veteran 17A2FE, scripts GSDocMitchellScript 107230 and VCG02SCRIPT
+# 10A1F0; ExtProbeLoops06Q of NVFExtProbe.esp holds `int iR`. Ids ending in `.save` read
+# state of the owner's save or of the start position.
+FX = dict(SF, ammo556="4240", ammolist10="1537E6", lvln="17A2FE", docscript="107230", vcg02script="10A1F0",
+          ammo10="4241", cell="DEB16")
+_H4 = ("ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rItem\nfloat fRes\nBegin Function { }\n"
+       + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]))
+
+
+def _f4(pid, body, text=False, exp=None, page=""):
+    return (pid, _H4 + body, text, exp, page)
+
+
+def _o4(key, other=None):
+    out = _form("rObj", FX[key])
+    return out + (_form("rOther", FX[other]) if other else "")
+
+
+def _in(base, expr):
+    """fRes := expr for the player's inventory reference of `base` (rObj), in the loop."""
+    return (_form("rObj", FX[base]) + "let fRes := -1\nforeach rItem <- rPlayer\n  if rItem.GetBaseObject == rObj\n"
+            f"    let fRes := {expr}\n  endif\nloop\nSetFunctionValue fRes")
+
+
+FOURTH_PROBES = [
+    # 1. BuildRef (decimal FormIDs; hex literals do not compile at run time) and local indexes.
+    _f4("buildref.player", "SetFunctionValue (GetFormIDString (BuildRef 0 20))", True),
+    _f4("buildref.doc", "SetFunctionValue (GetFormIDString (BuildRef 0 1068044))", True),
+    _f4("buildref.hex", "SetFunctionValue (GetFormIDString (BuildRef 0 0x104C0C))", True),
+    _f4("localrefindex.docref", "SetFunctionValue (rDoc.GetLocalRefIndex)"),
+    _f4("localrefindex.player", "SetFunctionValue (rPlayer.GetLocalRefIndex)"),
+    # 2. Inside a runtime-compiled query.
+    _f4("selfalt", "SetFunctionValue (GetFormIDString (GetSelfAlt))", True),
+    _f4("currentscript.valid", "SetFunctionValue (IsFormValid (GetCurrentScript))"),
+    _f4("currentscript.type", "SetFunctionValue (GetType (GetCurrentScript))"),
+    _f4("currentscript.modindex", "SetFunctionValue (GetSourceModIndex (GetCurrentScript))"),
+    # 3. Grids (the candidate starts in cell 000DEB16, where the save stands).
+    _f4("gridstoload", "SetFunctionValue (GetGridsToLoad)"),
+    _f4("ingrid.doc.0", "SetFunctionValue (GetInGrid rDoc 0)"),
+    _f4("ingrid.doc.1", "SetFunctionValue (GetInGrid rDoc 1)"),
+    _f4("ingridincell.player.0", _o4("cell") + "SetFunctionValue (GetInGridInCell rObj rPlayer 0)"),
+    # 9 (read-only, before the inventory steps). Actors and leveled lists.
+    _f4("ageclass.doc", _o4("doc") + "SetFunctionValue (GetAgeClass rObj)"),
+    _f4("ageclass.sunny", _o4("sunny") + "SetFunctionValue (GetAgeClass rObj)"),
+    _f4("headparts.doc.size", _o4("doc") + "SetFunctionValue (ar_Size (GetHeadParts rObj))"),
+    _f4("headparts.doc.0", _o4("doc") + "SetFunctionValue (GetFormIDString ((GetHeadParts rObj)[0]))", True),
+    _f4("levchar.size", _o4("lvln") + "SetFunctionValue (ar_Size (GetLevCharacterRefs rObj))"),
+    _f4("levchar.0", _o4("lvln") + "SetFunctionValue (GetFormIDString ((GetLevCharacterRefs rObj)[0]))", True),
+    _f4("headingx.player.doc.save", "SetFunctionValue (rPlayer.GetHeadingAngleX rDoc)"),
+    # 10. Versions, script comparison, ResetAllVariables.
+    _f4("fose.version", "SetFunctionValue (GetFOSEVersion)"),
+    _f4("fose.revision", "SetFunctionValue (GetFOSERevision)"),
+    _f4("fose.beta", "SetFunctionValue (GetFOSEBeta)"),
+    _f4("comparescripts.same", _o4("docscript", "docscript") + "SetFunctionValue (CompareScripts rObj rOther)"),
+    _f4("comparescripts.diff", _o4("docscript", "vcg02script") + "SetFunctionValue (CompareScripts rObj rOther)"),
+    _f4("resetallvars.quest", 'let rObj := GetFormFromMod "NVFExtProbe.esp" "B40"\nSetVariable "iR" 7 rObj\n'
+        'rObj.ResetAllVariables\nSetFunctionValue (GetVariable "iR" rObj)'),
+    _f4("resetallvars.after", 'let rObj := GetFormFromMod "NVFExtProbe.esp" "B40"\nSetFunctionValue (GetVariable "iR" rObj)'),
+    # 6. Base-form setters read back, then put back.
+    _f4("playable.before", _o4("pistol10") + "SetFunctionValue (IsPlayable rObj)"),
+    _f4("playable.set0", _o4("pistol10") + "SetIsPlayable 0 rObj\nlet fRes := IsPlayable rObj\nSetIsPlayable 1 rObj\nSetFunctionValue fRes"),
+    _f4("questitem.before", _o4("pistol10") + "SetFunctionValue (IsQuestItem rObj)"),
+    _f4("questitem.set1", _o4("pistol10") + "SetQuestItem 1 rObj\nlet fRes := IsQuestItem rObj\nSetQuestItem 0 rObj\nSetFunctionValue fRes"),
+    _f4("questitem.after", _o4("pistol10") + "SetFunctionValue (IsQuestItem rObj)"),
+    # 4. Ammo, with the pistol and 20 rounds added and the pistol equipped.
+    _f4("inv.add.pistol", _o4("pistol10") + "rPlayer.AddItem rObj 1 1\nSetFunctionValue 1", exp="1", page="AddItem"),
+    _f4("inv.add.ammo", _o4("ammo10") + "rPlayer.AddItem rObj 20 1\nSetFunctionValue 1", exp="1", page="AddItem"),
+    _f4("inv.equip.pistol", _o4("pistol10") + "rPlayer.EquipItem rObj 0 1\nSetFunctionValue 1", exp="1", page="EquipItem"),
+    # GetWeaponCanUseAmmo takes the weapon as the calling reference and the ammo as its one
+    # argument [documented: GetWeaponCanUseAmmo]. Called with two form arguments
+    # (`GetWeaponCanUseAmmo rWeapon rAmmo`) it crashed the game (2026-10-27, first try of
+    # this set) [observed], so only the documented form is probed, on the pistol's
+    # inventory reference.
+    _f4("ammo.canuse.invref.10", _form("rOther", FX["ammo10"]) + _in("pistol10", "rItem.GetWeaponCanUseAmmo rOther")),
+    _f4("ammo.canuse.invref.556", _form("rOther", FX["ammo556"]) + _in("pistol10", "rItem.GetWeaponCanUseAmmo rOther")),
+    _f4("ammo.hasequipped.10", _o4("ammo10") + "SetFunctionValue (rPlayer.HasAmmoEquipped rObj)"),
+    _f4("ammo.hasequipped.556", _o4("ammo556") + "SetFunctionValue (rPlayer.HasAmmoEquipped rObj)"),
+    _f4("ammo.equippedcanuse.10", _o4("ammo10") + "SetFunctionValue (rPlayer.GetEquippedWeaponCanUseAmmo rObj)"),
+    _f4("ammo.equippedcanuse.556", _o4("ammo556") + "SetFunctionValue (rPlayer.GetEquippedWeaponCanUseAmmo rObj)"),
+    _f4("ammo.inlist", _o4("ammolist10") + "SetFunctionValue (rPlayer.IsEquippedAmmoInList rObj)"),
+    _f4("ammo.usesammolist", _o4("ammolist10") + "SetFunctionValue (rPlayer.GetEquippedWeaponUsesAmmoList rObj)"),
+    _f4("ammo.current", "SetFunctionValue (GetFormIDString (GetPlayerCurrentAmmo))", True),
+    _f4("ammo.rounds", "SetFunctionValue (GetPlayerCurrentAmmoRounds)"),
+    # 5. Condition of the equipped pistol and of its inventory reference.
+    _f4("health.equipped.5", "SetFunctionValue (rPlayer.GetEquippedCurrentHealth 5)"),
+    _f4("health.invref", _in("pistol10", "rItem.GetCurrentHealth")),
+    _f4("health.set50", _in("pistol10", "rItem.SetCurrentHealth 50") .replace("let fRes := rItem.SetCurrentHealth 50", "rItem.SetCurrentHealth 50\n    let fRes := 1")),
+    _f4("health.invref.after", _in("pistol10", "rItem.GetCurrentHealth")),
+    _f4("health.equipped.5.after", "SetFunctionValue (rPlayer.GetEquippedCurrentHealth 5)"),
+    # 7. Inventory-reference actions on a stack of 3 stimpaks, and on the pistol.
+    _f4("ir.add.stimpak", _o4("stimpak") + "rPlayer.AddItem rObj 3 1\nSetFunctionValue 1", exp="1", page="AddItem"),
+    _f4("ir.count.player.0.save", _o4("stimpak") + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _f4("ir.count.doc.0", _o4("stimpak") + "SetFunctionValue (rDoc.GetItemCount rObj)"),
+    _f4("ir.refcount", _in("stimpak", "rItem.GetRefCount")),
+    _f4("ir.copyir", _in("stimpak", "rItem.CopyIR rDoc")),
+    _f4("ir.count.player.1.save", _o4("stimpak") + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _f4("ir.count.doc.1", _o4("stimpak") + "SetFunctionValue (rDoc.GetItemCount rObj)"),
+    _f4("ir.copyiralt.valid", _in("stimpak", "IsFormValid (rItem.CopyIRAlt rDoc)")),
+    _f4("ir.count.doc.2", _o4("stimpak") + "SetFunctionValue (rDoc.GetItemCount rObj)"),
+    _f4("ir.removemeir.none", _in("stimpak", "rItem.RemoveMeIR")),
+    _f4("ir.count.player.2.save", _o4("stimpak") + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _f4("ir.readd.stimpak", _o4("stimpak") + "rPlayer.AddItem rObj 3 1\nSetFunctionValue 1", exp="1", page="AddItem"),
+    _f4("ir.removemeir.doc", _in("stimpak", "rItem.RemoveMeIR rDoc")),
+    _f4("ir.count.player.3.save", _o4("stimpak") + "SetFunctionValue (rPlayer.GetItemCount rObj)"),
+    _f4("ir.count.doc.3", _o4("stimpak") + "SetFunctionValue (rDoc.GetItemCount rObj)"),
+    _f4("ir.unequipme", _in("pistol10", "rItem.UnequipMe") .replace("let fRes := rItem.UnequipMe", "rItem.UnequipMe\n    let fRes := 1")),
+    _f4("ir.isequipped.after.unequipme", _in("pistol10", "rItem.IsEquipped")),
+    _f4("ir.equipme", _in("pistol10", "rItem.EquipMe") .replace("let fRes := rItem.EquipMe", "rItem.EquipMe\n    let fRes := 1")),
+    _f4("ir.isequipped.after.equipme", _in("pistol10", "rItem.IsEquipped")),
+    _f4("ir.unequip.again", _o4("pistol10") + "rPlayer.UnequipItem rObj 0 1\nSetFunctionValue 1"),
+    _f4("ir.equipitem2", _o4("pistol10") + "rPlayer.EquipItem2 rObj 0 1\nSetFunctionValue 1"),
+    _f4("ir.getequipped.after.equipitem2", _o4("pistol10") + "SetFunctionValue (rPlayer.GetEquipped rObj)"),
+    # 8. CreateTempRef, kept in a temporary aux variable for the next frame's read.
+    _f4("tempref.valid", _o4("stimpak") + 'let rItem := CreateTempRef rObj\nrPlayer.AuxVarSetRef "*nvfTR" rItem\nSetFunctionValue (IsFormValid rItem)'),
+    _f4("tempref.base", _o4("stimpak") + "let rItem := CreateTempRef rObj\nSetFunctionValue (GetFormIDString (rItem.GetBaseObject))", True),
+    # `rItem.GetRefCount` on a CreateTempRef reference crashed the game (2026-10-27)
+    # [observed]: not probed.
+    _f4("tempref.isinvref", _o4("stimpak") + "let rItem := CreateTempRef rObj\nSetFunctionValue (rItem.IsInventoryRef)"),
+    _f4("tempref.next.frame.valid", 'let rItem := rPlayer.AuxVarGetRef "*nvfTR"\nSetFunctionValue (IsFormValid rItem)'),
+    # Clean-up: everything added comes back off.
+    _f4("cleanup.player", _o4("pistol10", "ammo10") + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\n"
+        "rPlayer.RemoveItem rOther 20 1\n" + _form("rObj", FX["stimpak"])
+        + 'rPlayer.RemoveItem rObj 3 1\nrPlayer.AuxVarErase "*nvfTR"\nSetFunctionValue 1', exp="1", page="cleanup"),
+    _f4("cleanup.doc", _o4("stimpak") + "let fRes := rDoc.GetItemCount rObj\nrDoc.RemoveItem rObj fRes 1\nSetFunctionValue (rDoc.GetItemCount rObj)", exp="0", page="cleanup"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
         "nvse-setters": SETTER_PROBES, "nvse-misc": MISC_PROBES, "nvse-math": MATH_PROBES,
         "nvse-data": DATA_PROBES, "nvse-inv": INV_PROBES, "nvse-second": SECOND_PROBES,
-        "nvse-keynames": KEYNAME_PROBES, "nvse-third": THIRD_PROBES}
+        "nvse-keynames": KEYNAME_PROBES, "nvse-third": THIRD_PROBES, "nvse-fourth": FOURTH_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second"}
+                "nvse-second", "nvse-fourth"}
 
 
 def script(body):

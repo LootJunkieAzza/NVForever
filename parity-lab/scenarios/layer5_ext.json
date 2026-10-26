@@ -325,6 +325,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "nvse", "probes", "third"]
+  },
+  {
+   "id": "L5.ext.nvse.fourth",
+   "layer": 5,
+   "description": "The extender core's other group: BuildRef, local indexes, GetSelfAlt/GetCurrentScript in a runtime query, grids, age class, head parts, leveled characters, FOSE versions, CompareScripts, ResetAllVariables, playable and quest-item setters, ammo and condition of an equipped pistol, inventory-reference actions (CopyIR, CopyIRAlt, RemoveMeIR, EquipMe, UnequipMe, EquipItem2) and CreateTempRef; set nvse-fourth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save or start position.",
+   "oracle": {"golden": "jip/nvse-fourth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_fourth.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "fourth"]
   }
  ]
 }
