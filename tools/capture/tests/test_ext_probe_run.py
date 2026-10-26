@@ -68,6 +68,28 @@ class Crashes(unittest.TestCase):
         self.assertEqual(doc["rows"], [{"id": "len.basic", "value": "5"}])
         self.assertEqual(res["strings"]["compare"]["matched"], 1)
 
+    def test_resume_takes_outcomes_from_console_logs(self):
+        with tempfile.TemporaryDirectory() as d:
+            jobs = [("ext_001_A", "strings", []), ("ext_002_B", "strings", []), ("ext_003_C", "strings", [])]
+            with open(os.path.join(d, "ext_001_A.console.txt"), "w", encoding="utf-8") as f:
+                f.write("EXTPROBE|strings/A|begin\nEXTPROBE|x|1\nEXTPROBE|strings/A|end\n")
+            with open(os.path.join(d, "ext_002_B.console.txt"), "w", encoding="utf-8") as f:
+                f.write("EXTPROBE|strings/B|begin\n")
+            self.assertEqual(er.previous_outcomes(jobs, d), {"ext_001_A": "ended", "ext_002_B": "crashed"})
+
+    def test_settled_jobs_are_not_launched(self):
+        calls = []
+
+        def launch(planned, names, *a, **k):
+            calls.append(list(names))
+            return {"jobs": {n: {"status": "ended"} for n in names}, "problems": []}
+
+        jobs = [("ext_001_A", "s", []), ("ext_002_B", "s", [])]
+        with tempfile.TemporaryDirectory() as d:
+            status, _ = er.run_all(jobs, d, d, None, "save", 60, launch=launch, settled={"ext_001_A": "ended"})
+        self.assertEqual(calls, [["ext_002_B"]])
+        self.assertEqual(status, {"ext_001_A": "ended", "ext_002_B": "ended"})
+
 
 if __name__ == "__main__":
     unittest.main()

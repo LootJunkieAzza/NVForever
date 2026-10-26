@@ -11,7 +11,9 @@ SetConsoleOuputFile]), starts the quest, and waits. capture_run.py then starts t
 original game through nvse_loader.exe, loads the save, runs the jobs and quits.
 
 A crash ends a launch: the job that was running is recorded as crashed and dropped, and
-the game is started again for the jobs left. At the end each set's console logs are
+the game is started again for the jobs left. The C runtime's crash dialog ("Runtime
+Error!") keeps the process alive until OK is pressed, so the game is closed when it
+appears. --resume skips the jobs an earlier run settled. At the end each set's console logs are
 collected with ext_probes.py into <goldens>/ext/<set>.json and compared with the set's
 README (ext-probes/<set>/README.md).
 
@@ -42,6 +44,39 @@ RISKY = {"ExtProbeLoops09", "ExtProbeUdf05"}
 # processing delay (the quests carry that flag); loops/02 adds a second frame.
 WAIT_FRAMES = 600
 REPORT_FORMAT = "fnv.ext.proberun/1"
+
+
+CRASH_DIALOG = "Microsoft Visual C++ Runtime Library"
+
+
+class CrashAwareGame(cr.Game):
+    """The game, treated as gone once the C runtime's crash dialog is up: that dialog keeps
+    the process alive until someone presses OK, so the game is closed instead."""
+
+    def crash_dialog(self):
+        try:
+            import ctypes
+            return bool(ctypes.windll.user32.FindWindowW(None, CRASH_DIALOG))
+        except (AttributeError, OSError):
+            return False
+
+    def running(self):
+        if super().running() and self.crash_dialog():
+            self.kill()
+            return False
+        return super().running()
+
+
+def previous_outcomes(jobs, log_dir):
+    """Jobs an earlier run already settled: its console log has the end marker (ended), or
+    a log without one (the game died during that job: crashed)."""
+    out = {}
+    for name, _, _ in jobs:
+        path = os.path.join(log_dir, f"{name}.console.txt")
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                out[name] = "ended" if "|end" in f.read() else "crashed"
+    return out
 
 
 def probe_scripts(set_name, risky=False):
@@ -93,9 +128,9 @@ def write_job(path_dir, name, steps):
     return path
 
 
-def run_all(jobs, job_dir, capture_dir, game, save, timeout, launch=cr.run, max_launches=200):
+def run_all(jobs, job_dir, capture_dir, game, save, timeout, launch=cr.run, max_launches=200, settled=None):
     """Launch until every job has ended or crashed. Returns {job: "ended" | "crashed" | …}."""
-    status = {name: None for name, _, _ in jobs}
+    status = {name: (settled or {}).get(name) for name, _, _ in jobs}
     paths = {name: write_job(job_dir, name, steps) for name, _, steps in jobs}
     launches = 0
     while any(v is None for v in status.values()) and launches < max_launches:
@@ -151,6 +186,7 @@ def main(argv=None, game=None, launch=cr.run):
     ap.add_argument("--version", default="6.4.9", help="the xNVSE version, recorded in the goldens")
     ap.add_argument("--timeout", type=int, default=900, help="seconds per launch (default 900)")
     ap.add_argument("--dry-run", action="store_true", help="only write the jobs and print the plan")
+    ap.add_argument("--resume", action="store_true", help="skip jobs an earlier run already settled (by their console logs)")
     ap.add_argument("-o", "--output", help="report file (default: stdout)")
     a = ap.parse_args(argv)
     base = os.path.join(a.capture_dir, "ext")
@@ -163,7 +199,7 @@ def main(argv=None, game=None, launch=cr.run):
             write_job(job_dir, name, steps)
         print(json.dumps({"jobs": [n for n, _, _ in jobs], "job_dir": job_dir}, indent=1))
         return 0
-    game = game or cr.Game(a.game)
+    game = game or CrashAwareGame(a.game)
     problem = game.check() or cr.check_save(a.save, os.path.join(os.path.expanduser("~"), "Documents", "My Games", "FalloutNV", "Saves"))
     if problem:
         print(f"ext_probe_run: {problem}", file=sys.stderr)
@@ -174,7 +210,8 @@ def main(argv=None, game=None, launch=cr.run):
     if cr.pending_jobs(a.capture_dir):
         print(f"ext_probe_run: other jobs are pending in {os.path.join(a.capture_dir, 'jobs')}; move them away first", file=sys.stderr)
         return 1
-    status, launches = run_all(jobs, job_dir, a.capture_dir, game, a.save, a.timeout, launch)
+    settled = previous_outcomes(jobs, log_dir) if a.resume else {}
+    status, launches = run_all(jobs, job_dir, a.capture_dir, game, a.save, a.timeout, launch, settled=settled)
     goldens = a.goldens or str(ep.default_goldens())
     report = {"format": REPORT_FORMAT, "save": a.save, "launches": launches,
               "crashed": [n for n, v in status.items() if v == "crashed"],
