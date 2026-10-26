@@ -75,22 +75,19 @@
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockTranslation \"Bip01 Head\" 0\nlet fX := aA[0]\nlet fY := aA[1]\nlet fZ := aA[2]\nSetFunctionValue (sv_Construct \"%.2f %.2f %.2f\" fX fY fZ)\nEnd\n",
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockTranslation \"Bip01 Head\" 0\nSetFunctionValue (ar_Size aA)\nEnd\n",
    "label": "nb.trans.head",
-   "field": "value",
-   "text": true
+   "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockRotation \"Bip01 Head\" 0\nlet fX := aA[0]\nlet fY := aA[1]\nlet fZ := aA[2]\nSetFunctionValue (sv_Construct \"%.2f %.2f %.2f\" fX fY fZ)\nEnd\n",
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockRotation \"Bip01 Head\" 0\nSetFunctionValue (ar_Size aA)\nEnd\n",
    "label": "nb.rot.head",
-   "field": "value",
-   "text": true
+   "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockRotation \"Bip01 Head\" 2\nlet fX := aA[0]\nlet fY := aA[1]\nlet fZ := aA[2]\nSetFunctionValue (sv_Construct \"%.2f %.2f %.2f\" fX fY fZ)\nEnd\n",
+   "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockRotation \"Bip01 Head\" 2\nSetFunctionValue (ar_Size aA)\nEnd\n",
    "label": "nb.rot.head.local",
-   "field": "value",
-   "text": true
+   "field": "value"
   },
   {
    "query": "ref rPlayer\nref rA\nref rObj\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\narray_var aA\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rPlayer.AuxVarGetRef \"*nvfKA\"\nlet aA := rA.GetNifBlockTranslation \"NVFNone\" 0\nSetFunctionValue (ar_Size aA)\nEnd\n",

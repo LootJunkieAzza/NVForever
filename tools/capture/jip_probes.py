@@ -2050,8 +2050,12 @@ SKY_SOUND_PROBES = (
     + [_skv(f"wth.rgb.clouds.layer{c}", _WTH, f"sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 2 1 {c})", True) for c in range(4)]
     + [_sk("wth.rgb.set", _WTH + 'let fRes := GetWeatherRGBColor rW8 3 1\nrPlayer.AuxVarSetFlt "*nvfWC" fRes\n'
            "SetFunctionValue (SetWeatherRGBColor rW8 3 1 16711935)"),
-       _skv("wth.rgb.set.read", _WTH, 'sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1)', True),
-       _skv("wth.rgb.restore", _WTH + 'SetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt "*nvfWC")\nrPlayer.AuxVarErase "*nvfWC"\n',
+       _skv("wth.rgb.set.read", _WTH, 'sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1)', True)]
+    # Where out-of-range parts go: each value set, then read back (the extender core
+    # asked after 16711935 read 16199937).
+    + [_skv(f"wth.rgb.set.{v}", _WTH + f"SetWeatherRGBColor rW8 3 1 {v}\n", 'sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1)', True)
+       for v in (255255255, 0, 1, 255, 256, 1000, 255256000, 255000256, 256000000, 300000000, 12345678, 999999999)]
+    + [_skv("wth.rgb.restore", _WTH + 'SetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt "*nvfWC")\nrPlayer.AuxVarErase "*nvfWC"\n',
             'sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1)', True)]
     + [_skv(f"wth.imod.time{t}", _WTH, f"GetFormIDString (GetWeatherImageSpaceMod rW8 {t})", True) for t in range(4)]
     # Image space and image-space modifier.
@@ -2080,6 +2084,13 @@ _HK = ("ref rPlayer\nref rA\nref rObj\nfloat fRes\nstring_var sText\narray_var a
 _GETA = 'let rA := rPlayer.AuxVarGetRef "*nvfKA"\n'
 _JOIN = ("let fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n"
          "  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText")
+# The active list after ActivateAnim came back in another order on a second run, and
+# ar_Sort does not compile at run time: that row keeps the size and whether each of the
+# three sequences is in it.
+_HAS3 = ("SetFunctionValue (sv_Construct \"%g %g %g %g\" (ar_Size aA) "
+         "((ar_Find \"Characters\\_Male\\h2hidle.kf\" aA) >= 0) "
+         "((ar_Find \"Characters\\_Male\\Locomotion\\mtidle.kf\" aA) >= 0) "
+         "((ar_Find \"characters\\_male\\idleanims\\cg03dadsmilestanding.kf\" aA) >= 0))")
 
 
 def _kn(pid, body, text=False):
@@ -2094,8 +2105,11 @@ KNVSE_PROBES = [
     _kn("kn.place", _form("rObj", NF["doc"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKA" rA\nSetFunctionValue 1'),
     _kn("kn.settle", "SetFunctionValue 1"),
     _kn("kn.settle2", "SetFunctionValue 1"),
-    _kn("kn.playing.paths", _GETA + "let aA := rA.GetPlayingAnimSequencePaths\n" + _JOIN, True),
-    _kn("kn.active", _GETA + "let aA := rA.GetActiveAnims 0\n" + _JOIN, True),
+] + [_kn(f"kn.settle{i}", "SetFunctionValue 1") for i in range(3, 6)] + [
+    # What plays right after placing depends on blend timing (runs gave the idle, empty
+    # slots, or a __TempBlendSequence__, and GetPlayingAnimSequencePaths gave ar_Null in
+    # some runs): only whether anything is active is kept.
+    _kn("kn.active", _GETA + "let aA := rA.GetActiveAnims 0\nSetFunctionValue ((ar_Size aA) > 0)"),
     _knv("kn.animplaying.idle", "rA.IsAnimPlayingAlt Idle"),
     _knv("kn.seq.mtidle", f'rA.IsAnimSequencePlaying "{_KF_IDLE}"'),
     _kn("kn.bygroup.idle", _GETA + "let aA := rA.GetAnimationsByAnimGroup Idle\n" + _JOIN, True),
@@ -2112,14 +2126,15 @@ KNVSE_PROBES = [
     _kn("kn.play.attrs", _GETA + f'let aA := ar_Keys (rA.GetAnimationAttributes "{_KF_SMILE}")\n' + _JOIN, True),
     _kn("kn.activate", _GETA + f'rA.ActivateAnim "{_KF_H2H}" 0 2 1 1 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_H2H}")'),
     _knv("kn.activate.next", f'rA.IsAnimSequencePlaying "{_KF_H2H}"'),
-    _kn("kn.activate.active", _GETA + "let aA := rA.GetActiveAnims 0\n" + _JOIN, True),
+    _kn("kn.activate.active", _GETA + "let aA := rA.GetActiveAnims 0\n" + _HAS3, True),
     _kn("kn.deactivate", _GETA + f'rA.DeactivateAnim "{_KF_H2H}" 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_H2H}")'),
     _knv("kn.deactivate.next", f'rA.IsAnimSequencePlaying "{_KF_H2H}"'),
     # ForcePlayIdle / ForceStopIdle.
     _kn("kn.idle.play", _GETA + _form("rObj", FX["idlehouse"]) + "rA.ForcePlayIdle rObj\nSetFunctionValue (rA.IsIdlePlayingEx rObj)"),
     _kn("kn.idle.next", _GETA + _form("rObj", FX["idlehouse"]) + "SetFunctionValue (rA.IsIdlePlayingEx rObj)"),
-    _kn("kn.idle.stop", _GETA + _form("rObj", FX["idlehouse"]) + "rA.ForceStopIdle\nSetFunctionValue (rA.IsIdlePlayingEx rObj)"),
-    _kn("kn.idle.stop.next", _GETA + _form("rObj", FX["idlehouse"]) + "SetFunctionValue (rA.IsIdlePlayingEx rObj)"),
+    # Whether the idle still plays after ForceStopIdle varied between runs (1 or 0, also
+    # three frames later), so ForceStopIdle is only called here, not read back.
+    _kn("kn.idle.stop", _GETA + "rA.ForceStopIdle\nSetFunctionValue 1"),
     # A weapon's animation override.
     _kn("kn.weappath", _form("rObj", NF["pistol10"]) + f'SetFunctionValue (SetWeaponAnimationPath rObj 0 1 "{_KF_JUMP}")'),
     _kn("kn.weappath.off", _form("rObj", NF["pistol10"]) + f'SetFunctionValue (SetWeaponAnimationPath rObj 0 0 "{_KF_JUMP}")'),
@@ -2160,9 +2175,11 @@ NIF_PROBES = [
     _nb("nb.children.head", _GETA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True),
     _nb("nb.children.missing", _GETA + 'let aA := rA.GetChildBlocks "NVFNone"\nSetFunctionValue (ar_Size aA)'),
     _nb("nb.parents.head", _GETA + 'let aA := rA.GetNifBlockParentNodes "Bip01 Head"\n' + _JOIN, True),
-    _nb("nb.trans.head", _GETA + 'let aA := rA.GetNifBlockTranslation "Bip01 Head" 0\n' + _V3, True),
-    _nb("nb.rot.head", _GETA + 'let aA := rA.GetNifBlockRotation "Bip01 Head" 0\n' + _V3, True),
-    _nb("nb.rot.head.local", _GETA + 'let aA := rA.GetNifBlockRotation "Bip01 Head" 2\n' + _V3, True),
+    # The head's pose follows the idle animation (two runs differed in the second
+    # decimal): only the vector's size is kept.
+    _nb("nb.trans.head", _GETA + 'let aA := rA.GetNifBlockTranslation "Bip01 Head" 0\nSetFunctionValue (ar_Size aA)'),
+    _nb("nb.rot.head", _GETA + 'let aA := rA.GetNifBlockRotation "Bip01 Head" 0\nSetFunctionValue (ar_Size aA)'),
+    _nb("nb.rot.head.local", _GETA + 'let aA := rA.GetNifBlockRotation "Bip01 Head" 2\nSetFunctionValue (ar_Size aA)'),
     _nb("nb.trans.missing", _GETA + 'let aA := rA.GetNifBlockTranslation "NVFNone" 0\nSetFunctionValue (ar_Size aA)'),
     _nbv("nb.scale.head", 'rA.GetNifBlockScale "Bip01 Head"'),
     _nbv("nb.scale.missing", 'rA.GetNifBlockScale "NVFNone"'),

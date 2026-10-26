@@ -297,3 +297,13 @@ fine; only the NVForever application must never write into it.
 its script functions are probed through the DLL. MCM.dll made `Data\Config\MCM.ini` on
 its own at start-up, so `Data\Config` now stays, holding only that file; the probe files
 are still removed after each run.
+
+## Probing extender state across saves needs a save in your saves folder (2026-10-26)
+
+The extender core asked for N12 probes: set aux variables, ref maps, arrays and string
+variables in the game, save, load, and read them back, to learn what the extenders keep in
+a save. In the original game a save is written to `Documents\My Games\FalloutNV\Saves`,
+which you have not cleared for probes the way you cleared the game install. Not done.
+*Check:* say whether probe runs may write one save there (named `nvfprobe`, removed after
+the run, your own saves untouched; the capture tool already backs up the rolling saves). Until then
+N12 is built from the wiki (ext-save.md) and NVForever's own round-trip tests.
