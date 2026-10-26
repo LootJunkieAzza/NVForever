@@ -25,6 +25,8 @@ from the output, and the error text appears in its place.
 
 Note (2026-10-25): the GECK cuts a line at `;` even inside quotes ("Mismatched quotes"), so no probe string contains `;`.
 
+Note (2026-10-26): starting `ExtProbeStrings02Q` crashed the game with no script error in `nvse.log`, so its six undocumented edge cases (empty replace, insert at and past the end, erase past the end, out-of-range slice, GetChar past the end) now have one script each, 05–10. Run them one at a time; the one that crashes is the answer for its probe.
+
 ## Line format
 
 ```
@@ -58,20 +60,20 @@ EXTPROBE|<id>|<value>
 | 02_edit | `replace.result` | `sS` | `[a+b+c]` | [documented: Sv Replace] |
 | 02_edit | `replace.max1` | `sS` | `[a+b-c]` | [documented: Sv Replace] |
 | 02_edit | `replace.nocase` | `sS` | `[xx]` | [documented: Sv Replace] |
-| 02_edit | `replace.empty_old` | `sS` | observe | — |
+| 05_replace_empty_old | `replace.empty_old` | `sS` | observe | — |
 | 02_edit | `insert.start` | `sS` | `[Hello]` | [documented: Sv Insert] |
-| 02_edit | `insert.end` | `sS` | observe (Hello expected by analogy) | — |
-| 02_edit | `insert.past_end` | `sS` | observe | — |
+| 06_insert_end | `insert.end` | `sS` | observe (Hello expected by analogy) | — |
+| 07_insert_past_end | `insert.past_end` | `sS` | observe | — |
 | 02_edit | `erase.count` | `sS` | `[adef]` | [documented: Sv Erase] |
 | 02_edit | `erase.to_end` | `sS` | `[ab]` | [documented: Sv Erase] |
-| 02_edit | `erase.past_end` | `sS` | observe | — |
+| 08_erase_past_end | `erase.past_end` | `sS` | observe | — |
 | 02_edit | `substring` | `Sv_SubString sS, 1, 3` | `[bcd]` | [documented: Sv SubString] |
 | 02_edit | `slice.inclusive` | `sS[1:3]` | `[bcd]` | [documented: NVSE Expressions; Sv SubString] |
 | 02_edit | `slice.negative` | `sS[-3:-1]` | `[def]` | [documented: NVSE Expressions; Sv SubString] |
-| 02_edit | `slice.out_of_range` | `sS[4:10]` | observe | — |
+| 09_slice_out_of_range | `slice.out_of_range` | `sS[4:10]` | observe | — |
 | 02_edit | `subscript` | `sS[0]` | `[a]` | [documented: NVSE Expressions] |
 | 02_edit | `getchar` | `Sv_GetChar sS, 0` | `65` | [documented: Sv GetChar] |
-| 02_edit | `getchar.out` | `Sv_GetChar sS, 9` | observe | — |
+| 10_getchar_out | `getchar.out` | `Sv_GetChar sS, 9` | observe | — |
 | 03_split_case_compare | `split.size` | `Ar_Size aA` | `3` | [documented: Sv Split] |
 | 03_split_case_compare | `split.last` | `aA[2]` | `[c]` | [documented: Sv Split] |
 | 03_split_case_compare | `split.keeps_spaces` | `aA[1]` | `[ b]` | [documented: Sv Split] |
