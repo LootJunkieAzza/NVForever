@@ -149,7 +149,8 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
 }
 
 /// The probe set of a query job (its name with `_` as `-`, as jip_probes.py names the
-/// golden) and the runner input: one `query` action per step, in order.
+/// golden) and the runner input: one `query` action per step, in order, each followed by
+/// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4).
 pub(crate) fn query_input(job: &Value) -> anyhow::Result<(String, Value)> {
     anyhow::ensure!(job["format"] == "fnv.capture.steps/1", "not a fnv.capture.steps/1 job");
     let set = job["name"].as_str().context("job without a name")?.replace('_', "-");
@@ -158,6 +159,7 @@ pub(crate) fn query_input(job: &Value) -> anyhow::Result<(String, Value)> {
         let script = s["query"].as_str().context("a step without a query (only query jobs run here)")?;
         let label = s["label"].as_str().context("a step without a label")?;
         actions.push(json!({"op": "query", "script": script, "label": label, "text": s["text"].as_bool().unwrap_or(false)}));
+        actions.push(json!({"op": "wait_frames", "frames": 1}));
     }
     Ok((set, json!({"format": "fnv.script.actions/1", "new_game": false, "actions": actions})))
 }
@@ -697,8 +699,9 @@ End
         ]});
         let (set, input) = query_input(&job).unwrap();
         assert_eq!(set, "jip-forms");
-        assert_eq!(input["actions"][1]["op"], "query");
-        assert_eq!(input["actions"][1]["text"], true);
+        assert_eq!(input["actions"][1], json!({"op": "wait_frames", "frames": 1}));
+        assert_eq!(input["actions"][2]["op"], "query");
+        assert_eq!(input["actions"][2]["text"], true);
         let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
         assert!(query_input(&json!({"format": "fnv.capture.steps/1", "name": "x", "steps": [{"console": "tgm"}]})).is_err());
 
