@@ -998,6 +998,9 @@ pub struct Game<'a> {
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
+    /// The rounds in the player's magazine, as the engine's combat has them (None without
+    /// the engine).
+    pub player_magazine: Option<u32>,
     /// SetIsPlayable's changes, for the session.
     pub(crate) playable_overrides: std::collections::HashMap<FormId, bool>,
     /// What GetNextRef gives next (GetFirstRef's walk).
@@ -1592,6 +1595,7 @@ impl<'a> Game<'a> {
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
+            player_magazine: None,
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -4459,6 +4463,13 @@ impl Host for Exec<'_, '_> {
 
     fn body_part_name(&mut self, form: u32, part: i64) -> Option<String> {
         self.game.data.body_part_name(FormId(form), part)
+    }
+
+    fn current_script(&mut self) -> Option<u32> {
+        match self.unit.unit.owner {
+            fnv_script::UnitOwner::Script { form } => Some(form),
+            _ => None,
+        }
     }
 
     fn local_var(&mut self, name: &str) -> Option<VarRef> {

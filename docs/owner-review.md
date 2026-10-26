@@ -169,15 +169,9 @@ game. Nothing here is urgent; each item unblocks part of the work.
    scancodes, the controller button and trigger codes, the known plugin names,
    GetCurrentEventName, DispatchEventAlt and sUActn: thank you. Still missing, minor:
    **Player Character String Codes** (ext-format.md).
-2. **The GECK with xNVSE loaded**, to compile, in a private test plugin of yours:
-   `tools/capture/ext-compile/` (23 cases; note what the GECK says for each) and the
-   probe sets in `tools/capture/ext-probes/` (strings, expressions, arrays, loops, udf;
-   each README says how). Then load a save, keep the console text, and run
-   `python tools/capture/ext_probes.py collect <console text> --set <name>`: it writes
-   the private golden, and `compare` checks it against the README. The runaway loop
-   (loops/09) and deep recursion (udf/05) are run last, by hand: they may crash the game.
-3. **`ExtProbeList`**: a form list in that test plugin with three or more forms of your
-   choice, for the form-list `foreach` probe (loops/02).
+2. *Done 2026-10-25/26:* the GECK compile cases (results in ext-bytecode.md, #812), the
+   probe sets with `ExtProbeList` (goldens collected; the L5.ext.nvse lab now matches
+   225 of 228). Two newer GECK cases (24, 25) are in #831.
 4. **Which xNVSE version to target.** The captures so far ran under 6.4.9; the wiki
    marks many features by version (6.1 through 6.4.9). *Default if you don't say:* match
    6.4.9, the version installed.
@@ -260,9 +254,8 @@ The L5.ext.nvse.* lab run of the extender branch (ext-compiler 1d2ee60b) matched
 (`nvfairport`): ToString of the player (your character's name) and the two counts of
 the player's inventory (27 item kinds). `fnvtool ext probes` loads no save, so it cannot
 match them. Nothing is marked or loosened in the lab: they stay failing until the lab
-can start from a save. *Check:* whether NVForever's lab may read your save (read-only,
-private, like the goldens). The default if you say nothing is to wait for the engine's
-save loading.
+can start from a save. *Answered 2026-10-26:* the lab may read your save (read-only,
+private, like the goldens).
 
 ## Two GECK compile cases for when you are back (2026-10-26)
 

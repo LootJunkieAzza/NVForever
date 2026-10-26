@@ -367,6 +367,13 @@ impl Gen<'_> {
             None if self.in_args && name.len() == 1 && matches!(name.to_ascii_uppercase().as_str(), "X" | "Y" | "Z") => {
                 Some(XExpr::Axis { c: name.to_ascii_uppercase().chars().next().unwrap_or('Z') })
             }
+            // Any other bare word that names nothing is its own text, with the editor's
+            // "Unquoted argument" warning [observed: nvse-fourth, `SetFunctionValue
+            // GetFOSEVersion` returns the text "GetFOSEVersion" in xNVSE 6.4.9].
+            None if self.in_args => {
+                self.diag("unquoted_argument", false, name.to_string());
+                Some(XExpr::Str { s: name.to_string() })
+            }
             None => self.xerr("unresolved_name", name.to_string()),
         }
     }
