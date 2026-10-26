@@ -49,6 +49,12 @@ pub fn update_roots(f: impl FnOnce(&mut Roots)) {
     }
 }
 
+/// Whether a Data path is a file of the game: in a read root or in an archive.
+pub fn exists(path: &str) -> bool {
+    let r = roots();
+    r.read.iter().any(|root| root.join(path).is_file()) || r.lookup.as_ref().is_some_and(|f| f(path) > 0)
+}
+
 fn roots() -> Roots {
     ROOTS.lock().ok().and_then(|g| g.clone()).unwrap_or_default()
 }

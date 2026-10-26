@@ -197,7 +197,16 @@ fn tell(
             None => (MoveDir::None, Some("Idle")),
         };
         let forced_hit = flinch.is_some_and(|f| f.forced && clock < f.at + f.clip.clip.length());
-        let st = AnimState { action, moving, group, iron_sights: false, throwing: false, mine: false, forced_hit, at: 0.0 };
+        // The clip its body plays, without the `meshes\` its path starts with (kNVSE's
+        // sequence paths are under meshes).
+        let clip = lo.and_then(|l| l.set.clips.get(&l.blend.cur.mv)).map(|c| {
+            let p = c.path.replace('/', "\\");
+            match p.get(..7) {
+                Some(head) if head.eq_ignore_ascii_case("meshes\\") => p[7..].to_string(),
+                _ => p,
+            }
+        });
+        let st = AnimState { action, moving, group, iron_sights: false, throwing: false, mine: false, forced_hit, at: 0.0, clip };
         if !told.contains(&rig.reference) && stats.actors.contains(&rig.reference) {
             stats.again += 1;
             if stats.again <= LOGGED_CHANGES {
@@ -232,7 +241,7 @@ fn tell(
     let throwing = clock - began < fnv_game::anim_state::THROW_ACTION_SECONDS;
     // IsPlayerActionActive 4 instead of 2 for a mine (a land mine or mine drop weapon).
     let mine = throwing && combat.as_deref().is_some_and(|c| c.player_weapon_is_mine());
-    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, mine, forced_hit: false, at: 0.0 };
+    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, mine, forced_hit: false, at: 0.0, clip: None };
     stats.note(FormId::PLAYER_REF.0, &st);
     g.set_anim_state(FormId::PLAYER_REF, st);
     // Actors no longer drawn are forgotten (they read as doing nothing).

@@ -1017,6 +1017,8 @@ pub struct Game<'a> {
     pub mod_files: crate::mod_files::ModFiles,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
     pub traits: crate::nvse_traits::TraitState,
+    /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
+    pub anim_paths: crate::nvse_anim::AnimPaths,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
@@ -1644,6 +1646,7 @@ impl<'a> Game<'a> {
             jip2: Default::default(),
             mod_files: Default::default(),
             traits: Default::default(),
+            anim_paths: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
