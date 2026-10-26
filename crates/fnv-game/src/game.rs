@@ -4247,6 +4247,14 @@ impl Host for Exec<'_, '_> {
         crate::functions::base_of(self.game, FormId(form)).map(|b| b.0)
     }
 
+    fn mod_name(&mut self, index: u32) -> Option<String> {
+        self.game.data.load_order.get(index as usize).cloned()
+    }
+
+    fn actor_value_code(&mut self, name: &str) -> Option<u16> {
+        crate::functions::av_code(self.game, name).ok()
+    }
+
     fn mod_index(&mut self, name: &str) -> Option<u32> {
         self.game.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(name)).map(|i| i as u32)
     }

@@ -316,6 +316,18 @@ impl Host for Locals {
     fn call(&mut self, _opcode: u16, _on: Option<Value>, _args: &[ArgValue]) -> Result<Value, String> {
         Ok(Value::Num(4.0))
     }
+    fn mod_name(&mut self, index: u32) -> Option<String> {
+        (index == 0).then(|| "FalloutNV.esm".to_string())
+    }
+    fn mod_index(&mut self, name: &str) -> Option<u32> {
+        name.eq_ignore_ascii_case("FalloutNV.esm").then_some(0)
+    }
+    fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
+        (form == 0x14 || form == 0x104C0C).then_some(*b"NPC_")
+    }
+    fn actor_value_code(&mut self, name: &str) -> Option<u16> {
+        name.eq_ignore_ascii_case("Strength").then_some(5)
+    }
 }
 
 /// A host whose string variables are the compiled unit's `string_var`s.
@@ -653,10 +665,10 @@ fn sv_functions() {
 
 #[test]
 fn printc_and_version_reports() {
-    let h = run("float v\nfloat p\nbegin GameMode\nPrintC \"v%g\", 1\nPrint \"x\" + $2\nlet v := GetNVSEVersion\nlet p := GetPluginVersion \"JIP NVSE Plugin\"\nend");
+    let h = run("float v\nfloat p\nbegin GameMode\nPrintC \"v%g\", 1\nPrint \"x\" + $2\nlet v := GetNVSEVersion\nlet p := GetPluginVersion \"ShowOff xNVSE Plugin\"\nend");
     assert_eq!(h.4, ["v1", "x2"]);
     assert_eq!(h.0[&1], Value::Num(6.0));
-    assert_eq!(h.0[&2], Value::Num(-1.0), "no plugin is reported until its module exists");
+    assert_eq!(h.0[&2], Value::Num(-1.0), "a plugin without a module here is absent");
 }
 
 #[test]
@@ -693,6 +705,43 @@ fn math_and_rand() {
     assert_eq!(h.0[&1], Value::Num(2.0), "degrees [observed]");
     assert_eq!(h.0[&2], Value::Num(5.0));
     assert_eq!(h.0[&3], Value::Num(10.0));
+}
+
+#[test]
+fn jip_reports_and_pure_functions() {
+    let h = run(
+        "float i
+float v
+float a
+float q
+float m
+float av
+float ok
+string_var n
+string_var s
+ref r
+begin GameMode
+let i := IsPluginInstalled \"JIP NVSE Plugin\"
+let v := GetPluginVersion \"jip nvse plugin\"
+let a := Fatan2 1, -1
+let q := Fsqrt -1
+let m := GetMaxOf 1, 7, 3
+let av := StringToActorValue \"strength\"
+let ok := ValidateModIndex 200
+let n := GetModName 0
+let r := StringToRef \"FalloutNV.esm:104C0C\"
+let s := RefToString r
+end",
+    );
+    assert_eq!(h.0[&1], Value::Num(1.0));
+    assert_eq!(h.0[&2], Value::Num(57.3));
+    assert_eq!(h.0[&3], Value::Num(135.0), "[observed]");
+    assert_eq!(h.0[&4], Value::Num(0.0), "[observed]");
+    assert_eq!(h.0[&5], Value::Num(7.0));
+    assert_eq!(h.0[&6], Value::Num(5.0));
+    assert_eq!(h.0[&7], Value::Num(-1.0));
+    assert_eq!(h.text(8), "FalloutNV");
+    assert_eq!(h.text(9), "FalloutNV.esm:104C0C");
 }
 
 #[test]

@@ -12,6 +12,9 @@ use crate::table::FunctionTable;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod jip;
+pub use jip::{JIP_NAMES, JIP_VERSION};
+
 /// A script value. Numbers are kept as `f64` [observed: float variables keep
 /// 16777217, 0.1 and 3000000000.5 exactly, so they are not single precision;
 /// docs/spec-notes/scripts.md §4.1]. A reference is a load-order FormID; 0 is "none".
@@ -207,6 +210,14 @@ pub trait Host {
     }
     /// A plugin's load-order index, by file name.
     fn mod_index(&mut self, _name: &str) -> Option<u32> {
+        None
+    }
+    /// The file name of the plugin at a load-order index.
+    fn mod_name(&mut self, _index: u32) -> Option<String> {
+        None
+    }
+    /// An actor value's code by name, without regard to case.
+    fn actor_value_code(&mut self, _name: &str) -> Option<u16> {
         None
     }
     /// GetGameLoaded (`restarted` false) or GetGameRestarted for the running script.
@@ -2393,14 +2404,22 @@ impl Vm<'_, '_> {
             }
             // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4
             // [decision: the version whose behaviour these tasks follow; how a version
-            // splits into the three numbers is open]. No extender plugin is reported until
-            // its module exists: IsPluginInstalled 0, GetPluginVersion -1 [documented: -1
-            // when absent].
+            // splits into the three numbers is open]. A plugin without a module here is
+            // absent: IsPluginInstalled 0, GetPluginVersion -1 [documented: -1 when absent].
             "getnvseversion" => XVal::Num(6.0),
             "getnvserevision" => XVal::Num(4.0),
             "getnvsebeta" => XVal::Num(0.0),
-            "isplugininstalled" => XVal::Num(0.0),
-            "getpluginversion" => XVal::Num(-1.0),
+            // JIP LN is NVForever's own module (task J4): reported installed at the version
+            // its functions follow.
+            "isplugininstalled" | "getpluginversion" => {
+                let p = text(val(self, 0)?).unwrap_or_default();
+                let jip = JIP_NAMES.iter().any(|j| j.eq_ignore_ascii_case(&p));
+                XVal::Num(match (n, jip) {
+                    ("isplugininstalled", j) => f64::from(u8::from(j)),
+                    (_, true) => JIP_VERSION,
+                    (_, false) => -1.0,
+                })
+            }
             _ => return Ok(None),
         }))
     }
@@ -2408,8 +2427,17 @@ impl Vm<'_, '_> {
     /// The extender's own functions, by catalogue name (task D): the conversions of B1,
     /// the arrays of D2, the strings of D1, output and the version reports so far.
     fn ext_function(&mut self, name: &str, c: &XCall) -> Result<XVal, VmError> {
-        if let Some(v) = self.string_function(&name.to_ascii_lowercase(), c)? {
+        let lname = name.to_ascii_lowercase();
+        if let Some(v) = self.string_function(&lname, c)? {
             return Ok(v);
+        }
+        // JIP LN's and lutana's functions (catalogue origins JIP, LU).
+        let origin = self.table.unnumbered.get(&lname).map(|u| u.origin.clone()).unwrap_or_default();
+        if origin == "JIP" || origin == "LU" {
+            return match self.jip_function(&lname, c)? {
+                Some(v) => Ok(v),
+                None => Err(VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
+            };
         }
         let arg = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
             match c.args.get(k) {
