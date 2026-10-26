@@ -34,8 +34,8 @@ shots are aimed from the eyes and drawn from the weapon's muzzle (§9).
 - At 0 health the player dies: every control is held (`ScriptState::locks`), the screen
   says "You are dead." The death camera (`engine/nvforever/src/death_cam.rs`, owner
   request 2026-10-16) [design, every constant]: the body drops as a ragdoll; in first
-  person the view stays fixed to its head, in third person the camera stays on the body
-  and turns to it; the game slows to a quarter speed for about 4 s and the picture blurs
+  person the view stays fixed to its head, in third person the camera keeps its place
+  and turns to the body (owner 2026-10-25); the game slows to a quarter speed for about 4 s and the picture blurs
   (`--death-imod` also plays an image space modifier). Reloading the last save is not
   built.
   Those fighting the player see their target dead and go back to Normal (alert.md §3).

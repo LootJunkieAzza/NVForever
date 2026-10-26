@@ -8,12 +8,13 @@
 //! - **First person**: the camera stays fixed to the head: where it was against the head
 //!   bone when the player died, it stays, turning and falling with the head as the
 //!   ragdoll drops.
-//! - **Third person**: the camera keeps its place against the body's chest (it follows
-//!   the body if it slides or rolls away) and turns to look at it over [`LOOK_IN`].
-//! - Both views are kept in front of walls and floors between the bone they follow and
-//!   the camera (the third-person camera's rule, `nvf_play::control::place_camera`), and
-//!   eased towards where they want to be over [`FOLLOW`] so that the ragdoll's small
-//!   shakes do not shake the picture.
+//! - **Third person** (owner 2026-10-25: "don't reposition the camera, keep it where it
+//!   is"): the camera stays where it was when the player died and only turns, to look at
+//!   the body's chest over [`LOOK_IN`] and to keep looking at it if it slides or rolls.
+//! - The first-person view is kept in front of walls and floors between the head and the
+//!   camera (the third-person camera's rule, `nvf_play::control::place_camera`); both
+//!   views are eased towards where they want to be over [`FOLLOW`] so that the ragdoll's
+//!   small shakes do not shake the picture.
 //! - Without a body (`--no-actors`) or a ragdoll for its skeleton the view sinks to the
 //!   floor where the player stood, turning over onto its side in first person.
 //! - **Slow motion**: the game clock (`nvf_play::script::ClockScale`, on top of
@@ -150,8 +151,8 @@ struct Down {
 enum View {
     /// First person: the camera's place and turn in the head bone's frame.
     Head { bone: usize, at: Vec3, turn: Quat },
-    /// Third person: the camera's offset from the bone it looks at, and the turn it had.
-    Body { bone: usize, offset: Vec3, from: Quat, since: f32 },
+    /// Third person: the bone it looks at, the camera's place and turn when the player died.
+    Body { bone: usize, at: Vec3, from: Quat, since: f32 },
     /// No body: the camera as placed when the player died, and the feet (Bevy space).
     Sink { start: Transform, feet: Vec3 },
 }
@@ -236,7 +237,7 @@ pub(crate) fn watch(
                 if third { "third" } else { "first" },
                 match (&body, third) {
                     (Some(_), false) => "the body drops as a ragdoll, the view stays on its head",
-                    (Some(_), true) => "the body drops as a ragdoll, the camera stays on it",
+                    (Some(_), true) => "the body drops as a ragdoll, the camera stays put and looks at it",
                     (None, _) => "no ragdoll for the body, the view sinks to the floor",
                 }
             );
@@ -347,7 +348,7 @@ fn follow(
         let chest = bone(&BODY_BONES).filter(|_| d.third);
         d.view = Some(match (head.and_then(|h| Some((h, world(h)?))), chest.and_then(|c| Some((c, world(c)?)))) {
             (Some((h, (at, turn))), _) => View::Head { bone: h, at: turn.inverse() * (t.translation - at), turn: turn.inverse() * t.rotation },
-            (_, Some((c, (at, _)))) => View::Body { bone: c, offset: t.translation - at, from: t.rotation, since: d.real },
+            (_, Some((c, _))) => View::Body { bone: c, at: t.translation, from: t.rotation, since: d.real },
             _ => View::Sink { start: *t, feet: space::to_bevy(player.as_ref().map_or(space::to_game(t.translation), |p| p.feet)) },
         });
     }
@@ -356,11 +357,10 @@ fn follow(
             let Some((head, r)) = world(*bone) else { return };
             Transform::from_translation(clear(&mut phys, head, head + r * *at)).with_rotation(r * *turn)
         }
-        Some(View::Body { bone, offset, from, since }) => {
+        Some(View::Body { bone, at, from, since }) => {
             let Some((chest, _)) = world(*bone) else { return };
-            let at = clear(&mut phys, chest, chest + *offset);
-            let look = Transform::from_translation(at).looking_at(chest, Vec3::Y).rotation;
-            Transform::from_translation(at).with_rotation(from.slerp(look, smoothstep((d.real - since) / LOOK_IN)))
+            let look = Transform::from_translation(*at).looking_at(chest, Vec3::Y).rotation;
+            Transform::from_translation(*at).with_rotation(from.slerp(look, smoothstep((d.real - since) / LOOK_IN)))
         }
         Some(View::Sink { start, feet }) => {
             let k = smoothstep(d.game / SINK);
