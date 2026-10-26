@@ -45,11 +45,11 @@ What already exists (checked 2026-10-25):
 | N1 | Done: `core_family` on the 77 core functions; the wiki lists only three aliases for these families, all already in the catalogue | #768 |
 | N2 | Tool built: `fnvtool ext scan` counts extender functions, syntax lines and source-less extender units per plugin (every count 0 over the ten masters); the ranked table waits for the owner's mod list | #797 |
 | C1 | Built except the per-mod log of unregistered extender functions, which needs extender dispatch: name-keyed `ext_registry()`, one name index over the game, console and extender registries, alias lookup, `origin` in `fnvtool script stubs` | #762, #773 |
-| C2–C4 | Not started | — |
-| C5 | Spec written (`ext-version.md`); not built | #798 |
-| D1–D6 | Spec only: implementation tables for D1–D5 (`ext-strings`, `ext-arrays`, `ext-udf`, `ext-format`, `ext-forms`), D6 in `ext-input.md`; no code | #789, #790, #796 |
-| E1–E3 | Spec only: function and event tables in `ext-events.md` | #781, #799 |
-| B1–B8, F1–F2 | Not started | — |
+| C2–C4 | Built: extender functions by name in the VM (`vm.rs`, `vm/jip.rs`) and, for those on the game, `Host::ext_call` → `crates/fnv-game/src/nvse.rs` and its sibling files; format strings (C4) | #765 |
+| C5 | Built: GetNVSEVersion 6 / revision 4 / beta 0; IsPluginInstalled and GetPluginVersion report JIP LN 57.3 and no other plugin | #765 |
+| D1–D6 | Built: strings, arrays, UDFs and lambdas, the delayed calls (`fnv-game/src/delayed.rs`), output (MessageEx, MessageBoxEx, DebugPrint, SetDebugMode), forms and types, input (`fnv-game/src/script_input.rs`, engine `script_input.rs`); the in-game probe lab matches 225 of 228 rows (the 3 others need the owner's save) | #765 |
+| E1–E3 | Built: SetEventHandler/Alt, RemoveEventHandler, DispatchEvent/Alt, firing points load, save, new game, OnHit, OnDeath, OnActivate; registrations last for the session | #765 |
+| B1–B8, F1–F2 | Built: values, string and array tables, the new statements, foreach's temporary inventory references (B5), errors, UDFs, lambdas (B8: a lambda of a function script sees its variables as they were when it was made, hypothesis on later changes); strings, arrays and lambdas in the save (F1); F2's smoke waits on the probe plugin | #765 |
 
 ## 1. Evidence tooling (G): starts first, runs alongside everything else
 

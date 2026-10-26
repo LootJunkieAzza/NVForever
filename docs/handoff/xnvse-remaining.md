@@ -28,7 +28,14 @@ usage, skill, type, is automatic, has scope, long bursts), GetWeight, GetItemVal
 GetBaseHealth, GetArmorArmorRating, GetArmorDT, GetAmmoSpeed, GetAmmoConsumedPercent,
 GetAmmoCasing, GetName, GetParentCell, GetInventoryObject, GetEquippedObject, and the
 form-list functions ListGetNthForm, ListGetFormIndex, ListAddForm, ListRemoveForm,
-ListRemoveNthForm, ListClear (session-only changes [documented: ListAddForm]). In the VM:
+ListRemoveNthForm, ListClear (session-only changes [documented: ListAddForm]); the
+delayed calls (`delayed.rs`); GetFirstRef/GetNextRef/GetNumRefs and the …InCell forms,
+GetRefs/GetRefsInCell, GetParentWorldspace, IsPersistent, GetOwner (`nvse_refs.rs`); the
+variables by name (Get/Set/HasVariable, Get/SetRefVariable, Get/SetStringVariable,
+GetArrayVariable), GetScript, IsScripted, GetRace, GetNthModName, GetNumLoadedMods,
+GetEquipType, GetRepairList, GetModelPath, GetIconPath; the input functions
+(`script_input.rs`, task D6). In the VM: the character and bit functions (IsDigit …
+ToLower, CharToAscii, AsciiToChar, Get/Set/ClearBit, shifts, Logical…, IntToBin),
 GetBaseObject, ListGetCount, GetNumItems, IsFormValid, IsReference, the D1–D5 tables.
 
 ## 3. Not built, by family (catalogue origins NVSE and FOSE1)
@@ -63,12 +70,8 @@ Statements (`let`, `while` …) are left out.
 
 ## 4. Order
 
-1. References and cells (GetFirstRef/GetNextRef/GetNumRefs, GetParentWorldspace,
-   GetOwner, IsPersistent, GetRefCount …): mods walk cells with them.
-2. Delayed calls (CallAfterSeconds, CallAfterFrames, CallWhile, CallWhen,
-   CallForSeconds): task D3's rest, on `Game::tick`.
-3. Input (IsKeyPressed, GetControl, DisableKey …, task D6): needs the engine's input in
-   fnv-game's state; engine side.
+1. Done 2026-10-26: references and cells, delayed calls, input (the table above is
+   from before them; rerun the count to refresh it).
 4. Weapon and item setters (SetWeapon…, SetWeight …): change the loaded form for the
    session, as the base game's setters do; one session-only override table.
 5. Scripts and variables (GetVariable, SetVariable, HasVariable, GetScript,
