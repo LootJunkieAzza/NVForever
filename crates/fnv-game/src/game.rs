@@ -1015,6 +1015,8 @@ pub struct Game<'a> {
     pub jip2: crate::nvse_jip2::Jip2State,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
+    /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
+    pub traits: crate::nvse_traits::TraitState,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
@@ -1641,6 +1643,7 @@ impl<'a> Game<'a> {
             package_overrides: std::collections::HashMap::new(),
             jip2: Default::default(),
             mod_files: Default::default(),
+            traits: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
