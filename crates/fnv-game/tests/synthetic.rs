@@ -1949,3 +1949,15 @@ fn player_control_locks_are_kept_per_plugin() {
     q(&mut g, "EnablePlayerControlsAlt");
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
 }
+
+#[test]
+fn a_string_variable_named_in_a_plain_string_parameter_is_its_name() {
+    // [observed: nvse-sixth, `SetStringIniSetting "sLanguage:General" sText` set the text
+    // "sText"; documented: SetNameEx, string variables "must be converted" with `$`].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = "string_var s\nref r\nBegin Function { }\nlet s := \"nvfKey\"\nlet r := PlayerREF\nSetEditorID r s\nSetFunctionValue (EditorIDToFormID \"s\")\nEnd\n";
+    assert_eq!(g.run_query(q, ctx()).unwrap(), XVal::Ref(0x14), "the editor ID is the text \"s\"");
+}

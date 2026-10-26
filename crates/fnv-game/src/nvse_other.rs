@@ -100,9 +100,18 @@ impl<'a> Game<'a> {
         self.package_overrides.insert(p, leaked);
     }
 
-    /// A form's record flags, SetFlagsLow/High's change first.
+    /// A form's record flags, SetFlagsLow/High's change first. A form from a master file
+    /// also has bits 0 and 3 (ESM, and "form cannot be saved" at run time) [observed:
+    /// nvse-seventh, the 10mm pistol 9 though its record has none, Doc's reference 1097
+    /// with 1024 in its record; hypothesis: the 64 of Doc's reference is not known].
     fn record_flags(&self, f: FormId) -> u32 {
-        self.other.flags.get(&f).copied().unwrap_or_else(|| self.data.form_flags.get(&self.unclone(f)).copied().unwrap_or(0))
+        if let Some(&v) = self.other.flags.get(&f) {
+            return v;
+        }
+        let f = self.unclone(f);
+        let own = self.data.form_flags.get(&f).copied().unwrap_or(0);
+        let master = self.data.load_order.get((f.0 >> 24) as usize).is_some_and(|p| p.to_ascii_lowercase().ends_with(".esm"));
+        own | if master { 0x9 } else { 0 }
     }
 
     /// A base form's script, RemoveScript's and SetScript's changes first.
@@ -474,10 +483,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let out = match name {
                 "addpackageat" => {
                     let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
+                    // -1 appends and gives the index of the last package before it; an
+                    // index past the end gives -1 and adds nothing [observed: nvse-seventh,
+                    // Doc's 10 packages: -1 gave 9, 99 gave -1, 0 gave 0].
                     let i = num(args, 1, -1.0) as i64;
-                    let at = usize::try_from(i).ok().filter(|&i| i <= list.len()).unwrap_or(list.len());
-                    list.insert(at, p);
-                    XVal::Num(at as f64)
+                    let n = list.len();
+                    match usize::try_from(i) {
+                        Ok(at) if at <= n => {
+                            list.insert(at, p);
+                            XVal::Num(at as f64)
+                        }
+                        Ok(_) => XVal::Num(-1.0),
+                        Err(_) => {
+                            list.push(p);
+                            XVal::Num(n as f64 - 1.0)
+                        }
+                    }
                 }
                 "removepackageat" => {
                     let i = num(args, 0, -1.0) as i64;
@@ -544,9 +565,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // Paths [documented: GetScopeModelPath; SetScopeModelPath; GetBipedIconPath, codes
-        // 0 male and 1 female (ICON, ICO2), 2 and 3 the ground (none for icons
-        // [hypothesis]); SetModelPath(Ex), SetIconPath(Ex), SetTexturePath,
+        // Paths [documented: GetScopeModelPath; SetScopeModelPath; GetBipedIconPath;
+        // SetModelPath(Ex), SetIconPath(Ex), SetTexturePath,
         // SetBipedModelPath(Ex), SetBipedIconPath(Ex)]: the scope model is MOD3 [observed:
         // the sniper rifle's MOD3 is interface\HUD\mildotscope.NIF]. The getters see the
         // change; the drawn models do not [hypothesis: "If the replaced model is already
@@ -555,7 +575,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (sub, at) = if name == "getscopemodelpath" {
                 ("MOD3", 0)
             } else {
-                (match num(args, 0, -1.0) as i64 { 0 => "ICON", 1 => "ICO2", _ => "" }, 1)
+                // 0 and 2 the male icon, 1 and 3 the female [observed: nvse-seventh,
+                // leather armour's codes 0 and 2 give the same icon].
+                (match num(args, 0, -1.0) as i64 { 0 | 2 => "ICON", 1 | 3 => "ICO2", _ => "" }, 1)
             };
             let f = form(args, at).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
             match crate::nvse::record_value(g, f, sub, "").or_else(|| crate::nvse::record_value(g, f, sub, "model")) {
@@ -571,7 +593,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 "setmodelpath" => "MODL",
                 "setscopemodelpath" => "MOD3",
                 "setbipedmodelpath" => match code { 0 => "MODL", 1 => "MOD3", 2 => "MOD2", 3 => "MOD4", _ => "" },
-                "setbipediconpath" => match code { 0 => "ICON", 1 => "ICO2", _ => "" },
+                "setbipediconpath" => match code { 0 | 2 => "ICON", 1 | 3 => "ICO2", _ => "" },
                 _ => "ICON",
             };
             let f = form(args, if biped { 2 } else { 1 }).or(subject).map(|f| base(g, f));

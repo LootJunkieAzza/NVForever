@@ -241,8 +241,10 @@ impl Gen<'_> {
             XKind::Str => Some(XExpr::Str { s: t.text.clone() }),
             XKind::Open => {
                 let was = std::mem::replace(&mut self.in_args, false);
+                let was_paren = std::mem::replace(&mut self.in_paren, true);
                 let e = self.xexpr(p, 0);
                 self.in_args = was;
+                self.in_paren = was_paren;
                 let e = e?;
                 if p.next().map(|c| c.kind) != Some(XKind::Close) {
                     return self.xerr("syntax", "missing )");
@@ -382,6 +384,16 @@ impl Gen<'_> {
         }
     }
 
+    /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a
+    /// format string.
+    fn plain_string_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        let Some(u) = self.table.unnumbered.get(&n.to_ascii_lowercase()) else { return false };
+        let formatted = u.params.iter().any(|p| p.name.starts_with("...") || p.name.to_ascii_lowercase().contains("format"));
+        // The wiki's type is "string", not "string_var" (Sv_Erase takes the variable).
+        matches!(u.origin.as_str(), "NVSE" | "FOSE1") && !formatted && u.params.get(k).is_some_and(|p| p.kind == "string" && p.wiki_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("string")))
+    }
+
     fn xargs(&mut self, p: &mut P<'_>, f: &XFn) -> Option<Vec<XExpr>> {
         let mut args = Vec::new();
         loop {
@@ -399,6 +411,22 @@ impl Gen<'_> {
             let minus_first = f.params != Some(0) && minus && (comma || args.is_empty() || p.peek().is_some_and(|t| t.sign));
             if !starts_operand(p.peek()) && !minus_first {
                 break;
+            }
+            // A string variable given by name to an xNVSE function's plain string
+            // parameter, on a line that is that call alone, is its name as text [observed: nvse-sixth,
+            // `SetStringIniSetting "sLanguage:General" sText` set the text "sText";
+            // documented: SetNameEx, "does not accept string variables directly … must be
+            // converted", `$sv`; hypothesis: JIP's and the other plugins' functions differ].
+            if self.call_line && !self.in_args && !f.aware && !self.in_paren && self.plain_string_param(f, args.len()) {
+                if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
+                    let string_var = self.var(&t.text).is_some_and(|v| matches!(&v.ty, crate::unit::VarType::Other(s) if s == "string_var"));
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    if string_var && alone {
+                        p.next();
+                        args.push(XExpr::Str { s: t.text.clone() });
+                        continue;
+                    }
+                }
             }
             let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
             let min = if f.aware {
