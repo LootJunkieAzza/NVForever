@@ -1938,6 +1938,61 @@ LEVELED2_PROBES = [
     _l2("box.cleanup", "boxlist", 'let rOther := rPlayer.AuxVarGetRef "*nvfBX"\nrOther.Disable\nrOther.MarkForDelete\nrPlayer.AuxVarErase "*nvfBX"\nSetFunctionValue 1'),
 ]
 
+# Thirty-fourth set: JIP's live-projectile functions, read inside a
+# SetOnProjectileImpactEventHandler lambda on the 10mm pistol's projectile (no arguments;
+# the projectile is the calling reference, GetSelf [documented]). The player fires the
+# pistol with FireWeapon (no need to equip it [documented: FireWeapon]); each impact
+# appends its values to `*` auxiliary variables on the player. The handler dies with the
+# session; the last step erases the variables. The navmesh functions are left out: no
+# script function reads whether a navmesh is disabled.
+PROJ_VALUES = [
+    ("count", "1"),
+    ("impact.isref", "IsReference (GetSelf.GetProjectileRefImpactRef)"),
+    ("impact.type", "GetType ((GetSelf.GetProjectileRefImpactRef).GetBaseObject)"),
+    ("source.player", "(GetSelf.GetProjectileRefSource) == rP"),
+    ("weapon.ispistol", "(GetSelf.GetProjectileRefWeapon) == rGun"),
+    ("damage", "GetSelf.GetProjectileRefDamage"),
+    ("self.type", "GetType (GetSelf.GetBaseObject)"),
+]
+
+
+def _pj(pid, body, text=False):
+    return (pid, "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\n" + _form("rP", NF["player"])
+            + _form("rGun", NF["pistol10"]) + body, text, None, "")
+
+
+def _proj_steps():
+    steps = [_pj("proj.form", "SetFunctionValue (GetFormIDString (GetWeaponProjectile rGun))", True)]
+    # A first handler, then the one that reads everything: whether the second replaces
+    # the first shows in proj.first.size (one handler per projectile was seen when each
+    # value had its own handler).
+    steps.append(_pj("proj.reg.first", "let rProj := GetWeaponProjectile rGun\n"
+                     'SetOnProjectileImpactEventHandler (Begin Function { }\n  rP.AuxVarSetFlt "*nvfPJ.first" 1 -1\nEnd) 1 rProj\n'
+                     "SetFunctionValue 1"))
+    body = "".join(f'  rP.AuxVarSetFlt "*nvfPJ.{name}" ({expr}) -1\n' for name, expr in PROJ_VALUES
+                   if name in ("count", "impact.isref", "source.player", "self.type"))
+    steps.append(_pj("proj.reg", "let rProj := GetWeaponProjectile rGun\n"
+                     f"SetOnProjectileImpactEventHandler (Begin Function {{ }}\n{body}End) 1 rProj\nSetFunctionValue 1"))
+    # The rest in a handler of its own: a lambda of all seven lines does not compile in
+    # the game, four do.
+    body2 = "".join(f'  rP.AuxVarSetFlt "*nvfPJ.{name}" ({expr}) -1\n' for name, expr in PROJ_VALUES
+                    if name in ("impact.type", "weapon.ispistol", "damage"))
+    steps.append(_pj("proj.reg2", "let rProj := GetWeaponProjectile rGun\n"
+                     f"SetOnProjectileImpactEventHandler (Begin Function {{ }}\n{body2}End) 1 rProj\nSetFunctionValue 1"))
+    # Look down so the shot lands near the player within a few frames.
+    steps.append(_pj("proj.aim", "rP.SetAngle X 80\nSetFunctionValue (rP.GetAngle X)"))
+    steps.append(_pj("proj.fire", "rP.FireWeapon rGun\nSetFunctionValue 1"))
+    steps += [_pj(f"proj.settle{i}", "SetFunctionValue 1") for i in range(10)]
+    for name, _ in [("first", "")] + PROJ_VALUES:
+        steps.append(_pj(f"proj.{name}.size", f'SetFunctionValue (rP.AuxVarSize "*nvfPJ.{name}")'))
+        steps.append(_pj(f"proj.{name}.0", f'SetFunctionValue (rP.AuxVarGetFlt "*nvfPJ.{name}" 0)'))
+    steps.append(_pj("proj.cleanup", "".join(f'rP.AuxVarErase "*nvfPJ.{n}"\n' for n, _ in [("first", "")] + PROJ_VALUES)
+                     + "SetFunctionValue 1"))
+    return steps
+
+
+PROJECTILE_PROBES = _proj_steps()
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1954,11 +2009,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "player-state": PLAYER_STATE_PROBES,
         "mcm": MCM_PROBES,
         "plugin-odds": N9_PROBES,
-        "lu-leveled2": LEVELED2_PROBES}
+        "lu-leveled2": LEVELED2_PROBES,
+        "projectile": PROJECTILE_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile"}
 
 
 def script(body):
