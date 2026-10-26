@@ -31,12 +31,21 @@ fn hide_flag(a: &Args, i: usize) -> bool {
 /// `Container.AddItem item count [silent]`: leveled lists resolve as in Layer 4; OnAdd
 /// runs on the item's script [documented: GECK wiki AddItem, once per item in the count;
 /// here once per call, hypothesis].
+/// The condition AddItem gives a weapon or armour (see [`add_item`]).
+pub const ADDED_CONDITION: f32 = 0.999;
+
 pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let to = ctx.subject()?;
     let count = a.int(1)?;
     let silent = hide_flag(a, 2);
     for item in items(g, a.form(0)?) {
-        let added = g.world.add_item(to, item, count).map_err(|e| e.to_string())?;
+        // A weapon or armour given by AddItem comes at 99.9% of its health [observed: the
+        // peer's jip-fifth rows, a 10mm pistol 79.92 of 80, leather armour 149.85 of 150].
+        let added = match g.data.sig(item) {
+            Some(s) if &s == b"WEAP" || &s == b"ARMO" => g.world.add_item_at_condition(to, item, count, Some(ADDED_CONDITION)),
+            _ => g.world.add_item(to, item, count),
+        }
+        .map_err(|e| e.to_string())?;
         for (i, n) in added {
             g.emit(EventKind::ItemAdded { to, item: i, count: n, silent });
             g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));

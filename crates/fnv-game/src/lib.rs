@@ -83,6 +83,7 @@ pub mod nvse_data;
 pub mod nvse_actor;
 pub mod nvse_items;
 pub mod nvse_amata;
+pub mod nvse_jip;
 pub mod text_codes;
 pub mod script_input;
 pub mod levelup;

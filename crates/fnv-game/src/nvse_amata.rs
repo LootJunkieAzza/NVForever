@@ -119,14 +119,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // flags kept for the session [hypothesis: the systems they change, a teammate's
         // protection from death, the companion wheel and JIP's health reset, do not read
         // them yet].
+        // Gives the state before [observed: jip-fifth, 1 then 0 on Doc give 0 then 1].
         "toggleteammatekillable" => {
             let a = subject.unwrap_or(FormId(0));
+            let before = g.jip_flags.contains(&(a, "killable"));
             if num(args, 0, 0.0) != 0.0 {
                 g.jip_flags.insert((a, "killable"));
             } else {
                 g.jip_flags.remove(&(a, "killable"));
             }
-            XVal::Num(1.0)
+            yes(before)
         }
         "setwheeldisabled" => {
             let a = subject.unwrap_or(FormId(0));
