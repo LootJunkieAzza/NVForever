@@ -1525,6 +1525,72 @@ FLAG_PROBES = (
     ]
 )
 
+# Twenty-eighth set (next batch N3): INI files under Data\Config, read and written by
+# LU (GetINIFloat, GetINIString, SetINIFloat), ShowOff (GetINI…OrDefault_Cached,
+# GetINI…OrCreate_Cached) and MCM (Get/SetModINISetting). Before the run the harness
+# writes INI_FILE_TEXT to Data\Config\NVFExtProbe\probe.ini and Data\Config\NVFExtProbe.ini;
+# every write names an NVFExtProbe path; after the run the files are read back (what the
+# game wrote) and removed (owner-review: probe files in the game's Data\Config).
+INI_FILE_TEXT = "[General]\nfNum=3.5\niInt=7\nsText=hello world\n[Other]\nfNum=-2\n"
+_PI = '"NVFExtProbe\\probe.ini"'
+_NEW = '"NVFExtProbe\\created.ini"'
+
+
+def _ini(pid, body, text=False):
+    return (pid, "float fRes\nstring_var sText\nBegin Function { }\n" + body, text, None, "")
+
+
+def _gf(pid, key, path=_PI):
+    return _ini(pid, f'SetFunctionValue (GetINIFloat "{key}" {path})')
+
+
+INI_FILE_PROBES = [
+    # LU reads.
+    _gf("lu.float", "General:fNum"),
+    _gf("lu.float.int", "General:iInt"),
+    _gf("lu.float.other", "Other:fNum"),
+    _gf("lu.float.slash", "General/fNum"),
+    _gf("lu.float.backslash", "General\\fNum"),
+    _gf("lu.float.case", "general:FNUM"),
+    _gf("lu.float.string", "General:sText"),
+    _gf("lu.float.missingkey", "General:fNone"),
+    _gf("lu.float.missingfile", "General:fNum", '"NVFExtProbe\\none.ini"'),
+    _gf("lu.float.noext", "General:fNum", '"NVFExtProbe\\probe"'),
+    _gf("lu.float.top", "General:fNum", '"NVFExtProbe.ini"'),
+    _ini("lu.string", f'SetFunctionValue (GetINIString "General:sText" {_PI})', True),
+    _ini("lu.string.num", f'SetFunctionValue (GetINIString "General:fNum" {_PI})', True),
+    _ini("lu.string.missing", f'SetFunctionValue (GetINIString "General:sNone" {_PI})', True),
+    # ShowOff cached reads.
+    _ini("so.float", f'SetFunctionValue (GetINIFloatOrDefault_Cached "General:fNum" {_PI} 9)'),
+    _ini("so.float.alias", f'SetFunctionValue (GetINIFloat_Cached "General:fNum" {_PI} 9)'),
+    _ini("so.float.slash", f'SetFunctionValue (GetINIFloatOrDefault_Cached "General/fNum" {_PI} 9)'),
+    _ini("so.float.missingkey", f'SetFunctionValue (GetINIFloatOrDefault_Cached "General:fNone" {_PI} 9)'),
+    _ini("so.float.missingfile", 'SetFunctionValue (GetINIFloatOrDefault_Cached "General:fNum" "NVFExtProbe\\none.ini" 9)'),
+    _ini("so.float.nodefault", f'SetFunctionValue (GetINIFloatOrDefault_Cached "General:fNone" {_PI})'),
+    _ini("so.float.string", f'SetFunctionValue (GetINIFloatOrDefault_Cached "General:sText" {_PI} 9)'),
+    _ini("so.string", f'SetFunctionValue (GetINIStringOrDefault_Cached "General:sText" {_PI} "dflt")', True),
+    _ini("so.string.missing", f'SetFunctionValue (GetINIStringOrDefault_Cached "General:sNone" {_PI} "dflt")', True),
+    _ini("so.string.num", f'SetFunctionValue (GetINIStringOrDefault_Cached "General:fNum" {_PI} "dflt")', True),
+    # ShowOff creates (cache only: no SaveCachedIniFile).
+    _ini("so.create.float", f'SetFunctionValue (GetINIFloatOrCreate_Cached "General:fMade" {_PI} 4.5 "made by a probe")'),
+    _ini("so.create.float.read", f'SetFunctionValue (GetINIFloatOrDefault_Cached "General:fMade" {_PI} 9)'),
+    _ini("so.create.float.lu", f'SetFunctionValue (GetINIFloat "General:fMade" {_PI})'),
+    _ini("so.create.float.existing", f'SetFunctionValue (GetINIFloatOrCreate_Cached "General:fNum" {_PI} 4.5)'),
+    _ini("so.create.string", f'SetFunctionValue (GetINIStringOrCreate_Cached "General:sMade" {_PI} "new" "")', True),
+    _ini("so.create.string.read", f'SetFunctionValue (GetINIStringOrDefault_Cached "General:sMade" {_PI} "dflt")', True),
+    # LU writes: an existing file, then a new one.
+    _ini("lu.set", f'SetINIFloat "General:fSet" 2.25 {_PI}\nSetFunctionValue (GetINIFloat "General:fSet" {_PI})'),
+    _ini("lu.set.existing", f'SetINIFloat "Other:fNum" 6 {_PI}\nSetFunctionValue (GetINIFloat "Other:fNum" {_PI})'),
+    _ini("lu.set.cached", f'SetFunctionValue (GetINIFloatOrDefault_Cached "Other:fNum" {_PI} 9)'),
+    _ini("lu.set.newfile", f'SetINIFloat "New:fVal" 1.5 {_NEW}\nSetFunctionValue (GetINIFloat "New:fVal" {_NEW})'),
+    _ini("lu.set.newfile.cached", f'SetFunctionValue (GetINIFloatOrDefault_Cached "New:fVal" {_NEW} 9)'),
+    # MCM.
+    _ini("mcm.get", 'SetFunctionValue (GetModINISetting "NVFExtProbe/General/fNum")'),
+    _ini("mcm.get.missing", 'SetFunctionValue (GetModINISetting "NVFExtProbe/General/fNone")'),
+    _ini("mcm.set", 'SetModINISetting "NVFExtProbe/General/fMcm" 5\nSetFunctionValue (GetModINISetting "NVFExtProbe/General/fMcm")'),
+    _ini("mcm.set.lu", 'SetFunctionValue (GetINIFloat "General:fMcm" "NVFExtProbe.ini")'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1535,11 +1601,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nvse-seventh": SEVENTH_PROBES,
         "nvse-eighth": EIGHTH_PROBES,
         "lu-leveled": LEVELED_PROBES,
-        "nvse-flags": FLAG_PROBES}
+        "nvse-flags": FLAG_PROBES,
+        "ini-files": INI_FILE_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files"}
 
 
 def script(body):

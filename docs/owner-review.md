@@ -281,3 +281,18 @@ Runtime-compiled scripts in your game refuse two things the GECK may accept:
 like a command alias (`ref rK`, ReleaseKey's alias). NVForever refuses the alias name
 and accepts the Ex forms until the GECK says otherwise. Cases 24 and 25 in
 `tools/capture/ext-compile/` (README there says how): note whether each saves.
+
+## INI-file probes wrote into your game's Data folder, then cleaned up (2026-10-26)
+
+To probe the INI-file functions (next batch N3) in your game, the probe session created
+`Data\Config\` (it did not exist), put two test files there (`NVFExtProbe.ini`,
+`NVFExtProbe\probe.ini`), and let the game's LU functions write to them and create
+`NVFExtProbe\created.ini`. After the run the whole `Data\Config` folder was removed;
+copies of what the game wrote are in `C:\fnv-private\ext\ini-files-after`. Nothing else
+in Data was touched; NVForever itself still never writes there. *Check:* say if probe
+runs should not create files in Data, even briefly; the default is to keep doing it
+this way, only under NVFExtProbe names, and remove them after each run.
+
+MCM's script functions (GetModINISetting, SetModINISetting) are not installed in this
+game, so N2/N3's MCM rows cannot be probed here. *Check:* install MCM here if you want
+them probed; otherwise they are built from the wiki alone.
