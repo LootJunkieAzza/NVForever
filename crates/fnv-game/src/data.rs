@@ -543,6 +543,11 @@ pub struct LeveledActorDef {
     pub chance_none: u8,
     pub all_levels: bool,
     pub entries: Vec<(u16, FormId)>,
+    /// Each entry's count (LVLO), beside `entries`.
+    pub counts: Vec<u16>,
+    /// LVLF as bits: 1 all levels, 2 each item in count, 4 use all [documented: xEdit
+    /// LVLF] (GetLeveledListFlags).
+    pub flags: u8,
 }
 
 /// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
@@ -1406,7 +1411,7 @@ pub const FIELD_SIGS: [[u8; 4]; 23] = [
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
 /// getters read.
-const ACTOR_SUBS: [[u8; 4]; 10] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ"];
+const ACTOR_SUBS: [[u8; 4]; 11] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
@@ -2853,12 +2858,17 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let mut l = LeveledActorDef::default();
             for (s, v) in &decoded {
                 match *s {
-                    b"LVLF" => l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level"),
+                    b"LVLF" => {
+                        l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level");
+                        let bits = [("Calculate from all levels <= player's level", 1u8), ("Calculate for each item in count", 2), ("Use All", 4)];
+                        l.flags = bits.iter().filter(|(n, _)| has_flag(v.as_ref(), n)).map(|(_, b)| b).sum();
+                    }
                     b"LVLD" => l.chance_none = v.as_ref().and_then(Json::as_u64).unwrap_or(0).min(100) as u8,
                     b"LVLO" => {
                         let level = v.as_ref().and_then(|v| v.get("level")).and_then(Json::as_u64).unwrap_or(0).min(u64::from(u16::MAX)) as u16;
                         if let Some(f) = v.as_ref().and_then(|v| v.get("reference")).and_then(hexid).and_then(map) {
                             l.entries.push((level, FormId(f)));
+                            l.counts.push(v.as_ref().and_then(|v| v.get("count")).and_then(Json::as_u64).unwrap_or(1).min(u64::from(u16::MAX)) as u16);
                         }
                     }
                     _ => {}

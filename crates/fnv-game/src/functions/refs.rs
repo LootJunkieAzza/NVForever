@@ -328,7 +328,8 @@ pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(g.world.placed.get(r).and_then(|p| p.linked).map(|l| Value::Ref(l.0)).unwrap_or(Value::NONE))
+    // SetLinkedReference's link first [observed: jip-n7].
+    Ok(g.linked_ref(r).map(|l| Value::Ref(l.0)).unwrap_or(Value::NONE))
 }
 
 pub fn get_parent_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

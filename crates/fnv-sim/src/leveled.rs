@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 use rand_core::RngCore;
 
 use crate::form::FormId;
-use crate::forms::{Entry, FormStore, LeveledEntry};
+use crate::forms::{Entry, FormStore, LeveledEntry, LeveledList};
 
 /// Nesting deeper than this is reported as a cycle.
 pub const MAX_DEPTH: u32 = 32;
@@ -88,7 +88,7 @@ pub fn resolve_in(
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
 ) -> Result<(), LeveledError> {
-    resolve_with(forms, globals, &BTreeMap::new(), item, count, level, rng, out)
+    resolve_with(forms, globals, &BTreeMap::new(), &BTreeMap::new(), item, count, level, rng, out)
 }
 
 /// [`resolve_in`] with entries added to lists at run time (`added`, by list).
@@ -97,13 +97,14 @@ pub fn resolve_with(
     forms: &FormStore,
     globals: &BTreeMap<FormId, f32>,
     added: &BTreeMap<FormId, Vec<LeveledEntry>>,
+    edits: &BTreeMap<FormId, LeveledList>,
     item: FormId,
     count: i32,
     level: u16,
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
 ) -> Result<(), LeveledError> {
-    resolve_at(&Ctx { forms, globals, added }, item, count, None, level, rng, out, 0)
+    resolve_at(&Ctx { forms, globals, added, edits }, item, count, None, level, rng, out, 0)
 }
 
 /// The most times one "each item in count" list is rolled at once ([`resolve_at`]).
@@ -113,6 +114,9 @@ struct Ctx<'a> {
     forms: &'a FormStore,
     globals: &'a BTreeMap<FormId, f32>,
     added: &'a BTreeMap<FormId, Vec<LeveledEntry>>,
+    /// Lists a script edited (LeveledListAddForm …, `World::edit_leveled`): the whole
+    /// list as edited, the script-added entries already in it.
+    edits: &'a BTreeMap<FormId, LeveledList>,
 }
 
 /// `condition`: the condition the entry that led here asked for (a script's added
@@ -134,7 +138,8 @@ fn resolve_at(
     if count <= 0 {
         return Ok(());
     }
-    let Some(list) = cx.forms.leveled(item) else {
+    let edited = cx.edits.get(&item);
+    let Some(list) = edited.or_else(|| cx.forms.leveled(item)) else {
         let mut e = Entry::new(item, count);
         e.extra.condition = condition;
         out.push(e);
@@ -148,7 +153,7 @@ fn resolve_at(
         Some(v) => v.clamp(0.0, 100.0) as u32,
         None => list.chance_none as u32,
     };
-    let extra = cx.added.get(&item).map(Vec::as_slice).unwrap_or_default();
+    let extra = if edited.is_some() { &[][..] } else { cx.added.get(&item).map(Vec::as_slice).unwrap_or_default() };
     let eligible: Vec<_> = list.entries.iter().chain(extra).filter(|e| e.level <= level).collect();
     // A list rolled for each of a huge count (a broken mod's entry or script) would
     // roll that many times: capped [hypothesis: our limit, far above any shipped count].

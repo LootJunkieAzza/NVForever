@@ -15,7 +15,7 @@ impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
-            .add_systems(Update, tell_magazine);
+            .add_systems(Update, (tell_magazine, tell_player_state));
     }
 }
 
@@ -100,4 +100,50 @@ fn tell_magazine(mut combat: Option<ResMut<crate::combat::Combat>>, mut script: 
         }
     }
     rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
+}
+
+/// The pad's buttons as the extender's controller functions number them
+/// (`fnv_game::nvse_jip2::Pad`).
+const PAD_BITS: [(GamepadButton, u32); 14] = [
+    (GamepadButton::DPadUp, 0x1),
+    (GamepadButton::DPadDown, 0x2),
+    (GamepadButton::DPadLeft, 0x4),
+    (GamepadButton::DPadRight, 0x8),
+    (GamepadButton::Start, 0x10),
+    (GamepadButton::Select, 0x20),
+    (GamepadButton::LeftThumb, 0x40),
+    (GamepadButton::RightThumb, 0x80),
+    (GamepadButton::LeftTrigger, 0x100),
+    (GamepadButton::RightTrigger, 0x200),
+    (GamepadButton::South, 0x1000),
+    (GamepadButton::East, 0x2000),
+    (GamepadButton::West, 0x4000),
+    (GamepadButton::North, 0x8000),
+];
+
+/// Tell the scripts the player's auto-move and aiming and the first connected pad
+/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions).
+fn tell_player_state(control: Option<Res<crate::control::PlayerControl>>, pads: Query<&Gamepad>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let told = &mut rt.game.jip2.told;
+    if let Some(c) = control {
+        told.auto_move = c.auto_move;
+        told.aiming = c.aiming && c.weapon_out;
+    }
+    let pad = &mut told.pad;
+    match pads.iter().next() {
+        Some(g) => {
+            pad.connected = true;
+            pad.buttons = PAD_BITS.iter().filter(|(b, _)| g.pressed(*b)).map(|(_, m)| m).sum();
+            pad.triggers = [g.get(GamepadButton::LeftTrigger2).unwrap_or(0.0), g.get(GamepadButton::RightTrigger2).unwrap_or(0.0)];
+            let (l, r) = (g.left_stick(), g.right_stick());
+            pad.sticks = [l.x, l.y, r.x, r.y];
+        }
+        None => {
+            pad.connected = false;
+            pad.buttons = 0;
+            pad.triggers = [0.0; 2];
+            pad.sticks = [0.0; 4];
+        }
+    }
 }

@@ -1010,6 +1010,9 @@ pub struct Game<'a> {
     /// SetPackageTargetReference): the changed copy, kept for the session (leaked, so it
     /// lives as long as the records; a few per session).
     pub(crate) package_overrides: std::collections::HashMap<FormId, &'a crate::package::PackageDef>,
+    /// The N7–N9 functions' session state and what the engine tells them
+    /// (`crate::nvse_jip2`).
+    pub jip2: crate::nvse_jip2::Jip2State,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
@@ -1634,6 +1637,7 @@ impl<'a> Game<'a> {
             other: Default::default(),
             ini: Default::default(),
             package_overrides: std::collections::HashMap::new(),
+            jip2: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
@@ -2603,6 +2607,7 @@ impl<'a> Game<'a> {
         self.run_main_loop();
         self.run_delayed();
         self.run_box_callback();
+        self.track_velocity();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).

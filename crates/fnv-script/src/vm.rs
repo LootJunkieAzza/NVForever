@@ -2596,15 +2596,15 @@ impl Vm<'_, '_> {
             // [observed: GetNVSEBeta 9 under 6.4.9, the third number; owner 2026-10-26:
             // target 6.4.9].
             "getnvsebeta" => XVal::Num(9.0),
-            // JIP LN is NVForever's own module (task J4): reported installed at the version
-            // its functions follow.
+            // JIP LN and the other plugins whose functions NVForever builds
+            // (`jip::PLUGINS`): reported installed at the version their functions follow.
             "isplugininstalled" | "getpluginversion" => {
                 let p = text(val(self, 0)?).unwrap_or_default();
-                let jip = JIP_NAMES.iter().any(|j| j.eq_ignore_ascii_case(&p));
-                XVal::Num(match (n, jip) {
-                    ("isplugininstalled", j) => f64::from(u8::from(j)),
-                    (_, true) => JIP_VERSION,
-                    (_, false) => -1.0,
+                let found = jip::PLUGINS.iter().find(|(name, _)| name.eq_ignore_ascii_case(&p)).map(|(_, v)| *v);
+                XVal::Num(match (n, found) {
+                    ("isplugininstalled", f) => f64::from(u8::from(f.is_some())),
+                    (_, Some(v)) => v,
+                    (_, None) => -1.0,
                 })
             }
             _ => return Ok(None),

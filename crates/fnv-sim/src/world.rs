@@ -292,6 +292,11 @@ pub struct World<'a> {
     quest_objects: BTreeMap<FormId, bool>,
     /// Entries added to leveled item lists at run time ([`World::add_to_leveled_list`]).
     leveled_added: BTreeMap<FormId, Vec<LeveledEntry>>,
+    /// Leveled item lists edited by script for the session (LeveledListAddForm and its
+    /// family): not saved, as "this change is not savebaked" for LU's functions
+    /// [documented: RemoveFormFromLeveledList, "Unlike for LeveledListRemoveForm, this
+    /// change is savebaked"].
+    leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
     /// What the game layer adds to an actor's carry capacity beyond the formula on its
     /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
     /// ([`World::set_carry_bonus`]).
@@ -334,6 +339,7 @@ impl<'a> World<'a> {
             detached_cells: BTreeMap::new(),
             quest_objects: BTreeMap::new(),
             leveled_added: BTreeMap::new(),
+            leveled_edits: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
@@ -494,7 +500,7 @@ impl<'a> World<'a> {
         for e in entries {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
-            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, level, &mut self.rng, &mut out)?;
+            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, &self.leveled_edits, e.item, e.count, level, &mut self.rng, &mut out)?;
             // COED on an entry applies to whatever it resolves to [hypothesis]; without
             // one an item keeps the condition a script's leveled entry gave it.
             if !e.extra.is_plain() {
@@ -715,7 +721,7 @@ impl<'a> World<'a> {
         }
         self.inventory(to)?;
         let mut out = Vec::new();
-        leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
+        leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, &self.leveled_edits, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
         let inv = self.inventory(to)?;
         Ok(out
             .into_iter()
@@ -768,7 +774,7 @@ impl<'a> World<'a> {
 
     fn roll_death_item(&mut self, list: FormId, level: u16) -> Result<Vec<crate::forms::Entry>, SimError> {
         let mut out = Vec::new();
-        leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, list, 1, level, &mut self.rng, &mut out)?;
+        leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, &self.leveled_edits, list, 1, level, &mut self.rng, &mut out)?;
         out.retain(|e| e.count > 0);
         Ok(out)
     }
@@ -890,6 +896,26 @@ impl<'a> World<'a> {
         }
         self.leveled_added.entry(list).or_default().push(entry);
         Ok(())
+    }
+
+    /// A leveled item list as the session has it: a script's edit, else the record's
+    /// with AddItemToLeveledList's entries after it.
+    pub fn leveled_list(&self, id: FormId) -> Option<crate::forms::LeveledList> {
+        if let Some(l) = self.leveled_edits.get(&id) {
+            return Some(l.clone());
+        }
+        let mut l = self.forms.leveled(id)?.clone();
+        l.entries.extend(self.leveled_added(id).iter().copied());
+        Some(l)
+    }
+
+    /// Edit a leveled item list for the session (the resolver then reads the edit);
+    /// false when `id` is no leveled item list.
+    pub fn edit_leveled(&mut self, id: FormId, f: impl FnOnce(&mut crate::forms::LeveledList)) -> bool {
+        let Some(mut l) = self.leveled_list(id) else { return false };
+        f(&mut l);
+        self.leveled_edits.insert(id, l);
+        true
     }
 
     /// The entries scripts added to a leveled list.
