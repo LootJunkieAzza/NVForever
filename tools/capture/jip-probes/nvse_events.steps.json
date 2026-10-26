@@ -1,0 +1,544 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_events",
+ "title": "nvse-events, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnAdd\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onadd\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onadd.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onadd.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onadd",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnDrop\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.ondrop\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.ondrop.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.ondrop.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.ondrop",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnActorEquip\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onactorequip\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onactorequip.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onactorequip.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onactorequip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnEquip\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onequip\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onequip.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onequip.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onequip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnActorUnequip\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onactorunequip\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onactorunequip.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onactorunequip.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onactorunequip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnUnequip\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onunequip\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onunequip.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onunequip.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onunequip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnLoad\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onload\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onload.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onload.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onload",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnDisable\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.ondisable\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.ondisable.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.ondisable.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.ondisable",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnEnable\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onenable\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onenable.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onenable.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onenable",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnStartCombat\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onstartcombat\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onstartcombat.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onstartcombat.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onstartcombat",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnHit\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onhit\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onhit.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onhit.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onhit",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnHitWith\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onhitwith\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onhitwith.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onhitwith.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onhitwith",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnDeath\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.ondeath\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.ondeath.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.ondeath.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.ondeath",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnMurder\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onmurder\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onmurder.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onmurder.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onmurder",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnPackageStart\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onpackagestart\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onpackagestart.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onpackagestart.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onpackagestart",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnPackageChange\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onpackagechange\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onpackagechange.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onpackagechange.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onpackagechange",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnMagicEffectHit\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.onmagiceffecthit\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.onmagiceffecthit.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.onmagiceffecthit.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.onmagiceffecthit",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetEventHandler \"OnCombatEnd\" (Begin Function {ref rE1, ref rE2}\n  rP.AuxVarSetFlt \"*nvfE.oncombatend\" 1 -1\n  rP.AuxVarSetRef \"*nvfE.oncombatend.1\" rE1 -1\n  rP.AuxVarSetRef \"*nvfE.oncombatend.2\" rE2 -1\nEnd)\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.reg.oncombatend",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrP.AddItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrP.Drop rObj 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.drop",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.AddItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.addgun",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.EquipItem rObj 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.equip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.UnequipItem rObj 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.unequip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.RemoveItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.removegun",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"14DEE2\"\nlet rObj := rObj.GetBaseObject\nlet rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfEC\" rA\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.placecreature",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rB := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfEN\" rB\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.placenpc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfEC\"\nrA.Disable\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.disable",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfEC\"\nrA.Enable\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.enable",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := rP.AuxVarGetRef \"*nvfEN\"\nrB.EvaluatePackage\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.package",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfEC\"\nrA.StartCombat rP\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.combat",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrP.CastImmediate rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.cast",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.ModAV Health 1000\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.boost",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"7078B\"\nrA.PlaceAtMe rObj 1\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.hit",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle.hit0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle.hit1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle.hit2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfEC\"\nrA.Kill rP\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.kill",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := rP.AuxVarGetRef \"*nvfEN\"\nrB.StopCombat\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.do.stopcombat",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle.kill0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle.kill1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.settle.kill2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onadd\") > 0)\nEnd\n",
+   "label": "evn.onadd.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onadd.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onadd.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onadd.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onadd.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.ondrop\") > 0)\nEnd\n",
+   "label": "evn.ondrop.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.ondrop.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.ondrop.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.ondrop.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.ondrop.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onactorequip\") > 0)\nEnd\n",
+   "label": "evn.onactorequip.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onactorequip.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onactorequip.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onactorequip.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onactorequip.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onequip\") > 0)\nEnd\n",
+   "label": "evn.onequip.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onequip.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onequip.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onequip.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onequip.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onactorunequip\") > 0)\nEnd\n",
+   "label": "evn.onactorunequip.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onactorunequip.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onactorunequip.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onactorunequip.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onactorunequip.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onunequip\") > 0)\nEnd\n",
+   "label": "evn.onunequip.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onunequip.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onunequip.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onunequip.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onunequip.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onload\") > 0)\nEnd\n",
+   "label": "evn.onload.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onload.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onload.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onload.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onload.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.ondisable\") > 0)\nEnd\n",
+   "label": "evn.ondisable.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.ondisable.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.ondisable.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.ondisable.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.ondisable.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onenable\") > 0)\nEnd\n",
+   "label": "evn.onenable.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onenable.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onenable.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onenable.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onenable.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onstartcombat\") > 0)\nEnd\n",
+   "label": "evn.onstartcombat.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onstartcombat.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onstartcombat.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onstartcombat.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onstartcombat.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onhit\") > 0)\nEnd\n",
+   "label": "evn.onhit.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onhit.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onhit.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onhit.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onhit.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onhitwith\") > 0)\nEnd\n",
+   "label": "evn.onhitwith.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onhitwith.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onhitwith.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onhitwith.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onhitwith.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.ondeath\") > 0)\nEnd\n",
+   "label": "evn.ondeath.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.ondeath.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.ondeath.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.ondeath.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.ondeath.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onmurder\") > 0)\nEnd\n",
+   "label": "evn.onmurder.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onmurder.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onmurder.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onmurder.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onmurder.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onpackagestart\") > 0)\nEnd\n",
+   "label": "evn.onpackagestart.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onpackagestart.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onpackagestart.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onpackagestart.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onpackagestart.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onpackagechange\") > 0)\nEnd\n",
+   "label": "evn.onpackagechange.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onpackagechange.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onpackagechange.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onpackagechange.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onpackagechange.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.onmagiceffecthit\") > 0)\nEnd\n",
+   "label": "evn.onmagiceffecthit.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onmagiceffecthit.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onmagiceffecthit.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.onmagiceffecthit.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.onmagiceffecthit.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue ((rP.AuxVarSize \"*nvfE.oncombatend\") > 0)\nEnd\n",
+   "label": "evn.oncombatend.fired",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.oncombatend.1\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.oncombatend.arg1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfE.oncombatend.2\" 0\nlet rB := rP.AuxVarGetRef \"*nvfEC\"\nlet rObj := rP.AuxVarGetRef \"*nvfEN\"\nif rA == rP\n  SetFunctionValue \"player\"\nelseif rA == rB\n  SetFunctionValue \"creature\"\nelseif rA == rObj\n  SetFunctionValue \"npc\"\nelseif IsReference rA\n  SetFunctionValue (\"ref:\" + GetFormIDString (rA.GetBaseObject))\nelse\n  SetFunctionValue (GetFormIDString rA)\nendif\nEnd\n",
+   "label": "evn.oncombatend.arg2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfEC\"\nlet rB := rP.AuxVarGetRef \"*nvfEN\"\nrA.Disable\nrA.MarkForDelete\nrB.Disable\nrB.MarkForDelete\nrP.ModAV Health -1000\nrP.RestoreAV Health 2000\nSetFunctionValue 1\nEnd\n",
+   "label": "evn.cleanup",
+   "field": "value"
+  }
+ ]
+}

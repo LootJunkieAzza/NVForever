@@ -2190,6 +2190,86 @@ NIF_PROBES = [
     _nb("nb.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
 ]
 
+# Thirty-eighth set (next batch N11): which xNVSE events fire in the game, and with which
+# two arguments. One SetEventHandler lambda per event appends its firing count and both
+# arguments (as references) to `*` auxiliary variables on the player; then the events
+# are caused cheaply: the player's inventory (OnAdd, OnDrop, OnActorEquip/OnEquip,
+# OnActorUnequip/OnUnequip), a placed creature (OnLoad, OnDisable/OnEnable,
+# OnStartCombat, OnHit/OnHitWith, OnDeath/OnMurder), a placed NPC (OnPackageStart/
+# Change), a stimpak cast on the player (OnMagicEffectHit). Left out: events that open
+# a menu or dialogue (OnActivate, OnOpen/OnClose, OnSell). Handlers die with the session.
+_EVENTS = ["OnAdd", "OnDrop", "OnActorEquip", "OnEquip", "OnActorUnequip", "OnUnequip", "OnLoad", "OnDisable",
+           "OnEnable", "OnStartCombat", "OnHit", "OnHitWith", "OnDeath", "OnMurder", "OnPackageStart",
+           "OnPackageChange", "OnMagicEffectHit", "OnCombatEnd"]
+_HE = ("ref rP\nref rA\nref rB\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rP", NF["player"]))
+
+
+def _ev(pid, body, text=False):
+    return (pid, _HE + body, text, None, "")
+
+
+def _ev_reg(name):
+    k = name.lower()
+    return _ev(f"evn.reg.{k}", f'SetEventHandler "{name}" (Begin Function {{ref rE1, ref rE2}}\n'
+               f'  rP.AuxVarSetFlt "*nvfE.{k}" 1 -1\n  rP.AuxVarSetRef "*nvfE.{k}.1" rE1 -1\n'
+               f'  rP.AuxVarSetRef "*nvfE.{k}.2" rE2 -1\nEnd)\nSetFunctionValue 1')
+
+
+# An argument as "player", "creature" / "npc" (the placed ones), "ref:<base form>" for any
+# other reference (made-at-run-time
+# references get a different ID each run) or the form's ID.
+_ARG = ('let rB := rP.AuxVarGetRef "*nvfEC"\nlet rObj := rP.AuxVarGetRef "*nvfEN"\n'
+        'if rA == rP\n  SetFunctionValue "player"\nelseif rA == rB\n  SetFunctionValue "creature"\n'
+        'elseif rA == rObj\n  SetFunctionValue "npc"\nelseif IsReference rA\n'
+        '  SetFunctionValue ("ref:" + GetFormIDString (rA.GetBaseObject))\nelse\n'
+        '  SetFunctionValue (GetFormIDString rA)\nendif')
+_CRE = 'let rA := rP.AuxVarGetRef "*nvfEC"\n'
+_NPC = 'let rB := rP.AuxVarGetRef "*nvfEN"\n'
+
+NVSE_EVENT_PROBES = (
+    [_ev_reg(n) for n in _EVENTS]
+    + [
+        # Inventory.
+        _ev("evn.do.add", _form("rObj", NF["stimpak"]) + "rP.AddItem rObj 1 1\nSetFunctionValue 1"),
+        _ev("evn.do.drop", _form("rObj", NF["stimpak"]) + 'rP.Drop rObj 1\nSetFunctionValue 1'),
+        _ev("evn.do.addgun", _form("rObj", NF["pistol10"]) + "rP.AddItem rObj 1 1\nSetFunctionValue 1"),
+        _ev("evn.do.equip", _form("rObj", NF["pistol10"]) + "rP.EquipItem rObj 0 1\nSetFunctionValue 1"),
+        _ev("evn.do.unequip", _form("rObj", NF["pistol10"]) + "rP.UnequipItem rObj 0 1\nSetFunctionValue 1"),
+        _ev("evn.do.removegun", _form("rObj", NF["pistol10"]) + "rP.RemoveItem rObj 1 1\nSetFunctionValue 1"),
+        # A placed creature (the airport ACRE's base) and a placed NPC (Doc's).
+        _ev("evn.do.placecreature", _form("rObj", "14DEE2") + 'let rObj := rObj.GetBaseObject\nlet rA := rP.PlaceAtMe rObj 1\n'
+            'rP.AuxVarSetRef "*nvfEC" rA\nSetFunctionValue 1'),
+        _ev("evn.do.placenpc", _form("rObj", NF["doc"]) + 'let rB := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfEN" rB\nSetFunctionValue 1'),
+    ]
+    + [_ev(f"evn.settle{i}", "SetFunctionValue 1") for i in range(4)]
+    + [
+        _ev("evn.do.disable", _CRE + "rA.Disable\nSetFunctionValue 1"),
+        _ev("evn.do.enable", _CRE + "rA.Enable\nSetFunctionValue 1"),
+        _ev("evn.do.package", _NPC + "rB.EvaluatePackage\nSetFunctionValue 1"),
+        _ev("evn.do.combat", _CRE + "rA.StartCombat rP\nSetFunctionValue 1"),
+        _ev("evn.do.cast", _form("rObj", NF["stimpak"]) + "rP.CastImmediate rObj\nSetFunctionValue 1"),
+        _ev("evn.do.boost", "rP.ModAV Health 1000\nSetFunctionValue 1"),
+        _ev("evn.do.hit", _CRE + _form("rObj", "7078B") + "rA.PlaceAtMe rObj 1\nSetFunctionValue 1"),
+    ]
+    + [_ev(f"evn.settle.hit{i}", "SetFunctionValue 1") for i in range(3)]
+    + [
+        _ev("evn.do.kill", _CRE + "rA.Kill rP\nSetFunctionValue 1"),
+        _ev("evn.do.stopcombat", _NPC + "rB.StopCombat\nSetFunctionValue 1"),
+    ]
+    + [_ev(f"evn.settle.kill{i}", "SetFunctionValue 1") for i in range(3)]
+    + [x for n in _EVENTS for x in (
+        # Whether it fired: how many times depends on frame timing (two runs gave
+        # OnHit 4 and 1, OnLoad 4 and 3).
+        _ev(f"evn.{n.lower()}.fired", f'SetFunctionValue ((rP.AuxVarSize "*nvfE.{n.lower()}") > 0)'),
+        _ev(f"evn.{n.lower()}.arg1", f'let rA := rP.AuxVarGetRef "*nvfE.{n.lower()}.1" 0\n' + _ARG, True),
+        _ev(f"evn.{n.lower()}.arg2", f'let rA := rP.AuxVarGetRef "*nvfE.{n.lower()}.2" 0\n' + _ARG, True),
+    )]
+    + [
+        _ev("evn.cleanup", _CRE + _NPC + "rA.Disable\nrA.MarkForDelete\nrB.Disable\nrB.MarkForDelete\n"
+            + "rP.ModAV Health -1000\nrP.RestoreAV Health 2000\nSetFunctionValue 1"),
+    ]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2210,11 +2290,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "projectile": PROJECTILE_PROBES,
         "sky-sound": SKY_SOUND_PROBES,
         "knvse-anim": KNVSE_PROBES,
-        "nif-blocks": NIF_PROBES}
+        "nif-blocks": NIF_PROBES,
+        "nvse-events": NVSE_EVENT_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events"}
 
 
 def script(body):

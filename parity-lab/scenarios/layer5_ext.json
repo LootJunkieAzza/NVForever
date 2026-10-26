@@ -565,6 +565,35 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "nifblocks"]
+  },
+  {
+   "id": "L5.ext.ini.files",
+   "layer": 5,
+   "description": "INI files under Data\\Config read and written by LU (GetINIFloat, GetINIString, SetINIFloat), ShowOff (GetINI...OrDefault_Cached, GetINI...OrCreate_Cached) and MCM (Get/SetModINISetting), with the test INIs of tools/capture/jip-probes/config standing for Data\\Config; set ini-files of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/ini-files.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/ini_files.steps.json", "--start-cell", "0x000DEB16",
+             "--config", "{lab_root}/../tools/capture/jip-probes/config"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "inifiles"]
+  },
+  {
+   "id": "L5.ext.nvse.events",
+   "layer": 5,
+   "description": "Which xNVSE events fire (SetEventHandler lambdas) and their first firing's two arguments, caused through the player's inventory, a placed creature and NPC, and a stimpak cast; set nvse-events of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-events.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_events.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "events"]
   }
  ]
 }
