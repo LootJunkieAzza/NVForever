@@ -1267,10 +1267,13 @@ kind = "tool"
 source = "ESM gap audit row 18 (docs/spec-notes/texture-swaps.md): records' alternate textures (MODS/MO2S/MO3S/MO4S) and the shapes they go to"
 areas = ["texture-swaps", "world"]
 paths = ["crates/fnv-world/src/alt_textures.rs", "crates/fnvtool/src/world_alt_textures.rs", "crates/fnv-nif/src/scene.rs", "schemas/fnv/common.json", "crates/fnv-esm/src/decode.rs", "crates/fnv-esm/src/schema.rs"]
-commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit"]]
+commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit", "--edid", "OutfitPrewarCasualwear2Dirty"]]
 # texture-swaps.md §1, §2: FalloutNV.esm's 433 records, 1,838 entries, 1,679 with their
 # named shape at the 3D Index; the Atomic Wrangler billboard's one shape; the radiation
-# suit's female model has two UpperBody shapes, each listed with its own index.
+# suit's female model has two UpperBody shapes, each listed with its own index. The
+# index decides over a stale name: Jeannie May Crawford's dirty relaxedwear lists
+# `pipboyoff` at 9, the female model's UpperBody (her dress), which takes the brown
+# texture set like her arms (owner, 2026-10-26).
 expect = [
   { json = "summary.records", equals = 433 },
   { json = "summary.entries", equals = 1838 },
@@ -1279,6 +1282,8 @@ expect = [
   { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.diffuse", equals = 'textures\clutter\billboards\atomicwrangler_billboard.dds' },
   { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.match", equals = "name_and_index" },
   { json = "records.?edid=CSArmorRadiationSuit.models.?sub=MOD3.entries.?shape=UpperBody.match", equals = "name_and_index", count = 2 },
+  { json = "records.?edid=OutfitPrewarCasualwear2Dirty.models.?sub=MOD3.entries.?index=9.targets.*.0", equals = "UpperBody", label = "the index decides: the dress gets the dirty texture set (§2)" },
+  { json = "records.?edid=OutfitPrewarCasualwear2Dirty.models.?sub=MOD3.entries.*.match", equals = "index_only", count = 1 },
 ]
 
 [[scenario]]
@@ -1291,6 +1296,19 @@ run_seconds = 12
 expect = [
   'meshes\dungeons\hotel lowend\htlrmcorout01.nif: texture swap: 1 entr(ies), 1 shape(s) retextured: OffRmCorOut01:1:0 → textures\dungeons\hotel lowend\presmetrofloor02.dds',
   { text = "offdoormetalsml01.nif: texture swap: 2 entr(ies), 0 shape(s) retextured", label = "NullTextureSet names no file: the door keeps its own textures (§3, hypothesis)" },
+]
+
+[[scenario]]
+name = "texture-swaps-worn"
+source = "owner 2026-10-26: Jeannie May Crawford's dress was drawn blue beside brown arms (docs/spec-notes/texture-swaps.md §2): her OutfitPrewarCasualwear2Dirty's female list names `pipboyoff` at 9, the model's UpperBody, and the index decides"
+areas = ["texture-swaps", "actors"]
+paths = ["engine/nvf-assets/src/actor.rs", "crates/fnv-world/src/alt_textures.rs"]
+env = { NVF_PLAY_TEST_FACE = "6:0008D74C", NVF_PLAY_TEST_SHOTS = "9:jeannie_may_dress.png" }
+args = ["--cell", "NovacMotelLobby", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+manual = "jeannie_may_dress.png in the run's folder: her dress the same dark brown as her sleeves, no blue"
+expect = [
+  { re = '1950stylecasual01\\f\\outfit\.nif: texture swap: 4 entr\(ies\), 4 shape\(s\) retextured: .*UpperBody → textures\\armor\\1950stylecasual01\\outfit02fold\.dds', label = "her dress takes the dirty texture set" },
 ]
 
 # ------------------------------------------------------------------ audio

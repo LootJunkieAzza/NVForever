@@ -70,12 +70,15 @@ pub fn survey(w: &WorldArgs, nif_schema: Option<&Path>, edids: &[String]) -> any
             for e in &list {
                 entries += 1;
                 let t = targets(e, &named);
+                let named_here = |i: usize| named[i].0.is_some_and(|n| n.eq_ignore_ascii_case(e.shape.trim()));
                 let kind = if t.is_empty() {
                     "none"
-                } else if t.iter().any(|&i| e.index >= 0 && named[i].1 == e.index as usize) {
+                } else if !t.iter().any(|&i| e.index >= 0 && named[i].1 == e.index as usize) {
+                    "name_only"
+                } else if t.iter().any(|&i| named_here(i)) {
                     "name_and_index"
                 } else {
-                    "name_only"
+                    "index_only"
                 };
                 *matched.entry(kind).or_default() += 1;
                 let files: Vec<String> = e.textures.iter().flatten().map(|t| fnv_vfs::texture_path(t)).collect();
@@ -86,6 +89,8 @@ pub fn survey(w: &WorldArgs, nif_schema: Option<&Path>, edids: &[String]) -> any
                     "diffuse": e.textures[0].as_deref().map(fnv_vfs::texture_path),
                     "files": files.len(), "missing": missing, "match": kind,
                     "targets": t.iter().map(|&i| json!([named[i].0, named[i].1])).collect::<Vec<_>>(),
+                    "at_index": named.iter().find(|s| e.index >= 0 && s.1 == e.index as usize).map(|s| s.0),
+                    "shapes": named.len(),
                 }));
             }
             models.push(json!({"sub": String::from_utf8_lossy(model_sub), "model": model, "entries": out}));
