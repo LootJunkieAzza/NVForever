@@ -21,6 +21,13 @@ impl Plugin for NifMirrorPlugin {
     }
 }
 
+/// What the mirror keeps between frames: the references it logged, the held transforms.
+#[derive(Default)]
+struct Memory {
+    logged: std::collections::HashSet<u32>,
+    held: HashMap<(u32, String), Held>,
+}
+
 /// A node transform a script set, held over the animation.
 #[derive(Clone, Copy, Default)]
 struct Held {
@@ -83,9 +90,9 @@ fn mirror(
     parents: Query<&ChildOf>,
     mut nodes: NodeQuery,
     mut commands: Commands,
-    mut logged: Local<std::collections::HashSet<u32>>,
-    mut held: Local<HashMap<(u32, String), Held>>,
+    mut mem: Local<Memory>,
 ) {
+    let Memory { logged, held } = &mut *mem;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let scene = &mut rt.game.scene;
     for edit in scene.take_edits() {
