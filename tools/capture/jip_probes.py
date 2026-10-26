@@ -1728,6 +1728,54 @@ N7_PROBES = [
     _n7id("movetocell.cell2", "rPlayer.GetParentCell"),
 ]
 
+# Thirtieth set: the player-state getters the N10 sweep ranks first (GetWaterImmersionPerc,
+# IsInKillCam, GetPCUsingScope/IronSights, GetAutoMove, GetActorVelocity, IsIdlePlayingEx)
+# and LU's controller functions (next batch N8), standing still at the airport with no
+# gamepad connected. Idle NVPHMCHouseIdle 176EE1 from fnvtool esm inventory [observed].
+# DisableButton is undone with EnableButton.
+FX.update(idlehouse="176EE1")
+
+
+def _ps(pid, body, text=False):
+    return (pid, _H9 + body, text, None, "")
+
+
+def _psv(pid, expr, text=False):
+    return _ps(pid, f"SetFunctionValue ({expr})", text)
+
+
+PLAYER_STATE_PROBES = (
+    [_psv("ps.water.player", "rPlayer.GetWaterImmersionPerc"),
+     _psv("ps.water.doc", "rDoc.GetWaterImmersionPerc"),
+     _psv("ps.killcam", "IsInKillCam"),
+     _psv("ps.scope", "GetPCUsingScope"),
+     _psv("ps.ironsights", "GetPCUsingIronSights"),
+     _psv("ps.automove", "GetAutoMove"),
+     _psv("ps.swimming", "IsPlayerSwimming"),
+     _psv("ps.chargen", "IsInCharGen")]
+    + [_psv(f"ps.velocity.player.{a or 'all'}", f"rPlayer.GetActorVelocity {a}".rstrip()) for a in ("", "X", "Y", "Z")]
+    + [_psv("ps.velocity.doc", "rDoc.GetActorVelocity"),
+       _ps("ps.idle.player", _o4("idlehouse") + "SetFunctionValue (rPlayer.IsIdlePlayingEx rObj)"),
+       _ps("ps.idle.doc", _o4("idlehouse") + "SetFunctionValue (rDoc.IsIdlePlayingEx rObj)"),
+       # Controller (no pad connected).
+       _psv("pad.controller", "GetController"),
+       _psv("pad.pressed", "GetPressedButtons"),
+       _psv("pad.lt", "GetLeftTrigger"),
+       _psv("pad.rt", "GetRightTrigger"),
+       _psv("pad.lsx", "GetLeftStickX"),
+       _psv("pad.lsy", "GetLeftStickY"),
+       _psv("pad.rsx", "GetRightStickX"),
+       _psv("pad.rsy", "GetRightStickY"),
+       _psv("pad.button.a", "IsButtonPressed 4096"),
+       _psv("pad.disabled.before", "IsButtonDisabled 4096"),
+       _ps("pad.disable", "DisableButton 4096\nSetFunctionValue (IsButtonDisabled 4096)"),
+       _psv("pad.disable.next", "IsButtonDisabled 4096"),
+       _psv("pad.disable.other", "IsButtonDisabled 8192"),
+       _ps("pad.disable.two", "DisableButton 12288\nSetFunctionValue ((IsButtonDisabled 4096) * 10 + (IsButtonDisabled 8192))"),
+       _ps("pad.enable.one", "EnableButton 8192\nSetFunctionValue ((IsButtonDisabled 4096) * 10 + (IsButtonDisabled 8192))"),
+       _ps("pad.enable", "EnableButton 4096\nSetFunctionValue (IsButtonDisabled 4096)")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1740,11 +1788,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "lu-leveled": LEVELED_PROBES,
         "nvse-flags": FLAG_PROBES,
         "ini-files": INI_FILE_PROBES,
-        "jip-n7": N7_PROBES}
+        "jip-n7": N7_PROBES,
+        "player-state": PLAYER_STATE_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state"}
 
 
 def script(body):
