@@ -9886,6 +9886,7 @@ args = ["--cell", "NovacJeannieMayHouse", "--play", "--no-voice", "--no-messages
 run_seconds = 24
 expect = [
   { re = 'notes: VFreeformNovacBillOfSale 0x000B83CC filed with the player.s notes', label = "the Bill of Sale is a note, not an item" },
+]
 
 # ------------------------------------------------------------------ weapon wheel
 
