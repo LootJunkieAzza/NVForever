@@ -354,8 +354,14 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         shift_growing(g, r, code, a.num(1)?)?;
         return none();
     }
-    let d = damage(g, r, code) + a.num(1)?;
+    let amount = a.num(1)?;
+    let d = damage(g, r, code) + amount;
     set_damage(g, r, code, d);
+    // JIP's health-damage handlers see DamageAV too, with no source [documented:
+    // SetOnHealthDamageEventHandler; observed: ev.amount -1, ev.source.type].
+    if code == crate::actor_values::HEALTH && amount > 0.0 {
+        g.jip_event("healthdamage", Some(r), vec![fnv_script::vm::XVal::Num(-amount), fnv_script::vm::XVal::Ref(0)]);
+    }
     // Out of fatigue: knocked out (docs/spec-notes/unconscious.md §2.3).
     if code == crate::actor_values::FATIGUE {
         g.fatigue_changed(r);

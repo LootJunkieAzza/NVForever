@@ -693,6 +693,10 @@ pub enum EventCall {
     DispatchAlt { event: String, on: Option<Value>, args: Vec<XVal> },
     /// GetCurrentEventName.
     CurrentName,
+    /// JIP LN's `SetOn<event>EventHandler func add filters…` (`event` lower case).
+    JipSet { event: String, func: XVal, add: bool, filters: Vec<XVal> },
+    /// JIP LN's SetGameMainLoopCallback.
+    MainLoop { func: XVal, add: bool, delay: u64, flags: u32, on: Option<Value> },
 }
 
 /// How the host stores a variable (the extender's types live in ordinary slots).

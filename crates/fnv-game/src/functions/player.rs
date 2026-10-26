@@ -68,7 +68,10 @@ pub fn get_has_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 }
 
 pub fn add_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.notes.insert(a.form(0)?);
+    let n = a.form(0)?;
+    if g.player.notes.insert(n) {
+        g.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(n.0)]);
+    }
     none()
 }
 

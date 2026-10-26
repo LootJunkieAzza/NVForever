@@ -749,6 +749,25 @@ fn jip_regex_follows_the_probes() {
 }
 
 #[test]
+fn typed_parameters_in_braces_declare_them() {
+    // [observed: the original's runtime-compiled function scripts, jip-events.md §4].
+    let t = table();
+    let c = compile("Begin Function {float fD, ref rS}\nlet fD := ({int n} => n * 2)\nEnd\n", &t, &World, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let names: Vec<(&str, &VarType)> = c.variables.iter().map(|v| (v.name.as_str(), &v.ty)).collect();
+    assert!(names.contains(&("fD", &VarType::FloatOrRef)) && names.contains(&("rS", &VarType::FloatOrRef)) && names.contains(&("n", &VarType::Int)), "{names:?}");
+}
+
+#[test]
+fn a_signed_number_after_a_space_starts_the_next_argument() {
+    // [observed: maxof.neg, aux.append.* with JIP in the original game].
+    let h = run("float m\nfloat d\nfloat s\nbegin GameMode\nlet m := GetMaxOf -1 -5\nlet d := 7 -5\nlet s := GetMaxOf (3 -5) 0\nend");
+    assert_eq!(h.0[&1], Value::Num(-1.0), "two arguments");
+    assert_eq!(h.0[&2], Value::Num(2.0), "outside arguments a subtraction");
+    assert_eq!(h.0[&3], Value::Num(0.0), "inside parentheses a subtraction");
+}
+
+#[test]
 fn jip_reports_and_pure_functions() {
     let h = run(
         "float i

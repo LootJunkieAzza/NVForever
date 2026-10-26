@@ -434,6 +434,8 @@ impl Game<'_> {
             let corpse = self.is_dead(target);
             return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, ..HitResult::default() };
         }
+        // JIP's hit handlers run before the damage [documented: SetOnHitEventHandler].
+        self.jip_event("hit", Some(target), Vec::new());
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
         let essential = self.is_essential(target);
         let floor = if essential { 1.0 } else { 0.0 };
@@ -450,6 +452,11 @@ impl Game<'_> {
         if let Some(a) = info.attacker {
             self.extra.entry(a).or_default().last_target = Some(target);
         }
+        if dealt > 0.0 {
+            // [documented: SetOnHealthDamageEventHandler] the amount negative, the source.
+            let source = fnv_script::vm::XVal::Ref(info.attacker.map_or(0, |a| a.0));
+            self.jip_event("healthdamage", Some(target), vec![fnv_script::vm::XVal::Num(-dealt), source]);
+        }
         self.ref_event(target, event::ON_HIT, info.attacker.map(|a| Value::Ref(a.0)), info.attacker);
         if let Some(w) = info.weapon {
             self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), info.attacker);
@@ -465,6 +472,11 @@ impl Game<'_> {
             let (condition, crippled) = self.damage_limb(target, l, max_health);
             out.limb = Some((l.condition, condition));
             out.crippled = crippled;
+            if crippled {
+                // [documented: SetOnCrippledLimbEventHandler] 0 head … 6 brain.
+                let limb = f64::from(l.condition - crate::actor_values::LIMB_CONDITIONS.start());
+                self.jip_event("crippledlimb", Some(target), vec![fnv_script::vm::XVal::Num(limb)]);
+            }
             if crippled && target == FormId::PLAYER_REF {
                 self.count_stat(crate::misc_stats::HAVE_LIMBS_CRIPPLED, 1.0);
             }

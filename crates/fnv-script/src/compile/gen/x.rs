@@ -178,7 +178,10 @@ impl Gen<'_> {
         while let Some(t) = p.peek() {
             if t.kind == XKind::LBracket && POSTFIX >= min {
                 p.next();
-                let inner = self.xexpr(p, 0)?;
+                let was = std::mem::replace(&mut self.in_args, false);
+                let inner = self.xexpr(p, 0);
+                self.in_args = was;
+                let inner = inner?;
                 if p.next().map(|t| t.kind) != Some(XKind::RBracket) {
                     return self.xerr("syntax", "missing ]");
                 }
@@ -202,6 +205,9 @@ impl Gen<'_> {
                 };
                 left = XExpr::Member { l: Box::new(left), key: k.text.clone() };
                 continue;
+            }
+            if t.sign && self.in_args {
+                break;
             }
             let Some((lb, rb, op)) = infix(t) else { break };
             if lb < min {
@@ -234,7 +240,10 @@ impl Gen<'_> {
             XKind::Num => Some(XExpr::Num { value: t.text.parse().unwrap_or(0.0), text: t.text.clone() }),
             XKind::Str => Some(XExpr::Str { s: t.text.clone() }),
             XKind::Open => {
-                let e = self.xexpr(p, 0)?;
+                let was = std::mem::replace(&mut self.in_args, false);
+                let e = self.xexpr(p, 0);
+                self.in_args = was;
+                let e = e?;
                 if p.next().map(|c| c.kind) != Some(XKind::Close) {
                     return self.xerr("syntax", "missing )");
                 }
@@ -247,19 +256,20 @@ impl Gen<'_> {
             XKind::Word => self.xword(p, &t.text),
             // `{params} => expr` [documented: Lambda].
             XKind::LBrace => {
-                let mut params = Vec::new();
+                let mut words = Vec::new();
                 while let Some(n) = p.next() {
                     match n.kind {
                         XKind::RBrace => break,
                         XKind::Comma => {}
-                        XKind::Word => match self.var(&n.text) {
-                            Some(v) => params.push(VarRef {
-                                on: None,
-                                var: VarSlot::Local { index: v.index as u16, letter: super::letter_of(&v.ty) },
-                            }),
-                            None => return self.xerr("unresolved_name", n.text.clone()),
-                        },
+                        XKind::Word => words.push(n.text.clone()),
                         _ => return self.xerr("syntax", format!("{} in a lambda's parameters", n.text)),
+                    }
+                }
+                let mut params = Vec::new();
+                for w in self.typed_params(&words) {
+                    match self.var(&w) {
+                        Some(v) => params.push(VarRef { on: None, var: VarSlot::Local { index: v.index as u16, letter: super::letter_of(&v.ty) } }),
+                        None => return self.xerr("unresolved_name", w),
                     }
                 }
                 if !p.next().is_some_and(|a| a.is(XKind::Op, "=>")) {
@@ -351,6 +361,12 @@ impl Gen<'_> {
         }
         match self.form(name) {
             Some(f) => Some(val_expr(self.form_val(f, name))),
+            // A bare X, Y or Z that names nothing is an axis, for extender functions whose
+            // parameter types the table does not carry (`GetLocalGravity Z`) [observed:
+            // jip-getters localgravity rows compile in the original].
+            None if self.in_args && name.len() == 1 && matches!(name.to_ascii_uppercase().as_str(), "X" | "Y" | "Z") => {
+                Some(XExpr::Axis { c: name.to_ascii_uppercase().chars().next().unwrap_or('Z') })
+            }
             None => self.xerr("unresolved_name", name.to_string()),
         }
     }
@@ -366,8 +382,10 @@ impl Gen<'_> {
                 p.next();
                 comma = true;
             }
-            // A `-` starts the first argument, or one after a comma (`Rand -5, -1`).
-            let minus_first = (comma || args.is_empty()) && f.params != Some(0) && p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
+            // A `-` starts the first argument, or one after a comma (`Rand -5, -1`), or a
+            // signed number after a space (`GetMaxOf -1 -5`).
+            let minus = p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
+            let minus_first = f.params != Some(0) && minus && (comma || args.is_empty() || p.peek().is_some_and(|t| t.sign));
             if !starts_operand(p.peek()) && !minus_first {
                 break;
             }
@@ -379,7 +397,10 @@ impl Gen<'_> {
             } else {
                 ARG
             };
-            args.push(self.xarg(p, &enc, min)?);
+            let was = std::mem::replace(&mut self.in_args, true);
+            let a = self.xarg(p, &enc, min);
+            self.in_args = was;
+            args.push(a?);
         }
         Some(args)
     }

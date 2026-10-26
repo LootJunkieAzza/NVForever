@@ -274,6 +274,30 @@ impl Vm<'_, '_> {
                     },
                 }))
             }
+            // JIP's own event registrations (task J6; jip-events.md).
+            _ if n.starts_with("seton") && n.ends_with("eventhandler") && n.len() > 17 => {
+                let event = n["seton".len()..n.len() - "eventhandler".len()].to_string();
+                let func = val(self, 0)?;
+                let add = val(self, 1)?.truthy();
+                let mut filters = Vec::new();
+                for a in c.args.iter().skip(2) {
+                    filters.push(self.xeval(a)?);
+                }
+                let r = self.host.event_call(super::EventCall::JipSet { event, func, add, filters }).map_err(VmError::Host)?;
+                Ok(Some(r))
+            }
+            "setgamemainloopcallback" => {
+                let func = val(self, 0)?;
+                let add = val(self, 1)?.truthy();
+                let delay = opt(self, 2)?.map(|v| v.num()).transpose()?.unwrap_or(1.0).max(1.0) as u64;
+                let flags = opt(self, 3)?.map(|v| v.num()).transpose()?.unwrap_or(3.0) as u32;
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let r = self.host.event_call(super::EventCall::MainLoop { func, add, delay, flags, on }).map_err(VmError::Host)?;
+                Ok(Some(r))
+            }
             // Names and text fields (jip-strings.md §3): a missing entry is "" [observed].
             "lngetname" => {
                 let f = match (c.args.first(), &c.on) {
@@ -551,6 +575,11 @@ impl Vm<'_, '_> {
             // the end does nothing, a new type replaces the element].
             "setfloat" | "setref" | "setstring" => {
                 let v = self.jvalue(n, c, kind_of(op))?;
+                // Setting no form leaves no element [observed: jip-events ev.source.type,
+                // the null source stored with AuxVarSetRef].
+                if v == XVal::Ref(0) {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
                 let i = self.jindex(c, 2, 0)?;
                 let o = self.jowner(n, c, 3)?;
                 let s = stores(self.store()?, name);

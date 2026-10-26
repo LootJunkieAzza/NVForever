@@ -976,6 +976,8 @@ pub struct Game<'a> {
     /// lasts for the session; SetEventHandlerAlt is flushed on every load].
     handlers: Vec<Handler>,
     handler_seq: u64,
+    /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
+    pub(crate) jip: crate::jip_events::JipEvents,
     /// The events being handled, innermost last (GetCurrentEventName).
     event_names: Vec<String>,
     /// The scripts that saw GetGameLoaded / GetGameRestarted true (by unit key).
@@ -1545,6 +1547,7 @@ impl<'a> Game<'a> {
             lambda_ids: Default::default(),
             handlers: Vec::new(),
             handler_seq: 0,
+            jip: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
@@ -1775,9 +1778,13 @@ impl<'a> Game<'a> {
             }
         }
         self.emit(EventKind::StageSet { quest: q, stage, entries: ran.clone() });
+        // JIP's quest-stage handlers, before the result scripts, which a registration
+        // with skipScript keeps from running [documented: SetOnQuestStageEventHandler].
+        let skip = self.jip_skips_stage(q, stage);
+        self.jip_event("queststage", None, vec![fnv_script::vm::XVal::Ref(q.0), fnv_script::vm::XVal::Num(f64::from(stage))]);
         for i in ran {
             let e = &entries[i];
-            if let Some(u) = e.unit {
+            if let Some(u) = e.unit.filter(|_| !skip) {
                 self.run_result(u, RunCtx { quest: Some(q), ..Default::default() });
             }
             if e.flags & STAGE_COMPLETE != 0 {
@@ -1977,7 +1984,10 @@ impl<'a> Game<'a> {
     pub fn run_query(&mut self, src: &str, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
         let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
-        if c.errors().next().is_some() {
+        if let Some(e) = c.errors().next() {
+            // The error is the capture's own text; what the compiler said goes to the trace.
+            let what = format!("query: {}: {}", e.kind.replace('_', " "), e.detail);
+            self.emit(EventKind::Skipped { unit: "query".into(), what });
             return Err("script did not compile".into());
         }
         let d = fnv_script::decode(&c.bytes, &self.data.table);
@@ -2193,7 +2203,31 @@ impl<'a> Game<'a> {
                 XVal::Num(1.0)
             }
             EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
+            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters)))),
+            EventCall::MainLoop { func, add, delay, flags, on } => {
+                self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
+                XVal::Num(0.0)
+            }
         })
+    }
+
+    /// How many parameters a function script's Function block or a lambda declares;
+    /// `None` when `f` is neither.
+    pub(crate) fn function_arity(&self, f: &fnv_script::vm::XVal) -> Option<usize> {
+        use fnv_script::vm::XVal;
+        let id = match f {
+            XVal::Ref(id) => *id,
+            XVal::Num(x) => *x as u32,
+            _ => return None,
+        };
+        if id >= LAMBDA_BASE {
+            let d = self.lambdas.get((id - LAMBDA_BASE) as usize)?;
+            let fnv_script::ir::XExpr::Lambda { params, .. } = &d.lambda else { return None };
+            return Some(params.len());
+        }
+        let unit = self.data.script(FormId(id))?;
+        let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK)?;
+        Some(block.params.iter().flatten().count())
     }
 
     /// What lasts for the session across a load (task E3): the SetEventHandler
@@ -2260,7 +2294,7 @@ impl<'a> Game<'a> {
     /// strings without regard to case; a form the same form, a reference also its base
     /// form, a form list any of its forms; for SetEventHandlerAlt an array any of its
     /// elements.
-    fn filter_matches(&self, f: &fnv_script::vm::XVal, v: &fnv_script::vm::XVal, alt: bool) -> bool {
+    pub(crate) fn filter_matches(&self, f: &fnv_script::vm::XVal, v: &fnv_script::vm::XVal, alt: bool) -> bool {
         use fnv_script::vm::XVal;
         match (f, v) {
             (XVal::Array(id), v) if alt => self.ext.array(*id).is_some_and(|a| a.entries.iter().any(|(_, e)| self.filter_matches(e, v, false))),
@@ -2451,6 +2485,8 @@ impl<'a> Game<'a> {
     /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
+        // JIP's SetGameMainLoopCallback functions due this frame (task J6).
+        self.run_main_loop();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -4286,7 +4322,8 @@ impl Host for Exec<'_, '_> {
 
     fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
         let f = FormId(form);
-        self.game.data.sig(f)
+        // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
+        self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
     }
 
     fn base_form(&mut self, form: u32) -> Option<u32> {
