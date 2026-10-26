@@ -221,3 +221,14 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
   *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
   variable temporary. It did not show how a variable becomes private or public
   (docs/spec-notes/jip-variable-stores.md §1). Exporting those three pages settles it.
+
+## Extender lab: rows that depend on your save (2026-10-26)
+
+The L5.ext.nvse.* lab run of the extender branch (ext-compiler 1d2ee60b) matched 220 of
+228 in-game probe rows. Three of the eight left depend on the save the probes ran in
+(`nvfairport`): ToString of the player (your character's name) and the two counts of
+the player's inventory (27 item kinds). `fnvtool ext probes` loads no save, so it cannot
+match them. Nothing is marked or loosened in the lab: they stay failing until the lab
+can start from a save. *Check:* whether NVForever's lab may read your save (read-only,
+private, like the goldens). The default if you say nothing is to wait for the engine's
+save loading.

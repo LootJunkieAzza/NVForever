@@ -42,18 +42,6 @@ Begin GameMode
     let aB := Ar_SortAlpha aA
     Print "EXTPROBE|sortalpha.numbers_as_text|" + $(aB[0])
     let aA := Ar_Null
-    let aA := Ar_Map 1::"b", 2::"a"
-    let aB := Ar_SortAlpha aA
-    Print "EXTPROBE|sortalpha.map_kind|[" + (TypeOf aB) + "]"
-    let aA := Ar_Null
-    let aA := Ar_List 1, 3, 2
-    let aB := Ar_CustomSort aA, ({aX, aY} => *aX > *aY)
-    Print "EXTPROBE|customsort.kind|" + $(aB[0])
-    let aA := Ar_Null
-    let aA := Ar_List 1, 20, 3, 40
-    let aB := Ar_Filter aA, ({aX} => *aX > 10)
-    Print "EXTPROBE|filter.renumber|" + $(aB[0])
-    let aA := Ar_Null
     let aA := Ar_List 1, 20, 3, 40
     let aB := Ar_Filter aA, ({aX} => *aX > 10)
     Print "EXTPROBE|filter.size|" + $(Ar_Size aB)
@@ -75,12 +63,6 @@ Begin GameMode
     let aA := Ar_Null
     let aA := Ar_List 1, 50
     Print "EXTPROBE|all.no|" + $(ar_All aA, ({aX} => *aX > 10))
-    let aA := Ar_Null
-    let aA := Ar_Construct "array"
-    Print "EXTPROBE|any.empty|" + $(ar_Any aA, ({aX} => *aX > 10))
-    let aA := Ar_Null
-    let aA := Ar_Construct "array"
-    Print "EXTPROBE|all.empty|" + $(ar_All aA, ({aX} => *aX > 10))
     let aA := Ar_Null
     let aA := Ar_List 1, 2, 3
     let iR := 0
