@@ -161,6 +161,14 @@ the spec it links to.
     costs a second world render while aiming. Planned as a Gameplay switch, off = the
     original overlay. Should it be on by default, and should the view around the lens
     zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
+34. **MCM and the pause menu (UI tile tree).** MCM lives in the original's StartMenu,
+    which is where our own pause and settings pages are. Chosen (not built yet): our
+    column and settings stay as they are. The game's StartMenu is built from its files
+    behind them while the pause or main menu is open, so MCM's scripts find their
+    tiles. A "Mods" entry joins our column only when a mod added one, and opens MCM's
+    page drawn from the game's files. If you rule otherwise, the whole pause menu is
+    drawn from the game's (or a mod's) start_menu.xml and our settings become one entry
+    in it. ([ui-tile-tree §7](design/ui-tile-tree.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
@@ -210,7 +218,9 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
 - **File functions (J9).** JIP reads and writes files in the game folder; NVForever never
   writes there. *Proposed:* writers write only under NVForever's own engine-home folder,
   mirroring the relative path; readers prefer that copy, then the game folder (read-only).
-  docs/spec-notes/jip-math-utility.md §4. *Check:* say if you want something else.
+  docs/spec-notes/jip-math-utility.md §4. The same rule would cover mods' INI writes
+  (SetINIFloat, the MCM settings files under `Data\Config`) and Con_SCOF's console log
+  (docs/handoff/nvse-next-batch.md N3). *Check:* say if you want something else.
 - **Arc tangents are approximate in JIP:** `fatan 1` and `fatan2 1 1` give 44.9998, not 45.
   *Default:* NVForever computes the exact value and the lab accepts a small tolerance on
   these two functions only, unless a sweep of probe points lets us fit the game's curve

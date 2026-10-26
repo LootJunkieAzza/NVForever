@@ -2797,6 +2797,19 @@ impl Vm<'_, '_> {
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
             // `"format" values… faction rank [female]`]: formatted here, set by the game
             // (SetName's change; the rank title).
+            // [documented: SetUIStringEx `trait "format" values…`; InjectUIComponent `path
+            // "format" values…`]: the format is the second argument.
+            "setuistringex" | "injectuicomponent" => {
+                let first = match c.args.first() {
+                    Some(e) => self.xeval(e)?,
+                    None => XVal::Str(String::new()),
+                };
+                let (t, _) = self.format_arg(c, 1)?;
+                match self.host.ext_call(&lname, None, &[first, XVal::Str(t)]) {
+                    Some(r) => Ok(r.map_err(VmError::Host)?),
+                    None => Ok(XVal::Num(0.0)),
+                }
+            }
             // [documented: SetModelPathEx; SetIconPathEx; SetBipedModelPathEx;
             // SetBipedIconPathEx] likewise, then the plain setter.
             "setnameex" | "setnthfactionranknameex" | "setmodelpathex" | "seticonpathex" | "setbipedmodelpathex" | "setbipediconpathex" => {

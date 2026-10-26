@@ -43,6 +43,12 @@ pub struct OtherState {
     pub package_lists: HashMap<FormId, Vec<FormId>>,
     /// SetFlagsLow/High's record flags.
     pub flags: HashMap<FormId, u32>,
+    /// Con_SCOF's file name (nothing is written).
+    pub scof: Option<String>,
+    /// AddAnimation's and DelAnimation's lists, by actor base.
+    pub animations: HashMap<FormId, Vec<String>>,
+    /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
+    pub generic: HashMap<(i64, FormId), Vec<FormId>>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -224,8 +230,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             yes(before)
         }
         // [documented: GetConsoleOutputFilename; HasConsoleOutputFileName] no SCOF file.
-        "getconsoleoutputfilename" => XVal::Str(String::new()),
-        "hasconsoleoutputfilename" => zero,
+        "getconsoleoutputfilename" => XVal::Str(g.other.scof.clone().unwrap_or_default()),
+        "hasconsoleoutputfilename" => yes(g.other.scof.is_some()),
         // [documented: GetCrosshairRef, the reference the player would activate;
         // GetCrosshairRefEx, the same at any range] as the engine tells them; a null
         // reference otherwise [observed: GetCrosshairRefEx gives 00000000].

@@ -10,6 +10,7 @@ fnv-esm = { path = "../fnv-esm" }
 fnv-sim = { path = "../fnv-sim" }
 fnv-script = { path = "../fnv-script" }
 fnv-util = { path = "../fnv-util" }
+fnv-ui = { path = "../fnv-ui" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
