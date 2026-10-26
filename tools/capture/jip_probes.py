@@ -1776,6 +1776,34 @@ PLAYER_STATE_PROBES = (
        _ps("pad.enable", "EnableButton 4096\nSetFunctionValue (IsButtonDisabled 4096)")]
 )
 
+# Thirty-first set (next batch N2): MCM's script functions, in a load order of its own
+# (the usual eleven plugins plus "The Mod Configuration Menu.esp" last; every other set
+# keeps the usual order). In play no menu is open, so StartMenu (the pause menu, where
+# MCM's tiles live) is not loaded: these rows are what a mod's script sees outside the
+# menu. MCM.ini (Data\Config, made by MCM.dll) is read through GetModINISetting.
+MCM_LOAD_ORDER_EXTRA = "The Mod Configuration Menu.esp"
+
+
+def _mc(pid, body, text=False):
+    return (pid, "float fRes\nstring_var sText\nBegin Function { }\n" + body, text, None, "")
+
+
+MCM_PROBES = [
+    _mc("mcm.loaded", 'SetFunctionValue (IsModLoaded "The Mod Configuration Menu.esp")'),
+    _mc("mcm.plugin.version", 'SetFunctionValue (GetPluginVersion "MCM Extensions")'),
+    _mc("mcm.ini.maxwidth", 'SetFunctionValue (GetModINISetting "MCM/List/MaxWidth")'),
+    _mc("mcm.ini.initial", 'SetFunctionValue (GetModINISetting "MCM/Messages/Initial")'),
+    _mc("mcm.ini.missing", 'SetFunctionValue (GetModINISetting "MCM/List/NVFNone")'),
+    _mc("mcm.startmenu.visible", 'SetFunctionValue (GetUIFloat "StartMenu/visible")'),
+    _mc("mcm.tile.visible", 'SetFunctionValue (GetUIFloat "StartMenu/MCM/visible")'),
+    _mc("mcm.getfloat.1.1", 'SetFunctionValue (GetMCMFloat 1 1 "_enable")'),
+    _mc("mcm.getfloat.0.0", 'SetFunctionValue (GetMCMFloat 0 0 "visible")'),
+    _mc("mcm.setfloat", 'SetMCMFloat 1 1 "_nvfprobe" 5\nSetFunctionValue (GetMCMFloat 1 1 "_nvfprobe")'),
+    _mc("mcm.setfloat.ui", 'SetFunctionValue (GetUIFloat "StartMenu/MCM/*:1/*:1/_nvfprobe")'),
+    _mc("mcm.setstring", 'SetMCMString 1 1 "_title" "NVF probe"\nSetFunctionValue 1'),
+    _mc("mcm.menumode", "SetFunctionValue (MenuMode 1013)"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -1789,11 +1817,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nvse-flags": FLAG_PROBES,
         "ini-files": INI_FILE_PROBES,
         "jip-n7": N7_PROBES,
-        "player-state": PLAYER_STATE_PROBES}
+        "player-state": PLAYER_STATE_PROBES,
+        "mcm": MCM_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm"}
 
 
 def script(body):

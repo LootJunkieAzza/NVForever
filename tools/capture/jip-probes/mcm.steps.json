@@ -1,0 +1,73 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mcm",
+ "title": "mcm, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (IsModLoaded \"The Mod Configuration Menu.esp\")\nEnd\n",
+   "label": "mcm.loaded",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetPluginVersion \"MCM Extensions\")\nEnd\n",
+   "label": "mcm.plugin.version",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetModINISetting \"MCM/List/MaxWidth\")\nEnd\n",
+   "label": "mcm.ini.maxwidth",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetModINISetting \"MCM/Messages/Initial\")\nEnd\n",
+   "label": "mcm.ini.initial",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetModINISetting \"MCM/List/NVFNone\")\nEnd\n",
+   "label": "mcm.ini.missing",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetUIFloat \"StartMenu/visible\")\nEnd\n",
+   "label": "mcm.startmenu.visible",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetUIFloat \"StartMenu/MCM/visible\")\nEnd\n",
+   "label": "mcm.tile.visible",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetMCMFloat 1 1 \"_enable\")\nEnd\n",
+   "label": "mcm.getfloat.1.1",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetMCMFloat 0 0 \"visible\")\nEnd\n",
+   "label": "mcm.getfloat.0.0",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetMCMFloat 1 1 \"_nvfprobe\" 5\nSetFunctionValue (GetMCMFloat 1 1 \"_nvfprobe\")\nEnd\n",
+   "label": "mcm.setfloat",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetUIFloat \"StartMenu/MCM/*:1/*:1/_nvfprobe\")\nEnd\n",
+   "label": "mcm.setfloat.ui",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetMCMString 1 1 \"_title\" \"NVF probe\"\nSetFunctionValue 1\nEnd\n",
+   "label": "mcm.setstring",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (MenuMode 1013)\nEnd\n",
+   "label": "mcm.menumode",
+   "field": "value"
+  }
+ ]
+}

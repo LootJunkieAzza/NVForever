@@ -467,6 +467,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "playerstate"]
+  },
+  {
+   "id": "L5.ext.mcm",
+   "layer": 5,
+   "description": "MCM's script functions (GetModINISetting on MCM.ini, GetMCMFloat, SetMCMFloat, SetMCMString, StartMenu tiles) outside the menu, in a load order of its own with The Mod Configuration Menu.esp last; set mcm of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/mcm.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "The Mod Configuration Menu.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/mcm.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "mcm"]
   }
  ]
 }
