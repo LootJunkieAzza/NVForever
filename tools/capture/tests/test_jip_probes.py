@@ -37,8 +37,14 @@ class Job(unittest.TestCase):
         ids = [pid for probes in jp.SETS.values() for pid, *_ in probes]
         self.assertEqual(len(ids), len(set(ids)), "probe ids are unique across sets")
 
+    def test_store_probes_clean_up(self):
+        for pid, body, _, _, _ in jp.STORE_PROBES:
+            for verb, undo in (("AuxVarSet", "AuxVarErase"), ("RefMapSet", "RefMapDestroy")):
+                if verb in body:
+                    self.assertIn(undo, body, pid)
+
     def test_only_getters(self):
-        for pid, body, _, _, _ in [p for probes in jp.SETS.values() for p in probes]:
+        for pid, body, _, _, _ in [p for k, probes in jp.SETS.items() if k not in jp.WRITING_SETS for p in probes]:
             words = body.replace("(", " ").split()
             self.assertFalse(any(w.startswith(("Set", "Toggle", "Clear", "Write")) and w != "SetFunctionValue" for w in words), pid)
 
