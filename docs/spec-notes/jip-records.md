@@ -88,24 +88,28 @@ none [observed: ammoproj.*].
 
 ## 4. Weapons (WEAP)
 
-| Function | Observed |
-|---|---|
-| GetWeaponKillImpulse | WeapLaserRifle 0, WeapHuntingRifle 26, as documented [observed; documented: GetWeaponKillImpulse] |
-| GetWeaponImpulseDistance | laser rifle 0 (as documented), hunting rifle 0 |
-| GetWeaponCritFlags | laser rifle 1, hunting rifle 1 (1 = "on death", the only known flag [documented]) |
-| GetWeaponVATSEffect | WeapSuperSledge → MaulerKnockdownSpell 10F09F, as documented; laser rifle → none |
-| GetWeaponOnHitSetting | WeapNV44Revolver 0 (normal formula) |
-| GetWeaponSemiAutoFireDelay | .44 revolver: 0 → minimum 0, 1 → maximum 0.3 |
-| GetImpactDataSet | Weap10mmPistol → 019083 |
-| GetWeaponModel | mod mask 0 → `weapons\2handautomatic\assaultCarbine.NIF` (assault carbine); 3 → the gatling laser's two-mod model; 7 → `weapons\1handpistol\10mmpistolAllMods.nif`. Case as stored in the record |
+| Function | Field | Observed (game = decoded) |
+|---|---|---|
+| GetWeaponKillImpulse | DNAM kill_impulse | WeapLaserRifle 0, WeapHuntingRifle 26, as documented [observed; documented: GetWeaponKillImpulse] |
+| GetWeaponImpulseDistance | DNAM impulse_dist | laser rifle 0 (as documented), hunting rifle 0 |
+| GetWeaponCritFlags | CRDT flags | laser rifle 1, hunting rifle 1 (1 = "on death", the only known flag [documented]) |
+| GetWeaponVATSEffect | VATS effect | WeapSuperSledge → MaulerKnockdownSpell 10F09F, as documented; laser rifle → none |
+| GetWeaponOnHitSetting | DNAM on_hit (0 normal, 1 dismember only, 2 explode only, 3 neither) | WeapNV44Revolver 0. The hunting rifle's record says "Explode Only" (2), not probed |
+| GetWeaponSemiAutoFireDelay w 0 / 1 | DNAM semi_automatic_fire_delay_min / _max | .44 revolver: 0 and 0.3 |
+| GetImpactDataSet | INAM | Weap10mmPistol → 019083 |
+| GetWeaponModel w mask | mask 0: MODL; mask 1–7: MWD1–MWD7 | 0 → the assault carbine's MODL; 3 → the gatling laser's MWD3; 7 → the 10mm pistol's MWD7 (`…10mmpistolAllMods.nif`). Case as stored |
 
-These are WEAP fields (DNAM, CRDT, the MOD2–MOD4 model paths, the impact data set). The
-field each one reads is still to be matched against fnv-esm's decode for J5.
+[observed: jip-records weapon rows; decoded with fnvtool esm decode, 2026-10-26]. The
+mod-mask order (1 = mod 1, 2 = mod 2, 3 = mods 1+2, 4 = mod 3 …) is the wiki's
+[documented: GetWeaponModel] and equals the MWD numbering.
 
 ## 5. Armor (ARMO)
 
 GetArmorClass: ArmorMetal 3 (heavy), ArmorLeather 1 (light); 0 means none or an error
-[documented: GetArmorClass; observed: armorclass.*]. GetArmorRCT ArmorMetal → "" (no
+[documented: GetArmorClass; observed: armorclass.*]. Field: BMDT general_flags. Metal
+has bit 7 (Heavy) set and gives 3; leather has neither bit 3 (Medium) nor bit 7 and
+gives 1 [observed, decoded]. So Heavy gives 3, Medium 2 [hypothesis: no medium armor
+probed], neither 1. GetArmorRCT ArmorMetal → "" (no
 ragdoll constraint template) [observed: armorrct.metal].
 
 ## 6. For NVForever (J5)
