@@ -1,6 +1,7 @@
 //! NPCs living by their AI packages (docs/design/actor-behaviour.md §5.4):
 //! `--npc-packages ACTOR[,ACTOR…]` hands placed actors to `fnv_ai`, and
-//! `--npc-packages all` every actor and creature of the cells loaded around the camera.
+//! `--npc-packages all` every actor and creature of the cells loaded around the camera
+//! and of the interiors their load doors lead to.
 //! Each chooses its package by the hour (`fnv_game::ai`), walks to where the package
 //! sends it over the nav graph (`nav.rs` builds it), through doors into other spaces,
 //! and stays there until its package changes. They are drawn and animated like
@@ -1026,9 +1027,28 @@ impl Core {
                 CellKey::Exterior(g) => (world.grid_cell(g), world.persistent_by_grid.get(&g)),
                 CellKey::Interior(id) => (world.index.cells.get(&id), None),
             };
+            let mut behind_doors = Vec::new();
             for r in cell.into_iter().flat_map(|c| c.refs.iter()).chain(persistent.into_iter().flatten()) {
                 if is_actor(refs, FormId(*r)) {
                     self.add(refs, FormId(*r), None);
+                } else if let Some(tp) = refs.get(FormId(*r)).and_then(|d| d.teleport.as_ref()) {
+                    behind_doors.extend(refs.teleport_cell(tp).filter(|c| refs.world_of(*c).is_none() && key != CellKey::Interior(c.0)));
+                }
+            }
+            // The original's Mid-Low level: the actors of the interiors reached by doors
+            // from the loaded cells, never visited, are processed too [documented: GECK
+            // wiki (JIP) GetActorProcessingLevel; `fnv_ai::process`]. Without them an
+            // actor placed indoors never left until the player had been in: Boone's
+            // night patrol to the dinosaur's mouth (owner 2026-10-26).
+            for id in behind_doors {
+                let Some(c) = world.index.cells.get(&id.0) else { continue };
+                let had = self.list.len();
+                for r in c.refs.iter().filter(|r| is_actor(refs, FormId(**r))) {
+                    self.add(refs, FormId(*r), None);
+                }
+                if self.list.len() > had {
+                    let names: Vec<&str> = self.list[had..].iter().map(|r| r.label.as_str()).collect();
+                    info!("ai: {} behind a door from the loaded cells, in {}: {}", names.len(), c.edid.as_deref().unwrap_or("an interior"), names.join(", "));
                 }
             }
         }

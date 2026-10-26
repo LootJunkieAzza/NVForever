@@ -38,8 +38,11 @@
 //!     arrives when it would have walking in sight.
 //!
 //!   The original's Mid-Low (interiors reached by doors from the loaded cells, never
-//!   visited, "unknown" rate) has no actors here: the AI only has the actors of cells
-//!   loaded once, or moved by scripts.
+//!   visited, "unknown" rate) is [`ProcessLevel::Low`] here: the engine hands the AI
+//!   the actors of those interiors with the loaded cells' own (Boone leaves his room
+//!   for the dinosaur's mouth at 21:00 without the player having been in; owner
+//!   2026-10-26). Actors farther away join when their cell loads, or a script moves
+//!   them.
 //!
 //! How the original carries an actor at the Low level to the player, watched with the AI
 //! observer [observed 2026-10-24: Malcolm Holmes after the first star cap,
