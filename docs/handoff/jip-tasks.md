@@ -89,3 +89,21 @@ over the export].
 | J9 | **File functions** (WriteStringToFile, ReadArrayFromFile, FileExists, GetFilesInFolder): NVForever never writes into the game folder, so they work in a sandbox under the engine home, like Ar_DumpF | decision proposed (owner-review) | — | the decision is recorded |
 | J10 | **Model and NIF functions** (AttachModel, InsertNode, SetNifBlockTranslation …): renderer-side, after the core | later | engine renderer | — |
 | J11 | **Lab scenarios** `L5.ext.jip.<family>` comparing `fnvtool ext probes` (or a runtime-query twin) with J3's goldens | this machine | J3 | scenarios run |
+
+## 4. Progress (2026-10-26)
+
+- **J1 done** (#816): `jip_family` and `jip_probe` on 1049 JIP/LU rows.
+- **J2**: spec notes `jip-math-utility.md`, `jip-strings.md`, `jip-variable-stores.md`,
+  `jip-events.md`, `jip-hit-info.md`, `jip-records.md`. Still to write: refs and movement
+  (Misc Reference, the largest family after Actor), actor functions, UI (waits on J8),
+  inventory, cells and weather.
+- **J3**: `tools/capture/jip_probes.py` (#817), six sets run in the original game, all
+  documented values matching: `jip-getters` (42 rows), `jip-forms` (24), `jip-stores`
+  (32), `jip-events` (17, handlers as lambdas), `jip-hits` (49, OnHit during an
+  explosion), `jip-records` (88). Goldens in `C:\fnv-private\goldens\jip\`.
+  Runtime-query rules found on the way: xnvse-capture.md §5.
+- **J11** waits on a headless-runner action that compiles and runs script text
+  (requested from the other session with J4). `fnvtool ext queries` and the
+  `L5.ext.jip.*` scenarios follow it.
+- Facts found beyond the wiki, and their decisions, are in the notes and in
+  docs/owner-review.md ("JIP LN" section).

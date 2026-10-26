@@ -1,0 +1,253 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip_hits",
+ "title": "JIP hits, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.ModAV Health 1000\nSetFunctionValue (rP.GetAV Health)\nEnd\n",
+   "label": "hit.boost",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.count\" (1) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.damage\" (rP.GetHitHealthDamage) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.location\" (rP.GetHitLocation) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.location",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.flag.explosion\" (rP.GetHitExtendedFlag 8) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.flag.explosion",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.flag.critical\" (rP.GetHitExtendedFlag 1) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.flag.critical",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.projectile.isref\" (IsReference (rP.GetHitProjectile)) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.projectile.isref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.projectile.type\" (GetType (rP.GetHitProjectile)) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.projectile.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.attacker.isref\" (IsReference (rP.GetHitAttacker)) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.attacker.isref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.weapon.valid\" (IsFormValid (rP.GetHitWeapon)) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.weapon.valid",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.pos.x\" ((rP.GetHit3DData 0)[0]) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.pos.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnHitEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfH.health\" (rP.GetAV Health) -1\nEnd) 1 rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.reg.health",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rB := GetFormFromMod \"FalloutNV.esm\" \"7078B\"\nrP.PlaceAtMe rB 1\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.boom",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.settle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.count\")\nEnd\n",
+   "label": "hit.count.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.count\" 0)\nEnd\n",
+   "label": "hit.count.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.count\" 1)\nEnd\n",
+   "label": "hit.count.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.damage\")\nEnd\n",
+   "label": "hit.damage.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.damage\" 0)\nEnd\n",
+   "label": "hit.damage.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.damage\" 1)\nEnd\n",
+   "label": "hit.damage.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.location\")\nEnd\n",
+   "label": "hit.location.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.location\" 0)\nEnd\n",
+   "label": "hit.location.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.location\" 1)\nEnd\n",
+   "label": "hit.location.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.flag.explosion\")\nEnd\n",
+   "label": "hit.flag.explosion.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.flag.explosion\" 0)\nEnd\n",
+   "label": "hit.flag.explosion.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.flag.explosion\" 1)\nEnd\n",
+   "label": "hit.flag.explosion.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.flag.critical\")\nEnd\n",
+   "label": "hit.flag.critical.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.flag.critical\" 0)\nEnd\n",
+   "label": "hit.flag.critical.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.flag.critical\" 1)\nEnd\n",
+   "label": "hit.flag.critical.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.projectile.isref\")\nEnd\n",
+   "label": "hit.projectile.isref.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.projectile.isref\" 0)\nEnd\n",
+   "label": "hit.projectile.isref.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.projectile.isref\" 1)\nEnd\n",
+   "label": "hit.projectile.isref.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.projectile.type\")\nEnd\n",
+   "label": "hit.projectile.type.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.projectile.type\" 0)\nEnd\n",
+   "label": "hit.projectile.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.projectile.type\" 1)\nEnd\n",
+   "label": "hit.projectile.type.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.attacker.isref\")\nEnd\n",
+   "label": "hit.attacker.isref.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.attacker.isref\" 0)\nEnd\n",
+   "label": "hit.attacker.isref.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.attacker.isref\" 1)\nEnd\n",
+   "label": "hit.attacker.isref.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.weapon.valid\")\nEnd\n",
+   "label": "hit.weapon.valid.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.weapon.valid\" 0)\nEnd\n",
+   "label": "hit.weapon.valid.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.weapon.valid\" 1)\nEnd\n",
+   "label": "hit.weapon.valid.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.pos.x\")\nEnd\n",
+   "label": "hit.pos.x.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.pos.x\" 0)\nEnd\n",
+   "label": "hit.pos.x.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.pos.x\" 1)\nEnd\n",
+   "label": "hit.pos.x.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarSize \"*nvfH.health\")\nEnd\n",
+   "label": "hit.health.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.health\" 0)\nEnd\n",
+   "label": "hit.health.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfH.health\" 1)\nEnd\n",
+   "label": "hit.health.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetAV Health)\nEnd\n",
+   "label": "hit.health.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.ModAV Health -1000\nrP.RestoreAV Health 2000\nrP.AuxVarErase \"*nvfH.count\"\nrP.AuxVarErase \"*nvfH.damage\"\nrP.AuxVarErase \"*nvfH.location\"\nrP.AuxVarErase \"*nvfH.flag.explosion\"\nrP.AuxVarErase \"*nvfH.flag.critical\"\nrP.AuxVarErase \"*nvfH.projectile.isref\"\nrP.AuxVarErase \"*nvfH.projectile.type\"\nrP.AuxVarErase \"*nvfH.attacker.isref\"\nrP.AuxVarErase \"*nvfH.weapon.valid\"\nrP.AuxVarErase \"*nvfH.pos.x\"\nrP.AuxVarErase \"*nvfH.health\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hit.cleanup",
+   "field": "value"
+  }
+ ]
+}

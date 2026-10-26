@@ -1,0 +1,137 @@
+scn ExtProbeArrays07
+; the undocumented array probes, one per run (tools/capture/ext-probes/arrays/README.md)
+array_var aA
+array_var aB
+array_var aC
+array_var aD
+array_var aE
+string_var sS
+string_var sT
+int iR
+int iDone
+array_var aX
+array_var aY
+int iWhich
+Begin GameMode
+    if iWhich == iDone
+        Return
+    endif
+    let iDone := iWhich
+    Print "EXTPROBE|arrays/ExtProbeArrays07|begin"
+    if iWhich == 1
+        let aA := Ar_Null
+        let aA := Ar_Construct "bogus"
+        Print "EXTPROBE|construct.bogus|" + $(Ar_Size aA)
+    elseif iWhich == 2
+        let aA := Ar_Null
+        let aA := Ar_Map 1::10, "x"::20
+        Print "EXTPROBE|map.mixed_keys|" + $(Ar_Size aA)
+    elseif iWhich == 3
+        let aA := Ar_Null
+        let aA := Ar_Map "k"::1
+        Print "EXTPROBE|packed.smap|" + $(Ar_Packed aA)
+    elseif iWhich == 4
+        let aA := Ar_Null
+        let aA := Ar_Range 1, 3, 0
+        Print "EXTPROBE|range.step0|" + $(Ar_Size aA)
+    elseif iWhich == 5
+        let aA := Ar_Null
+        let aA := Ar_Range 1, 5, -1
+        Print "EXTPROBE|range.wrong_way|" + $(Ar_Size aA)
+    elseif iWhich == 6
+        let aA := Ar_Null
+        let aA := Ar_Map 5::50, 2::20, 9::90
+        Print "EXTPROBE|map.next_missing|" + $(Ar_Next aA, 3)
+    elseif iWhich == 7
+        let aA := Ar_Null
+        let aA := Ar_Map "b"::1, "A"::2, "a"::3
+        let aB := Ar_Keys aA
+        Print "EXTPROBE|smap.case_order|[" + (aB[0]) + "]"
+    elseif iWhich == 8
+        let aA := Ar_Null
+        let aA := Ar_Map "b"::1, "A"::2, "a"::3
+        Print "EXTPROBE|smap.case_size|" + $(Ar_Size aA)
+    elseif iWhich == 9
+        let aA := Ar_Null
+        let aA := Ar_Construct "map"
+        Print "EXTPROBE|first.empty|" + $(Ar_First aA)
+    elseif iWhich == 10
+        let aA := Ar_Null
+        let aA := Ar_List "Abc", "x"
+        Print "EXTPROBE|find.string_case|" + $(Ar_Find "abc", aA)
+    elseif iWhich == 11
+        let aA := Ar_Null
+        let aA := Ar_Map 1::1
+        Ar_Append aA, 2
+        Print "EXTPROBE|append.map|" + $(Ar_Size aA)
+    elseif iWhich == 12
+        let aA := Ar_Null
+        let aA := Ar_List 1, 2
+        let iR := Ar_Insert aA, 2, 3
+        Print "EXTPROBE|insert.at_size|" + $(iR)
+    elseif iWhich == 13
+        let aA := Ar_Null
+        let aA := Ar_List 1, 2
+        let iR := Ar_Insert aA, 5, 3
+        Print "EXTPROBE|insert.past|" + $(iR)
+    elseif iWhich == 14
+        let aA := Ar_Null
+        let aA := Ar_List 1
+        let aA[3] := 9
+        Print "EXTPROBE|write.list_past_end|" + $(Ar_Size aA)
+    elseif iWhich == 15
+        let aA := Ar_Null
+        let aA := Ar_List 1, 2, 3, 4
+        let aB := aA[1:2]
+        Print "EXTPROBE|slice.kind|" + $(aB[0])
+    elseif iWhich == 16
+        let aA := Ar_Null
+        let aA := Ar_List 1
+        let aA := Ar_Null
+        Print "EXTPROBE|null.reads_zero|" + $(Ar_Size aA)
+    elseif iWhich == 17
+        let aA := Ar_Null
+        let aA := Ar_Map 1::"b", 2::"a"
+        let aB := Ar_SortAlpha aA
+        Print "EXTPROBE|sortalpha.map_kind|[" + (TypeOf aB) + "]"
+    elseif iWhich == 18
+        let aA := Ar_Null
+        let aA := Ar_List 1, 3, 2
+        let aB := Ar_CustomSort aA, ({aX, aY} => *aX > *aY)
+        Print "EXTPROBE|customsort.kind|" + $(aB[0])
+    elseif iWhich == 19
+        let aA := Ar_Null
+        let aA := Ar_List 1, 20, 3, 40
+        let aB := Ar_Filter aA, ({aX} => *aX > 10)
+        Print "EXTPROBE|filter.renumber|" + $(aB[0])
+    elseif iWhich == 20
+        let aA := Ar_Null
+        let aA := Ar_Construct "array"
+        Print "EXTPROBE|any.empty|" + $(ar_Any aA, ({aX} => *aX > 10))
+    elseif iWhich == 21
+        let aA := Ar_Null
+        let aA := Ar_Construct "array"
+        Print "EXTPROBE|all.empty|" + $(ar_All aA, ({aX} => *aX > 10))
+    elseif iWhich == 22
+        let aA := Ar_Null
+        let aA := Ar_List 1, 2, 3, 4
+        let iR := 0
+        foreach aE <- aA
+            let iR += 1
+            Ar_Erase aA, aE["key"]
+        loop
+        Print "EXTPROBE|foreach.erase_current|" + $(iR)
+    elseif iWhich == 23
+        let aA := Ar_Null
+        let aA := Ar_List 1, 2
+        let iR := 0
+        foreach aE <- aA
+            let iR += 1
+            if eval iR < 5
+                Ar_Append aA, 9
+            endif
+        loop
+        Print "EXTPROBE|foreach.append|" + $(iR)
+    endif
+    Print "EXTPROBE|arrays/ExtProbeArrays07|end"
+End
