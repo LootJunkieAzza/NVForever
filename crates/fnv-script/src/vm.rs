@@ -142,6 +142,10 @@ pub enum VmError {
     /// errors the extender reports [documented: NVSE Error].
     #[error("{0}")]
     Type(String),
+    /// An extender function called on no reference: it stops the script, as no other
+    /// extender error does [observed: nvse-inv foreach.read.after, "script call failed"].
+    #[error("{0} called on no reference")]
+    NoReference(String),
 }
 
 /// What the VM needs from the game. Every method may fail with a message; a failure
@@ -1561,6 +1565,7 @@ impl Vm<'_, '_> {
                 let Some(members) = self.host.members(f) else {
                     return Err(VmError::Type("foreach over a form that is neither a form list nor a container".into()));
                 };
+                let container = self.host.form_sig(f).is_some_and(|s| &s != b"FLST");
                 for m in members {
                     self.step()?;
                     self.write_var(var, XVal::Ref(m))?;
@@ -1569,6 +1574,12 @@ impl Vm<'_, '_> {
                         Flow::Break => break,
                         Flow::Normal | Flow::Leave | Flow::Continue => {}
                     }
+                }
+                // After a container's loop the variable holds no form, a copy made inside
+                // stays valid [observed: nvse-inv foreach.read.after.valid 0, probe
+                // loops/02 tempref_after_loop 1].
+                if container {
+                    self.write_var(var, XVal::Ref(0))?;
                 }
                 Ok(Flow::Normal)
             }
@@ -2735,6 +2746,11 @@ impl Vm<'_, '_> {
             Some(e) => Some(self.xeval(e)?.value()?),
             None => None,
         };
+        // Called on no reference, the function fails and stops the script [observed:
+        // nvse-inv foreach.read.after, "script call failed"].
+        if on.is_some_and(|v| v.as_form().is_none()) {
+            return Err(VmError::NoReference(lname.to_string()));
+        }
         let mut args = Vec::with_capacity(c.args.len());
         for a in &c.args {
             args.push(match a {
