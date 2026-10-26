@@ -217,3 +217,7 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
 - **`GetLNVersion` returns 57.3** in your game, where the wiki says it always returns 0;
   NVForever follows the game.
 - **UI functions (J8)** still wait on your call (extender-compat.md §5.6).
+- **Three wiki pages missing from the export:** *Auxiliary Variables*, *RefMap Array* and
+  *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
+  variable temporary. It did not show how a variable becomes private or public
+  (docs/spec-notes/jip-variable-stores.md §1). Exporting those three pages settles it.
