@@ -235,6 +235,15 @@ pub struct LodState {
     pub levels: [usize; 4],
     pub generated: usize,
     pub blocks: usize,
+    /// Terrain chunks spawned anew since the start (shadow_probe.rs).
+    pub terrain_rebuilds: usize,
+}
+
+impl LodState {
+    /// The terrain chunks' entities (shadow_probe.rs).
+    pub fn terrain_entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.terrain.values().flat_map(|t| t.entities.iter().copied())
+    }
 }
 
 /// Threads baking generated terrain (lodgen::Baker, at the lowest priority).
@@ -299,6 +308,7 @@ impl LodState {
             levels: [0; 4],
             generated: 0,
             blocks: 0,
+            terrain_rebuilds: 0,
         }
     }
 
@@ -533,6 +543,7 @@ pub fn update_lod(
         }
         let spawned = spawn_terrain(&mut commands, root, &mut lod, &mut models, chunk, key, &full);
         lod.terrain.insert(chunk, spawned);
+        lod.terrain_rebuilds += 1;
         changed = true;
     }
     lod.chosen = chosen;

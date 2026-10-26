@@ -20,6 +20,14 @@
 //!   or indices were before the mesh was changed and placed anew (garbage triangles).
 //! - **The player's body**: the widest joint spread of the third-person body, which in
 //!   first person only casts the shadow (`player_body.rs`), in each summary.
+//! - **LOD terrain casting** (every frame): how many distant-LOD terrain shapes each of
+//!   the sun's cascades of the main camera casts from, with the cells fading in and out
+//!   and the LOD terrain chunks spawned anew, logged whenever one of them changes
+//!   or a cascade's casters change by more than a fifth in one frame
+//!   (`shadow probe: frame <n> …`, at most [`LOD_LINES`] lines). LOD terrain stays solid under a cell until it has
+//!   faded in (fade.rs), and casts from where it stands, not pushed behind [hypothesis
+//!   for the owner's 2026-10-26 capture: whole hillsides in one cascade turn dark and
+//!   back from frame to frame while the frame rate struggles].
 //!
 //! Each finding is logged once per shape (`shadow probe: …`), with a summary every five
 //! seconds: `shadow probe: <n> skins; stretched … player body joints within <units>`.
@@ -83,7 +91,17 @@ struct Probe {
     player_skin: HashMap<Entity, bool>,
     /// The widest joint spread of the player's third-person body since the last summary.
     player_spread: f32,
+    /// LOD terrain shapes per cascade, cells fading in and out, terrain chunks spawned
+    /// anew: as last logged.
+    lod_casting: (Vec<usize>, usize, usize, usize),
+    /// Casters per cascade last frame.
+    casters: Vec<usize>,
+    /// LOD lines logged (capped at [`LOD_LINES`]).
+    lod_lines: u32,
 }
+
+/// LOD terrain lines logged at most per run.
+const LOD_LINES: u32 = 2000;
 
 /// Whether `e` hangs under the player's third-person body (`player_body.rs` names it).
 fn under_player_body(e: Entity, names: &Names) -> bool {
@@ -138,10 +156,38 @@ fn probe(
     names: Names,
     sun: Query<&CascadesVisibleEntities, With<Sun>>,
     camera: Query<(Entity, &GlobalTransform), With<nvf_play::PlayerCamera>>,
+    lod: Option<Res<crate::lod::LodState>>,
+    streamer: Option<Res<crate::world::Streamer>>,
 ) {
     let state = &mut *state;
     state.frame = state.frame.wrapping_add(1);
     state.since_summary += time.delta_secs();
+    // LOD terrain casting, every frame.
+    if let (Some(lod), Some(streamer), Ok(cascades), Ok((cam_e, _))) = (lod.as_deref(), streamer.as_deref(), sun.single(), camera.single()) {
+        let terrain: HashSet<Entity> = lod.terrain_entities().collect();
+        let lists = cascades.entities.get(&cam_e);
+        let per: Vec<usize> = lists.map_or(Vec::new(), |l| l.iter().map(|c| c.entities.iter().filter(|e| terrain.contains(*e)).count()).collect());
+        let fading_in = streamer.fades.values().filter(|f| !f.leaving).count();
+        let now = (per, fading_in, streamer.fades.len() - fading_in, lod.terrain_rebuilds);
+        let casters: Vec<usize> = lists.map_or(Vec::new(), |l| l.iter().map(|c| c.entities.len()).collect());
+        // A cascade's casters changing by more than a fifth in one frame.
+        let jump = casters.len() == state.casters.len() && casters.iter().zip(&state.casters).any(|(&a, &b)| a.abs_diff(b) * 5 > a.max(b));
+        if (now != state.lod_casting || jump) && state.lod_lines < LOD_LINES {
+            state.lod_lines += 1;
+            info!(
+                "shadow probe: frame {} ({:.1} ms): LOD terrain casting per cascade {:?} of casters {:?}; cells fading in {}, out {}; LOD terrain chunks spawned anew {}",
+                state.frame,
+                time.delta_secs() * 1e3,
+                now.0,
+                casters,
+                now.1,
+                now.2,
+                now.3 - state.lod_casting.3
+            );
+        }
+        state.lod_casting = now;
+        state.casters = casters;
+    }
     if state.frame.is_multiple_of(EVERY) {
         let cam = camera.single().ok();
         // Stretched skins.
