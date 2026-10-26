@@ -5259,11 +5259,12 @@ name = "save-ai-write"
 source = "docs/design/save-load.md §3.3, §5 item 4: the residents' package progress (patrol points, sandbox days) goes into a save; save-ai-load reads it, so run them together"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
-env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
 run_seconds = 28
 expect = [
   { re = 'save: wrote .*smoke-ai\.nvfsave \(manual', label = "the save is written" },
+  { re = 'DocMitchellREF: put at .* by a script \(MoveTo\)', label = "Doc Mitchell is moved out of his house before the save" },
 ]
 
 [[scenario]]
@@ -5277,6 +5278,7 @@ run_seconds = 24
 expect = [
   { re = 'load: package progress of (?P<n>\d+) residents kept', range = [1, 1000], label = "the save holds progress" },
   { re = 'goes on with .*(from the save|its sandbox day as saved)', label = "a resident goes on where the save had it" },
+  { re = 'DocMitchellREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
 ]
 
 [[scenario]]
