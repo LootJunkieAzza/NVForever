@@ -179,6 +179,13 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
+    fn show_text(&mut self, _text: &str, _buttons: Vec<String>) {}
+    /// The calling script's plugin's debug mode (DebugPrint), after setting it when `set`
+    /// is given (SetDebugMode; `plugin` a load-order index from the console).
+    fn debug_mode(&mut self, _set: Option<bool>, _plugin: Option<u32>) -> bool {
+        false
+    }
     /// Run a user-defined function or a lambda (`Call`, the ar_* functions that take a
     /// function): its value (what SetFunctionValue set; 0 when nothing).
     fn call_function(&mut self, _f: &XVal, _on: Option<Value>, _args: Vec<XVal>) -> Result<XVal, String> {
@@ -1536,8 +1543,8 @@ impl Vm<'_, '_> {
             }
             // A form list's forms, or a container's or actor's items, one per kind of item
             // [documented: ForEach; observed: probe loops/02, as many as GetNumItems]. Each
-            // entry here is the item's base form [hypothesis: the original gives a temporary
-            // reference to the stack, valid until the next frame; B5].
+            // entry is what the host gives: the game makes a temporary reference per kind
+            // of item, valid until the next frame (B5) [observed: probe loops/02].
             XVal::Ref(f) => {
                 let Some(members) = self.host.members(f) else {
                     return Err(VmError::Type("foreach over a form that is neither a form list nor a container".into()));
@@ -2346,6 +2353,40 @@ impl Vm<'_, '_> {
                 self.host.print(&t);
                 XVal::Num(0.0)
             }
+            // [documented: DebugPrint; SetDebugMode, ext-format.md §4] PrintC only while the
+            // calling mod's debug mode is on.
+            "debugprint" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                if self.host.debug_mode(None, None) {
+                    self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            "setdebugmode" => {
+                let on = val(self, 0)?.truthy();
+                let plugin = opt(self, 1)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
+                self.host.debug_mode(Some(on), plugin);
+                XVal::Num(0.0)
+            }
+            // [documented: MessageEx] a corner message without a Message form.
+            "messageex" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                self.host.show_text(&t, Vec::new());
+                XVal::Num(0.0)
+            }
+            // [documented: MessageBoxEx] `text|button|…`, up to 10 buttons numbered from 0;
+            // without one the box gets "Ok" [hypothesis: a box needs a button to close].
+            "messageboxex" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                let mut parts = t.split('|').map(str::to_string);
+                let text = parts.next().unwrap_or_default();
+                let mut buttons: Vec<String> = parts.take(10).collect();
+                if buttons.is_empty() {
+                    buttons.push("Ok".into());
+                }
+                self.host.show_text(&text, buttons);
+                XVal::Num(0.0)
+            }
             "print" => {
                 let v = val(self, 0)?;
                 let t = self.text_of(&v)?;
@@ -2386,6 +2427,15 @@ impl Vm<'_, '_> {
                     (None, None) => self.host.calling_ref(),
                 };
                 XVal::Num(f.and_then(|f| self.host.members(f)).map_or(0, |m| m.len()) as f64)
+            }
+            // [documented: GetBaseObject] the base form of the reference it is called on.
+            "getbaseobject" => {
+                let f = match (&c.on, c.args.first()) {
+                    (Some(e), _) => self.xeval(e)?.value()?.as_form(),
+                    (None, Some(a)) => self.xeval(a)?.value()?.as_form(),
+                    (None, None) => self.host.calling_ref(),
+                };
+                XVal::Ref(f.and_then(|f| self.host.base_form(f)).unwrap_or(0))
             }
             // [documented: IsReference] a reference, not a base form.
             "isreference" => {

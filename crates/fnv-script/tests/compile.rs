@@ -366,8 +366,8 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    // MessageEx is not built yet (D4).
-    let (_, p) = build("ref r\nbegin GameMode\nMessageEx \"hi\"\nend");
+    // GetPluginHeaderVersion is not built yet.
+    let (_, p) = build("ref r\nbegin GameMode\nGetPluginHeaderVersion \"FalloutNV.esm\"\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
     assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");

@@ -1873,3 +1873,22 @@ fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
     assert_eq!(read(&mut g, "*hH"), before, "the handler runs before the damage");
     assert_eq!(read(&mut g, "*hC"), XVal::Num(1.0), "a critical hit");
 }
+
+#[test]
+fn message_ex_box_ex_and_debug_print() {
+    // Task D4 [documented: MessageEx; MessageBoxEx; DebugPrint; SetDebugMode].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("MessageEx \"n %g\", 3\nMessageBoxEx \"Pick|Ok|Cancel\"\nDebugPrint \"hidden\"\nSetDebugMode 1\nDebugPrint \"shown\"", Default::default()).expect("compiles");
+    let shown: Vec<(Option<String>, Vec<String>)> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::MessageShown { text, buttons, .. } => Some((text.clone(), buttons.clone())),
+        _ => None,
+    }).collect();
+    assert_eq!(shown, vec![(Some("n 3".into()), vec![]), (Some("Pick".into()), vec!["Ok".into(), "Cancel".into()])]);
+    assert_eq!(g.message_box.as_ref().map(|m| m.buttons), Some(2));
+    let printed: Vec<&str> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptPrint { text, .. } => Some(text.as_str()),
+        _ => None,
+    }).collect();
+    assert_eq!(printed, ["shown"]);
+}

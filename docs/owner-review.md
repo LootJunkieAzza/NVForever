@@ -221,6 +221,21 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
   *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
   variable temporary. It did not show how a variable becomes private or public
   (docs/spec-notes/jip-variable-stores.md §1). Exporting those three pages settles it.
+- **JIP implementation choices (J4–J7, branch claude/ext-compiler, 2026-10-26).**
+  *Check* any you would rather have differently:
+  - An invalid regular expression is an extender run-time error (the statement fails,
+    the script goes on); the wiki says the game crashes.
+  - JIP event registrations are not saved and a load starts with none (documented for
+    the ragdoll event only). A second identical registration is kept once.
+  - A lambda made inside a function script reads that script's variables **as they were
+    when the lambda was made** (the function has ended by the time an event runs the
+    lambda). The game showed the variables are seen; whether later changes are seen
+    too was not observed.
+  - SetGameMainLoopCallback counts frames (as documented), not time.
+  - Not built yet: projectile and explosion hit data (GetHitProjectile, GetHit3DData),
+    explosion damage in headless runs, the fire/reload/menu/key event firing points
+    (engine side), GetFontFile (fonts, J8), the file functions (J9 waits on the
+    proposal above).
 
 ## Extender lab: rows that depend on your save (2026-10-26)
 

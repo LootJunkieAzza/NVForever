@@ -9761,6 +9761,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-extender-output"
+source = "extender task D4 (docs/spec-notes/ext-format.md §4): MessageEx and MessageBoxEx show text without a Message form; DebugPrint prints only after SetDebugMode 1; the console runs extender functions by name through the compiler"
+areas = ["console", "scripts"]
+paths = ["crates/fnv-script/src/vm.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:MessageEx \"nvf corner %g\", 7;10.5:DebugPrint \"nvf hidden\";11:SetDebugMode 1;11.5:DebugPrint \"nvf shown\";12:MessageBoxEx \"nvf box|Ok|Cancel\"" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: message .*"nvf corner 7"', label = "MessageEx shows its formatted text" },
+  { re = 'script: print "nvf shown"', label = "DebugPrint prints once debug mode is on" },
+  { re = 'script: print "nvf hidden"', count = 0, label = "DebugPrint is silent before SetDebugMode" },
+  { re = 'script: message .*"nvf box" buttons \["Ok", "Cancel"\]', label = "MessageBoxEx shows a box with its buttons" },
+]
+
+[[scenario]]
 name = "scripts-from-source"
 source = "extender task A6 (fnv_game::source_compile): NVF_COMPILE_SOURCE=always runs every shipped unit from its source text, compiled by NVForever; the game starts and runs its scripts as from the bytes"
 areas = ["scripts"]
