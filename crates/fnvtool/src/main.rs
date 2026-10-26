@@ -42,6 +42,7 @@ mod phys_cmd;
 mod script_cmd;
 mod sim_cmd;
 mod source;
+mod ui_cmd;
 mod voice_cmd;
 mod world_alt_textures;
 mod world_audio;
@@ -130,6 +131,10 @@ enum Cmd {
     /// source (counts and names only).
     #[command(subcommand)]
     Ext(ext_cmd::ExtCmd),
+    /// The menu files read into the tile tree: counts and mended spots over all menus, one
+    /// menu's tiles and trait values.
+    #[command(subcommand)]
+    Ui(ui_cmd::UiCmd),
 }
 
 #[derive(Subcommand)]
@@ -1114,6 +1119,7 @@ fn main() -> ExitCode {
         Cmd::Ai(c) => ai_cmd::run(c),
         Cmd::Voice(c) => voice_cmd::run(c),
         Cmd::Ext(c) => ext_cmd::run(c),
+        Cmd::Ui(c) => ui_cmd::run(c),
     };
     match res {
         Ok(v) => {

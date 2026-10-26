@@ -1,0 +1,8 @@
+[package]
+name = "fnv-ui"
+description = "The menu engine's tile tree: menu XML read into tiles and traits, trait expressions, paths"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
