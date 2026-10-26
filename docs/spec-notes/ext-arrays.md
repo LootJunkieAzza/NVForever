@@ -272,3 +272,32 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | Ar_List | — | up to 20 values any | array (list) | a list of the values in order | assign with `let` |
 | Ar_Map | — | up to 20 `key::value` pairs | array (map or stringmap) | kind follows the keys | form keys, or numbers mixed with strings, fail; what is returned then: open |
 | Ar_Dump | — | array | none | prints the array to the console readably | print format: open |
+
+## Observed in the original game (2026-10-26)
+
+[observed: <id>] = tools/capture/ext-probes, run unattended in the original game (xNVSE 6.4.9, JIP 57.30) on 2026-10-26 by tools/capture/ext_probe_run.py from the owner's private test plugin; the results file is private (`C:\fnv-private\goldens\ext\`). Where a row settles an "open" point above, the observation wins.
+
+| Probe | Input | Result | So |
+|---|---|---|---|
+| construct.bogus | Ar_Construct "bogus" | Ar_Size 0 | an unknown kind gives an empty array, no error |
+| map.mixed_keys | Ar_Map 1::10, "x"::20 | 1 element | keys of the first key's type are kept |
+| packed.smap | Ar_Packed of a string map | 0 | only lists are packed |
+| range.step0 | Ar_Range 1, 3, 0 | **crashes xNVSE** | unguarded; NVForever chooses a safe answer |
+| range.wrong_way | Ar_Range 1, 5, -1 | Ar_Size 0 | a step away from the end gives an empty list |
+| map.next_missing | Ar_Next of a key not in the map | -99999 | the bad index |
+| smap.case_order / case_size | Ar_Map "b"::1, "A"::2, "a"::3 | first key "A", size 2 | string keys ignore case; the first spelling stays |
+| first.empty | Ar_First of an empty map | -99999 | the bad index |
+| find.string_case | Ar_Find "abc" in ["Abc", "x"] | 0 | string equality ignores case |
+| append.map | Ar_Append on a map | size stays 1 | refused, without crashing |
+| insert.at_size / insert.past | Ar_Insert at the size / past it | 1 / 0 | at the size appends; past it fails |
+| write.list_past_end | let a[3] := 9 on a 1-element list | size 2 | the value is appended at the end, not at key 3 |
+| slice.kind | [1,2,3,4][1:2], element 0 | 2 | a slice of a list is renumbered from 0 |
+| null.reads_zero | Ar_Size after Ar_Null | -1 | a nulled array is uninitialised |
+| sort.mixed_empty | Ar_Sort [3, "x"] | 1 element: 3 (and ["x", 3] gives "x") | **differs from the wiki** (it says empty): elements of the first element's type are kept |
+| sortalpha.numbers_as_text | Ar_SortAlpha [10, 9] | 9 first | **differs from the wiki**: numbers sort by value |
+| sortalpha.map_kind | Ar_SortAlpha of a map | Array | the result is a list |
+| customsort.kind | Ar_CustomSort [1,3,2] with (*x > *y) | 3 first | true means x comes first |
+| filter.renumber | Ar_Filter of a list | renumbered from 0 | list results are packed |
+| any.empty / all.empty | ar_Any / ar_All on an empty array | 0 / 1 | the usual convention |
+| foreach.erase_current | erase the current element in foreach (4 elements) | 2 entries ran | elements are skipped, no error |
+| foreach.append | append during foreach | appended elements are visited | the loop sees the growing array |

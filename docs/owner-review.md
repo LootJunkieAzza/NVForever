@@ -184,3 +184,20 @@ game. Nothing here is urgent; each item unblocks part of the work.
 5. **Your mod list for the N2 scan** (`fnvtool ext scan`): the plugins you want to play
    with, so the scan can rank which extender functions they use. Only counts and names
    leave your machine.
+
+## xNVSE probe results: decisions taken while you were away (2026-10-26)
+
+The probe sets ran unattended in your game (tools/capture/ext_probe_run.py, 3 launches);
+results are in the ext-* spec notes under "Observed in the original game".
+- **Two probes crash xNVSE 6.4.9**, and NVForever does not copy a crash. *Decision*
+  (session "NVSE core functionality tasks"): `Sv_Replace` with an empty old text replaces
+  nothing and returns 0; `Ar_Range` with a step of 0 is a run-time error the script
+  survives (an extender error line, as other failed calls). *Check:* say if you would
+  rather mirror something else.
+- **Three results differ from the GECK wiki; NVForever follows the game:** `Ar_Sort` of
+  mixed types keeps the elements of the first element's type (the wiki says empty);
+  `Ar_SortAlpha` sorts numbers by value (the wiki says as text); under `Begin _GameMode`
+  a call's argument takes following arithmetic but not a comparison (the wiki's
+  `Sin 14 == 1` example says the comparison is taken).
+- **`Return 7`** compiles but returns nothing (the Call gives 0), so NVForever ignores a
+  `Return` value as the game does.
