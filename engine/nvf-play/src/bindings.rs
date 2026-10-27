@@ -84,11 +84,15 @@ pub enum Control {
     QuickSave,
     QuickLoad,
     Grab,
+    /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
+    LowerWeapon,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
-/// [observed 2026-10-09].
-pub const GAME_CONTROLS: [(Control, &str, u32); 28] = [
+/// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
+/// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
+/// Item tapped twice so a reload is not held back waiting for a second tap].
+pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -117,7 +121,11 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 28] = [
     (Control::QuickSave, "QuickSave", 0x003FFFFF),
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
+    (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
 ];
+
+/// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
+pub const GAME_INI_CONTROLS: usize = 28;
 
 /// The rest of the owner's `[Controls]`: `bAlwaysRunByDefault=1`, `bInvertYValues=0`,
 /// `fMouseSensitivity=0.0020` [observed 2026-10-09].
@@ -460,6 +468,7 @@ pub fn label(c: Control) -> &'static str {
         QuickSave => "Quick Save",
         QuickLoad => "Quick Load",
         Grab => "Grab",
+        LowerWeapon => "Lower Weapon",
     }
 }
 
@@ -933,6 +942,7 @@ mod tests {
         assert_eq!(b.get(Control::MenuMode).key, Some(KeyCode::Tab));
         assert_eq!(b.get(Control::AmmoSwap).key, Some(KeyCode::Digit2));
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
+        assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
         assert_eq!(Bindings::name(Control::Rest), "Rest");
         // Every control has a key or a button.
         for (c, _, _) in GAME_CONTROLS {

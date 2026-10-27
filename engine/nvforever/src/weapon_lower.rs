@@ -23,7 +23,7 @@
 //!   eye, so the muzzle drops out of the wall and nothing rises into the view; less for
 //!   rifles, heavy weapons and launchers ([`weight`]).
 //!
-//! Two taps of Ready Item lower it by hand, and two more raise it (`nvf_play::control`);
+//! Lower Weapon (H) lowers it by hand, and again raises it (`nvf_play::control`);
 //! aiming or the trigger raise it too.
 //!
 //! Fists are never lowered, nor is the weapon under the Pip-Boy, an idle or in third
@@ -83,7 +83,7 @@ pub struct LowerInput {
     pub dt: f32,
     pub wall: Option<f32>,
     pub friendly: bool,
-    /// The player lowered it by hand (Ready Item tapped twice).
+    /// The player lowered it by hand (Lower Weapon, H).
     pub by_hand: bool,
     /// Seconds from now the weapon must stay up: [`HOLD_UP_SECONDS`] while aiming, with
     /// the trigger held or an attack started, a reload's length when one starts; 0 else.

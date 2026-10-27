@@ -180,7 +180,7 @@ enum Press {
     Release,
     Fire,
     Reload,
-    /// Ready Item tapped twice: lower or raise the weapon (`PlayerControl::lowered`).
+    /// Lower Weapon (H): lower or raise the weapon (`PlayerControl::lowered`).
     Lower,
     Swap,
     AimActor,

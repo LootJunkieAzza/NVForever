@@ -5,7 +5,7 @@
 //! `bindings::ControlInput` leaves out, so the player's controls ignore them), and the
 //! keys scripts tapped are pressed for one frame.
 
-use crate::bindings::{dik_key, Bindings, GAME_CONTROLS};
+use crate::bindings::{dik_key, Bindings, GAME_CONTROLS, GAME_INI_CONTROLS};
 use bevy::prelude::*;
 use fnv_game::script_input::MOUSE_BASE;
 
@@ -71,7 +71,7 @@ fn script_input(
     input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
     if let Some(b) = bindings {
         // The engine's controls are the extender's 0–27, in the same order.
-        input.bindings = GAME_CONTROLS.iter().map(|(c, _, _)| {
+        input.bindings = GAME_CONTROLS[..GAME_INI_CONTROLS].iter().map(|(c, _, _)| {
             let bind = b.get(*c);
             (bind.key.and_then(key_code), bind.mouse.and_then(mouse_code))
         }).collect();

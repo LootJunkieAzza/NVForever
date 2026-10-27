@@ -14,6 +14,7 @@ python tools/stress list
 python tools/stress run cells  --exe <engine target>/release/nvforever.exe --data <Data> --fnvtool <root target>/release/fnvtool.exe [options]
 python tools/stress run tour   ... [--laps N]
 python tools/stress run battle ... [--per-side 10|25|50] [--third N] [--seconds S]
+python tools/stress run soak   ... [--towns ...] [--event-every S] [--aid NVF_PLAY_TEST_PROFILE=5]
 ```
 
 `NVF_EXE`, `NVF_DATA` and `NVF_FNVTOOL` stand in for the three paths, as for smoke.
@@ -168,6 +169,38 @@ This does not walk on the navmesh as an actor would: it steps over the ground. T
 streams the same cells, but finds no path or collision trouble. A walking tour, with the
 residents' walker driving the player, is left for later.
 
+### 4.1 soak
+
+The tour's lap with play mixed in (`tools/stress/stress/soak.py`), to find where hitches
+and growth come from. Every `--event-every` seconds (default 20) one event in turn, on
+references the game data places near the route (`fnvtool world refs`, `sim door-models`):
+
+- **container**: the player is moved to a placed container, opens it (the script aid's
+  `activate`, as E opens it) and closes it with Tab 3 s on;
+- **door**: the player is moved to a teleport door and goes through it; the tour's next
+  step brings them back outdoors;
+- **fight**: a persistent hostile NPC (Powder Ganger, Fiend, Viper) is moved beside the
+  player and set on them (StartCombat), and killed 15 s on.
+
+The events are `NVF_PLAY_TEST_SCRIPT` steps and `NVF_PLAY_TEST_KEYS` presses on the clock
+that starts with the scripts (`NVF_PLAY_AIDS_FROM_SCRIPTS=1`), so the report puts each
+hitch down to the event before it (within 8 s) or to walking ("Hitches by cause"), next
+to what happened ("containers opened", loads, kills, aid steps that failed) and the
+tour's samples, leak checks and slowest frames. `NVF_PLAY_TEST_STRESS=0`: scripts may move
+the player, which the events need. `events.json` lists the schedule.
+
+Frames behind a loading screen are left out of the frame times and their stalls logged
+apart (`stress hitch (behind a loading screen):`, `profile hitch (behind a loading
+screen):`): every `world::stream` stall after a door or teleport on the first soak was
+behind the screen [observed 2026-10-27].
+
+**The machine's load.** Every tour, battle and soak report says how much of the machine's
+cores the game and other programs used, sampled with the memory; when others held over a
+quarter for a tenth of the run it says the hitches may be theirs. The first full soak
+(2026-10-27) ran beside about thirty compilers of other sessions: systems that take well
+under a millisecond (`fog::prepare_fog`, `view::prepare_view_uniforms`) took 75–150 ms in
+its slow frames [observed]. Run the soak, and every budget check, on an idle machine.
+
 ## 5. battle
 
 NCR troopers against Legion soldiers in Goodsprings, with an unseen, god-mode player
@@ -202,8 +235,33 @@ Start with `report.md`.
 - **tour.** "Possible leaks" names the counts to look at; `samples.csv` plots them over
   time.
 - **battle.** Numbers to compare between builds and with npc-behaviour-compare.md's rows.
+- **Slowest frames by span.** With a build that has the spans (`cargo build --release -p
+  nvforever --features nvforever/profile`, in a target folder of its own: it rebuilds
+  Bevy) and `--aid NVF_PLAY_TEST_PROFILE=5`, every frame of 100 ms or more logs its own
+  spans (`profile hitch:`, nvforever profile.rs). Tour and battle reports list the ten
+  slowest with their costliest spans: read each row down to the first span that explains
+  the time (a schedule holds its systems).
 
 A hung launch's `.stacks.txt` shows where every thread stood.
+
+### 6.1 Frame-time budget (the release check)
+
+`tour` and `battle` take `--budget-mean-ms`, `--budget-low1-ms` and `--budget-worst-ms`
+(after start-up). A run over any of them fails (exit 1) and its report says
+`Budget: FAIL` with what broke it, right under the status line. Before a release, on an
+idle machine (no other games, smoke runs or builds), with a normal release build:
+
+```
+python tools/stress run tour   --towns Goodsprings Primm --budget-low1-ms 50 --budget-worst-ms 250 [--exe ... --data ... --fnvtool ...]
+python tools/stress run battle --per-side 10 --seconds 90 --budget-low1-ms 50 --budget-worst-ms 500 [--exe ... --data ...]
+```
+
+The limits are what the build of 2026-10-27 kept with room to spare [observed: Goodsprings–
+Primm tour 1 % low 31 ms, worst 173 ms; 10-a-side battle 1 % low 33–44 ms, worst
+262–348 ms]; before that build's fixes (streaming-hitches.md §3) the tour's worst frame
+was 1,344 ms. When one fails, run it again with a profile build and
+`--aid NVF_PLAY_TEST_PROFILE=5` for the spans of each slow frame. The battle places all its
+fighters at once (`ai::draw_and_place`, about 130 ms), which play does not.
 
 ## 7. Adding a test
 

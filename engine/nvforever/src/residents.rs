@@ -1233,11 +1233,18 @@ impl Core {
         });
         // Whoever is on furniture, or getting off it, does not walk yet; nor do two actors
         // talking to each other (`fnv_ai::social`), unless the script that started their
-        // conversation allowed movement (`Game::conversation_moves`).
+        // conversation allowed movement (`Game::conversation_moves`); nor one saying its
+        // Goodbye greeting at the player (`Game::greets_player`).
         let held: HashSet<u32> = self
             .list
             .iter()
-            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor)) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
+            .filter(|r| {
+                matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))
+                    || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor))
+                    || self.ai.holds_for_chat(r.actor)
+                    || game.greets_player(r.actor)
+                    || self.staggering.contains(&r.actor.0)
+            })
             .map(|r| r.actor.0)
             .collect();
         if !self.prepared {
@@ -1914,6 +1921,7 @@ pub fn drive(
             }
             res.core.process_levels(game, &world, &streamer);
             res.core.switch_navmeshes(game, &mut nav);
+            let _span = info_span!("ai::think").entered();
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
@@ -1934,7 +1942,9 @@ pub fn drive(
             let (world_ref, streamer_ref) = (&*world, &*streamer);
             nvf_play::script::with_world(rt, &mut sim, |rt| {
                 let mut phys = phys;
+                let span = info_span!("ai::take_moved").entered();
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
+                drop(span);
                 if all {
                     core.take_placed_elsewhere(&rt.game);
                     if let Some(p) = phys.as_deref_mut() {
@@ -1942,8 +1952,13 @@ pub fn drive(
                     }
                     core.take_created(&rt.game);
                 }
+                let span = info_span!("ai::process_levels").entered();
                 core.process_levels(&rt.game, world_ref, streamer_ref);
+                drop(span);
+                let span = info_span!("ai::switch_navmeshes").entered();
                 core.switch_navmeshes(&mut rt.game, &mut nav);
+                drop(span);
+                let _span = info_span!("ai::think").entered();
                 core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
             });
         }
@@ -1976,6 +1991,7 @@ pub fn drive(
     }
     let on_furniture: HashSet<u32> = seated.iter().map(|v| v.0).collect();
     let mut budget = SPAWNS_PER_FRAME;
+    let _span = info_span!("ai::draw_and_place").entered();
     for r in core.list.iter_mut().filter(|r| r.joined && !r.failed) {
         // Furniture: sit once drawn; get up before leaving.
         let on = on_furniture.contains(&r.actor.0);
