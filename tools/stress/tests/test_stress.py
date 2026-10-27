@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from stress import battle, cells, lib, tour  # noqa: E402
+from stress import battle, cells, lib, soak, tour  # noqa: E402
 
 REPORT = textwrap.dedent("""\
     NVForever 0.2.0 crashed (panic)
@@ -425,6 +425,86 @@ class BattleTest(unittest.TestCase):
         self.assertEqual(c["combat_lines_per_minute"], {"Attack": 1.0})
         self.assertEqual([s["faction"] for s in c["sides"]], ["NCRFactionNV", "CaesarsLegionFaction"])
         self.assertIn("nvforever", c["system_times"])
+
+
+class SoakTest(unittest.TestCase):
+    REFS = [
+        {"formid": "0x1", "base": "0xB1", "base_type": "CONT", "base_edid": "Box", "position": [100, 0, 0]},
+        {"formid": "0x2", "base": "0xD1", "base_type": "DOOR", "base_edid": "Door", "position": [8000, 0, 0]},
+        {"formid": "0x3", "base": "0xD2", "base_type": "DOOR", "base_edid": "Gate", "position": [0, 0, 0]},
+        {"formid": "0x4", "base": "0xN1", "base_type": "NPC_", "base_edid": "LvlPowderGangerA", "persistent": True, "position": [0, 100, 0]},
+        {"formid": "0x5", "base": "0xN2", "base_type": "NPC_", "base_edid": "GoodspringsSettler", "persistent": True, "position": [0, 100, 0]},
+        {"formid": "0x6", "base": "0xB1", "base_type": "CONT", "base_edid": "Box", "position": [90000, 0, 0]},
+        {"formid": "0x7", "base": "0xB1", "base_type": "CONT", "base_edid": "Box", "position": [0, 0, 0], "initially_disabled": True},
+    ]
+
+    def test_candidates_near_the_route_by_kind(self):
+        doors = soak.teleport_bases({"doors": [{"door": "0xD1", "refs": 2, "teleport_refs": 2}, {"door": "0xD2", "refs": 3, "teleport_refs": 1}]})
+        self.assertEqual(doors, {"0xD1"})
+        c = soak.candidates(self.REFS, doors, [(0.0, 0.0), (8000.0, 0.0)])
+        self.assertEqual([x["ref"] for x in c["container"]], ["0x1"])
+        self.assertEqual([(x["ref"], x["route_point"]) for x in c["door"]], [("0x2", 1)])
+        self.assertEqual([x["ref"] for x in c["fight"]], ["0x4"])
+
+    def test_schedule_takes_turns(self):
+        c = {"container": [{"ref": "0x1", "base": "Box"}], "door": [{"ref": "0x2", "base": "Door"}], "fight": [{"ref": "0x4", "base": "G"}]}
+        steps, keys, events = soak.schedule(c, 20, 10, 50)
+        self.assertEqual([e["kind"] for e in events], ["container", "door", "fight"])
+        self.assertEqual(steps, ["20:moveto:player:0x1", "23:activate:0x1", "30:moveto:player:0x2", "33:activate:0x2",
+                                 "40:moveto:0x4:player:300:0:0", "41:combat:0x4:player", "55:kill:0x4"])
+        self.assertEqual(keys, ["26:tab"])
+        self.assertEqual(soak.schedule({"container": []}, 0, 10, 100), ([], [], []))
+
+    def test_hitches_put_down_to_the_event_before(self):
+        lines = [
+            "2026-10-27T20:00:00.000000Z  INFO nvf_play::script: test aids: clock starts when the scripts first run, at 0.0 s",
+            "2026-10-27T20:00:23.000000Z  INFO nvforever::stress_sample: stress hitch: 400 ms at t 23.0 s, 0 cells loaded in it (0 ms), 0 actors drawn in it (0 ms), at X",
+            "2026-10-27T20:00:23.100000Z  INFO nvforever::profile: profile hitch: 380 ms; spans ms: a 300.0 (1)",
+            "2026-10-27T20:00:45.000000Z  INFO nvforever::stress_sample: stress hitch: 260 ms at t 45.0 s, 1 cells loaded in it (2 ms), 0 actors drawn in it (0 ms), at Y",
+        ]
+        by = soak.attribute(lines, [{"at": 20, "kind": "door"}, {"at": 30, "kind": "fight"}])
+        self.assertEqual((by["door"]["stress"], by["door"]["profile"], by["door"]["worst_ms"]), (1, 1, 400.0))
+        self.assertEqual(by["walking"]["stress"], 1)
+        self.assertNotIn("fight", by)
+        self.assertEqual(soak.outcomes(["menu: open Container(0x1)", "x"])["containers opened"], 1)
+
+
+class PerfTest(unittest.TestCase):
+    """The span profile's own hitch lines and the frame-time budget."""
+
+    LINES = [
+        "2026-10-27T19:46:58.857134Z  INFO nvforever::profile: profile hitch: 988 ms; spans ms: update 980.1 (1), "
+        "Update 950.0 (1), world::load_cell 12.5 (3)",
+        "2026-10-27T19:46:50.000000Z  INFO nvforever::profile: profile hitch: 120 ms; spans ms: render 110.0 (1)",
+        "2026-10-27T19:46:51.000000Z  INFO nvforever::profile: profile hitch: 150 ms; no spans seen (build with --features profile)",
+    ]
+
+    def test_hitches_slowest_first_with_their_spans(self):
+        h = lib.profile_hitches(self.LINES)
+        self.assertEqual([x["ms"] for x in h], [988.0, 120.0])
+        self.assertEqual(h[0]["spans"][2], {"span": "world::load_cell", "ms": 12.5, "entries": 3})
+        rep = "\n".join(lib.profile_hitch_report(h))
+        self.assertIn("| 988 | 8.9 | update 980.1 (1); Update 950 (1); world::load_cell 12.5 (3) |", rep)
+        self.assertEqual(lib.profile_hitch_report([]), [])
+
+    def test_machine_load(self):
+        self.assertIsNone(lib.machine_load([]))
+        load = lib.machine_load([(1, 0.1, 0.5), (2, 0.1, 0.1), (3, 0.2, 0.0), (4, 0.2, 0.3)])
+        self.assertEqual(load, {"game_mean": 0.15, "others_mean": 0.225, "busy_fraction": 0.5, "busy_over": 0.25})
+        self.assertIn("The machine was busy", "\n".join(lib.load_report(load)))
+        quiet = lib.load_report(lib.machine_load([(1, 0.2, 0.01)]))
+        self.assertEqual(len(quiet), 2)
+        self.assertEqual(lib.load_report(None), [])
+
+    def test_budget(self):
+        frames = {"mean_ms": 17.0, "low1_ms": 53.0, "worst_ms": 988.0}
+        self.assertEqual(lib.over_budget(frames, lib.Budget()), [])
+        self.assertEqual(lib.over_budget(frames, lib.Budget(mean_ms=20, low1_ms=60)), [])
+        failed = lib.over_budget(frames, lib.Budget(low1_ms=33.4, worst_ms=250))
+        self.assertEqual(failed, ["1% low frame 53 ms over the budget's 33.4 ms", "worst frame 988 ms over the budget's 250 ms"])
+        self.assertEqual(lib.over_budget(None, lib.Budget(worst_ms=250)), ["no frame statistics in the log (the run ended early?)"])
+        self.assertIn("Budget: FAIL (1% low 33.4 ms, worst 250 ms)", lib.budget_report(lib.Budget(low1_ms=33.4, worst_ms=250), failed))
+        self.assertEqual(lib.budget_report(lib.Budget(worst_ms=250), []), ["", "Budget: PASS (worst 250 ms)."])
 
 
 @unittest.skipUnless(os.name == "nt", "the fake game is a .cmd")

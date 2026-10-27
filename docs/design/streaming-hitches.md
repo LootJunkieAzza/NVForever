@@ -223,8 +223,25 @@ uGridsToLoad=5).
     still fills in after a jump: `--screenshot` (which waits until nothing is baking)
     from two high views with a cold cache drew 56 generated chunks, the same picture as
     before the change [observed].
-- The jump's own ~1 s frame (26–31 above, with or without generated terrain), and the
-  1.2 s frame entering cell -16,-13 on the full lap: not looked into yet.
+- The jump's own ~1 s frame (26–31 above, with or without generated terrain): not looked
+  into yet.
+- Done (branch claude/perf-hitch-capture, 2026-10-27): the 1.2 s frame entering cell
+  -16,-13. The span profile's own line for that frame (`profile hitch:`, profile.rs) had
+  1,305 of its 1,344 ms in Bevy's `upscaling::prepare_view_upscaling_pipelines`, which
+  blocks on a view's blit pipeline the first time a view with a new key is drawn
+  [documented: bevy_core_pipeline 0.19.1 `upscaling/mod.rs`; observed: tools/stress tour
+  `--towns Goodsprings Primm`, a profile build]. The new view is the water reflection
+  camera (reflection.rs), which switches on there as Primm's water comes near; its compile
+  queued behind the place's own shader compiles. This is the stall the lodgen item above
+  had as its hypothesis. `blit_warm.rs` specializes every upscaling key the game's cameras
+  can ask for (6 formats, written and blended) on the render app's first frame, without
+  waiting. Result, the same tour: worst frame 1,344 → 173 ms, 1 % low 56 → 31 ms
+  [observed]. The same stall would have come with any camera's first use (scope, Pip-Boy,
+  terminal and table views).
+- Done (same branch): `lod::update_lod` rebuilt every terrain chunk and object block
+  whose loaded cells changed in one frame, 60–71 ms three times on that tour [observed].
+  The rebuilds now stop at 4 ms a frame (`REBUILD_BUDGET_MS`, at least one a frame); the
+  old meshes stay drawn until theirs come round.
 
 ## 4. Combat and interiors (2026-10-23, 5022d345)
 
