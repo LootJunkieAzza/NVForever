@@ -506,6 +506,18 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
 }
 
 /// Run `f` with the simulation's world inside the game (and put it back after).
+/// Run `f` with scripts' ray casts going through the physics (`fnv_game::ray`).
+fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
+    let world = std::cell::RefCell::new(&mut phys.world);
+    let caster = |a: [f32; 3], b: [f32; 3]| {
+        let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        // A start inside a body (the player's own capsule) is no hit [hypothesis].
+        world.borrow_mut().queries().ray_all(a, d, len, &fnv_phys::world::Filter::default()).into_iter().map(|h| h.distance).find(|&t| t > 0.5)
+    };
+    fnv_game::ray::with_caster(&caster, f)
+}
+
 pub fn with_world<R>(rt: &mut Runtime, sim: &mut SimState, f: impl FnOnce(&mut Runtime) -> R) -> R {
     std::mem::swap(&mut rt.game.world, &mut sim.world);
     let r = f(rt);
@@ -1562,7 +1574,7 @@ pub(crate) fn start_world_aids(
 pub(crate) fn run_scripts(
     time: crate::pause::AidTime,
     play: Res<PlayWorld>,
-    phys: Res<PhysState>,
+    mut phys: ResMut<PhysState>,
     location: Res<Location>,
     mut sim: ResMut<SimState>,
     mut script: ResMut<ScriptState>,
@@ -1744,9 +1756,11 @@ pub(crate) fn run_scripts(
                 "t": secs(rt.started), "gt": rt.game.time}));
         }
         due.clear();
-        for c in &console {
-            console_out.push(crate::console::run_call(rt, c));
-        }
+        with_ray_caster(&mut phys, || {
+            for c in &console {
+                console_out.push(crate::console::run_call(rt, c));
+            }
+        });
         if let Some(i) = rt.activate_pick.take() {
             rt.pick_activate_choice(i);
         }
@@ -1758,7 +1772,7 @@ pub(crate) fn run_scripts(
         }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
-        rt.game.tick();
+        with_ray_caster(&mut phys, || rt.game.tick());
         rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.

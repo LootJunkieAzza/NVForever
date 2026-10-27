@@ -1162,15 +1162,34 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             yes(!g.gaps.hidden_slots.contains(&slot))
         }
-        // The engine takes them at its next frame [observed: gaps10, IsPC1stPerson and
-        // IsSneaking read the change two frames later].
+        // The view changes at the engine's next frame [observed: engine1, third person
+        // reads from the next frame, first person after one to three]; sneaking at once,
+        // IsSneaking reading it in the same frame [observed: engine1].
         "togglefirstperson" => {
             g.gaps.view_request = Some(num(args, 0, 1.0) != 0.0);
             zero
         }
         "toggleplayersneaking" => {
-            g.gaps.sneak_request = Some(num(args, 0, 1.0) != 0.0);
+            let on = num(args, 0, 1.0) != 0.0;
+            g.gaps.sneak_request = Some(on);
+            let mut m = g.motion(FormId::PLAYER_REF);
+            m.sneaking = on;
+            g.set_motion(FormId::PLAYER_REF, m);
             zero
+        }
+        // `x1 y1 z1 x2 y2 z2 [flag]`: the distance from the first point to the first thing
+        // hit on the way to the second, 0 for none (`crate::ray`, the engine's physics)
+        // [observed: engine1, 997 and 1963 to the walls by the airport, 0 with no hit or a
+        // zero-length cast; hypothesis: the flag's layers are not told apart].
+        "getp2praycastrange" => {
+            let p: Vec<f32> = (0..6).map(|k| num(args, k, 0.0) as f32).collect();
+            let (a, b) = ([p[0], p[1], p[2]], [p[3], p[4], p[5]]);
+            if a == b {
+                return Some(Ok(zero));
+            }
+            let hit = crate::ray::cast(a, b);
+            tracing::debug!("GetP2PRayCastRange {a:?} -> {b:?}: {hit:?}");
+            XVal::Num(hit.map_or(0.0, f64::from))
         }
         // Nothing to reload: the engine draws the equipped models as they are.
         "reloadequippedmodels" => zero,

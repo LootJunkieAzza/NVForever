@@ -91,6 +91,7 @@ pub mod nvse_leveled;
 pub mod nvse_jip2;
 pub mod nvse_gaps;
 pub mod nvse_plugins;
+pub mod ray;
 pub mod mod_files;
 pub mod nvse_traits;
 pub mod nvse_anim;
