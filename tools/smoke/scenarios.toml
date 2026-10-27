@@ -9912,6 +9912,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "jip-play-anim-sequence"
+source = "JIP's PlayAnimSequence (fnv_game::anims::call_ext): a named sequence of an object's model plays through the PlayGroup path (nvforever object_anims.rs); vMEGoodSpringsRef (which plays Backward when Goodsprings loads) plays its Forward sequence by name [documented: PlayAnimSequence]; doors, drawn by nvf_play doors.rs, do not take it yet"
+areas = ["scripts", "world"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:vMEGoodSpringsRef.PlayAnimSequence \"Forward\";9.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 13
+expect = [
+  { re = 'playgroup: vMEGoodSpringsRef plays Forward \(once', label = "the object's Forward sequence plays by name" },
+]
+
+[[scenario]]
 name = "nif-blocks-mirror"
 source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
 areas = ["scripts", "actors"]

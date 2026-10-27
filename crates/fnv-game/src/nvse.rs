@@ -201,6 +201,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_jip2::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::anims::call_ext(g, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_showoff::call(g, name, subject, args) {
         return Some(r);
     }
@@ -250,6 +253,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             "getammoconsumedpercent" => Some(("DAT2", "consumed_percentage")),
             // [observed: nvse-setters, SetObjectHealth 123 then GetBaseHealth 123].
             "getobjecthealth" => Some(("DATA", "health")),
+            // A creature's attack damage is not set [observed: atk1, SetAttackDamage 50 on
+            // VStreetCrBrahmin2 still reads 0, though the page names creatures].
+            "getattackdamage" if g.data.sig(f) == Some(*b"CREA") => return Some(Ok(XVal::Num(0.0))),
             g2 => weapon_field(g2),
         };
         if let (Some((sub, path)), Some(v)) = (target, value) {
@@ -283,6 +289,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     }
     if let Some((sub, path)) = weapon_field(name) {
         let w = item(g, 0).unwrap_or(FormId(0));
+        // A creature reads 0 [observed: atk1, VStreetCrBrahmin2; the page says it works on
+        // creatures].
+        if name == "getattackdamage" && g.data.sig(w) == Some(*b"CREA") {
+            return Some(Ok(XVal::Num(0.0)));
+        }
         let v = field(g, w, sub, path);
         return Some(Ok(match name {
             "getweaponammo" | "getweaponprojectile" | "getweaponcriteffect" => form_of(v),
