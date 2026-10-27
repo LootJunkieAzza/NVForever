@@ -32,6 +32,8 @@ pub fn note_created(g: &mut Game, r: FormId) {
     if g.ref_script(r).is_some() {
         g.moved.insert(r);
         g.note_enabled(r);
+    } else if g.handled("onload") {
+        g.note_enabled(r);
     }
 }
 

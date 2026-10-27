@@ -14,7 +14,7 @@ const ITEM_SIGS: [&[u8; 4]; 12] = [b"WEAP", b"ARMO", b"AMMO", b"MISC", b"ALCH", 
 impl Game<'_> {
     /// The references now in `cell`, in FormID order: placed there or moved there. One
     /// picked up (deleted) only with `taken` [documented: GetFirstRef, IncludeTakenRefs].
-    fn refs_in_cell(&self, cell: FormId, taken: bool) -> Vec<FormId> {
+    pub(crate) fn refs_in_cell(&self, cell: FormId, taken: bool) -> Vec<FormId> {
         let mut out: Vec<FormId> = self.world.placed.by_cell.get(&cell).into_iter().flatten().copied().collect();
         out.extend(self.world.changed().filter(|(_, s)| s.cell == Some(cell)).map(|(r, _)| r));
         out.sort();
