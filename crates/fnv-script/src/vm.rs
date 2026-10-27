@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod jip;
+mod quat;
 pub use jip::{JIP_NAMES, JIP_VERSION};
 
 /// A script value. Numbers are kept as `f64` [observed: float variables keep
@@ -141,6 +142,10 @@ pub enum VmError {
     /// errors the extender reports [documented: NVSE Error].
     #[error("{0}")]
     Type(String),
+    /// An extender function called on no reference: it stops the script, as no other
+    /// extender error does [observed: nvse-inv foreach.read.after, "script call failed"].
+    #[error("{0} called on no reference")]
+    NoReference(String),
 }
 
 /// What the VM needs from the game. Every method may fail with a message; a failure
@@ -179,6 +184,40 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A script error worth the console's attention: a call that crashes the original
+    /// game answers its default value here and says so [decision: the owner, 2026-10-26,
+    /// "scripts should never crash the game; log it on the console as a script error"].
+    fn script_error(&mut self, _text: &str) {}
+    /// An extender function the VM does not build, by catalogue name (lower case), on a
+    /// reference if given, with its arguments evaluated (an axis as its letter); `None`
+    /// when the host does not build it either.
+    fn ext_call(&mut self, _name: &str, _on: Option<Value>, _args: &[XVal]) -> Option<Result<XVal, String>> {
+        None
+    }
+    /// The plugin the running script comes from; `None` for a runtime-compiled or console
+    /// script (JIP's private variable stores are per plugin).
+    fn calling_plugin(&mut self) -> Option<String> {
+        None
+    }
+    /// The script form the running code belongs to; `None` for a result script or a
+    /// runtime-compiled one (GetCurrentScript).
+    fn current_script(&mut self) -> Option<u32> {
+        None
+    }
+    /// A local variable of the running script, by name (the quaternion functions write
+    /// into variables named by strings).
+    fn local_var(&mut self, _name: &str) -> Option<VarRef> {
+        None
+    }
+    /// The UDF MessageBoxExAlt runs with the pressed button.
+    fn box_callback(&mut self, _func: XVal) {}
+    /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
+    fn show_text(&mut self, _text: &str, _buttons: Vec<String>) {}
+    /// The calling script's plugin's debug mode (DebugPrint), after setting it when `set`
+    /// is given (SetDebugMode; `plugin` a load-order index from the console).
+    fn debug_mode(&mut self, _set: Option<bool>, _plugin: Option<u32>) -> bool {
+        false
+    }
     /// Run a user-defined function or a lambda (`Call`, the ar_* functions that take a
     /// function): its value (what SetFunctionValue set; 0 when nothing).
     fn call_function(&mut self, _f: &XVal, _on: Option<Value>, _args: Vec<XVal>) -> Result<XVal, String> {
@@ -1536,12 +1575,13 @@ impl Vm<'_, '_> {
             }
             // A form list's forms, or a container's or actor's items, one per kind of item
             // [documented: ForEach; observed: probe loops/02, as many as GetNumItems]. Each
-            // entry here is the item's base form [hypothesis: the original gives a temporary
-            // reference to the stack, valid until the next frame; B5].
+            // entry is what the host gives: the game makes a temporary reference per kind
+            // of item, valid until the next frame (B5) [observed: probe loops/02].
             XVal::Ref(f) => {
                 let Some(members) = self.host.members(f) else {
                     return Err(VmError::Type("foreach over a form that is neither a form list nor a container".into()));
                 };
+                let container = self.host.form_sig(f).is_some_and(|s| &s != b"FLST");
                 for m in members {
                     self.step()?;
                     self.write_var(var, XVal::Ref(m))?;
@@ -1550,6 +1590,12 @@ impl Vm<'_, '_> {
                         Flow::Break => break,
                         Flow::Normal | Flow::Leave | Flow::Continue => {}
                     }
+                }
+                // After a container's loop the variable holds no form, a copy made inside
+                // stays valid [observed: nvse-inv foreach.read.after.valid 0, probe
+                // loops/02 tempref_after_loop 1].
+                if container {
+                    self.write_var(var, XVal::Ref(0))?;
                 }
                 Ok(Flow::Normal)
             }
@@ -1852,8 +1898,11 @@ impl Vm<'_, '_> {
             "ar_range" => {
                 let (a, b) = (val(self, 0)?.num()?.trunc(), val(self, 1)?.num()?.trunc());
                 let step = if nargs > 2 { val(self, 2)?.num()?.trunc() } else { 1.0 };
+                // A step of 0 crashes the original: here no array and a script error on the
+                // console [decision: the owner, 2026-10-26].
                 if step == 0.0 {
-                    return Err(VmError::Type("Ar_Range with a step of 0".into()));
+                    self.host.script_error("Ar_Range with a step of 0");
+                    return Ok(XVal::Array(0));
                 }
                 let mut es = Vec::new();
                 let mut x = a;
@@ -1896,6 +1945,13 @@ impl Vm<'_, '_> {
                     Some(id) => self.dump(id),
                     None => "(no array)".into(),
                 };
+                self.host.print(&text);
+                num(0.0)
+            }
+            // [documented: Ar DumpID] Ar_Dump by the array's id.
+            "ar_dumpid" => {
+                let id = val(self, 0)?.num()? as u32;
+                let text = if self.store()?.array(id).is_some() { self.dump(id) } else { "(no array)".into() };
                 self.host.print(&text);
                 num(0.0)
             }
@@ -2203,7 +2259,10 @@ impl Vm<'_, '_> {
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let max = opt(self, k + 4)?.map(|v| v.num()).transpose()?.map(|m| m as usize);
                 let (old, new) = pair.split_once('|').unwrap_or((pair.as_str(), ""));
+                // An empty old text crashes the original: here nothing is replaced, 0, and a
+                // script error on the console [decision: the owner, 2026-10-26].
                 if old.is_empty() {
+                    self.host.script_error("Sv_Replace with an empty text to replace");
                     return Ok(Some(XVal::Num(0.0)));
                 }
                 let chars: Vec<char> = s.chars().collect();
@@ -2346,6 +2405,63 @@ impl Vm<'_, '_> {
                 self.host.print(&t);
                 XVal::Num(0.0)
             }
+            // [documented: DebugPrint; SetDebugMode, ext-format.md §4] PrintC only while the
+            // calling mod's debug mode is on.
+            "debugprint" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                if self.host.debug_mode(None, None) {
+                    self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            // [documented: PrintDebug] Print, only while the calling mod's debug mode is on.
+            "printdebug" | "printd" => {
+                let v = val(self, 0)?;
+                let t = self.text_of(&v)?;
+                if self.host.debug_mode(None, None) {
+                    self.host.print(&t);
+                }
+                XVal::Num(0.0)
+            }
+            // [documented: GetDebugMode] the calling mod's debug mode, or the mod index's;
+            // 0 from a runtime script, which belongs to no mod [observed: nvse-sixth].
+            "getdebugmode" | "getdbmode" => {
+                let plugin = opt(self, 0)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
+                XVal::Num(f64::from(u8::from(self.host.debug_mode(None, plugin))))
+            }
+            // [documented: Assert] a false assertion is reported as a script error; the
+            // script goes on [observed: nvse-sixth, the step after Assert 0 still ran].
+            "assert" => {
+                if !val(self, 0)?.truthy() {
+                    self.host.script_error("Assert failed");
+                }
+                XVal::Num(0.0)
+            }
+            "setdebugmode" => {
+                let on = val(self, 0)?.truthy();
+                let plugin = opt(self, 1)?.map(|v| v.num()).transpose()?.map(|x| x as u32);
+                self.host.debug_mode(Some(on), plugin);
+                XVal::Num(0.0)
+            }
+            // [documented: MessageEx] a corner message without a Message form.
+            "messageex" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                self.host.show_text(&t, Vec::new());
+                XVal::Num(0.0)
+            }
+            // [documented: MessageBoxEx] `text|button|…`, up to 10 buttons numbered from 0;
+            // without one the box gets "Ok" [hypothesis: a box needs a button to close].
+            "messageboxex" => {
+                let (t, _) = self.format_arg(c, 0)?;
+                let mut parts = t.split('|').map(str::to_string);
+                let text = parts.next().unwrap_or_default();
+                let mut buttons: Vec<String> = parts.take(10).collect();
+                if buttons.is_empty() {
+                    buttons.push("Ok".into());
+                }
+                self.host.show_text(&text, buttons);
+                XVal::Num(0.0)
+            }
             "print" => {
                 let v = val(self, 0)?;
                 let t = self.text_of(&v)?;
@@ -2387,6 +2503,15 @@ impl Vm<'_, '_> {
                 };
                 XVal::Num(f.and_then(|f| self.host.members(f)).map_or(0, |m| m.len()) as f64)
             }
+            // [documented: GetBaseObject] the base form of the reference it is called on.
+            "getbaseobject" => {
+                let f = match (&c.on, c.args.first()) {
+                    (Some(e), _) => self.xeval(e)?.value()?.as_form(),
+                    (None, Some(a)) => self.xeval(a)?.value()?.as_form(),
+                    (None, None) => self.host.calling_ref(),
+                };
+                XVal::Ref(f.and_then(|f| self.host.base_form(f)).unwrap_or(0))
+            }
             // [documented: IsReference] a reference, not a base form.
             "isreference" => {
                 let v = val(self, 0)?;
@@ -2408,7 +2533,11 @@ impl Vm<'_, '_> {
                         None => None,
                     },
                 };
-                XVal::Num(f.map_or(255, |f| f >> 24) as f64)
+                // A form made at run time (a clone) reads 255 [observed: nvse-inv,
+                // TempCloneForm].
+                // No form: -1 [observed: nvse-fourth, GetSourceModIndex of a runtime query's
+                // GetCurrentScript].
+                XVal::Num(f.map_or(-1.0, |f| if f >> 24 >= 0xFE { 255.0 } else { f64::from(f >> 24) }))
             }
             // The extender's math [documented: each page; the trigonometric functions in
             // degrees, observed: `Sin 90 > 0.5` is 1 in the original game].
@@ -2458,13 +2587,15 @@ impl Vm<'_, '_> {
                 let (x, y, z) = (val(self, 0)?.num()?, val(self, 1)?.num()?, val(self, 2)?.num()?);
                 XVal::Num((x * x + y * y + z * z).sqrt())
             }
-            // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4
-            // [decision: the version whose behaviour these tasks follow; how a version
-            // splits into the three numbers is open]. A plugin without a module here is
+            // What the engine reports (task C5; docs/spec-notes/ext-version.md): xNVSE 6.4.9
+            // [decision: the owner, 2026-10-26; observed: 6 / 4 / 9 split as version,
+            // revision, beta in the original]. A plugin without a module here is
             // absent: IsPluginInstalled 0, GetPluginVersion -1 [documented: -1 when absent].
             "getnvseversion" => XVal::Num(6.0),
             "getnvserevision" => XVal::Num(4.0),
-            "getnvsebeta" => XVal::Num(0.0),
+            // [observed: GetNVSEBeta 9 under 6.4.9, the third number; owner 2026-10-26:
+            // target 6.4.9].
+            "getnvsebeta" => XVal::Num(9.0),
             // JIP LN is NVForever's own module (task J4): reported installed at the version
             // its functions follow.
             "isplugininstalled" | "getpluginversion" => {
@@ -2492,10 +2623,13 @@ impl Vm<'_, '_> {
         if lname == "validateregex" {
             return self.regex_function(&lname, c);
         }
+        if let Some(v) = self.quat_function(&lname, c)? {
+            return Ok(v);
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
-                None => Err(VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
+                None => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the JIP LN function {name} (tasks J5–J10)"))),
             };
         }
         let arg = |vm: &mut Self, k: usize| -> Result<XVal, VmError> {
@@ -2602,9 +2736,115 @@ impl Vm<'_, '_> {
             // game); [documented: GetGameRestarted] true once per script per session.
             "getgameloaded" => Ok(XVal::Num(if self.host.game_loaded(false) { 1.0 } else { 0.0 })),
             "getgamerestarted" => Ok(XVal::Num(if self.host.game_loaded(true) { 1.0 } else { 0.0 })),
+            // Characters as ASCII codes [documented: IsDigit; IsLetter; IsPrintable;
+            // IsPunctuation; IsUpperCase; ToUpper; ToLower; CharToAscii; AsciiToChar].
+            "isdigit" | "isletter" | "isprintable" | "ispunctuation" | "isuppercase" | "toupper" | "tolower" => {
+                let code = arg(self, 0)?.num()? as i64;
+                let ch = u8::try_from(code).ok();
+                let t = |f: fn(&u8) -> bool| XVal::Num(f64::from(u8::from(ch.as_ref().is_some_and(f))));
+                Ok(match name.to_ascii_lowercase().as_str() {
+                    "isdigit" => t(u8::is_ascii_digit),
+                    "isletter" => t(u8::is_ascii_alphabetic),
+                    "isprintable" => t(|c| (0x20..0x7F).contains(c)),
+                    "ispunctuation" => t(u8::is_ascii_punctuation),
+                    "isuppercase" => t(u8::is_ascii_uppercase),
+                    "toupper" => XVal::Num(ch.map_or(code, |c| i64::from(c.to_ascii_uppercase())) as f64),
+                    _ => XVal::Num(ch.map_or(code, |c| i64::from(c.to_ascii_lowercase())) as f64),
+                })
+            }
+            "chartoascii" => Ok(XVal::Num(match arg(self, 0)? {
+                XVal::Str(s) => s.bytes().next().map_or(-1.0, f64::from),
+                _ => -1.0,
+            })),
+            "asciitochar" => {
+                let code = arg(self, 0)?.num()? as i64;
+                Ok(XVal::Str(u8::try_from(code).ok().filter(|c| *c > 0).map(|c| char::from(c).to_string()).unwrap_or_default()))
+            }
+            // Bits of 32-bit integers [documented: GetBit; SetBit; ClearBit; LeftShift;
+            // RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot]; the shifts are on
+            // the unsigned value [hypothesis].
+            "getbit" | "setbit" | "clearbit" | "leftshift" | "rightshift" | "logicaland" | "logicalor" | "logicalxor" => {
+                let a = arg(self, 0)?.num()? as i64 as u32;
+                let b = arg(self, 1)?.num()? as i64;
+                let bit = if (0..32).contains(&b) { 1u32 << b } else { 0 };
+                let sh = u32::try_from(b).unwrap_or(32);
+                let on = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_none_or(|v| v.truthy());
+                let r: u32 = match name.to_ascii_lowercase().as_str() {
+                    "getbit" => u32::from(a & bit != 0),
+                    "setbit" if on => a | bit,
+                    "setbit" | "clearbit" => a & !bit,
+                    "leftshift" => a.checked_shl(sh).unwrap_or(0),
+                    "rightshift" => a.checked_shr(sh).unwrap_or(0),
+                    "logicaland" => a & b as u32,
+                    "logicalor" => a | b as u32,
+                    _ => a ^ b as u32,
+                };
+                Ok(XVal::Num(f64::from(r as i32)))
+            }
+            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32) as i32))),
+            // [documented: IntToBin] padded to the width; the prefix is "0b" [hypothesis:
+            // the page names the option without showing it].
+            "inttobin" => {
+                let v = arg(self, 0)?.num()? as i64 as u32;
+                let width = c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
+                Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
+            }
+            // [documented: GetCurrentScript; observed: none in a runtime query].
+            "getcurrentscript" => Ok(XVal::Ref(self.host.current_script().unwrap_or(0))),
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
-            _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+            // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
+            // `"format" values… faction rank [female]`]: formatted here, set by the game
+            // (SetName's change; the rank title).
+            // [documented: SetModelPathEx; SetIconPathEx; SetBipedModelPathEx;
+            // SetBipedIconPathEx] likewise, then the plain setter.
+            "setnameex" | "setnthfactionranknameex" | "setmodelpathex" | "seticonpathex" | "setbipedmodelpathex" | "setbipediconpathex" => {
+                let (t, k) = self.format_arg(c, 0)?;
+                let mut args = vec![XVal::Str(t)];
+                for e in c.args.iter().skip(k) {
+                    args.push(self.xeval(e)?);
+                }
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let to = match lname.as_str() {
+                    "setnameex" => "setname",
+                    "setnthfactionranknameex" => "setnthfactionranknameex",
+                    other => other.strip_suffix("ex").unwrap_or(other),
+                };
+                match self.host.ext_call(to, on, &args) {
+                    Some(r) => r.map_err(VmError::Host)?,
+                    None => XVal::Num(0.0),
+                };
+                Ok(XVal::Num(0.0))
+            }
+            _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+        }
+    }
+
+    /// An extender function the host builds (`Host::ext_call`); `None` when it does not.
+    fn host_function(&mut self, lname: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        // Called on no reference, the function fails and stops the script [observed:
+        // nvse-inv foreach.read.after, "script call failed"].
+        if on.is_some_and(|v| v.as_form().is_none()) {
+            return Err(VmError::NoReference(lname.to_string()));
+        }
+        let mut args = Vec::with_capacity(c.args.len());
+        for a in &c.args {
+            args.push(match a {
+                XExpr::Axis { c } => XVal::Str(c.to_string()),
+                other => self.xeval(other)?,
+            });
+        }
+        match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map(Some).map_err(VmError::Host),
+            None => Ok(None),
         }
     }
 }

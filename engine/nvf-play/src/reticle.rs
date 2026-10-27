@@ -16,6 +16,12 @@
 //!   hud_main_menu.xml; hypothesis: a share of the way per frame at 60 frames a second].
 //!   A switch of the settings page's Gameplay group, on by default ([`DynamicCrosshair`];
 //!   owner 2026-10-25): off, the arrows stay together whatever is drawn.
+//! - **Gun cross**: with the switch on and such a weapon drawn, the plain crosshair is
+//!   the HUD's four bars `target_top/bottom/left/right.dds` put together as a cross, each
+//!   bar's inner end on the cone's edge, no nearer the middle than [`CROSS_REST`] [owner
+//!   2026-10-27; observed: each picture's bar is 5 texels across, its middle line texel 2,
+//!   its solid end at the picture's edge toward the middle]. Without the four pictures,
+//!   the arrows as before.
 //! - **Hostile**: over an actor hostile to the player the crosshair is red, the crime
 //!   colour (`crate::hud_target::AimHostile`) [owner's playtest list 5, item 58;
 //!   documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"].
@@ -46,6 +52,21 @@ const RETICLE: f32 = 64.0;
 /// The arrows' tips stand this far either side of the middle in the picture [observed:
 /// `glow_crosshair.dds`, the left arrow's tip at texel 30, the right's at 34].
 const TIP: f32 = 2.0;
+/// The gun cross's four bars, top, bottom, left and right [documented: the four pictures
+/// in Fallout - Textures2.bsa; owner 2026-10-27].
+const BARS: [(&str, Vec2); 4] = [
+    ("interface\\hud\\target_top.dds", Vec2::new(0.0, -1.0)),
+    ("interface\\hud\\target_bottom.dds", Vec2::new(0.0, 1.0)),
+    ("interface\\hud\\target_left.dds", Vec2::new(-1.0, 0.0)),
+    ("interface\\hud\\target_right.dds", Vec2::new(1.0, 0.0)),
+];
+/// A bar's picture, along and across, drawn texel for unit [observed: 32 by 8 and 8 by
+/// 32], and its middle line across from the picture's edge [observed: texel 2 of 5].
+const BAR_LONG: f32 = 32.0;
+const BAR_WIDE: f32 = 8.0;
+const BAR_MIDDLE: f32 = 2.5;
+/// The bars' inner ends stand at least this far from the middle [design].
+pub const CROSS_REST: f32 = 4.0;
 /// [documented: hud_main_menu.xml `_SpreadChangeSpeed`].
 const SPREAD_SPEED: f32 = 0.125;
 /// The arrows go no further apart than this from the middle [design].
@@ -239,7 +260,7 @@ impl Plugin for ReticlePlugin {
                 key: "dynamic-crosshair",
                 group: crate::pause::GROUP_MENUS,
                 label: "Dynamic crosshair",
-                note: "On: with a gun or thrown weapon drawn the crosshair's arrows part to show how wide your shots spread now (wider running, after shots, with crippled arms; narrower aimed or crouched). Off: the arrows stay together whatever is drawn.",
+                note: "On: with a gun or thrown weapon drawn the crosshair is a cross whose four bars part to show how wide your shots spread now (wider running, after shots, with crippled arms; narrower aimed or crouched). Off: the arrows stay together whatever is drawn.",
                 get: |w| w.resource::<DynamicCrosshair>().0,
                 set: |w, on| w.resource_mut::<DynamicCrosshair>().0 = on,
                 slider: None,
@@ -254,6 +275,8 @@ struct Kit {
     plain: Option<Picture>,
     filled: Option<Picture>,
     divider: Option<Picture>,
+    /// The gun cross's bars, all four or none.
+    bars: Option<[Picture; 4]>,
 }
 
 impl Kit {
@@ -261,7 +284,9 @@ impl Kit {
         let mut pictures = Pictures::load(data);
         let mut picture = |path: &str| pictures.picture(path, data, images, bc);
         let (plain, filled, divider) = (picture(PLAIN), picture(FILLED), picture(DIVIDER));
-        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), plain, filled, divider }
+        let bars: Vec<Picture> = BARS.iter().filter_map(|(path, _)| picture(path)).collect();
+        let bars = bars.try_into().ok();
+        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), plain, filled, divider, bars }
     }
 }
 
@@ -274,6 +299,32 @@ pub(crate) struct Root;
 struct Cross {
     filled: bool,
     side: f32,
+}
+
+/// One of the gun cross's bars, pointing in from `dir` (module notes).
+#[derive(Component)]
+struct Bar {
+    dir: Vec2,
+}
+
+/// A bar's picture's top left corner and size from the view's middle, its inner end
+/// `gap` from the middle and its middle line on the cross's.
+pub fn bar_rect(dir: Vec2, gap: f32) -> Rect {
+    let (min, size) = match (dir.x as i32, dir.y as i32) {
+        (0, -1) => (Vec2::new(-BAR_MIDDLE, -gap - BAR_LONG), Vec2::new(BAR_WIDE, BAR_LONG)),
+        (0, _) => (Vec2::new(-BAR_MIDDLE, gap), Vec2::new(BAR_WIDE, BAR_LONG)),
+        (-1, _) => (Vec2::new(-gap - BAR_LONG, -BAR_MIDDLE), Vec2::new(BAR_LONG, BAR_WIDE)),
+        _ => (Vec2::new(gap, -BAR_MIDDLE), Vec2::new(BAR_LONG, BAR_WIDE)),
+    };
+    Rect::from_corners(min, min + size)
+}
+
+fn place(node: &mut Node, r: Rect) {
+    let (left, top) = (crate::interface::u(r.min.x), crate::interface::u(r.min.y));
+    if node.left != left || node.top != top {
+        node.left = left;
+        node.top = top;
+    }
 }
 
 /// How far an arrow's tip stands from the view's middle for a cone of `cone` degrees
@@ -335,6 +386,12 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
             Some(p) => r.spawn((Cross { filled: true, side: 0.0 }, at(-half, -half, RETICLE, RETICLE), picture_node(p, color), Visibility::Hidden)),
             None => r.spawn((Cross { filled: true, side: 0.0 }, at(-3.0, -3.0, 6.0, 6.0), BackgroundColor(color), Visibility::Hidden)),
         };
+        if let Some(bars) = &kit.bars {
+            for ((_, dir), p) in BARS.iter().zip(bars) {
+                let rect = bar_rect(*dir, CROSS_REST);
+                r.spawn((Bar { dir: *dir }, at(rect.min.x, rect.min.y, rect.width(), rect.height()), picture_node(p.clone(), color), Visibility::Hidden));
+            }
+        }
         r.spawn((Texts, Node { position_type: PositionType::Absolute, ..default() }));
     });
 }
@@ -353,12 +410,12 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    state: Res<State<PlayState>>,
+    (state, wheel): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     target: Res<Target>,
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>, Option<Res<crate::player::ViewDriven>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -366,7 +423,10 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     mut shown: Local<Option<Prompt>>,
     mut root: Query<&mut Visibility, With<Root>>,
-    mut crosses: Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
+    (mut crosses, mut bars): (
+        Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
+        Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
+    ),
     texts: Query<Entity, With<Texts>>,
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
@@ -374,7 +434,8 @@ fn draw(
     // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
     // 2026-10-24: "E) Talk Doc Mitchell" showed in the starting bed sequence].
     let held = driven.is_some_and(|d| d.0);
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held;
+    // Nor under the weapon wheel (docs/design/weapon-wheel.md §7).
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {
@@ -435,9 +496,26 @@ fn draw(
         info!("reticle: {} spread {:.1} (cone {:.2} deg)", if foe { "hostile" } else { "plain" }, *spread, combat.as_ref().and_then(|c| c.crosshair_cone).unwrap_or(0.0));
         (logged.0, logged.1) = now;
     }
+    // A gun or thrown weapon drawn, with the switch on: the four bars in place of the
+    // arrows (module notes).
+    let cross = dynamic && kit.bars.is_some() && combat.as_ref().is_some_and(|c| c.crosshair_cone.is_some());
+    if logged.5 != Some(cross) {
+        info!("reticle: {}", if cross { "gun cross (four bars)" } else { "arrows" });
+        logged.5 = Some(cross);
+    }
+    let gap = spread.max(CROSS_REST);
+    for (b, mut v, mut node, mut image) in &mut bars {
+        v.set_if_neq(show(!locks.movement && !aimed && cross));
+        if image.color != colour {
+            image.color = colour;
+        }
+        if cross {
+            place(&mut node, bar_rect(b.dir, gap));
+        }
+    }
     let shift = (*spread - TIP).max(0.0);
     for (c, mut v, mut node, image) in &mut crosses {
-        v.set_if_neq(show(!locks.movement && c.filled == aimed));
+        v.set_if_neq(show(!locks.movement && c.filled == aimed && (c.filled || !cross)));
         if let Some(mut image) = image.filter(|i| i.color != colour) {
             image.color = colour;
         }
@@ -519,6 +597,17 @@ mod tests {
         assert_eq!(spread_units(45.0, fov), MAX_SPREAD);
         assert_eq!(half_rect(None, -1.0), Rect::new(0.0, 0.0, 32.0, 64.0));
         assert_eq!(half_rect(Some(Rect::new(10.0, 0.0, 30.0, 20.0)), 1.0), Rect::new(20.0, 0.0, 30.0, 20.0));
+    }
+
+    #[test]
+    fn the_bars_inner_ends_stand_the_gap_from_the_middle_on_one_line() {
+        let gap = 10.0;
+        let [top, bottom, left, right] = BARS.map(|(_, d)| bar_rect(d, gap));
+        assert_eq!((top.max.y, bottom.min.y, left.max.x, right.min.x), (-gap, gap, -gap, gap));
+        // Each bar's middle line (texel 2 of the 5 across) on the cross's middle.
+        assert_eq!((top.min.x + BAR_MIDDLE, bottom.min.x + BAR_MIDDLE), (0.0, 0.0));
+        assert_eq!((left.min.y + BAR_MIDDLE, right.min.y + BAR_MIDDLE), (0.0, 0.0));
+        assert_eq!((top.size(), left.size()), (Vec2::new(BAR_WIDE, BAR_LONG), Vec2::new(BAR_LONG, BAR_WIDE)));
     }
 
     #[test]

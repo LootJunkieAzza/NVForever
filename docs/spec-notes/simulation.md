@@ -469,13 +469,28 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   count reaches an "each item" sublist as that many rolls; `LootChemsNVAll50` (3 deep,
   chance none 50 at the top and in a sublist; 17 outcomes) and `LL2Tier4ExplosivesMixed50`
   (5 deep, Use All at the top, chance none in sublists; 36 outcomes seen) agree too.
+
+And for a count given to a Use All list over "each item" sublists [observed in game,
+2026-10-26, `L4.sim.leveled.useall`, `parity-lab/inputs/layer4/leveled_useall.cases.json`:
+300 `AddItem` draws per case, unattended, save `nvftest`, `ScroungerOdds` read back 100;
+chi-square pass in all three cases]. `LootAmmo10mm` (Use All, not "each item": one 10mm
+round, `Ammo10mm75` ×12, `Ammo10mmScrounger` ×12, both "each item") ×10 gave 50–130 rounds,
+**every draw a multiple of 10** (mean 98.0, sd 16.2; ×1 gave 5–13, mean 10.0, sd 1.6). So
+the count multiplies what one roll of the list gives, sublists included; it does not reach
+the "each item" sublists as 120 rolls (the rule built before, mean 100 but sd 4.7, never
+below 79). The Goodsprings ammo box on Barton Thorn's hill (`LootAmmoBox10mmGS`:
+`WithAmmo10mmPistolLoot` ×1, `LootAmmo10mm` ×10) is where this shows: about 108 rounds on
+average either way, but 60–140 in the original. A container's CNTO count is taken to act as
+`AddItem`'s count [hypothesis: only `AddItem` was captured].
 1. Roll 0–99; below chance none (or the LVLG global's current value) yields nothing.
 2. Eligible entries have level ≤ the requesting level (the player's level; for
    containers [hypothesis], for AddItem [observed]).
 3. Use All: every eligible entry. Otherwise one entry uniformly from all eligible entries
    (all-levels flag) or from those of the highest eligible level.
 4. "For each item in count": N separate rolls of one; otherwise one roll times N.
-5. Nested lists resolve recursively with entry count × multiplier.
+5. Nested lists: an entry naming another list asks it for the entry's count (rolls, if
+   that list is "each item"); a list without "each item" asked for N multiplies everything
+   its entries give by N, and the multipliers of the lists above apply to all of it.
 
 ## 5. Locks, doors, activation
 

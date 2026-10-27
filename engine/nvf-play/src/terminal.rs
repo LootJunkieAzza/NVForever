@@ -396,7 +396,7 @@ fn seed(reference: FormId, now: f32) -> u64 {
 /// The listed items of a terminal and the view over them.
 fn menu_view(rt: &mut crate::script::Runtime, reference: FormId, terminal: FormId, top: FormId) -> MenuView {
     let items = rules::items(&mut rt.game, reference, terminal);
-    let (server, welcome) = rt.game.data.terminals.get(&top).map(|t| (t.server, t.welcome.clone())).unwrap_or_default();
+    let (server, welcome) = rt.game.data.terminals.get(&top).map(|t| (t.server, rt.game.expand_codes(&t.welcome))).unwrap_or_default();
     MenuView { terminal, parents: Vec::new(), items, selected: 0, hidden: true, result: String::new(), note: None, scroll: 0, server, welcome }
 }
 

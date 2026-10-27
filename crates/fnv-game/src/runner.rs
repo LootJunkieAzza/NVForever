@@ -332,8 +332,8 @@ pub enum Action {
     /// FormID text), and `stub` when the function is one; a statement leaves out `label`.
     /// The function probes' side of ours (tools/capture/function_probe.py).
     Call { line: String, #[serde(default)] label: Option<String> },
-    /// A whole function script compiled with the extender's compiler and run once on the
-    /// player, as nvf_capture's query step (`Game::run_query`). Observation `value` (a
+    /// A whole function script compiled with the extender's compiler and run once on no
+    /// reference, as nvf_capture's query step (`Game::run_query`). Observation `value` (a
     /// number, a reference as its FormID text, or text), or `error`: "script did not
     /// compile" or the run-time error. What it changes stays for later actions.
     Query { script: String, label: String, #[serde(default)] text: bool },
@@ -1014,7 +1014,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
         }
         Action::Query { script, label: l, text } => {
             use fnv_script::vm::XVal;
-            let ctx = crate::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+            // A runtime-compiled query runs on no reference [observed: GetSelfAlt gives none
+            // in the original's capture queries].
+            let ctx = crate::game::RunCtx::default();
             match g.run_query(script, ctx) {
                 Ok(XVal::Str(s)) => obs.insert("value".into(), json!(s)),
                 Ok(XVal::Ref(r)) if !*text => obs.insert("value".into(), json!(FormId(r).to_string())),

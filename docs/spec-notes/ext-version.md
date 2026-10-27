@@ -161,9 +161,8 @@ low.
 
 ## 5. What NVForever answers (for C5)
 
-- **GetNVSEVersion / Revision / Beta**: the xNVSE version NVForever targets (owner-review,
-  "xNVSE baseline" item 4; default 6.4.9), split as §1 settles [decision pending the
-  probe].
+- **GetNVSEVersion / Revision / Beta**: xNVSE 6.4.9 [decision: the owner, 2026-10-26],
+  split as §1 settles (the probe is asked for).
 - **IsPluginInstalled / GetPluginVersion**: report a plugin as loaded only when NVForever
   implements that plugin's functions (C2's per-plugin modules), with the version that
   module claims; otherwise 0 and -1 [decision: claiming a plugin whose functions are

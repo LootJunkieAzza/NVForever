@@ -67,6 +67,7 @@ use crate::idles::{IdleSlot, PlayerIdles};
 use crate::sky::{Sun, ARMS_LAYER, BODY_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
 use crate::view_sway::{SwayInput, SwayPose, ViewSway};
+use crate::weapon_lower::{LowerInput, WeaponLower};
 use bevy::camera::visibility::RenderLayers;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::math::Affine3A;
@@ -228,23 +229,35 @@ fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -
 
 /// Keep the [`ArmsShade`] light: there while the arms rig is drawn and the sun casts
 /// shadows, so that nothing pays for it otherwise.
+///
+/// The light is despawned when not wanted, never hidden. A hidden directional light
+/// keeps its shadow views in Bevy 0.19.1's render world, and when it is shown again
+/// Bevy gives it a new set without despawning the old (`add_light_view_entities`
+/// replaces the light's `DirectionalLightViewEntities`, which runs no removal hook).
+/// The old views keep their place among the views, so the light's shadow phase was
+/// batched once per set every frame, and the doubled batch sets upset the shadow
+/// passes' shared indirect draw buffers: the sun's cascades lost or gained whole
+/// batch sets from frame to frame, hillsides flickering between lit and shadowed in
+/// first person, more often the more times the arms had been hidden and shown
+/// [observed 2026-10-26: owner's captures; gone with GPU culling off or without this
+/// light; a probe in the batching saw this light's 12 batch sets prepared as 24].
 #[allow(clippy::type_complexity)]
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
     sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
-    mut shade: Query<(&mut DirectionalLight, &mut Visibility), With<ArmsShade>>,
+    mut shade: Query<(Entity, &mut DirectionalLight), With<ArmsShade>>,
 ) {
     // A sun casting no shadows has no shade light either.
     let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
     let on = arms_drawn && sun_light.shadow_maps_enabled;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
-    if let Ok((mut light, mut v)) = shade.single_mut() {
-        if v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden }) {
-            debug!("arms shade light {}", if on { "on" } else { "off" });
-        }
-        if on && (light.color != sun_light.color || light.illuminance != illuminance) {
+    if let Ok((e, mut light)) = shade.single_mut() {
+        if !on {
+            debug!("arms shade light off");
+            commands.entity(e).despawn();
+        } else if light.color != sun_light.color || light.illuminance != illuminance {
             light.color = sun_light.color;
             light.illuminance = illuminance;
         }
@@ -257,6 +270,7 @@ fn shade_light(
             overlap_proportion: 0.0,
         }
         .build();
+        debug!("arms shade light on");
         commands.spawn((
             Name::new("Arms shade light"),
             ArmsShade,
@@ -683,8 +697,12 @@ struct Motion {
     velocity: Vec2,
     /// The first-person arms' sway (`view_sway.rs`).
     sway: ViewSway,
+    /// The first-person weapon lowered against a wall or a friend (`weapon_lower.rs`).
+    lower: WeaponLower,
     /// The true iron sights were last reported on the eye (a smoke check).
     sights_told: bool,
+    /// The weapon was last reported lowered (a smoke check).
+    lower_told: bool,
     /// How far the gun is on its way up to the eye (0–1, not eased; `iron_sights::step`).
     sights_share: f32,
 }
@@ -732,7 +750,9 @@ impl Default for Motion {
             names: HashMap::new(),
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
+            lower: WeaponLower::default(),
             sights_told: false,
+            lower_told: false,
             sights_share: 0.0,
         }
     }
@@ -745,6 +765,9 @@ pub struct PlayerBody {
     /// Sway and bob the first-person arms and weapon (`view_sway.rs`; off with
     /// `--no-weapon-sway`, the settings page).
     pub weapon_sway: bool,
+    /// Lower the first-person weapon against a wall or a friendly actor close ahead
+    /// (`weapon_lower.rs`; off with `--no-weapon-lower`, the settings page).
+    pub weapon_lower: bool,
     /// Line the gun's sights up with the eye while aiming (`iron_sights.rs`; off with
     /// `--no-true-iron-sights`, the settings page).
     pub true_iron_sights: bool,
@@ -845,6 +868,8 @@ pub struct PlayerBodyPlugin {
     pub first_person_body: bool,
     /// Not `--no-weapon-sway`.
     pub weapon_sway: bool,
+    /// Not `--no-weapon-lower`.
+    pub weapon_lower: bool,
     /// Not `--no-true-iron-sights`.
     pub true_iron_sights: bool,
 }
@@ -852,10 +877,11 @@ pub struct PlayerBodyPlugin {
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
-        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, true_iron_sights: self.true_iron_sights, ..default() })
+        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, weapon_lower: self.weapon_lower, true_iron_sights: self.true_iron_sights, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, drive_weapon_emitters, shade_light).chain().in_set(nvf_play::player::BodySet))
+            .init_resource::<crate::weapon_lower::Ahead>()
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Last, report);
     }
 }
@@ -866,6 +892,7 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
         let m = &body.motion;
         info!("player body summary: {} falls (the jump loop), {} landings", m.falls, m.landings);
         info!("player body summary: weapon sway {}, most turn lag {:.2} degrees sideways and {:.2} up or down, deepest bob {:.2} units", if body.weapon_sway { "on" } else { "off" }, m.sway.peak_lag.x.to_degrees(), m.sway.peak_lag.y.to_degrees(), m.sway.peak_dip);
+        info!("player body summary: weapon lowering {}, lowered {} times, most {:.2}", if body.weapon_lower { "on" } else { "off" }, m.lower.times, m.lower.peak);
     }
 }
 
@@ -2020,7 +2047,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), ahead): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2030,6 +2057,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
+        Res<crate::weapon_lower::Ahead>,
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2220,6 +2248,8 @@ fn drive_body(
     let reload = anim.reload.clone().map(|r| m.intern(r));
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, timing_rig.sights_clips(control.aiming)));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
+    // A reload keeps a lowered weapon up for its length (`weapon_lower.rs`).
+    let reload_len = reload_clip.as_ref().map_or(0.0, |c| c.clip.length() / if anim.reload_rate > 0.0 { anim.reload_rate } else { 1.0 });
     let reload_open = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::ReloadOpen(stance, prefix, r)));
     let jam = anim.jam.clone().map(|j| m.intern(j));
     let jam_len = jam.and_then(|j| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, j))).map(|c| c.clip.length()).filter(|l| *l > 0.0);
@@ -2352,6 +2382,28 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
+    // Lowered against a wall or a friend ahead (`weapon_lower.rs`): a drawn weapon, not
+    // fists; aiming, the trigger, an attack or a reload bring it up.
+    let lowered = m.lower.update(LowerInput {
+        dt,
+        // The switch is for the automatic lowering; by hand works either way.
+        wall: ahead.wall.filter(|_| state.weapon_lower),
+        friendly: ahead.friendly && state.weapon_lower,
+        by_hand: control.lowered,
+        up_for: if reload_now {
+            reload_len
+        } else if control.aiming || control.trigger || attack_now {
+            crate::weapon_lower::HOLD_UP_SECONDS
+        } else {
+            0.0
+        },
+        on: body.first.is_some() && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && m.hands.phase == WeaponPhase::Drawn && prefix != UNARMED,
+    });
+    if m.lower.down != m.lower_told {
+        m.lower_told = m.lower.down;
+        info!("weapon lowering: {}", if m.lower.down { if control.lowered { "lowered by hand" } else if ahead.friendly { "lowered for a friendly actor ahead" } else { "lowered against a surface ahead" } } else { "raised" });
+    }
+    let sway = crate::weapon_lower::then(sway, crate::weapon_lower::pose(lowered, crate::weapon_lower::weight(prefix)));
     // True iron sights: brought up at their own pace while the view zooms in, for the
     // guns whose model has a sighting node, while the player looks through the arms rig
     // by themself.

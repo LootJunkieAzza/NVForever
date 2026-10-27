@@ -161,6 +161,25 @@ the spec it links to.
     laser, trail carbine); other scoped guns keep the original overlay. It costs about
     1.7 ms a frame while aiming (5.7 → 7.4 ms in Goodsprings). Keep it, make it the default, and should the view around
     the lens zoom a little (now 0.2 of the way) or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
+33. **3D scopes (not built).** You asked about the mod look: the gun stays on screen and
+    the zoomed world shows in the scope's lens. It can be built. Weapons with no lens in
+    their model get a measured disc, and a few scopes keep the original overlay. It
+    costs a second world render while aiming. Planned as a Gameplay switch, off = the
+    original overlay. Should it be on by default, and should the view around the lens
+    zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
+34. **MCM and the pause menu (UI tile tree).** MCM lives in the original's StartMenu,
+    which is where our own pause and settings pages are. Chosen (not built yet): our
+    column and settings stay as they are. The game's StartMenu is built from its files
+    behind them while the pause or main menu is open, so MCM's scripts find their
+    tiles. A "Mods" entry joins our column only when a mod added one, and opens MCM's
+    page drawn from the game's files. If you rule otherwise, the whole pause menu is
+    drawn from the game's (or a mod's) start_menu.xml and our settings become one entry
+    in it. ([ui-tile-tree §7](design/ui-tile-tree.md))
+35. **Lowered weapon (2026-10-27).** Near a wall or a friendly actor the first-person
+    weapon lowers, and R twice lowers it by hand. You approved the look and ruled that
+    firing stays allowed: the trigger raises it and shoots as normal. Left: a single R
+    now reloads 0.25 s later so a second tap can claim it. Keep that window, or change
+    it? ([player-body §1.4b](design/player-body.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
@@ -173,23 +192,18 @@ game. Nothing here is urgent; each item unblocks part of the work.
    event priority and filtering pages and User-Defined Event, and `FOSE.xml` settled
    GetType (it is GetObjectType's alias), and you pasted Form Type IDs, the DirectX
    scancodes, the controller button and trigger codes, the known plugin names,
-   GetCurrentEventName, DispatchEventAlt and sUActn: thank you. Still missing, minor:
-   **Player Character String Codes** (ext-format.md).
-2. **The GECK with xNVSE loaded**, to compile, in a private test plugin of yours:
-   `tools/capture/ext-compile/` (23 cases; note what the GECK says for each) and the
-   probe sets in `tools/capture/ext-probes/` (strings, expressions, arrays, loops, udf;
-   each README says how). Then load a save, keep the console text, and run
-   `python tools/capture/ext_probes.py collect <console text> --set <name>`: it writes
-   the private golden, and `compare` checks it against the README. The runaway loop
-   (loops/09) and deep recursion (udf/05) are run last, by hand: they may crash the game.
-3. **`ExtProbeList`**: a form list in that test plugin with three or more forms of your
-   choice, for the form-list `foreach` probe (loops/02).
-4. **Which xNVSE version to target.** The captures so far ran under 6.4.9; the wiki
-   marks many features by version (6.1 through 6.4.9). *Default if you don't say:* match
-   6.4.9, the version installed.
-5. **Your mod list for the N2 scan** (`fnvtool ext scan`): the plugins you want to play
-   with, so the scan can rank which extender functions they use. Only counts and names
-   leave your machine.
+   GetCurrentEventName, DispatchEventAlt, sUActn and Player Character String Codes:
+   thank you.
+2. *Done 2026-10-25/26:* the GECK compile cases (results in ext-bytecode.md, #812), the
+   probe sets with `ExtProbeList` (goldens collected; the L5.ext.nvse lab now matches
+   225 of 228). Two newer GECK cases (24, 25) are in #831.
+4. *Answered 2026-10-26:* target xNVSE 6.4.9.
+5. *Done 2026-10-26:* the N2 scan ran over your MO2 profile `Talon` (128 plugins):
+   docs/handoff/modlist-scan-2026-10-26.md. NVForever builds 44% of the extender uses
+   there. The most used functions not built are the UI ones (SetUIFloat and friends,
+   16 plugins). *Answered 2026-10-26:* a tile tree (§5.6 option A), to make the UI
+   modular for modders; its own session writes docs/design/ui-tile-tree.md and the tasks. Your saves with their `.nvse` co-saves
+   (`F:\Modding\MO2\profiles\Talon\saves`) may be read, read-only, for save rows.
 
 ## xNVSE probe results: decisions taken while you were away (2026-10-26)
 
@@ -222,11 +236,42 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
   from observations alone. jip-math-utility.md §1.
 - **`GetLNVersion` returns 57.3** in your game, where the wiki says it always returns 0;
   NVForever follows the game.
-- **UI functions (J8)** still wait on your call (extender-compat.md §5.6).
+- **UI functions (J8):** *answered 2026-10-26*, a tile tree (extender-compat.md §5.6 A).
 - **Three wiki pages missing from the export:** *Auxiliary Variables*, *RefMap Array* and
   *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
   variable temporary. It did not show how a variable becomes private or public
   (docs/spec-notes/jip-variable-stores.md §1). Exporting those three pages settles it.
+- **JIP implementation choices (J4–J7, branch claude/ext-compiler, 2026-10-26).**
+  *Check* any you would rather have differently:
+  - An invalid regular expression is an extender run-time error (the statement fails,
+    the script goes on); the wiki says the game crashes.
+  - JIP event registrations are not saved and a load starts with none (documented for
+    the ragdoll event only). A second identical registration is kept once.
+  - A lambda made inside a function script reads that script's variables **as they were
+    when the lambda was made** (the function has ended by the time an event runs the
+    lambda). The game showed the variables are seen; whether later changes are seen
+    too was not observed.
+  - SetGameMainLoopCallback counts frames (as documented), not time.
+  - Not built yet: projectile and explosion hit data (GetHitProjectile, GetHit3DData),
+    explosion damage in headless runs, the fire/reload/menu/key event firing points
+    (engine side), GetFontFile (fonts, J8), the file functions (J9 waits on the
+    proposal above).
+- **xNVSE choices made while you were away (branch claude/ext-compiler, 2026-10-26).**
+  *Check* any you would rather have differently:
+  - The base-form setters (SetWeapon…, SetWeight, SetBaseItemValue, SetName …) change
+    what the getters read for the session only. Combat, the menus and saves keep the
+    record's values. Whether the original saves them was not observed.
+  - DisableKey/DisableControl hide a key from the player's controls (the engine's
+    ControlInput) and from IsKeyPressed. GetControl of an unbound control gives 255
+    (the INI's "none"). Neither is observed.
+  - The delayed calls count game seconds, which stop while a menu is open, so a
+    CallAfterSeconds with runWhen 1 does not count down in a menu. The page says
+    the time counts there too.
+  - GetFirstRef and the …InCell functions treat the player's cell, and outside the
+    cells within two squares of it, as loaded (uGridsToLoad 5). Elsewhere only
+    persistent references count, which matches your save's rows for the saloon.
+  - The remaining xNVSE functions, by family, are in docs/handoff/xnvse-remaining.md.
+    The UI ones wait on the tile tree (§5.6 A, chosen 2026-10-26).
 
 ## Extender lab: rows that depend on your save (2026-10-26)
 
@@ -235,9 +280,8 @@ The L5.ext.nvse.* lab run of the extender branch (ext-compiler 1d2ee60b) matched
 (`nvfairport`): ToString of the player (your character's name) and the two counts of
 the player's inventory (27 item kinds). `fnvtool ext probes` loads no save, so it cannot
 match them. Nothing is marked or loosened in the lab: they stay failing until the lab
-can start from a save. *Check:* whether NVForever's lab may read your save (read-only,
-private, like the goldens). The default if you say nothing is to wait for the engine's
-save loading.
+can start from a save. *Answered 2026-10-26:* the lab may read your save (read-only,
+private, like the goldens).
 
 ## Two GECK compile cases for when you are back (2026-10-26)
 

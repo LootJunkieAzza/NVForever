@@ -1383,6 +1383,13 @@ fn script_function_audit_fixes() {
     assert_eq!(call(&mut g, 0x102F, Some(PLAYER), &[r(NOTE)]), 0.0);
     call(&mut g, 0x117D, None, &[r(NOTE)]);
     assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 0.0);
+    // A note that reached the inventory (the container menu moves it as an item) is
+    // filed with the player's notes on the next frame and is no longer carried.
+    g.world.add_item(FormId(PLAYER), FormId(NOTE), 1).unwrap();
+    g.tick();
+    assert!(g.player.notes.contains(&FormId(NOTE)));
+    assert_eq!(g.world.item_count(FormId(PLAYER), FormId(NOTE)).unwrap(), 0);
+    call(&mut g, 0x117D, None, &[r(NOTE)]);
     // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
     call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
     call(&mut g, 0x108B, Some(ADULT_REF), &[r(CHILD_REF), n(0.0), n(6.0)]);

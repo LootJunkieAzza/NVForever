@@ -44,6 +44,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_WHEEL]
 sep = ","
+[timed.NVF_PLAY_TEST_HOTKEYS]
+sep = ","
 [timed.NVF_PLAY_TEST_MOVE]
 sep = ","
 [timed.NVF_PLAY_TEST_LOOK]
@@ -303,10 +305,10 @@ expect = [
 
 [[scenario]]
 name = "shadow-probe"
-source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, and the hidden third-person body stays body-sized"
+source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker; found 2026-10-26): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, the hidden third-person body stays body-sized, and switching view four times leaves no two render views with one key (player_body.rs shade_light)"
 areas = ["renderer", "player-body"]
-paths = ["engine/nvforever/src/shadow_probe.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_DEBUG_SHADOWS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_LOOK = "10:90:-12,13:180:-12,16:270:-30,19:0:-5,22:90:-12" }
+paths = ["engine/nvforever/src/shadow_probe.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/lod.rs"]
+env = { NVF_PLAY_DEBUG_SHADOWS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_LOOK = "10:90:-12,13:180:-12,16:270:-30,19:0:-5,22:90:-12", NVF_PLAY_TEST_KEYS = "14:f,16:f,18:f,20:f" }
 args = ["--cell", "Goodsprings", "--pos=-69698,2246,8500", "--play", "--no-voice", "--hour", "14", "--sun-shadows"]
 run_seconds = 30
 expect = [
@@ -315,6 +317,9 @@ expect = [
   { re = 'shadow probe: (skin of|cascade \d casts|.* is drawn (with|from))', count = 0, label = "no single finding" },
   { re = 'player body joints within (?P<n>\d+)', range = [30, 300], label = "the hidden body measured body-sized (about 70)" },
   { re = 'player body joints within ([3-9]\d\d|\d{4,})', count = 0, label = "the hidden body never wider than 300" },
+  { re = 'checks with views sharing a key 0(?!\d)', min = 3, label = "switching to third person and back four times leaves no shadow view behind (the arms' shade light is despawned, not hidden)" },
+  { re = 'views share one view key|checks with views sharing a key [1-9]', count = 0, label = "no two views ever share a key (the first-person shadow flicker of 2026-10-26)" },
+  { re = 'shadow probe: frame \d+ .*LOD terrain casting per cascade \[\d+, \d+, \d+\] of casters', min = 1, label = "the per-frame LOD terrain line names the three cascades" },
 ]
 
 [[scenario]]
@@ -466,6 +471,20 @@ commands = [
 ]
 expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 7, label = "all seven walks arrived" }]
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
+
+[[scenario]]
+name = "weapon-lower"
+source = "engine/nvforever/src/weapon_lower.rs (owner request 2026-10-26): with the 10mm pistol drawn and Easy Pete moved right in front of the view, the first-person weapon lowers for him (a friendly actor), comes up while aiming and lowers again after; docs/design/player-body.md §1.4b"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/weapon_lower.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:45:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aim,10.5:aim" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch=-15", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'weapon lowering: lowered for a friendly actor ahead', label = "the pistol lowers for Easy Pete in front" },
+  { re = 'weapon lowering: raised', label = "aiming brings it up" },
+  { re = 'player body summary: weapon lowering on, lowered (?P<n>\d+) times', range = [2, 1e9], label = "lowered again after aiming" },
+]
 
 [[scenario]]
 name = "player-fire-comment"
@@ -1170,7 +1189,7 @@ name = "combat-npc-reload"
 source = "owner 2026-10-17: NPCs never reloaded in test runs; they need the same magazine and reload as the player (npc_combat module notes: Reloading)"
 note = "Chet (GSChetRef) in the general store is given and made to equip a .357 Magnum Revolver (WeapNV357Revolver: 6 rounds, ReloadX, round by round) and set on the player, who cannot die (GOD). He empties the cylinder, reloads all six round by round with the opening clip and a reload clip per round, and fires again. NPCs use no ammunition from their inventory (owner 2026-10-17)"
 areas = ["combat"]
-paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/limping.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 45
@@ -1183,6 +1202,8 @@ expect = [
   { re = 'attack anims summary: .*?(?P<n>\d+) reload clips', range = [7, 100000], label = "the opening clip and a clip per round in the attack anims summary" },
   { re = 'npc combat summary: .*?(?P<n>\d+) shots', range = [7, 100000], label = "more than one cylinder fired" },
   { re = 'npc combat summary: .*? (?P<n>\d+) reloads \((?P<m>\d+) round by round\)', range = [1, 1000], label = "reloads in the npc combat summary" },
+  { re = 'limping: GSChetRef 0x00104C79 moves at 75% of its speed \(reloading\)', label = "Chet moves at 75% while he reloads (reload-slows, on by default; owner 2026-10-27)" },
+  { re = 'limping summary: .*by a reload (?P<n>\d+) times', range = [1, 1000], label = "reload slowdowns in the limping summary" },
 ]
 
 [[scenario]]
@@ -1267,10 +1288,13 @@ kind = "tool"
 source = "ESM gap audit row 18 (docs/spec-notes/texture-swaps.md): records' alternate textures (MODS/MO2S/MO3S/MO4S) and the shapes they go to"
 areas = ["texture-swaps", "world"]
 paths = ["crates/fnv-world/src/alt_textures.rs", "crates/fnvtool/src/world_alt_textures.rs", "crates/fnv-nif/src/scene.rs", "schemas/fnv/common.json", "crates/fnv-esm/src/decode.rs", "crates/fnv-esm/src/schema.rs"]
-commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit"]]
+commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit", "--edid", "OutfitPrewarCasualwear2Dirty"]]
 # texture-swaps.md §1, §2: FalloutNV.esm's 433 records, 1,838 entries, 1,679 with their
 # named shape at the 3D Index; the Atomic Wrangler billboard's one shape; the radiation
-# suit's female model has two UpperBody shapes, each listed with its own index.
+# suit's female model has two UpperBody shapes, each listed with its own index. The
+# index decides over a stale name: Jeannie May Crawford's dirty relaxedwear lists
+# `pipboyoff` at 9, the female model's UpperBody (her dress), which takes the brown
+# texture set like her arms (owner, 2026-10-26).
 expect = [
   { json = "summary.records", equals = 433 },
   { json = "summary.entries", equals = 1838 },
@@ -1279,6 +1303,8 @@ expect = [
   { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.diffuse", equals = 'textures\clutter\billboards\atomicwrangler_billboard.dds' },
   { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.match", equals = "name_and_index" },
   { json = "records.?edid=CSArmorRadiationSuit.models.?sub=MOD3.entries.?shape=UpperBody.match", equals = "name_and_index", count = 2 },
+  { json = "records.?edid=OutfitPrewarCasualwear2Dirty.models.?sub=MOD3.entries.?index=9.targets.*.0", equals = "UpperBody", label = "the index decides: the dress gets the dirty texture set (§2)" },
+  { json = "records.?edid=OutfitPrewarCasualwear2Dirty.models.?sub=MOD3.entries.*.match", equals = "index_only", count = 1 },
 ]
 
 [[scenario]]
@@ -1291,6 +1317,19 @@ run_seconds = 12
 expect = [
   'meshes\dungeons\hotel lowend\htlrmcorout01.nif: texture swap: 1 entr(ies), 1 shape(s) retextured: OffRmCorOut01:1:0 → textures\dungeons\hotel lowend\presmetrofloor02.dds',
   { text = "offdoormetalsml01.nif: texture swap: 2 entr(ies), 0 shape(s) retextured", label = "NullTextureSet names no file: the door keeps its own textures (§3, hypothesis)" },
+]
+
+[[scenario]]
+name = "texture-swaps-worn"
+source = "owner 2026-10-26: Jeannie May Crawford's dress was drawn blue beside brown arms (docs/spec-notes/texture-swaps.md §2): her OutfitPrewarCasualwear2Dirty's female list names `pipboyoff` at 9, the model's UpperBody, and the index decides"
+areas = ["texture-swaps", "actors"]
+paths = ["engine/nvf-assets/src/actor.rs", "crates/fnv-world/src/alt_textures.rs"]
+env = { NVF_PLAY_TEST_FACE = "6:0008D74C", NVF_PLAY_TEST_SHOTS = "9:jeannie_may_dress.png" }
+args = ["--cell", "NovacMotelLobby", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+manual = "jeannie_may_dress.png in the run's folder: her dress the same dark brown as her sleeves, no blue"
+expect = [
+  { re = '1950stylecasual01\\f\\outfit\.nif: texture swap: 4 entr\(ies\), 4 shape\(s\) retextured: .*UpperBody → textures\\armor\\1950stylecasual01\\outfit02fold\.dds', label = "her dress takes the dirty texture set" },
 ]
 
 # ------------------------------------------------------------------ audio
@@ -2011,6 +2050,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "vigor-upload-budget"
+source = "owner report 2026-10-26: with VRP 4X textures (4096x4096 pages) the Vigor Tester menu showed only its bulb glows and arrows: its meshes waited behind the textures under the GPU upload limit and Bevy 0.19 never drew them (engine/nvforever/src/world.rs respecialize_late_meshes)"
+note = "a 2 MB upload limit makes the vanilla model's meshes wait as VRP's textures did; without the fix the 6 s screenshot shows only the two arrow buttons (checked 2026-10-26), with it the whole machine. The log cannot tell a drawn mesh from a lost one, so the expectations only show the marks were made"
+areas = ["vigor", "streaming", "render"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-play/src/chargen/vigor*"]
+env = { NVF_PLAY_TEST_UPLOAD_BYTES = "2000000", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_SHOTS = "6" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 9
+expect = [
+  "test aid NVF_PLAY_TEST_UPLOAD_BYTES: 2000000 bytes sent to the GPU a frame while playing",
+  "vigor tester: open",
+  { re = 'streaming summary: .*; (\d+) late-mesh marks', range = [500, 100000], label = "the menu model's meshes marked again while they waited" },
+]
+
+[[scenario]]
 name = "quest-messages"
 note = "not shared with house-messages: there its 'Talk to Sunny Smiles' line was never shown on its own (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the quest lines at the left (docs/spec-notes/quest-messages.md §7)"
@@ -2306,12 +2360,13 @@ expect = [
 [[scenario]]
 name = "semi-auto-rate"
 source = "owner playtest 2026-10-19: the 9mm pistol and varmint rifle fire slower than in the original"
-note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later. The pulls start at 14 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded; until 12.1 s on the world aids' clock when the scripts start at 6.5 s or later): while one is open the player is held in a menu (script::hold_player) and the attack cycle stands still, so boxes open 0.18 s after the second shot kept its cooldown past the third pull [observed: smoke log of 2026-10-20, scripts ready in 12.36 s, 9 shots]"
+note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later. The pulls start at 20 s, after the message boxes the scripts open: the pre-order packs' and most add-ons' about 5 s after they first run, Gun Runners' Arsenal's at about 15.6 s on the aids' clock (its quest counts down after SetQuestDelay 5) [observed: smoke logs of 2026-10-26, 15.58-16.40 s in 6 runs on main 8945d56b and 8356e4a7; with the pulls at 14-17.34 s the box fell in a shot's cooldown in 3 of 6 runs, 7-9 shots]. While a box is open the player is held in a menu (script::hold_player) and the attack cycle stands still, so a box opened in a shot's cooldown keeps it past the next pull [observed: smoke log of 2026-10-20, boxes 0.18 s after the second shot, 9 shots]"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,14:fire,14.1:fire,14.36:fire,14.46:fire,14.72:fire,14.82:fire,15.08:fire,15.18:fire,15.44:fire,15.54:fire,15.8:fire,15.9:fire,16.16:fire,16.26:fire,16.52:fire,16.62:fire,16.88:fire,16.98:fire,17.24:fire,17.34:fire" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
-run_seconds = 21
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,20:fire,20.1:fire,20.36:fire,20.46:fire,20.72:fire,20.82:fire,21.08:fire,21.18:fire,21.44:fire,21.54:fire,21.8:fire,21.9:fire,22.16:fire,22.26:fire,22.52:fire,22.62:fire,22.88:fire,22.98:fire,23.24:fire,23.34:fire" }
+# Sun shadows off (on by default in play since 2026-10-26): the pulls have about two frames to spare.
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--no-sun-shadows"]
+run_seconds = 27
 expect = [
   { re = 'combat: (?P<n>\d+) shots \(', range = [10, 10], label = "every pull 0.36 s apart fires" },
 ]
@@ -2533,6 +2588,8 @@ order = [[
 ]]
 expect = [
   { re = 'combat: reloaded \d+, magazine', min = 2, label = "both reloads finish" },
+  { re = 'movement: moving at 75% of the speed \(reloading\)', min = 2, label = "the player moves at 75% while reloading (reload-slows, on by default; owner 2026-10-27)" },
+  { re = 'movement: moving at 100% of the speed \(not slowed by a reload\)', min = 2, label = "... and at full speed after each reload" },
 ]
 
 [[scenario]]
@@ -5259,11 +5316,12 @@ name = "save-ai-write"
 source = "docs/design/save-load.md §3.3, §5 item 4: the residents' package progress (patrol points, sandbox days) goes into a save; save-ai-load reads it, so run them together"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
-env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
 run_seconds = 28
 expect = [
   { re = 'save: wrote .*smoke-ai\.nvfsave \(manual', label = "the save is written" },
+  { re = 'DocMitchellREF: put at .* by a script \(MoveTo\)', label = "Doc Mitchell is moved out of his house before the save" },
 ]
 
 [[scenario]]
@@ -5277,6 +5335,7 @@ run_seconds = 24
 expect = [
   { re = 'load: package progress of (?P<n>\d+) residents kept', range = [1, 1000], label = "the save holds progress" },
   { re = 'goes on with .*(from the save|its sandbox day as saved)', label = "a resident goes on where the save had it" },
+  { re = 'DocMitchellREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
 ]
 
 [[scenario]]
@@ -5440,7 +5499,7 @@ name = "crafting"
 source = "owner todo 5 item 72: the recipe menu (engine/nvf-play/src/crafting.rs, crates/fnv-game/src/crafting.rs) opened by ShowRecipeMenu, the campfire's recipes from the records, Antivenom refused without its ingredients then made with them; frame recipe_menu.png in the working folder"
 areas = ["crafting", "menus"]
 paths = ["engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs"]
-env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,24:exit" }
+env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,23.5:accept,24:exit" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 27
 expect = [
@@ -5449,11 +5508,12 @@ expect = [
   { re = 'recipe menu: cannot make "Antivenom": \[Ingredient', label = "without its ingredients Antivenom is refused" },
   { text = "ui sounds: recipe category changed: UIMenuPrevNext", label = "the arrows switch the subcategory" },
   { re = 'recipe menu: open Campfire \(\d+ recipes listed of \d+ known, 1 ready', label = "with the ingredients one recipe is ready" },
+  { re = 'recipe menu: how many\? 1 of 1 \("Antivenom"\)', label = "Accept asks how many even when only one can be made (owner 2026-10-26)" },
   { re = 'recipe menu: made "Antivenom" \(2 x Antivenom\)', label = "Antivenom is made" },
   { re = 'console: GetItemCount on player >> 0\.00', label = "its ingredients are used up" },
   "recipe menu: closed",
 ]
-order = [["recipe menu: cannot make", "recipe menu: made"]]
+order = [["recipe menu: cannot make", "recipe menu: how many? 1 of 1", "recipe menu: made"]]
 
 [[scenario]]
 name = "repair-services"
@@ -6073,7 +6133,10 @@ order = [[
   "reticle: dynamic crosshair off: the arrows stay together",
   { re = 'combat: kick: shot 1 in a row' },
 ]]
-forbid = [{ re = 'reticle: \w+ spread [1-9]', label = "the arrows part with the switch off" }]
+forbid = [
+  { re = 'reticle: \w+ spread [1-9]', label = "the arrows part with the switch off" },
+  { text = "reticle: gun cross (four bars)", label = "no gun cross with the switch off" },
+]
 
 [[scenario]]
 name = "compass-reticle"
@@ -6085,6 +6148,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos
 run_seconds = 24
 expect = [
   { re = 'reticle: plain spread [1-9]\d*\.\d \(cone [0-9.]+ deg\)', label = "the arrows open with the weapon drawn" },
+  { text = "reticle: gun cross (four bars)", label = "the gun cross in place of the arrows with the weapon drawn" },
   { re = 'compass: [1-9]\d* actors \(\d+ hostile\)', label = "actors near the player on the compass" },
   { re = 'compass: \d+ actors \([1-9]\d* hostile\)', label = "a shot bighorner turns red on the compass" },
   { re = 'reticle: hostile spread', label = "the crosshair red over a hostile" },
@@ -6478,6 +6542,23 @@ expect = [
 order = [["pause menu: settings back to their defaults", "settings: hit-markers on"]]
 
 [[scenario]]
+name = "ui-colours"
+source = "owner 2026-10-26: colour pickers on the settings page for the HUD and the Pip-Boy's screens, amber the default; a preset and a slider change each colour at once and the Pip-Boy opens in its own"
+areas = ["settings", "hud", "pipboy"]
+paths = ["engine/nvf-play/src/ui_colour.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:hud-colour=Green,12:pipboy-colour=Blue,13:pipboy-red=0.2", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=items,20:close", NVF_PLAY_TEST_SHOTS = "19:ui_colours_pipboy.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--pos=-68375,4800,8700"]
+run_seconds = 22
+order = [[
+  "settings: hud-colour Green",
+  "interface colours: HUD [26, 255, 128], Pip-Boy [255, 182, 66]",
+  "settings: pipboy-colour Blue",
+  "interface colours: HUD [26, 255, 128], Pip-Boy [46, 207, 255]",
+  "settings: pipboy-red 51",
+  "interface colours: HUD [26, 255, 128], Pip-Boy [51, 207, 255]",
+]]
+
+[[scenario]]
 name = "settings-read"
 source = "owner 2026-10-16: the second half of the settings round trip: a new start in settings-write's home takes the switch it flipped from NVForever.ini"
 areas = ["main-menu", "save"]
@@ -6657,14 +6738,14 @@ expect = [
 
 [[scenario]]
 name = "death-cam-third"
-source = "owner 2026-10-16: in third person the camera stays on the player's body as it drops, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
+source = "owner 2026-10-16: in third person the camera stays on the player's body as it drops, in slow motion and blurred; owner 2026-10-25: the camera keeps its place and only turns to the body (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
 paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONTROL = "8:view", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
-  "death camera: the player died in third person: the body drops as a ragdoll, the camera stays on it",
+  "death camera: the player died in third person: the body drops as a ragdoll, the camera stays put and looks at it",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
 ]
 
@@ -9838,6 +9919,35 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-extender-output"
+source = "extender task D4 (docs/spec-notes/ext-format.md §4): MessageEx and MessageBoxEx show text without a Message form; DebugPrint prints only after SetDebugMode 1; the console runs extender functions by name through the compiler"
+areas = ["console", "scripts"]
+paths = ["crates/fnv-script/src/vm.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:MessageEx \"nvf corner %g\", 7;10.5:DebugPrint \"nvf hidden\";11:SetDebugMode 1;11.5:DebugPrint \"nvf shown\";12:MessageBoxEx \"nvf box|Ok|Cancel\"" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: message .*"nvf corner 7"', label = "MessageEx shows its formatted text" },
+  { re = 'script: print "nvf shown"', label = "DebugPrint prints once debug mode is on" },
+  { re = 'script: print "nvf hidden"', count = 0, label = "DebugPrint is silent before SetDebugMode" },
+  { re = 'script: message .*"nvf box" buttons \["Ok", "Cancel"\]', label = "MessageBoxEx shows a box with its buttons" },
+]
+
+[[scenario]]
+name = "script-input-keys"
+source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
+areas = ["console", "scripts", "input"]
+paths = ["crates/fnv-game/src/script_input.rs", "engine/nvf-play/src/script_input.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_KEYS = "10:g:4", NVF_PLAY_TEST_CONSOLE = "11:PrintC \"nvf held %g\", (IsKeyPressed 34);11.5:DisableKey 34;12:PrintC \"nvf disabled %g %g %g\", (IsKeyPressed 34), (IsKeyPressed 34 2), (IsKeyDisabled 34);12.5:EnableKey 34;13:PrintC \"nvf enabled %g\", (IsKeyPressed 34)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'script: print "nvf held 1"', label = "a held key is pressed" },
+  { re = 'script: print "nvf disabled 0 1 1"', label = "a disabled key: not pressed, pressed with ignoreStatus 2, disabled" },
+  { re = 'script: print "nvf enabled 1"', label = "enabled again it is pressed" },
+]
+
+[[scenario]]
 name = "scripts-from-source"
 source = "extender task A6 (fnv_game::source_compile): NVF_COMPILE_SOURCE=always runs every shipped unit from its source text, compiled by NVForever; the game starts and runs its scripts as from the bytes"
 areas = ["scripts"]
@@ -9850,3 +9960,124 @@ expect = [
   { re = 'scripts ready in', label = "the scripts start" },
   { re = 'panicked', count = 0, label = "no panic" },
 ]
+
+[[scenario]]
+name = "ui-menus"
+kind = "tool"
+source = "docs/spec-notes/menu-xml.md, docs/design/ui-tile-tree.md: every vanilla menu file under menus (archives of the owner's install) builds into the tile tree and its traits settle on one update; 49 files hold a <menu> (2026-10-26)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "menus", "--data", "{data}"]]
+expect = [
+  { json = "built", schema = "fnv.ui.menus/1", equals = 49, label = "all 49 vanilla menus build" },
+  { json = "globals_warnings", schema = "fnv.ui.menus/1", equals = 0, label = "globals.xml reads without mending" },
+]
+
+[[scenario]]
+name = "boone-night-nest"
+source = "owner 2026-10-26: Boone never reached the dinosaur's mouth on his night shift; his package only ran once the player had been in his room. The actors of interiors reached by doors from the loaded cells now live by their packages (the original's Mid-Low process level, fnv_ai::process)"
+areas = ["ai", "navigation"]
+paths = ["engine/nvforever/src/residents.rs", "crates/fnv-ai/src/process.rs"]
+args = ["--cell", "Novac", "--pos=24300,-31700,7050", "--play", "--hour", "20.95", "--no-voice", "--no-messages"]
+run_seconds = 150
+expect = [
+  # His NovacBoonePatrolToNest (21:00): out of his room to XMarkerBoonePatrolOutside,
+  # through the gift shop, out to NovacSniperIdleMarker (0x000CB0EF) in the mouth.
+  { re = 'CraigBooneREF: walks to .* \(patrol point XMarkerBoonePatrolOutside\): \d+ units, 1 doors', label = "Boone leaves his room for his night patrol, the player never in it" },
+  { re = 'CraigBooneREF: walks to .* in NovacGiftShop \(patrol point XMarkerBoonePatrolGiftShop\)', label = "he goes through the gift shop" },
+  { re = 'CraigBooneREF: walks to \(25415, -32822, 8082\) in WastelandNV \(patrol point 0x000CB0EF\)', label = "he heads for the sniper marker in the dinosaur's mouth" },
+  { re = 'MannyVargasREF: walks to .* in NovacVargasRoom', label = "Manny Vargas goes home at the end of his day shift" },
+]
+# 2026-10-26 run: Boone left at 21:08 and stood at (25400, -32813) by the end; before the
+# fix he was never handed to the AI (the AI only took actors of cells that had loaded).
+
+[[scenario]]
+name = "note-from-container"
+source = "owner playtest 2026-10-26: Jeannie May's Bill of Sale (NOTE 0x000B83CC) taken from her safe (VLootSafeFloorJeannieMayREF 0x000B83E5) was a misc item; a note never stays in the inventory, it files with the Pip-Boy's notes (Game::file_carried_notes)"
+areas = ["containers", "pipboy"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "000B83E5", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "NovacJeannieMayHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'notes: VFreeformNovacBillOfSale 0x000B83CC filed with the player.s notes', label = "the Bill of Sale is a note, not an item" },
+]
+
+# ------------------------------------------------------------------ weapon wheel
+
+[[scenario]]
+name = "weapon-wheel"
+source = "docs/design/weapon-wheel.md §9 step 4: hotkey taps, the held wheel with its slow clock, picking by pointer and key, cancel, Ammo Swap"
+note = "Written 2026-10-22 by the weapon-wheel session. The player is given a .357 Magnum Revolver (0x0008F216) with 24 rounds, a Varmint Rifle (0x0007EA24) with 40 5.56mm, 3 Stimpaks and the Merc Charmer Outfit (0x00034122). At 16 s the aid puts the revolver in slot 1, the rifle in 3, a Stimpak in 4, the outfit in 5, and tries a Stimpak in 2 (refused: Ammo Swap). Taps: 1 at 18 s (equip), 4 at 20 s (use a Stimpak). Key 1 is held at 22 s: the wheel opens 0.25 s later and the clock slows to 0.2, so the world-second steps after it come about five times later in real time; the pointer goes right at 23 s (slot 4), key 3 at 23.5 s picks slot 3, letting go at 24 s equips the rifle. Key 5 held at 26 s, cancelled at 27 s, let go at 27.5 s: nothing used. Taps: 2 at 29 s (Ammo Swap), 5 at 31 s and 33 s (outfit on, then off), 8 at 35 s (empty)"
+areas = ["hotkeys", "menus"]
+paths = ["engine/nvf-play/src/weapon_wheel.rs", "engine/nvf-play/src/weapon_wheel/**", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24,0007EA24:1,00004240:40,00015169:3,00034122:1", NVF_PLAY_TEST_HOTKEYS = "16:assign:1:WeapNV357Revolver,16.1:assign:3:WeapNVVarmintRifle,16.2:assign:4:Stimpak,16.3:assign:5:OutfitMerc01,16.4:assign:2:Stimpak,18:tap:1,20:tap:4,22:hold:1,23:point:90,23.5:press:3,24:release,26:hold:5,27:cancel,27.5:release,29:tap:2,31:tap:5,33:tap:5,35:tap:8" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
+run_seconds = 63
+expect = [
+  { re = 'hotkeys: slot 1 holds \.357 Magnum Revolver \(0x0008F216\)', label = "the aid puts the revolver in slot 1" },
+  { re = 'NVF_PLAY_TEST_HOTKEYS: Stimpak not assigned: AmmoSwap', label = "slot 2 is Ammo Swap and takes no item" },
+  { re = 'hotkeys: slot 1: equipped \.357 Magnum Revolver', label = "a tap of 1 equips the revolver" },
+  { re = 'hotkeys: slot 4: used Stimpak', label = "a tap of 4 uses a Stimpak" },
+  { re = 'weapon wheel: open on slot 1', label = "holding 1 opens the wheel on slot 1" },
+  { re = 'weapon wheel: the clock runs at 0\.20, blur 3\.0', label = "the game clock slows to 0.2 behind the wheel" },
+  { re = 'weapon wheel: picked slot 4 \(pointer\)', label = "the pointer to the right picks slot 4" },
+  { re = 'weapon wheel: picked slot 3 \(key\)', label = "key 3 picks slot 3" },
+  { re = 'weapon wheel: closed: slot 3: equipped Varmint Rifle', label = "letting go of 1 equips what slot 3 holds" },
+  { re = 'weapon wheel: closed: nothing used', label = "a cancel closes the wheel doing nothing" },
+  { re = 'hotkeys: slot 2: Ammo Swap', label = "a tap of 2 is Ammo Swap" },
+  { re = 'hotkeys: slot 5: equipped Merc Charmer Outfit', label = "a tap of 5 puts the outfit on" },
+  { re = 'hotkeys: slot 5: took off Merc Charmer Outfit', label = "another tap takes it off" },
+  { re = 'hotkeys: slot 8: empty', label = "an empty slot does nothing" },
+  { re = 'weapon wheel summary: 6 taps, opened 2 times, used slots \[3\], 1 cancelled', label = "the summary" },
+]
+forbid = [
+  { re = 'not available yet', label = "a hotkey says it is not built" },
+]
+order = [
+  ["weapon wheel: open on slot 1", "weapon wheel: the clock runs at 0.20", "weapon wheel: picked slot 4 (pointer)", "weapon wheel: picked slot 3 (key)", "weapon wheel: closed: slot 3: equipped Varmint Rifle"],
+]
+
+[[scenario]]
+name = "weapon-wheel-keys"
+source = "docs/design/weapon-wheel.md §6: the wheel through the real keys and bindings (key 1 held, key 3 pressed, Esc), with pictures of it open"
+note = "Written 2026-10-23 by the weapon-wheel session. As weapon-wheel, but the keys are real presses through Bevy's input (NVF_PLAY_TEST_KEYS), so the bindings and the tap/hold timing are what is tested. Key 1 is held from 18 s for 2 world seconds (the clock slows to 0.2 once the wheel is open, so about 9 s of real time); key 3 at 18.8 s picks slot 3; letting go equips the rifle. Key 5 is held from 22 s; Esc at 22.6 s closes the wheel and must not open the pause menu. Pictures at 18.5 s (slot 1 lit) and 19.2 s (slot 3 lit) for judging the look"
+areas = ["hotkeys", "menus"]
+paths = ["engine/nvf-play/src/weapon_wheel.rs", "engine/nvf-play/src/weapon_wheel/**", "engine/nvf-play/src/hotkeys.rs", "engine/nvf-play/src/bindings.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24,0007EA24:1,00004240:40,00015169:3,00034122:1", NVF_PLAY_TEST_HOTKEYS = "16:assign:1:WeapNV357Revolver,16.1:assign:3:WeapNVVarmintRifle,16.2:assign:4:Stimpak,16.3:assign:5:OutfitMerc01", NVF_PLAY_TEST_KEYS = "18:1:2.0,18.8:3,22:5:1.5,22.6:esc", NVF_PLAY_TEST_SHOTS = "18.5:weapon_wheel_slot1.png,19.2:weapon_wheel_slot3.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
+run_seconds = 53
+expect = [
+  { re = 'weapon wheel: open on slot 1', label = "holding key 1 opens the wheel" },
+  { re = 'weapon wheel: the clock runs at 0\.20', label = "the clock slows behind it" },
+  { re = 'weapon wheel: picked slot 3 \(key\)', label = "key 3 picks slot 3" },
+  { re = 'weapon wheel: closed: slot 3: equipped Varmint Rifle', label = "letting go of key 1 equips the rifle" },
+  { re = 'weapon wheel: open on slot 5', label = "holding key 5 opens it again" },
+  { re = 'weapon wheel: closed: nothing used', label = "Esc closes it doing nothing" },
+  { re = 'weapon wheel summary: 0 taps, opened 2 times, used slots \[3\], 1 cancelled', label = "the summary" },
+]
+forbid = [
+  { re = 'pause menu: open', label = "Esc on the wheel opens the pause menu" },
+  { re = 'hotkeys: slot 1: equipped', label = "the held key 1 also acted as a tap" },
+]
+
+[[scenario]]
+name = "pipboy-hotkey-assign"
+source = "owner 2026-10-26: on the Pip-Boy's ITEMS page, hold a hotkey's key and left-click an item to put it in that slot, the original's hotkey panel showing meanwhile (engine/nvf-play/src/pipboy/hotkey_panel.rs, docs/design/weapon-wheel.md §3)"
+note = "the player is given a .357 Magnum Revolver (first on the Weapons tab by its name) and 24 rounds; on ITEMS key 3 is held and the first row clicked (slot 3), then key 4 (the revolver moves from slot 3), key 2 (refused: Ammo Swap); on the Ammo tab key 5 and a click on its first row (ammunition cannot be hotkeyed). After the Pip-Boy closes, a tap of 4 equips the revolver (were it equipped by a click, the tap would say it is already in hand). The screenshot shows the panel with key 3 held"
+areas = ["hotkeys", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,14:point=260:150,15:hotkey=3,16:click=260:150,17.5:hotkey=4,18:click=260:150,19:hotkey=2,19.5:click=260:150,20:hotkey=off,21:tab=4,22:hotkey=5,22.5:click=260:150,23.5:hotkey=off,24:close", NVF_PLAY_TEST_HOTKEYS = "27:tap:4", NVF_PLAY_TEST_SHOTS = "17:pipboy_hotkeys.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
+run_seconds = 32
+expect = [
+  "pipboy hotkeys: key 3 held",
+  { re = 'pipboy hotkeys: panel drawn, key 3 chosen', label = "the panel shows while key 3 is held" },
+  { re = 'hotkeys: slot 3 holds \.357 Magnum Revolver \(0x0008F216\)', label = "a click with 3 held puts the revolver in slot 3" },
+  { re = 'hotkeys: slot 4 holds \.357 Magnum Revolver \(0x0008F216\) \(moved from slot 3\)', label = "with 4 held it moves to slot 4" },
+  { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', label = "key 2 takes no item" },
+  { re = 'hotkeys: .* cannot be hotkeyed', label = "ammunition cannot be hotkeyed" },
+  "pipboy hotkeys: let go",
+  { re = 'hotkeys: slot 4: equipped \.357 Magnum Revolver', label = "a tap of 4 after closing equips the revolver" },
+]
+order = [["pipboy hotkeys: key 3 held", "hotkeys: slot 3 holds", "moved from slot 3", "slot 2 is Ammo Swap", "cannot be hotkeyed", "hotkeys: slot 4: equipped"]]

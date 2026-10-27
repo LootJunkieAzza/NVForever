@@ -26,6 +26,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | — | `proptest` | malformed-input properties for every parser; `cargo-fuzz` (nightly) not set up |
 | — | `cargo-deny` | `deny.toml`: licences, RustSec advisories, sources; runs in CI |
 | — | `fancy-regex` 0.14 (MIT) | JIP's Sv_RegexMatch/Search/Replace and ValidateRegex in fnv-script (jip-strings.md §1): ECMAScript-style patterns need back-references, which the `regex` crate lacks |
+| — | `chrono` 0.4 (MIT/Apache-2.0), `clock` only | xNVSE GetUserTime in fnv-game (the computer's local time); the standard library has no time zones |
 
 ## Engine layers (candidates, to evaluate when each layer starts)
 
@@ -42,7 +43,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 5 | script runtime | in-house bytecode interpreter (no off-the-shelf fit) |
 | 7 | audio decode / playback | `symphonia` (WAV/MP3/OGG), `kira` or `cpal`. **Dialogue voice (2026-10-10)**: no new dependency. Playback uses Bevy's own audio (`bevy_audio`, already built by Bevy's default features: `rodio` with `lewton` for Ogg Vorbis; WAV, MP3 and FLAC decoding are not enabled and not needed, every voice line has an `.ogg`). File lengths come from `crates/fnv-voice`'s own header readers (Ogg pages and the Vorbis identification header, RIFF chunks), so the headless tools need no audio crate (docs/spec-notes/voice.md §5). **Music and ambient sound (2026-10-11)**: `nvf-play` depends on `rodio` 0.22 directly, the version Bevy's audio is built on (no second copy), with its `mp3`, `vorbis` and `wav` features; these bring in `symphonia` (MPL-2.0, already allowed in `deny.toml`). Music files are MP3 and many ambient sounds Ogg Vorbis; they are decoded while they play by a source of our own that mixes a media set's three layers (docs/spec-notes/audio.md §7) |
 | 7 | save thumbnails | **chosen (2026-10-15)**: `png` 0.18 (MIT/Apache-2.0) in `nvf-play`, the version Bevy's image loading already builds (no second copy): encodes the 512×288 thumbnail and decodes it for the load page (docs/design/save-load.md §6) |
-| 7 | UI (Bethesda XML menus) | `quick-xml` + own layout engine; `egui` for dev tools |
+| 7 | UI (Bethesda XML menus) | own forgiving reader (`crates/fnv-ui`; the files are not strict XML, ui-tile-tree.md §9, so `quick-xml` was not used) + own layout engine; `egui` for dev tools |
 | video | Bink intro | **chosen (2026-10-15)**: `infinitier_bik_decoder` 0.0.14 (GPL-3.0-or-later, as NVForever; pure Rust, a port of FFmpeg's open-source Bink video 1 and Bink audio decoders, not of any leaked code) in `nvf-play`, pinned `=0.0.14`; with it `infinitier_datasource` (GPL-3.0-or-later), `hound` (Apache-2.0), `bitflags`. Plays `Video\FNVIntro.bik` before a new game (`engine/nvf-play/src/intro.rs`): about 4.3 ms a 1280×720 frame on the owner's machine, decoded on its own thread. No FFmpeg. Behind the cargo feature `intro-video`, **on by default** since the owner settled the licence as GPL-3.0-or-later (2026-10-15); `--no-default-features` leaves it out |
 
 ## Licence check

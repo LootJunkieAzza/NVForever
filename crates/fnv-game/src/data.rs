@@ -863,12 +863,18 @@ pub struct GameData {
     /// Lower-case Editor ID → FormID (every winning record with an EDID).
     pub edids: HashMap<String, FormId>,
     pub edid_of: HashMap<FormId, String>,
+    /// Record header flags of the winning records that have any (GetFlagsLow/High).
+    pub form_flags: HashMap<FormId, u32>,
     /// The name the player sees (FULL) of every winning record that has one.
     pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// The decoded subrecords of the record types JIP's trait getters read
     /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers.
     pub record_fields: HashMap<FormId, Vec<([u8; 4], Json)>>,
+    /// The game's INI text the extender's INI functions read (GetNumericINISetting …),
+    /// later files overriding earlier ones; empty unless the host gives it
+    /// (`crate::nvse_settings`).
+    pub ini_texts: Vec<String>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
@@ -1393,15 +1399,25 @@ struct Read {
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 14] =
-    [*b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD"];
+pub const FIELD_SIGS: [[u8; 4]; 23] = [
+    *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
+    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES",
+];
+
+/// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
+/// getters read.
+const ACTOR_SUBS: [[u8; 4]; 9] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
 fn numeric_fields(schema: &Schema, r: &Record) -> Vec<([u8; 4], Json)> {
     let mut ctx = DecodeCtx { schema, on_formid: None };
     let mut out = Vec::new();
+    let actor = matches!(&r.header.sig, b"NPC_" | b"CREA");
     for s in r.subrecords().unwrap_or_default() {
+        if actor && !ACTOR_SUBS.contains(&s.sig) {
+            continue;
+        }
         let Some(mut v) = decode_sub(&r.header.sig, &s, &mut ctx).value else { continue };
         if let Some(def) = schema.lookup(&r.header.sig, &s.sig) {
             enums_to_numbers(schema, &def.ty, &mut v);
@@ -1461,6 +1477,21 @@ impl GameData {
             }
         }
         None
+    }
+
+    /// A faction's ranks (FACT RNAM, then its MNAM / FNAM titles), in record order.
+    pub fn faction_ranks(&self, faction: FormId) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (sig, v) in self.record_fields.get(&faction).into_iter().flatten() {
+            let text = || v.as_str().unwrap_or_default().to_string();
+            match sig {
+                b"RNAM" => out.push(Default::default()),
+                b"MNAM" => out.last_mut().into_iter().for_each(|r| r.0 = text()),
+                b"FNAM" => out.last_mut().into_iter().for_each(|r| r.1 = text()),
+                _ => {}
+            }
+        }
+        out
     }
 
     /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then
@@ -1523,8 +1554,10 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            form_flags: winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect(),
             full_names: HashMap::new(),
             sigs: HashMap::new(),
+            ini_texts: Vec::new(),
             record_fields: winners
                 .par_iter()
                 .filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig))
@@ -2395,6 +2428,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         stage = None;
                         if let Some(i) = i {
                             q.objectives.insert(i, Objective { index: i, ..Default::default() });
+                            q.objective_order.push(i);
                         }
                         at = At::Quest;
                     }

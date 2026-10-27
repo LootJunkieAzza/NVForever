@@ -177,6 +177,8 @@ enum Press {
     Release,
     Fire,
     Reload,
+    /// Ready Item tapped twice: lower or raise the weapon (`PlayerControl::lowered`).
+    Lower,
     Swap,
     AimActor,
     AimFlat,
@@ -204,6 +206,7 @@ fn press(rest: &str) -> Result<Press, String> {
         "release" => Press::Release,
         "fire" => Press::Fire,
         "reload" => Press::Reload,
+        "lower" => Press::Lower,
         "flashlight" => Press::Flashlight,
         "swap" => Press::Swap,
         "aimactor" => Press::AimActor,
@@ -500,11 +503,12 @@ fn keys_and_controls(
             Press::Jump => intent.jump = true,
             Press::Zoom(d) => control.distance = d.clamp(crate::control::MIN_DISTANCE, crate::control::MAX_DISTANCE),
             Press::Orbit(yaw, pitch) => {
-                control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true };
+                control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true, free: false };
             }
             Press::Release => control.orbit.held = false,
             Press::Fire => aids.fire_held = !aids.fire_held,
             Press::Reload => control.reload = true,
+            Press::Lower => control.lowered = !control.lowered,
             Press::Swap => control.ammo_swap = true,
             Press::Flashlight => flashlight.toggle(),
             Press::AimActor => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |_| true, None),

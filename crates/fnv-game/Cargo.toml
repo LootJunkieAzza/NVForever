@@ -10,6 +10,7 @@ fnv-esm = { path = "../fnv-esm" }
 fnv-sim = { path = "../fnv-sim" }
 fnv-script = { path = "../fnv-script" }
 fnv-util = { path = "../fnv-util" }
+fnv-ui = { path = "../fnv-ui" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -17,6 +18,7 @@ rand_core = "0.9"
 rand_chacha = "0.9"
 rayon = "1"
 tracing = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 fnv-save = { path = "../fnv-save" }

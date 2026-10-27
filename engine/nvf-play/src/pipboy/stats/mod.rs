@@ -39,7 +39,7 @@ pub mod read;
 
 use super::frame::{self, Align, Card, Ctx, Kit, DIMMED, FADE, FILL, LINE, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyScreen};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};

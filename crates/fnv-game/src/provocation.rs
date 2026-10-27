@@ -468,12 +468,11 @@ impl Game<'_> {
     /// escort holds a grudge and is alarmed at the attacker's position, as an assisting
     /// ally is. Returns how many joined.
     pub fn escorts_assist(&mut self) -> usize {
-        let data = self.data;
         let escorts: Vec<(FormId, FormId)> = self
             .extra
             .iter()
             .filter_map(|(id, e)| {
-                let def = data.package_defs.get(&e.current_package?)?;
+                let def = self.package_def(&e.current_package?)?;
                 (def.ty == crate::package::PackageType::Escort).then_some((*id, def))
             })
             .filter_map(|(id, def)| self.package_target(id, def).map(|t| (id, t)))

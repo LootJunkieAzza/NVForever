@@ -154,7 +154,37 @@ pub struct EngineSnapshot {
     /// Parts kept by other crates ([`SaveHook`]).
     #[serde(default)]
     pub extra: BTreeMap<String, serde_json::Value>,
+    /// The same part of players 2–4 of a co-op game (docs/design/coop-save.md); absent
+    /// for one player.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coop: Vec<CoopEngine>,
 }
+
+/// The engine's part of one of players 2–4 (docs/design/coop-save.md): the fields of
+/// [`EngineSnapshot`] that belong to one player. The Pip-Boy's active quest and the other
+/// crates' parts stay shared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CoopEngine {
+    /// The player's number, 2–4 (`fnv_game::coop::CoopPlayer::slot`).
+    pub slot: u8,
+    #[serde(default)]
+    pub third_person: bool,
+    #[serde(default)]
+    pub distance: f32,
+    #[serde(default)]
+    pub sneak: bool,
+    #[serde(default)]
+    pub always_run: bool,
+    #[serde(default)]
+    pub flashlight: bool,
+    #[serde(default)]
+    pub magazine: Option<(u32, u32)>,
+}
+
+/// Players 2–4's engine part: kept from the save loaded and written into the next one
+/// (nothing plays them yet; the game layer keeps the rest, `fnv_game::Game::coop`).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct CoopEngineState(pub Vec<CoopEngine>);
 
 /// A save's body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,6 +312,7 @@ impl Plugin for SavePlugin {
             .init_resource::<SaveQueue>()
             .init_resource::<SaveLog>()
             .init_resource::<SaveWrites>()
+            .init_resource::<CoopEngineState>()
             .add_message::<SaveRequest>()
             .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
@@ -663,6 +694,7 @@ fn engine_snapshot(world: &World) -> EngineSnapshot {
     e.flashlight = world.get_resource::<crate::flashlight::Flashlight>().is_some_and(|f| f.on);
     e.magazine = world.get_resource::<crate::combat::Combat>().and_then(|c| c.magazine_for_save());
     e.active_quest = world.get_resource::<crate::pipboy::data::DataState>().and_then(|d| d.active_quest());
+    e.coop = world.get_resource::<CoopEngineState>().map(|c| c.0.clone()).unwrap_or_default();
     let hooks = world.resource::<SaveHooks>().0.clone();
     for h in hooks {
         if let Some(v) = (h.save)(world) {
@@ -697,6 +729,11 @@ fn header(world: &World, kind: SaveKind, game: &fnv_game::game::GameSnapshot, en
     };
     let cell = loc.and_then(|l| l.interior).or_else(|| sim.world.peek(fnv_sim::FormId::PLAYER_REF).and_then(|s| s.cell).map(|c| c.0));
     h.location = cell.map(|c| crate::console::place_name(d, c)).unwrap_or_default();
+    h.coop = game
+        .coop
+        .iter()
+        .map(|p| fnv_save::CoopEntry { slot: p.slot, name: p.character.name.clone().unwrap_or_else(|| format!("Player {}", p.slot)), level: p.character.level.unwrap_or(game.sim.config.player_level as i32).max(1) as u32 })
+        .collect();
     h.weather = engine.extra.get("sky").and_then(|v| v.get("weather")).and_then(|w| w.as_str()).map(str::to_string);
     h
 }
@@ -710,6 +747,7 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    world.insert_resource(CoopEngineState(e.coop.clone()));
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
         c.pov = if e.third_person { crate::control::Pov::Third } else { crate::control::Pov::First };
         if e.distance > 0.0 {
@@ -792,6 +830,9 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let e = &mut body.engine;
     e.magazine = e.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
     e.active_quest = e.active_quest.and_then(|q| remap.map(q));
+    for c in &mut e.coop {
+        c.magazine = c.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
+    }
     eprintln!(
         "load: {} was made with another load order: moved {:?}, missing now {:?}, added {:?}; {} FormIDs remapped, {} entries of missing plugins dropped ({:?}), {} fields named a missing plugin's form, {} entries holding them dropped by the game layer",
         path.display(),
@@ -818,9 +859,11 @@ mod tests {
     fn an_engine_snapshot_without_new_fields_still_reads() {
         let e: EngineSnapshot = serde_json::from_str(r#"{"format":"nvf.engine.state/1"}"#).unwrap();
         assert_eq!(e, EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() });
-        let full = EngineSnapshot { format: ENGINE_FORMAT.into(), third_person: true, distance: 150.0, sneak: true, always_run: true, flashlight: true, magazine: Some((0x1234, 7)), active_quest: Some(0x104C1C), extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into() };
+        let full = EngineSnapshot { format: ENGINE_FORMAT.into(), third_person: true, distance: 150.0, sneak: true, always_run: true, flashlight: true, magazine: Some((0x1234, 7)), active_quest: Some(0x104C1C), extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into(), coop: vec![CoopEngine { slot: 3, third_person: true, distance: 90.0, sneak: true, always_run: false, flashlight: true, magazine: Some((0x1235, 2)) }] };
         let back: EngineSnapshot = serde_json::from_str(&serde_json::to_string(&full).unwrap()).unwrap();
         assert_eq!(back, full);
+        // One player writes no `coop`.
+        assert!(!serde_json::to_string(&EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() }).unwrap().contains("coop"));
     }
 
     #[test]

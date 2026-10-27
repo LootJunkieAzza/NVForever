@@ -31,6 +31,7 @@ fnv-combat = { path = "../fnv-combat" }
 fnv-nav = { path = "../fnv-nav" }
 fnv-ai = { path = "../fnv-ai" }
 fnv-voice = { path = "../fnv-voice" }
+fnv-ui = { path = "../fnv-ui" }
 anyhow = "1"
 rand_core = "0.9"
 rand_chacha = "0.9"

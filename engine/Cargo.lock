@@ -2066,6 +2066,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "iana-time-zone",
+ "num-traits",
+ "windows-link",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2838,9 +2849,11 @@ dependencies = [
 name = "fnv-game"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "fnv-esm",
  "fnv-script",
  "fnv-sim",
+ "fnv-ui",
  "fnv-util",
  "rand_chacha",
  "rand_core 0.9.5",
@@ -2950,6 +2963,10 @@ version = "0.1.0"
 dependencies = [
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "fnv-ui"
+version = "0.1.0"
 
 [[package]]
 name = "fnv-util"
@@ -3497,6 +3514,30 @@ name = "hound"
 version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
+name = "iana-time-zone"
+version = "0.1.65"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e31bc9ad994ba00e440a8aa5c9ef0ec67d5cb5e5cb0cc7f8b744a35b389cc470"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "log",
+ "wasm-bindgen",
+ "windows-core",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "icu_collections"
@@ -4282,7 +4323,7 @@ dependencies = [
 
 [[package]]
 name = "nvf-assets"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "bevy",
  "fnv-dds",
@@ -4293,7 +4334,7 @@ dependencies = [
 
 [[package]]
 name = "nvf-play"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "bevy",
  "fnv-actor",
@@ -4324,7 +4365,7 @@ dependencies = [
 
 [[package]]
 name = "nvf-viewer"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "bevy",
  "clap",
@@ -4336,7 +4377,7 @@ dependencies = [
 
 [[package]]
 name = "nvforever"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "bevy",
  "clap",

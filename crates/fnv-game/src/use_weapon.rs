@@ -182,7 +182,7 @@ impl Game<'_> {
     /// The weapon use of an actor's Use Weapon package `package` (module notes); `None`
     /// when it names nobody to shoot.
     pub fn package_weapon_use(&self, actor: FormId, package: FormId) -> Option<WeaponUse> {
-        let def = self.data.package_defs.get(&package).filter(|d| d.ty == PackageType::UseWeapon)?;
+        let def = self.package_def(&package).filter(|d| d.ty == PackageType::UseWeapon)?;
         let linked = || self.world.placed.get(actor).and_then(|r| r.linked);
         let target = match def.target2.map(|t| t.kind) {
             Some(TargetKind::Reference(Some(r))) => r,

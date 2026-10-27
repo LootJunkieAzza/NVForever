@@ -55,7 +55,7 @@ pub enum SandboxPhase {
 /// The least time between two scans for actors whose choice is due, in seconds.
 const SCAN_STEP: f64 = 0.25;
 
-impl Game<'_> {
+impl<'a> Game<'a> {
     /// The AI package list of an actor reference: its base form's `PKID` list, or its
     /// template's when the template supplies the AI packages, followed through
     /// templates and leveled actor lists as the actor's factions are
@@ -65,8 +65,18 @@ impl Game<'_> {
     /// [`GameData::base_package_list`]: crate::data::GameData::base_package_list
     pub fn package_list(&self, actor: FormId) -> Vec<FormId> {
         match functions::base_of(self, actor) {
+            // AddPackageAt's, RemovePackageAt's and RemoveAllPackages' list first.
+            Some(base) if self.other.package_lists.contains_key(&base) => self.other.package_lists[&base].clone(),
             Some(base) => self.data.base_package_list_at(base, actor, self.leveled_at(actor)),
             None => Vec::new(),
+        }
+    }
+
+    /// A package's definition: a script's change of it, else the record's.
+    pub fn package_def(&self, p: &FormId) -> Option<&'a PackageDef> {
+        match self.package_overrides.get(p) {
+            Some(d) => Some(*d),
+            None => self.data.package_defs.get(p),
         }
     }
 
@@ -121,8 +131,7 @@ impl Game<'_> {
     ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]);
     /// 5. the conditions, with the actor as the subject.
     pub fn check_package(&mut self, actor: FormId, package: FormId) -> PackageCheck {
-        let data = self.data;
-        let Some(def) = data.package_defs.get(&package) else { return PackageCheck::Missing };
+        let Some(def) = self.package_def(&package) else { return PackageCheck::Missing };
         if self.package_clock().is_some_and(|c| !def.schedule.allows(&c)) {
             return PackageCheck::OutOfSchedule;
         }
@@ -209,7 +218,6 @@ impl Game<'_> {
     /// [documented: GECK wiki, Category:Packages, Begin / End / Change; hypothesis: no
     /// change event after the end event].
     pub(crate) fn set_package(&mut self, actor: FormId, package: Option<FormId>) {
-        let data = self.data;
         let e = self.extra.entry(actor).or_default();
         let old = e.current_package;
         if old == package {
@@ -218,7 +226,7 @@ impl Game<'_> {
         let finished = e.package_goal_met;
         e.current_package = package;
         e.package_goal_met = false;
-        if let Some(p) = package.filter(|p| data.package_defs.get(p).is_some_and(|d| d.has(flags::ONCE_PER_DAY))) {
+        if let Some(p) = package.filter(|p| self.package_def(p).is_some_and(|d| d.has(flags::ONCE_PER_DAY))) {
             let now = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
             self.extra.entry(actor).or_default().package_chosen_at.insert(p, now);
         }
@@ -260,7 +268,7 @@ impl Game<'_> {
     /// Returns how many doors changed.
     pub(crate) fn package_doors(&mut self, actor: FormId, package: FormId, lock: u32, unlock: u32) -> usize {
         let data = self.data;
-        let Some(def) = data.package_defs.get(&package) else { return 0 };
+        let Some(def) = self.package_def(&package) else { return 0 };
         let (locks, unlocks) = (def.has(lock), def.has(unlock));
         if !locks && !unlocks {
             return 0;
@@ -377,7 +385,7 @@ impl Game<'_> {
     fn start_schedule_duration(&mut self, actor: FormId) {
         let Some(e) = self.extra.get(&actor) else { return };
         let Some(p) = e.current_package else { return };
-        let Some(def) = self.data.package_defs.get(&p) else { return };
+        let Some(def) = self.package_def(&p) else { return };
         if def.schedule.hour >= 0 || def.schedule.duration == 0 {
             return;
         }
@@ -463,7 +471,7 @@ impl Game<'_> {
     /// [documented: GECK wiki, Category:Packages flags].
     pub fn package_held(&self, actor: FormId) -> Option<&'static str> {
         let e = self.extra.get(&actor)?;
-        let def = self.data.package_defs.get(&e.current_package?)?;
+        let def = self.package_def(&e.current_package?)?;
         if def.has(flags::MUST_COMPLETE | flags::MUST_REACH_LOCATION) && !e.package_goal_met {
             return Some(if def.has(flags::MUST_COMPLETE) { "must complete" } else { "must reach location" });
         }

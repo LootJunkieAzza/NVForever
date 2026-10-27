@@ -111,6 +111,7 @@ mod ripples;
 mod settings;
 mod iron_sights;
 mod view_sway;
+mod weapon_lower;
 mod setup;
 mod shadow_probe;
 mod shadow_thin;
@@ -280,11 +281,16 @@ struct Args {
     /// top of the death camera's own blur (`death_cam.rs`).
     #[arg(long, value_name = "MODIFIER")]
     death_imod: Option<String>,
-    /// The sun casts shadows. Off by default until their frame cost and flicker are fixed
-    /// (owner decision 2026-10-13; on by default from 2026-10-09); the original game casts
-    /// no sun shadows from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
+    /// The sun casts shadows; with --play it does unless --no-sun-shadows is given (owner
+    /// 2026-10-26, once the first-person flicker was fixed; off from 2026-10-13 for their
+    /// frame cost and that flicker). Runs without --play (screenshots, the parity lab)
+    /// keep them off: the original game casts no sun shadows from the world
+    /// (docs/spec-notes/world.md §6, "Sun path and shadows").
     #[arg(long)]
     sun_shadows: bool,
+    /// With --play: the sun casts no shadows (the settings page turns them on and off too).
+    #[arg(long, conflicts_with = "sun_shadows")]
+    no_sun_shadows: bool,
     /// Sun shadows reach this far from the camera (game units), with --sun-shadows or when
     /// turned on from the settings page; 0 keeps them off.
     #[arg(long, default_value_t = sky::DEFAULT_SHADOW_DISTANCE)]
@@ -603,6 +609,10 @@ struct Args {
     /// bob (view_sway.rs); a switch of the settings page.
     #[arg(long, requires = "play")]
     no_weapon_sway: bool,
+    /// Keep the first-person weapon up against walls and friendly actors close ahead
+    /// (weapon_lower.rs); a switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_weapon_lower: bool,
     /// Aim down the sights as the original does: the gun is not lined up with the eye
     /// (iron_sights.rs); a switch of the settings page.
     #[arg(long, requires = "play")]
@@ -963,7 +973,7 @@ fn main() -> AppExit {
             Err(_) => return fail(e),
         },
     };
-    sky_state.shadows = args.sun_shadows && args.shadow_distance > 0.0;
+    sky_state.shadows = (args.sun_shadows || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
     }
@@ -1272,7 +1282,8 @@ fn main() -> AppExit {
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
-    .add_systems(PreUpdate, world::take_cell_work)
+    .init_resource::<world::LateMeshes>()
+    .add_systems(PreUpdate, (world::take_cell_work, world::respecialize_late_meshes).chain())
     .add_systems(Last, world::report)
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
@@ -1367,7 +1378,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);

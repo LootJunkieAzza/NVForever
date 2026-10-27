@@ -53,6 +53,7 @@ pub mod holotape;
 pub mod interface;
 pub mod intro;
 pub mod levelup;
+pub mod hotkeys;
 pub mod hud;
 pub mod hud_breath;
 pub mod hud_limbs;
@@ -93,6 +94,7 @@ pub mod rumble;
 pub mod save;
 pub mod screen_splatter;
 pub mod script;
+pub mod script_input;
 pub mod script_draw;
 pub mod script_events;
 pub mod script_hud;
@@ -107,10 +109,12 @@ pub mod credits;
 mod test_aid;
 pub mod sfx;
 pub mod sneak_gauges;
+pub mod ui_colour;
 pub mod ui_sounds;
 pub mod stress;
 pub mod vats_mode;
 pub mod kill_cam;
+pub mod weapon_wheel;
 pub mod voice;
 pub mod voice_filter;
 pub mod wait;
@@ -303,7 +307,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin))
-            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
+            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin, script_input::ScriptInputPlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(perk_marks::PerkMarksPlugin)
@@ -338,9 +342,11 @@ impl Plugin for PlayPlugin {
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
             .add_plugins(kill_cam::KillCamPlugin)
+            .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin)
-            .add_plugins(hardcore::HardcorePlugin);
+            .add_plugins(hardcore::HardcorePlugin)
+            .add_plugins(ui_colour::UiColourPlugin);
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);

@@ -91,6 +91,14 @@ exist. The draw/holster timing follows the clips of the rig in view.
   circling angles, the shoulder offset fading to the centre as it turns away from
   behind; from first person the view shows the third-person body meanwhile. Let go, it
   swings back behind (time constant 0.15 s) and first person returns.
+- Detached (the settings page's Gameplay switch "Detached third-person camera", off by
+  default; the owner 2026-10-27): in third person with the weapon away the mouse turns
+  the camera, kept at its full shoulder offset, and not the player; moving, the player
+  turns to the pushed way (a sprung turn that eases in and out, a half turn
+  settling in about 0.6 s) as the camera sees it and walks straight ahead, so
+  Back runs towards the camera. Drawing the weapon (or first person, or the switch off)
+  turns the player to the camera's heading at once. The crosshair follows the camera's
+  line meanwhile [design: not in the original; `control::detach_camera`].
 - The crosshair's ray starts at the eye (`Player::eye`, the `Camera1st` position), so it
   matches the first-person view; in third person it still starts there [engineering
   choice; the game's third-person pick is not known].
@@ -121,6 +129,33 @@ view by code [hypothesis; the values are not known]. NVForever's sway
   Pip-Boy, while an idle drives the view and in third person.
 - A switch, on by default: `--no-weapon-sway`, "Weapon sway" on the settings page (key
   `weapon-sway`). The exit summary gives the most turn lag and the deepest bob.
+
+### 1.4b The weapon lowered near walls and friends (owner request 2026-10-26)
+
+The original keeps the first-person weapon up whatever is ahead, so it pokes through
+walls and companions; its `_1stperson` clips have no lowered pose [observed: the owner's
+play; the folder's file list]. NVForever lowers it by code
+(`engine/nvforever/src/weapon_lower.rs`) [design, constants tuned by eye with the
+owner, 2026-10-27]:
+
+- Two rays ahead of the view, from the eye and from about where the weapon is held. A
+  surface within 40 units eases it down, fully at 22; a living actor within 72 units
+  that would not attack the player (`fnv_game::rest::hostile_to_player`, by its hit
+  volumes) lowers it fully. A hostile actor never does.
+- Ready Item (R) tapped twice within 0.25 s lowers or raises it by hand
+  (`nvf_play::control`); a single tap reloads 0.25 s later than before for that.
+- Aiming, the trigger and an attack bring it up at once and keep it up 0.6 s; a reload
+  keeps it up for the reload clip's length. Aiming, the trigger and putting the weapon
+  away also end a lowering by hand. Shots still leave from the view; firing is never
+  blocked while lowered (owner ruling 2026-10-27).
+- The pose turns the arms about the eye (pitched 9° down, turned 10° in, canted 5°), on
+  top of the sway, so nothing near the camera rises into the view: turned about the
+  hands, the sleeves swung up across it. Rifles take 80 % of it, heavy weapons and
+  launchers 35 % (they sit at the foot of the view or on the shoulder). Not for fists,
+  under the Pip-Boy, while an idle drives the view or in third person.
+- A switch for the automatic part, on by default: `--no-weapon-lower`, "Lower weapon near
+  walls" on the settings page (key `weapon-lower`); by hand works either way. The exit
+  summary gives how many times it lowered.
 
 ### 1.5 The body in first person (owner request 2026-10-10; not the original's)
 
@@ -221,7 +256,15 @@ camera sees is as it was.
   colour out from two results of Bevy's lighting, with and without shadows (Bevy's
   lighting has no opening for another shadow value; the small share of light is what
   makes the sun's part of the light measurable that way). The light is there only while
-  the arms rig is drawn and the sun casts shadows.
+  the arms rig is drawn and the sun casts shadows, and is despawned otherwise, never
+  hidden: a hidden directional light keeps its shadow views in Bevy 0.19.1's render
+  world and gets a second set when shown again, and the doubled views upset the shadow
+  passes' shared indirect draw buffers, so the sun's cascades lost or gained whole
+  batch sets from frame to frame [observed 2026-10-26: hillsides flickering between
+  lit and shadowed in first person, worse the more often the arms had been hidden;
+  gone with GPU culling off, without the light, or with it despawned; the shadow probe
+  now counts views sharing a key and the `shadow-probe` smoke scenario switches view
+  four times and wants none].
 - **Cost.** While the arms rig is drawn: one more shadow cascade to render, one more
   directional light in every fragment's lighting, and a thousandth more sunlight on the
   world. Frame rates of 18 s runs before and after overlap (before 44.5 and 26.2 per

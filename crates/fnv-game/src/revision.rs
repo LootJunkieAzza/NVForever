@@ -23,8 +23,18 @@
 //!   the points spent at level-ups (`crate::actor_values`), so the points stay and the
 //!   rest follows the new choices.
 //!
-//! The S.P.E.C.I.A.L. reset, the race, tag-skill and trait menus run as the script says.
-//! Each kept call is logged `revision: keeps ...`.
+//! - `SetActorValue` of an attribute on the player does nothing either, and its
+//!   `SetSPECIALPoints 40` gives the Vigor Tester the points the player's attributes add
+//!   up to now (40 or more): it opens on the player's S.P.E.C.I.A.L. to move points
+//!   around, not on 5 in each.
+//!
+//! The race, tag-skill and trait menus run as the script says. Each kept call is logged
+//! `revision: keeps ...`.
+//!
+//! The script is known by its record, whichever plugin edited it last: Old World Blues
+//! carries the same script [observed: OldWorldBlues.esm overrides SCPT 001164A4 with the
+//! same calls, `fnvtool script decompile`; the owner's game ran it as
+//! `OldWorldBlues.esm|SCPT 0x001164A4`, 2026-10-26].
 
 use crate::functions::Ctx;
 use crate::game::Game;
@@ -34,9 +44,10 @@ use fnv_sim::FormId;
 /// the activators VCG04 places at Goodsprings' edges].
 pub const REVISION_UNIT: &str = "FalloutNV.esm|SCPT 0x001164A4";
 
-/// The call is the revision script's.
+/// The call is the revision script's, from any plugin that carries it.
 pub fn by_revision(ctx: &Ctx) -> bool {
-    ctx.unit.eq_ignore_ascii_case(REVISION_UNIT)
+    let label = REVISION_UNIT.split_once('|').map_or(REVISION_UNIT, |(_, l)| l);
+    ctx.unit.split_once('|').is_some_and(|(_, l)| l.eq_ignore_ascii_case(label))
 }
 
 /// The revision script's call on the player that is kept from resetting (`what` names

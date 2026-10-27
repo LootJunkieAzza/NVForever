@@ -74,6 +74,45 @@ pub const DROP_AHEAD: f32 = 50.0;
 /// How far above the holder's position (its feet) a dropped item is placed. [observed:
 /// same capture]
 pub const DROP_ABOVE: f32 = 30.0;
+/// How far above the player's feet an item the player drops by hand (the inventory menu)
+/// is placed: about chest height (the eye is 112 units up, nvf-play `EYE_HEIGHT`), from
+/// where it falls [design: owner 2026-10-27, "spawn it at chest level not ground level";
+/// the game's own drop is [`DROP_ABOVE`]].
+pub const PLAYER_DROP_ABOVE: f32 = 85.0;
+/// How many places a ring around the player holds for hand-dropped items: the first is
+/// [`DROP_AHEAD`] in front, the next ones step around both sides to the back [design:
+/// owner 2026-10-27, "dropping multiple items at once should ring around the player"].
+pub const PLAYER_DROP_RING: usize = 8;
+/// How much farther out each further ring is, once the nearer ones are full (game units).
+pub const PLAYER_DROP_RING_STEP: f32 = 30.0;
+/// How many rings are tried before a drop goes in the first place regardless.
+pub const PLAYER_DROP_RINGS: usize = 3;
+/// A place in a ring is taken while a dropped item stands within this distance of it,
+/// measured across the ground (the item may have fallen since).
+pub const PLAYER_DROP_CLEAR: f32 = 20.0;
+
+/// Where [`World::drop_groups`] puts the new references.
+#[derive(Debug, Clone, Copy)]
+enum Placing {
+    /// All of them in front of and above the holder, as the game's drop does.
+    Ahead,
+    /// Each in the next free place around the player, at chest height.
+    Ring,
+}
+
+/// The offset across the ground, from the player's position, of place `slot` around a
+/// player facing `heading` (z rotation): ring `slot / PLAYER_DROP_RING`, in it straight
+/// ahead first, then alternately right and left of it a step further round, the last one
+/// behind.
+pub fn player_drop_offset(heading: f32, slot: usize) -> [f32; 2] {
+    let (ring, k) = (slot / PLAYER_DROP_RING, slot % PLAYER_DROP_RING);
+    let step = std::f32::consts::TAU / PLAYER_DROP_RING as f32;
+    // 0, +1, -1, +2, -2, ...: odd places to the right (clockwise), even to the left.
+    let turn = if k % 2 == 1 { k.div_ceil(2) as f32 } else { -((k / 2) as f32) };
+    let r = DROP_AHEAD + ring as f32 * PLAYER_DROP_RING_STEP;
+    let (sin, cos) = (heading + turn * step).sin_cos();
+    [r * sin, r * cos]
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockState {
@@ -922,7 +961,7 @@ impl<'a> World<'a> {
         }
         let groups = unequipped(self.inventory(from)?.take_at(item, count, Pick::ANY));
         let groups = groups.into_iter().map(|(e, n)| (Extra { owner: e.owner, ..Extra::default() }, n)).collect();
-        self.drop_groups(from, item, groups)
+        self.drop_groups(from, item, groups, Placing::Ahead)
     }
 
     /// As [`World::drop_item`], dropping only the units `at` names.
@@ -931,7 +970,7 @@ impl<'a> World<'a> {
             return Err(SimError::BadCount(count));
         }
         let groups = unequipped(self.inventory(from)?.take_at(item, count, at));
-        self.drop_groups(from, item, groups)
+        self.drop_groups(from, item, groups, Placing::Ahead)
     }
 
     /// Drop the equipped unit of `item` (a weapon that broke in an actor's hand), as
@@ -939,17 +978,21 @@ impl<'a> World<'a> {
     /// when none is equipped.
     pub fn drop_equipped(&mut self, from: FormId, item: FormId) -> Result<Vec<FormId>, SimError> {
         let groups = unequipped(self.inventory(from)?.take_equipped(item));
-        self.drop_groups(from, item, groups)
+        self.drop_groups(from, item, groups, Placing::Ahead)
     }
 
-    fn drop_groups(&mut self, from: FormId, item: FormId, groups: Vec<(Extra, i32)>) -> Result<Vec<FormId>, SimError> {
+    fn drop_groups(&mut self, from: FormId, item: FormId, groups: Vec<(Extra, i32)>, placing: Placing) -> Result<Vec<FormId>, SimError> {
         let holder = self.get(from)?.clone();
         // A z rotation turns clockwise seen from above and 0 faces +Y (world.md §4), so
         // the heading's direction is (sin z, cos z).
         let (sin, cos) = holder.rot[2].sin_cos();
-        let pos = [holder.pos[0] + DROP_AHEAD * sin, holder.pos[1] + DROP_AHEAD * cos, holder.pos[2] + DROP_ABOVE];
+        let ahead = [holder.pos[0] + DROP_AHEAD * sin, holder.pos[1] + DROP_AHEAD * cos, holder.pos[2] + DROP_ABOVE];
         let mut out = Vec::new();
         for (extra, n) in groups {
+            let pos = match placing {
+                Placing::Ahead => ahead,
+                Placing::Ring => self.player_drop_place(&holder),
+            };
             let id = FormId(self.next_dynamic);
             self.next_dynamic += 1;
             self.refs.insert(
@@ -986,12 +1029,35 @@ impl<'a> World<'a> {
         self.player_drop_item_at(item, count, Pick::ANY)
     }
 
-    /// As [`World::player_drop_item`], dropping only the units `at` names.
+    /// As [`World::player_drop_item`], dropping only the units `at` names. Unlike a
+    /// scripted drop, each new reference is placed at chest height ([`PLAYER_DROP_ABOVE`])
+    /// in the first free place of a ring around the player ([`player_drop_offset`]), so
+    /// items dropped one after another lie side by side instead of in one heap [design:
+    /// owner 2026-10-27].
     pub fn player_drop_item_at(&mut self, item: FormId, count: i32, at: Pick) -> Result<Vec<FormId>, SimError> {
         if count > 0 && self.is_quest_item(item) {
             return Err(SimError::QuestItem(item));
         }
-        self.drop_item_at(FormId::PLAYER_REF, item, count, at)
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
+        }
+        let from = FormId::PLAYER_REF;
+        let groups = unequipped(self.inventory(from)?.take_at(item, count, at));
+        self.drop_groups(from, item, groups, Placing::Ring)
+    }
+
+    /// Where the player's next hand-dropped item goes: the first place in the rings around
+    /// `holder` with no dropped item standing in the holder's cell within
+    /// [`PLAYER_DROP_CLEAR`] of it, or the first place when all are taken.
+    fn player_drop_place(&self, holder: &RefState) -> [f32; 3] {
+        let at = |slot| {
+            let [dx, dy] = player_drop_offset(holder.rot[2], slot);
+            [holder.pos[0] + dx, holder.pos[1] + dy, holder.pos[2] + PLAYER_DROP_ABOVE]
+        };
+        let taken = |p: [f32; 3]| {
+            self.created().any(|(_, s)| s.cell == holder.cell && !s.deleted && s.enabled && (s.pos[0] - p[0]).hypot(s.pos[1] - p[1]) < PLAYER_DROP_CLEAR)
+        };
+        (0..PLAYER_DROP_RING * PLAYER_DROP_RINGS).map(at).find(|&p| !taken(p)).unwrap_or_else(|| at(0))
     }
 
     /// Equip one carried `item` on `actor`. Weapons replace the equipped weapon; armour

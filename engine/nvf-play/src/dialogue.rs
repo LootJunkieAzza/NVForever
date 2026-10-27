@@ -277,7 +277,7 @@ fn response_text(g: &Game) -> Option<String> {
     let l = c.line.as_ref()?;
     let def = g.data.infos.get(&l.info)?;
     let r = *def.response_order().get(l.response)?;
-    let text = shown_text(&def.responses[r].text);
+    let text = shown_text(&g.expand_codes(&def.responses[r].text));
     (!text.is_empty()).then_some(text)
 }
 

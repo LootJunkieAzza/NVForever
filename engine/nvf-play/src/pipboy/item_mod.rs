@@ -25,7 +25,7 @@
 
 use super::frame::{self, Align, Ctx, LINE, MAIN, TEXT};
 use super::{Page, PipBoy};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{Mode, Side};
 use crate::menu::ActiveMenu;
 use crate::sim::SimState;
@@ -46,6 +46,9 @@ const WRAP: f32 = 270.0;
 const MARK: Rect = Rect { min: Vec2::new(15.0, 17.5), max: Vec2::new(40.0, 42.5) };
 /// Rows as the ITEMS list's [hypothesis: the barter menu's measure, barter-menu.md §3].
 const ROW_H: f32 = super::items::ROW_H;
+/// The rows the keys keep the choice among: the window moves when the choice would leave
+/// the eight from the first shown (as many single-line rows as the list holds).
+const SHOWN: usize = 8;
 const LINE_PITCH: f32 = 35.0;
 /// The picture, the description and the figures [documented: `IMM_ItemIcon`,
 /// `IMM_ModDesc`, `IMM_CompareRect`].
@@ -131,6 +134,9 @@ impl PipItemMod {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Session {
     pub offer: Offer,
+    /// The list's first row shown: moved only to keep the choice in view (the keys), so
+    /// the pointer never scrolls the list.
+    pub first: usize,
     /// 0: the weapon itself; else the mod at this place, less one.
     pub selected: usize,
 }
@@ -250,11 +256,17 @@ pub fn keys(
                 // Not usable: X drops instead (`super::items::keys`), quietly here.
                 let Some(o) = current(&active, &sim, combat.as_deref()).filter(Offer::usable) else { continue };
                 info!("pipboy mod: open {} (flags {}): {}", o.name, o.extra.mods, o.choices.iter().map(|c| format!("{} (slot {})", c.name, c.slot)).collect::<Vec<_>>().join(", "));
-                menu.0 = Some(Session { offer: o, selected: 0 });
+                menu.0 = Some(Session { offer: o, first: 0, selected: 0 });
             }
             (None, _) => {}
-            (Some(s), ModInput::Up) => s.selected = s.selected.saturating_sub(1),
-            (Some(s), ModInput::Down) => s.selected = (s.selected + 1).min(s.offer.choices.len()),
+            (Some(s), ModInput::Up) => {
+                s.selected = s.selected.saturating_sub(1);
+                s.first = crate::menu::model::keep_in_view(s.first, s.selected, s.offer.choices.len() + 1, SHOWN);
+            }
+            (Some(s), ModInput::Down) => {
+                s.selected = (s.selected + 1).min(s.offer.choices.len());
+                s.first = crate::menu::model::keep_in_view(s.first, s.selected, s.offer.choices.len() + 1, SHOWN);
+            }
             (Some(s), ModInput::Hover(i)) => s.selected = i.min(s.offer.choices.len()),
             (Some(_), ModInput::Click(_) | ModInput::Open) => {}
             (Some(_), ModInput::Cancel) => {
@@ -344,7 +356,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let rows: Vec<(String, bool)> = std::iter::once((o.name.clone(), o.extra.equipped)).chain(o.choices.iter().map(|ch| (if ch.count > 1 { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, false))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
-    let first = s.selected.saturating_sub(7);
+    let first = s.first;
     for (i, (name, worn)) in rows.iter().enumerate().skip(first) {
         let lines = c.lines(2, name, Some(WRAP));
         let h = ROW_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;

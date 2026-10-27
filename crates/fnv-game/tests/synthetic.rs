@@ -629,6 +629,61 @@ fn snapshots_round_trip() {
     assert_eq!(g.instances, h.instances);
 }
 
+/// Players 2–4 of a co-op game (docs/design/coop-save.md): each keeps its own actor
+/// (inventory, place), values (health damage), character and effects through a save,
+/// apart from the game's own player and from each other; the quests stay shared.
+#[test]
+fn coop_players_round_trip_apart_from_the_player() {
+    use fnv_game::coop::{CoopError, CoopPlayer};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    // A one-player snapshot writes no `coop`.
+    assert!(!serde_json::to_string(&g.snapshot()).unwrap().contains("\"coop\""));
+    let health = 16u16;
+    let mut p2 = CoopPlayer::copy_of_player(&g, 2).unwrap();
+    p2.character.name = Some("Second".into());
+    p2.character.xp = 250.0;
+    p2.character.perks.insert(FormId(0xABC), 1);
+    p2.actor.pos = [10.0, 20.0, 30.0];
+    p2.actor.inventory.get_or_insert_with(fnv_sim::Inventory::new).add(FormId(0x4242), 3);
+    p2.extra.av_damage.insert(health, 40.0);
+    p2.heading_deg = 90.0;
+    let mut p4 = CoopPlayer::copy_of_player(&g, 4).unwrap();
+    p4.character.name = Some("Fourth".into());
+    p4.extra.dead = true;
+    g.set_coop_player(p4).unwrap();
+    g.set_coop_player(p2.clone()).unwrap();
+    assert_eq!(g.coop.iter().map(|p| p.slot).collect::<Vec<_>>(), vec![2, 4]);
+    assert_eq!(g.set_coop_player(CoopPlayer { slot: 1, ..p2.clone() }), Err(CoopError::BadSlot(1)));
+    assert_eq!(g.set_coop_player(CoopPlayer { slot: 5, ..p2.clone() }), Err(CoopError::BadSlot(5)));
+    g.set_stage(FormId(QUEST), 10);
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.coop, g.coop);
+    assert_eq!(h.coop_player(2), Some(&p2));
+    assert!(h.coop_player(3).is_none());
+    assert!(h.coop_player(4).unwrap().extra.dead);
+    // The game's own player kept none of it.
+    assert_eq!(h.player.name, g.player.name);
+    assert!(h.player.perks.is_empty());
+    assert!(!h.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.dead || e.av_damage.contains_key(&health)));
+    assert_ne!(h.world.peek(FormId::PLAYER_REF).unwrap().pos, [10.0, 20.0, 30.0]);
+    // The quests are saved once, not per player.
+    assert_eq!(h.quests, g.quests);
+    assert_eq!(text.matches("\"quests\"").count(), 1);
+    // A snapshot naming one slot twice is refused.
+    let mut twice = back.clone();
+    twice.coop.push(twice.coop[0].clone());
+    let world = World::restore(&f.forms, &f.refs, &twice.sim).unwrap();
+    assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
+}
+
 #[test]
 fn a_save_made_with_another_load_order_drops_the_missing_plugins_forms() {
     // docs/design/save-load.md §4.1. The save was made with [Test.esm, Extra.esm] and is
@@ -1872,4 +1927,80 @@ fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
     assert_eq!(read(&mut g, "*hD"), XVal::Num(5.0));
     assert_eq!(read(&mut g, "*hH"), before, "the handler runs before the damage");
     assert_eq!(read(&mut g, "*hC"), XVal::Num(1.0), "a critical hit");
+}
+
+#[test]
+fn message_ex_box_ex_and_debug_print() {
+    // Task D4 [documented: MessageEx; MessageBoxEx; DebugPrint; SetDebugMode].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("MessageEx \"n %g\", 3\nMessageBoxEx \"Pick|Ok|Cancel\"\nDebugPrint \"hidden\"\nSetDebugMode 1\nDebugPrint \"shown\"", Default::default()).expect("compiles");
+    let shown: Vec<(Option<String>, Vec<String>)> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::MessageShown { text, buttons, .. } => Some((text.clone(), buttons.clone())),
+        _ => None,
+    }).collect();
+    assert_eq!(shown, vec![(Some("n 3".into()), vec![]), (Some("Pick".into()), vec!["Ok".into(), "Cancel".into()])]);
+    assert_eq!(g.message_box.as_ref().map(|m| m.buttons), Some(2));
+    let printed: Vec<&str> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptPrint { text, .. } => Some(text.as_str()),
+        _ => None,
+    }).collect();
+    assert_eq!(printed, ["shown"]);
+}
+
+#[test]
+fn delayed_calls_run_when_due() {
+    // Task D3 [documented: CallAfterFrames (catalogue), CallWhile, CallWhen].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), ctx()).unwrap();
+    q(&mut g, "CallAfterFrames 2 ({} => AuxVarSetFlt \"*a\" 1 -1)
+CallWhile ({} => AuxVarSetFlt \"*w\" 1 -1) ({} => (AuxVarSize \"*w\") < 3)
+CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
+    g.frames(1);
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(0.0), "not yet");
+    g.frames(5);
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*a\")"), XVal::Num(1.0), "once");
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*w\")"), XVal::Num(3.0), "while the condition holds");
+    assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
+}
+
+#[test]
+fn message_box_ex_alt_runs_its_callback_with_the_button() {
+    // [documented: MessageBoxExAlt] the UDF gets the pressed button's index.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = "Begin Function { }\nMessageBoxExAlt (Begin Function {int b}\nPlayerREF.AuxVarSetFlt \"*btn\" b\nEnd) \"^Title^Pick|A|B\"\nEnd\n";
+    g.run_query(q, ctx()).unwrap();
+    g.press_button(1).unwrap();
+    g.tick();
+    let read = g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"*btn\")\nEnd\n", ctx()).unwrap();
+    assert_eq!(read, XVal::Num(1.0));
+}
+
+#[test]
+fn player_control_locks_are_kept_per_plugin() {
+    // [documented: DisablePlayerControlsAlt] "stored on a per-mod basis": a group stays
+    // locked until every plugin that locked it gives it back.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    q(&mut g, "DisablePlayerControlsAltEx (1 << 3)");
+    assert_eq!(g.controls_locked(), [false, false, true, false, false, false, false], "bit 3 is fighting");
+    g.other.alt_locks.insert("other.esp".into(), [true, false, false, false, false, false, false]);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabledAlt 0 1)"), XVal::Num(0.0), "movement is the other plugin's");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabledAlt 1 1)"), XVal::Num(1.0), "any plugin's");
+    // [observed: nvse-fifth, the vanilla getter sees an Alt lock]
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabled)"), XVal::Num(1.0), "the vanilla getter sees them");
+    q(&mut g, "EnablePlayerControlsAlt");
+    assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
 }
