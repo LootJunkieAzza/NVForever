@@ -48,6 +48,8 @@ pub struct Toggles {
     /// OnLoad, …) still do [hypothesis: the catalogue says "all scripts"; the events a
     /// console tester causes are kept].
     pub scripts_off: bool,
+    /// God mode, as `tgm` last left it (GetDebugModeState 0).
+    pub god_mode: bool,
     /// Toggles asked since the engine last looked, in order, for it to switch and report.
     pub asked: Vec<Toggle>,
 }
@@ -87,6 +89,7 @@ pub fn toggle_detection(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String
 }
 
 pub fn toggle_god_mode(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String> {
+    g.toggles.god_mode = !g.toggles.god_mode;
     ask(g, Toggle::GodMode)
 }
 

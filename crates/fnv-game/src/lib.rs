@@ -90,6 +90,7 @@ pub mod nvse_lists;
 pub mod nvse_leveled;
 pub mod nvse_jip2;
 pub mod nvse_gaps;
+pub mod nvse_jip3;
 pub mod nvse_proj;
 pub mod nvse_sound;
 pub mod nvse_hud;

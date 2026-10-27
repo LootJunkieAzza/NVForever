@@ -653,6 +653,7 @@ impl Game<'_> {
     /// flagged No Alarm (REFR XTEL) excuses the player's trespassing in that cell until
     /// the player leaves it; any other door ends an earlier excuse (module notes).
     pub fn arrived_through(&mut self, door: FormId, cell: Option<FormId>) {
+        self.note_player_door(door);
         let no_alarm = self.world.placed.get(door).and_then(|p| p.teleport).is_some_and(|t| t.no_alarm);
         self.crimes.no_alarm_cell = cell.filter(|_| no_alarm);
         if let Some(cell) = self.crimes.no_alarm_cell {

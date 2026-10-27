@@ -92,7 +92,7 @@ impl Game<'_> {
     /// The actors fighting the player that the compass shows, nearest first, with their
     /// distance [documented: GetCompassHostiles; hypothesis: every loaded, enabled, living
     /// actor whose combat targets hold the player, at any range].
-    fn compass_hostiles(&self) -> Vec<(FormId, f32)> {
+    pub(crate) fn compass_hostiles(&self) -> Vec<(FormId, f32)> {
         let Some(me) = crate::awareness::position(self, FormId::PLAYER_REF) else { return Vec::new() };
         let mut out: Vec<(FormId, f32)> = self
             .awareness
