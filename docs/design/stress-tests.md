@@ -14,6 +14,7 @@ python tools/stress list
 python tools/stress run cells  --exe <engine target>/release/nvforever.exe --data <Data> --fnvtool <root target>/release/fnvtool.exe [options]
 python tools/stress run tour   ... [--laps N]
 python tools/stress run battle ... [--per-side 10|25|50] [--third N] [--seconds S]
+python tools/stress run soak   ... [--towns ...] [--event-every S] [--aid NVF_PLAY_TEST_PROFILE=5]
 ```
 
 `NVF_EXE`, `NVF_DATA` and `NVF_FNVTOOL` stand in for the three paths, as for smoke.
@@ -167,6 +168,38 @@ Long play's memory: what the engine holds, sampled along laps of the Mojave.
 This does not walk on the navmesh as an actor would: it steps over the ground. That
 streams the same cells, but finds no path or collision trouble. A walking tour, with the
 residents' walker driving the player, is left for later.
+
+### 4.1 soak
+
+The tour's lap with play mixed in (`tools/stress/stress/soak.py`), to find where hitches
+and growth come from. Every `--event-every` seconds (default 20) one event in turn, on
+references the game data places near the route (`fnvtool world refs`, `sim door-models`):
+
+- **container**: the player is moved to a placed container, opens it (the script aid's
+  `activate`, as E opens it) and closes it with Tab 3 s on;
+- **door**: the player is moved to a teleport door and goes through it; the tour's next
+  step brings them back outdoors;
+- **fight**: a persistent hostile NPC (Powder Ganger, Fiend, Viper) is moved beside the
+  player and set on them (StartCombat), and killed 15 s on.
+
+The events are `NVF_PLAY_TEST_SCRIPT` steps and `NVF_PLAY_TEST_KEYS` presses on the clock
+that starts with the scripts (`NVF_PLAY_AIDS_FROM_SCRIPTS=1`), so the report puts each
+hitch down to the event before it (within 8 s) or to walking ("Hitches by cause"), next
+to what happened ("containers opened", loads, kills, aid steps that failed) and the
+tour's samples, leak checks and slowest frames. `NVF_PLAY_TEST_STRESS=0`: scripts may move
+the player, which the events need. `events.json` lists the schedule.
+
+Frames behind a loading screen are left out of the frame times and their stalls logged
+apart (`stress hitch (behind a loading screen):`, `profile hitch (behind a loading
+screen):`): every `world::stream` stall after a door or teleport on the first soak was
+behind the screen [observed 2026-10-27].
+
+**The machine's load.** Every tour, battle and soak report says how much of the machine's
+cores the game and other programs used, sampled with the memory; when others held over a
+quarter for a tenth of the run it says the hitches may be theirs. The first full soak
+(2026-10-27) ran beside about thirty compilers of other sessions: systems that take well
+under a millisecond (`fog::prepare_fog`, `view::prepare_view_uniforms`) took 75–150 ms in
+its slow frames [observed]. Run the soak, and every budget check, on an idle machine.
 
 ## 5. battle
 

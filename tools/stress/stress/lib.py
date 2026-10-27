@@ -92,6 +92,60 @@ def process_memory(pid: int) -> tuple[int, int] | None:
         k32.CloseHandle(h)
 
 
+def system_busy_secs() -> float | None:
+    """Processor time every core has spent busy since boot (kernel less idle, plus user),
+    seconds summed over the cores; Windows only."""
+    if os.name != "nt":
+        return None
+    ft = [ctypes.c_ulonglong() for _ in range(3)]
+    if not ctypes.windll.kernel32.GetSystemTimes(*(ctypes.byref(x) for x in ft)):
+        return None
+    idle, kernel, user = (x.value * 1e-7 for x in ft)
+    return kernel - idle + user
+
+
+def process_busy_secs(pid: int) -> float | None:
+    """Processor time a process has used (kernel and user), seconds; Windows only."""
+    if os.name != "nt":
+        return None
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+    if not h:
+        return None
+    try:
+        ft = [ctypes.c_ulonglong() for _ in range(4)]
+        if not k32.GetProcessTimes(h, *(ctypes.byref(x) for x in ft)):
+            return None
+        return (ft[2].value + ft[3].value) * 1e-7
+    finally:
+        k32.CloseHandle(h)
+
+
+# Other programs over this share of the machine's cores: the game's timings are not its own.
+BUSY = 0.25
+
+
+def machine_load(cpu: list[tuple[float, float, float]]) -> dict | None:
+    """From the samples (seconds, game's share, others' share of all cores): the mean
+    shares and the fraction of the run other programs held over [`BUSY`]."""
+    if not cpu:
+        return None
+    n = len(cpu)
+    return {"game_mean": round(sum(c[1] for c in cpu) / n, 3), "others_mean": round(sum(c[2] for c in cpu) / n, 3),
+            "busy_fraction": round(sum(1 for c in cpu if c[2] > BUSY) / n, 3), "busy_over": BUSY}
+
+
+def load_report(load: dict | None) -> list[str]:
+    if not load:
+        return []
+    out = ["", f"Machine: the game used {load['game_mean']:.0%} of the cores on average, other programs "
+           f"{load['others_mean']:.0%}; others held over {load['busy_over']:.0%} for {load['busy_fraction']:.0%} of the run."]
+    if load["busy_fraction"] > 0.1:
+        out.append("**The machine was busy (builds, other games): hitches here may be other programs', not the "
+                   "engine's. Run it again on an idle machine before acting on them.**")
+    return out
+
+
 # ---------------------------------------------------------------- crash reports
 
 FRAME = re.compile(r"^\s*\d+:\s+(?P<fn>\S.*?)\s*$")
@@ -179,6 +233,7 @@ class Result:
     crashes: list[Crash]
     memory: list[tuple[float, int, int]]  # (seconds, working set, private bytes)
     stacks: Path | None = None
+    cpu: list[tuple[float, float, float]] = field(default_factory=list)  # (seconds, game's share, others' share)
 
     def tail(self, n: int = 40) -> list[str]:
         return self.lines[-n:]
@@ -205,6 +260,8 @@ def run(ctx: Ctx, launch: Launch) -> Result:
     if ctx.locks:
         ctx.locks.acquire()
     memory: list[tuple[float, int, int]] = []
+    cpu: list[tuple[float, float, float]] = []
+    cores = os.cpu_count() or 1
     status, stacks = "ok", None
     started = time.monotonic()
     try:
@@ -223,6 +280,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
             t = threading.Thread(target=pump, daemon=True)
             t.start()
             next_mem = 0.0
+            busy_at = (time.monotonic(), system_busy_secs(), process_busy_secs(p.pid))
             limit = launch.run_seconds * 2 + 300
             while p.poll() is None:
                 now = time.monotonic()
@@ -230,6 +288,14 @@ def run(ctx: Ctx, launch: Launch) -> Result:
                     m = process_memory(p.pid)
                     if m:
                         memory.append((round(now - started, 1), *m))
+                    # The machine's load since the last sample: the game's and the rest's.
+                    at = (now, system_busy_secs(), process_busy_secs(p.pid))
+                    if None not in at and None not in busy_at and at[0] > busy_at[0]:
+                        wall = (at[0] - busy_at[0]) * cores
+                        game = max(at[2] - busy_at[2], 0.0) / wall
+                        others = max(at[1] - busy_at[1], 0.0) / wall - game
+                        cpu.append((round(now - started, 1), round(game, 3), round(max(others, 0.0), 3)))
+                    busy_at = at
                     next_mem = now - started + launch.memory_every
                 if now - last[0] > launch.hang_seconds or now - started > limit:
                     stacks = ctx.out / f"{launch.name}.stacks.txt"
@@ -257,7 +323,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
         with open(ctx.out / f"{launch.name}.memory.csv", "w", encoding="utf-8") as m:
             m.write("seconds,working_set,private_bytes\n")
             m.writelines(f"{s},{w},{pb}\n" for s, w, pb in memory)
-    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks)
+    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, cpu)
     (ctx.out / f"{launch.name}.exit.json").write_text(json.dumps(
         {"exit": code, "status": status, "seconds": r.seconds, "crashes": [c.path for c in crashes]}), encoding="utf-8")
     return r

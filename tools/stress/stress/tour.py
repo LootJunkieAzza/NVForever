@@ -368,6 +368,7 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
         "not_released": not_released(samples),
         "startup": startup,
         "hitches": hitches,
+        "machine": lib.machine_load(r.cpu),
         "profile_hitches": lib.profile_hitches(r.lines),
         "crash_groups": lib.group_crashes([("tour", c) for c in r.crashes]),
         "stray_commands": lib.stray_commands(r.lines),
@@ -394,6 +395,7 @@ def report(res: dict) -> list[str]:
         out += ["", "## Slowest hitches", "", "| ms | t | cells loaded in it | actors drawn in it | at |", "|---|---|---|---|---|"]
         out += [f"| {h['ms']:g} | {h['t']:g} | {h['cells']} ({h['cell_ms']:g} ms) | {h.get('actors', 0)} ({h.get('actor_ms', 0):g} ms) "
                 f"| {h['at']} |" for h in res["hitches"]]
+    out += lib.load_report(res.get("machine"))
     out += lib.profile_hitch_report(res.get("profile_hitches", []))
     out += ["", "## Peaks", "", "| count | peak |", "|---|---|"]
     for k, v in res["peak"].items():

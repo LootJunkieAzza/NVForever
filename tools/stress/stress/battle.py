@@ -165,6 +165,7 @@ def run(ctx: lib.Ctx, per_side: int, third: int, seconds: float, every: float, c
         "peak": {k: peak(k) for k in ("working set", "private bytes", "projectiles", "ragdolls", "actors", "nan actors", "entities")},
         "combat": analyse(r.lines),
         "profile_hitches": lib.profile_hitches(r.lines),
+        "machine": lib.machine_load(r.cpu),
         "crash_groups": lib.group_crashes([("battle", c) for c in r.crashes]),
         "stray_commands": lib.stray_commands(r.lines),
         "log": str(r.log),
@@ -196,6 +197,7 @@ def report(res: dict) -> list[str]:
             f"- ragdolls started {c['ragdolls_started']}, stuck actors {c['stuck_actors']}, panics {c['panics']}",
             "", "## Time per frame by system (the engine's own summaries)", ""]
     out += [f"- {k}: {v}" for k, v in sorted(c["system_times"].items())] or ["- none reported"]
+    out += lib.load_report(res.get("machine"))
     out += lib.profile_hitch_report(res.get("profile_hitches", []))
     if res["crash_groups"]:
         out += ["", "## Crashes", ""] + [f"- {g['message']} at {g['location']}" for g in res["crash_groups"]]

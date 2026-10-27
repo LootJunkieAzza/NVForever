@@ -208,6 +208,7 @@ fn report(
     moved: Query<(), (With<Mesh3d>, Changed<GlobalTransform>)>,
     materials: Res<Assets<nvf_assets::NifMaterial>>,
     mut last: Local<Option<Instant>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
 ) {
     // A slow frame's own spans: those ended since the last report, whatever the thread.
     let now = Instant::now();
@@ -215,7 +216,13 @@ fn report(
     if let Some(at) = last.replace(now) {
         let ms = now.duration_since(at).as_secs_f64() * 1000.0;
         if ms >= HITCH_MS {
-            info!("{}", hitch_line(ms, &frame));
+            let line = hitch_line(ms, &frame);
+            if loading.as_deref().is_some_and(nvf_play::loading::Loading::unseen_frames) {
+                // Not seen: kept apart from the hitches (`profile hitch (behind a loading screen):`).
+                info!("{}", line.replacen("profile hitch:", "profile hitch (behind a loading screen):", 1));
+            } else {
+                info!("{line}");
+            }
         }
     }
     let dt = time.delta_secs();
