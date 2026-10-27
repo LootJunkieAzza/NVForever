@@ -342,6 +342,10 @@ pub enum Action {
     /// use of an aid item): one is removed and its effects start, effect scripts
     /// included (`Game::consume`); observation `effects`: the effects started.
     Consume { item: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
+    /// The player plays a holotape (a NOTE) from the Pip-Boy: its line's begin script,
+    /// then its end script (`Game::holotape_script`; the voice's length is not waited
+    /// for); observation `info`: the line, null for a note that plays none.
+    PlayNote { note: String, #[serde(default)] label: Option<String> },
     /// A comment in the input (why the next stand-in is there); no effect, no frames.
     Note { text: String },
     /// A console line run as the console runs it (`functions::console::call_words`):
@@ -1807,6 +1811,13 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             let it = resolve(g, item)?;
             let ids = g.consume(who, it)?;
             obs.insert("effects".into(), json!(ids.len()));
+            lab = l.clone();
+        }
+        Action::PlayNote { note, label: l } => {
+            let n = resolve(g, note)?;
+            let info = g.holotape_script(n, 0);
+            g.holotape_script(n, 1);
+            obs.insert("info".into(), info.map_or(Json::Null, |i| json!(i.to_string())));
             lab = l.clone();
         }
     }

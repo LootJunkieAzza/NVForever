@@ -3653,6 +3653,25 @@ impl<'a> Game<'a> {
         Ok(pass)
     }
 
+    /// The player plays a holotape: for a Voice note, the result script of the line it
+    /// plays ([`crate::holotapes::tape`]) runs, `which` 0 the begin script (as the tape
+    /// starts) or 1 the end script (as it ends), on the player as `self`; the line is
+    /// returned (`None` for a note that plays no line). [hypothesis: Dead Money's Dog
+    /// command tape (NVDLC01DogCommandNote, line 0x0100DFC7, NVDLC01DogDialogueBackInYourCage)
+    /// is its quest's only way to stage 40 of NVDLC01MQ01a, so the original runs the
+    /// line's scripts; whom they run on is not known, and the DM lines name every
+    /// reference they touch. docs/spec-notes/holotapes.md §3.]
+    pub fn holotape_script(&mut self, note: FormId, which: usize) -> Option<FormId> {
+        let data = self.data;
+        let crate::holotapes::Tape::Voice { info, .. } = crate::holotapes::tape(data, note)? else { return None };
+        let def = data.infos.get(&info)?;
+        if let Some(u) = [def.begin, def.end][which.min(1)] {
+            self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(FormId::PLAYER_REF) });
+            self.run_result(u, RunCtx { self_ref: Some(FormId::PLAYER_REF), action_ref: None, quest: def.quest });
+        }
+        Some(info)
+    }
+
     /// A package event (runner input standing in for Layer 6 AI): the package's result
     /// script (0 begin, 1 end, 2 change) and the actor's OnPackageStart / OnPackageDone /
     /// OnPackageChange blocks.

@@ -10878,3 +10878,78 @@ expect = [
   { json = "observations.?label=final: VMQYesMan01 started after the Legion's fail.objective.50.displayed", equals = true, label = "final: VMQYesMan01 started after the Legion's fail: objective.50.displayed = true" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the fail paths, their ways on and the stalls are in the fails report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-dm-villa"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/dead-money.actions.json, Dead Money part 1: the broadcast (NVDLC01MQ00), the bunker, the opening slides, the Villa fountain, the three collars (NVDLC01MQ01a/b/c, MQ01 100), the companions' Gala posts (MQ02a/b/c) and the Gala (MQ02 50) to the lobby knockout (MQ02 100, MQ03a 5)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/dead-money.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/holotapes.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/dead-money.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: NVDLC01MQ00 10 (broadcast heard).done.10", equals = true, label = "milestone: NVDLC01MQ00 10 (broadcast heard): done.10 = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ00 10 (broadcast heard).stage", equals = 10, label = "milestone: NVDLC01MQ00 10 (broadcast heard): stage = 10" },
+  { json = "observations.?label=milestone: NVDLC01MQ00 100 (Sierra Madre Grand Opening! done).completed", equals = true, label = "milestone: NVDLC01MQ00 100 (Sierra Madre Grand Opening! done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ00 100 (Sierra Madre Grand Opening! done).stage", equals = 100, label = "milestone: NVDLC01MQ00 100 (Sierra Madre Grand Opening! done): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ01 5 (collared at the fountain).done.5", equals = true, label = "milestone: NVDLC01MQ01 5 (collared at the fountain): done.5 = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01 5 (collared at the fountain).stage", equals = 5, label = "milestone: NVDLC01MQ01 5 (collared at the fountain): stage = 5" },
+  { json = "observations.?label=milestone: collar quests started (Dog).stage", equals = 10, label = "milestone: collar quests started (Dog): stage = 10" },
+  { json = "observations.?label=milestone: collar quests started (Dog).running", equals = true, label = "milestone: collar quests started (Dog): running = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01a 100 (Find Collar 8: Dog done).completed", equals = true, label = "milestone: NVDLC01MQ01a 100 (Find Collar 8: Dog done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01a 100 (Find Collar 8: Dog done).stage", equals = 100, label = "milestone: NVDLC01MQ01a 100 (Find Collar 8: Dog done): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ01b 100 (Find Collar 14: Dean Domino done).done.20", equals = true, label = "milestone: NVDLC01MQ01b 100 (Find Collar 14: Dean Domino done): done.20 = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01b 100 (Find Collar 14: Dean Domino done).completed", equals = true, label = "milestone: NVDLC01MQ01b 100 (Find Collar 14: Dean Domino done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01c 100 (Find Collar 12: Christine done).done.40", equals = true, label = "milestone: NVDLC01MQ01c 100 (Find Collar 12: Christine done): done.40 = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01c 100 (Find Collar 12: Christine done).completed", equals = true, label = "milestone: NVDLC01MQ01c 100 (Find Collar 12: Christine done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ01 100 (the crew assembled).stage", equals = 100, label = "milestone: NVDLC01MQ01 100 (the crew assembled): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ01 100 (the crew assembled).running", equals = false, label = "milestone: NVDLC01MQ01 100 (the crew assembled): running = false" },
+  { json = "observations.?label=milestone: the three Act 2 jobs given (MQ02a 10).done.10", equals = true, label = "milestone: the three Act 2 jobs given (MQ02a 10): done.10 = true" },
+  { json = "observations.?label=milestone: the three Act 2 jobs given (MQ02a 10).stage", equals = 10, label = "milestone: the three Act 2 jobs given (MQ02a 10): stage = 10" },
+  { json = "observations.?label=milestone: NVDLC01MQ02a 100 (Fires in the Sky done).completed", equals = true, label = "milestone: NVDLC01MQ02a 100 (Fires in the Sky done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ02a 100 (Fires in the Sky done).stage", equals = 100, label = "milestone: NVDLC01MQ02a 100 (Fires in the Sky done): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ02b 100 (Strike Up the Band done).completed", equals = true, label = "milestone: NVDLC01MQ02b 100 (Strike Up the Band done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ02b 100 (Strike Up the Band done).stage", equals = 100, label = "milestone: NVDLC01MQ02b 100 (Strike Up the Band done): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ02c 100 (Mixed Signals done).completed", equals = true, label = "milestone: NVDLC01MQ02c 100 (Mixed Signals done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ02c 100 (Mixed Signals done).stage", equals = 100, label = "milestone: NVDLC01MQ02c 100 (Mixed Signals done): stage = 100" },
+  { json = "observations.?label=milestone: the Gala Event triggered (MQ02 50).done.50", equals = true, label = "milestone: the Gala Event triggered (MQ02 50): done.50 = true" },
+  { json = "observations.?label=milestone: the Gala Event triggered (MQ02 50).stage", equals = 50, label = "milestone: the Gala Event triggered (MQ02 50): stage = 50" },
+  { json = "observations.?label=milestone: NVDLC01MQ02 100 (Trigger the Gala Event done).completed", equals = true, label = "milestone: NVDLC01MQ02 100 (Trigger the Gala Event done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ02 100 (Trigger the Gala Event done).stage", equals = 100, label = "milestone: NVDLC01MQ02 100 (Trigger the Gala Event done): stage = 100" },
+  { json = "observations.?label=milestone: Act 3 begins (MQ03a 5).done.5", equals = true, label = "milestone: Act 3 begins (MQ03a 5): done.5 = true" },
+  { json = "observations.?label=milestone: Act 3 begins (MQ03a 5).stage", equals = 5, label = "milestone: Act 3 begins (MQ03a 5): stage = 5" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the Dead Money walkthrough report (addon-dm-report.md)"
+
+[[scenario]]
+name = "mq-dm-heist"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/dead-money-heist.actions.json, Dead Money part 2: Put the Beast Down, Curtain Call at the Tampico, Last Luxuries, Heist of the Centuries (Elijah left in the vault, MQ03 100) and the end slides to the bunker transition"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/dead-money-heist.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/holotapes.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/dead-money-heist.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: the casino switch thrown (MQ03a 10).done.10", equals = true, label = "milestone: the casino switch thrown (MQ03a 10): done.10 = true" },
+  { json = "observations.?label=milestone: the casino switch thrown (MQ03a 10).stage", equals = 10, label = "milestone: the casino switch thrown (MQ03a 10): stage = 10" },
+  { json = "observations.?label=milestone: NVDLC01MQ03a 100 (Put the Beast Down done).completed", equals = true, label = "milestone: NVDLC01MQ03a 100 (Put the Beast Down done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ03a 100 (Put the Beast Down done).stage", equals = 100, label = "milestone: NVDLC01MQ03a 100 (Put the Beast Down done): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ03b 100 (Curtain Call at the Tampico done).completed", equals = true, label = "milestone: NVDLC01MQ03b 100 (Curtain Call at the Tampico done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ03b 100 (Curtain Call at the Tampico done).stage", equals = 100, label = "milestone: NVDLC01MQ03b 100 (Curtain Call at the Tampico done): stage = 100" },
+  { json = "observations.?label=milestone: NVDLC01MQ03c 100 (Last Luxuries done).completed", equals = true, label = "milestone: NVDLC01MQ03c 100 (Last Luxuries done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ03c 100 (Last Luxuries done).stage", equals = 100, label = "milestone: NVDLC01MQ03c 100 (Last Luxuries done): stage = 100" },
+  { json = "observations.?label=milestone: Vera's voice threaded (MQ03 20).done.20", equals = true, label = "milestone: Vera's voice threaded (MQ03 20): done.20 = true" },
+  { json = "observations.?label=milestone: Vera's voice threaded (MQ03 20).stage", equals = 20, label = "milestone: Vera's voice threaded (MQ03 20): stage = 20" },
+  { json = "observations.?label=milestone: the vault elevator opened (MQ03 30).done.30", equals = true, label = "milestone: the vault elevator opened (MQ03 30): done.30 = true" },
+  { json = "observations.?label=milestone: the vault elevator opened (MQ03 30).stage", equals = 30, label = "milestone: the vault elevator opened (MQ03 30): stage = 30" },
+  { json = "observations.?label=milestone: Elijah contacted (MQ03 40).done.40", equals = true, label = "milestone: Elijah contacted (MQ03 40): done.40 = true" },
+  { json = "observations.?label=milestone: Elijah contacted (MQ03 40).stage", equals = 40, label = "milestone: Elijah contacted (MQ03 40): stage = 40" },
+  { json = "observations.?label=milestone: Elijah locked in, escape (MQ03 50).done.50", equals = true, label = "milestone: Elijah locked in, escape (MQ03 50): done.50 = true" },
+  { json = "observations.?label=milestone: Elijah locked in, escape (MQ03 50).stage", equals = 50, label = "milestone: Elijah locked in, escape (MQ03 50): stage = 50" },
+  { json = "observations.?label=milestone: NVDLC01MQ03 100 (Heist of the Centuries done).completed", equals = true, label = "milestone: NVDLC01MQ03 100 (Heist of the Centuries done): completed = true" },
+  { json = "observations.?label=milestone: NVDLC01MQ03 100 (Heist of the Centuries done).stage", equals = 100, label = "milestone: NVDLC01MQ03 100 (Heist of the Centuries done): stage = 100" },
+  { json = "observations.?label=milestone: the end slides started (NVDLC01Ending).running", equals = true, label = "milestone: the end slides started (NVDLC01Ending): running = true" },
+  { json = "observations.?label=milestone: the end slides started (NVDLC01Ending).var.bfailurestate", equals = 0.0, label = "milestone: the end slides started (NVDLC01Ending): var.bfailurestate = 0.0" },
+  { json = "observations.?label=milestone: the end slides said, bunker transition started.found", equals = true, label = "milestone: the end slides said, bunker transition started: found = true" },
+  { json = "observations.?label=final: the end slides over, the player back at the bunker (NVDLC01BunkerTransitionTimer faded out).running", equals = false, label = "final: the end slides over, the player back at the bunker (NVDLC01BunkerTransitionTimer faded out): running = false" },
+  { json = "observations.?label=final: the end slides over, the player back at the bunker (NVDLC01BunkerTransitionTimer faded out).var.bfadeoutdone", equals = 1.0, label = "final: the end slides over, the player back at the bunker (NVDLC01BunkerTransitionTimer faded out): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the Dead Money walkthrough report (addon-dm-report.md)"

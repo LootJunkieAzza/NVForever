@@ -107,6 +107,12 @@ const H_PASS: u32 = 0xF11;
 const H_FAIL: u32 = 0xF12;
 const I_BYE: u32 = 0xF21;
 const CELL: u32 = 0x200;
+/// A Voice note (holotape) whose topic's one line, fixed to NPC1, has begin and end
+/// result scripts.
+const NOTE_TAPE: u32 = 0xA60;
+const T_TAPE: u32 = 0xA61;
+const S_TAPE: u32 = 0xA62;
+const PATROL_REF: u32 = 0x322;
 const NPC1_REF: u32 = 0x320;
 const NPC2_REF: u32 = 0x321;
 
@@ -549,11 +555,16 @@ fn plugin_bytes() -> Vec<u8> {
         topic(T_PONG, "TestPong", "TestPong", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_PONG, quest: QA, ty: CONV, responses: one("Pong"), choices: vec![T_PING], ..L::default() }]),
         topic(T_RPING, "TestRPing", "TestRPing", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_RPING, quest: QREP, ty: CONV, responses: one("Ping"), choices: vec![T_RPONG], ..L::default() }]),
         topic(T_RPONG, "TestRPong", "TestRPong", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_RPONG, quest: QREP, ty: CONV, responses: one("Pong"), choices: vec![T_RPING], ..L::default() }]),
+        topic(T_TAPE, "TestTape", "TestTape", topic_type::TOPIC, 0, 50.0, vec![L { id: S_TAPE, quest: QA, speaker: me, responses: one("Tape"), begin: Some("6"), end: Some("7"), ..L::default() }]),
     ]
     .concat();
+    // DATA 3 Voice; SNAM the speaker, TNAM the topic (the NOTE unions, holotapes.md §1).
+    let note = record(b"NOTE", 0, NOTE_TAPE, &[sub(b"EDID", z("TestTapeNote")), sub(b"DATA", vec![3]), sub(b"SNAM", u32b(NPC1)), sub(b"TNAM", u32b(T_TAPE))]);
     let placed = |id: u32, base: u32, edid: &str| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TalkCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(NPC1_REF, NPC1, "TalkerREF"), placed(NPC2_REF, NPC2, "ChatterREF")].concat()));
+    // A patrol point whose result script (after XPPA) sets TestOut to 9.
+    let patrol = record(b"REFR", 0, PATROL_REF, &[vec![sub(b"EDID", z("PatrolREF")), sub(b"NAME", u32b(NPC2)), sub(b"XPRD", f32b(0.0)), sub(b"XPPA", vec![])], result(Some("9")), vec![sub(b"DATA", vec![0; 24])]].concat());
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(NPC1_REF, NPC1, "TalkerREF"), placed(NPC2_REF, NPC2, "ChatterREF"), patrol].concat()));
     [
         tes4(),
         top(b"GLOB", &globs),
@@ -561,6 +572,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"AVIF", &avif),
         top(b"NPC_", &npcs),
         top(b"QUST", &quests),
+        top(b"NOTE", &note),
         top(b"DIAL", &dial),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
@@ -1474,4 +1486,45 @@ fn a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats() {
         g.tick();
     }
     assert!(lines(&g) >= 4, "the repeating quest's ping-pong goes on: {} lines", lines(&g));
+}
+
+/// Playing a Voice note runs its line's result scripts: the begin script as it starts,
+/// the end script as it ends (`Game::holotape_script`; Dead Money's Dog command tape is
+/// how its quest reaches NVDLC01MQ01a 40, docs/spec-notes/holotapes.md §3). The runner's
+/// `play_note` runs both.
+#[test]
+fn a_voice_note_runs_its_lines_result_scripts() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 0), Some(FormId(S_TAPE)));
+    assert_eq!(out(&g), 6.0, "the begin script");
+    assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 1), Some(FormId(S_TAPE)));
+    assert_eq!(out(&g), 7.0, "the end script");
+    // Not a voice note: nothing runs.
+    assert_eq!(g.holotape_script(FormId(G_OUT), 0), None);
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [{"op": "play_note", "note": "TestTapeNote", "label": "tape"}, {"op": "get_global", "name": "TestOut", "label": "out"}]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = t["observations"].as_array().unwrap();
+    assert_eq!(obs[0]["info"], json!(FormId(S_TAPE).to_string()));
+    assert_eq!(obs[1]["value"], json!(7.0));
+}
+
+/// The runner's `patrol_point` stands in for an actor walking to a patrol point: the
+/// point's result script runs (`Game::patrol_point_reached`; Dead Money's vault path
+/// marker sets bElijahArrivesVault this way).
+#[test]
+fn the_runner_reaches_a_patrol_point() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [{"op": "patrol_point", "actor": "TalkerREF", "point": "PatrolREF"}, {"op": "get_global", "name": "TestOut", "label": "out"}]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    assert_eq!(t["steps"][0].get("error"), None, "{}", t["steps"][0]);
+    assert_eq!(t["observations"][0]["value"], json!(9.0));
 }
