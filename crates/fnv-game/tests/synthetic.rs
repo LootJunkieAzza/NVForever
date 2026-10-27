@@ -1176,6 +1176,27 @@ fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
 }
 
 #[test]
+fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
+    // Old World Blues' Think Tank and the end slides: a line whose fixed speaker (ANAM)
+    // is not the actor saying it has its voice file in the fixed speaker's folder only.
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    // Said by another base (or none): the fixed speaker's file times it.
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
+    assert_eq!(g.response_lengths_as(None, FormId(INFO_A)), vec![0.5]);
+    // A line without a fixed speaker and no file keeps the fitted length.
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC_AUTO)), FormId(INFO_B)), vec![1.2875]);
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
