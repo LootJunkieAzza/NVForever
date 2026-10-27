@@ -4112,10 +4112,10 @@ manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png
 [[scenario]]
 name = "perk-legion-lunge"
 source = "owner 2026-10-24: move the player forward during Legion Assault's lunge (docs/spec-notes/perk-entry-points.md §11.4)"
-note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.8 s). The distance is measured from the swing's start, and the key stays down a little after it (a first run: the swing began 0.53 s after Use, the key came up 0.26 s later; 394 units, about 60 of them walked), so the range allows up to about 90 walked; without the lunge it would be that walking alone"
+note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.6 s). The distance is measured from the swing's start, and the key stays down a little after it, so the range allows up to about 90 walked; without the lunge it would be that walking alone. The swing starts when Use has been held CombatTuning::power_hold (0.4 s): a first run had it 0.53 s after Use (394 units, about 60 walked) with the key up at 8.8 s, but on 2026-10-27 it began on time at 0.41 s and the 0.4 s still walked made 463, so the key now comes up at 8.6 s (about 70 walked on time, 25 when 0.13 s late)"
 areas = ["combat", "perks", "melee"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.8:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.6:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
 run_seconds = 14
 order = [[
@@ -5334,17 +5334,19 @@ name = "save-ai-write"
 source = "docs/design/save-load.md §3.3, §5 item 4: the residents' package progress (patrol points, sandbox days) goes into a save; save-ai-load reads it, so run them together"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
-env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0,21.5:moveto:CraigBooneREF:player:-300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
 run_seconds = 28
 expect = [
   { re = 'save: wrote .*smoke-ai\.nvfsave \(manual', label = "the save is written" },
   { re = 'DocMitchellREF: put at .* by a script \(MoveTo\)', label = "Doc Mitchell is moved out of his house before the save" },
+  { re = 'CraigBooneREF: put at .* by a script \(MoveTo\)', label = "Boone is moved from Novac to Goodsprings before the save" },
 ]
 
 [[scenario]]
 name = "save-ai-load"
 source = "docs/design/save-load.md §3.3, §5 item 4: loading save-ai-write's save puts the residents' package progress back; sandboxers go on with the day's times they had"
+note = "the actor saved outside its placed cell is Boone (placed in Novac), not Doc Mitchell: since 8e64ae95 (2026-10-26) the actors of interiors a door away from the loaded cells are residents from the start, so Doc (placed in his house) comes in that way, is drawn and walks on, and never reaches the placed-elsewhere step this checks"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
 env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
@@ -5353,7 +5355,7 @@ run_seconds = 24
 expect = [
   { re = 'load: package progress of (?P<n>\d+) residents kept', range = [1, 1000], label = "the save holds progress" },
   { re = 'goes on with .*(from the save|its sandbox day as saved)', label = "a resident goes on where the save had it" },
-  { re = 'DocMitchellREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
+  { re = 'CraigBooneREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
 ]
 
 [[scenario]]
@@ -6276,10 +6278,10 @@ expect = [
 [[scenario]]
 name = "flamer-burns-npc"
 source = "owner's playtest 2026-10-16: the player's flamer sets an NPC on fire; the burn has No Death Dispel, so a corpse burns on for the rest of its time (docs/spec-notes/hit-effects.md §4)"
-note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 6 s"
+note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 11 s. Moving him there loads the scripts that open about a dozen message boxes in a row (the pre-order packs, the add-ons' load messages: seen since 2026-10-26 at the latest); the trigger does nothing while one is up, so they close after 0.3 s and the weapon, aim and trigger wait until 9.5 s"
 areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "5.5:weapon,6.5:aimnpc,7:fire,10:fire", NVF_PLAY_TEST_SHOTS = "9:npc_burning.png,12:npc_burning2.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "9.5:weapon,10.5:aimnpc,11:fire,14:fire", NVF_PLAY_TEST_SHOTS = "13:npc_burning.png,16:npc_burning2.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
