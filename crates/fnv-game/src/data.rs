@@ -870,6 +870,9 @@ pub struct GameData {
     pub edid_of: HashMap<FormId, String>,
     /// Record header flags of the winning records that have any (GetFlagsLow/High).
     pub form_flags: HashMap<FormId, u32>,
+    /// Where each inventory item form was first defined: (plugin, place among its records),
+    /// for GetLoadedTypeArray's order.
+    pub item_order: HashMap<FormId, (u8, u32)>,
     /// OBND of the base forms that have one ([`BOUNDS_SIGS`]): min x, y, z, max x, y, z.
     pub object_bounds: HashMap<FormId, [i16; 6]>,
     /// The name the player sees (FULL) of every winning record that has one.
@@ -1573,6 +1576,15 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            item_order: lo
+                .index
+                .iter()
+                .filter_map(|(&g, defs)| {
+                    let first = defs.first()?;
+                    let r = lo.records[first.plugin as usize][first.ordinal as usize];
+                    crate::functions::items::form_type_code(&r.header.sig).map(|_| (FormId(g), (first.plugin, first.ordinal)))
+                })
+                .collect(),
             object_bounds: winners
                 .par_iter()
                 .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
@@ -1989,9 +2001,24 @@ impl GameData {
     }
 
     /// The loaded forms whose type has that form type code
-    /// (`functions::items::form_type_code`).
+    /// (`functions::items::form_type_code`), in the game's order: the forms below 0x800
+    /// first, highest first, then each plugin's records in file order, in load order;
+    /// forms without a place in a file last [observed: glta-order, GasTrapDummy 1F6 then
+    /// Fists 1F4, then FalloutNV.esm's WEAP records as the file has them, the last
+    /// plugin's last; hypothesis: the low forms' order].
     pub fn forms_of_type(&self, code: i32) -> Vec<FormId> {
-        self.sigs.iter().filter(|(_, s)| crate::functions::items::form_type_code(s) == Some(code)).map(|(&f, _)| f).collect()
+        let mut out: Vec<FormId> = self.sigs.iter().filter(|(_, s)| crate::functions::items::form_type_code(s) == Some(code)).map(|(&f, _)| f).collect();
+        out.sort_by_key(|f| {
+            if f.0 < 0x800 {
+                (0u8, u8::MAX - (f.0 >> 8) as u8, u64::from(u32::MAX - f.0))
+            } else {
+                match self.item_order.get(f) {
+                    Some(&(p, o)) => (1, p, u64::from(o)),
+                    None => (2, 0, u64::from(f.0)),
+                }
+            }
+        });
+        out
     }
 
     pub fn sig(&self, id: FormId) -> Option<[u8; 4]> {

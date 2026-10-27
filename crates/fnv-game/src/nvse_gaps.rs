@@ -955,14 +955,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let items: Vec<XVal> = g.world.base_entries(b).unwrap_or_default().iter().map(|e| XVal::Ref(e.item.0)).collect();
             list(g, items)
         }
-        // `typeCode [modIndex]`: the loaded forms of the type in FormID order, of one
-        // plugin when given [observed: gaps1, weapons 496 in all, 265 of FalloutNV.esm,
-        // the first 000001F6; aid 226 and 189].
+        // `typeCode [modIndex]`: the loaded forms of the type in the game's order
+        // (`GameData::forms_of_type`), of one plugin when given [observed: gaps1, weapons
+        // 496 in all, 265 of FalloutNV.esm; aid 226 and 189].
         "getloadedtypearray" => {
             let code = num(args, 0, -1.0) as i32;
             let plugin = args.get(1).map(|_| num(args, 1, 0.0) as u32);
-            let mut forms: Vec<FormId> = g.data.forms_of_type(code).into_iter().filter(|f| plugin.is_none_or(|p| f.0 >> 24 == p)).collect();
-            forms.sort();
+            let forms: Vec<FormId> = g.data.forms_of_type(code).into_iter().filter(|f| plugin.is_none_or(|p| f.0 >> 24 == p)).collect();
             let forms = forms.into_iter().map(|f| XVal::Ref(f.0)).collect();
             list(g, forms)
         }
