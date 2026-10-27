@@ -5,189 +5,189 @@
  "start": "any save (read-only)",
  "steps": [
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nrPlayer.AuxVarSetFlt \"*nvfRC\" (GetWeatherRGBColor rW8 3 1)\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nrPlayer.AuxVarSetFlt \"*nvfRC\" (GetWeatherRGBColor rW8 3 1)\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.save",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100100100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100256100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100256100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100256100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100300100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100300100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100300100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100511100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100511100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100511100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100512100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100512100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100512100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100999100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100999100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100999100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100256\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100256\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100100256",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100300\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100300\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100100300",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100999\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100100999\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100100999",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100300300\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100300300\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100300300",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100999999\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100999999\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100999999",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 256100100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 256100100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.256100100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 999100100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 999100100\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.999100100",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100255255\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100255255\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100255255",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100255256\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 100255256\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.100255256",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt \"*nvfRC\")\nrPlayer.AuxVarErase \"*nvfRC\"\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt \"*nvfRC\")\nrPlayer.AuxVarErase \"*nvfRC\"\nSetFunctionValue (sv_Construct \"%.0f\" (GetWeatherRGBColor rW8 3 1))\nEnd\n",
    "label": "rgb.restore",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/visible\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/visible\")\nEnd\n",
    "label": "ui.hud.visible",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
    "label": "ui.hud.alpha",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/x\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/x\")\nEnd\n",
    "label": "ui.hud.x",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/y\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/y\")\nEnd\n",
    "label": "ui.hud.y",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/width\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/width\")\nEnd\n",
    "label": "ui.hud.width",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/height\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/height\")\nEnd\n",
    "label": "ui.hud.height",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/depth\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/depth\")\nEnd\n",
    "label": "ui.hud.depth",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nrPlayer.AuxVarSetFlt \"*nvfUA\" (GetUIFloat \"HUDMainMenu/alpha\")\nSetFunctionValue 1\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nrPlayer.AuxVarSetFlt \"*nvfUA\" (GetUIFloat \"HUDMainMenu/alpha\")\nSetFunctionValue 1\nEnd\n",
    "label": "ui.alpha.save",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetUIFloat \"HUDMainMenu/alpha\" 128\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetUIFloat \"HUDMainMenu/alpha\" 128\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
    "label": "ui.alpha.set",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
    "label": "ui.alpha.next",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue 1\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue 1\nEnd\n",
    "label": "ui.alpha.wait0",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue 1\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue 1\nEnd\n",
    "label": "ui.alpha.wait1",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue 1\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue 1\nEnd\n",
    "label": "ui.alpha.wait2",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
    "label": "ui.alpha.later",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetUIFloat \"HUDMainMenu/alpha\" (rPlayer.AuxVarGetFlt \"*nvfUA\")\nrPlayer.AuxVarErase \"*nvfUA\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetUIFloat \"HUDMainMenu/alpha\" (rPlayer.AuxVarGetFlt \"*nvfUA\")\nrPlayer.AuxVarErase \"*nvfUA\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/alpha\")\nEnd\n",
    "label": "ui.alpha.restore",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nlet fRes := GetUIFloat \"HUDMainMenu/depth\"\nSetUIFloat \"HUDMainMenu/depth\" (fRes + 1)\nlet fRes := (GetUIFloat \"HUDMainMenu/depth\") - fRes\nSetUIFloat \"HUDMainMenu/depth\" ((GetUIFloat \"HUDMainMenu/depth\") - 1)\nSetFunctionValue fRes\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nlet fRes := GetUIFloat \"HUDMainMenu/depth\"\nSetUIFloat \"HUDMainMenu/depth\" (fRes + 1)\nlet fRes := (GetUIFloat \"HUDMainMenu/depth\") - fRes\nSetUIFloat \"HUDMainMenu/depth\" ((GetUIFloat \"HUDMainMenu/depth\") - 1)\nSetFunctionValue fRes\nEnd\n",
    "label": "ui.depth.set",
    "field": "value"
   },
   {
-   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetCurrentWeather\nSetUIFloat \"HUDMainMenu/nvfnone\" 5\nSetFunctionValue (GetUIFloat \"HUDMainMenu/nvfnone\")\nEnd\n",
+   "query": "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW8 := GetFormFromMod \"FalloutNV.esm\" \"171285\"\nSetUIFloat \"HUDMainMenu/nvfnone\" 5\nSetFunctionValue (GetUIFloat \"HUDMainMenu/nvfnone\")\nEnd\n",
    "label": "ui.missingtrait.set",
    "field": "value"
   }

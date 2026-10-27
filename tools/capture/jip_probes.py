@@ -1998,8 +1998,9 @@ PROJECTILE_PROBES = _proj_steps()
 # GetWeatherTraitNumeric 0-20, GetWeatherRGBColor types 0-9 / times 0-5 / layers 0-3,
 # GetImageSpaceTrait 0-32, GetImageSpaceModTrait 0-67]. Forms from fnvtool esm inventory
 # [observed]: EMTMedicalBeep01 (SOUN) 174325, HazmatImageSpace (IMGS) 0542F2,
-# FadeToBlack9sISFX (IMAD) 173904; the weather is whatever GetCurrentWeather gives at the
-# airport. A string_var as SetSoundSourceFile's path does not compile ($sText), so
+# FadeToBlack9sISFX (IMAD) 173904. The weather rows name the weather the save has current
+# at the airport (wth.current: 00171285) directly, so they test the trait functions and
+# not which weather the save happens to have (a headless run cannot know that). A string_var as SetSoundSourceFile's path does not compile ($sText), so
 # the sound's path is put back as a literal. Each setter's row is followed by a row putting the old value back (session
 # only, never saved).
 FX.update(beep="174325", hazmat="542F2", fadeblack="173904")
@@ -2017,7 +2018,7 @@ def _skv(pid, pre, expr, text=False):
 _SND = _form("rObj", FX["beep"])
 _IMGS = _form("rObj", FX["hazmat"])
 _IMAD = _form("rObj", FX["fadeblack"])
-_WTH = "let rW8 := GetCurrentWeather\n"
+_WTH = _form("rW8", "171285")
 
 SKY_SOUND_PROBES = (
     # Sound.
@@ -2037,7 +2038,7 @@ SKY_SOUND_PROBES = (
        _sk("snd.play", _SND + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)"),
        _skv("snd.playing.next", _SND, "IsSoundPlaying rObj")]
     # Weather.
-    + [_skv("wth.current", _WTH, "GetFormIDString rW8", True),
+    + [_skv("wth.current", "let rW8 := GetCurrentWeather\n", "GetFormIDString rW8", True),
        _skv("wth.percent", "", "Ceil ((GetCurrentWeatherPercent) * 100)")]
     + [_skv(f"wth.trait.{i}", _WTH, f"GetWeatherTraitNumeric rW8 {i}") for i in range(21)]
     + [_sk("wth.trait.set", _WTH + 'let fRes := GetWeatherTraitNumeric rW8 4\nrPlayer.AuxVarSetFlt "*nvfWT" fRes\n'
@@ -2497,7 +2498,7 @@ _HUD_TRAITS = ["visible", "alpha", "x", "y", "width", "height", "depth"]
 
 def _ru(pid, body, text=False):
     return (pid, "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
-            + "let rW8 := GetCurrentWeather\n" + body, text, None, "")
+            + _form("rW8", "171285") + body, text, None, "")
 
 
 _RGBREAD = 'SetFunctionValue (sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1))'
