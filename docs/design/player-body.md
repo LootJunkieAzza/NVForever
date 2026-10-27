@@ -138,7 +138,8 @@ owner, 2026-10-27]:
   (`nvf_play::control`); a single tap reloads 0.25 s later than before for that.
 - Aiming, the trigger and an attack bring it up at once and keep it up 0.6 s; a reload
   keeps it up for the reload clip's length. Aiming, the trigger and putting the weapon
-  away also end a lowering by hand. Shots still leave from the view.
+  away also end a lowering by hand. Shots still leave from the view; firing is never
+  blocked while lowered (owner ruling 2026-10-27).
 - The pose turns the arms about the eye (pitched 9° down, turned 10° in, canted 5°), on
   top of the sway, so nothing near the camera rises into the view: turned about the
   hands, the sleeves swung up across it. Rifles take 80 % of it, heavy weapons and
