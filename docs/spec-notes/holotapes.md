@@ -74,6 +74,16 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
   note]. The length is the responses' lengths added up; the clock stands while the
   note is paused or held. The Radio tab's waveform is not shown for a note [documented:
   `MM_WaveformRect` is visible on the Radio tab only].
+- **Its result scripts.** A Voice note's line has its begin script run as the tape
+  starts and its end script as it ends, on the player as `self`
+  (`Game::holotape_script`) [hypothesis: Dead Money's Dog command tape
+  (NVDLC01DogCommandNote, line 0x0100DFC7) is the only way its quest has to reach
+  NVDLC01MQ01a 40 and to hand Dog to God, so the original runs the line's scripts; on
+  whom is not known: the DM tape lines name every reference they touch]. The runner's
+  `play_note` runs both at once (scripts.md §8). Not yet called by `nvf-play`
+  (`holotape.rs` plays the voice only): a hard stall there until it calls
+  `holotape_script(note, 0)` on the pick and `(note, 1)` when the queue runs out
+  (found by the Dead Money walkthrough, crates/fnv-game/walkthrough/dead-money.actions.json).
 - **A Sound note** plays its SOUN once at the listener (`crate::sfx::PlaySound`) and
   cannot be stopped [hypothesis; no master note uses it].
 - Not built: the subtitles of a holotape's responses (whether the original shows them is

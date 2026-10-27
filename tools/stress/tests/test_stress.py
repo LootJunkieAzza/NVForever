@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from stress import battle, cells, lib, soak, tour  # noqa: E402
+from stress import battle, cells, lib, markers, soak, tour  # noqa: E402
 
 REPORT = textwrap.dedent("""\
     NVForever 0.2.0 crashed (panic)
@@ -88,6 +88,52 @@ class CellsTest(unittest.TestCase):
                  "INFO nvf_play::stress: stress cell: 2/3 skipped: not in the worldspace's grid",
                  "INFO nvf_play::stress: stress cell: 3/3 start exterior ..."]
         self.assertEqual(cells.read_batch(lines), {"loaded": {1: 1.25}, "skipped": {2: "not in the worldspace's grid"}, "last_started": 3})
+
+    def test_missing_files_and_script_errors_go_to_the_cell_being_visited(self):
+        lines = ["stress cell: 1/2 start interior 00010C0E GSGeneralStore",
+                 "WARN nvf_assets::guard: model not loaded: meshes\\x\\a.nif: no such file",
+                 "stress cell: 1/2 loaded in 1.25 s interior 00010C0E GSGeneralStore",
+                 "WARN nvf_assets::guard: texture not loaded: textures\\b.dds: bad header",
+                 "stress cell: 2/2 start interior 00010C0F Other",
+                 "WARN nvf_play::script: script error in FalloutNV.esm|SCPT 0x00012345: step budget of 100000 statements exceeded",
+                 "WARN nvf_assets::guard: model not loaded: meshes\\x\\a.nif: no such file"]
+        p = cells.read_problems(lines)
+        self.assertEqual(sorted(p), [1, 2])
+        self.assertEqual(p[1]["model"], ["meshes\\x\\a.nif: no such file"])
+        self.assertEqual(len(p[1]["texture"]), 1)
+        self.assertEqual(sorted(p[2]), ["model", "script"])
+        rows = [{"cell": "A", "status": "ok", "seconds": 1, "problems": p[1]}, {"cell": "B", "status": "ok", "seconds": 1, "problems": p[2]}]
+        s = cells.problem_summary(rows)
+        self.assertEqual((s["model"]["cells"], s["model"]["distinct"], s["model"]["top"][0]["cells"]), (2, 1, 2))
+        self.assertEqual(s["script"]["top"][0]["what"], "FalloutNV.esm|SCPT 0x00012345: step budget of # statements exceeded")
+        self.assertTrue(any("Missing files" in ln for ln in cells.report(cells.summarize(rows, [], 1))))
+
+    def test_markers_come_from_the_map_marker_references(self):
+        wl = {"worldspaces": [{"formid": "0x000DA726", "edid": "WastelandNV"}]}
+        refs = {"0x000DA726": {"refs": [{"formid": "0x00090A7B", "base": "0x00000010"}, {"formid": "0x00090A7C", "base": "0x00000011"},
+                                        {"formid": "0x00090A7D", "base": "0x00000010", "deleted": True}]}}
+        ms = markers.markers_from_json(wl, refs)
+        self.assertEqual([m.name() for m in ms], ["WastelandNV:00090A7B"])
+        a = markers.aids(ms + [markers.Marker("00090A7E", "000DA726", "WastelandNV")], every=30)
+        self.assertIn("ShowAllMapMarkers:1:1:0", a["NVF_PLAY_TEST_SCRIPT"])
+        self.assertEqual(a["NVF_PLAY_TEST_PIPBOY"].split(",")[:4], ["8:open", "8.5:page=data", "9:travel=0x00090A7B", "10:key=use"])
+        self.assertTrue(a["NVF_PLAY_TEST_PIPBOY"].split(",")[4].startswith("38:"))
+
+    def test_a_markers_log_gives_refusals_trips_arrivals_and_problems(self):
+        part = [markers.Marker("00090A7B", "000DA726", "W"), markers.Marker("00090A7C", "000DA726", "W"), markers.Marker("00090A7D", "000DA726", "W")]
+        lines = [f"INFO test aid: pipboy Travel({0x90A7B}) at 9.0 s",
+                 "INFO fast travel: to Goodsprings (00090A7B): arrive at the marker [1, 2, 3], 10 units away, 0.10 hours on the clock",
+                 "INFO loading screen up: x for worldspace 000DA726",
+                 "WARN model not loaded: meshes\\a.nif: gone",
+                 "INFO loading screen down after 3.50 s",
+                 f"INFO test aid: pipboy Travel({0x90A7C}) at 39.0 s",
+                 "INFO fast travel: to Primm (00090A7C) refused (HostilesNear); the box says \"...\"",
+                 f"INFO test aid: pipboy Travel({0x90A7D}) at 69.0 s"]
+        seen = markers.read_batch(lines, part)
+        self.assertEqual(seen[0]["arrived"], 3.5)
+        self.assertEqual(seen[0]["problems"]["model"], ["meshes\\a.nif: gone"])
+        self.assertEqual(seen[1]["refused"], "HostilesNear")
+        self.assertEqual([markers.status(seen[i]) for i in range(3)], ["ok", "refused", "no trip"])
 
     def test_a_crash_ends_its_batch_and_the_sweep_goes_on_after_the_cell(self):
         cs = fake_world()

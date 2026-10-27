@@ -22,8 +22,22 @@ impl Game<'_> {
     /// response's voice file [hypothesis: the game ends a line when its sound ends; the
     /// intro's stage timings compare both lengths with the capture, voice.md §8], else
     /// the length fitted to its text.
+    ///
+    /// A line with a fixed speaker (INFO `ANAM`) said by another actor (its own GetIsID
+    /// condition lets that actor say it, `Game::can_say_as`) has its file in the fixed
+    /// speaker's voice folder, not in the actor's: the speaker's own voice is tried
+    /// first, then the fixed speaker's [observed: Old World Blues' Think Tank lines
+    /// spoken through Dr. Klein with ANAM Dr. 8 or Dr. O (INFO 010134BA) and the end
+    /// slides with ANAM a Boomer said by the narrator (INFO 001614B2) exist only in the
+    /// fixed speaker's folder (`fnvtool voice line`); voice.md §3.1: 22,252 of 22,589
+    /// fixed-speaker responses are in that speaker's folder; hypothesis: the game plays
+    /// that file; found by walkthrough/old-world-blues.actions.json].
     pub fn response_seconds_as(&self, speaker_base: Option<FormId>, info: FormId, response: usize) -> f64 {
-        let sound = self.voice.as_ref().and_then(|v| v.response_seconds(info, response, speaker_base));
+        let voice = self.voice.as_ref();
+        let sound = voice.and_then(|v| v.response_seconds(info, response, speaker_base)).or_else(|| {
+            let fixed = self.data.infos.get(&info).and_then(|d| d.speaker).filter(|s| Some(*s) != speaker_base)?;
+            voice?.response_seconds(info, response, Some(fixed))
+        });
         sound.unwrap_or_else(|| {
             let chars = self.data.infos.get(&info).and_then(|d| d.response_chars.get(response)).copied().unwrap_or(0);
             fitted_seconds(chars)

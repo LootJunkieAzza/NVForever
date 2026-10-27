@@ -19,6 +19,5 @@ rand_chacha = "0.9"
 rayon = "1"
 tracing = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-
-[dev-dependencies]
+# The runner's save_load op writes and reads the save container.
 fnv-save = { path = "../fnv-save" }
