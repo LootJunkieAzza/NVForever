@@ -78,6 +78,7 @@ nothing is marked or loosened for them.
 | proj1 | 76 | none (engine side) | – | a live 10mm projectile found by ref-walking in flight: its getters, then SetProjectileRefSpeedMult/Damage/Source read back the same frame and the next |
 | controls1 | 436 | none (engine side) | – | GetControl bindings (this install's), SetControl and back, HoldControl/ReleaseControl Forward (movement), SetWeaponOut 1/0 and HolsterWeapon over 120 frames |
 | hud1 | 139 | none (engine side) | – | HUD visibility override, shudder, reticle position and limb, the corner-message queue, compass hostiles and targets before and during a fight |
+| showoff1 | 202 | none (engine side) | – | ShowOff:OnAdd with GetAddedItemRefShowOff, ShowOff:OnExplosionHit with Get/SetExplosionHitDamage (handlers of 0 and 2 args), SetOnAuxTimerStopHandler on expiry and AuxTimerStop 1, ForceWeaponJamAnim away and drawn |
 
 ## Coverage
 

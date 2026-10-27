@@ -4459,6 +4459,96 @@ HUD1_PROBES = (
     + _h1compass("after")
 )
 
+
+# showoff1 (writes, session only): the ShowOff functions the mod lists use that no set read
+# (docs/handoff/modlist-function-counts.json). The event pages are not in the wiki dump, so
+# each event gets two handlers, one taking no arguments and one taking two refs, and the
+# rows say which ran and what they got [observed only]. ShowOff:OnAdd: the player is given
+# a stimpak (15169); GetAddedItemRefShowOff inside the handler, and its base's type. ShowOff:OnExplosionHit: the
+# player's Health is raised by 1000 and a MineFragExplosion (07078B) is placed at the
+# player; GetExplosionHitDamage read, SetExplosionHitDamage 5 set, and the Health lost
+# compared. SetOnAuxTimerStopHandler on the player's timer "*nvfST": started for 0.1 s and
+# left to run out, then started again and stopped with AuxTimerStop 1 (fire the event).
+# ForceWeaponJamAnim on the player with the 10mm pistol away, then drawn (SetWeaponOut 1,
+# 40 frames), with IsAnimPlayingEx 4 kept over 60 frames after. Handlers are removed, Health,
+# the weapon and the stimpak put back.
+def _so1(pid, body, text=False):
+    return (f"showoff1.{pid}", "ref rP\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _so1v(pid, expr):
+    return _so1(pid, f"SetFunctionValue ({expr})")
+
+
+def _so1w(pid, n):
+    return [_so1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _so1aux(tag, names):
+    return [_so1v(f"{tag}.{n}.size", f'rP.AuxVarSize "*nvfS1.{n}"') for n in names] + [
+        _so1v(f"{tag}.{n}.0", f'rP.AuxVarGetFlt "*nvfS1.{n}" 0') for n in names]
+
+
+_SO1_ADD0 = ("add0.count", "add0.isref", "add0.base.type")
+_SO1_ADD2 = ("add2.count", "add2.a.type", "add2.b.player")
+_SO1_EXP0 = ("exp0.count", "exp0.damage")
+_SO1_EXP2 = ("exp2.count", "exp2.a.player", "exp2.b.isref", "exp2.b.type")
+_SO1_TIM = ("tim.count", "tim.owner.player")
+_SO1_ALL = _SO1_ADD0 + _SO1_ADD2 + _SO1_EXP0 + _SO1_EXP2 + _SO1_TIM
+
+
+def _so1set(n, expr):
+    return f'  rP.AuxVarSetFlt "*nvfS1.{n}" ({expr}) -1\n'
+
+
+SHOWOFF1_PROBES = (
+    # OnAdd.
+    [_so1("add.reg", 'SetEventHandler "ShowOff:OnAdd" (Begin Function { }\n  let rObj := GetAddedItemRefShowOff\n'
+          + _so1set("add0.count", "1") + _so1set("add0.isref", "IsReference rObj") + _so1set("add0.base.type", "GetType (rObj.GetBaseObject)")
+          + 'End)\nSetEventHandler "ShowOff:OnAdd" (Begin Function {ref rA, ref rB}\n'
+          + _so1set("add2.count", "1") + _so1set("add2.a.type", "GetType rA") + _so1set("add2.b.player", "rB == rP")
+          + "End)\nSetFunctionValue 1"),
+     _so1("add.give", _form("rObj", NF["stimpak"]) + "rP.AddItem rObj 1 1\nSetFunctionValue 1")]
+    + _so1w("add.wait", 5)
+    + _so1aux("add", _SO1_ADD0 + _SO1_ADD2)
+    # OnExplosionHit.
+    + [_so1("exp.reg", 'SetEventHandler "ShowOff:OnExplosionHit" (Begin Function { }\n'
+            + _so1set("exp0.count", "1") + _so1set("exp0.damage", "GetExplosionHitDamage") + "  SetExplosionHitDamage 5\n"
+            + 'End)\nSetEventHandler "ShowOff:OnExplosionHit" (Begin Function {ref rA, ref rB}\n'
+            + _so1set("exp2.count", "1") + _so1set("exp2.a.player", "rA == rP") + _so1set("exp2.b.isref", "IsReference rB") + _so1set("exp2.b.type", "GetType rB")
+            + "End)\nSetFunctionValue 1"),
+       _so1("exp.boost", 'rP.ModAV Health 1000\nlet fRes := rP.GetAV Health\nrP.AuxVarSetFlt "*nvfS1H" fRes\nSetFunctionValue 1'),
+       _so1("exp.boom", _form("rObj", "7078B") + "rP.PlaceAtMe rObj 1\nSetFunctionValue 1")]
+    + _so1w("exp.wait", 10)
+    + _so1aux("exp", _SO1_EXP0 + _SO1_EXP2)
+    + [_so1v("exp.health.lost", '(rP.AuxVarGetFlt "*nvfS1H") - (rP.GetAV Health)'),
+       _so1("exp.restore", 'rP.ModAV Health -1000\nrP.RestoreAV Health 2000\nrP.AuxVarErase "*nvfS1H"\nSetFunctionValue 1')]
+    # Aux timer stops.
+    + [_so1("tim.reg", 'SetOnAuxTimerStopHandler 1 (Begin Function {string_var sName, ref rOwner}\n'
+            + _so1set("tim.count", "1") + _so1set("tim.owner.player", "rOwner == rP") + 'End) "*nvfST" rP\n'
+            'rP.AuxTimerStart "*nvfST" 0.1\nSetFunctionValue 1')]
+    + _so1w("tim.wait", 30)
+    + [_so1v("tim.expired.count", 'rP.AuxVarSize "*nvfS1.tim.count"'),
+       _so1v("tim.expired.left", 'rP.AuxTimerTimeLeft "*nvfST"'),
+       _so1("tim.restart", 'rP.AuxTimerStart "*nvfST" 30\nSetFunctionValue (rP.AuxTimerStop "*nvfST" 1)')]
+    + _so1w("tim.stopwait", 3)
+    + [_so1v("tim.stopped.count", 'rP.AuxVarSize "*nvfS1.tim.count"'),
+       _so1v("tim.owner.0", 'rP.AuxVarGetFlt "*nvfS1.tim.owner.player" 0')]
+    # The jam animation.
+    + [_so1("jam.add", _form("rObj", NF["pistol10"]) + "rP.AddItem rObj 1 1\nrP.EquipItem rObj 0 1\nSetFunctionValue 1")]
+    + _so1w("jam.addwait", 10)
+    + [_so1v("jam.away", "rP.ForceWeaponJamAnim"),
+       _so1("jam.draw", "rP.SetWeaponOut 1\nSetFunctionValue 1")]
+    + _so1w("jam.drawwait", 40)
+    + [_so1v("jam.drawn", "rP.IsWeaponOut"),
+       _so1("jam.force", 'rP.AuxVarSetFlt "*nvfS1J" 0\nSetFunctionValue (rP.ForceWeaponJamAnim)')]
+    + [_so1(f"jam.f{i}", 'if (rP.IsAnimPlayingEx 4 0 0)\nrP.AuxVarSetFlt "*nvfS1J" 1\nendif\nSetFunctionValue 1') for i in range(60)]
+    + [_so1v("jam.reload.ever", 'rP.AuxVarGetFlt "*nvfS1J"'),
+       _so1("jam.cleanup", _form("rObj", NF["pistol10"]) + "rP.SetWeaponOut 0\nrP.UnequipItem rObj 0 1\nrP.RemoveItem rObj 1 1\n"
+            + _form("rObj", NF["stimpak"]) + "rP.RemoveItem rObj 1 1\n" + 'rP.AuxVarErase "*nvfS1J"\n'
+            + "".join(f'rP.AuxVarErase "*nvfS1.{n}"\n' for n in _SO1_ALL) + "SetFunctionValue 1")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4513,11 +4603,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "sound1": SOUND1_PROBES,
         "proj1": PROJ1_PROBES,
         "controls1": CONTROLS1_PROBES,
-        "hud1": HUD1_PROBES}
+        "hud1": HUD1_PROBES,
+        "showoff1": SHOWOFF1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1"}
 
 
 def script(body):
