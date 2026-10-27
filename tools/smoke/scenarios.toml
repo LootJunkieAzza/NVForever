@@ -4655,6 +4655,8 @@ expect = [
   { re = 'companion wheel: stay_follow \(Wait\): CraigBooneREF says \S+ \(FollowersWait\)', label = "Wait says his FollowersWait line" },
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerWAIT', label = "his Wait package after the wheel closes" },
   { re = 'companion wheel: stay_follow \(Follow\): CraigBooneREF says \S+ \(FollowersLetsGo\)', label = "Follow says his Let's Go line" },
+  { re = 'companion wheel: stay_follow now shows Follow', label = "Wait shows on the wheel as soon as it is pressed (owner, 2026-10-27)" },
+  { re = 'companion wheel: stay_follow now shows Wait', label = "Follow (Let's Go's end script) takes effect as soon as it is pressed (owner, 2026-10-27)" },
   { re = 'companion wheel: near_far \(Far\): CraigBooneREF says \S+ \(FollowersTacticsDistanceLong\)', label = "Far says the long-distance line" },
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerLONG', label = "his long Follow package" },
   { re = 'companion wheel: aggressive_passive \(Aggressive\): CraigBooneREF says \S+ \(FollowersTacticsCombatAggressive\)', label = "Aggressive" },

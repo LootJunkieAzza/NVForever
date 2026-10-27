@@ -1296,6 +1296,36 @@ fn combat_hits_damage_health_kill_and_reward() {
     assert!(r.died && r.xp == 0.0);
 }
 
+/// A hired companion's kill earns the player the same XP as the player's own (owner,
+/// 2026-10-27); anyone else's earns none.
+#[test]
+fn a_hired_companions_kill_earns_the_player_xp() {
+    use fnv_game::combat::HitInfo;
+    let f = fixture();
+    let (npc, mate) = (FormId(NPC_REF), FormId(NPC_AUTO_REF));
+    let by_mate = HitInfo { attacker: Some(mate), weapon: None, location: 1, critical: false, limb: None };
+    // Not hired: no XP.
+    let mut g = game(&f);
+    g.new_game();
+    let r = g.hit(npc, 60.0, by_mate);
+    assert!(r.died && r.xp == 0.0 && g.player.xp == 0.0);
+    // Hired: the player's 20 XP for a level 4 NPC.
+    let mut g = game(&f);
+    g.new_game();
+    g.extra.entry(mate).or_default().teammate = true;
+    let r = g.hit(npc, 60.0, by_mate);
+    assert!(r.died && g.extra[&npc].killer == Some(mate));
+    assert_eq!((r.xp, g.player.xp), (20.0, 20.0));
+    // The player's and the companion's damage count together towards the share.
+    let mut g = game(&f);
+    g.new_game();
+    g.extra.entry(mate).or_default().teammate = true;
+    g.hit(npc, 20.0, HitInfo { attacker: Some(FormId::PLAYER_REF), ..by_mate });
+    g.hit(npc, 20.0, HitInfo { attacker: None, ..by_mate });
+    let r = g.hit(npc, 20.0, by_mate);
+    assert!(r.died && r.xp == 20.0, "{r:?}");
+}
+
 /// Gone parts: IsLimbGone, GetKillingBlowLimb, KillActor's limb, the Dismembered Limbs
 /// statistic (docs/spec-notes/dismemberment.md §5).
 #[test]

@@ -423,6 +423,10 @@ fn apply(
                 }
                 s.buttons = with_world(rt, &mut sim, |rt| rt.game.wheel_buttons(c));
                 s.refreshed = time.elapsed_secs();
+                // The command took effect as the reply started (`Game::wheel_command`).
+                if let Some(b) = s.buttons.iter().find(|b| b.command == command) {
+                    info!("companion wheel: {} now shows {}", command.name(), b.label);
+                }
             }
         }
     }

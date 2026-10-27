@@ -404,6 +404,15 @@ impl Game<'_> {
         Some((d.unarmed_effect?, d.unarmed_anim.as_deref()))
     }
 
+    /// Whether a kill by `killer` earns the player experience: the player's, and a hired
+    /// companion's (a teammate's), the same experience as the player's own kill [owner,
+    /// 2026-10-27: "companion kills should net you experience if they are hired"]. Their
+    /// damage counts together towards the share kill XP asks for ([`Game::kill_xp`])
+    /// [design].
+    pub fn kill_earns_xp(&self, killer: FormId) -> bool {
+        killer == FormId::PLAYER_REF || self.is_teammate(killer)
+    }
+
     /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an
     /// essential actor (who falls unconscious) and killing the others at 0, the effect's
     /// caster the killer (docs/spec-notes/hit-effects.md §4).
@@ -418,9 +427,10 @@ impl Game<'_> {
         let amount = amount * self.damage_mult(caster, target);
         let dealt = amount.max(0.0).min((before - floor).max(0.0));
         actor::add_damage(self, target, HEALTH, dealt);
+        let players_side = caster.is_some_and(|c| self.kill_earns_xp(c));
         {
             let e = self.extra.entry(target).or_default();
-            if caster == Some(FormId::PLAYER_REF) {
+            if players_side {
                 e.player_damage += dealt;
             }
             e.total_damage += dealt;
@@ -428,7 +438,7 @@ impl Game<'_> {
         if before - dealt <= floor {
             if essential {
                 self.knock_out(target, crate::unconscious::Cause::Essential, caster);
-            } else if self.kill(target, caster) && caster == Some(FormId::PLAYER_REF) {
+            } else if self.kill(target, caster) && caster.is_some_and(|c| self.kill_earns_xp(c)) {
                 let xp = self.kill_xp(target);
                 crate::experience::award(self, crate::experience::Source::Kill, xp);
             }
@@ -464,10 +474,11 @@ impl Game<'_> {
         self.jip.hits.insert(target, rec);
         self.jip_event("hit", Some(target), Vec::new());
         actor::add_damage(self, target, HEALTH, dealt);
+        let players_side = info.attacker.is_some_and(|a| self.kill_earns_xp(a));
         {
             let e = self.extra.entry(target).or_default();
             e.last_hit = Some(crate::game::LastHit { attacker: info.attacker, weapon: info.weapon, location: info.location, critical: info.critical });
-            if Some(FormId::PLAYER_REF) == info.attacker {
+            if players_side {
                 e.player_damage += dealt;
             }
             e.total_damage += dealt;
@@ -521,7 +532,7 @@ impl Game<'_> {
                 if out.died {
                     out.overkill = (damage - dealt).max(0.0);
                 }
-                if out.died && info.attacker == Some(FormId::PLAYER_REF) {
+                if out.died && info.attacker.is_some_and(|a| self.kill_earns_xp(a)) {
                     let xp = self.kill_xp(target);
                     out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
                 }
