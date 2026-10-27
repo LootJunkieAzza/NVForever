@@ -1,6 +1,6 @@
 # Design: a 3D scope (the zoomed world on the gun's lens)
 
-Feasibility study, 2026-10-26. Not built. The scope as it stands (the MOD3 picture drawn
+Feasibility study, 2026-10-26; a test version is built behind a switch (§7). The scope as it stands (the MOD3 picture drawn
 full-screen with a black border, night vision, sway) is in
 [weapon-scopes.md](../spec-notes/weapon-scopes.md); the aim zoom in
 `nvf_play::aim_zoom`, the picture in `nvforever/src/scope_view.rs`, true iron sights in
@@ -226,3 +226,64 @@ should be **a switch on the settings page's Gameplay tab**, like true iron sight
 "3D scopes" on or off, defined in NVForever.ini [Settings]. Off is the original's
 overlay. Whether it is on by default is the owner's call ([owner-review.md](../owner-review.md)
 item 33).
+
+## 7. Test version (built 2026-10-26)
+
+At the owner's request ("a test version with a gameplay switch"), a first cut is built.
+It is off by default: the **"3D scopes (test)"** switch is on the settings page next to
+True iron sights, and `--scope-3d` on the command line turns it on.
+
+- **Lens table** (`nvforever/src/scope_lens.rs`) [observed: measured as in §2]: the
+  sniper rifles (3 models), the trail carbine scope, the hunting rifle scope (4 models),
+  the varmint rifle scope and Ratslayer (5), the 9mm scope (2) and the laser rifle scope
+  (2). Other scoped guns keep the full-screen picture.
+- **The gun** is turned and moved so the point `EYE_RELIEF` (14 units) behind the
+  eyepiece lands on the eye (`player_body.rs` `line_up_sights`, the true-iron-sights
+  correction). This works whether or not the model has a sighting node.
+- **The lens** (`scope_view.rs`, `draw_lens`): two discs on an entity at the eyepiece,
+  drawn on the arms' layer. The first shows a 768² HDR image rendered by a second world
+  camera under the player's camera. The second shows the MOD3 reticle rendered without
+  `keepScope01`/`MaskRing*`, cut to radius 361. `lens_camera` sets the camera's angle
+  each frame from the lens's size on screen and the full zoom's magnification, and
+  copies the main view's fog and far plane.
+- **The main view** goes `LENS_MAIN_SHARE` (0.2) of the way to the Sight FOV
+  (`aim_zoom.rs`). The arms stay drawn and the crosshair stays hidden.
+- **Night vision** (2026-10-26): a night-vision scope's `NightScopeISFX` is held in the
+  lens only (`ScreenModifiers::hold_lens`). The lens camera has an image-space grade of
+  its own (`imagespace::LensGrade`) that holds only the lens's modifiers on a neutral
+  grade. The main camera then grades the lens with the rest of the screen [design].
+  [observed: `scope_3d_night.png`, Ratslayer at 23:00: the lens green and bright, the
+  night around it as without the scope.]
+- **Sway** (2026-10-26): with a 3D scope the wobble of weapon-scopes.md §5 no longer
+  turns the view. It turns the gun (the sights correction's direction), the lens camera
+  (turned off the main camera by the same angles) and the shots
+  (`nvf_play::aim_zoom::LensSway`, `combat::fire`). The world around the scope stays
+  still [design].
+- **Brightness** (2026-10-26): the lens shows the zoomed world as lit, and the main
+  camera's tonemapping applies the eye adaptation to the lens with the rest of the
+  screen. Bevy's auto exposure adds its value to the view's colour-grading exposure,
+  which the tonemapping pass multiplies in [observed: bevy_post_process 0.19.1
+  `auto_exposure.wgsl`, bevy_core_pipeline `tonemapping_shared.wgsl`]. In the first cut
+  the lens was much darker than the room in an interior. The cause was the MOD3's glare
+  (`Additive01`), tint ring and inner shading: drawn into a clear image they kept their
+  alpha and lay over the lens as a dark veil. Now only the reticle is drawn
+  [observed: `scope_3d_interior.png` with them, without the reticle disc, and with the
+  reticle alone; the lens matches the door panel behind it]. Light clustering was ruled
+  out: one cluster changed nothing.
+- **Impact decals** (2026-10-26): the lens camera draws `decals::DECAL_LAYER` (it has a
+  depth prepass) [observed: `scope_3d_shots.png` against the same frame without the
+  shot, the sniper rifle at the rock by the Prospector Saloon: the hole's mark under the
+  reticle].
+- **Cost** (2026-10-26) [observed: `--log-frame-times 1`, Goodsprings at noon, the
+  sniper rifle aimed for ~28 s, light glow on, 1280 × 800, this machine, other sessions'
+  work possibly running]: the overlay 5.6-5.8 ms a frame while aimed, the 3D lens
+  7.0-7.9 ms (about +1.7 ms, +30 %). Unaimed, both 5.6 ms. The lens camera's own sun
+  shadow cascades are the likeliest share (Bevy makes them per view); not split further.
+- **Still not done**: the lens camera has no motion blur or depth of field of its own.
+  Binoculars and the camera keep the picture.
+- **Smoke**: `scope-3d-lens` (sniper rifle), `scope-3d-lens-tube` (Ratslayer),
+  `scope-3d-lens-night`, `scope-3d-lens-shots` and `scope-3d-lens-interior`. The first two passed on 2026-10-26 [observed: `play-14s.png` / `play-15s.png` at 1280 × 800,
+  not committed]. The zoomed bushes and the red mil-dot / black duplex reticle show
+  inside the scope's rear ring, the house and the yard unzoomed around it, the arms
+  holding the gun. Logged: lens camera FOV ~6° for the sniper rifle (Sight FOV 25°,
+  magnification 3.46).

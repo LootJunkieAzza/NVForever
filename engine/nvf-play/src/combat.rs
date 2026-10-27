@@ -1135,6 +1135,12 @@ impl Combat {
         (fov > 0.0).then_some((w, fov))
     }
 
+    /// The gun in use has its scope (weapon-scopes.md §2: Has Scope, with its scope mod
+    /// when the scope comes from one).
+    pub fn player_weapon_scoped(&self) -> bool {
+        self.sight_fov().and_then(|(w, _)| self.player_stats(w)).is_some_and(|s| s.scope_model().is_some())
+    }
+
     /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
     pub fn projectile(&self) -> Option<FormId> {
         self.forms.chain(self.weapon?, self.ammo)?.projectile
@@ -2368,7 +2374,7 @@ fn weapon_sounds(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn fire(
     time: Res<Time>,
     mut c: ResMut<Combat>,
@@ -2385,11 +2391,14 @@ pub(crate) fn fire(
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
     mut loops: MessageWriter<LoopSound>,
-    (mut hud, mut vats): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>),
+    (mut hud, mut vats, lens_sway): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
     c.time += dt;
+    // Where the gun points: the view, turned by a 3D scope's sway (the view itself sways
+    // otherwise).
+    let gun_dir = lens_sway.as_deref().map_or_else(|| player.look_dir(), |s| s.look_dir(player.heading, player.pitch));
     // The attack clip passed its `Eject` key since the last frame (the casing is thrown
     // below, with the weapon's effects at hand).
     let eject_now = anim.ejects != c.ejects_seen;
@@ -2644,16 +2653,16 @@ pub(crate) fn fire(
                             if vec::len(d) > 1e-3 {
                                 vec::normalize(d)
                             } else {
-                                player.look_dir()
+                                gun_dir
                             }
                         }
                         Some(cross) => {
-                            let (start, dir) = crate::control::Crosshair::ray(Some(cross), eye, player.look_dir());
+                            let (start, dir) = crate::control::Crosshair::ray(Some(cross), eye, gun_dir);
                             let end = vec::add(start, vec::scale(dir, reach));
                             let hit = world.ray(start, end, &[PLAYER]).map(|h| h.point);
                             crate::control::Crosshair::aim_from(eye, start, dir, reach, hit)
                         }
-                        None => player.look_dir(),
+                        None => gun_dir,
                     };
                     shot::leaving(&world, eye, aim, anim.muzzle, reach, Some(PLAYER), control.third_person_view())
                 };
