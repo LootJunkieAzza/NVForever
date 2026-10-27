@@ -299,18 +299,29 @@ impl LightMotion {
 
     /// The share of its brightness the light gives at `t` seconds, `seed` keeping
     /// lights out of step [hypothesis: the curves are not documented; a flicker is
-    /// smoothed random steps between 0.55 and 1, 12 a second (slow: 3), a pulse a sine
+    /// smoothed random steps between [`FLICKER_LOW`] and 1, 12 a second (slow: 3), a pulse a sine
     /// between 0.5 and 1 over 1.5 s (slow: 4 s); the record's fade is the brightest it
     /// gets. Owner review: docs/owner-review.md, "Light flicker and pulse"].
     pub fn factor(self, t: f32, seed: f32) -> f32 {
         match self {
-            LightMotion::Flicker => 0.55 + 0.45 * noise(t * 12.0 + seed * 97.0),
-            LightMotion::FlickerSlow => 0.55 + 0.45 * noise(t * 3.0 + seed * 97.0),
+            LightMotion::Flicker => FLICKER_LOW + (1.0 - FLICKER_LOW) * noise(t * 12.0 + seed * 97.0),
+            LightMotion::FlickerSlow => FLICKER_LOW + (1.0 - FLICKER_LOW) * noise(t * 3.0 + seed * 97.0),
             LightMotion::Pulse => 0.75 + 0.25 * (std::f32::consts::TAU * (t / 1.5 + seed)).sin(),
             LightMotion::PulseSlow => 0.75 + 0.25 * (std::f32::consts::TAU * (t / 4.0 + seed)).sin(),
         }
     }
 }
+
+/// The dimmest a flickering light gets, as a share of its brightness [hypothesis, fitted
+/// to the owner's frames of the Abandoned Shack's fire barrel (2026-10-27), where the
+/// glow on the wall behind it stays steady across five frames; 0.55 before].
+const FLICKER_LOW: f32 = 0.8;
+
+/// How much further than its record radius a flickering light (a fire) reaches
+/// [hypothesis, fitted to the same frames: the barrel's 128-unit light warms the wall
+/// behind it about 190 units out from the flames; owner 2026-10-27: light sources like
+/// the fire should brighten the place]. Steady lights keep the record radius.
+pub const FLAME_REACH: f32 = 1.5;
 
 /// Smoothed random steps in 0..1: a value per whole `x`, eased between neighbours.
 fn noise(x: f32) -> f32 {
@@ -533,6 +544,7 @@ pub fn spawn_light(
     let color = display_color(shown);
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, LinearRgba::rgb(shown[0], shown[1], shown[2])));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
+    let radius = if matches!(LightMotion::of(l.flags), Some(LightMotion::Flicker | LightMotion::FlickerSlow)) { radius * FLAME_REACH } else { radius };
     let t = Transform::from_translation(at);
     // Lights out of step with each other: a phase from the reference.
     let moving = LightMotion::of(l.flags).map(|motion| MovingLight { motion, full: intensity, seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0 });

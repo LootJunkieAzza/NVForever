@@ -124,5 +124,13 @@ included), else at the reference's origin (`nvf_assets::model::attach_light`, nv
 a 128-unit light lit only the floor around it (owner report 2026-10-27: the Abandoned
 Shack's barrel, `GSAbandonedShack`, gives off very little light).
 
-**Open**: how far and how bright the original's barrel light reaches; two captures of the
-shack failed to take their screenshots (the game window was behind others).
+**Reach** [hypothesis, fitted to the owner's frames of the original, 2026-10-27, five
+frames of the shack]: in the original the barrel's warm light covers the wall behind it
+and the floor round it out to about 190 units from the flames, steady across the frames,
+while the record radius is 128. Flickering lights (Flicker, Flicker Slow) therefore reach
+1.5 × their radius (`lights.rs` `FLAME_REACH`) and dim to 0.8 of their brightness at
+most (`FLICKER_LOW`, 0.55 before). The room's own lighting stays as it is: the original's
+interiors are brighter overall (lit floors), and the owner prefers ours (2026-10-27).
+Smoke scenario `fire-barrel-light`. The capture plugin's screenshots failed three times
+that day (`StretchBlt failed`, even with the game in front); the owner took the frames
+by hand.

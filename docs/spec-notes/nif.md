@@ -949,6 +949,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   and the lit letters of the Bison Steve sign in Primm, seen at a grazing angle, were
   nearly out and are lit; the Old Town shadow strips show as thin lines
   (see "Alpha", "Vertex alpha and the test").
+- **Unlit shader texture over NiTexturingProperty.** A shape may carry both a
+  `BSShaderNoLightingProperty` with a file name and an `NiTexturingProperty` with a base
+  texture. In Fallout - Meshes.bsa and Update.bsa 3,783 shapes hold both; two name
+  different textures [observed 2026-10-27, a one-off survey]: the jukebox's light tubes
+  (`clutter/jukebox/jukeboxdirtynv.nif`, `JukeBox01:1`: shader `JBLightTubesClean.dds`,
+  texturing `jblighttubesdirty.dds`, listed after it) and a REPCONN mist layer
+  (`architecture/repcon/repfxdustmyst.nif`). The shader's texture is drawn and the
+  NiTexturingProperty only adds its texture transform [hypothesis: the owner's frames of
+  the original show the tubes bright cyan, the clean texture; `nif_spawn.rs`
+  `shape_props`].
 - **Controllers outside sequences.** Many effect meshes animate with controllers attached
   straight to a block, with no NiControllerManager or sequence [observed, `fnvtool nif
   decode`]: `effects/ambient/fxsmokewisps01.nif` (180 placed in FalloutNV.esm), `02`,
