@@ -6115,7 +6115,10 @@ order = [[
   "reticle: dynamic crosshair off: the arrows stay together",
   { re = 'combat: kick: shot 1 in a row' },
 ]]
-forbid = [{ re = 'reticle: \w+ spread [1-9]', label = "the arrows part with the switch off" }]
+forbid = [
+  { re = 'reticle: \w+ spread [1-9]', label = "the arrows part with the switch off" },
+  { text = "reticle: gun cross (four bars)", label = "no gun cross with the switch off" },
+]
 
 [[scenario]]
 name = "compass-reticle"
@@ -6127,6 +6130,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos
 run_seconds = 24
 expect = [
   { re = 'reticle: plain spread [1-9]\d*\.\d \(cone [0-9.]+ deg\)', label = "the arrows open with the weapon drawn" },
+  { text = "reticle: gun cross (four bars)", label = "the gun cross in place of the arrows with the weapon drawn" },
   { re = 'compass: [1-9]\d* actors \(\d+ hostile\)', label = "actors near the player on the compass" },
   { re = 'compass: \d+ actors \([1-9]\d* hostile\)', label = "a shot bighorner turns red on the compass" },
   { re = 'reticle: hostile spread', label = "the crosshair red over a hostile" },
