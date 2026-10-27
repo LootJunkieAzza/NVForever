@@ -1415,14 +1415,15 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
 /// (`crate::vats_mode`, docs/design/vats-mode.md §4; a kill camera's shot in its place,
-/// `crate::kill_cam`), and so does the player's Turbo
+/// `crate::kill_cam`), and so does the weapon wheel's (`crate::weapon_wheel`,
+/// docs/design/weapon-wheel.md §5), and so does the player's Turbo
 /// ([`PlayerTimeScale`] keeps the player at full speed); those also slow sound
 /// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
 #[allow(clippy::too_many_arguments)]
 fn time_multiplier(
     mut script: ResMut<ScriptState>,
     scale: Option<Res<ClockScale>>,
-    vats: Option<Res<crate::vats_mode::VatsMode>>,
+    (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
@@ -1448,7 +1449,7 @@ fn time_multiplier(
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
     let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * turbo;
+    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);

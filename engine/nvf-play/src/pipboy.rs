@@ -41,6 +41,7 @@
 
 pub mod data;
 pub mod frame;
+pub mod hotkey_panel;
 pub mod items;
 pub mod item_mod;
 pub mod repair;
@@ -290,6 +291,7 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<repair::PipRepair>()
             .add_message::<repair::RepairInput>()
             .init_resource::<item_mod::PipItemMod>()
+            .init_resource::<hotkey_panel::HotkeyHold>()
             .add_message::<item_mod::ModInput>()
             .add_message::<PipBoyInput>()
             .add_message::<stats::UseHint>()
@@ -306,6 +308,7 @@ impl Plugin for PipBoyPlugin {
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
                     repair::keys.run_if(takes_keys),
                     item_mod::keys.run_if(takes_keys),
+                    hotkey_panel::track,
                     items::keys.run_if(takes_keys),
                     report_menu,
                     advance,

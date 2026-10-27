@@ -1415,9 +1415,14 @@ fn open(
     mut view: ResMut<PauseView>,
     mut status: ResMut<PauseStatus>,
     mut next: ResMut<NextState<PlayState>>,
+    wheel: Option<Res<crate::weapon_wheel::WeaponWheel>>,
 ) {
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     if !keys.just_pressed(KeyCode::Escape) && !by_aid {
+        return;
+    }
+    // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game.
+    if wheel.is_some_and(|w| w.holds_input()) && !by_aid {
         return;
     }
     if by_aid {
