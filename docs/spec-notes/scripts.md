@@ -1147,6 +1147,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `wait_talk {start?, max_frames?, label?}` | waiting until choices are offered or the conversation is over (with `start`: until a script's StartConversation has started one first); observations `state`, `choices`, `actor` |
 | `end_talk {}` | the player leaving the conversation |
 | `terminal {target, item, menu?, label?}` | the player picking a terminal entry (`terminal::choose`, hacking.md §6): its result script runs on the terminal reference; `menu` names a sub menu's TERM; refused when the entry is not listed; observations `submenu`, `note`, `back` |
+| `play_note {note, label?}` | the player playing a holotape from the Pip-Boy: a Voice note's line has its begin and then its end result script run on the player (`Game::holotape_script`, holotapes.md §3; the voice's length is not waited for); observation `info` (null for a note that plays no line) |
 
 Round 2 of the contract (layer5-captures.md §8.2), as the capture issues them:
 
