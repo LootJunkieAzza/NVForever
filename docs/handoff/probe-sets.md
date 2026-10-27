@@ -61,6 +61,7 @@ nothing is marked or loosened for them.
 | gaps9 | 103 | L5.ext.gaps9 | not run yet | melee and unarmed DPS: five weapons' record fields, crit damage 0, CritChance +10, skill +16 |
 | gaps10 | 57 | L5.ext.gaps10 | not run yet | ref map strings, RunScriptSnippet, array files (written in the game folder, removed after), impact data, ray casts, SetPosEx, sneaking, first person |
 | gaps11 | 47 | L5.ext.gaps11 | not run yet | SetPosEx translate frame (Doc, the player at heading 90 and 0); item-ref health, mod flags, ammo rounds |
+| plugins1 | 71 | L5.ext.plugins1 | not run yet | the most used unprobed LU, JohnnyGuitar and ShowOff functions (idles, recipes, ingestible and race flags, easing, DLL checks) |
 
 ## Coverage
 

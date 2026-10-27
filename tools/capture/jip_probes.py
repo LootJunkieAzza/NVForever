@@ -3387,6 +3387,90 @@ GAPS11_PROBES = (
             + 'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetItemCount rObj) (rPlayer.GetItemCount rOther))', True)]
 )
 
+# Fifty-fifth set: after JIP, the most used unprobed functions of the other plugins in
+# docs/handoff/modlist-function-counts.json (LU, as built into JIP LN; JohnnyGuitarNVSE;
+# ShowOffNVSE) that read something or set something readable without menus. Forms from
+# fnvtool esm inventory [observed]: CaucasianOld (RACE) 0042C3, VCG01 (QUST) 104C1C,
+# VMS01 (QUST) 080664. Always run, the perk entry value and Health are put back; the
+# idle's animation path is session only (a string_var cannot be passed back, gaps1).
+# Toughness's entry 0 has no second value: GetNthPerkEntryValue2 read -1 and the set was
+# ignored; ApplyEasing "linear" is not an easing name (-1) [observed].
+FX.update(vcg01="104C1C", vms01="80664")
+
+
+def _p1(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _p1v(pid, expr, text=False):
+    return _p1(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _p1w(pid, key, expr, text=False):
+    return _p1(pid, _form("rObj", key) + f"SetFunctionValue ({expr})", text)
+
+
+PLUGINS1_PROBES = (
+    # LU: idles, perk entries, recipes, items, flags.
+    [_p1w("lu.idlepath", FX["idlehouse"], "GetIdleAnimPath rObj", True),
+     _p1("lu.idlepath.set", _form("rObj", FX["idlehouse"]) + 'SetIdleAnimPath rObj "NVF\\Idle.kf"\nSetFunctionValue (GetIdleAnimPath rObj)', True),
+     _p1w("lu.perkvalue2.toughness", FX["toughness"], "Floor ((GetNthPerkEntryValue2 rObj 0) * 100)"),
+     _p1("lu.perkvalue2.set", _form("rObj", FX["toughness"]) + 'let fRes := GetNthPerkEntryValue2 rObj 0\nrPlayer.AuxVarSetFlt "*nvfP2" fRes\n'
+         "SetNthPerkEntryValue2 rObj 0 7\nSetFunctionValue (Floor ((GetNthPerkEntryValue2 rObj 0) * 100))"),
+     _p1("lu.perkvalue2.restore", _form("rObj", FX["toughness"]) + 'SetNthPerkEntryValue2 rObj 0 (rPlayer.AuxVarGetFlt "*nvfP2")\n'
+         'rPlayer.AuxVarErase "*nvfP2"\nSetFunctionValue (Floor ((GetNthPerkEntryValue2 rObj 0) * 100))'),
+     _p1("lu.recipe.inputs", _form("rObj", FX["recipe127"]) + "let aA := GetRecipeInputForms rObj\nSetFunctionValue (ar_Size aA)"),
+     _p1("lu.recipe.input0", _form("rObj", FX["recipe127"]) + "let aA := GetRecipeInputForms rObj\nlet rOther := aA[0]\n"
+         "SetFunctionValue (GetFormIDString rOther)", True),
+     _p1w("lu.recipe.category", FX["recipe127"], "GetFormIDString (GetRecipeCategory rObj)", True),
+     _p1w("lu.recipe.subcategory", FX["recipe127"], "GetFormIDString (GetRecipeSubcategory rObj)", True),
+     _p1("lu.basecount.doc", _form("rObj", NF["stimpak"]) + _form("rOther", NF["doc"]) + "SetFunctionValue (BaseGetItemCount rObj rOther)"),
+     _p1("lu.basecount.docref", _form("rObj", NF["stimpak"]) + "SetFunctionValue (rDoc.BaseGetItemCount rObj)"),
+     _p1v("lu.selfmodindex", "GetSelfModIndex"),
+     _p1w("lu.hasperkrank.toughness", FX["toughness"], "rPlayer.HasPerkRank rObj"),
+     _p1w("lu.hasperkrank.toughness.team", FX["toughness"], "rPlayer.HasPerkRank rObj 1")]
+    + [_p1w(f"lu.ingestflag.stimpak.{i}", NF["stimpak"], f"GetIngestibleFlag rObj {i}") for i in range(4)]
+    + [_p1w(f"lu.ingestflag.silversting.{i}", FX["silversting"], f"GetIngestibleFlag rObj {i}") for i in range(4)]
+    + [_p1w(f"lu.templateflag.doc.{i}", NF["doc"], f"rDoc.GetActorTemplateFlag {i}") for i in range(3)]
+    + [_p1w("lu.raceinlist.list127", NF["list127"], "rDoc.IsRaceInList rObj"),
+       _p1v("lu.defaultmessagetime", "Floor ((GetDefaultMessageTime) * 100)"),
+       _p1("lu.sortforms", _form("rObj", NF["pistol10"]) + _form("rOther", NF["stimpak"])
+           + "let aA := ar_List rObj rOther rObj\nlet aB := ar_List 47\nlet aA := SortFormsByType aA aB\nSetFunctionValue (ar_Size aA)")]
+    # JohnnyGuitar.
+    + [_p1v(f"jg.avalt.player.{c}", f"Floor ((rPlayer.GetActorValueAlt {c}) * 100)") for c in (5, 16, 32, 41)]
+    + [_p1w("jg.questfailed.vcg01", FX["vcg01"], "GetQuestFailed rObj"),
+       _p1w("jg.questfailed.vms01", FX["vms01"], "GetQuestFailed rObj")]
+    + [_p1w(f"jg.raceflag.caucold.{i}", FX["caucold"], f"GetRaceFlag rObj {i}") for i in range(3)]
+    + [_p1v("jg.dllloaded.jg", 'IsDLLLoaded "johnnyguitar"'),
+       _p1v("jg.dllloaded.jip", 'IsDLLLoaded "jip_nvse"'),
+       _p1v("jg.dllloaded.none", 'IsDLLLoaded "nvfnosuchdll"'),
+       _p1v("jg.thresholdedav.health", 'Floor ((rPlayer.GetThresholdedActorValue Health) * 100)'),
+       _p1v("jg.thresholdedav.strength", 'Floor ((rPlayer.GetThresholdedActorValue Strength) * 100)'),
+       _p1("jg.alwaysrun.set", 'let fRes := GetAlwaysRun\nrPlayer.AuxVarSetFlt "*nvfAR" fRes\n'
+           "SetFunctionValue (sv_Construct \"%g %g\" (SetAlwaysRun (1 - fRes) 1) (GetAlwaysRun))", True),
+       _p1("jg.alwaysrun.restore", 'let fRes := SetAlwaysRun (rPlayer.AuxVarGetFlt "*nvfAR") 1\nrPlayer.AuxVarErase "*nvfAR"\n'
+           "SetFunctionValue (GetAlwaysRun)"),
+       _p1v("jg.spread.player", "Floor ((rPlayer.GetCalculatedSpread) * 1000)"),
+       _p1w("jg.overrideindex.stimpak", NF["stimpak"], "GetFormOverrideIndex rObj"),
+       _p1w("lu.overridden.stimpak", NF["stimpak"], "IsFormOverridden rObj"),
+       _p1v("jg.remap", "Floor ((Remap 5 0 10 100 200) * 100)"),
+       _p1v("jg.remap.outside", "Floor ((Remap 15 0 10 100 200) * 100)"),
+       _p1v("jg.vector3ddistance", "Floor ((GetVector3DDistance 0 0 0 3 4 12) * 100)"),
+       _p1v("jg.hostilesnearby", "IsHostilesNearby"),
+       _p1v("jg.compasshostile.doc", "rDoc.IsCompassHostile")]
+    # ShowOff.
+    + [_p1v(f"so.easing.{f}.{m}", f'Floor ((ApplyEasing 0.25 "{f}" {m}) * 10000)')
+       for f in ("linear", "quad", "cubic", "sine") for m in (0, 1, 2)]
+    + [_p1v("so.weapontype.player", "rPlayer.GetEquippedWeaponType"),
+       _p1v("so.aiming.player", "rPlayer.IsAiming"),
+       _p1v("so.blockingoraiming.player", "rPlayer.IsBlockingOrAiming"),
+       _p1v("so.overencumbered", "GetIsPlayerOverencumbered"),
+       _p1v("so.overencumbered.ignoregod", "GetIsPlayerOverencumbered 1"),
+       _p1w("so.weaponranged.pistol", NF["pistol10"], "IsWeaponRanged rObj"),
+       _p1w("so.weaponranged.knife", FX["knife"], "IsWeaponRanged rObj")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3424,11 +3508,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps8": GAPS8_PROBES,
         "gaps9": GAPS9_PROBES,
         "gaps10": GAPS10_PROBES,
-        "gaps11": GAPS11_PROBES}
+        "gaps11": GAPS11_PROBES,
+        "plugins1": PLUGINS1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1"}
 
 
 def script(body):
