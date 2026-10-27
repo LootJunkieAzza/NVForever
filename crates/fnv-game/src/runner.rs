@@ -536,6 +536,17 @@ fn opened_since(g: &Game, since: usize) -> bool {
         .any(|e| matches!(&e.kind, EventKind::Activated { outcome: Some(v), .. } if v["result"] == "opened_container"))
 }
 
+/// The actor of the first activation by the player since event `since` whose outcome is
+/// a conversation (`"result": "talk"`).
+fn talked_to_since(g: &Game, since: usize) -> Option<FormId> {
+    g.events[since..].iter().find_map(|e| match &e.kind {
+        EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "talk" => {
+            v["actor"].as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).map(FormId)
+        }
+        _ => None,
+    })
+}
+
 /// The menu code of the container menu [observed: `MenuMode 1008` was true while a
 /// container menu opened by Activate was up, layer5-captures.md §8.3].
 pub const CONTAINER_MENU: u16 = 1008;
@@ -1223,7 +1234,18 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 None => FormId::PLAYER_REF,
             };
             let t = resolve(g, target)?;
+            let since = g.events.len();
             g.activate(actor, t, ActMode::Hand)?;
+            // A player activation whose default action is to talk (an OnActivate block
+            // that calls `Activate`, or none) starts the conversation, as the play loop
+            // does (nvf-play `talk_after`, `Game::start_dialogue`) [observed: Old World
+            // Blues' brain tank, SCPT 01016155, talks only by its default action].
+            if actor == FormId::PLAYER_REF && g.dialogue.is_none() {
+                if let Some(a) = talked_to_since(g, since) {
+                    // An actor with nothing to say starts none (the play loop shows a line).
+                    let _ = g.start_dialogue(a, None);
+                }
+            }
         }
         Action::SayInfo { info, speaker, force } => {
             let i = resolve(g, info)?;

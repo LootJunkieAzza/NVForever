@@ -1430,6 +1430,25 @@ fn the_runner_talks_and_prints_a_dialogue_trace() {
     assert!(fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).is_err());
 }
 
+/// The runner's `player_activate` of an actor whose default action is to talk starts the
+/// conversation with its greeting, as the play loop does (nvf-play `talk_after`).
+#[test]
+fn the_runners_player_activation_of_an_actor_starts_the_conversation() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "player_activate", "target": "TalkerREF"},
+            {"op": "wait_talk", "label": "after activation"}
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "after activation").cloned().unwrap();
+    assert_eq!((obs["state"].as_str(), obs["choices"].as_u64()), (Some("choosing"), Some(2)), "{obs}");
+    assert!(t["events"].as_array().unwrap().iter().any(|e| e["kind"] == "dialogue_started"));
+}
+
 /// "If this box is unchecked, conversations will never use the same topic twice (in the
 /// same conversation)" [documented: GECK wiki Quest Data Tab]: ping-pong in a quest
 /// without Allow Repeated Conversation Topics stops after the pong; in one with it, it
