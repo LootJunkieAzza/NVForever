@@ -42,6 +42,8 @@ pub struct GapsState {
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
+    /// JohnnyGuitar's quest handlers: (on start, the function, the quest it waits for).
+    pub quest_handlers: Vec<(bool, XVal, Option<FormId>)>,
     /// JohnnyGuitar's perk handlers: (on add, the function, the perk it waits for).
     pub perk_handlers: Vec<(bool, XVal, Option<FormId>)>,
     /// The angles GetAngle still reads after a SetAngle this frame: (reference, axis) ->
@@ -121,6 +123,17 @@ impl Game<'_> {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
                 self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+            }
+        }
+    }
+
+    /// JohnnyGuitar's quest handlers on a quest starting or stopping: (quest)
+    /// [documented: SetJohnnyOnStartQuestEventHandler; hypothesis: the arguments].
+    pub(crate) fn quest_event(&mut self, quest: FormId, started: bool) {
+        let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
+        for f in hs {
+            if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
+                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar quest handler".into(), error });
             }
         }
     }

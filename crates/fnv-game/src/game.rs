@@ -1840,6 +1840,7 @@ impl<'a> Game<'a> {
             s.since_run = 0.0;
             s.since_menu_run = 0.0;
             self.emit(EventKind::QuestStarted { quest: q });
+            self.quest_event(q, true);
         }
         true
     }
@@ -1852,6 +1853,7 @@ impl<'a> Game<'a> {
         if s.running {
             s.running = false;
             self.emit(EventKind::QuestStopped { quest: q });
+            self.quest_event(q, false);
         }
         true
     }

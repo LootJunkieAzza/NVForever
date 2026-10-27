@@ -294,6 +294,67 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // ---- record setters the getters read (`crate::nvse::field`), for the session ----
+        // `list item` [documented: SetRepairList].
+        "setrepairlist" => {
+            if let (Some(l), Some(f)) = (form(args, 0), form(args, 1)) {
+                g.field_overrides.insert((f, "REPL/".into()), XVal::Ref(l.0));
+            }
+            zero
+        }
+        // `mask item`: BMDT biped flags and general flags, as GetEquipmentSlotsMask and
+        // GetEquipmentBipedMask read them [documented].
+        "setequipmentslotsmask" | "setequipmentbipedmask" => {
+            if let Some(f) = form(args, 1) {
+                let path = if name == "setequipmentslotsmask" { "BMDT/biped_flags" } else { "BMDT/general_flags" };
+                g.field_overrides.insert((f, path.into()), XVal::Num(num(args, 0, 0.0).max(0.0).trunc()));
+            }
+            zero
+        }
+        // ARMO BIPL [documented: GetBipedModelList; SetBipedModelList `armor list`].
+        "getbipedmodellist" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "BIPL", "")) {
+            Some(XVal::Ref(r)) => XVal::Ref(r),
+            _ => XVal::Ref(0),
+        },
+        "setbipedmodellist" => {
+            if let Some(f) = form(args, 0) {
+                g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(form(args, 1).map_or(0, |l| l.0)));
+            }
+            zero
+        }
+        // `flag actor`: a bit of the base's ACBS flags [documented: ActorHasBaseFlag].
+        "actorhasbaseflag" => {
+            let b = form(args, 1).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+            let k = num(args, 0, -1.0);
+            yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
+        }
+        // `weapon trait model`: the first-person model, 0 the plain one (WNAM), 1–7 the
+        // mod combinations (WNM1–WNM7) [documented: SetWeapon1stPersonModel; hypothesis:
+        // the trait numbers].
+        "setweapon1stpersonmodel" => {
+            let (Some(w), Some(m)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            let sub = match num(args, 1, -1.0) as i64 {
+                0 => "WNAM/".to_string(),
+                k @ 1..=7 => format!("WNM{k}/"),
+                _ => return Some(Ok(zero)),
+            };
+            g.field_overrides.insert((w, sub), XVal::Ref(m.0));
+            zero
+        }
+        // NVForever keeps no alternate textures on armour models [hypothesis].
+        "cleararmoralttexture" => zero,
+        // `set|remove function flag [quest]` [documented: SetJohnnyOnStartQuestEventHandler].
+        "setjohnnyonstartquesteventhandler" | "setjohnnyonstopquesteventhandler" => {
+            let start = name == "setjohnnyonstartquesteventhandler";
+            let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
+            let quest = form(args, 3);
+            g.gaps.quest_handlers.retain(|(s, h, q)| !(*s == start && *h == f && *q == quest));
+            if num(args, 0, 1.0) != 0.0 {
+                g.gaps.quest_handlers.push((start, f, quest));
+            }
+            zero
+        }
         // ---- ShowOff ----
         "applyeasing" => XVal::Num(ease(num(args, 0, 0.0), &text(args, 1), num(args, 2, 0.0) as i64)),
         // DNAM animation type, unarmed 0 [observed: plugins1, the unarmed player 0].
