@@ -55,6 +55,8 @@ nothing is marked or loosened for them.
 | save-set, save-read | 46, 33 | none | – | N12 state across a save (one save `nvfprobe`, removed after; owner-review) |
 | rgb-ui | 34 | L5.ext.jip.rgbui | 24/34 | SetWeatherRGBColor overflow rule; HUD traits wait on UI T3 |
 | gaps1 | 25 | L5.ext.gaps1 | not run yet | the scan's most used functions no other set called |
+| gaps2-gaps6 | – | L5.ext.gaps2-6 | – | the counts' next functions; the extender core's questions; DPS on the skill curve |
+| gaps7 | 110 | L5.ext.gaps7 | not run yet | DPS critical part; explosion, perk and package flags; dimensions, terrain, item kinds |
 
 ## Coverage
 
@@ -79,6 +81,10 @@ per-function counts.
 - A string_var passed to a plain string parameter, or through `%z` in a formatted
   string, is taken as its name (SetStringIniSetting, SetUIStringAlt); `$sText` does not
   compile there (SetSoundSourceFile).
+- A function whose outputs are script variables (GetAngleEx, GetAnglesBetweenPoints)
+  does not compile in a probe body. A function's returned array or ref goes into a
+  variable before it is passed on (`ar_Size (GetFollowers)` read -1; JIP list functions
+  return no array when there is nothing to list).
 - One action per step: inventory changes show a frame later; a placed actor's 3D
   (blocks, animations) takes up to five frames.
 - What an actor animates or how many times an event fires depends on frame timing:
