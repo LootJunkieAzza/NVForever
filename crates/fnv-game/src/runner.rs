@@ -334,6 +334,10 @@ pub enum Action {
         #[serde(default)]
         killer: Option<String>,
     },
+    /// A shot or blow landing on a reference that is not an actor (stand-in for an
+    /// attacker's weapon reaching it, the player's by default): its OnHit and OnHitWith
+    /// blocks run (`Game::hit_object`); observation `ran`: whether a block ran.
+    Hit { target: String, #[serde(default)] attacker: Option<String>, #[serde(default)] weapon: Option<String>, #[serde(default)] label: Option<String> },
     /// An actor (the player by default) consumes an ingestible it carries (the engine's
     /// use of an aid item): one is removed and its effects start, effect scripts
     /// included (`Game::consume`); observation `effects`: the effects started.
@@ -446,6 +450,7 @@ fn frames_after(a: &Action) -> u64 {
         Action::SetRefVar { .. } => 11,
         Action::ActivateRead { .. } => 31,
         Action::Kill { .. } | Action::EvaluatePackage { .. } => 61,
+        Action::Hit { .. } => 11,
         Action::AddItemRead { .. } | Action::IsCurrentPackage { .. } => 1,
         Action::GetRef { fields: Some(_), .. } => 0,
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
@@ -1514,6 +1519,20 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("destroyed".into(), json!(x.destroyed));
             lab = l.clone();
         }
+        Action::Hit { target, attacker, weapon, label: l } => {
+            let t = resolve(g, target)?;
+            let attacker = match attacker {
+                Some(x) => resolve(g, x)?,
+                None => FormId::PLAYER_REF,
+            };
+            let weapon = match weapon {
+                Some(w) => Some(resolve(g, w)?),
+                None => None,
+            };
+            let info = crate::combat::HitInfo { attacker: Some(attacker), weapon, location: -1, critical: false, limb: None };
+            obs.insert("ran".into(), json!(g.hit_object(t, info)));
+            lab = l.clone();
+        }
         Action::Kill { target, actor, killer } => {
             let a = resolve(g, target.as_ref().or(actor.as_ref()).ok_or("kill needs 'target'")?)?;
             let args = match killer {
@@ -2126,6 +2145,7 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAvDamage { label, .. }
         | Action::Talk { label, .. }
         | Action::PlayerActivate { label, .. }
+        | Action::Hit { label, .. }
         | Action::Choose { label, .. }
         | Action::WaitTalk { label, .. }
         | Action::SampleJumps { label, .. }

@@ -10657,3 +10657,41 @@ commands = [["script", "sweep", "{data}", "{masters}", "--schema", "schemas/fnv"
 # there; a rise fails this run.
 expect_file = "expected/script-sweep.toml"
 manual = "a rise: run the command with --detail and compare the causes with main's; a drop: write the new summary into expected/script-sweep.toml"
+
+[[scenario]]
+name = "mq-old-world-blues"
+kind = "tool"
+source = "headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues.actions.json: Old World Blues from the drive-in satellite through the Think Tank, X-2, X-8, X-13, the Forbidden Zone and the Think Tank talked down, the end slides to NVDLC03MQ05 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/old-world-blues.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/voice.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/old-world-blues.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: MQ00 done (the satellite takes the player to Big MT).completed", equals = true, label = "milestone: MQ00 done: completed = true" },
+  { json = "observations.?label=milestone: MQ01 done (the Think Tank sends the player after the three technologies).completed", equals = true, label = "milestone: MQ01 done: completed = true" },
+  { json = "observations.?label=milestone: MQ02 done (X-2 antenna).completed", equals = true, label = "milestone: MQ02 done: completed = true" },
+  { json = "observations.?label=milestone: MQ03 done (X-8 Sonic Emitter frequency).found", equals = true, label = "milestone: MQ03 done: found = true" },
+  { json = "observations.?label=milestone: MQ04 done (X-13 stealth suit).completed", equals = true, label = "milestone: MQ04 done: completed = true" },
+  { json = "observations.?label=milestone: MQ05 70 (Think Tank talked down).stage", equals = 70, label = "milestone: MQ05 70: stage = 70" },
+  { json = "observations.?label=milestone: end slides said, transition to the Sink started.found", equals = true, label = "milestone: end slides said: found = true" },
+  { json = "observations.?label=final: MQ05 100 (Old World Blues complete).stage", equals = 100, label = "final: MQ05 100: stage = 100" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the owblr add-on walkthrough report"
+
+[[scenario]]
+name = "mq-lonesome-road"
+kind = "tool"
+source = "headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road.actions.json: Lonesome Road from Ulysses' call through the silo, the road, the Ashton launch, the Divide and the temple, Ulysses talked down and no missile launched, the end slides to NVDLC04MQ03b 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/voice.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: MQ00 done (The Reunion: into the Divide).completed", equals = true, label = "milestone: MQ00 done: completed = true" },
+  { json = "observations.?label=milestone: MQ01a done (The Silo).completed", equals = true, label = "milestone: MQ01a done: completed = true" },
+  { json = "observations.?label=milestone: MQ01 done (The Job).completed", equals = true, label = "milestone: MQ01 done: completed = true" },
+  { json = "observations.?label=milestone: MQ01c done (The Launch).found", equals = true, label = "milestone: MQ01c done: found = true" },
+  { json = "observations.?label=milestone: MQ02a done (The Tunnelers).completed", equals = true, label = "milestone: MQ02a done: completed = true" },
+  { json = "observations.?label=milestone: MQ02 done (The Divide).completed", equals = true, label = "milestone: MQ02 done: completed = true" },
+  { json = "observations.?label=milestone: MQ03a done (The Courier).completed", equals = true, label = "milestone: MQ03a done: completed = true" },
+  { json = "observations.?label=final: MQ03b 100 (Lonesome Road complete, no missile launched).stage", equals = 100, label = "final: MQ03b 100: stage = 100" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the owblr add-on walkthrough report"

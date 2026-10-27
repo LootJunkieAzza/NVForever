@@ -1276,6 +1276,27 @@ fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
 }
 
 #[test]
+fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
+    // Old World Blues' Think Tank and the end slides: a line whose fixed speaker (ANAM)
+    // is not the actor saying it has its voice file in the fixed speaker's folder only.
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    // Said by another base (or none): the fixed speaker's file times it.
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
+    assert_eq!(g.response_lengths_as(None, FormId(INFO_A)), vec![0.5]);
+    // A line without a fixed speaker and no file keeps the fitted length.
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC_AUTO)), FormId(INFO_B)), vec![1.2875]);
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -1491,6 +1512,28 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     assert!(g.extra.get(&target).is_none_or(|e| e.last_hit.is_none() && e.damage.is_none()));
     // A reference whose script has no hit block.
     assert!(!g.hit_object(FormId(NPC_REF), by_player));
+}
+
+#[test]
+fn the_runners_hit_runs_an_objects_hit_blocks() {
+    // A stand-in for a scripted shot (Lonesome Road's ED-E zapping the silo mainframe).
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "hit", "target": "TestActivatorREF", "label": "by the player"},
+            {"op": "hit", "target": "TestActivatorREF", "attacker": "TestNpcREF", "weapon": "TestMsg", "label": "by another with a weapon"},
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["var.nHit"], "label": "count"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("by the player")["ran"], true);
+    assert_eq!(by("by another with a weapon")["ran"], true);
+    // OnHit player (10), then only OnHitWith for the other attacker (1).
+    assert_eq!(by("count")["var.nHit"], 11.0);
 }
 
 #[test]

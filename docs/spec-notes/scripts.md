@@ -1155,6 +1155,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
 | `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |
 | `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
+| `hit {target, attacker?, weapon?, label?}` | a shot or blow reaching a reference that is not an actor (`Game::hit_object`: its OnHit and OnHitWith blocks; attacker the player by default); observation `ran` |
 | `consume {item, actor?, label?}` | the player (or an actor) using an aid item: `Game::consume`, effect scripts start (§7.6); observation `effects` |
 | `note {text}` | a comment; no effect |
 | `talk {actor, topic?, label?}` | a conversation starting (`Game::start_dialogue`): the player activating the actor, or the actor's dialogue package; observation `info` (docs/spec-notes/dialogue.md §8) |
