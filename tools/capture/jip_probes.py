@@ -2919,6 +2919,146 @@ GAPS6_PROBES = [
     _g6v("uicomponent.none", 'IsComponentLoaded "NVFNoComponent"'),
 ]
 
+# Fiftieth set: the critical part of GetCalculatedWeaponDPS, as the extender core asked
+# (the player's crit actor values, each weapon's crit damage and chance, DPS with crit
+# damage 0, crit chance 0 and Luck +5, all put back), then the next unprobed JIP functions
+# of the counts with a getter or a visible effect. Forms from fnvtool esm inventory
+# [observed]: 40mmGrenadeExplosion 07EA31, BloodyMess 094EBA, SilverSting 167475,
+# NukaVendingMachine (CONT) 020525, ElectricBox01 020D31, CrDogVicious 01CFA3,
+# Gomorrah00 (CELL) 10D629, VCG01DocMitchellSandbox (PACK) 10B756, LegateArmorRightH
+# (ARMA) 1649DF. The explosion, the perk, the weapons and the actor values are put back.
+# GetAngleEx and GetAnglesBetweenPoints did not compile here: their outputs are script
+# variables, which a runtime-compiled function does not take [observed].
+# GetDroppedRefs, GetPlayerPerks, GetFollowers, GetTempEffects and GetDetectingActors read
+# ar_Size -1 here: no array at all when there is nothing to list [observed]. ModAV Luck +5
+# left CritChance and DPS unchanged after two frames; ModAV CritChance +10 doubled the crit
+# part of both weapons' DPS [observed].
+FX.update(gren40="7EA31", bloodymess="94EBA", silversting="167475", nuka="20525", ebox="20D31",
+          vicious="1CFA3", gomorrah="10D629", docsandbox="10B756", legatearma="1649DF")
+
+
+def _g7(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\narray_var aA\n"
+            "Begin Function { }\n" + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g7v(pid, expr, text=False):
+    return _g7(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _g7w(pid, key, expr, text=False):
+    return _g7(pid, _form("rObj", key) + f"SetFunctionValue ({expr})", text)
+
+
+_DPS7 = "SetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))"
+
+
+def _crit(w, fid):
+    """Crit rows for one weapon: its crit fields, DPS, then DPS with crit damage 0 and crit chance 0."""
+    return [
+        _g7w(f"crit.{w}.critdamage", fid, "GetWeaponCritDamage rObj"),
+        _g7w(f"crit.{w}.critchance", fid, "Floor ((GetWeaponCritChance rObj) * 1000)"),
+        _g7w(f"crit.{w}.damage", fid, "Floor ((GetCalculatedWeaponDamage rObj) * 100)"),
+        _g7(f"crit.{w}.dps", _form("rObj", fid) + _DPS7),
+        _g7(f"crit.{w}.dmg0", _form("rObj", fid) + 'let fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt "*nvfCD" fRes\n'
+            "SetWeaponCritDamage 0 rObj\n" + _DPS7),
+        _g7(f"crit.{w}.dmg0.restore", _form("rObj", fid) + 'SetWeaponCritDamage (rPlayer.AuxVarGetFlt "*nvfCD") rObj\n'
+            'rPlayer.AuxVarErase "*nvfCD"\nSetFunctionValue (GetWeaponCritDamage rObj)'),
+        _g7(f"crit.{w}.chance0", _form("rObj", fid) + 'let fRes := GetWeaponCritChance rObj\nrPlayer.AuxVarSetFlt "*nvfCC" fRes\n'
+            "SetWeaponCritChance 0 rObj\n" + _DPS7),
+        _g7(f"crit.{w}.chance0.restore", _form("rObj", fid) + 'SetWeaponCritChance (rPlayer.AuxVarGetFlt "*nvfCC") rObj\n'
+            'rPlayer.AuxVarErase "*nvfCC"\nSetFunctionValue (Floor ((GetWeaponCritChance rObj) * 1000))'),
+        _g7(f"crit.{w}.dps.again", _form("rObj", fid) + _DPS7),
+    ]
+
+
+GAPS7_PROBES = (
+    [_g7v(f"crit.av.{av.lower()}", f'Floor ((rPlayer.GetActorValue "{av}") * 100)')
+     for av in ("CritChance", "Luck", "Strength", "MeleeDamage", "UnarmedDamage", "Agility")]
+    + _crit("pistol", NF["pistol10"]) + _crit("knife", FX["knife"])
+    + [_g7("crit.luck.mod5", 'rPlayer.ModActorValue "Luck" 5\n'
+           'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetActorValue "Luck") (Floor ((rPlayer.GetActorValue "CritChance") * 100)))', True),
+       _g7("crit.luck.wait0", "SetFunctionValue 1"),
+       _g7("crit.luck.wait1", "SetFunctionValue 1"),
+       _g7v("crit.luck.critchance", 'Floor ((rPlayer.GetActorValue "CritChance") * 100)'),
+       _g7("crit.pistol.luck5", _form("rObj", NF["pistol10"]) + _DPS7),
+       _g7("crit.knife.luck5", _form("rObj", FX["knife"]) + _DPS7),
+       _g7("crit.cc.mod10", 'rPlayer.ModActorValue "CritChance" 10\n'
+           'SetFunctionValue (Floor ((rPlayer.GetActorValue "CritChance") * 100))'),
+       _g7("crit.pistol.cc20", _form("rObj", NF["pistol10"]) + _DPS7),
+       _g7("crit.knife.cc20", _form("rObj", FX["knife"]) + _DPS7),
+       _g7("crit.cc.restore", 'rPlayer.ModActorValue "CritChance" -10\n'
+           'SetFunctionValue (Floor ((rPlayer.GetActorValue "CritChance") * 100))'),
+       _g7("crit.luck.restore", 'rPlayer.ModActorValue "Luck" -5\n'
+           'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetActorValue "Luck") (Floor ((rPlayer.GetActorValue "CritChance") * 100)))', True)]
+    # Dimensions and terrain.
+    + [_g7v(f"objdim.doc.{a}", f"Floor ((rDoc.GetObjectDimensions {a}) * 100)") for a in "XYZ"]
+    + [_g7w(f"objdim.nuka.{a}", FX["nuka"], f"Floor ((GetObjectDimensions {a} rObj) * 100)") for a in "XYZ"]
+    + [_g7v("terrain.player", "Floor (GetTerrainHeight (rPlayer.GetPos X) (rPlayer.GetPos Y))"),
+       _g7v("terrain.far", "Floor (GetTerrainHeight 900000 900000)")]
+    # Lists of things.
+    + [_g7("baseitems.nuka", _form("rObj", FX["nuka"]) + "let aA := GetBaseItems rObj\nSetFunctionValue (ar_Size aA)"),
+       _g7("baseitems.doc", "let aA := rDoc.GetBaseItems\nSetFunctionValue (ar_Size aA)"),
+       _g7("droppedrefs.doc", "let aA := rDoc.GetDroppedRefs\nSetFunctionValue (ar_Size aA)"),
+       _g7("playerperks", "let aA := GetPlayerPerks\nSetFunctionValue (ar_Size aA)"),
+       _g7("followers.player", "let aA := rPlayer.GetFollowers\nSetFunctionValue (ar_Size aA)"),
+       _g7("tempeffects.player", "let aA := rPlayer.GetTempEffects\nSetFunctionValue (ar_Size aA)"),
+       _g7("detecting.player", "let aA := rPlayer.GetDetectingActors\nSetFunctionValue (ar_Size aA)"),
+       _g7("pickfromlist.ammo10", _form("rObj", FX["ammolist10"]) + "let rOther := rPlayer.PickFromList rObj\nSetFunctionValue (GetFormIDString rOther)", True),
+       _g7("pickfromlist.list127", _form("rObj", NF["list127"]) + "let rOther := rPlayer.PickFromList rObj\nSetFunctionValue (GetFormIDString rOther)", True)]
+    # Item and form kinds.
+    + [_g7w("ispoison.silversting", FX["silversting"], "GetIsPoison rObj"),
+       _g7w("ispoison.stimpak", NF["stimpak"], "GetIsPoison rObj"),
+       _g7w("isarmoraddon.legate", FX["legatearma"], "IsArmorAddon rObj"),
+       _g7w("isarmoraddon.leather", NF["leather"], "IsArmorAddon rObj"),
+       _g7w("isitem.stimpak", NF["stimpak"], "GetIsItem rObj"),
+       _g7w("isitem.nuka", FX["nuka"], "GetIsItem rObj"),
+       _g7v("isitem.docref", "rDoc.GetIsItem"),
+       _g7w("respawns.nuka", FX["nuka"], "GetContainerRespawns rObj"),
+       _g7w("destruction.ebox", FX["ebox"], "GetDestructionDataHealth rObj"),
+       _g7w("skeleton.vicious", FX["vicious"], "GetSkeletonModel rObj", True),
+       _g7w("skeleton.doc", NF["doc"], "GetSkeletonModel rObj", True),
+       _g7w("cellowner.gomorrah", FX["gomorrah"], "GetFormIDString (GetOwnerOfCell rObj)", True),
+       _g7w("cellowner.doc", CELLS["doc"], "GetFormIDString (GetOwnerOfCell rObj)", True)]
+    + [_g7w(f"packageflag.docsandbox.{i}", FX["docsandbox"], f"GetPackageFlag rObj {i}") for i in (0, 1, 2, 9, 10, 13, 14, 21)]
+    # Actor and player state.
+    + [_g7v("hctracking", "GetHardcoreTracking"),
+       _g7v("alwaysrun", "GetAlwaysRun"),
+       _g7v("pcincombat", "IsPCInCombat"),
+       _g7v("encumbrance.player", "Floor ((rPlayer.GetEncumbranceRate) * 100)"),
+       _g7v("immobile.doc", "rDoc.GetIsImmobile"),
+       _g7w("immobile.ebox", FX["ebox"], "GetIsImmobile rObj"),
+       _g7v("mobile.doc", "rDoc.IsMobile"),
+       _g7v("lastextdoor", "GetFormIDString (GetPCLastExteriorDoor)", True),
+       _g7v("leveledbase.doc", "GetFormIDString (rDoc.GetLeveledActorBase)", True),
+       _g7v("lightamount.player", "Floor (rPlayer.GetActorLightAmount)"),
+       _g7("resetfalltime", "rPlayer.ResetFallTime\nSetFunctionValue (rPlayer.GetFallTimeElapsed)")]
+    # Explosion flags and forms, put back.
+    + [_g7w(f"explflag.gren40.{i}", FX["gren40"], f"GetExplosionFlag rObj {i}") for i in range(1, 7)]
+    + [_g7w("explflag.set", FX["gren40"], "SetExplosionFlag rObj 4 (1 - (GetExplosionFlag rObj 4))"),
+       _g7w("explflag.set.read", FX["gren40"], "GetExplosionFlag rObj 4"),
+       _g7w("explflag.restore", FX["gren40"], "SetExplosionFlag rObj 4 (1 - (GetExplosionFlag rObj 4))")]
+    + [_g7w(f"expltrait.gren40.{i}", FX["gren40"], f"GetFormIDString (GetExplosionTraitForm rObj {i})", True) for i in range(5)]
+    + [_g7("expltrait.set", _form("rObj", FX["gren40"]) + _form("rOther", NF["stimpak"])
+           + 'let rDoc := GetExplosionTraitForm rObj 4\nrPlayer.AuxVarSetRef "*nvfXT" rDoc\nSetExplosionTraitForm rObj 4 rOther\n'
+           "SetFunctionValue (GetFormIDString (GetExplosionTraitForm rObj 4))", True),
+       _g7("expltrait.restore", _form("rObj", FX["gren40"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfXT"\n'
+           "if rOther\nSetExplosionTraitForm rObj 4 rOther\nelse\nSetExplosionTraitForm rObj 4\nendif\n"
+           'rPlayer.AuxVarErase "*nvfXT"\n'
+           "SetFunctionValue (GetFormIDString (GetExplosionTraitForm rObj 4))", True)]
+    # Perk level and flags, put back.
+    + [_g7w("perklevel.bloodymess", FX["bloodymess"], "GetPerkLevel rObj")]
+    + [_g7w(f"perkflag.bloodymess.{i}", FX["bloodymess"], f"GetPerkFlag rObj {i}") for i in range(3)]
+    + [_g7("perklevel.set", _form("rObj", FX["bloodymess"]) + 'let fRes := GetPerkLevel rObj\nrPlayer.AuxVarSetFlt "*nvfPL" fRes\n'
+           "SetPerkLevel rObj 8\nSetFunctionValue (GetPerkLevel rObj)"),
+       _g7("perklevel.restore", _form("rObj", FX["bloodymess"]) + 'SetPerkLevel rObj (rPlayer.AuxVarGetFlt "*nvfPL")\n'
+           'rPlayer.AuxVarErase "*nvfPL"\nSetFunctionValue (GetPerkLevel rObj)'),
+       _g7w("perkflag.set", FX["bloodymess"], "SetPerkFlag rObj 2 1"),
+       _g7w("perkflag.set.read", FX["bloodymess"], "GetPerkFlag rObj 2"),
+       _g7w("perkflag.restore", FX["bloodymess"], "SetPerkFlag rObj 2 0"),
+       _g7v("pcmovedcell", "GetPCMovedCell")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2951,11 +3091,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps3": GAPS3_PROBES,
         "gaps4": GAPS4_PROBES,
         "gaps5": GAPS5_PROBES,
-        "gaps6": GAPS6_PROBES}
+        "gaps6": GAPS6_PROBES,
+        "gaps7": GAPS7_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7"}
 
 
 def script(body):
