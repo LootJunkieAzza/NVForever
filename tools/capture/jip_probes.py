@@ -3691,6 +3691,36 @@ ENGINE1_PROBES = (
            "SetFunctionValue (GetFormIDString rOther)", True) for i in range(5)]
 )
 
+# Fifty-ninth set: what the extender core asked after engine1 (the straight-down cast read
+# 998 at the airport spot): GetP2PRayCastRange down from Z+500 and Z+100 with flags 0-4,
+# north at chest height (Z+60) with flags 0-4; then PlayMusic musDocMitchellHouse (MUSC
+# 171B4A) and IsMusicPlaying with the form and with none, over a few frames.
+
+
+def _e2(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+_P = "let fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\n"
+
+
+def _cast(pid, z0, x1, y1, z1, flag):
+    return _e2(pid, _P + f"SetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + {z0}) (fAx + {x1}) (fAy + {y1}) (fAz + {z1}) {flag}) * 10))")
+
+
+ENGINE2_PROBES = (
+    [_cast(f"ray.down500.f{f}", 500, 0, 0, -500, f) for f in range(5)]
+    + [_cast(f"ray.down100.f{f}", 100, 0, 0, -200, f) for f in range(5)]
+    + [_cast(f"ray.down100long.f{f}", 100, 0, 0, -1000, f) for f in range(5)]
+    + [_cast(f"ray.north60.f{f}", 60, 0, 5000, 60, f) for f in range(5)]
+    + [_e2("music.before.any", "SetFunctionValue (IsMusicPlaying)"),
+       _e2("music.before.doc", _form("rObj", FX["musdoc"]) + "SetFunctionValue (IsMusicPlaying rObj)"),
+       _e2("music.play", _form("rObj", FX["musdoc"]) + "PlayMusic rObj\nSetFunctionValue (IsMusicPlaying rObj)")]
+    + [_e2(f"music.f{i}.doc", _form("rObj", FX["musdoc"]) + "SetFunctionValue (IsMusicPlaying rObj)") for i in range(6)]
+    + [_e2("music.after.any", "SetFunctionValue (IsMusicPlaying)")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3732,11 +3762,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "plugins1": PLUGINS1_PROBES,
         "plugins2": PLUGINS2_PROBES,
         "plugins3": PLUGINS3_PROBES,
-        "engine1": ENGINE1_PROBES}
+        "engine1": ENGINE1_PROBES,
+        "engine2": ENGINE2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2"}
 
 
 def script(body):

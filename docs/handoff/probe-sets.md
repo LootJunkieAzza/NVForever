@@ -65,6 +65,7 @@ nothing is marked or loosened for them.
 | plugins2 | 67 | L5.ext.plugins2 | not run yet | ingestible flags on food, drink and poison; ApplyEasing's other curves; IsDLLLoaded names; map markers, pickup sounds, recipe subcategory, RemoveFormFromFormList |
 | plugins3 | 21 | L5.ext.plugins3 | not run yet | GetName on 521 references near the player (none reads its own name); JohnnyGuitar perk events; SetGlobalValue; GetAvailableRadios |
 | engine1 | 58 | none (engine side) | – | goldens for engine-built functions: P2P ray casts from the player, PushObject on a placed stimpak, toggle timing per frame, GetAvailableRadios forms |
+| engine2 | 30 | none (engine side) | – | P2P ray cast collision flags 0-4 down and north; PlayMusic and IsMusicPlaying |
 
 ## Coverage
 
