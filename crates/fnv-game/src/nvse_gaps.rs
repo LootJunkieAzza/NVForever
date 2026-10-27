@@ -179,15 +179,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // [observed: gaps3, Toughness 2 entries]
         "getperkentrycount" => XVal::Num(form(args, 0).and_then(|f| g.data.perks.get(&f)).map_or(0, |p| p.entries.len()) as f64),
-        // An entry point reads 1 [observed: gaps3, Toughness's first; hypothesis: quest
-        // stage 0 and ability 2].
+        // Entry point 1, ability 5, quest stage 6; past the entries 0 [observed: gaps3 and
+        // gaps5, Toughness/Lead Belly/Educated/Commando 1, Rad Resistance and Small Frame 5,
+        // Intense Training 6].
         "getnthperkentrytype" => {
             let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
             XVal::Num(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(_)) => 1.0,
-                Some(crate::data::PerkEffect::Ability(_)) => 2.0,
-                Some(_) => 0.0,
-                None => -1.0,
+                Some(crate::data::PerkEffect::Ability(_)) => 5.0,
+                Some(crate::data::PerkEffect::QuestStage { .. }) => 6.0,
+                _ => 0.0,
             })
         }
         // The entry point's code [observed: gaps4, Toughness's first 56].
@@ -196,6 +197,28 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(d)) => f64::from(d.point),
                 _ => -1.0,
+            })
+        }
+        // `av [type]`: the modifiers, not the damage [observed: gaps5, Health reads 0 on
+        // every filter before and after DamageAV 30]; 0 the permanent one, 1 the
+        // temporary one, none both [hypothesis: the filters' meanings].
+        "getactorvaluemodifier" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let code = match args.first() {
+                Some(XVal::Num(c)) => *c as u16,
+                Some(XVal::Str(n)) => match crate::functions::av_code(g, n) {
+                    Ok(c) => c,
+                    Err(_) => return Some(Ok(zero)),
+                },
+                _ => return Some(Ok(zero)),
+            };
+            let parts = crate::functions::actor::actor_value_parts(g, a, code).map(|p| p[1]).unwrap_or(0.0);
+            let temp = crate::functions::actor::temporary(g, a, code);
+            XVal::Num(match args.get(1) {
+                Some(XVal::Num(t)) if *t == 0.0 => parts,
+                Some(XVal::Num(t)) if *t == 1.0 => temp,
+                Some(XVal::Num(_)) => 0.0,
+                _ => parts + temp,
             })
         }
         // ---- base forms ----
