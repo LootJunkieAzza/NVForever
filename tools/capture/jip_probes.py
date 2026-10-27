@@ -4263,6 +4263,143 @@ SOUND1_PROBES = (
     + _s1f("p3d.stop.after", _S1B, 3)
 )
 
+
+# proj1 (writes, session only): a live projectile in flight. The player looks 60 degrees up
+# and fires the 10mm pistol (FireWeapon); the projectile is found by walking GetFirstRef 51 3 /
+# GetNextRef (the way the SetProjectileRefSpeedMult page gives [documented]) for the one whose
+# source is the player, kept in an aux variable, and read frame by frame: speed multiplier,
+# life time, distance travelled, source, weapon, damage. Then SetProjectileRefSpeedMult 0.5,
+# SetProjectileRefDamage 5 and SetProjectileRefSource to a placed NVProspectorFemaleT, read in
+# the same frame and the frames after; 30 frames later a walk counts what is left. Each read checks the projectile is still there (IsFormValid);
+# the view angle is put back and the NPC disabled and deleted.
+def _p1j(pid, body, text=False):
+    return (f"proj1.{pid}", "ref rP\nref rGun\nref rProj\nref rNpc\nfloat fRes\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rGun", NF["pistol10"])
+            + 'let rProj := rP.AuxVarGetRef "*nvfPR"\nlet rNpc := rP.AuxVarGetRef "*nvfPN"\n' + body, text, None, "")
+
+
+def _p1jv(pid, expr):
+    """A read of the kept projectile: -99 when it is gone."""
+    return _p1j(pid, f"let fRes := -99\nif IsFormValid rProj\nlet fRes := {expr}\nendif\nSetFunctionValue fRes")
+
+
+_P1WALK = ("let fRes := 0\nlet rProj := GetFirstRef 51 3\nwhile rProj\n"
+           "if (rProj.GetProjectileRefSource) == rP\nlet fRes += 1\nrP.AuxVarSetRef \"*nvfPR\" rProj\nendif\n"
+           "let rProj := GetNextRef\nloop\n")
+
+
+def _p1reads(tag):
+    return [_p1jv(f"{tag}.exists", "1"),
+            _p1jv(f"{tag}.speedmult", "rProj.GetProjectileRefSpeedMult"),
+            _p1jv(f"{tag}.lifetime.pos", "(rProj.GetProjectileRefLifeTime) > 0"),
+            _p1jv(f"{tag}.distance.pos", "(rProj.GetProjectileRefDistanceTraveled) > 0"),
+            _p1jv(f"{tag}.source.player", "(rProj.GetProjectileRefSource) == rP"),
+            _p1jv(f"{tag}.source.npc", "(rProj.GetProjectileRefSource) == rNpc"),
+            _p1jv(f"{tag}.weapon.pistol", "(rProj.GetProjectileRefWeapon) == rGun"),
+            _p1jv(f"{tag}.damage", "rProj.GetProjectileRefDamage"),
+            _p1jv(f"{tag}.type", "GetType (rProj.GetBaseObject)")]
+
+
+PROJ1_PROBES = (
+    [_p1j("npc.place", _form("rNpc", FX["prospector"]) + 'let rNpc := rP.PlaceAtMe rNpc 1\nrP.AuxVarSetRef "*nvfPN" rNpc\n'
+          'let fRes := rP.GetAngle X\nrP.AuxVarSetFlt "*nvfPA" fRes\nSetFunctionValue 1')]
+    + [_p1j(f"npc.wait{i}", "SetFunctionValue 1") for i in range(10)]
+    + [_p1j("npc.move", "rNpc.SetPos Y ((rP.GetPos Y) - 600)\nSetFunctionValue 1"),
+       _p1j("aim", "rP.SetAngle X -60\nSetFunctionValue 1")]
+    + [_p1j(f"aim.wait{i}", "SetFunctionValue 1") for i in range(5)]
+    + [_p1j("fire.walk", 'rP.AuxVarErase "*nvfPR"\nrP.FireWeapon rGun\n' + _P1WALK + "SetFunctionValue fRes"),
+       _p1j("f1.walk", _P1WALK + "SetFunctionValue fRes")]
+    + _p1reads("f1")
+    + [_p1jv("set.speedmult", "rProj.SetProjectileRefSpeedMult 0.5"),
+       _p1jv("set.speedmult.read", "rProj.GetProjectileRefSpeedMult"),
+       _p1jv("set.damage", "rProj.SetProjectileRefDamage 5"),
+       _p1jv("set.damage.read", "rProj.GetProjectileRefDamage"),
+       _p1j("set.source", "let fRes := -99\nif IsFormValid rProj\nrProj.SetProjectileRefSource rNpc\n"
+            "let fRes := (rProj.GetProjectileRefSource) == rNpc\nendif\nSetFunctionValue fRes")]
+    + _p1reads("after")
+    + [_p1j(f"late.wait{i}", "SetFunctionValue 1") for i in range(30)]
+    + [_p1j("late.walk", _P1WALK + "SetFunctionValue fRes"),
+       _p1jv("late.exists", "1")]
+    + [_p1j("cleanup", 'rP.SetAngle X (rP.AuxVarGetFlt "*nvfPA")\nrNpc.Disable\nrNpc.MarkForDelete\n'
+            'rP.AuxVarErase "*nvfPR"\nrP.AuxVarErase "*nvfPN"\nrP.AuxVarErase "*nvfPA"\nSetFunctionValue 1')]
+)
+
+
+# controls1 (writes, session only): GetControl for controls 0-16 on the keyboard (type 0) and
+# Attack/Block on the mouse (type 1): these are this install's bindings, not defaults, so they
+# can differ on another machine. SetControl 7 to scancode 48 and back in consecutive frames
+# (the page says changes reach the .ini on exit [documented]; the capture ends the game by
+# killing it, and the binding is put back first either way). HoldControl 0 (Forward) for 30
+# frames: IsControlPressed while held, whether the player moved more than 10 units, then
+# ReleaseControl: whether the player moved more than 10 units in the 10 frames after, and
+# more than 1 unit in one frame 30 frames after; the position is put back. The 10mm pistol
+# equipped, SetWeaponOut 1 read at 10, 30, 60 and 90 frames (gaps3 read 0 after 5), then
+# HolsterWeapon read at 5 to 120 frames, then SetWeaponOut 0 the same; the pistol is removed.
+def _c1(pid, body, text=False):
+    return (f"controls1.{pid}", "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\n" + _form("rP", NF["player"]) + body,
+            text, None, "")
+
+
+def _c1v(pid, expr):
+    return _c1(pid, f"SetFunctionValue ({expr})")
+
+
+def _c1w(pid, n):
+    return [_c1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+# The squared distance from the saved position.
+_C1MOVED = ('let fDx := (rP.GetPos X) - (rP.AuxVarGetFlt "*nvfCX")\nlet fRes := (rP.GetPos Y) - (rP.AuxVarGetFlt "*nvfCY")\n'
+            "let fRes := (fDx * fDx) + (fRes * fRes)\n")
+# The same from where the player was at the release.
+_C1REL = _C1MOVED.replace("*nvfCX", "*nvfRX").replace("*nvfCY", "*nvfRY")
+
+
+def _c1checks(tag, ats=(10, 30, 60, 90)):
+    out, done = [], 0
+    for at in ats:
+        out += _c1w(f"{tag}.wait{at}.", at - done - 1) + [_c1v(f"{tag}.f{at}", "rP.IsWeaponOut")]
+        done = at
+    return out
+
+
+CONTROLS1_PROBES = (
+    [_c1v(f"get.key.{c}", f"GetControl {c} 0") for c in range(17)]
+    + [_c1v(f"get.mouse.{c}", f"GetControl {c} 1") for c in (4, 6)]
+    + [_c1("set.key7", 'let fRes := GetControl 7 0\nrP.AuxVarSetFlt "*nvfCK" fRes\nSetControl 7 48 0\nSetFunctionValue (GetControl 7 0)'),
+       _c1v("set.key7.next", "GetControl 7 0"),
+       _c1("set.key7.restore", 'SetControl 7 (rP.AuxVarGetFlt "*nvfCK") 0\nrP.AuxVarErase "*nvfCK"\nSetFunctionValue (GetControl 7 0)')]
+    # Forward, held.
+    + [_c1("hold.save", 'let fRes := rP.GetPos X\nrP.AuxVarSetFlt "*nvfCX" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt "*nvfCY" fRes\n'
+           "HoldControl 0\nSetFunctionValue (IsControlPressed 0)")]
+    + _c1w("hold.wait", 2)
+    + [_c1v("hold.pressed", "IsControlPressed 0"),
+       _c1v("hold.pressed.ignore", "IsControlPressed 0 1")]
+    + _c1w("hold.walk", 26)
+    + [_c1("hold.moved", _C1MOVED + "SetFunctionValue (fRes > 100)"),
+       _c1("release", 'let fRes := rP.GetPos X\nrP.AuxVarSetFlt "*nvfRX" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt "*nvfRY" fRes\n'
+           "ReleaseControl 0\nSetFunctionValue (IsControlPressed 0)")]
+    + _c1w("release.wait", 10)
+    + [_c1v("release.pressed", "IsControlPressed 0"),
+       _c1("release.moved", _C1REL + "SetFunctionValue (fRes > 100)")]
+    + _c1w("release.settle", 20)
+    + [_c1("release.still", 'let fRes := rP.GetPos X\nrP.AuxVarSetFlt "*nvfRX" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt "*nvfRY" fRes\nSetFunctionValue 1'),
+       _c1("release.still.moved", _C1REL + "SetFunctionValue (fRes > 1)"),
+       _c1("hold.restore", 'rP.SetPos X (rP.AuxVarGetFlt "*nvfCX")\nrP.SetPos Y (rP.AuxVarGetFlt "*nvfCY")\n'
+           'rP.AuxVarErase "*nvfCX"\nrP.AuxVarErase "*nvfCY"\nrP.AuxVarErase "*nvfRX"\nrP.AuxVarErase "*nvfRY"\nSetFunctionValue 1')]
+    # SetWeaponOut and HolsterWeapon.
+    + [_c1("weap.add", _form("rObj", NF["pistol10"]) + "rP.AddItem rObj 1 1\nrP.EquipItem rObj 0 1\nSetFunctionValue 1")]
+    + _c1w("weap.addwait", 10)
+    + [_c1v("weap.before", "rP.IsWeaponOut"),
+       _c1("weap.out", "rP.SetWeaponOut 1\nSetFunctionValue (rP.IsWeaponOut)")]
+    + _c1checks("weap.out")
+    + [_c1("weap.holster", "rP.HolsterWeapon\nSetFunctionValue (rP.IsWeaponOut)")]
+    + _c1checks("weap.holster", (5, 10, 15, 20, 30, 60, 120))
+    + [_c1("weap.setout0", "rP.SetWeaponOut 0\nSetFunctionValue (rP.IsWeaponOut)")]
+    + _c1checks("weap.setout0", (10, 30, 60, 120))
+    + [_c1("weap.cleanup", _form("rObj", NF["pistol10"]) + "rP.UnequipItem rObj 0 1\nrP.RemoveItem rObj 1 1\nSetFunctionValue 1")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4314,11 +4451,13 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "anim1": ANIM1_PROBES,
         "anim2": ANIM2_PROBES,
         "reload1": RELOAD1_PROBES,
-        "sound1": SOUND1_PROBES}
+        "sound1": SOUND1_PROBES,
+        "proj1": PROJ1_PROBES,
+        "controls1": CONTROLS1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1"}
 
 
 def script(body):
