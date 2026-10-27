@@ -2521,6 +2521,57 @@ RGB_UI_PROBES = (
        _ru("ui.missingtrait.set", 'SetUIFloat "HUDMainMenu/nvfnone" 5\nSetFunctionValue (GetUIFloat "HUDMainMenu/nvfnone")')]
 )
 
+# Forty-fourth set: the functions of docs/handoff/modlist-scan-2026-10-26.md's 40 most
+# used that no set had called: SetUIString, SetUIStringAlt, SetUIFloatAlt (on the HUD's
+# hardcore Dehydration text, a path the GetUIString page names [documented], and on
+# HUDMainMenu's alpha), GetLoadedTypeArray, GetCrosshairRef, StopSound (UIVATSLoop
+# 15511B, fnvtool esm inventory [observed]). UI values are put back.
+FX.update(vatsloop="15511B")
+_DEHY = "HUDMainMenu/HardcoreMode/Dehydration/string"
+
+
+def _g1(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+GAPS1_PROBES = [
+    # UI strings.
+    _g1("ui.dehy.get", f'SetFunctionValue (GetUIString "{_DEHY}")', True),
+    _g1("ui.dehy.get.backslash", 'SetFunctionValue (GetUIString "HUDMainMenu\\HardcoreMode\\Dehydration\\string")', True),
+    _g1("ui.dehy.save", f'let sText := GetUIString "{_DEHY}"\nrPlayer.AuxVarSetStr "*nvfUS" sText\nSetFunctionValue 1'),
+    _g1("ui.setuistring", f'SetUIString "{_DEHY}" "NVF one"\nSetFunctionValue (GetUIString "{_DEHY}")', True),
+    _g1("ui.setuistringalt", f'SetFunctionValue (SetUIStringAlt "{_DEHY}" "NVF %g" 2)'),
+    _g1("ui.setuistringalt.read", f'SetFunctionValue (GetUIString "{_DEHY}")', True),
+    _g1("ui.setuistringalt.missing", 'SetFunctionValue (SetUIStringAlt "HUDMainMenu/NVFNone/string" "x")'),
+    # "%z" with a string_var put the variable's name ("sText") in the trait in the game,
+    # so a row reads that, and the text read first (H20) is put back as a literal.
+    _g1("ui.stringalt.z", f'let sText := rPlayer.AuxVarGetStr "*nvfUS"\nSetUIStringAlt "{_DEHY}" "%z" sText\n'
+        f'SetFunctionValue (GetUIString "{_DEHY}")', True),
+    _g1("ui.dehy.restore", f'SetUIStringAlt "{_DEHY}" "H20"\nrPlayer.AuxVarErase "*nvfUS"\n'
+        f'SetFunctionValue (GetUIString "{_DEHY}")', True),
+    # UI float, Alt form.
+    _g1("ui.floatalt.set", 'SetFunctionValue (SetUIFloatAlt "HUDMainMenu/alpha" 128)'),
+    _g1("ui.floatalt.read", 'SetFunctionValue (GetUIFloat "HUDMainMenu/alpha")'),
+    _g1("ui.floatalt.same", 'SetFunctionValue (SetUIFloatAlt "HUDMainMenu/alpha" 128)'),
+    _g1("ui.floatalt.missing", 'SetFunctionValue (SetUIFloatAlt "HUDMainMenu/nvfnone" 1)'),
+    _g1("ui.floatalt.restore", 'SetUIFloatAlt "HUDMainMenu/alpha" 255\nSetFunctionValue (GetUIFloat "HUDMainMenu/alpha")'),
+    # GetLoadedTypeArray: form type 40 weapons, 47 ingestibles; all plugins and one.
+    _g1("glta.weap", "let aA := GetLoadedTypeArray 40\nSetFunctionValue (ar_Size aA)"),
+    _g1("glta.weap.esm", "let aA := GetLoadedTypeArray 40 0\nSetFunctionValue (ar_Size aA)"),
+    _g1("glta.weap.first", "let aA := GetLoadedTypeArray 40 0\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)", True),
+    _g1("glta.alch", "let aA := GetLoadedTypeArray 47\nSetFunctionValue (ar_Size aA)"),
+    _g1("glta.probe", 'let aA := GetLoadedTypeArray 40 (GetModIndex "NVFExtProbe.esp")\nSetFunctionValue (ar_Size aA)'),
+    _g1("glta.alias", "let aA := GLTA 47 0\nSetFunctionValue (ar_Size aA)"),
+    # Crosshair.
+    _g1("crosshair", "SetFunctionValue (GetFormIDString (GetCrosshairRef))", True),
+    # StopSound on a looping sound.
+    _g1("sound.loop.play", _form("rObj", FX["vatsloop"]) + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)"),
+    _g1("sound.loop.next", _form("rObj", FX["vatsloop"]) + "SetFunctionValue (IsSoundPlaying rObj)"),
+    _g1("sound.loop.stop", _form("rObj", FX["vatsloop"]) + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)"),
+    _g1("sound.loop.stopped", _form("rObj", FX["vatsloop"]) + "SetFunctionValue (IsSoundPlaying rObj)"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2547,11 +2598,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "nvse-leftovers": N13_PROBES,
         "save-set": SAVE_SET_PROBES,
         "save-read": SAVE_READ_PROBES,
-        "rgb-ui": RGB_UI_PROBES}
+        "rgb-ui": RGB_UI_PROBES,
+        "gaps1": GAPS1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1"}
 
 
 def script(body):
