@@ -10424,3 +10424,62 @@ expect = [
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
 
+[[scenario]]
+name = "mq-ending-legion"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-legion.actions.json, the end slides from VHDLegionBattle 100 (the Legion ending, story state 62): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ending-legion.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ending-legion.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ending global (62 = Legion).value", equals = 62.0, label = "milestone: ending global (62 = Legion): value = 62.0" },
+  { json = "observations.?label=milestone: VEnding started.var.bstartslideshow", equals = 1.0, label = "Legion ending, milestone: VEnding started: var.bstartslideshow = 1.0" },
+  { json = "observations.?label=milestone: VEndingConclusion said, credits timer started.found", equals = true, label = "Legion ending, milestone: VEndingConclusion said, credits timer started: found = true" },
+  { json = "observations.?label=final: FadeToCreditsTimer faded out (ExitGame called).var.bfadeoutdone", equals = 1.0, label = "Legion ending, final: FadeToCreditsTimer faded out (ExitGame called): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
+
+[[scenario]]
+name = "mq-ending-house"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-house.actions.json, the end slides from VHDHouseBattle 100 (the House ending, story state 63): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ending-house.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ending-house.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ending global (63 = House).value", equals = 63.0, label = "milestone: ending global (63 = House): value = 63.0" },
+  { json = "observations.?label=milestone: VEnding started.var.bstartslideshow", equals = 1.0, label = "House ending, milestone: VEnding started: var.bstartslideshow = 1.0" },
+  { json = "observations.?label=milestone: VEndingConclusion said, credits timer started.found", equals = true, label = "House ending, milestone: VEndingConclusion said, credits timer started: found = true" },
+  { json = "observations.?label=final: FadeToCreditsTimer faded out (ExitGame called).var.bfadeoutdone", equals = 1.0, label = "House ending, final: FadeToCreditsTimer faded out (ExitGame called): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
+
+[[scenario]]
+name = "mq-ending-independent"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-independent.actions.json, the end slides from VHDIndependentBattle 100 (the independent ending without the Securitron vault, story state 64): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ending-independent.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ending-independent.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ending global (64 = independent, Securitron vault not opened).value", equals = 64.0, label = "milestone: ending global (64 = independent, Securitron vault not opened): value = 64.0" },
+  { json = "observations.?label=milestone: VEnding started.var.bstartslideshow", equals = 1.0, label = "independent ending, milestone: VEnding started: var.bstartslideshow = 1.0" },
+  { json = "observations.?label=milestone: VEndingConclusion said, credits timer started.found", equals = true, label = "independent ending, milestone: VEndingConclusion said, credits timer started: found = true" },
+  { json = "observations.?label=final: FadeToCreditsTimer faded out (ExitGame called).var.bfadeoutdone", equals = 1.0, label = "independent ending, final: FadeToCreditsTimer faded out (ExitGame called): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
+
+[[scenario]]
+name = "mq-reputation-axes"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md item 10: crates/fnv-game/walkthrough/reputation-axes.actions.json, the lines that call the reputation functions with axis 2 (Crocker's messenger, Vulpes's greeting): infamy is cleared and the script goes on past the axis-2 call"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/reputation-axes.actions.json", "crates/fnv-game/src/functions/reputation.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/runner.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/reputation-axes.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: NCR infamy cleared by the messenger.infamy", equals = 0.0, label = "milestone: NCR infamy cleared by the messenger: infamy = 0.0" },
+  { json = "observations.?label=milestone: Kings' Gambit (VMS23) flags set after the axis-2 call.var.breputationclear", equals = 1.0, label = "milestone: VMS23 breputationclear = 1.0" },
+  { json = "observations.?label=milestone: Legion infamy cleared by Vulpes.infamy", equals = 0.0, label = "milestone: Legion infamy cleared by Vulpes: infamy = 0.0" },
+  { json = "observations.?label=final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_do_nothing).threshold.good", equals = 6, label = "final: the Strip's good tier = 6 (Idolized)" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; docs/handoff/mq-walkthrough-2026-10-27.md item 10 and observer check 30"
