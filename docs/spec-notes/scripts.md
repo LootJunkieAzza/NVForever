@@ -1129,7 +1129,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | op | stands in for |
 |---|---|
 | `advance_seconds` | time passing at the fixed frame step |
-| `player_activate {target, actor?}` | activation by hand (OnActivate instead of the default) |
+| `player_activate {target, actor?}` | activation by hand (OnActivate instead of the default); a player activation whose default action is to talk starts the conversation, as the play loop does |
 | `say_info {info, speaker?, force?}` | a dialogue line being said: its begin and end result scripts run on the speaker; refused when its conditions fail (with the conditions and their values in the error) unless `force` |
 | `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
@@ -1140,6 +1140,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
 | `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |
 | `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
+| `hit {target, attacker?, weapon?, label?}` | a shot or blow reaching a reference that is not an actor (`Game::hit_object`: its OnHit and OnHitWith blocks; attacker the player by default); observation `ran` |
 | `consume {item, actor?, label?}` | the player (or an actor) using an aid item: `Game::consume`, effect scripts start (§7.6); observation `effects` |
 | `note {text}` | a comment; no effect |
 | `talk {actor, topic?, label?}` | a conversation starting (`Game::start_dialogue`): the player activating the actor, or the actor's dialogue package; observation `info` (docs/spec-notes/dialogue.md §8) |

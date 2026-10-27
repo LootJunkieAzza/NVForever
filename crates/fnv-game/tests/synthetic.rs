@@ -1415,6 +1415,28 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
 }
 
 #[test]
+fn the_runners_hit_runs_an_objects_hit_blocks() {
+    // A stand-in for a scripted shot (Lonesome Road's ED-E zapping the silo mainframe).
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "hit", "target": "TestActivatorREF", "label": "by the player"},
+            {"op": "hit", "target": "TestActivatorREF", "attacker": "TestNpcREF", "weapon": "TestMsg", "label": "by another with a weapon"},
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["var.nHit"], "label": "count"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("by the player")["ran"], true);
+    assert_eq!(by("by another with a weapon")["ran"], true);
+    // OnHit player (10), then only OnHitWith for the other attacker (1).
+    assert_eq!(by("count")["var.nHit"], 11.0);
+}
+
+#[test]
 fn weapon_out_and_weapon_animation_type() {
     use fnv_game::functions::weapon_anim_code;
     let f = fixture();
