@@ -7686,15 +7686,16 @@ expect = [
 [[scenario]]
 name = "vats-mark-forehead"
 source = "owner's playtest 2026-10-24: a VATS mark on the head needed the crosshair on the neck; the human head's capsule stopped at the base of the skull (Bip01 Head has no bone above it) and now reaches the crown (engine/nvforever/src/limbs.rs skull_tip, docs/design/combat.md §5.9)"
-note = "GSGeneralStore (energy-resist-hit's spot), god mode, a .357 drawn and loaded; V at 16 s (after the add-on packs' start-up boxes: a run that pressed V at 12 s met them, and an open menu keeps the mode off) enters VATS mode (clock 0.05), aimnpc=0.95@0 puts the crosshair on the nearest NPC's forehead (95 % of its height, over the centre of its head, part 0 of DefaultBodyPartData; above the top of the old head ball) and a click marks it: the mark is on the head. A first run aimed over the body's middle (aimnpc=0.93): Chet leans, his head 17 units to the side of it, and the ray passed beside the head. 40 s: the interior is ready at once, and on a busy machine the scripts (whose start the aids wait for) were not running by 18 s, so two runs ended before any aid"
+note = "GSGeneralStore (energy-resist-hit's spot), god mode, a .357 drawn and loaded; V at 16 s (after the add-on packs' start-up boxes: a run that pressed V at 12 s met them, and an open menu keeps the mode off) enters VATS mode (clock 0.05), aimnpc=0.95@0 puts the crosshair on the nearest NPC's forehead (95 % of its height, over the centre of its head, part 0 of DefaultBodyPartData; above the top of the old head ball) and a click marks it: the mark is on the head. Right clicks at 16.5 and 16.55 take the mark back and end the mode (vats-mode-dof's way out): nothing else ends it now that the start-up boxes come behind the loading screen, before V (b8aa64a4), and the rest of the run at the 0.05 clock outlasted the runner's timeout (2026-10-27). A first run aimed over the body's middle (aimnpc=0.93): Chet leans, his head 17 units to the side of it, and the ray passed beside the head. 40 s: the interior is ready at once, and on a busy machine the scripts (whose start the aids wait for) were not running by 18 s, so two runs ended before any aid"
 areas = ["combat", "vats"]
 paths = ["engine/nvforever/src/limbs.rs", "engine/nvf-play/src/hitvol.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/test_aid.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.5:mouse-right,16.55:mouse-right" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
   { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode with the .357" },
   { re = 'vats mode: marked .* \((?i:head)\), mark 1;', label = "the click on the forehead marks the head" },
+  { re = 'vats mode: off', label = "the right clicks end the mode, so the run ends on time" },
 ]]
 expect = [
   { text = "vats mode: nothing to mark under the crosshair", count = 0, label = "the forehead is part of the head's volume" },
