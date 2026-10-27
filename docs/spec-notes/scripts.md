@@ -1135,6 +1135,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
 | `say_to_done {actor, topic?}` | a SayTo or Say line finishing (SayToDone blocks) |
 | `patrol_point {actor, point}` | an actor on a patrol reaching a point: the point's patrol script runs on the actor and its topic is said (`Game::patrol_point_reached`, as fnv-ai's carry calls it); refused when the point has neither [hypothesis: the order script, then topic, is fnv-ai's] |
+| `fire {weapon, actor?}` | the player (or an actor) firing a weapon it carries: the weapon's OnFire blocks (`Game::weapon_fired`, as nvf-play's combat calls it); refused when the weapon is not carried or has no OnFire block (Honest Hearts' Pine Creek detonator ends Flight from Zion this way) |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
 | `press_button {button}` | the player picking a message box button: the button is set, one frame runs with the box open (MenuMode 1001 blocks read it, as in the play loop), then the box closes |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |

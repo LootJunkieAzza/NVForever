@@ -291,6 +291,9 @@ pub enum Action {
     /// runs on the actor and its topic is said (`Game::patrol_point_reached`, as the AI
     /// layer calls it).
     PatrolPoint { actor: String, point: String },
+    /// An actor (the player by default) fires a weapon it carries: the weapon's OnFire
+    /// blocks run (`Game::weapon_fired`, as the play loop calls it).
+    Fire { weapon: String, #[serde(default)] actor: Option<String> },
     /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
     /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
     /// (OnTriggerLeave).
@@ -1288,6 +1291,15 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("{} has no patrol script or topic", g.data.name(p)));
             }
             g.patrol_point_reached(a, p);
+        }
+        Action::Fire { weapon, actor } => {
+            let (a, w) = (actor_or_player(g, actor)?, resolve(g, weapon)?);
+            if g.world.item_count(a, w).unwrap_or(0) <= 0 {
+                return Err(format!("{} carries no {}", g.data.name(a), g.data.name(w)));
+            }
+            if !g.weapon_fired(a, w) {
+                return Err(format!("{} has no OnFire block", g.data.name(w)));
+            }
         }
         Action::TriggerEnter { trigger, actor, event: ev } => {
             let t = resolve(g, trigger)?;

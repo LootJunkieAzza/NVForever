@@ -149,6 +149,8 @@ const ACTIVATOR: u32 = 0x903;
 const TRIG_SCRIPT: u32 = 0x904;
 const TRIGGER: u32 = 0x905;
 const MARKER: u32 = 0x906;
+const WEAPON: u32 = 0x907;
+const WEAPON_SCRIPT: u32 = 0x908;
 const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
@@ -265,6 +267,8 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"SCPT", 0, TRIG_SCRIPT, &trigscript),
         record(b"SCPT", 0, ACT_SCRIPT, &actscript),
         record(b"SCPT", 0, NPC_SCRIPT, &npcscript),
+        // Weapon script: begin OnFire / set TestGlobal to 9 / end.
+        record(b"SCPT", 0, WEAPON_SCRIPT, &[vec![sub(b"EDID", z("WeaponScript"))], unit(0, &script(&[(0x24, None, set(var(b'G', 1), ex(&[a("9")])))]), &[], &[GLOBAL])].concat()),
     ]
     .concat();
     // The quest: start game enabled, delay 0.5 s.
@@ -410,6 +414,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"SCPT", &scpt),
         top(b"ACTI", &[acti, trig, marker].concat()),
         top(b"NPC_", &[npc, npc_auto].concat()),
+        top(b"WEAP", &record(b"WEAP", 0, WEAPON, &[sub(b"EDID", z("TestWeapon")), sub(b"SCRI", WEAPON_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])])),
         top(b"PACK", &pack),
         top(b"QUST", &qust),
         top(b"DIAL", &dial),
@@ -1079,6 +1084,28 @@ fn the_runner_reaches_a_patrol_point_and_runs_its_script() {
     assert!(steps[2].get("error").is_some(), "{}", out["steps"]);
     let obs = out["observations"].as_array().unwrap();
     assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 8.0);
+}
+
+#[test]
+fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "fire", "weapon": "TestWeapon", "actor": "TestNpcREF"},
+            {"op": "add_item", "to": "TestNpcREF", "item": "TestWeapon", "count": 1},
+            {"op": "fire", "weapon": "TestWeapon", "actor": "TestNpcREF"},
+            {"op": "get_global", "name": "TestGlobal", "label": "after"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    // Not carried: refused; carried: OnFire runs.
+    assert!(steps[0].get("error").is_some(), "{}", out["steps"]);
+    assert!(steps[2].get("error").is_none(), "{} {}", out["steps"], out["events"]);
+    let obs = out["observations"].as_array().unwrap();
+    assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 9.0);
 }
 
 #[test]
