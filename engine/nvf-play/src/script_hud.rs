@@ -245,7 +245,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
             continue;
         }
         // The companion wheel's companion: drawn in the wheel (`crate::companion_wheel`).
-        if g.line_goes_on_in_menu(s.speaker) {
+        if g.wheel_companion() == Some(s.speaker) {
             subs.push(format!("{who}: {text} (in the companion wheel)"));
             wheel = Some(text);
             continue;

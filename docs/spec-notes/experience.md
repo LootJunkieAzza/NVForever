@@ -44,7 +44,11 @@ not, so the wiki's defaults hold. There is none when others did more than
 `100 − iXPDeathRewardHealthThreshold` (40) % of the damage. An actor's level is its
 record's, or the player's times its multiplier for a levelled (PC Level Mult) actor,
 within its minimum and maximum. The difficulty multipliers `fDiffMultXP…` are all 1 in the
-master. The other rewards:
+master.
+
+A hired companion's (a teammate's) kill earns the player the same XP as the player's own,
+and the player's and the companions' damage count together towards the share above
+[owner, 2026-10-27; design: the shared share] (`Game::kill_earns_xp`). The other rewards:
 
 | Source | Settings (FalloutNV.esm; default) | Where (code) |
 | --- | --- | --- |

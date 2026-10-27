@@ -91,11 +91,17 @@ scripts do the work [observed, FalloutNV.esm]:
   [hypothesis]: it gets each companion's own replies and the quest's bookkeeping. The
   first line of the topic the companion can say is the one (`Game::select_line`); a
   companion with no such line cannot use the button (it is dimmed) [hypothesis].
+- A command takes effect as the companion starts its reply: the line's begin and end
+  result scripts both run then (Let's Go's `Waiting 0` too), and the wheel's icons and words
+  show the new state at once; the end script does not run again when the line ends
+  [owner, 2026-10-27] (`Game::wheel_command`, log `companion wheel: <command> now shows
+  <label>`).
 - The reply goes on in real time behind the wheel: its voice plays, its text stands in the
-  wheel's subtitle place, its end script runs when it is over (`Game::update_wheel_line`)
-  [design: as the conversation's own lines go on behind it]. The wheel stays open after a
-  command, but for Talk (the conversation opens) and Open Inventory (the container menu
-  opens once it is closed) [hypothesis].
+  wheel's subtitle place (`Game::update_wheel_line`) [design: as the conversation's own
+  lines go on behind it]. The wheel stays open after a command, but for Talk (the
+  conversation opens) and Open Inventory (the container menu opens once it is closed)
+  [hypothesis]. Open Inventory's line ("Fine by me.") goes on while the inventory is open,
+  heard as it comes up [owner, 2026-10-27] (`Companions::trading`).
 - **What the variables then do**:
   - `Waiting`, `IsFollowingLong`: the companion's Wait (Guard) and Follow LONG/DEFAULT
     packages are chosen by their own conditions on them [observed: Boone's

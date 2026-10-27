@@ -199,6 +199,9 @@ pub struct Companions {
     pub back_ups: BTreeMap<FormId, f64>,
     /// Teammates sneaking because the player sneaks.
     pub sneaking: BTreeSet<FormId>,
+    /// The companion whose inventory the wheel's Open Inventory asked for: its line goes
+    /// on while the container menu is open ([`Game::line_goes_on_in_menu`]).
+    pub trading: Option<FormId>,
 }
 
 impl Game<'_> {
@@ -246,9 +249,11 @@ impl Game<'_> {
 
     /// Whether a line `speaker` says goes on while the menus hold the game: the wheel's
     /// companion's while its wheel is open [design: its reply is heard and read in the
-    /// wheel, as the conversation's own lines go on].
+    /// wheel, as the conversation's own lines go on], and its Open Inventory line while
+    /// its inventory is open [owner, 2026-10-27: Boone's "Fine by me" is said as the
+    /// inventory comes up, not after it closes].
     pub fn line_goes_on_in_menu(&self, speaker: FormId) -> bool {
-        self.wheel_companion() == Some(speaker)
+        self.wheel_companion() == Some(speaker) || (self.companions.trading == Some(speaker) && self.menu == Some(crate::runner::CONTAINER_MENU))
     }
 
     fn var_on(&self, companion: FormId, name: &str) -> bool {
@@ -347,18 +352,47 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
                 let name = command.topic(state.alt).expect("a topic");
                 let topic = self.data.by_edid(name).ok_or_else(|| format!("the load order has no topic {name}"))?;
                 Ok(match self.say(c, player, topic, true) {
-                    Some(info) => Outcome::Said { topic, info },
+                    Some(info) => {
+                        self.run_end_script_now(c, info);
+                        if command == Command::OpenInventory {
+                            self.companions.trading = Some(c);
+                        }
+                        Outcome::Said { topic, info }
+                    }
                     None => Outcome::NoLine { topic: name },
                 })
             }
         }
     }
 
-    /// While the wheel is open its companion's line goes on (`Game::tick`, in menu mode).
+    /// While the wheel is open its companion's line goes on (`Game::tick`, in menu mode),
+    /// and the Open Inventory line while the inventory is open.
     pub(crate) fn update_wheel_line(&mut self, dt: f64) {
         if let Some(c) = self.wheel_companion() {
             self.update_speech_of(dt, Some(c));
         }
+        if let Some(c) = self.companions.trading {
+            if self.menu == Some(crate::runner::CONTAINER_MENU) {
+                self.update_speech_of(dt, Some(c));
+            }
+            if !self.speech.iter().any(|s| s.speaker == c) {
+                self.companions.trading = None;
+            }
+        }
+    }
+
+    /// A wheel command takes effect as the companion starts its reply: the line's end
+    /// result script (Let's Go's `Waiting 0`) runs now, not when the line is over
+    /// [owner, 2026-10-27: Wait and Follow take effect and the wheel shows it as soon as
+    /// the button is pressed]. It does not run again at the line's end.
+    fn run_end_script_now(&mut self, speaker: FormId, info: FormId) {
+        let data = self.data;
+        let Some(def) = data.infos.get(&info) else { return };
+        let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker && s.info == info) else { return };
+        let Some(u) = def.end.filter(|_| !s.end_ran) else { return };
+        s.end_ran = true;
+        self.emit(crate::trace::EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
+        self.run_result(u, crate::game::RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
     }
 
     /// `fnv_ai` takes a back-up order for `actor`: when it was given.

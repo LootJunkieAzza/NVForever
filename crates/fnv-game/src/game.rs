@@ -357,7 +357,8 @@ pub struct RefExtra {
     /// ([`Game::set_held_weapon`]). Not saved: told again when the actor is drawn.
     #[serde(skip)]
     pub held_weapon: Option<FormId>,
-    /// Health damage taken from the player, and from anyone (kill XP's share rule).
+    /// Health damage taken from the player and its hired companions (`Game::kill_earns_xp`),
+    /// and from anyone (kill XP's share rule).
     #[serde(skip_serializing_if = "is_zero_f64", default)]
     pub player_damage: f64,
     #[serde(skip_serializing_if = "is_zero_f64", default)]
@@ -909,6 +910,10 @@ pub struct Speech {
     /// Say's is2D: heard as a 2D sound (full volume, not panned, anywhere).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub two_d: bool,
+    /// The line's end result script already ran as it started (a companion wheel command,
+    /// `Game::wheel_command`): it does not run again when the line ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub end_ran: bool,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -3178,7 +3183,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -3279,7 +3284,7 @@ impl<'a> Game<'a> {
             let s = self.speech.remove(k);
             self.emit(EventKind::LineEnded { speaker, info, cut: false });
             if let Some(def) = data.infos.get(&info) {
-                if let Some(u) = def.end {
+                if let Some(u) = def.end.filter(|_| !s.end_ran) {
                     self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
                     self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
                 }
