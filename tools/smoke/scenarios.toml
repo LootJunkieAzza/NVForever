@@ -10483,3 +10483,15 @@ expect = [
   { json = "observations.?label=final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_do_nothing).threshold.good", equals = 6, label = "final: the Strip's good tier = 6 (Idolized)" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; docs/handoff/mq-walkthrough-2026-10-27.md item 10 and observer check 30"
+
+[[scenario]]
+name = "walkthrough-coverage"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md §5: every walkthrough chain in crates/fnv-game/walkthrough run with coverage recorded (fnvtool script cover), compared with the ten masters' quests, scripts and dialogue lines"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/coverage.rs", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnvtool/src/script_cmd.rs", "tools/smoke/expected/walkthrough-coverage.toml"]
+commands = [["script", "cover", "{data}", "{masters}", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough"]]
+# The totals live in expected/walkthrough-coverage.toml: a branch that adds a chain or
+# reaches further raises them there; a drop fails this run.
+expect_file = "expected/walkthrough-coverage.toml"
+manual = "a drop: run the command with --detail and compare the quests and scripts with main's; a rise: write the new summary into expected/walkthrough-coverage.toml"

@@ -1,0 +1,58 @@
+# The totals `fnvtool script cover <Data> <the ten masters> --schema schemas/fnv --actions
+# crates/fnv-game/walkthrough` must print (its "summary"): the smoke scenario
+# walkthrough-coverage (tools/smoke/scenarios.toml) expects each value below, by its JSON
+# path, to equal the run's (docs/handoff/mq-walkthrough-2026-10-27.md §5).
+#
+# A branch that adds a chain or makes one reach further raises these numbers and changes
+# them here in the same branch; a drop fails the run (find what the branch lost before
+# lowering anything). Two branches that both raised a number conflict here when merged:
+# run the command again on the merge and write what it prints, never keep both lines.
+# Each chain's own mq-* scenario checks its milestones; this file only counts.
+
+
+[summary.quests]
+total = 228
+touched = 51
+completed = 30
+
+[summary.stages]
+total = 1405
+reached = 153
+
+[summary.scripts]
+total = 3488
+touched = 303
+
+[summary.blocks]
+total = 5690
+run = 370
+
+[summary.lines]
+total = 28896
+said = 316
+
+[summary.actors]
+with_lines = 704
+touched = 19
+
+[summary.untouched_quests]
+main = 4
+faction = 28
+add-on = 74
+other = 71
+
+[summary.results.info]
+total = 8639
+run = 327
+
+[summary.results.package]
+total = 558
+run = 4
+
+[summary.results.stage]
+total = 1040
+run = 131
+
+[summary.results.terminal]
+total = 384
+run = 5

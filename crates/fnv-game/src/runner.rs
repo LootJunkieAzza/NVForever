@@ -67,6 +67,11 @@ pub struct Input {
     /// References whose final state is reported.
     #[serde(default)]
     pub report: Vec<String>,
+    /// The load order the chain is written for (`fnvtool script cover` runs it over
+    /// these plugins; empty: the first plugin of the load order it is given).
+    /// `script run` uses the plugins on its command line and ignores this.
+    #[serde(default)]
+    pub plugins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1728,7 +1733,19 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
 /// [`run`], with dialogue responses as long as their voice files where `voice` knows
 /// them (`crate::voice`, docs/spec-notes/voice.md §8).
 pub fn run_with_voice(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, voice: Option<Voice>) -> Result<Json, String> {
-    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice)
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice, false).map(|(t, _)| t)
+}
+
+/// [`run_with_voice`], recording what the run reached of the scripts
+/// (`crate::coverage`): the trace and the coverage.
+pub fn run_with_coverage(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    voice: Option<Voice>,
+) -> Result<(Json, crate::coverage::Coverage), String> {
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice, true).map(|(t, c)| (t, c.unwrap_or_default()))
 }
 
 /// The line-length hook a run is given ([`crate::game::Game::voice`]).
@@ -1770,7 +1787,7 @@ pub fn run_dialogue_with_voice(
     text: bool,
     voice: Option<Voice>,
 ) -> Result<Json, String> {
-    let full = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice)?;
+    let (full, _) = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice, false)?;
     let form = |v: &Json| v.as_str().and_then(|s| s.parse::<FormId>().ok());
     let edid = |v: &Json| form(v).and_then(|f| data.edid_of.get(&f).cloned());
     let mut events = Vec::new();
@@ -1830,7 +1847,15 @@ pub fn run_dialogue_with_voice(
     }))
 }
 
-fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, format: &str, voice: Option<Voice>) -> Result<Json, String> {
+fn run_as(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    format: &str,
+    voice: Option<Voice>,
+    cover: bool,
+) -> Result<(Json, Option<crate::coverage::Coverage>), String> {
     if input.format != format {
         return Err(format!("unsupported actions format {:?} (expected {format})", input.format));
     }
@@ -1857,6 +1882,9 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
     };
     let mut g = Game::new(data, world, cfg);
     g.voice = voice;
+    if cover {
+        g.coverage = Some(Default::default());
+    }
     if input.new_game {
         g.new_game();
         new_game_start(&mut g);
@@ -1973,7 +2001,7 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
         g.unhandled.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
     let stubbed: Map<String, Json> =
         g.stubbed.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
-    Ok(json!({
+    let trace = json!({
         "format": TRACE_FORMAT,
         "seed": input.seed,
         "frame_seconds": input.frame_seconds,
@@ -1991,7 +2019,8 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
             "unhandled": unhandled,
             "stubbed": stubbed,
         },
-    }))
+    });
+    Ok((trace, g.coverage.take()))
 }
 
 fn action_label(a: &Action) -> Option<String> {

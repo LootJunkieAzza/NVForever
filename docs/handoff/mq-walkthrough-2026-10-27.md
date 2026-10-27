@@ -150,3 +150,36 @@ Notes [observed]:
 - Smoke `sunny-wells` fails on main (325cdaf1): Cheyenne runs after Sunny instead of walking. It was rerun alone with this branch's two play changes switched off and still failed, so it is marked `known_failing`; not explained yet.
 - Game runs: these chains say the quest flow holds. They do not show that the AI walks
   there, the fights end or the Dam's ~300 actors run at speed (audit §7 item 6).
+
+## 5. Coverage: what the chains reach, what is untouched
+
+`fnvtool script cover <Data> <the ten masters> --schema schemas/fnv --actions
+crates/fnv-game/walkthrough [--detail report.json] [--log-dir logs/] [--logs more.json ...]`
+runs every chain over the load order it names (`plugins` in the actions file, else
+FalloutNV.esm alone: the add-ons' start-up message boxes would hold the base-game chains
+that keep menus), records what each reached, merges that with any saved logs (`script run
+--coverage <file>` writes one per run; the result-script sweep will write one) and
+compares it with the ten masters. The smoke scenario `walkthrough-coverage` checks the
+printed summary against `tools/smoke/expected/walkthrough-coverage.toml`: a branch that
+adds a chain or reaches further writes the new numbers there; a drop fails the run.
+
+Reading the summary:
+- `quests`: quests with stages (`total`), those with at least one stage reached
+  (`touched`), those where a stage that completes the quest (QSDT flag Complete Quest) was
+  reached (`completed`). `stages`: stages reached of all stages.
+- `scripts` / `blocks`: SCPT scripts with blocks, those with a block run, and blocks run of
+  all blocks (unit and block, so a script's GameMode and OnActivate count apart).
+- `lines` / `actors`: dialogue lines (INFO) started; actors with lines (a line's own
+  GetIsID actor, else its fixed speaker) and those with any line said.
+- `results`: result scripts with statements, by kind (quest stage, INFO, terminal,
+  package), and those run.
+- `untouched_quests`: quests with no stage reached, by rank: `main` (FalloutNV.esm's VMQ,
+  VHD, VEnding, VCG0* quests), `faction` (another base-game quest whose stage scripts
+  change a reputation [hypothesis: a working rule for ranking, not a category in the data]),
+  `add-on` (any other plugin's), `other`. The `untouched` list names them in that order.
+- `chains`: each chain's step and given errors (they should all be 0).
+
+Picking the next chain: take the first quests of the `untouched` list (the main quest, then
+factions, then add-ons); `--detail` gives per quest the stages reached and its completing
+stages, per script the blocks run, per actor the lines said, so a quest half walked shows
+which stages are left. Totals at the end of the second batch: §1's table.

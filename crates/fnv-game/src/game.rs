@@ -1319,6 +1319,8 @@ pub struct Game<'a> {
     /// it stands.
     door_open_seen: BTreeMap<FormId, bool>,
     pub events: Vec<Event>,
+    /// What this run reached of the scripts, when recorded (`crate::coverage`).
+    pub coverage: Option<crate::coverage::Coverage>,
     /// Calls per opcode that have no implementation.
     pub unhandled: BTreeMap<u16, u64>,
     /// Calls per opcode that reached a Layer 6 stub.
@@ -1763,6 +1765,7 @@ impl<'a> Game<'a> {
             events: Vec::new(),
             unhandled: BTreeMap::new(),
             stubbed: BTreeMap::new(),
+            coverage: None,
             unhandled_seen: BTreeSet::new(),
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
@@ -1916,6 +1919,7 @@ impl<'a> Game<'a> {
             }
         }
         self.emit(EventKind::StageSet { quest: q, stage, entries: ran.clone() });
+        self.cover_stage(q, stage);
         // JIP's quest-stage handlers, before the result scripts, which a registration
         // with skipScript keeps from running [documented: SetOnQuestStageEventHandler].
         let skip = self.jip_skips_stage(q, stage);
@@ -2093,6 +2097,7 @@ impl<'a> Game<'a> {
     /// statements, with temporary locals.
     pub fn run_result(&mut self, unit: UnitId, ctx: RunCtx) {
         let c = self.data.unit(unit);
+        self.cover_result(|| c.key());
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
     }
 
@@ -2518,11 +2523,12 @@ impl<'a> Game<'a> {
         let Some(unit) = data.script(script) else { return false };
         let mut ran = false;
         let coded = |b: &&Block| !coded_only || b.params.as_ref().is_some_and(|p| !p.is_empty());
-        for b in unit.program.blocks.iter().filter(|b| b.event == event).filter(coded) {
+        for (i, b) in unit.program.blocks.iter().enumerate().filter(|(_, b)| b.event == event && coded(b)) {
             if !self.block_accepts(unit, key, b, subject) {
                 continue;
             }
             self.instance(key, Some(script));
+            self.cover_block(|| unit.key(), i);
             ran = true;
             // Return ends the script for this run, not just its block: a later block
             // of the same event does not run [documented: GECK wiki Adding an Options
@@ -3196,6 +3202,7 @@ impl<'a> Game<'a> {
             _ => self.line_seconds(speaker, info),
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
+        self.cover_info(info);
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: false });
         if let Some(&first) = def.response_order().first() {

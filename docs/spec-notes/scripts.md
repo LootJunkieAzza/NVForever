@@ -1127,6 +1127,14 @@ disabled flags; set before action 0 with no observation), the operations, the fr
 after each, and observations keyed by `label`. A `given` stage that the stages done do
 not explain is kept as the quest's current stage.
 
+An input may name the load order it is written for (`plugins`, default the first plugin
+given): `script run` uses its command line's plugins and ignores it, `script cover` runs
+the chain over it. `script run --coverage <file>` also writes what the run reached
+(`fnv.script.coverage-log/1`, `crates/fnv-game/src/coverage.rs`): the quest stages set,
+the script blocks run (unit and block), the dialogue lines started and the result scripts
+run, FormIDs named by their plugin (`FalloutNV.esm:10E908`) and unit keys without their
+plugin, so runs over different load orders merge.
+
 Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 `fnv-sim`'s actions stand in for the player's hands):
 
