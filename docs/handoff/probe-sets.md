@@ -72,6 +72,7 @@ nothing is marked or loosened for them.
 | data2 | 54 | none yet | – | actor base flags (low) and ActorHasBaseFlag on four NPCs, NPC height, equipped data, activator water, ar_Cat |
 | data3 | 32 | none yet | – | map marker names, SortFormsByType order, ListAddArray/ListAddList at index 0, unique items, RewardXPExact, JohnnyGuitar AV-change event |
 | anim1 | 53 | none (engine side) | – | player idles in third person: IsAnimPlaying/IsAnimPlayingEx, ForcePlayIdle, ForceStopIdle, StopIdle, GetPlayedIdle per frame |
+| anim2 | 607 | none (engine side) | – | GetPlayedIdle 30 frames after a stop; IsAnimPlayingEx on placed NPCs standing, following, and attacking the player (god mode on) |
 
 ## Coverage
 

@@ -4016,6 +4016,96 @@ ANIM1_PROBES = (
     + [_a1v("view.restored", "IsPC1stPerson")]
 )
 
+# Sixty-sixth set: what the extender core asked after anim1. The player (third person, put
+# back): ForcePlayIdle, ForceStopIdle, then GetPlayedIdle 30 frames later. A placed
+# NVProspectorFemaleT (NPC_ 17B586) placed at the player, then after 10 frames moved 400
+# units north (moved at once, or 1500 away, it read 0 even standing): IsAnimPlayingEx standing, then
+# walking to the player as a teammate over 120 frames; a second one 600 north, and the two
+# fight for 360 frames (knife against 10mm pistol), each frame keeping in an aux variable
+# whether IsAnimPlayingEx 3 (attack) or 4 (reload) was ever 1. PlayGroup AttackRight and
+# ReloadA read 0 in a first run, and two prospectors would not fight each other, so both
+# attack the player, with god mode on (LU Console "tgm") for the fight and off after. Both
+# NPCs are disabled and deleted.
+FX.update(prospector="17B586")
+
+
+def _a2(pid, body, text=False):
+    return (f"anim2.{pid}", "ref rPlayer\nref rNpc\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + 'let rNpc := rPlayer.AuxVarGetRef "*nvfN2"\n' + body, text, None, "")
+
+
+def _a2v(pid, expr):
+    return _a2(pid, f"SetFunctionValue ({expr})")
+
+
+def _w2(pid, n):
+    return [_a2(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _ex2(pid, who="rNpc"):
+    return [_a2v(f"{pid}.ex.{c}.{t}", f"{who}.IsAnimPlayingEx {c} {t} 0") for c, t in ((1, 0), (1, 1), (2, 0), (3, 0), (4, 0))]
+
+
+ANIM2_PROBES = (
+    # The player: a stop, then 30 frames.
+    [_a2("view.third", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfA2" fRes\nToggleFirstPerson 0\nSetFunctionValue fRes')]
+    + _w2("view.wait", 4)
+    + [_a2("pc.play", _form("rObj", FX["clapidle"]) + "rPlayer.ForcePlayIdle rObj\nSetFunctionValue 1")]
+    + _w2("pc.playwait", 3)
+    + [_a2("pc.stop", "rPlayer.ForceStopIdle\nSetFunctionValue 1")]
+    + _w2("pc.stopwait", 30)
+    + [_a2("pc.played.f30", "let rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)", True)]
+    + _ex2("pc.f30", "rPlayer")
+    + [_a2("view.restore", 'ToggleFirstPerson (rPlayer.AuxVarGetFlt "*nvfA2")\nrPlayer.AuxVarErase "*nvfA2"\nSetFunctionValue 1')]
+    # Two NPCs, 1500 and 1700 units north of the player.
+    + [_a2("npc.place", _form("rObj", FX["prospector"]) + 'let rNpc := rPlayer.PlaceAtMe rObj 1\n'
+           'rPlayer.AuxVarSetRef "*nvfN2" rNpc\nlet rNpc := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfN3" rNpc\n'
+           "SetFunctionValue 1")]
+    + _w2("npc.wait", 10)
+    + [_a2("npc.move", 'rNpc.SetPos Y ((rPlayer.GetPos Y) + 400)\nlet rObj := rPlayer.AuxVarGetRef "*nvfN3"\n'
+           "rObj.SetPos Y ((rPlayer.GetPos Y) + 600)\nSetFunctionValue 1")]
+    + _w2("npc.movewait", 10)
+    + _ex2("npc.stand")
+    + [_a2v("npc.stand.dist.far", "(rNpc.GetDistance rPlayer) > 300")]
+    # Walking as a teammate, 120 frames.
+    + [_a2("npc.follow", 'rNpc.SetPlayerTeammate 1\nrNpc.EvaluatePackage\nrPlayer.AuxVarSetFlt "*nvfMV" 0\n'
+           'let fRes := rNpc.GetDistance rPlayer\nrPlayer.AuxVarSetFlt "*nvfMD" fRes\nSetFunctionValue 1')]
+    + [_a2(f"npc.walk.f{i}", 'let fRes := rNpc.IsAnimPlayingEx 2 0 0\n'
+           'if fRes > (rPlayer.AuxVarGetFlt "*nvfMV")\nrPlayer.AuxVarSetFlt "*nvfMV" fRes\nendif\nSetFunctionValue 1') for i in range(120)]
+    + [_a2v("npc.walk.ever", 'rPlayer.AuxVarGetFlt "*nvfMV"'),
+       _a2v("npc.walk.closer", '(rNpc.GetDistance rPlayer) < ((rPlayer.AuxVarGetFlt "*nvfMD") - 50)'),
+       _a2("npc.unfollow", 'rNpc.SetPlayerTeammate 0\nrNpc.EvaluatePackage\nrPlayer.AuxVarErase "*nvfMV"\nrPlayer.AuxVarErase "*nvfMD"\nSetFunctionValue 1')]
+    # A fight: the first with a knife, the second with a 10mm pistol.
+    + [_a2("fight.arm", _form("rObj", FX["knife"]) + "rNpc.AddItem rObj 1 1\nrNpc.EquipItem rObj 0 1\n"
+           'let rNpc := rPlayer.AuxVarGetRef "*nvfN3"\n' + _form("rObj", NF["pistol10"]) + "rNpc.AddItem rObj 1 1\n"
+           "rNpc.EquipItem rObj 0 1\n" + _form("rObj", NF["ammo10"]) + "rNpc.AddItem rObj 40 1\nSetFunctionValue 1")]
+    + _w2("fight.armwait", 5)
+    + [_a2("fight.godmode", 'Console "tgm"\nSetFunctionValue 1')]
+    + [_a2("fight.start", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\nrNpc.StartCombat rPlayer\nrObj.StartCombat rPlayer\n'
+           'rPlayer.AuxVarSetFlt "*nvfK2" 0\n'
+           'rPlayer.AuxVarSetFlt "*nvfK3" 0\nrPlayer.AuxVarSetFlt "*nvfP3" 0\nrPlayer.AuxVarSetFlt "*nvfP4" 0\n'
+           'let fRes := GameHour\nrPlayer.AuxVarSetFlt "*nvfGH" fRes\nSetFunctionValue 1')]
+    + _w2("fight.startwait", 30)
+    + [_a2v("fight.incombat.knife", "rNpc.IsInCombat"),
+       _a2("fight.target.knife", "let rObj := rNpc.GetCombatTarget\nSetFunctionValue (rObj == rPlayer)")]
+    + [_a2(f"fight.f{i}", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\n'
+           'if (rNpc.IsAnimPlayingEx 3 0 0)\nrPlayer.AuxVarSetFlt "*nvfK3" 1\nendif\n'
+           'if (rNpc.IsAnimPlayingEx 2 0 0)\nrPlayer.AuxVarSetFlt "*nvfK2" 1\nendif\n'
+           'if (rObj.IsAnimPlayingEx 3 0 0)\nrPlayer.AuxVarSetFlt "*nvfP3" 1\nendif\n'
+           'if (rObj.IsAnimPlayingEx 4 0 0)\nrPlayer.AuxVarSetFlt "*nvfP4" 1\nendif\nSetFunctionValue 1') for i in range(360)]
+    + [_a2v("fight.gamehour.advanced", '(GameHour - (rPlayer.AuxVarGetFlt "*nvfGH")) > 0'),
+       _a2v("fight.knife.move.ever", 'rPlayer.AuxVarGetFlt "*nvfK2"'),
+       _a2v("fight.health.knife.lost", "(rNpc.GetActorValue Health) < (rNpc.GetBaseActorValue Health)"),
+       _a2("fight.health.pistol.lost", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\n'
+           "SetFunctionValue ((rObj.GetActorValue Health) < (rObj.GetBaseActorValue Health))"),
+       _a2v("fight.knife.attack.ever", 'rPlayer.AuxVarGetFlt "*nvfK3"'),
+       _a2v("fight.pistol.attack.ever", 'rPlayer.AuxVarGetFlt "*nvfP3"'),
+       _a2v("fight.pistol.reload.ever", 'rPlayer.AuxVarGetFlt "*nvfP4"'),
+       _a2("fight.cleanup", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\nrNpc.Disable\nrNpc.MarkForDelete\n'
+           'rObj.Disable\nrObj.MarkForDelete\nConsole "tgm"\nrPlayer.AuxVarErase "*nvfK2"\nrPlayer.AuxVarErase "*nvfN2"\nrPlayer.AuxVarErase "*nvfN3"\n'
+           'rPlayer.AuxVarErase "*nvfK3"\nrPlayer.AuxVarErase "*nvfP3"\nrPlayer.AuxVarErase "*nvfP4"\nrPlayer.AuxVarErase "*nvfGH"\nSetFunctionValue 1')]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4064,11 +4154,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "data1": DATA1_PROBES,
         "data2": DATA2_PROBES,
         "data3": DATA3_PROBES,
-        "anim1": ANIM1_PROBES}
+        "anim1": ANIM1_PROBES,
+        "anim2": ANIM2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2"}
 
 
 def script(body):
