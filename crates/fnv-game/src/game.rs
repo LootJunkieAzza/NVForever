@@ -2683,6 +2683,7 @@ impl<'a> Game<'a> {
         let (dt, frame) = (self.cfg.frame_seconds, self.frame);
         self.gaps.sounds.tick(dt, frame);
         self.projectiles_tick(dt as f32);
+        self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
         self.hud_tick();
         self.expire_aux_timers();
         self.input.next_frame();

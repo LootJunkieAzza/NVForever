@@ -225,6 +225,7 @@ impl Game<'_> {
     pub(crate) fn quest_completed(&mut self, quest: FormId) {
         self.count_stat(QUESTS_COMPLETED, 1.0);
         self.emit(crate::trace::EventKind::QuestCompleted { quest });
+        self.jg_event(crate::nvse_jip3::JgEvent::CompleteQuest, Some(quest));
     }
 
     /// The player killed `victim` (called while it still lives): an NPC is a person, a

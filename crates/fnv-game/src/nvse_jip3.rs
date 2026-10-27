@@ -17,6 +17,21 @@ pub struct Jip3State {
     /// The player's cell when each script last asked GetPCMovedCell, by the script's
     /// calling reference and quest.
     pub moved_seen: HashMap<(Option<FormId>, Option<FormId>), Option<FormId>>,
+    /// JohnnyGuitar's event handlers set here: (event, function, filter form or list).
+    pub jg_handlers: Vec<(JgEvent, XVal, Option<FormId>)>,
+}
+
+/// The JohnnyGuitar events whose handlers this file keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JgEvent {
+    /// Every frame (SetJohnnyOnRenderUpdateEventHandler).
+    RenderUpdate,
+    /// An actor is killed (SetJohnnyOnDyingEventHandler).
+    Dying,
+    /// A quest is completed (SetJohnnyOnCompleteQuestEventHandler).
+    CompleteQuest,
+    /// A challenge is completed (SetJohnnyOnChallengeCompleteEventHandler).
+    ChallengeComplete,
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -54,6 +69,31 @@ fn facing(x: f32, z: f32) -> [f32; 3] {
 const RAY_REACH: f32 = 50_000.0;
 
 impl Game<'_> {
+    /// JohnnyGuitar's handlers for `ev` on `subject`: each whose filter is none, the form
+    /// itself or a form list holding it runs with the form as its argument (no argument for
+    /// RenderUpdate) [documented: the SetJohnnyOn…EventHandler pages; hypothesis: the
+    /// arguments].
+    pub(crate) fn jg_event(&mut self, ev: JgEvent, subject: Option<FormId>) {
+        if self.gaps.jip3.jg_handlers.iter().all(|(e, _, _)| *e != ev) {
+            return;
+        }
+        let hs: Vec<(XVal, Option<FormId>)> = self.gaps.jip3.jg_handlers.iter().filter(|(e, _, _)| *e == ev).map(|(_, f, l)| (f.clone(), *l)).collect();
+        for (f, filter) in hs {
+            let pass = match (filter, subject) {
+                (None, _) => true,
+                (Some(l), Some(s)) => l == s || crate::functions::list_members(self, l).contains(&s),
+                (Some(_), None) => false,
+            };
+            if !pass {
+                continue;
+            }
+            let args = subject.map(|s| vec![XVal::Ref(s.0)]).unwrap_or_default();
+            if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
+                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar event handler".into(), error });
+            }
+        }
+    }
+
     /// The player used door `door`: kept when it stands outside (GetPCLastExteriorDoor).
     pub(crate) fn note_player_door(&mut self, door: FormId) {
         let outside = self.cell_of(door).is_some_and(|c| self.world.placed.world_of(c).is_some());
@@ -286,6 +326,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             } else {
                 XVal::Ref(hit.and_then(|h| h.form).unwrap_or(0))
             }
+        }
+        // `set|remove function flag [filter]`: JohnnyGuitar's handlers kept here
+        // (`Game::jg_event`) [documented: the SetJohnnyOn…EventHandler pages].
+        "setjohnnyonrendereventhandler" | "setjohnnyonrenderupdateeventhandler" | "setjohnnyondyingeventhandler" | "setjohnnyoncompletequesteventhandler" | "setjohnnyonchallengecompleteeventhandler" => {
+            let ev = match name {
+                "setjohnnyondyingeventhandler" => JgEvent::Dying,
+                "setjohnnyoncompletequesteventhandler" => JgEvent::CompleteQuest,
+                "setjohnnyonchallengecompleteeventhandler" => JgEvent::ChallengeComplete,
+                _ => JgEvent::RenderUpdate,
+            };
+            let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
+            let filter = form(args, 3);
+            g.gaps.jip3.jg_handlers.retain(|(e, h, l)| !(*e == ev && *h == f && *l == filter));
+            if num(args, 0, 1.0) != 0.0 {
+                g.gaps.jip3.jg_handlers.push((ev, f, filter));
+            }
+            zero
         }
         _ => return None,
     };

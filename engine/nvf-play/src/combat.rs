@@ -4137,7 +4137,13 @@ fn fly(
     for mut p in due {
         // What scripts set on the shot (`fnv_game::nvse_proj`): its base damage and its
         // source, who the hit counts as [observed: proj1, set values held to the hit].
-        let shot = p.rref.and_then(|r| script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, &mut sim, |rt| rt.game.projectile_gone(r))));
+        let struck = match (p.actor, p.object) {
+            (Some(a), _) if a == PLAYER => FormId::PLAYER_REF,
+            (Some(a), _) => FormId(a as u32),
+            (None, Some(o)) => FormId(o as u32),
+            (None, None) => FormId(0),
+        };
+        let shot = p.rref.and_then(|r| script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, &mut sim, |rt| rt.game.projectile_impact(r, struck, p.material))));
         if let Some(s) = &shot {
             p.by.actor = s.source;
         }

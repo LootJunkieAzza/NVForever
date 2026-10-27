@@ -32,6 +32,8 @@ pub struct Shot {
     /// Seconds left of a flight the engine found over at once (a hitscan shot that met
     /// nothing): the reference stays that long, as the bullet would fly.
     pub left: Option<f32>,
+    /// What it hit, once it has: the reference (0 for the terrain) and the Havok material.
+    pub impact: Option<(FormId, Option<u32>)>,
     /// Game units flown.
     pub travelled: f32,
 }
@@ -50,7 +52,7 @@ impl Game<'_> {
     pub fn projectile_fired(&mut self, proj: FormId, source: FormId, weapon: FormId, damage: f32, at: [f32; 3]) -> Option<FormId> {
         let cell = self.cell_of(source).or_else(|| self.cell_of(FormId::PLAYER_REF));
         let r = self.world.place(proj, cell, at, [0.0; 3], 1).ok()?;
-        self.gaps.projs.shots.insert(r, Shot { source, weapon, damage, speed_mult: 1.0, age: 0.0, travelled: 0.0, left: None });
+        self.gaps.projs.shots.insert(r, Shot { source, weapon, damage, speed_mult: 1.0, age: 0.0, travelled: 0.0, left: None, impact: None });
         Some(r)
     }
 
@@ -88,6 +90,17 @@ impl Game<'_> {
         for r in done {
             self.projectile_gone(r);
         }
+    }
+
+    /// The shot hit `what` (0: the terrain or nothing placed) of Havok material `material`:
+    /// what the scripts set on it, for the hit; the reference stays one frame more with the
+    /// impact on it (GetProjectileRefImpactRef) [hypothesis: the original keeps a shot
+    /// that hit for its impact's frame].
+    pub fn projectile_impact(&mut self, r: FormId, what: FormId, material: Option<u32>) -> Option<Shot> {
+        let s = self.gaps.projs.shots.get_mut(&r)?;
+        s.impact = Some((what, material));
+        s.left = Some(self.cfg.frame_seconds as f32);
+        Some(s.clone())
     }
 
     /// The shot is over: its reference goes [observed: proj1, IsFormValid 0 on the kept
@@ -128,6 +141,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         ("getprojectilerefdistancetraveled", Some(s)) => XVal::Num(f64::from(s.travelled)),
         ("getprojectilerefsource", Some(s)) => XVal::Ref(s.source.0),
         ("getprojectilerefweapon", Some(s)) => XVal::Ref(s.weapon.0),
+        // What the shot hit and its material, once it has hit [documented:
+        // GetProjectileRefImpactRef, GetProjectileRefImpactMaterial; hypothesis: before a
+        // hit 0 and -1].
+        ("getprojectilerefimpactref", Some(s)) => XVal::Ref(s.impact.map_or(0, |(r, _)| r.0)),
+        ("getprojectilerefimpactmaterial", Some(s)) => XVal::Num(s.impact.and_then(|(_, m)| m).map_or(-1.0, f64::from)),
         // The setters return 0 and hold from then on [observed: proj1, speed 0.5, damage
         // 5 and the source NPC read back that frame and the frames after].
         ("setprojectilerefspeedmult", Some(s)) => {
@@ -149,7 +167,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         ("getprojectilerefspeedmult" | "getprojectilerefdamage" | "getprojectilereflifetime" | "getprojectilerefdistancetraveled", None) => zero,
-        ("getprojectilerefsource" | "getprojectilerefweapon", None) => XVal::Ref(0),
+        ("getprojectilerefsource" | "getprojectilerefweapon" | "getprojectilerefimpactref", None) => XVal::Ref(0),
+        ("getprojectilerefimpactmaterial", None) => XVal::Num(-1.0),
         ("setprojectilerefspeedmult" | "setprojectilerefdamage" | "setprojectilerefsource", None) => zero,
         _ => return None,
     };
