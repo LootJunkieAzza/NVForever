@@ -9898,6 +9898,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "showoff-events"
+source = "nvse_showoff (docs/spec-notes/ext-showoff.md): ShowOff:OnAdd gets the item's base and the container, ShowOff:OnExplosionHit reads the blast's damage in the engine's blast loop, an aux timer that runs out fires its stop handler [observed: showoff1]"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/nvse_showoff.rs", "crates/fnv-game/src/nvse_jip2.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:SetEventHandler \"ShowOff:OnAdd\" ({ref rA, ref rB} => PrintC \"nvf showoff add %g\", (GetType rA));SetEventHandler \"ShowOff:OnExplosionHit\" ({ref rA, ref rB} => PrintC \"nvf showoff blast %g\", (GetExplosionHitDamage));SetOnAuxTimerStopHandler 1 ({string_var sN, ref rO} => PrintC \"nvf showoff timer %z\", sN) \"nvfst\";9.5:player.AddItem Stimpak 1;player.AuxTimerStart \"nvfst\" 0.5;10:close;11:player.PlaceAtMe MineFragExplosion 1;11.5:close;13:player.RemoveItem Stimpak 1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf showoff add 47"', label = "ShowOff:OnAdd gives the stimpak's base" },
+  { re = 'script: print "nvf showoff timer nvfst"', label = "the aux timer's stop handler runs when it runs out" },
+  { re = 'script: print "nvf showoff blast [1-9]', label = "ShowOff:OnExplosionHit reads the blast's damage" },
+]
+
+[[scenario]]
 name = "nif-blocks-mirror"
 source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
 areas = ["scripts", "actors"]

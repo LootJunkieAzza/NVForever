@@ -3746,8 +3746,8 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
-    // What scripts asked (DetonatePlacedExplosives, DamageObject's stage changes) and
-    // what burns down (self-damage).
+    // What scripts asked (DetonatePlacedExplosives, a placed explosion, DamageObject's
+    // stage changes) and what burns down (self-damage).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         let (requests, burning) = with_world(rt, &mut sim, |rt| {
             let mut changes = std::mem::take(&mut rt.game.destruction_changes);
@@ -3762,6 +3762,10 @@ fn fly(
                         Some(shot) => c.script_shots.push(shot),
                         None => debug!("combat: FireWeapon on {from}: no such reference in the world"),
                     }
+                    continue;
+                }
+                CombatRequest::Explode { explosion, at } => {
+                    c.boom.push((explosion, at, None));
                     continue;
                 }
                 CombatRequest::Dismember { actor, location, by } => {
@@ -4028,7 +4032,9 @@ fn fly(
         for b in hits {
             let target = if b.actor == PLAYER { FormId::PLAYER_REF } else { FormId(b.actor as u32) };
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-            let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+            // ShowOff:OnExplosionHit's handlers may change the blast's damage first.
+            let raw = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(b.damage, |rt| rt.game.explosion_hit(target, f64::from(b.damage)) as f32);
+            let dealt = (raw - dt_v).max(raw * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
             let info = blast_hit_info(cause);
             // The blast's object effect on those it catches (hit-effects.md §1).
             let items: Vec<FormId> = x.enchantment.into_iter().collect();

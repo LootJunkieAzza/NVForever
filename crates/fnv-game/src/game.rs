@@ -1017,6 +1017,8 @@ pub struct Game<'a> {
     pub gaps: crate::nvse_gaps::GapsState,
     /// The HUD reads and the scripted weapon draws (`crate::nvse_hud`).
     pub hud: crate::nvse_hud::HudState,
+    /// ShowOff's events and timer stop handlers (`crate::nvse_showoff`).
+    pub showoff: crate::nvse_showoff::ShowOffState,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
@@ -1656,6 +1658,7 @@ impl<'a> Game<'a> {
             jip2: Default::default(),
             gaps: Default::default(),
             hud: Default::default(),
+            showoff: Default::default(),
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
@@ -2681,6 +2684,7 @@ impl<'a> Game<'a> {
         self.gaps.sounds.tick(dt, frame);
         self.projectiles_tick(dt as f32);
         self.hud_tick();
+        self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
@@ -3611,6 +3615,9 @@ impl<'a> Game<'a> {
         // the dropped reference.
         if matches!(ev, event::ON_EQUIP | event::ON_UNEQUIP) {
             self.ext_event(ev, holder, Some(Value::Ref(item.0)));
+        }
+        if ev == event::ON_ADD {
+            self.showoff_on_add(holder, item);
         }
         if ev == event::ON_UNEQUIP {
             use fnv_script::vm::XVal;

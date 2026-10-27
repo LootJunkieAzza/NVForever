@@ -131,6 +131,22 @@ impl Game<'_> {
     fn aux_timer_now(&self) -> f64 {
         self.time
     }
+
+    /// Each frame (`Game::tick`): a running aux timer whose time is up stops, is erased and
+    /// fires its stop handlers [observed: showoff1, a 0.1 s timer reads time left -1 and
+    /// its handler had run 30 frames later].
+    pub(crate) fn expire_aux_timers(&mut self) {
+        if self.jip2.timers.is_empty() {
+            return;
+        }
+        let now = self.aux_timer_now();
+        let mut done: Vec<(FormId, String)> = self.jip2.timers.iter().filter(|(_, t)| !t.2 && now - t.1 >= t.0).map(|(k, _)| k.clone()).collect();
+        done.sort();
+        for k in done {
+            self.jip2.timers.remove(&k);
+            self.aux_timer_stopped(k.0, &k.1);
+        }
+    }
 }
 
 /// The functions of this file; `None` for any other name.
@@ -430,7 +446,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     g.jip2.timers.insert(key, (num(args, 1, 0.0), now, false));
                     XVal::Num(1.0)
                 }
-                "auxtimerstop" => yes(g.jip2.timers.remove(&key).is_some()),
+                // [documented: AuxTimerStop fires the stop event only with fireEvent non-0]
+                "auxtimerstop" => {
+                    let had = g.jip2.timers.remove(&key).is_some();
+                    if had && num(args, 1, 0.0) != 0.0 {
+                        g.aux_timer_stopped(key.0, &key.1);
+                    }
+                    yes(had)
+                }
                 "auxtimertimeleft" => XVal::Num(g.jip2.timers.get(&key).map_or(-1.0, left)),
                 "auxtimertimeelapsed" => XVal::Num(g.jip2.timers.get(&key).map_or(-1.0, |t| t.0 - left(t))),
                 _ => {

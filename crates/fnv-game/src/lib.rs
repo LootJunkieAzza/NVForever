@@ -93,6 +93,7 @@ pub mod nvse_gaps;
 pub mod nvse_proj;
 pub mod nvse_sound;
 pub mod nvse_hud;
+pub mod nvse_showoff;
 pub mod nvse_plugins;
 pub mod ray;
 pub mod mod_files;
