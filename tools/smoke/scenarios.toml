@@ -9795,6 +9795,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "jip-view-sneak"
+source = "JIP's ToggleFirstPerson and TogglePlayerSneaking (fnv_game::nvse_gaps): the engine takes the ask a frame later and IsPC1stPerson / IsSneaking read it [observed: gaps10, two frames]"
+areas = ["scripts", "player"]
+paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:ToggleFirstPerson 0;TogglePlayerSneaking 1;8.5:close;10:PrintC \"nvf view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking);11:ToggleFirstPerson 1;TogglePlayerSneaking 0;11.5:close;13:PrintC \"nvf back view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf view 0 sneak 1"', label = "third person and sneaking after the toggles" },
+  { re = 'script: print "nvf back view 1 sneak 0"', label = "back to first person, standing" },
+]
+
+[[scenario]]
 name = "nif-blocks-mirror"
 source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
 areas = ["scripts", "actors"]

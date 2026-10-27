@@ -39,6 +39,9 @@ pub struct GapsState {
     pub interaction_disabled: HashSet<FormId>,
     /// SetNthEffectBase's bases: (item, effect index).
     pub effect_bases: HashMap<(FormId, usize), FormId>,
+    /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
+    pub view_request: Option<bool>,
+    pub sneak_request: Option<bool>,
     /// RunScriptSnippet's snippets waiting: (frames left, source, reference).
     pub snippets: Vec<(u32, String, FormId)>,
     /// SetNthEffectTraitNumeric's values: (item, effect index, trait).
@@ -1109,6 +1112,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 }
             }
             yes(!g.gaps.hidden_slots.contains(&slot))
+        }
+        // The engine takes them at its next frame [observed: gaps10, IsPC1stPerson and
+        // IsSneaking read the change two frames later].
+        "togglefirstperson" => {
+            g.gaps.view_request = Some(num(args, 0, 1.0) != 0.0);
+            zero
+        }
+        "toggleplayersneaking" => {
+            g.gaps.sneak_request = Some(num(args, 0, 1.0) != 0.0);
+            zero
         }
         // Nothing to reload: the engine draws the equipped models as they are.
         "reloadequippedmodels" => zero,
