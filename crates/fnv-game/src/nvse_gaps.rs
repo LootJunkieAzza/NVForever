@@ -42,6 +42,10 @@ pub struct GapsState {
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
+    /// SetMapMarkerRep's reputations, by marker reference (`None`: cleared).
+    pub marker_reputations: HashMap<FormId, Option<FormId>>,
+    /// SetRecipeCategory's and SetRecipeSubcategory's forms: (recipe, sub).
+    pub recipe_categories: HashMap<(FormId, bool), FormId>,
     /// The player's always-run switch as the engine tells it, and SetAlwaysRun's ask.
     pub always_run: bool,
     pub always_run_request: Option<bool>,
@@ -350,7 +354,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if g.data.sig(b) == Some(*b"CREA") { json_form(g.data.record_field(b, "PNAM", "")) } else { XVal::Ref(0) }
         }
         // YNAM [observed: gaps2, the 10mm pistol 000864D5, the stimpak none].
-        "getpickupsound" => json_form(form(args, 0).and_then(|f| g.data.record_field(f, "YNAM", ""))),
+        "getpickupsound" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "YNAM", "")) {
+            Some(XVal::Ref(r)) => XVal::Ref(r),
+            _ => XVal::Ref(0),
+        },
         // DEST stages [observed: gaps3, the 10mm pistol 0].
         "getdestructiondatanumstages" => XVal::Num(form(args, 0).and_then(|f| g.data.destructibles.get(&f)).map_or(0, |d| d.stages.len()) as f64),
         // ---- weapons ----
