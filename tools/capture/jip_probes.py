@@ -3745,6 +3745,37 @@ ENGINE3_PROBES = (
     + [_e3t(f"terrain.{k}", dx, dy) for k, dx, dy in (("here", 0, 0), ("x200", 200, 0), ("y200", 0, 200))]
 )
 
+# Sixty-first set: the order of GetLoadedTypeArray's elements, as the extender core asked
+# (gaps1's element 0 of the weapons of FalloutNV.esm was GasTrapDummy 0001F6, not Fists
+# 0001F4): elements 0-9 and the last two of type 40 for FalloutNV.esm and for every plugin,
+# where some known weapons sit (ar_Find), and the first elements of type 47.
+
+
+def _gl(pid, body, text=False):
+    return (pid, "ref rObj\nfloat fRes\narray_var aA\nBegin Function { }\n" + body, text, None, "")
+
+
+def _gl_at(pid, call, idx):
+    return _gl(pid, f"let aA := {call}\nlet rObj := aA[{idx}]\nSetFunctionValue (GetFormIDString rObj)", True)
+
+
+def _gl_find(pid, call, fid):
+    return _gl(pid, f"let aA := {call}\n" + _form("rObj", fid) + "SetFunctionValue (ar_Find rObj aA)")
+
+
+_W0 = "GetLoadedTypeArray 40 0"
+_WALL = "GetLoadedTypeArray 40"
+GLTA_ORDER_PROBES = (
+    [_gl_at(f"glta.w0.{i}", _W0, i) for i in range(10)]
+    + [_gl_at("glta.w0.last", _W0, "(ar_Size aA) - 1"), _gl_at("glta.w0.last2", _W0, "(ar_Size aA) - 2")]
+    + [_gl_find(f"glta.w0.find.{k}", _W0, fid)
+       for k, fid in (("fists", "1F4"), ("gastrap", "1F6"), ("pistol10", NF["pistol10"]), ("knife", "4326"),
+                      ("machete", "CE569"), ("sledge", "4351"))]
+    + [_gl_at(f"glta.wall.{i}", _WALL, i) for i in range(4)]
+    + [_gl_at("glta.wall.last", _WALL, "(ar_Size aA) - 1")]
+    + [_gl_at(f"glta.a0.{i}", "GetLoadedTypeArray 47 0", i) for i in range(5)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3788,11 +3819,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "plugins3": PLUGINS3_PROBES,
         "engine1": ENGINE1_PROBES,
         "engine2": ENGINE2_PROBES,
-        "engine3": ENGINE3_PROBES}
+        "engine3": ENGINE3_PROBES,
+        "glta-order": GLTA_ORDER_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order"}
 
 
 def script(body):

@@ -67,6 +67,7 @@ nothing is marked or loosened for them.
 | engine1 | 58 | none (engine side) | – | goldens for engine-built functions: P2P ray casts from the player, PushObject on a placed stimpak, toggle timing per frame, GetAvailableRadios forms |
 | engine2 | 30 | none (engine side) | – | P2P ray cast collision flags 0-4 down and north; PlayMusic and IsMusicPlaying |
 | engine3 | 10 | none (engine side) | – | straight-down ray casts 200 units from the player, with terrain height |
+| glta-order | 28 | none | – | GetLoadedTypeArray element order (weapons of FalloutNV.esm and of all plugins, ingestibles) |
 
 ## Coverage
 
