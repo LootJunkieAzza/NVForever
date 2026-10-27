@@ -1562,6 +1562,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             g.emit(EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(c), pos });
             g.player_entered(Some(c));
+            g.settle_start_weather();
         }
         Action::SampleJumps { reads, frames, min_step, label: l } => {
             // Every read once per frame, after the frame's scripts ran.
