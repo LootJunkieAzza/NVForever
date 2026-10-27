@@ -30,6 +30,7 @@
 use crate::data::{PerkEffect, PerkEntry};
 use crate::game::Game;
 use fnv_sim::FormId;
+use std::collections::BTreeMap;
 
 /// "Adjust Limb Damage" [documented: GECK wiki Entry Point, the name; observed: the
 /// two perks of FalloutNV.esm with code 6 are the trait Small Frame, "your limbs are
@@ -302,16 +303,20 @@ impl Game<'_> {
     /// player's teammates"; hypothesis: one rank, and held only while a teammate — the
     /// masters' teammate perks (Companion Suite, the companions' quest rewards Old
     /// Vaquero, Hand of Vengeance, Calm Heart, Bonds of Steel, Causeless Rebel) have one
-    /// rank, and their entry points test GetIsID of the companion they are for]. Any other
-    /// actor holds none.
+    /// rank, and their entry points test GetIsID of the companion they are for]. Another
+    /// actor also holds the perks given to it itself (`<actor>.AddPerk perk`,
+    /// `RefExtra::perks`), a perk it holds both ways counted once at the higher rank.
     pub fn held_perks(&self, actor: FormId) -> Vec<(FormId, u8)> {
         if actor == FormId::PLAYER_REF {
-            self.player.perks.iter().map(|(&p, &r)| (p, r)).collect()
-        } else if !self.player.teammate_perks.is_empty() && self.is_teammate(actor) {
-            self.player.teammate_perks.iter().map(|&p| (p, 1)).collect()
-        } else {
-            Vec::new()
+            return self.player.perks.iter().map(|(&p, &r)| (p, r)).collect();
         }
+        let mut held: BTreeMap<FormId, u8> = self.extra.get(&actor).map(|x| x.perks.clone()).unwrap_or_default();
+        if !self.player.teammate_perks.is_empty() && self.is_teammate(actor) {
+            for &p in &self.player.teammate_perks {
+                held.entry(p).or_insert(1);
+            }
+        }
+        held.into_iter().collect()
     }
 
     /// The abilities the player's perks give now (traits included), with their perks.
@@ -337,7 +342,7 @@ impl Game<'_> {
     /// back from the player; the masters remove Companion Suite from each companion,
     /// which needs nothing here].
     pub(crate) fn wants_perk_sync(&self, actor: FormId) -> bool {
-        if actor == FormId::PLAYER_REF {
+        if actor == FormId::PLAYER_REF || self.extra.get(&actor).is_some_and(|x| !x.perks.is_empty()) {
             return true;
         }
         if self.player.teammate_perks.is_empty() {

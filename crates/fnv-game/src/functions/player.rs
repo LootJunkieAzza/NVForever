@@ -15,25 +15,39 @@ pub fn reward_xp(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// Perks are kept for the player only; other actors have none [hypothesis: NPC perk
-/// lists are not read yet]. On the player, a non-zero forTeammates (the second
-/// parameter) asks about, gives or takes the perk of the player's teammates instead
-/// [documented: GECK wiki AddPerk and HasPerk]; teammates' perks are kept, their effects
-/// are not applied yet.
+/// Perks are kept per actor: the player's own (`Player::perks`, traits included), and an
+/// NPC's or creature's given to it with `<actor>.AddPerk perk` (`RefExtra::perks`). On
+/// the player, a non-zero forTeammates (the second parameter) asks about, gives or takes
+/// the perk of the player's teammates instead [documented: GECK wiki AddPerk and HasPerk].
+/// HasPerk on another actor reads what it holds ([`Game::held_perks`]: its own perks and,
+/// while it is a teammate, the teammate perks) [documented: GECK wiki AddPerk, "adds a
+/// perk to the calling actor"; observed: FalloutNV.esm's companion hire lines call
+/// `<companion>.AddPerk CompanionSuite`, the firing scripts `RemovePerk CompanionSuite`,
+/// and mine and trap scripts ask `ActionRef.HasPerk LightStep` and `Self.HasPerk
+/// Stonewall` of NPCs; hypothesis: an NPC's perk has no level-up side (no Quest + Stage
+/// effects run for it), and the forTeammates flag means nothing on an NPC].
 pub fn has_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let perk = a.form(0)?;
-    if a.num_or(1, 0.0) != 0.0 {
-        return yes(r == FormId::PLAYER_REF && g.player.teammate_perks.contains(&perk));
+    if r != FormId::PLAYER_REF {
+        return yes(g.held_perks(r).iter().any(|&(p, _)| p == perk));
     }
-    yes(r == FormId::PLAYER_REF && g.player.perks.contains_key(&perk))
+    if a.num_or(1, 0.0) != 0.0 {
+        return yes(g.player.teammate_perks.contains(&perk));
+    }
+    yes(g.player.perks.contains_key(&perk))
 }
 
 pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    if ctx.subject_or_player() != FormId::PLAYER_REF {
-        return Err("perks of actors other than the player are not modelled".into());
-    }
+    let r = ctx.subject_or_player();
     let perk = a.form(0)?;
+    if r != FormId::PLAYER_REF {
+        let max = g.data.perks.get(&perk).map_or(1, |p| p.ranks.max(1));
+        let rank = g.extra.entry(r).or_default().perks.entry(perk).or_default();
+        *rank = rank.saturating_add(1).min(max);
+        tracing::info!("perks: {} gains {} (rank {rank})", g.data.name(r), g.data.name(perk));
+        return none();
+    }
     if a.num_or(1, 0.0) != 0.0 {
         g.player.teammate_perks.insert(perk);
     } else {
@@ -43,16 +57,24 @@ pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    if ctx.subject_or_player() == FormId::PLAYER_REF {
-        let perk = a.form(0)?;
-        if crate::revision::keeps_perk(g, ctx, FormId::PLAYER_REF, perk) {
-            return none();
+    let r = ctx.subject_or_player();
+    let perk = a.form(0)?;
+    if r != FormId::PLAYER_REF {
+        if g.extra.get_mut(&r).and_then(|x| x.perks.remove(&perk)).is_some() {
+            tracing::info!("perks: {} loses {}", g.data.name(r), g.data.name(perk));
+            // Its abilities end now (the per-frame sync only looks at actors that hold
+            // perks or are teammates).
+            g.sync_perk_abilities_of(r);
         }
-        if a.num_or(1, 0.0) != 0.0 {
-            g.player.teammate_perks.remove(&perk);
-        } else {
-            g.player.perks.remove(&perk);
-        }
+        return none();
+    }
+    if crate::revision::keeps_perk(g, ctx, FormId::PLAYER_REF, perk) {
+        return none();
+    }
+    if a.num_or(1, 0.0) != 0.0 {
+        g.player.teammate_perks.remove(&perk);
+    } else {
+        g.player.perks.remove(&perk);
     }
     none()
 }
