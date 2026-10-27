@@ -112,8 +112,10 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
   do not run their scripts, and cannot be detected using the GetEquipped function"; a
   mod's OnDrop and OnEquip blocks do not run when it is attached [documented: GECK wiki
   Weapon Mods]. NVForever removes one unit of the mod item without running anything
-  [design, as documented]. A mod cannot be taken off again [hypothesis: the menu offers
-  no way; the wiki names no function but NVSE's SetEquippedWeaponModFlags].
+  [design, as documented]. In the original a mod cannot be taken off again [hypothesis:
+  the menu offers no way; the wiki names no function but NVSE's
+  SetEquippedWeaponModFlags]; NVForever's mod menu takes one off and gives one unit of
+  the mod item back, nothing run either [design: the owner's rule, 2026-10-27].
 - A modded weapon's row in the inventory lists reads its name with " +" [hypothesis: the
   GECK wiki's SetItemModFlags calls the flag "the inventory '+'"]; units with other mods
   are their own rows.
@@ -145,10 +147,11 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
   The help: "Repair / Mod: These options take you to the Repair and Mod submenus, where
   you may repair damaged equipment or attach weapon modifications, respectively"
   [documented: MESG `HelpPipBoyItems`].
-- NVForever shows it for a weapon with mod slots, bright when the player carries a mod
-  that fits and is not on yet, dim otherwise [hypothesis]. X on a bright hint opens the
-  mod menu; on anything else X still drops one (Shift+X the stack) [design: NVForever's
-  drop key; the original's PC drop key is not in the file].
+- NVForever shows it for a weapon with mod slots [hypothesis], always bright, since the
+  menu takes mods off as well as putting them on [design: the owner's rule, 2026-10-27].
+  X on a weapon with mod slots opens the mod menu; on anything else X still drops one
+  (Shift+X the stack) [design: NVForever's drop key; the original's PC drop key is not
+  in the file].
 
 ## 5. The mod menu
 
@@ -184,23 +187,31 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
 
 **NVForever's menu** [design unless tagged]:
 
-- The first row is the weapon (boxed always), then one row per carried mod that fits a
-  slot whose mod is not on yet, by name, with the count in brackets when more than one.
+- The first row is the weapon (boxed always), then one row per mod on it (marked with
+  the equipped square) and per carried mod that fits a slot whose mod is not on yet, by
+  name, with the count in brackets when more than one is carried. Under each mod's name
+  its effect in words ("Ammunition capacity + 4", "Weight - 1.5", "Rate of fire + 20%",
+  "Silenced": `item_mod::effect_text`) [design: the owner's picture of a modded menu,
+  2026-10-27]. Under "Exit E)" on a mod: "Attach Enter)" or "Remove Enter)", clickable.
 - On the weapon's row: its picture and the top cards (its condition, and DAM). On a mod's
   row: the mod's picture and description, the top cards for the weapon as it is (CND and
   the figure the effect changes: DAM, Clip, Spread, WG, CND max, Rate, Zoom, Beams), the
-  arrow, the change in font 4 at three quarters ("+3"), and the bottom cards after the
-  mod.
-- Keys: Up/Down (W/S) choose, Enter or Space attaches the chosen mod, E or Esc goes back.
-  The pointer as in the repair list: a row under it is chosen, a click on the chosen mod
-  attaches it, a click on "Exit E)" goes back.
+  arrow, the change in font 4 at three quarters ("+3"), and the bottom cards after
+  attaching the mod, or after removing it for one that is on.
+- Keys: Up/Down (W/S) choose, Enter or Space attaches or removes the chosen mod, E or
+  Esc goes back. The pointer as in the repair list: a row under it is chosen, a click on
+  the chosen mod attaches or removes it, a click on "Exit E)" goes back. The menu stays
+  open after attaching or removing, on the weapon as it is now with the same mod chosen,
+  until the player leaves it (or closes the Pip-Boy) [design: the owner's rule,
+  2026-10-27].
 - Attaching: one unit of the mod item leaves the inventory, the weapon unit (the
   equipped one first, as the repair list takes it) gets the slot's flag, the ITEMS list
-  comes back. If the player is holding that weapon, its figures and model change at once
+  is refreshed. Removing: the flag comes off and one unit of the mod item comes back.
+  If the player is holding that weapon, its figures and model change at once
   (`crate::combat`, the player body). Sound: `UIRepairWeapon` [hypothesis: no mod sound
   is named in the masters' UI sounds; the menu is the repair menu's sibling].
 - Log lines: `pipboy mod: open <weapon>: <mods>`, `pipboy mod: <weapon> + <mod> (slot n,
-  flags m)`, `pipboy mod: cancel`, `pipboy mod: clicked row <n>`.
+  flags m)`, `pipboy mod: <weapon> - <mod> (slot n, flags m)`, `pipboy mod: cancel`, `pipboy mod: clicked row <n>`.
 - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
 
 ## 6. Not built

@@ -5707,10 +5707,10 @@ expect = [
 
 [[scenario]]
 name = "pipboy-item-mod"
-source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
+source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the menu stays open, so Enter again removes it (flag 0, the mod back) and a third time puts it back on (owner's rule 2026-10-27); the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
 areas = ["pipboy", "combat"]
 paths = ["engine/nvf-play/src/pipboy/item_mod.rs", "crates/fnv-combat/src/data.rs", "crates/fnv-actor/src/records.rs"]
-env = { NVFOREVER_HOME = "pipboy-item-mod-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,20:close", NVF_PLAY_TEST_SHOTS = "17:pipboy_item_mod.png" }
+env = { NVFOREVER_HOME = "pipboy-item-mod-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,18.6:mod=use,19.2:mod=use,20:close", NVF_PLAY_TEST_SHOTS = "17:pipboy_item_mod.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 25
 expect = [
@@ -5718,9 +5718,10 @@ expect = [
   { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "X lists the extended magazines for slot 1" },
   { text = "pipboy: menu code 1061", label = "MenuMode 1061 while the mod menu is open" },
   { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "attaching sets the slot's flag" },
+  { re = 'pipboy mod: 10mm Pistol \+ - 10mm Pistol Extended Mags \(slot 1, flags 0\)', label = "the menu stays open and removes the mod again" },
   { re = 'combat: weapon Weap10mmPistol mods 1 on: damage \d+, clip 16', label = "the pistol in hand takes 16 rounds" },
 ]
-order = [["pipboy mod: open", "pipboy mod: 10mm Pistol +", "combat: weapon Weap10mmPistol mods 1 on"]]
+order = [["pipboy mod: open", "pipboy mod: 10mm Pistol + 10mm", "combat: weapon Weap10mmPistol mods 1 on"], ["pipboy mod: 10mm Pistol + 10mm", "pipboy mod: 10mm Pistol + - 10mm"]]
 
 [[scenario]]
 name = "combat-silenced-sound"

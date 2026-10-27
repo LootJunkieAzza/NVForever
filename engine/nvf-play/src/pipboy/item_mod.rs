@@ -1,24 +1,32 @@
 //! The Pip-Boy's weapon mod menu (docs/spec-notes/weapon-mods.md §4–§5; the figures are
-//! `fnv_combat::data::WeaponStats::modded`): on the ITEMS page, X on a weapon with a
-//! free mod slot whose mod the player carries lists those mods; choosing one uses the
-//! item up and puts the slot's flag on the weapon (`Extra::mods`, kept in saves).
+//! `fnv_combat::data::WeaponStats::modded`): on the ITEMS page, X on any weapon with mod
+//! slots lists its attached mods and the carried mods that fit a free slot; choosing a
+//! carried one uses the item up and puts the slot's flag on the weapon (`Extra::mods`,
+//! kept in saves), choosing an attached one takes it off and gives the item back
+//! [design: the owner's rule, 2026-10-27]. The menu stays open until the player leaves it.
 //!
 //! - MenuMode 1061 while it is open [documented: GECK wiki GetMenuTargetRef]
 //!   (`super::menu_code`).
 //! - The list [documented: `menus\item_mod_menu.xml`, in the menus' rectangle]: the
 //!   heading "ITEMS" with the weapon's name in font 4 right-aligned 100 short of the
 //!   right edge; the list 15 left and 75 down, 430 wide, its rows 32 in and 393 wide, the
-//!   name in font 2 at 40, 20 down, wrapped at 270, the equipped square 25 at 15; the
+//!   name in font 2 at 40, 20 down, wrapped at 270, the equipped square 25 at 15 (on an
+//!   attached mod's row too), under a mod's name its effect ("Ammunition capacity + 4")
+//!   [design: the owner's picture of a modded menu, 2026-10-27]; the
 //!   chosen row's picture 200 square at (450, 20) and the mod's description at
 //!   (450, 220) wrapped at 350; the figures from (415, 400), 427 x 180: two cards of half
 //!   that width at the top and, on a mod, an arrow 80 square in the middle, the gain in
 //!   font 4 at three quarters, 30 under the arrow's top, and the cards after the mod at
-//!   the bottom; "Exit E)" right-aligned at 855, 75 down. The first row is the weapon,
+//!   the bottom (on an attached mod, the weapon without it); "Exit E)" right-aligned at
+//!   855, 75 down, and under it on a mod "Attach Enter)" or "Remove Enter)" [design].
+//!   The first row is the weapon,
 //!   boxed; the others the mods [hypothesis: as the repair list].
-//! - Keys: Up/Down (W/S) choose, Enter or Space attaches the chosen mod, E or Esc goes back
-//!   [documented: `_PCButton_E` IMM_CancelButton; design: the rest]. The pointer as the
-//!   repair list's: a row under it is chosen, a click on the chosen mod attaches it, a
-//!   click on "Exit E)" goes back. Log: `pipboy mod: clicked row <n>`.
+//! - Keys: Up/Down (W/S) choose, Enter or Space attaches or removes the chosen mod, E or
+//!   Esc goes back [documented: `_PCButton_E` IMM_CancelButton; design: the rest]. The
+//!   pointer as the repair list's: a row under it is chosen, a click on the chosen mod
+//!   (or on its Attach/Remove button) attaches or removes it, a click on "Exit E)" goes
+//!   back. Log:
+//!   `pipboy mod: clicked row <n>`.
 //! - Rows are silent [documented: the template's `&nosound;`]; attaching plays
 //!   `UIRepairWeapon` [hypothesis].
 //! - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
@@ -68,6 +76,12 @@ const NAME_RIGHT_IN: f32 = 100.0;
 const BUTTONS: Vec2 = Vec2::new(855.0, 75.0);
 /// The exit button's words [hypothesis: `sExit` reads "Exit", as the companion wheel's].
 const EXIT: &str = "Exit E)";
+/// The effect's line ends this short of the row's right end [design].
+const EFFECT_IN: f32 = 15.0;
+/// The chosen mod's action, under the exit button [design].
+const ATTACH: &str = "Attach Enter)";
+const REMOVE: &str = "Remove Enter)";
+const ACT_DOWN: f32 = 40.0;
 /// The meter's empty part [documented: the repair template's alpha 64, the same meter].
 const BAR_BACK: f32 = 64.0 / 255.0;
 
@@ -91,6 +105,9 @@ struct ModRow(usize);
 #[derive(Component, Clone, Copy)]
 struct ModExit;
 
+#[derive(Component, Clone, Copy)]
+struct ModAct;
+
 /// Only a row not chosen yet (as the repair list's rows, `super::repair`).
 fn on_row_over(over: On<Pointer<Over>>, rows: Query<&ModRow>, menu: Res<PipItemMod>, mut out: MessageWriter<ModInput>) {
     let (Ok(r), Some(s)) = (rows.get(over.entity), menu.0.as_ref()) else { return };
@@ -111,8 +128,14 @@ fn on_exit_click(click: On<Pointer<Click>>, exit: Query<&ModExit>, mut out: Mess
     }
 }
 
-/// What a step does with the list as it is: a click on the chosen mod attaches it, any
-/// other click chooses its row.
+fn on_act_click(click: On<Pointer<Click>>, act: Query<&ModAct>, mut out: MessageWriter<ModInput>) {
+    if act.get(click.entity).is_ok() {
+        out.write(ModInput::Use);
+    }
+}
+
+/// What a step does with the list as it is: a click on the chosen mod attaches or removes
+/// it, any other click chooses its row.
 pub fn resolve(selected: Option<usize>, step: ModInput) -> ModInput {
     match (selected, step) {
         (Some(s), ModInput::Click(i)) if i == s && i > 0 => ModInput::Use,
@@ -141,15 +164,20 @@ pub struct Session {
     pub selected: usize,
 }
 
-/// A mod the player carries that fits a free slot.
+/// A mod on the weapon, or one the player carries that fits a free slot.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Choice {
     /// The IMOD.
     pub item: FormId,
     pub slot: u8,
     pub name: String,
+    /// The units carried (spares, for an attached mod).
     pub count: i32,
     pub icon: Option<String>,
+    /// On the weapon: choosing it takes it off.
+    pub attached: bool,
+    /// What it does, in words (`effect_text`).
+    pub effect: Option<String>,
 }
 
 /// What the ITEMS page's selected weapon offers.
@@ -163,16 +191,9 @@ pub struct Offer {
     pub choices: Vec<Choice>,
 }
 
-impl Offer {
-    /// Whether X opens the menu: a mod to attach.
-    pub fn usable(&self) -> bool {
-        !self.choices.is_empty()
-    }
-}
-
 /// The offer of the row of `item` whose units are at `at` with the mods `mods` (the
-/// equipped unit first when `equipped`): the carried mods that fit a slot not taken
-/// yet, by name. `None` for an item that is not a weapon with mod slots.
+/// equipped unit first when `equipped`): the mods on it and the carried mods that fit a
+/// slot not taken yet, by name. `None` for an item that is not a weapon with mod slots.
 pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, w: &WeaponStats, item: FormId, at: Option<f32>, mods: u8, equipped: bool) -> Option<Offer> {
     if !w.mods.iter().any(|m| m.item.is_some() && mod_flag(m.slot) != 0) {
         return None;
@@ -182,11 +203,20 @@ pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, w: &WeaponStats
     let mut choices: Vec<Choice> = w
         .mods
         .iter()
-        .filter(|m| mod_flag(m.slot) != 0 && mine.1.mods & mod_flag(m.slot) == 0)
+        .filter(|m| mod_flag(m.slot) != 0)
         .filter_map(|m| {
             let id = m.item?;
             let count = carried(id);
-            (count > 0).then(|| Choice { item: id, slot: m.slot, name: crate::menu::model::display_name(forms, id), count, icon: forms.item(id).and_then(|i| i.icon.clone()) })
+            let attached = mine.1.mods & mod_flag(m.slot) != 0;
+            (attached || count > 0).then(|| Choice {
+                item: id,
+                slot: m.slot,
+                name: crate::menu::model::display_name(forms, id),
+                count,
+                icon: forms.item(id).and_then(|i| i.icon.clone()),
+                attached,
+                effect: effect_text(m.effect.as_deref(), m.value_a),
+            })
         })
         .collect();
     choices.sort_by(|a, b| a.name.cmp(&b.name).then(a.slot.cmp(&b.slot)));
@@ -203,13 +233,41 @@ pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, w: &WeaponStats
 pub fn current(active: &ActiveMenu, sim: &SimState, combat: Option<&crate::combat::Combat>) -> Option<Offer> {
     let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
     let r = m.list(Side::Player).rows.get(m.selected[Side::Player as usize])?;
-    let w = combat?.forms.weapons.get(&r.item)?;
+    offer_now(sim, combat, r.item, r.at, r.mods, r.equipped)
+}
+
+fn offer_now(sim: &SimState, combat: Option<&crate::combat::Combat>, item: FormId, at: Option<f32>, mods: u8, equipped: bool) -> Option<Offer> {
+    let w = combat?.forms.weapons.get(&item)?;
     let groups: Vec<(FormId, Extra, i32)> = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.groups().collect()).unwrap_or_default();
-    offer(&groups, sim.forms, w, r.item, r.at, r.mods, r.equipped)
+    offer(&groups, sim.forms, w, item, at, mods, equipped)
+}
+
+/// A mod's effect in words, from its effect and value A as `WeaponStats::modded` uses
+/// them (weapon-mods.md §2) [design: the words].
+pub fn effect_text(effect: Option<&str>, a: f32) -> Option<String> {
+    let n = |v: f32| {
+        let s = format!("{v:.2}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    Some(match effect? {
+        "Increase Weapon Damage" => format!("Damage + {}", n(a)),
+        "Increase Clip Capacity" => format!("Ammunition capacity + {}", n(a)),
+        "Decrease Spread" => format!("Spread - {}", n(a)),
+        "Decrease Weight" => format!("Weight - {}", n(a)),
+        "Increase Max. Condition" => format!("Maximum condition + {}", n(a)),
+        "Increase Rate of Fire" => format!("Rate of fire + {}%", n(a * 100.0)),
+        "Increase Zoom" => "Zoom increased".to_string(),
+        "Split Beam" => format!("Beams + {}", n(a)),
+        "Silence" | "Suppressor" => "Silenced".to_string(),
+        "Increase Projectile Speed" => format!("Projectile speed x {}", n(a)),
+        "Regenerate Ammo (shots)" => "Every fourth shot is free".to_string(),
+        "Regenerate Ammo (seconds)" => format!("Recharge time + {} s", n(a)),
+        _ => return None,
+    })
 }
 
 /// The keys of the mod menu and X on the ITEMS page (Shift+X drops the stack there,
-/// `super::items`; X on a weapon without a mod to attach drops one).
+/// `super::items`; X on an item that is not a weapon with mod slots drops one).
 #[allow(clippy::too_many_arguments)]
 pub fn keys(
     pip: Res<PipBoy>,
@@ -253,9 +311,9 @@ pub fn keys(
         let step = resolve(menu.0.as_ref().map(|s| s.selected), step);
         match (menu.0.as_mut(), step) {
             (None, ModInput::Open) => {
-                // Not usable: X drops instead (`super::items::keys`), quietly here.
-                let Some(o) = current(&active, &sim, combat.as_deref()).filter(Offer::usable) else { continue };
-                info!("pipboy mod: open {} (flags {}): {}", o.name, o.extra.mods, o.choices.iter().map(|c| format!("{} (slot {})", c.name, c.slot)).collect::<Vec<_>>().join(", "));
+                // Not a weapon with mod slots: X drops instead (`super::items::keys`).
+                let Some(o) = current(&active, &sim, combat.as_deref()) else { continue };
+                info!("pipboy mod: open {} (flags {}): {}", o.name, o.extra.mods, o.choices.iter().map(|c| format!("{} (slot {}{})", c.name, c.slot, if c.attached { ", on" } else { "" })).collect::<Vec<_>>().join(", "));
                 menu.0 = Some(Session { offer: o, first: 0, selected: 0 });
             }
             (None, _) => {}
@@ -277,19 +335,34 @@ pub fn keys(
             (Some(s), ModInput::Use) => {
                 let Some(ch) = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i)).cloned() else { continue };
                 let o = &s.offer;
-                let flags = o.extra.mods | mod_flag(ch.slot);
-                let done = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|inv| attach(inv, o.item, o.extra, ch.item, flags));
+                // The slot's flag goes on, or off for an attached mod.
+                let flags = o.extra.mods ^ mod_flag(ch.slot);
+                let sign = if ch.attached { '-' } else { '+' };
+                let done = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|inv| if ch.attached { detach(inv, o.item, o.extra, ch.item, flags) } else { attach(inv, o.item, o.extra, ch.item, flags) });
                 if done {
-                    info!("pipboy mod: {} + {} (slot {}, flags {flags})", o.name, ch.name, ch.slot);
+                    info!("pipboy mod: {} {sign} {} (slot {}, flags {flags})", o.name, ch.name, ch.slot);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
                 } else {
-                    info!("pipboy mod: {} + {}: the items are gone", o.name, ch.name);
+                    info!("pipboy mod: {} {sign} {}: the items are gone", o.name, ch.name);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
                 }
-                menu.0 = None;
                 if let Some(m) = active.0.as_mut() {
                     if let Err(e) = m.refresh(&mut sim.world) {
                         warn!("pipboy mod: the list: {e:?}");
+                    }
+                }
+                // The menu stays open on the weapon as it is now, the same mod chosen
+                // [design: the owner's rule, 2026-10-27].
+                let unit = if done { Extra { mods: flags, ..o.extra } } else { o.extra };
+                match offer_now(&sim, combat.as_deref(), o.item, Some(unit.condition_or_whole()), unit.mods, unit.equipped) {
+                    Some(n) => {
+                        s.selected = n.choices.iter().position(|c| c.item == ch.item && c.slot == ch.slot).map_or(0, |i| i + 1);
+                        s.offer = n;
+                        s.first = crate::menu::model::keep_in_view(s.first, s.selected, s.offer.choices.len() + 1, SHOWN);
+                    }
+                    None => {
+                        info!("pipboy mod: the weapon is gone");
+                        menu.0 = None;
                     }
                 }
             }
@@ -305,6 +378,16 @@ pub fn attach(inv: &mut fnv_sim::inventory::Inventory, weapon: FormId, unit: Ext
         return false;
     }
     inv.remove(item_mod, 1) == 1
+}
+
+/// Remove: the weapon's unit `unit` gets the flags `flags` (the mod's taken away) and one
+/// unit of the mod comes back to the inventory. Nothing changes unless the unit is there.
+pub fn detach(inv: &mut fnv_sim::inventory::Inventory, weapon: FormId, unit: Extra, item_mod: FormId, flags: u8) -> bool {
+    if !inv.set_mods_one(weapon, unit, flags) {
+        return false;
+    }
+    inv.add(item_mod, 1);
+    true
 }
 
 /// The figure a mod's effect changes, as a card's title and value, and as a number for
@@ -352,13 +435,25 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     c.text(p, 2, EXIT, MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
     let ew = c.width(2, EXIT);
     p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, by - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
-    // The rows: the weapon, then the mods.
-    let rows: Vec<(String, bool)> = std::iter::once((o.name.clone(), o.extra.equipped)).chain(o.choices.iter().map(|ch| (if ch.count > 1 { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, false))).collect();
+    let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
+    if let Some(ch) = chosen {
+        let act = if ch.attached { REMOVE } else { ATTACH };
+        let aw = c.text(p, 2, act, MAIN.min.x + BUTTONS.x - 10.0, by + ACT_DOWN, Align::Right, bright);
+        p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - aw, by + ACT_DOWN - 5.0, aw + 10.0, 40.0), ModAct, Pickable::default())).observe(on_act_click);
+    }
+    // The rows: the weapon, then the mods (an attached one marked, as the equipped
+    // weapon), each mod's effect under its name.
+    let rows: Vec<(String, bool, Option<&str>)> = std::iter::once((o.name.clone(), o.extra.equipped, None))
+        .chain(o.choices.iter().map(|ch| (if ch.count > 1 && !ch.attached { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, ch.attached, ch.effect.as_deref())))
+        .collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
     let first = s.first;
-    for (i, (name, worn)) in rows.iter().enumerate().skip(first) {
-        let lines = c.lines(2, name, Some(WRAP));
+    for (i, (name, worn, effect)) in rows.iter().enumerate().skip(first) {
+        let mut lines = c.lines(2, name, Some(WRAP));
+        if let Some(e) = effect {
+            lines.extend(c.lines(2, e, Some(ROW_W - NAME_X - EFFECT_IN)));
+        }
         let h = ROW_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;
         if y + h > MAIN.min.y + LIST.max.y {
             break;
@@ -378,7 +473,6 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
         p.spawn((at(x0, y, ROW_W, h), ModRow(i), Pickable::default())).observe(on_row_over).observe(on_row_click);
         y += h;
     }
-    let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
     // The picture and the description.
     if let Some(icon) = chosen.map_or(o.icon.as_deref(), |ch| ch.icon.as_deref()) {
         let r = Rect::from_corners(MAIN.min + ICON.min, MAIN.min + ICON.max);
@@ -391,7 +485,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
             c.set(p, 2, l, MAIN.min.x + DESC.x, MAIN.min.y + DESC.y + pitch * k as f32, Align::Left, bright);
         }
     }
-    // The figures: the weapon as it is, and on a mod after it.
+    // The figures: the weapon as it is, and on a mod after attaching or removing it.
     let Some(w) = combat.and_then(|cb| cb.forms.weapons.get(&o.item)) else { return };
     let now = w.modded(o.extra.mods);
     let condition = o.extra.condition_or_whole();
@@ -408,7 +502,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     };
     cards(p, c, cr.min.y, &now);
     if let Some(ch) = chosen {
-        let after = w.modded(o.extra.mods | mod_flag(ch.slot));
+        let after = w.modded(o.extra.mods ^ mod_flag(ch.slot));
         let ay = cr.min.y + (cr.height() - ARROW) / 2.0 - 5.0;
         c.image(p, "interface\\shared\\arrow\\repair_arrow_down.dds", at(cr.min.x + (cr.width() - ARROW) / 2.0, ay, ARROW, ARROW), bright);
         if let (Some((_, _, Some(a))), Some((_, _, Some(b)))) = (figure(effect.as_deref(), &now, condition), figure(effect.as_deref(), &after, condition)) {
@@ -454,14 +548,16 @@ mod tests {
         assert_eq!(o.extra, on);
         let listed: Vec<(FormId, u8, i32)> = o.choices.iter().map(|c| (c.item, c.slot, c.count)).collect();
         assert_eq!(listed, vec![(MAGS, 1, 2), (SILENCER, 3, 1)]);
-        assert!(o.usable());
-        // The modded one: its magazines are on already; its name says so.
+        assert_eq!(o.choices[0].effect.as_deref(), Some("Ammunition capacity + 4"));
+        assert_eq!(o.choices[1].effect.as_deref(), Some("Silenced"));
+        // The modded one: its magazines are on (to take off), the silencer to put on; its
+        // name says so.
         let o = offer(&groups, &forms, &pistol(), GUN, Some(1.0), 1, false).unwrap();
-        assert_eq!(o.choices.iter().map(|c| c.item).collect::<Vec<_>>(), vec![SILENCER]);
+        assert_eq!(o.choices.iter().map(|c| (c.item, c.attached)).collect::<Vec<_>>(), vec![(MAGS, true), (SILENCER, false)]);
         assert_eq!(o.name, "10mm Pistol +");
-        // Nothing carried: not usable. A weapon without slots: no offer.
+        // Nothing carried: the menu still opens, empty. A weapon without slots: no offer.
         let bare = vec![(GUN, on, 1)];
-        assert!(!offer(&bare, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap().usable());
+        assert!(offer(&bare, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap().choices.is_empty());
         assert_eq!(offer(&bare, &forms, &WeaponStats::default(), GUN, Some(1.0), 0, true), None);
     }
 
@@ -481,6 +577,31 @@ mod tests {
         let now = Extra { mods: 1, ..on };
         assert!(!attach(&mut inv, GUN, now, SIGHT, 3));
         assert_eq!(inv.equipped_mods(GUN), 1);
+    }
+
+    #[test]
+    fn removing_gives_the_mod_back_and_clears_the_flag() {
+        let mut inv = Inventory::new();
+        inv.add(GUN, 1);
+        assert!(inv.set_equipped(GUN));
+        inv.add(MAGS, 1);
+        let on = Extra { equipped: true, ..Extra::default() };
+        assert!(attach(&mut inv, GUN, on, MAGS, 1));
+        assert_eq!(inv.count(MAGS), 0);
+        let modded = Extra { mods: 1, ..on };
+        assert!(detach(&mut inv, GUN, modded, MAGS, 0));
+        assert_eq!((inv.count(MAGS), inv.equipped_mods(GUN), inv.count(GUN)), (1, 0, 1));
+        // The modded unit is gone: nothing changes.
+        assert!(!detach(&mut inv, GUN, modded, MAGS, 0));
+        assert_eq!(inv.count(MAGS), 1);
+    }
+
+    #[test]
+    fn effects_read_as_words() {
+        assert_eq!(effect_text(Some("Decrease Weight"), 1.5).as_deref(), Some("Weight - 1.5"));
+        assert_eq!(effect_text(Some("Increase Rate of Fire"), 0.2).as_deref(), Some("Rate of fire + 20%"));
+        assert_eq!(effect_text(Some("Increase Weapon Damage"), 5.0).as_deref(), Some("Damage + 5"));
+        assert_eq!(effect_text(None, 1.0), None);
     }
 
     #[test]
