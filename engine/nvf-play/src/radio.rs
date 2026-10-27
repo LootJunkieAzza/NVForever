@@ -148,15 +148,21 @@ pub struct RadioSound {
     start: Duration,
     looping: bool,
     level: Arc<AtomicU32>,
+    /// How loud the file is where it plays (the root mean square of its last samples,
+    /// before the level), for the Pip-Boy's waveform panel.
+    meter: Arc<AtomicU32>,
     channels: ChannelCount,
     rate: SampleRate,
 }
+
+/// Samples the meter of a playing file is measured over.
+const METER_SAMPLES: u32 = 2048;
 
 impl RadioSound {
     fn new(bytes: Arc<[u8]>, start: f64, looping: bool) -> Option<(RadioSound, Arc<AtomicU32>)> {
         let d = open(&bytes)?;
         let level = Arc::new(AtomicU32::new(0));
-        Some((RadioSound { bytes, start: Duration::from_secs_f64(start.max(0.0)), looping, level: level.clone(), channels: d.channels(), rate: d.sample_rate() }, level))
+        Some((RadioSound { bytes, start: Duration::from_secs_f64(start.max(0.0)), looping, level: level.clone(), meter: Arc::default(), channels: d.channels(), rate: d.sample_rate() }, level))
     }
 }
 
@@ -165,6 +171,10 @@ pub struct RadioDecoder {
     bytes: Arc<[u8]>,
     looping: bool,
     level: Arc<AtomicU32>,
+    meter: Arc<AtomicU32>,
+    /// The squares summed and the samples counted towards the next meter reading.
+    squares: f32,
+    counted: u32,
     channels: ChannelCount,
     rate: SampleRate,
 }
@@ -181,6 +191,12 @@ impl Iterator for RadioDecoder {
             }
             None => return None,
         };
+        self.squares += s * s;
+        self.counted += 1;
+        if self.counted == METER_SAMPLES {
+            self.meter.store((self.squares / METER_SAMPLES as f32).sqrt().to_bits(), Ordering::Relaxed);
+            (self.squares, self.counted) = (0.0, 0);
+        }
         Some(s * f32::from_bits(self.level.load(Ordering::Relaxed)))
     }
 }
@@ -219,7 +235,7 @@ impl Decodable for RadioSound {
                 }
             }
         }
-        RadioDecoder { stem, bytes: self.bytes.clone(), looping: self.looping, level: self.level.clone(), channels: self.channels, rate: self.rate }
+        RadioDecoder { stem, bytes: self.bytes.clone(), looping: self.looping, level: self.level.clone(), meter: self.meter.clone(), squares: 0.0, counted: 0, channels: self.channels, rate: self.rate }
     }
 }
 
@@ -332,6 +348,7 @@ enum Track {
 struct Playing {
     entity: Entity,
     level: Arc<AtomicU32>,
+    meter: Arc<AtomicU32>,
     track: Track,
 }
 
@@ -414,6 +431,12 @@ pub struct Radio {
 }
 
 impl Radio {
+    /// How loud the Pip-Boy radio's sound is now (its station, else its static; 0 while
+    /// it plays nothing), for the waveform panel.
+    pub fn pipboy_loudness(&self) -> f32 {
+        self.playing.get(&PIPBOY).or_else(|| self.playing.get(&PIPBOY_STATIC)).map_or(0.0, |p| f32::from_bits(p.meter.load(Ordering::Relaxed)))
+    }
+
     fn bytes(&mut self, vfs: &fnv_vfs::Vfs, path: &str) -> Option<Arc<[u8]>> {
         self.files
             .entry(path.to_string())
@@ -980,6 +1003,7 @@ fn play(
             continue;
         };
         level.store(gain.to_bits(), Ordering::Relaxed);
+        let meter = sound.meter.clone();
         let entity = match w.at {
             // Panned where the receiver or actor is (`crate::sfx`).
             Some(at) => {
@@ -1016,7 +1040,7 @@ fn play(
         if looping {
             radio.loops += 1;
         }
-        radio.playing.insert(w.key, Playing { entity, level, track: w.track.clone() });
+        radio.playing.insert(w.key, Playing { entity, level, meter, track: w.track.clone() });
     }
     radio.playing.retain(|r, p| {
         let keep = sounding.contains(r);
