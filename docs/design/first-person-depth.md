@@ -38,6 +38,9 @@ module notes "First-person depth"; `first_person_depth.wgsl`):
   shader holes, texture swaps, actor fades) are made from the current material and keep it.
   The player's muzzle flash at the first-person muzzle gets copies with the switch
   (`shot_fx.rs` `first_person_model`): drawn at world depth, the squeezed barrel hid it.
+  The 3D scope's lens and reticle discs (`scope_view.rs` `draw_lens`, on `ARMS_LAYER`)
+  are NIF materials with the switch: at world depth the squeezed scope tube around them
+  hid them and the lens drew black [observed: scope-3d-lens-interior, 2026-10-27].
 - The fragment shaders write the depth (`@builtin(frag_depth)`): the main pass
   (nif_material.wgsl, `FIRST_PERSON_DEPTH`) and the depth prepass, which gets the NIF
   prepass fragment for these shapes whatever their alpha (nif_prepass.wgsl). Writing the
