@@ -109,9 +109,35 @@ them in again.
   "aborted", its state saved and the cells left not reached; `--resume` goes on.
 - **Results.** Totals (OK, crashed, hung, skipped, not reached), the mean and slowest
   loads, the crash groups with their cells, and each bad cell's last log lines.
+- **Missing files and script errors.** The engine's own warnings while a cell is the one
+  visited (from its start line to the next cell's) are that cell's: `model not loaded:` and
+  `texture not loaded:` (nvf-assets `guard::failed`), `script error in` (nvf-play
+  script.rs). Each OK row keeps them; the results group them by file (a model's or
+  texture's path) or by script and error (numbers taken out), with the cells that met each,
+  and the report lists the commonest.
 - **Stray entity commands.** A command the engine sends to an entity that is gone is
   logged, not fatal (nvforever `stray_commands.rs`; Bevy's `debug` feature names the
   command). Tour and battle reports list them, with the first place each was seen.
+
+## 3b. markers
+
+Fast travel to every map marker of the ten masters (`python tools/stress run markers`),
+through the same path a click on the World Map takes.
+
+- **Where the markers come from.** fnvtool's `world list`, then `world refs` for each
+  worldspace: the references of the MapMarker static (0x00000010). `--worlds` and
+  `--limit` pick a sample.
+- **A launch.** `--batch` markers (25) from `--start` (GSGeneralStore). The script aid
+  `call:-:ShowAllMapMarkers:1:1:0` makes every marker a fast-travel target; then per
+  marker, `--every` seconds (30) apart, the Pip-Boy aid opens on DATA, asks to travel
+  there (`travel=`) and answers Yes (`key=use`).
+- **What each marker gets.** From its ask to the next: refused (the refusal, e.g.
+  HostilesNear, or not a named marker), no trip (no departure logged), no arrival (the
+  trip went out but its loading screen did not come down), or OK with the seconds the
+  screen was up; missing files and script errors as in cells. A crash or hang counts
+  against the marker last asked and ends the batch; the next starts after it.
+- **Results.** Totals, the refusals by reason, the crash groups, the problems grouped as
+  in cells, the slowest arrivals.
 
 ## 4. tour
 

@@ -10,10 +10,11 @@ import argparse
 import os
 from pathlib import Path
 
-from . import battle, cells, lib, tour
+from . import battle, cells, lib, markers, tour
 
 TESTS = {
     "cells": "every interior cell of the masters loads without crashing (exteriors: tour)",
+    "markers": "fast travel to every map marker: refusals, arrivals, crashes, missing files and script errors",
     "tour": "laps of the Mojave, the engine's counts and the process's memory sampled for leaks",
     "battle": "NCR against the Legion in Goodsprings: frame time, memory, combat measures",
 }
@@ -50,6 +51,14 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--resume", default=None, metavar="RUN",
                    help="go on with an earlier run (its folder name under target/stress/cells/): cells it has done are skipped")
 
+    m = tests.add_parser("markers", help=TESTS["markers"])
+    common(m)
+    m.add_argument("--worlds", nargs="*", default=None, help="only these worldspaces (Editor IDs or FormIDs)")
+    m.add_argument("--limit", type=int, default=None, help="at most this many markers")
+    m.add_argument("--batch", type=int, default=25, help="markers per launch")
+    m.add_argument("--every", type=float, default=30.0, help="seconds between one marker's ask and the next's")
+    m.add_argument("--hang", type=float, default=180.0, help="seconds without progress that count as a hang")
+    m.add_argument("--start", default="GSGeneralStore", help="the cell each launch starts in (--cell)")
     t = tests.add_parser("tour", help=TESTS["tour"])
     common(t)
     t.add_argument("--world", default="WastelandNV")
@@ -124,6 +133,18 @@ def main(argv=None) -> int:
                         on_batch=lambda r: lib.write_results(ctx.out, r, cells.report(r)), abort_after=a.abort_after)
         lines = cells.report(res)
         bad = res["crashed"] + res["hung"] + (1 if res["status"] == "aborted" else 0)
+    elif a.test == "markers":
+        if not ctx.fnvtool.exists():
+            raise SystemExit(f"no fnvtool at {ctx.fnvtool}: build it (root workspace) or pass --fnvtool")
+        everything = markers.enumerate_markers(ctx)
+        want = {w.lower() for w in a.worlds or []}
+        chosen = [m for m in everything if not want or m.world.lower() in want or m.world_edid.lower() in want]
+        chosen = chosen[:a.limit] if a.limit else chosen
+        print(f"markers: {len(chosen)} of {len(everything)} map markers, {a.batch} a launch")
+        res = markers.run(ctx, chosen, a.batch, a.every, a.hang, ["--cell", a.start],
+                          on_batch=lambda r: lib.write_results(ctx.out, r, markers.report(r)))
+        lines = markers.report(res)
+        bad = res["crashed"] + res["hung"]
     elif a.test == "tour":
         if a.route:
             route = a.route.read_text(encoding="utf-8")
