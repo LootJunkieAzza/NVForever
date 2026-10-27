@@ -112,6 +112,29 @@ impl Vm<'_, '_> {
         let text = |v: XVal| -> Option<String> { if let XVal::Str(s) = v { Some(s) } else { None } };
         let num = |x: f64| Ok(Some(XVal::Num(x)));
         match n {
+            // `base toAdd [override]`: the second array's elements join the first in place,
+            // a list's at its end, a map's by key (an old key kept unless override)
+            // [documented: Ar_Cat; observed: data2, (1 2) + (3 4 5) reads size 5, last 5].
+            "ar_cat" => {
+                let (a, b) = (val(self, 0)?, val(self, 1)?);
+                let replace = opt(self, 2)?.is_some_and(|v| v.truthy());
+                let id = |v: &XVal| if let XVal::Array(i) = v { Some(*i).filter(|&i| i != 0) } else { None };
+                let (Some(ia), Some(ib)) = (id(&a), id(&b)) else { return num(0.0) };
+                let store = self.store()?;
+                let list = store.array(ia).is_some_and(|x| x.kind == ArrayKind::List);
+                let mut len = store.array(ia).map_or(0, |x| x.entries.len());
+                let add: Vec<(XKey, XVal)> = store.array(ib).map(|x| x.entries.clone()).unwrap_or_default();
+                let have: Vec<XKey> = store.array(ia).map(|x| x.entries.iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default();
+                for (k, v) in add {
+                    if list {
+                        self.set_element(&a, &XVal::Num(len as f64), v)?;
+                        len += 1;
+                    } else if replace || !have.contains(&k) {
+                        self.set_element(&a, &k.value(), v)?;
+                    }
+                }
+                num(0.0)
+            }
             // [documented: Fsin; Fcos; Ftan; observed: fsin 90 = 1] degrees.
             "fsin" | "fcos" | "ftan" => {
                 let d = val(self, 0)?.num()?.to_radians();
