@@ -792,6 +792,13 @@ struct Flying {
     /// The projectile's Impact Force (PROJ DATA), for [`OBJECT_PUSH`].
     force: f32,
     by: By,
+    /// The temporary reference scripts see it as (`fnv_game::nvse_proj`), and whether one
+    /// was asked for; the speed multiplier last applied.
+    rref: Option<FormId>,
+    registered: bool,
+    speed_mult: f32,
+    /// Where its flight ended without a hit (`ProjEvent::Expired`).
+    ended_at: Option<V3>,
 }
 
 /// A hit waiting for its delivery time (hitscan: distance ÷ speed).
@@ -811,6 +818,11 @@ struct Pending {
     projectiles: u32,
     force: f32,
     by: By,
+    /// The shot's reference for scripts, kept until the hit lands; when it was made
+    /// (`time`) and its speed multiplier as last applied.
+    rref: Option<FormId>,
+    since: f32,
+    speed_mult: f32,
 }
 
 /// What is drawn of a projectile whose hit was found at once: a bullet flying from the
@@ -2631,7 +2643,7 @@ pub(crate) fn fire(
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
                     let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
-                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
+                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -3521,6 +3533,9 @@ fn actor_attacks(
     let player_guard = (c.melee && control.as_deref().is_some_and(|k| k.aiming) && anim.as_deref().is_some_and(|a| a.ready)).then(|| player.as_deref().map(|p| p.look_dir())).flatten().map(|d| [d[0], d[1]]);
     let script_shots = std::mem::take(&mut c.script_shots);
     for (s, scripted) in shots.read().map(|s| (s, false)).chain(script_shots.iter().map(|s| (s, true))) {
+        // The shooter's own body is never hit: the player's is `PLAYER`, not its FormID (a
+        // player's FireWeapon hit the player at the muzzle, 2026-10-27).
+        let own = if s.shooter == FormId::PLAYER_REF { PLAYER } else { s.shooter.0 as ActorId };
         let carried = |a: FormId| sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).is_some_and(|i| i.count(a) > 0);
         let ammo = c.forms.ammo_for(s.weapon, carried);
         let Some(chain) = c.forms.chain(s.weapon, ammo) else { continue };
@@ -3530,7 +3545,7 @@ fn actor_attacks(
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
-            shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
+            shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(own), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
         fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
@@ -3553,7 +3568,7 @@ fn actor_attacks(
         let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
-        let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
+        let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(own), gravity, &c.tuning, &mut rand);
         // The mods on the unit it uses: Increase Projectile Speed (weapon-data-fields.md §5).
         let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
         if let Some(m) = c.forms.weapons.get(&s.weapon).filter(|_| mods != 0).and_then(|w| w.modded(mods).projectile_speed_mult) {
@@ -3565,7 +3580,7 @@ fn actor_attacks(
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
+            c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
         }
         let wname = c.forms.weapons.get(&s.weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?");
         if scripted {
@@ -3772,12 +3787,48 @@ fn fly(
             queue_destruction(c, &sim, r, &ch, None);
         }
     }
+    // Each shot is a temporary reference of its PROJ for scripts (`fnv_game::nvse_proj`):
+    // made the frame it is fired, moved as it flies; a speed multiplier a script set
+    // speeds the flight or the hit's arrival [observed: proj1].
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        let forms = &c.forms;
+        let (flying, pending, now) = (&mut c.flying, &mut c.pending, c.time);
+        with_world(rt, &mut sim, |rt| {
+            for f in flying.iter_mut() {
+                if !f.registered {
+                    f.registered = true;
+                    let damage = forms.weapons.get(&f.by.weapon).map_or(0.0, |w| w.base_damage as f32);
+                    f.rref = rt.game.projectile_fired(f.proj, f.by.actor, f.by.weapon, damage, f.p.pos);
+                    debug!("combat: shot reference {:?} for {} (speed {:.0}, hitscan {})", f.rref, f.proj, f.p.speed, f.p.hitscan);
+                }
+                let Some(r) = f.rref else { continue };
+                if let Some(m) = rt.game.gaps.projs.shots.get(&r).map(|s| s.speed_mult).filter(|m| *m > 0.0 && *m != f.speed_mult) {
+                    let k = m / f.speed_mult;
+                    f.p.vel = vec::scale(f.p.vel, k);
+                    f.p.speed *= k;
+                    f.speed_mult = m;
+                }
+                rt.game.projectile_moved(r, f.p.pos, f.p.age, f.p.travelled);
+            }
+            for p in pending.iter_mut() {
+                let Some(r) = p.rref else { continue };
+                if let Some(m) = rt.game.gaps.projs.shots.get(&r).map(|s| s.speed_mult).filter(|m| *m > 0.0 && *m != p.speed_mult) {
+                    p.due = now + (p.due - now).max(0.0) * p.speed_mult / m;
+                    p.speed_mult = m;
+                }
+                let travelled = rt.game.gaps.projs.shots.get(&r).map_or(0.0, |s| s.travelled);
+                rt.game.projectile_moved(r, p.point, now - p.since, travelled);
+            }
+        });
+    }
     if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
         if !visuals.flying.is_empty() {
             visuals.flying.clear();
         }
         return;
     }
+    // Shots whose flight ended this frame without a hit to deliver: their references go.
+    let mut over: Vec<(FormId, f32)> = Vec::new();
     {
         let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
@@ -3812,7 +3863,8 @@ fn fly(
                         let from = if f.p.hitscan { f.origin } else { before };
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
-                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, normal, material, projectiles: f.projectiles_per_shot, force: f.force, by: f.by });
+                        let since = c.time - f.p.age;
+                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, normal, material, projectiles: f.projectiles_per_shot, force: f.force, by: f.by, rref: f.rref.take(), since, speed_mult: f.speed_mult });
                         if let Some(weapon) = lands {
                             let struck = actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) });
                             c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: Some(normal), dir: f.dir, struck, by: f.by.actor });
@@ -3838,6 +3890,7 @@ fn fly(
                     }
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
+                        f.ended_at = Some(point);
                         if let Some(weapon) = lands {
                             c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: None, dir: f.dir, struck: None, by: f.by.actor });
                         }
@@ -3857,7 +3910,29 @@ fn fly(
                 f.dir = vec::normalize(f.p.vel);
             }
         }
+        // A shot found at once (hitscan) flies on for scripts as long as the bullet
+        // would take to cover its way [observed: proj1, the 10mm shot aimed up still
+        // there the frame after; hypothesis: the time at its speed].
+        over.extend(c.flying.iter().filter(|f| !f.p.alive).filter_map(|f| {
+            let left = match (f.p.hitscan && f.p.speed > 0.0, f.ended_at) {
+                (true, Some(end)) => (vec::len(vec::sub(end, f.origin)) / f.p.speed - f.p.age).max(0.0),
+                _ => 0.0,
+            };
+            f.rref.map(|r| (r, left))
+        }));
         c.flying.retain(|f| f.p.alive);
+    }
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !over.is_empty()) {
+        with_world(rt, &mut sim, |rt| {
+            for (r, left) in over {
+                debug!("combat: shot reference {r} ends, {left:.3} s left in flight");
+                if left > 0.0 {
+                    rt.game.projectile_flies_on(r, left);
+                } else {
+                    rt.game.projectile_gone(r);
+                }
+            }
+        });
     }
     // What is drawn this frame: the projectiles in flight where they are seen, and
     // those found at once on their way.
@@ -4053,11 +4128,20 @@ fn fly(
         c.pending = keep;
         d
     };
-    for p in due {
+    for mut p in due {
+        // What scripts set on the shot (`fnv_game::nvse_proj`): its base damage and its
+        // source, who the hit counts as [observed: proj1, set values held to the hit].
+        let shot = p.rref.and_then(|r| script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, &mut sim, |rt| rt.game.projectile_gone(r))));
+        if let Some(s) = &shot {
+            p.by.actor = s.source;
+        }
         let id = p.by.weapon;
         // The player's weapon hits with its mods' figures (weapon-mods.md §2).
         let w = if p.by.actor == FormId::PLAYER_REF { c.player_stats(id) } else { c.forms.weapons.get(&id).cloned() };
-        let Some(w) = w else { continue };
+        let Some(mut w) = w else { continue };
+        if let Some(s) = &shot {
+            w.base_damage = s.damage.round() as i32;
+        }
         let chain = c.forms.chain(id, p.by.ammo);
         let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
         let shooter = p.by.actor;

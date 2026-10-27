@@ -2676,6 +2676,7 @@ impl<'a> Game<'a> {
         self.run_due_snippets();
         let (dt, frame) = (self.cfg.frame_seconds, self.frame);
         self.gaps.sounds.tick(dt, frame);
+        self.projectiles_tick(dt as f32);
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -4586,6 +4587,10 @@ impl Host for Exec<'_, '_> {
 
     fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
         let f = FormId(form);
+        // A shot that is over is no form any more [observed: proj1, IsFormValid 0].
+        if self.game.gaps.projs.gone.contains(&f) {
+            return None;
+        }
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }

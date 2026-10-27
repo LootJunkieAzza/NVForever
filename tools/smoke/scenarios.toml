@@ -9845,6 +9845,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "jip-projectiles"
+source = "JIP's live-projectile functions over the engine's shots (fnv_game::nvse_proj): a FireWeapon shot is a reference of type 51 while in flight, and gone after; a player's FireWeapon does not hit the player [observed: proj1]"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:player.SetAngle X -60;9.3:player.FireWeapon 0000434F;9.32:close;9.45:PrintC \"nvf proj n %g\", (GetNumRefs 51 3);9.5:close;11:PrintC \"nvf proj later %g\", (GetNumRefs 51 3);11.2:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 13
+expect = [
+  { re = 'script: print "nvf proj n 1"', label = "the shot, aimed up, is one projectile reference in flight" },
+  { re = 'script: print "nvf proj later 0"', label = "gone once its flight is over" },
+]
+
+[[scenario]]
 name = "knvse-idle-stop"
 source = "kNVSE ForcePlayIdle and ForceStopIdle on an NPC through the engine's idle player; GetPlayedIdle keeps the idle after the stop [observed: anim1]"
 areas = ["scripts", "actors"]

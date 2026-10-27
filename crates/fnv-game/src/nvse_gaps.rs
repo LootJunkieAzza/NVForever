@@ -60,6 +60,8 @@ pub struct GapsState {
     /// Seconds each actor's body has been off the ground, from the engine's physics at
     /// the last step (absent on the ground).
     pub air_times: HashMap<FormId, f32>,
+    /// The shots in flight, for the projectile functions (`crate::nvse_proj`).
+    pub projs: crate::nvse_proj::ProjState,
     /// The sounds scripts played, for the sound functions (`crate::nvse_sound`).
     pub sounds: crate::nvse_sound::SoundState,
     /// PushObject's pushes, for the engine to take: (the reference, the push's origin,
