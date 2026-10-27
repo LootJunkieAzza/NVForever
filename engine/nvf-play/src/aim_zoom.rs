@@ -44,10 +44,24 @@ pub struct AimZoom {
     pub sight: Option<f32>,
     /// The unzoomed vertical field of view (radians).
     base: Option<f32>,
+    /// The share of the way to the Sight FOV the main view goes: 1, or [`LENS_MAIN_SHARE`]
+    /// while a 3D scope shows the zoom in its lens. Held while zooming out.
+    main: f32,
     /// The vertical field of view this module last set.
     applied: Option<f32>,
     /// The full zoom has been reported (smoke tests read the line).
     told: bool,
+}
+
+/// With a 3D scope (`Scope3d`) the main view goes only this share of the way to the
+/// Sight FOV; the lens shows the full zoom [design: test version, docs/design/scope-3d-lens.md §4.1].
+pub const LENS_MAIN_SHARE: f32 = 0.2;
+
+impl AimZoom {
+    /// The unzoomed vertical field of view (radians), once known.
+    pub fn base(&self) -> Option<f32> {
+        self.base
+    }
 }
 
 /// The field of view (vertical, radians) for `base`, the weapon's `sight` and `blend`
@@ -76,13 +90,42 @@ pub struct Scope {
     pub night_vision: bool,
     /// The Sight FOV (degrees) zoomed to.
     pub sight_fov: f32,
+    /// Shown in the first-person weapon's lens (a 3D scope, `Scope3d`) instead of the
+    /// full-screen picture: the arms and the weapon stay drawn.
+    pub lens_3d: bool,
+}
+
+/// 3D scopes (docs/design/scope-3d-lens.md, a test version): the zoomed world is drawn in
+/// the lens of the first-person weapon's scope instead of the full-screen picture.
+/// `on` is the settings switch; `lens` is set by nvforever while the first-person weapon
+/// model has a known lens (the others keep the picture).
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub struct Scope3d {
+    pub on: bool,
+    pub lens: bool,
+}
+
+/// A 3D scope's sway (nvforever `scope_view.rs`, weapon-scopes.md §5): the gun, its lens
+/// and the shots turn by it (radians, added to the heading and the pitch) while the view
+/// stays still. Zero otherwise; the full-screen picture sways the view itself.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub struct LensSway {
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+impl LensSway {
+    /// The direction (game space) a look along `heading`, `pitch` turns to.
+    pub fn look_dir(&self, heading: f32, pitch: f32) -> [f32; 3] {
+        crate::space::look_dir(heading + self.yaw, pitch + self.pitch)
+    }
 }
 
 pub struct AimZoomPlugin;
 
 impl Plugin for AimZoomPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AimZoom>().init_resource::<TrueSights>().init_resource::<Scope>().add_systems(Update, zoom.in_set(PlaySet::Sync));
+        app.init_resource::<AimZoom>().init_resource::<TrueSights>().init_resource::<Scope>().init_resource::<Scope3d>().init_resource::<LensSway>().add_systems(Update, zoom.in_set(PlaySet::Sync));
     }
 }
 
@@ -96,6 +139,7 @@ fn zoom(
     free: Option<Res<FreeCam>>,
     mut z: ResMut<AimZoom>,
     mut scope: ResMut<Scope>,
+    lens: Res<Scope3d>,
     mut cams: Query<&mut Projection, With<PlayerCamera>>,
 ) {
     let Ok(mut proj) = cams.single_mut() else { return };
@@ -116,11 +160,18 @@ fn zoom(
     let was = z.blend;
     z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
     // The scope: up at full zoom in first person, down as soon as the aim is let go.
-    let scoped = sight.filter(|_| z.blend >= 1.0 && !control.third_person_view()).and_then(|(w, deg)| {
+    let scoped = sight.filter(|_| !control.third_person_view()).and_then(|(w, deg)| {
         let stats = combat.as_deref()?.player_stats(w)?;
-        Some(Scope { on: true, weapon: Some(w), model: stats.scope_model().map(str::to_string), night_vision: stats.night_vision_scope(), sight_fov: deg })
+        Some(Scope { on: true, weapon: Some(w), model: stats.scope_model().map(str::to_string), night_vision: stats.night_vision_scope(), sight_fov: deg, lens_3d: lens.on && lens.lens })
     });
-    let scoped = scoped.filter(|s| s.model.is_some()).unwrap_or_default();
+    let scoped = scoped.filter(|s| s.model.is_some());
+    // A 3D scope zooms the main view only a little, from the start of the aim.
+    if let Some(s) = &scoped {
+        z.main = if s.lens_3d { LENS_MAIN_SHARE } else { 1.0 };
+    } else if sight.is_some() || z.main == 0.0 {
+        z.main = 1.0;
+    }
+    let scoped = scoped.filter(|_| z.blend >= 1.0).unwrap_or_default();
     if scoped != *scope {
         if scoped.on && (scope.weapon != scoped.weapon || !scope.on) {
             let edid = combat.as_deref().and_then(|c| c.forms.weapons.get(&scoped.weapon?)).and_then(|ws| ws.edid.clone()).unwrap_or_else(|| "?".into());
@@ -131,6 +182,9 @@ fn zoom(
                 scoped.sight_fov,
                 if scoped.night_vision { "a night-vision scope" } else { "a plain scope" }
             );
+            if scoped.lens_3d {
+                info!("scope: shown in the weapon's lens (3D scope), the main view zoomed {LENS_MAIN_SHARE} of the way");
+            }
         } else if !scoped.on && scope.on {
             info!("scope: down");
         }
@@ -140,7 +194,7 @@ fn zoom(
         return;
     }
     let (Some(base), Some(target)) = (z.base, z.sight) else { return };
-    let fov = zoomed_fov(base, target, z.blend);
+    let fov = zoomed_fov(base, base + (target - base) * z.main, z.blend);
     if let Projection::Perspective(p) = &mut *proj {
         p.fov = fov;
     }
@@ -154,6 +208,7 @@ fn zoom(
     } else if z.blend == 0.0 {
         z.told = false;
         z.sight = None;
+        z.main = 1.0;
         info!("aim zoom: back to the unzoomed view (vertical {:.1}°)", base.to_degrees());
     }
 }
