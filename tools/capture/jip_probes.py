@@ -3776,6 +3776,72 @@ GLTA_ORDER_PROBES = (
     + [_gl_at(f"glta.a0.{i}", "GetLoadedTypeArray 47 0", i) for i in range(5)]
 )
 
+# Sixty-second set: the most called functions of the modlist counts still not built that
+# set a record field with a getter to read it back (NVSE, FOSE, LU, ShowOff, JohnnyGuitar):
+# weight, weapon skill and required skill, biped and slot masks, attack damage, armour
+# rating, biped model list, repair list, ammo, sight FOV, health, first-person model; and
+# ActorHasBaseFlag on Doc's and the player's base forms (Doc's reference is in another
+# cell on this save, and read 0 for every flag). Each value is read, set, read back and put back from the value read
+# first (aux variables).
+
+
+def _d1(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _num3(k, fid, get, set_to, setter, scale=1):
+    """Rows k.get, k.set (read back) and k.restore for a numeric field: get is an expression
+    of rObj; setter is a format with {v} for the value."""
+    rd = f"SetFunctionValue (Floor (({get}) * {scale}))"
+    aux = '"*nvfD1"'
+    return [_d1(f"{k}.get", _form("rObj", fid) + rd),
+            _d1(f"{k}.set", _form("rObj", fid) + f"let fRes := {get}\nrPlayer.AuxVarSetFlt {aux} fRes\n"
+                + setter.format(v=set_to) + "\n" + rd),
+            _d1(f"{k}.restore", _form("rObj", fid) + setter.format(v=f"(rPlayer.AuxVarGetFlt {aux})")
+                + f"\nrPlayer.AuxVarErase {aux}\n" + rd)]
+
+
+def _form3(k, fid, get, new_fid, setter):
+    """The same for a form field: setter has {v} for the form variable."""
+    rd = f"let rOther := {get}\nSetFunctionValue (GetFormIDString rOther)"
+    return [_d1(f"{k}.get", _form("rObj", fid) + rd, True),
+            _d1(f"{k}.set", _form("rObj", fid) + f"let rOther := {get}\nrPlayer.AuxVarSetRef \"*nvfD2\" rOther\n"
+                + _form("rOther", new_fid) + setter.format(v="rOther") + "\n" + rd, True),
+            _d1(f"{k}.restore", _form("rObj", fid) + 'let rOther := rPlayer.AuxVarGetRef "*nvfD2"\n'
+                + setter.format(v="rOther") + '\nrPlayer.AuxVarErase "*nvfD2"\n' + rd, True)]
+
+
+_PI = NF["pistol10"]
+_LE = NF["leather"]
+DATA1_PROBES = (
+    _num3("weight.pistol", _PI, "GetWeight rObj", 9.5, "SetWeight {v} rObj", 100)
+    + _num3("weaponskill.pistol", _PI, "GetWeaponSkill rObj", 38, "SetWeaponSkill {v} rObj")
+    + _num3("reqskill.pistol", _PI, "GetWeaponRequiredSkill rObj", 50, "SetWeaponRequiredSkill {v} rObj")
+    + _num3("bipedmask.leather", _LE, "GetEquipmentBipedMask rObj", 0, "SetEquipmentBipedMask {v} rObj")
+    + _num3("slotsmask.leather", _LE, "GetEquipmentSlotsMask rObj", 0, "SetEquipmentSlotsMask {v} rObj")
+    + [_d1("slotsmask.set.return", _form("rObj", _LE) + "let fRes := GetEquipmentSlotsMask rObj\n"
+           "SetFunctionValue (SetEquipmentSlotsMask fRes rObj)")]
+    + _num3("attackdamage.pistol", _PI, "GetAttackDamage rObj", 30, "SetAttackDamage {v} rObj")
+    + _num3("armorrating.leather", _LE, "GetArmorArmorRating rObj", 77, "SetArmorArmorRating {v} rObj")
+    + _num3("sightfov.pistol", _PI, "GetWeaponSightFOV rObj", 40, "SetWeaponSightFOV {v} rObj", 100)
+    + _num3("health.pistol", _PI, "GetHealth rObj", 300, "SetObjectHealth {v} rObj")
+    + _form3("bipedlist.leather", _LE, "GetBipedModelList rObj", NF["list127"], "SetBipedModelList rObj {v}")
+    + _form3("repairlist.pistol", _PI, "GetRepairList rObj", NF["list127"], "SetRepairList {v} rObj")
+    + _form3("ammo.pistol", _PI, "GetWeaponAmmo rObj", FX["ammo556"], "SetWeaponAmmo {v} rObj")
+    + [_d1(f"fpmodel.pistol.{i}", _form("rObj", _PI) + f"let rOther := GetWeapon1stPersonModel rObj {i}\n"
+           "SetFunctionValue (GetFormIDString rOther)", True) for i in range(4)]
+    + [_d1("fpmodel.pistol.set0", _form("rObj", _PI) + _form("rDoc", NF["hunting"])
+           + 'let rOther := GetWeapon1stPersonModel rObj 0\nrPlayer.AuxVarSetRef "*nvfD2" rOther\n'
+           "let rOther := GetWeapon1stPersonModel rDoc 0\nSetWeapon1stPersonModel rObj 0 rOther\n"
+           "let rOther := GetWeapon1stPersonModel rObj 0\nSetFunctionValue (GetFormIDString rOther)", True),
+       _d1("fpmodel.pistol.set0.restore", _form("rObj", _PI) + 'let rOther := rPlayer.AuxVarGetRef "*nvfD2"\n'
+           'SetWeapon1stPersonModel rObj 0 rOther\nrPlayer.AuxVarErase "*nvfD2"\n'
+           "let rOther := GetWeapon1stPersonModel rObj 0\nSetFunctionValue (GetFormIDString rOther)", True)]
+    + [_d1(f"basefl.{k}.{i}", _form("rObj", fid) + f"SetFunctionValue (ActorHasBaseFlag {i} rObj)")
+       for k, fid in (("docbase", NF["doc"]), ("playerbase", NF["playerbase"])) for i in range(16)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3820,11 +3886,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "engine1": ENGINE1_PROBES,
         "engine2": ENGINE2_PROBES,
         "engine3": ENGINE3_PROBES,
-        "glta-order": GLTA_ORDER_PROBES}
+        "glta-order": GLTA_ORDER_PROBES,
+        "data1": DATA1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1"}
 
 
 def script(body):
