@@ -183,3 +183,19 @@ Picking the next chain: take the first quests of the `untouched` list (the main 
 factions, then add-ons); `--detail` gives per quest the stages reached and its completing
 stages, per script the blocks run, per actor the lines said, so a quest half walked shows
 which stages are left. Totals at the end of the second batch: §1's table.
+
+## 6. Save and load mid-chain
+
+The runner's `save_load` op writes the game's snapshot (`Game::snapshot`, the state the
+engine's saves hold) into a save file's bytes through `fnv_save`, reads it back and
+restores the game from it (`Game::restore`, `World::restore`) in the same frame, with the
+random numbers where they were. `fnvtool script roundtrip <Data> <masters> --schema
+schemas/fnv --actions crates/fnv-game/walkthrough` runs every chain twice, as it is and
+with a `save_load` before its middle action, and compares the quests at the end (running,
+completed, stages done, variables) and every observation; smoke `walkthrough-roundtrip`
+expects no chain to differ.
+
+Result [observed, 2026-10-27, 19 chains]: every chain ends the same after a save and load
+at its midpoint (saves of 70-370 KB). The first run differed in two of intro's stopwatch
+readings by one frame: the op let a frame pass, which a save and load does not; it now
+takes none.

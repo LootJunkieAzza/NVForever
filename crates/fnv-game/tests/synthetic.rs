@@ -1108,6 +1108,41 @@ fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
     assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 9.0);
 }
 
+/// `save_load`: the game is written into a save's bytes and restored from them; what a
+/// save keeps (globals, reference variables, an item given) is there after it, the
+/// frame does not move, and the trace goes on in one piece.
+#[test]
+fn the_runner_saves_and_loads_in_place() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "set_global", "name": "TestGlobal", "value": 4},
+            {"op": "set_ref_var", "ref": "TestActivatorREF", "var": "nUsed", "value": 3},
+            {"op": "add_item", "to": "TestNpcREF", "item": "TestWeapon", "count": 1},
+            {"op": "save_load", "label": "saved"},
+            {"op": "get_global", "name": "TestGlobal", "label": "global"},
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["var.nUsed"], "label": "ref"},
+            {"op": "fire", "weapon": "TestWeapon", "actor": "TestNpcREF"},
+            {"op": "get_global", "name": "TestGlobal", "label": "fired"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{}", out["steps"]);
+    let obs = |l: &str| out["observations"].as_array().unwrap().iter().find(|o| o["label"] == l).unwrap().clone();
+    assert!(obs("saved")["bytes"].as_u64().unwrap() > 0);
+    assert_eq!(obs("global")["value"], 4.0);
+    assert_eq!(obs("ref")["var.nUsed"], 3.0);
+    // The weapon given before the save is still carried: its OnFire runs.
+    assert_eq!(obs("fired")["value"], 9.0);
+    // No frame passes for the save: the step after it starts in the same frame.
+    assert_eq!(steps[3]["frame"], steps[4]["frame"]);
+    // The trace kept the events from before the save.
+    assert!(out["events"].as_array().unwrap().iter().any(|e| e["kind"] == "global_set"), "{}", out["events"]);
+}
+
 #[test]
 fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag() {
     let f = fixture();

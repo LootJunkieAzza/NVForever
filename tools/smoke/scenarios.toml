@@ -10633,3 +10633,15 @@ expect = [
   { json = "observations.?label=final: Departing Paradise done (door to the Mojave).stage", equals = 100, label = "final: Departing Paradise done (door to the Mojave): stage = 100" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the hh add-on report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "walkthrough-roundtrip"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md §6: every walkthrough chain run twice (fnvtool script roundtrip), once as it is and once with a save and load through fnv-save before its middle action; the quests at the end and the observations must be the same"
+areas = ["quests", "scripts", "save"]
+paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-save/", "crates/fnv-sim/src/world.rs", "crates/fnvtool/src/script_cmd.rs"]
+commands = [["script", "roundtrip", "{data}", "{masters}", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough"]]
+expect = [
+  { json = "differing", equals = 0, label = "no chain ends differently after a save and load at its midpoint" },
+]
+manual = "a chain that differs lists its first differences (final.quests.<quest>... / observations[i]...): the state that did not survive the save is what the snapshot (Game::snapshot) leaves out"

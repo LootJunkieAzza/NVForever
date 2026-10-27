@@ -1150,6 +1150,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `fire {weapon, actor?}` | the player (or an actor) firing a weapon it carries: the weapon's OnFire blocks (`Game::weapon_fired`, as nvf-play's combat calls it); refused when the weapon is not carried or has no OnFire block (Honest Hearts' Pine Creek detonator ends Flight from Zion this way) |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
 | `press_button {button}` | the player picking a message box button: the button is set, one frame runs with the box open (MenuMode 1001 blocks read it, as in the play loop), then the box closes |
+| `save_load {label?}` | the player saving and loading that save at once: the game's snapshot written into a save's bytes (`fnv_save`) and restored from them in the same frame, the random numbers where they were; observation `bytes` |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
 | `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
 | `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |

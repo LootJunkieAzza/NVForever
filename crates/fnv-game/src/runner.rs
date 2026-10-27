@@ -402,6 +402,34 @@ pub enum Action {
         #[serde(default)]
         label: Option<String>,
     },
+    /// The player saving and loading that save at once: the game's snapshot written into
+    /// a save file's bytes (`fnv_save`, as the engine's saves), read back and restored
+    /// in place of the running game (docs/design/save-load.md). The random numbers keep
+    /// their position, so a chain goes on as it would have; the trace, the coverage and
+    /// the session's event handlers carry over. Observation `bytes` (the save's size).
+    SaveLoad {
+        #[serde(default)]
+        label: Option<String>,
+    },
+}
+
+/// [`Action::SaveLoad`]: the save's size in bytes.
+fn save_and_load(g: &mut Game) -> Result<usize, String> {
+    let snap = g.snapshot();
+    let body = serde_json::to_vec(&snap).map_err(|e| e.to_string())?;
+    let bytes = fnv_save::encode(&fnv_save::SaveHeader::new(fnv_save::SaveKind::Quick), &[], &body);
+    let file = fnv_save::decode(std::path::Path::new("runner save"), &bytes, true).map_err(|e| e.to_string())?;
+    let back: crate::game::GameSnapshot = serde_json::from_slice(&file.body).map_err(|e| e.to_string())?;
+    let world = World::restore(g.world.forms, g.world.placed, &back.sim)?;
+    let mut n = Game::restore(g.data, world, g.cfg, &back)?;
+    n.put_session(g.take_session());
+    n.voice = g.voice.take();
+    n.coverage = g.coverage.take();
+    n.events = std::mem::take(&mut g.events);
+    n.unhandled = std::mem::take(&mut g.unhandled);
+    n.stubbed = std::mem::take(&mut g.stubbed);
+    *g = n;
+    Ok(bytes.len())
 }
 
 /// Frames that pass after an action (layer5-captures.md §4.1).
@@ -423,6 +451,8 @@ fn frames_after(a: &Action) -> u64 {
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
         Action::SampleRefVar { .. } | Action::SampleItems { .. } | Action::MenuGap { .. } => 0,
         Action::Note { .. } => 0,
+        // Saving and loading take no game time: the chain goes on in the same frame.
+        Action::SaveLoad { .. } => 0,
         // As the probes' game jobs: a query has no pause after it, an action 10 frames.
         Action::Call { label: Some(_), .. } | Action::CallUntil { .. } | Action::Query { .. } => 0,
         Action::Call { label: None, .. } => 10,
@@ -1717,6 +1747,11 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("submenu".into(), json!(c.submenu.map(|f| f.to_string())));
             obs.insert("note".into(), json!(c.note.map(|f| f.to_string())));
             obs.insert("back".into(), json!(c.back));
+            lab = l.clone();
+        }
+        Action::SaveLoad { label: l } => {
+            let bytes = save_and_load(g)?;
+            obs.insert("bytes".into(), json!(bytes));
             lab = l.clone();
         }
         Action::Consume { item, actor, label: l } => {
