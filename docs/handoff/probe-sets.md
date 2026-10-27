@@ -63,6 +63,7 @@ nothing is marked or loosened for them.
 | gaps11 | 47 | L5.ext.gaps11 | not run yet | SetPosEx translate frame (Doc, the player at heading 90 and 0); item-ref health, mod flags, ammo rounds |
 | plugins1 | 71 | L5.ext.plugins1 | not run yet | the most used unprobed LU, JohnnyGuitar and ShowOff functions (idles, recipes, ingestible and race flags, easing, DLL checks) |
 | plugins2 | 67 | L5.ext.plugins2 | not run yet | ingestible flags on food, drink and poison; ApplyEasing's other curves; IsDLLLoaded names; map markers, pickup sounds, recipe subcategory, RemoveFormFromFormList |
+| plugins3 | 21 | L5.ext.plugins3 | not run yet | GetName on 521 references near the player (none reads its own name); JohnnyGuitar perk events; SetGlobalValue; GetAvailableRadios |
 
 ## Coverage
 
