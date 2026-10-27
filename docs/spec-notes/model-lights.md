@@ -101,3 +101,28 @@ whenever `IsAnimPlaying` is 0, and on load. Nothing plays `Forward` or `Backward
 - **Not built**: lights spawned disabled (`spawn_dormant`, the Vault 34 arcs while their
   enable parent is off) keep a still colour, since their model is drawn later by
   `script_draw.rs`; spot lights a model drives keep their place (none in the base game).
+
+## 4. Lights on an `AttachLight` node without a sequence
+
+Placed LIGH references whose base has a model [observed 2026-10-27, `fnvtool world refs`
+over `FalloutNV.esm`, interiors and WastelandNV]: six models. Five are the sequence-driven
+ones of §1 (their lights move under their node once the rig is drawn, so the rule below
+only sets where they start); the sixth is `clutter\barrel02firelight.nif` (226
+references, every `Barrel02Fire*`, `Barrel03Fire1024`, `FireBarrelSwitching` and
+`OVSewerBarrel02Fire*` light).
+
+The fire barrel's model holds no light block, only an `NiNode` named `AttachLight` at
+(−0.4, 0.8, 102.1), at the height of its flames, beside `AddOnNode14` (the
+`MPSFireSmall01` flames, 72.5 up) [observed: `fnvtool nif decode`]. The record radius is
+small (`Barrel02Fire128`: 128 units, colour (255, 159, 64), flicker).
+
+**Rule** [hypothesis: the node's name and height; the GECK wiki export has no page on it]:
+the reference's light sits on the model's `AttachLight` node (name `AttachLight` or
+`AttachLight<n>`, any case), placed through the reference's own transform (scale
+included), else at the reference's origin (`nvf_assets::model::attach_light`, nvforever
+`lights.rs` `spawn_light`). Before the rule the barrel's light sat at the barrel's foot, so
+a 128-unit light lit only the floor around it (owner report 2026-10-27: the Abandoned
+Shack's barrel, `GSAbandonedShack`, gives off very little light).
+
+**Open**: how far and how bright the original's barrel light reaches; two captures of the
+shack failed to take their screenshots (the game window was behind others).

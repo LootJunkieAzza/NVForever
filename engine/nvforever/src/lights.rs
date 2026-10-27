@@ -490,7 +490,8 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 
 /// A LIGH reference's light: a point light (spot light for spot types) with the light's
 /// colour as display values [documented: LIGH DATA], brightness fade × `scale`, and as range the base
-/// radius plus the reference's XRDS (world.md §8 "Placed light radius").
+/// radius plus the reference's XRDS (world.md §8 "Placed light radius"), at the
+/// reference (`rt`, its transform in the cell) or on its model's `AttachLight` node.
 /// Negative and off-by-default lights are not drawn. A reference with an emittance
 /// source (XEMI) has its colour scaled by it (emittance.rs). A black record colour takes
 /// the colour of the light inside the LIGH's model (`model`, as stored under `meshes\`)
@@ -505,7 +506,7 @@ pub fn spawn_light(
     ligh: u32,
     model: Option<&str>,
     models: &mut nvf_assets::model::ModelCtx,
-    at: Vec3,
+    rt: bevy::math::Affine3A,
     scale: f32,
     placed: &Placement,
     emittance: &mut crate::emittance::EmittanceState,
@@ -516,7 +517,12 @@ pub fn spawn_light(
         return false;
     }
     let from_model = (l.color == [0; 3]).then(|| model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")))).flatten();
-    let model_driven = model.and_then(|m| models.model(&format!(r"meshes\{m}"))).and_then(|pm| pm.light.clone());
+    let prepared = model.and_then(|m| models.model(&format!(r"meshes\{m}")));
+    let model_driven = prepared.as_ref().and_then(|pm| pm.light.clone());
+    // The light sits on the model's `AttachLight` node when it has one (a fire barrel's
+    // flames, 102 units over its foot), else at the reference [hypothesis,
+    // model-lights.md §4].
+    let at: Vec3 = prepared.as_ref().and_then(|pm| nvf_assets::model::attach_light(&pm.nodes)).map_or(rt.translation, |a| (rt * a).translation).into();
     let shown = match from_model {
         // The NIF holds the colour as stored (display values) [hypothesis, as LIGH DATA].
         Some(c) => c.map(|v| v.clamp(0.0, 1.0)),
