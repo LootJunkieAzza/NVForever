@@ -403,7 +403,10 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         // `folder [filter]`: the file names (no path) of a folder under the game's
         // folder and NVForever's layer [observed: "NVSE\Plugins" "*.dll" gives bare
         // names]; a missing folder gives 0.
-        "getfilesinfolder" => {
+        // GetFoldersInFolder the same for folders [observed: gaps3, "NVSE" gives
+        // "Plugins"; a missing folder an empty array].
+        "getfilesinfolder" | "getfoldersinfolder" => {
+            let folders = name == "getfoldersinfolder";
             let p = text(args, 0).unwrap_or_default().replace('/', "\\");
             let filter = text(args, 1).unwrap_or_else(|| "*".into()).to_ascii_lowercase();
             let mut names: Vec<String> = Vec::new();
@@ -414,7 +417,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                     if let Ok(rd) = std::fs::read_dir(base.join(&p)) {
                         any = true;
                         for e in rd.flatten() {
-                            if e.path().is_file() {
+                            if e.path().is_dir() == folders {
                                 let n = e.file_name().to_string_lossy().to_string();
                                 if glob(&filter, &n.to_ascii_lowercase()) && !names.iter().any(|x| x.eq_ignore_ascii_case(&n)) {
                                     names.push(n);
@@ -424,7 +427,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                     }
                 }
             }
-            if !any {
+            if !any && !folders {
                 return Some(Ok(zero));
             }
             names.sort_by_key(|n| n.to_ascii_lowercase());

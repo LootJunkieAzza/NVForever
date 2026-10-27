@@ -1013,6 +1013,8 @@ pub struct Game<'a> {
     /// The N7–N9 functions' session state and what the engine tells them
     /// (`crate::nvse_jip2`).
     pub jip2: crate::nvse_jip2::Jip2State,
+    /// The most called functions no earlier set built (`crate::nvse_gaps`).
+    pub gaps: crate::nvse_gaps::GapsState,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
@@ -1650,6 +1652,7 @@ impl<'a> Game<'a> {
             ini: Default::default(),
             package_overrides: std::collections::HashMap::new(),
             jip2: Default::default(),
+            gaps: Default::default(),
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
@@ -3726,7 +3729,8 @@ impl<'a> Game<'a> {
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         // The effects that took, kept here: one of duration 0 has finished by the hit check
-        // and is a hit all the same [hypothesis].
+        // and is a hit all the same [observed: gaps2, a used stimpak raises OnMagicEffectHit
+        // on the player with its first effect].
         let mut took_ids: Vec<u32> = Vec::new();
         for (index, e) in items.iter().enumerate() {
             if mods.only.is_some_and(|o| o != index) {

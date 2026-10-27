@@ -1404,14 +1404,14 @@ struct Read {
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 27] = [
+pub const FIELD_SIGS: [[u8; 4]; 30] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
-    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD",
+    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL",
 ];
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
 /// getters read.
-const ACTOR_SUBS: [[u8; 4]; 11] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK"];
+const ACTOR_SUBS: [[u8; 4]; 12] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
@@ -1497,6 +1497,12 @@ impl GameData {
             }
         }
         out
+    }
+
+    /// Every `sub` of a record in [`GameData::record_fields`], in record order (a
+    /// repeated subrecord: AMMO RCIL, WEAP SNAM).
+    pub fn record_all(&self, form: FormId, sub: &str) -> Vec<&Json> {
+        self.record_fields.get(&form).into_iter().flatten().filter(|(s, _)| s == sub.as_bytes()).map(|(_, v)| v).collect()
     }
 
     /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then

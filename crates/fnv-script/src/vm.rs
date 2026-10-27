@@ -2558,8 +2558,13 @@ impl Vm<'_, '_> {
                     "log" => x.ln(),
                     "log10" => x.log10(),
                     "exp" => x.exp(),
-                    "floor" => x.floor(),
-                    "ceil" => x.ceil(),
+                    // A whole number as a 32-bit integer: out of its range (or not a
+                    // number) it reads -2147483648 [observed: gaps2, Floor of
+                    // GetDistance2D to a reference in another cell].
+                    "floor" | "ceil" => {
+                        let r = if n == "floor" { x.floor() } else { x.ceil() };
+                        if r.is_nan() || r < f64::from(i32::MIN) || r > f64::from(i32::MAX) { f64::from(i32::MIN) } else { r }
+                    }
                     _ => x.sqrt(),
                 })
             }
