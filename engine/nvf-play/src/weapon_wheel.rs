@@ -455,7 +455,12 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
         Used::UsedUp(item) => {
             used.write(ItemUsed { item: item.0, limb: None });
         }
-        Used::Equipped if slot.is_some_and(|s| sim.forms.item(FormId(s.item)).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon)) => control.weapon_out = true,
+        // A weapon taken from the wheel is drawn up, not lowered by hand as the last one
+        // was (`PlayerControl::lowered`).
+        Used::Equipped if slot.is_some_and(|s| sim.forms.item(FormId(s.item)).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon)) => {
+            control.weapon_out = true;
+            control.lowered = false;
+        }
         _ => {}
     }
     let line = outcome.describe(&name);

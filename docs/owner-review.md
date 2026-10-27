@@ -169,6 +169,11 @@ the spec it links to.
     page drawn from the game's files. If you rule otherwise, the whole pause menu is
     drawn from the game's (or a mod's) start_menu.xml and our settings become one entry
     in it. ([ui-tile-tree §7](design/ui-tile-tree.md))
+35. **Lowered weapon (2026-10-27).** Near a wall or a friendly actor the first-person
+    weapon lowers, and R twice lowers it by hand. You approved the look and ruled that
+    firing stays allowed: the trigger raises it and shoots as normal. Left: a single R
+    now reloads 0.25 s later so a second tap can claim it. Keep that window, or change
+    it? ([player-body §1.4b](design/player-body.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

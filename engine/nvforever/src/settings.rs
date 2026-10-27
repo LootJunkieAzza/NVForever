@@ -159,6 +159,18 @@ pub fn register(app: &mut App) {
         add_setting(
             app,
             Setting {
+                key: "weapon-lower",
+                group: GROUP_PICTURE,
+                label: "Lower weapon near walls",
+                note: "On: in first person a drawn weapon is lowered when a wall or a friendly person is right in front of you, and comes straight back up when you aim or fire. Off: it stays up and can poke through them, as in the original. Tapping Ready Item (R) twice lowers or raises it by hand either way. (--no-weapon-lower)",
+                get: |w| w.resource::<PlayerBody>().weapon_lower,
+                set: |w, on| w.resource_mut::<PlayerBody>().weapon_lower = on,
+                slider: None,
+            },
+        );
+        add_setting(
+            app,
+            Setting {
                 key: "true-iron-sights",
                 group: GROUP_MENUS,
                 label: "True iron sights",
