@@ -911,6 +911,10 @@ scales 10–70].
   all five scales) [observed; the tier names are documented on the GECK wiki]. The grid
   is the one this note guessed in round 3; only the boundaries changed (they were
   25/50/75 %).
+- Axes other than 0 and 1 (FalloutNV.esm calls SetReputation with 2, AddReputation with 2
+  and 3, and conditions GetReputation with 2 and GetReputationThreshold with 3) change
+  nothing and read 0, with no call error; GetReputationThreshold reads 0 for axes other
+  than 0-2 [hypothesis: the wiki documents only these axes; observer check 30].
 Trace event `reputation_changed` (SetReputation included).
 
 **Effect scripts.** `Game::apply_magic_item(target, item, caster, permanent)`: each
@@ -1123,23 +1127,35 @@ disabled flags; set before action 0 with no observation), the operations, the fr
 after each, and observations keyed by `label`. A `given` stage that the stages done do
 not explain is kept as the quest's current stage.
 
+An input may name the load order it is written for (`plugins`, default the first plugin
+given): `script run` uses its command line's plugins and ignores it, `script cover` runs
+the chain over it. `script run --coverage <file>` also writes what the run reached
+(`fnv.script.coverage-log/1`, `crates/fnv-game/src/coverage.rs`): the quest stages set,
+the script blocks run (unit and block), the dialogue lines started and the result scripts
+run, FormIDs named by their plugin (`FalloutNV.esm:10E908`) and unit keys without their
+plugin, so runs over different load orders merge.
+
 Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 `fnv-sim`'s actions stand in for the player's hands):
 
 | op | stands in for |
 |---|---|
 | `advance_seconds` | time passing at the fixed frame step |
-| `player_activate {target, actor?}` | activation by hand (OnActivate instead of the default) |
+| `player_activate {target, actor?, label?}` | activation by hand (OnActivate instead of the default); when the player's activation ends in the default action of talking (an actor, or a talking activator whose OnActivate calls `Activate`), the conversation opens as in the play loop; observation `info` |
 | `say_info {info, speaker?, force?}` | a dialogue line being said: its begin and end result scripts run on the speaker; refused when its conditions fail (with the conditions and their values in the error) unless `force` |
 | `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
 | `say_to_done {actor, topic?}` | a SayTo or Say line finishing (SayToDone blocks) |
+| `patrol_point {actor, point}` | an actor on a patrol reaching a point: the point's patrol script runs on the actor and its topic is said (`Game::patrol_point_reached`, as fnv-ai's carry calls it); refused when the point has neither [hypothesis: the order script, then topic, is fnv-ai's] |
+| `fire {weapon, actor?}` | the player (or an actor) firing a weapon it carries: the weapon's OnFire blocks (`Game::weapon_fired`, as nvf-play's combat calls it); refused when the weapon is not carried or has no OnFire block (Honest Hearts' Pine Creek detonator ends Flight from Zion this way) |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
 | `press_button {button}` | the player picking a message box button: the button is set, one frame runs with the box open (MenuMode 1001 blocks read it, as in the play loop), then the box closes |
+| `save_load {label?}` | the player saving and loading that save at once: the game's snapshot written into a save's bytes (`fnv_save`) and restored from them in the same frame, the random numbers where they were; observation `bytes` |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
 | `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
 | `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |
 | `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
+| `hit {target, attacker?, weapon?, label?}` | a shot or blow reaching a reference that is not an actor (`Game::hit_object`: its OnHit and OnHitWith blocks; attacker the player by default); observation `ran` |
 | `consume {item, actor?, label?}` | the player (or an actor) using an aid item: `Game::consume`, effect scripts start (§7.6); observation `effects` |
 | `note {text}` | a comment; no effect |
 | `talk {actor, topic?, label?}` | a conversation starting (`Game::start_dialogue`): the player activating the actor, or the actor's dialogue package; observation `info` (docs/spec-notes/dialogue.md §8) |

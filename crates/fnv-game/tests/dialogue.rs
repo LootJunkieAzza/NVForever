@@ -1467,6 +1467,26 @@ fn the_runner_talks_and_prints_a_dialogue_trace() {
     assert!(fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).is_err());
 }
 
+/// The runner's `player_activate` of an actor ends in the default action of talking
+/// (`Outcome::Talk`), and the conversation opens with the greeting, as the play loop's
+/// activation does (nvf-play `talk_after`).
+#[test]
+fn the_runners_player_activation_of_an_actor_opens_the_conversation() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.dialogue.actions/1",
+        "actions": [
+            {"op": "player_activate", "target": "TalkerREF", "label": "activated"},
+            {"op": "wait_talk", "label": "list"}
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run_dialogue(&f.data, &f.forms, &f.refs, &input, false).unwrap();
+    let obs = |label: &str| t["observations"].as_array().unwrap().iter().find(|o| o["label"] == label).cloned().unwrap();
+    assert_eq!(obs("activated")["info"], FormId(A_FIRST).to_string());
+    assert_eq!((obs("list")["state"].as_str(), obs("list")["choices"].as_u64()), (Some("choosing"), Some(2)));
+}
+
 /// "If this box is unchecked, conversations will never use the same topic twice (in the
 /// same conversation)" [documented: GECK wiki Quest Data Tab]: ping-pong in a quest
 /// without Allow Repeated Conversation Topics stops after the pong; in one with it, it
