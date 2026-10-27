@@ -405,7 +405,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   10 over the first line so its letters are not cut [design]. Our lines break exactly as
   the screenshot's [observed]. An image note shows its picture (`XNAM`) 360 square at the
   right [documented]; sound and voice notes (holotapes) play when used (a click or
-  Enter; again to stop) and show the Radio tab's wave panel, the trace moving while playing
+  Enter; again to pause, again to go on) and show the audio meter (time remaining and a
+  marker moving along the tick meter)
   ([holotapes](holotapes.md) §3). "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
 - **Radio**: the stations the Pip-Boy receives where the player is, by name (`crate::radio`,
   radio.md); the one playing has its square filled; a click or Enter tunes to a station,

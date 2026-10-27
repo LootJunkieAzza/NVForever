@@ -8,8 +8,11 @@
 //!   selected quest's objectives at the right, each behind a square, filled when done.
 //!   A click or Enter makes a quest the active one.
 //! - **Misc**: the player's notes (AddNote) by name and the selected note's text, which
-//!   the wheel scrolls; an image note's picture. "Show Active Quest Notes" keeps the
-//!   notes of the active quest.
+//!   the wheel scrolls; an image note's picture; an audio note's time remaining and
+//!   meter, its marker moving while that note plays (at the right end, nothing left,
+//!   for a note not playing). Using an audio note plays it from its start, using the
+//!   one playing pauses it and goes on (`crate::holotape`). "Show Active Quest Notes"
+//!   keeps the notes of the active quest.
 //! - **Radio**: the stations the Pip-Boy receives here (`crate::radio`'s list), the
 //!   playing one's square filled; a click or Enter tunes to a station or, on the playing
 //!   one, turns the radio off; the waveform panel at the right (a trace that runs to the
@@ -209,8 +212,13 @@ const WAVE_SEGMENTS: usize = 128;
 /// these shares of the loudness [design: the capture's bursts and lulls].
 const WAVE_KNOT: u64 = 10;
 const WAVE_SWING: (f32, f32) = (0.3, 1.0);
-/// A holotape's trace, at this share of full height (its sound is not measured) [design].
-const HOLOTAPE_LOUDNESS: f32 = 0.6;
+/// An audio note's meter (`MM_DataAudioInfo` of map_menu.xml) [documented]: the time
+/// remaining right-aligned at the top, under it the tick meter (32 high, its top 2 cut),
+/// and the marker (8 wide, 32 high, a quarter of its height below the meter's top) at
+/// the share played of the meter's width less its own.
+const AUDIO_METER: f32 = 32.0;
+const AUDIO_METER_CROP: f32 = 2.0;
+const AUDIO_MARKER: f32 = 8.0;
 /// How often the page looks at the quests and the markers while the game runs, seconds.
 const POLL: f32 = 0.25;
 const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
@@ -344,8 +352,9 @@ enum Right {
     Objectives(Vec<Row>),
     Text { text: String, first: f32 },
     Image(String),
-    /// A Sound or Voice note: the wave panel, moving while it plays.
-    Audio { playing: bool },
+    /// A Sound or Voice note: tenths of a second still to play and the share played
+    /// (thousandths); the note not playing: none left, the marker at the right end.
+    Audio { left: u32, played: u16 },
     Wave { on: bool },
 }
 
@@ -865,8 +874,8 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
             }
         }
         NOTES if l.challenges.is_none() => {
-            // A Sound or Voice note plays, or stops when it is the one playing
-            // (`crate::holotape`, holotapes.md §3).
+            // A Sound or Voice note plays from its start, or pauses and goes on when it
+            // is the one playing (`crate::holotape`, holotapes.md §3).
             let Some(n) = l.notes.get(i).filter(|n| n.kind == 0 || n.kind == 3) else { return };
             info!("pipboy data: note {} ({}) picked", n.name, FormId(n.form));
             if let Some(h) = game.holotape.as_mut() {
@@ -1003,7 +1012,10 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let right = match l.notes.get(st.sel[NOTES]) {
                 Some(n) if n.kind == 1 => Right::Text { text: n.text.clone().unwrap_or_default(), first: st.text_first },
                 Some(n) if n.kind == 2 => n.image.clone().map_or(Right::None, Right::Image),
-                Some(n) => Right::Audio { playing: game.holotape.as_ref().is_some_and(|h| h.playing == Some(FormId(n.form))) },
+                Some(n) => match game.holotape.as_ref().and_then(|h| h.progress()).filter(|p| p.0 == FormId(n.form)) {
+                    Some((_, left, share)) => Right::Audio { left: (left * 10.0) as u32, played: (share * 1000.0) as u16 },
+                    None => Right::Audio { left: 0, played: 1000 },
+                },
                 None => Right::None,
             };
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
@@ -1454,9 +1466,8 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
                 Right::Image(path) => {
                     c.image(p, path, at(data.x + DATA_W - IMAGE, data.y + TEXT_AT.y, IMAGE, IMAGE), amber(TEXT));
                 }
-                // The Radio tab's wave panel [design: holotapes.md §3].
-                Right::Audio { playing } => wave(p, c, playing.then_some(WaveSource::Holotape)),
-                Right::Wave { on } => wave(p, c, on.then_some(WaveSource::Radio)),
+                Right::Audio { left, played } => audio_meter(p, c, data + Vec2::new(0.0, TEXT_AT.y), *left, *played),
+                Right::Wave { on } => wave(p, c, *on),
             }
         }
     }
@@ -1630,21 +1641,36 @@ fn note_text(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, text: &str
     (total - TEXT_H).max(0.0)
 }
 
+/// An audio note's time remaining and meter, the box's top left at `o`.
+fn audio_meter(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Vec2, left: u32, played: u16) {
+    c.text(p, 1, &remaining(left), o.x + DATA_W, o.y, Align::Right, amber(TEXT));
+    let top = o.y + c.line_height(1);
+    c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(o.x, top, DATA_W, AUDIO_METER - AUDIO_METER_CROP), amber(LINE));
+    let x = (DATA_W - AUDIO_MARKER) * played as f32 / 1000.0;
+    c.line(p, o.x + x, top + AUDIO_METER / 4.0, AUDIO_MARKER, AUDIO_METER, amber(TEXT));
+}
+
+/// The time remaining as the original writes it: minutes, seconds and tenths
+/// [observed: "00:30:9 remaining" at the start of a 30.9 s note].
+fn remaining(tenths: u32) -> String {
+    format!("{:02}:{:02}:{} remaining", tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
 /// The radio's waveform panel; the trace's pieces are placed by [`wave_moves`].
-fn wave(p: &mut ChildSpawnerCommands, c: &mut Ctx, on: Option<WaveSource>) {
+fn wave(p: &mut ChildSpawnerCommands, c: &mut Ctx, on: bool) {
     let line = amber(LINE);
     let o = MAIN.min + WAVE.min;
     let (w, h) = (WAVE.width(), WAVE.height());
     c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(o.x, o.y + h - TICKS + 2.0, w, TICKS), line);
     c.image(p, "Interface\\Shared\\Meter\\tickmark_vert.dds", at(o.x + w - TICKS + 2.0, o.y, TICKS, h), line);
     let (left, mid, len) = wave_line();
-    let Some(source) = on else {
+    if !on {
         c.line(p, left, mid, len, THICK, line);
         return;
-    };
+    }
     let piece = len / WAVE_SEGMENTS as f32;
     for i in 0..WAVE_SEGMENTS {
-        p.spawn((at(left + i as f32 * piece, mid, piece, THICK), BackgroundColor(line), UiTransform::default(), WaveSegment { i, source }, Pickable::IGNORE));
+        p.spawn((at(left + i as f32 * piece, mid, piece, THICK), BackgroundColor(line), UiTransform::default(), WaveSegment(i), Pickable::IGNORE));
     }
 }
 
@@ -1654,19 +1680,9 @@ fn wave_line() -> (f32, f32, f32) {
     (o.x, o.y + (WAVE.height() - THICK) / 2.0 - 8.0, WAVE.width() - 5.0)
 }
 
-/// What a waveform panel's trace follows.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum WaveSource {
-    Radio,
-    Holotape,
-}
-
 /// One straight piece of the waveform panel's trace.
 #[derive(Component)]
-pub struct WaveSegment {
-    i: usize,
-    source: WaveSource,
-}
+pub struct WaveSegment(usize);
 
 /// The waveform panel's trace [observed: a capture of the original's Radio tab]: waves
 /// standing nearly still across the panel under an envelope that runs to the left, its
@@ -1730,16 +1746,14 @@ fn knotted(n: u64, stream: u64) -> f32 {
 /// Move the waveform panel's trace while it is shown: the Pip-Boy radio's loudness
 /// (`crate::radio`) or a holotape's steady one.
 pub fn wave_moves(time: Res<Time<Real>>, radio: Option<Res<Radio>>, mut scope: ResMut<WaveScope>, mut pieces: Query<(&WaveSegment, &mut Node, &mut UiTransform)>) {
-    let Some(source) = pieces.iter().next().map(|(s, ..)| s.source) else { return };
-    let loudness = match source {
-        WaveSource::Radio => radio.map_or(0.0, |r| r.pipboy_loudness()),
-        WaveSource::Holotape => HOLOTAPE_LOUDNESS * HOLOTAPE_LOUDNESS * WAVE_LOUD,
-    };
-    scope.step(time.delta_secs(), loudness);
+    if pieces.is_empty() {
+        return;
+    }
+    scope.step(time.delta_secs(), radio.map_or(0.0, |r| r.pipboy_loudness()));
     let (left, mid, len) = wave_line();
     let point = |i: usize| Vec2::new(i as f32 / WAVE_SEGMENTS as f32 * len, mid - WAVE_AMPLITUDE * scope.height(i));
     for (s, mut node, mut turn) in &mut pieces {
-        let (a, b) = (point(s.i), point(s.i + 1));
+        let (a, b) = (point(s.0), point(s.0 + 1));
         let d = b - a;
         let middle = (a + b) / 2.0;
         let length = d.length() + THICK / 2.0;
@@ -1846,5 +1860,12 @@ mod tests {
         assert_eq!(scope.points[0].0, before[moved]);
         assert_eq!(scope.points[WAVE_SEGMENTS].0, 0.0);
         assert!((0..=WAVE_SEGMENTS).any(|i| scope.height(i).abs() > 0.2));
+    }
+
+    #[test]
+    fn time_remaining_reads_minutes_seconds_tenths() {
+        assert_eq!(remaining(309), "00:30:9 remaining");
+        assert_eq!(remaining(0), "00:00:0 remaining");
+        assert_eq!(remaining(754), "01:15:4 remaining");
     }
 }
