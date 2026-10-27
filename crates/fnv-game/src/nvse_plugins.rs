@@ -420,6 +420,79 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // A map marker's own name (its FULL), which GetName does not read; the setter for
+        // the session [observed: data3, Goodsprings, then NVF Springs].
+        "getmapmarkername" => {
+            let r = subject.unwrap_or(FormId(0));
+            XVal::Str(g.gaps.marker_names.get(&r).cloned().or_else(|| g.data.full_names.get(&r).cloned()).unwrap_or_default())
+        }
+        "setmapmarkername" => {
+            if let Some(r) = subject {
+                g.gaps.marker_names.insert(r, text(args, 0));
+            }
+            zero
+        }
+        // `forms types`: the types in the types array's order, each type's forms last
+        // first, the forms of other types after them in their order [observed: data3,
+        // knife, pistol, Nuka-Cola, stimpak, then the leather armour].
+        "sortformsbytype" => {
+            let ids = |v: Option<&XVal>| match v {
+                Some(XVal::Array(i)) => Some(*i),
+                _ => None,
+            };
+            let (Some(fa), Some(ta)) = (ids(args.first()), ids(args.get(1))) else { return Some(Ok(zero)) };
+            let forms: Vec<FormId> = g.ext.array(fa).map(|a| a.entries.iter().filter_map(|(_, v)| match v { XVal::Ref(r) if *r != 0 => Some(FormId(*r)), _ => None }).collect()).unwrap_or_default();
+            let types: Vec<i32> = g.ext.array(ta).map(|a| a.entries.iter().filter_map(|(_, v)| v.num().ok()).map(|x| x as i32).collect()).unwrap_or_default();
+            let code = |g: &Game, f: FormId| g.data.sig(base(g, f)).and_then(|s| crate::functions::items::form_type_code(&s));
+            let mut out: Vec<XVal> = Vec::new();
+            for t in &types {
+                out.extend(forms.iter().rev().filter(|&&f| code(g, f) == Some(*t)).map(|f| XVal::Ref(f.0)));
+            }
+            out.extend(forms.iter().filter(|&&f| code(g, f).is_none_or(|c| !types.contains(&c))).map(|f| XVal::Ref(f.0)));
+            list(g, out)
+        }
+        // `list source index`: the source's forms (an array's, a list's) go in at the
+        // index in their order; returns 1, 0 past the end [observed: data3 and plugins2].
+        "listaddarray" | "listaddlist" => {
+            let Some(l) = form(args, 0) else { return Some(Ok(zero)) };
+            let add: Vec<FormId> = if name == "listaddarray" {
+                match args.get(1) {
+                    Some(XVal::Array(i)) => g.ext.array(*i).map(|a| a.entries.iter().filter_map(|(_, v)| match v { XVal::Ref(r) if *r != 0 => Some(FormId(*r)), _ => None }).collect()).unwrap_or_default(),
+                    _ => Vec::new(),
+                }
+            } else {
+                form(args, 1).map(|s| crate::functions::list_members(g, s)).unwrap_or_default()
+            };
+            let mut members = crate::functions::list_members(g, l);
+            let at = num(args, 2, 0.0);
+            if at < 0.0 || at as usize > members.len() {
+                return Some(Ok(zero));
+            }
+            for (k, f) in add.into_iter().enumerate() {
+                members.insert(at as usize + k, f);
+            }
+            g.list_edits.insert(l, members);
+            XVal::Num(1.0)
+        }
+        // Neither the stimpak nor the pistol reads unique, and toggling changes nothing
+        // the getter sees [observed: data3].
+        "isitemunique" | "toggleitemunique" => zero,
+        // The XP as given, no perk adjusting it [documented: RewardXPExact; observed:
+        // data3, 10 + 5 reads 15 in the same frame].
+        "rewardxpexact" => {
+            g.player.xp += num(args, 0, 0.0).trunc();
+            zero
+        }
+        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler].
+        "setonactorvaluechangeeventhandler" => {
+            let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
+            let code = args.get(3).and_then(|v| v.num().ok()).map(|c| c as u16);
+            g.gaps.av_handlers.retain(|(h, c)| !(*h == f && *c == code));
+            if num(args, 0, 1.0) != 0.0 {
+                g.gaps.av_handlers.push((f, code));
+            }
+            zero
+        }
         // ---- ShowOff ----
         "applyeasing" => XVal::Num(ease(num(args, 0, 0.0), &text(args, 1), num(args, 2, 0.0) as i64)),
         // DNAM animation type, unarmed 0 [observed: plugins1, the unarmed player 0].
