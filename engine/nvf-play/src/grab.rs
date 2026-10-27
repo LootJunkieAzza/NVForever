@@ -536,7 +536,7 @@ mod tests {
         g.tap = Some(Tap { target: None, candidate: c, held: 0.1 });
         assert_eq!(g.released_tap(false), None);
         assert!(g.tap.is_some());
-        let t = Targeted { form_id: 7, name: "Skull".into(), action: crate::activate::outcome::Action::Name, distance: 60.0, source: crate::activate::pick::Source::Bounds, crime: false };
+        let t = Targeted { form_id: 7, name: "Skull".into(), action: crate::activate::outcome::Action::Name, distance: 60.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
         g.tap = Some(Tap { target: Some(t.clone()), candidate: c, held: 0.1 });
         assert_eq!(g.released_tap(true), None);
         assert!(g.tap.is_some());

@@ -72,6 +72,9 @@ pub struct Targeted {
     /// Someone else owns it: taking from it, or opening its lock, is a crime
     /// (`crate::crime`); the prompt is drawn in the crime colour.
     pub crime: bool,
+    /// A container to open, or a body to search, with nothing in it the menu would list:
+    /// the prompt says "[Empty]" under the name ([`holds_nothing`]).
+    pub empty: bool,
 }
 
 /// A reference to activate as the player would, as soon as play resumes, whatever is
@@ -261,12 +264,22 @@ pub(crate) fn find_target(
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
         let crime = owned_by_other(game, &sim, form_id, &action);
-        Targeted { form_id, name, action, distance, source, crime }
+        let empty = holds_nothing(game, &mut sim, form_id, &action);
+        Targeted { form_id, name, action, distance, source, crime, empty }
     });
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime));
+    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
     if key(&target.0) != key(&new) {
         match &new {
-            Some(t) => info!("target 0x{:08X} {} ({}{}) by {:?} at {:.0}", t.form_id, t.name, t.action.label(), if t.crime { ", owned" } else { "" }, t.source, t.distance),
+            Some(t) => info!(
+                "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",
+                t.form_id,
+                t.name,
+                t.action.label(),
+                if t.crime { ", owned" } else { "" },
+                if t.empty { ", empty" } else { "" },
+                t.source,
+                t.distance
+            ),
             None => info!("target none"),
         }
     }
@@ -355,6 +368,22 @@ fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, a
     judged && g.ownership_in(&sim.world, FormId(form_id)).is_some_and(|o| !g.counts_as_owner(FormId::PLAYER_REF, &o))
 }
 
+/// Whether the target, a container to open or a body (or its ash pile) to search, holds
+/// nothing the container menu would list (`menu::model::listing`: non-playable items are
+/// not) [owner 2026-10-27: such a prompt says "[Empty]"]. A container's contents are
+/// rolled here if it has not been touched yet, as opening it would roll them; a locked
+/// one is not looked into.
+pub(crate) fn holds_nothing(game: Option<&fnv_game::Game>, sim: &mut SimState, form_id: u32, action: &Action) -> bool {
+    let holder = match action {
+        Action::Search => game.and_then(|g| g.ash_pile_source(FormId(form_id))).unwrap_or(FormId(form_id)),
+        Action::Open if sim.base_of(form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Container(_))) => FormId(form_id),
+        _ => return false,
+    };
+    let forms = sim.forms;
+    let Ok(s) = sim.world.get(holder) else { return false };
+    s.inventory.as_ref().is_none_or(|inv| inv.iter().all(|(item, _)| forms.item(item).is_some_and(|i| !i.listed(false))))
+}
+
 /// Test aid: times (seconds on the world aids' clock, `crate::pause::WorldAidClock`) at
 /// which E counts as pressed.
 #[derive(Resource, Default)]
@@ -405,7 +434,7 @@ pub(crate) fn activate(
         MessageWriter<crate::terminal::OpenTerminal>,
         MessageWriter<crate::lockpick::OpenLockpick>,
     ),
-    (mut seat, mut steal): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>),
+    (mut seat, mut steal, mut ui): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>),
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
@@ -417,7 +446,7 @@ pub(crate) fn activate(
     let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
         info!("activate 0x{id:08X} {name}: {why}");
-        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
+        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false })
     });
     // A press held off because the target can be held (`crate::grab`): activated now
     // that E came up before the hold picked it up.
@@ -541,6 +570,12 @@ pub(crate) fn activate(
         }
     };
     info!("activate 0x{:08X} {} ({}): {:?}", t.form_id, t.name, t.action.label(), a);
+    // Opened with the player's key: the lock's opening sound, as a picked lock's
+    // (`crate::lockpick`) [owner 2026-10-27; hypothesis: the original's sound for a key].
+    if a.unlocked_with.is_some() {
+        info!("activate 0x{:08X} {}: unlocked with the key, the unlock sound plays", t.form_id, t.name);
+        ui.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::Lockpick, event: crate::ui_sounds::UiEvent::Unlocked });
+    }
     // Furniture's default activation: the player uses it (`crate::furniture`).
     let furniture = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
     if furniture && matches!(a.outcome, Outcome::Activated) {
