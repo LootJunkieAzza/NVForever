@@ -331,6 +331,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     out.push(ScriptEffect::Notify(Note { text, icon, seconds }));
                 }
             }
+            EventKind::NoteShown { text, icon, seconds } if !text.trim().is_empty() => out.push(ScriptEffect::Notify(Note { text: text.clone(), icon: icon.clone(), seconds: Some(*seconds) })),
             // The first objective of a quest to be shown adds the quest [documented: GECK
             // wiki SetObjectiveDisplayed]; an objective without text or a quest without a
             // name is not shown [hypothesis] (quest-messages.md §5).

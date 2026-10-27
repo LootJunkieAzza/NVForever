@@ -9781,7 +9781,7 @@ name = "nvse-engine-events"
 source = "The extender's events that only the running engine raises (docs/handoff/nvse-next-batch.md §6): OnLoad of a placed unscripted item, OnHit/OnHitWith of a hit, OnMagicEffectHit of a stimpak, OnPackageStart, OnCombatEnd; handlers set from the console as one-line lambdas"
 areas = ["scripts", "actors"]
 paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/objects.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_HIT = "11:RingoRef:1:WeapNV9mmPistol", NVF_PLAY_TEST_CONSOLE = "8:SetEventHandler \"OnLoad\" ({ref rT, ref rB} => PrintC \"nvf ev onload\");SetEventHandler \"OnHit\" ({ref rT, ref rB} => PrintC \"nvf ev onhit\");SetEventHandler \"OnHitWith\" ({ref rT, ref rB} => PrintC \"nvf ev onhitwith\");SetEventHandler \"OnMagicEffectHit\" ({ref rT, ref rB} => PrintC \"nvf ev onmagiceffecthit\");SetEventHandler \"OnPackageStart\" ({ref rT, ref rB} => PrintC \"nvf ev onpackagestart\");SetEventHandler \"OnCombatEnd\" ({ref rT, ref rB} => PrintC \"nvf ev oncombatend\");9:RingoRef.MoveTo player 0 200 0;10:player.PlaceAtMe WeapNV9mmPistol 1;10.5:close;12:RingoRef.AddItem Stimpak 1;RingoRef.EquipItem Stimpak;13:RingoRef.AddScriptPackage GSTrudyEveningPackage20x2;14:RingoRef.StartCombat player;17:RingoRef.StopCombat" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_HIT = "11:RingoRef:1:WeapNV9mmPistol", NVF_PLAY_TEST_CONSOLE = "8:SetEventHandler \"OnLoad\" ({ref rT, ref rB} => PrintC \"nvf ev onload\");SetEventHandler \"OnHit\" ({ref rT, ref rB} => PrintC \"nvf ev onhit\");SetEventHandler \"OnHitWith\" ({ref rT, ref rB} => PrintC \"nvf ev onhitwith\");SetEventHandler \"OnMagicEffectHit\" ({ref rT, ref rB} => PrintC \"nvf ev onmagiceffecthit\");SetEventHandler \"OnPackageStart\" ({ref rT, ref rB} => PrintC \"nvf ev onpackagestart\");SetEventHandler \"OnCombatEnd\" ({ref rT, ref rB} => PrintC \"nvf ev oncombatend\");9:RingoRef.MoveTo player 0 200 0;10:player.PlaceAtMe WeapNV9mmPistol 1;10.5:close;12:RingoRef.AddItem Stimpak 1;RingoRef.EquipItem Stimpak;13:RingoRef.AddScriptPackage GSTrudyEveningPackage20x2;14:RingoRef.StartCombat player;17:RingoRef.StopCombat;18:MessageExAlt 4 \"#0|NVF note %g\" 7" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
 run_seconds = 20
 expect = [
@@ -9791,6 +9791,34 @@ expect = [
   { re = 'script: print "nvf ev onmagiceffecthit"', label = "OnMagicEffectHit: Ringo's stimpak" },
   { re = 'script: print "nvf ev onpackagestart"', label = "OnPackageStart: the added package starts" },
   { re = 'script: print "nvf ev oncombatend"', label = "OnCombatEnd: StopCombat ends Ringo's fight" },
+  { re = 'on screen: NVF note 7', label = "MessageExAlt: a formatted corner message (queued behind the VATS tutorial note)" },
+]
+
+[[scenario]]
+name = "jip-raycast-sneak"
+source = "JIP's GetP2PRayCastRange through the engine's physics (fnv_game::ray): straight down from above the player hits the ground, a zero-length cast 0; TogglePlayerSneaking reads in its own frame [observed: engine1]"
+areas = ["scripts", "physics"]
+paths = ["crates/fnv-game/src/ray.rs", "crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf ray down %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) - 1000));9.5:PrintC \"nvf ray none %.0f\", (GetP2PRayCastRange 0 0 0 0 0 0);10:TogglePlayerSneaking 1;PrintC \"nvf sneak now %g\", (player.IsSneaking);11:TogglePlayerSneaking 0;12:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'script: print "nvf ray down (9[0-9]|1[0-9][0-9])"', label = "the cast down from 100 above the player meets the ground about 100 below the start" },
+  { re = 'script: print "nvf ray none 0"', label = "a zero-length cast hits nothing" },
+  { re = 'script: print "nvf sneak now 1"', label = "IsSneaking reads the toggle in its own frame" },
+]
+
+[[scenario]]
+name = "jip-view-sneak"
+source = "JIP's ToggleFirstPerson and TogglePlayerSneaking (fnv_game::nvse_gaps): the engine takes the ask a frame later and IsPC1stPerson / IsSneaking read it [observed: gaps10, two frames]"
+areas = ["scripts", "player"]
+paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:ToggleFirstPerson 0;TogglePlayerSneaking 1;8.5:close;10:PrintC \"nvf view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking);11:ToggleFirstPerson 1;TogglePlayerSneaking 0;11.5:close;13:PrintC \"nvf back view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf view 0 sneak 1"', label = "third person and sneaking after the toggles" },
+  { re = 'script: print "nvf back view 1 sneak 0"', label = "back to first person, standing" },
 ]
 
 [[scenario]]

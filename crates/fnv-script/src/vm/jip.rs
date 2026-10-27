@@ -683,20 +683,19 @@ impl Vm<'_, '_> {
                     None => XVal::Array(0),
                 }
             }
-            // 1 when the key was there [hypothesis: the page gives no return].
+            // The pairs left [observed: gaps6, erasing the only key gives 0].
             "erase" => {
                 let key = self.jowner(n, c, 1)?;
                 let s = stores(self.store()?, &name);
-                let mut gone = false;
+                let mut left = 0;
                 if let Some(m) = s.refmaps.get_mut(&name) {
-                    let before = m.len();
                     m.retain(|(k, _)| *k != key);
-                    gone = m.len() < before;
+                    left = m.len();
                     if m.is_empty() {
                         s.refmaps.remove(&name);
                     }
                 }
-                XVal::Num(f64::from(u8::from(gone)))
+                XVal::Num(left as f64)
             }
             "destroy" => {
                 let s = stores(self.store()?, &name);
@@ -793,6 +792,27 @@ impl Vm<'_, '_> {
                 };
                 prune(s, o, name);
                 XVal::Num(left)
+            }
+            // `name array [owner]`: the variable becomes the array's values; returns how
+            // many [observed: gaps6, ar_List 5 6 7 gives 3, size 3, element 2 is 7].
+            "setfromarray" => {
+                let o = self.jowner(n, c, 2)?;
+                let id = match self.jarg(c, 1)? {
+                    Some(XVal::Array(id)) => id,
+                    _ => return Ok(Some(XVal::Num(0.0))),
+                };
+                let vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
+                let count = vals.len();
+                let s = stores(self.store()?, name);
+                if count == 0 {
+                    if let Some(m) = s.aux.get_mut(&o) {
+                        m.remove(name);
+                    }
+                } else {
+                    s.aux.entry(o).or_default().insert(name.to_string(), vals);
+                }
+                prune(s, o, name);
+                XVal::Num(count as f64)
             }
             "getasarray" => {
                 let o = self.jowner(n, c, 1)?;

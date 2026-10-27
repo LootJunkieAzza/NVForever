@@ -297,6 +297,9 @@ pub struct World<'a> {
     /// [documented: RemoveFormFromLeveledList, "Unlike for LeveledListRemoveForm, this
     /// change is savebaked"].
     leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
+    /// Container and actor bases whose carried items scripts edited (BaseAddItem,
+    /// BaseRemoveItem): the entries a fresh inventory rolls from, for the session.
+    base_edits: BTreeMap<FormId, Vec<crate::forms::Entry>>,
     /// What the game layer adds to an actor's carry capacity beyond the formula on its
     /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
     /// ([`World::set_carry_bonus`]).
@@ -340,6 +343,7 @@ impl<'a> World<'a> {
             quest_objects: BTreeMap::new(),
             leveled_added: BTreeMap::new(),
             leveled_edits: BTreeMap::new(),
+            base_edits: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
@@ -494,7 +498,7 @@ impl<'a> World<'a> {
     /// lists resolved at `level` (the reference's, `crate::zones`). `None` for bases
     /// without carried items.
     fn roll_inventory(&mut self, base: FormId, level: u16) -> Result<Option<Inventory>, SimError> {
-        let Some(entries) = self.forms.entries(base) else { return Ok(None) };
+        let Some(entries) = self.base_entries(base) else { return Ok(None) };
         let mut inv = Inventory::new();
         let mut out = Vec::new();
         for e in entries {
@@ -915,6 +919,23 @@ impl<'a> World<'a> {
         let Some(mut l) = self.leveled_list(id) else { return false };
         f(&mut l);
         self.leveled_edits.insert(id, l);
+        true
+    }
+
+    /// A container or actor base's carried items (CNTO), with the session's edits.
+    pub fn base_entries(&self, base: FormId) -> Option<Vec<crate::forms::Entry>> {
+        match self.base_edits.get(&base) {
+            Some(e) => Some(e.clone()),
+            None => self.forms.entries(base).map(<[_]>::to_vec),
+        }
+    }
+
+    /// Edit a container or actor base's carried items for the session; false when
+    /// `base` carries none.
+    pub fn edit_base_entries(&mut self, base: FormId, f: impl FnOnce(&mut Vec<crate::forms::Entry>)) -> bool {
+        let Some(mut e) = self.base_entries(base) else { return false };
+        f(&mut e);
+        self.base_edits.insert(base, e);
         true
     }
 

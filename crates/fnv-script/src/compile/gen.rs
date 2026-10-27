@@ -143,6 +143,11 @@ impl<'a> Gen<'a> {
         for (c, n) in crate::table::AV_NAMES.iter().enumerate() {
             av.entry(n.replace(' ', "").to_ascii_lowercase()).or_insert(c as u16);
         }
+        // And their script names (`CritChance`) [observed: gaps7, `GetActorValue
+        // "CritChance"` compiles in the original].
+        for (c, n) in crate::table::SCRIPT_AV_NAMES {
+            av.entry(n.to_ascii_lowercase()).or_insert(c);
+        }
         let mut seed_edids = HashMap::new();
         if let Some(s) = seed {
             for r in s.refs {

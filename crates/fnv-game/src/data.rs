@@ -870,6 +870,8 @@ pub struct GameData {
     pub edid_of: HashMap<FormId, String>,
     /// Record header flags of the winning records that have any (GetFlagsLow/High).
     pub form_flags: HashMap<FormId, u32>,
+    /// OBND of the base forms that have one ([`BOUNDS_SIGS`]): min x, y, z, max x, y, z.
+    pub object_bounds: HashMap<FormId, [i16; 6]>,
     /// The name the player sees (FULL) of every winning record that has one.
     pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
@@ -1403,15 +1405,21 @@ struct Read {
 
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
+/// The base form types whose OBND [`GameData::object_bounds`] keeps (GetObjectDimensions).
+const BOUNDS_SIGS: [[u8; 4]; 20] = [
+    *b"NPC_", *b"CREA", *b"CONT", *b"ACTI", *b"STAT", *b"MSTT", *b"FURN", *b"DOOR", *b"LIGH", *b"TERM", *b"MISC", *b"WEAP", *b"ARMO", *b"ALCH", *b"AMMO",
+    *b"BOOK", *b"KEYM", *b"NOTE", *b"TACT", *b"IDLM",
+];
+
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 27] = [
+pub const FIELD_SIGS: [[u8; 4]; 35] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
-    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD",
+    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
 ];
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
 /// getters read.
-const ACTOR_SUBS: [[u8; 4]; 11] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK"];
+const ACTOR_SUBS: [[u8; 4]; 13] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
@@ -1499,6 +1507,12 @@ impl GameData {
         out
     }
 
+    /// Every `sub` of a record in [`GameData::record_fields`], in record order (a
+    /// repeated subrecord: AMMO RCIL, WEAP SNAM).
+    pub fn record_all(&self, form: FormId, sub: &str) -> Vec<&Json> {
+        self.record_fields.get(&form).into_iter().flatten().filter(|(s, _)| s == sub.as_bytes()).map(|(_, v)| v).collect()
+    }
+
     /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then
     /// `path` (field names split by `.`; empty for the whole subrecord). A flags field
     /// gives its number.
@@ -1559,6 +1573,15 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            object_bounds: winners
+                .par_iter()
+                .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
+                .filter_map(|&(g, _, r)| {
+                    let s = r.subrecords().ok()?.into_iter().find(|s| &s.sig == b"OBND")?;
+                    let v: Vec<i16> = s.data.as_chunks::<2>().0.iter().take(6).map(|b| i16::from_le_bytes(*b)).collect();
+                    Some((FormId(g), <[i16; 6]>::try_from(v).ok()?))
+                })
+                .collect(),
             form_flags: winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect(),
             full_names: HashMap::new(),
             sigs: HashMap::new(),

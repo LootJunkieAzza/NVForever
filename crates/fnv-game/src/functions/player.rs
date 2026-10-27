@@ -37,7 +37,12 @@ pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if a.num_or(1, 0.0) != 0.0 {
         g.player.teammate_perks.insert(perk);
     } else {
+        let before = g.player.perks.get(&perk).copied().unwrap_or(0);
         crate::perks::gain_rank(g, perk);
+        let after = g.player.perks.get(&perk).copied().unwrap_or(0);
+        if after != before {
+            g.perk_event(perk, true, before, after);
+        }
     }
     none()
 }
@@ -50,8 +55,8 @@ pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         }
         if a.num_or(1, 0.0) != 0.0 {
             g.player.teammate_perks.remove(&perk);
-        } else {
-            g.player.perks.remove(&perk);
+        } else if g.player.perks.remove(&perk).is_some() {
+            g.perk_event(perk, false, 0, 0);
         }
     }
     none()

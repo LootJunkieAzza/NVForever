@@ -308,7 +308,12 @@ fn the_character_revision_keeps_level_perks_and_skill_points() {
     call(&mut g, 0x11A8, Some(PLAYER), &[r(perk.0)]);
     call(&mut g, 0x100F, Some(PLAYER), &[av(barter), n(0.0)]);
     assert_eq!((g.player.level, g.player.xp, g.player.perks.get(&perk)), (Some(1), 0.0, None));
-    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(barter)]), 0.0);
+    // SetActorValue 0 leaves the attributes' part of the skill [observed: gaps6, the
+    // value set adds to it]: what a fresh player has.
+    let mut fresh = game(&f);
+    let formula = call(&mut fresh, 0x100E, Some(PLAYER), &[av(barter)]);
+    assert!(formula > 0.0 && formula < before);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(barter)]), formula);
 }
 
 #[test]

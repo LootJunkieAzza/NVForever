@@ -414,6 +414,17 @@ impl Gen<'_> {
         matches!(u.origin.as_str(), "NVSE" | "FOSE1") && !formatted && u.params.get(k).is_some_and(|p| p.kind == "string" && p.wiki_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("string")))
     }
 
+    /// The function's parameter `k` takes a form, or is named for a global (the base
+    /// game's GetGlobalValue included).
+    fn form_param(&self, f: &XFn, k: usize) -> bool {
+        let params = match (&f.func, f.opcode) {
+            (_, Some(op)) => self.table.get(op).map(|d| &d.params),
+            (FuncId::Name(n), None) => self.table.unnumbered.get(&n.to_ascii_lowercase()).map(|u| &u.params),
+            _ => None,
+        };
+        params.and_then(|ps| ps.get(k)).is_some_and(|p| matches!(p.kind.as_str(), "form" | "reference") || p.name.to_ascii_lowercase().contains("global"))
+    }
+
     fn xargs(&mut self, p: &mut P<'_>, f: &XFn) -> Option<Vec<XExpr>> {
         let mut args = Vec::new();
         loop {
@@ -444,6 +455,22 @@ impl Gen<'_> {
                     if string_var && alone {
                         p.next();
                         args.push(XExpr::Str { s: t.text.clone() });
+                        continue;
+                    }
+                }
+            }
+            // A global's name given alone to a plugin function's form parameter (or one
+            // named for a global) is the global, not its value [observed: plugins3,
+            // `GetGlobalValue TimeScale` reads 30 and `SetGlobalValue TimeScale 31` sets
+            // it in the original].
+            if self.form_param(f, args.len()) {
+                if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    let global = self.var(&t.text).is_none().then(|| self.form(&t.text)).flatten().filter(|fi| &fi.sig == b"GLOB");
+                    if let (true, Some(fi)) = (alone, global) {
+                        p.next();
+                        let r = self.ref_index(crate::unit::RefSlot::Form(fi.form), &t.text);
+                        args.push(XExpr::Ref { r: RefIndex(r) });
                         continue;
                     }
                 }

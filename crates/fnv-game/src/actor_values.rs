@@ -258,7 +258,7 @@ impl<'a> Game<'a> {
     }
 
     /// A skill from the actor's attribute and Luck.
-    fn derived_skill(&mut self, r: FormId, skill: u16) -> f64 {
+    pub(crate) fn derived_skill(&mut self, r: FormId, skill: u16) -> f64 {
         let attribute = self.formula_input(r, GOVERNING[(skill - BARTER) as usize]);
         let luck = self.formula_input(r, LUCK);
         self.skill_formula(skill, attribute, luck)

@@ -2558,8 +2558,13 @@ impl Vm<'_, '_> {
                     "log" => x.ln(),
                     "log10" => x.log10(),
                     "exp" => x.exp(),
-                    "floor" => x.floor(),
-                    "ceil" => x.ceil(),
+                    // A whole number as a 32-bit integer: out of its range (or not a
+                    // number) it reads -2147483648 [observed: gaps2, Floor of
+                    // GetDistance2D to a reference in another cell].
+                    "floor" | "ceil" => {
+                        let r = if n == "floor" { x.floor() } else { x.ceil() };
+                        if r.is_nan() || r < f64::from(i32::MIN) || r > f64::from(i32::MAX) { f64::from(i32::MIN) } else { r }
+                    }
                     _ => x.sqrt(),
                 })
             }
@@ -2625,6 +2630,26 @@ impl Vm<'_, '_> {
         }
         if let Some(v) = self.quat_function(&lname, c)? {
             return Ok(v);
+        }
+        // [documented: SetFormDescription `form "format" values…`, observed: gaps6,
+        // "NVF desc %g" 3 reads "NVF desc 3"; MessageExAlt `seconds "format" values…`,
+        // the game reading the icon and sound off the front]: formatted here, done by
+        // the game.
+        // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
+        // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
+        // RunScriptSnippet `delay "format" values…` likewise [documented].
+        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" || lname == "runscriptsnippet" {
+            let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
+            let mut first = Vec::new();
+            for e in c.args.iter().take(at) {
+                first.push(self.xeval(e)?);
+            }
+            let (t, _) = self.format_arg(c, at)?;
+            first.push(XVal::Str(t));
+            return match self.host.ext_call(&lname, None, &first) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Ok(XVal::Num(0.0)),
+            };
         }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {

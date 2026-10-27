@@ -49,26 +49,7 @@ pub fn av_by_name(name: &str) -> Option<u16> {
     AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16)
 }
 
-/// Script names of actor values that shipped source never spells (so `encodings.json`
-/// has none) and whose xEdit name squashes to something else. Each is its AVIF record's
-/// Editor ID without the `AV` prefix [observed: FalloutNV.esm AVIF `AVCritChance`
-/// 0x44E, `AVPoisonResist` 0x453, `AVDetectLifeRange` 0x5E1, `AVFireResist` 0x5E2,
-/// `AVEnergyResist` 0x5EA; the masters' AVIF FormIDs run in code order]. The original
-/// compiler takes that name [observed: `GetAV PoisonResist` compiled and answered 125 in
-/// the game, capture abilities-1; hypothesis for the others: every spelling of shipped
-/// source is its AVIF Editor ID without `AV`, except Guns (AVSmallGuns) and Survival
-/// (AVThrowing)]. Electric, Frost and EMP resistance have no AVIF record in the masters;
-/// their names follow the pattern [hypothesis].
-const SCRIPT_AV_NAMES: [(u16, &str); 8] = [
-    (14, "CritChance"),
-    (19, "PoisonResist"),
-    (51, "DetectLifeRange"),
-    (52, "FireResist"),
-    (58, "ElectricResist"),
-    (59, "FrostResist"),
-    (60, "EnergyResist"),
-    (61, "EMPResist"),
-];
+use fnv_script::table::SCRIPT_AV_NAMES;
 
 /// An actor value code from its name: the script name (the decoder's, `encodings.json`,
 /// e.g. `NightEye`, `PerceptionCondition`, else [`SCRIPT_AV_NAMES`], e.g. `PoisonResist`)
@@ -292,7 +273,12 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
         return none();
     }
-    set_base(g, r, code, a.num(1)?)?;
+    // The player's skill keeps its part from the attributes: SetActorValue sets the rest
+    // [observed: gaps6, Guns 17 (all from the attributes at level 1, untagged) reads 67
+    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same].
+    let v = a.num(1)?;
+    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) } else { v };
+    set_base(g, r, code, v)?;
     none()
 }
 
