@@ -238,7 +238,10 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    reached the world, so no request a script made is still queued.
 2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
    player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
-   its own switch on the settings page (group Saving), both on by default. Their timing
+   its own switch on the settings page (group Saving), both on by default. Three more
+   switches there, on by default [owner request 2026-10-27]: Save on fast travel (after
+   a fast travel's loading screen, in place of the travel switch), Save on wait and Save
+   on sleep (when the menu closes with at least one hour passed, also after Cancel). Their timing
    against the original is still to be checked with the owner, who turned the
    original's autosaves off in its INI.
 3. **Random numbers**: a load re-seeds (a reload does not replay the same rolls); test aid

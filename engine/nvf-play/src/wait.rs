@@ -119,6 +119,14 @@ pub struct HourPassed {
     pub sleep: bool,
 }
 
+/// A wait or a sleep ended (its hours all passed, or Cancel after at least one) with
+/// the hours that passed; `crate::save` autosaves on it.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct RestEnded {
+    pub sleep: bool,
+    pub hours: u32,
+}
+
 /// A command for the open menu (keys, mouse, test aid).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct WaitInput(pub Command);
@@ -221,6 +229,7 @@ impl Plugin for WaitPlugin {
             .add_message::<OpenWait>()
             .add_message::<WaitInput>()
             .add_message::<HourPassed>()
+            .add_message::<RestEnded>()
             .add_systems(Startup, read_words)
             .add_systems(PreUpdate, aid_pointer.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus))
             // Before the scripts, as the running clock is (`crate::sim`): a frame's
@@ -723,8 +732,11 @@ fn fade(time: AidTime, menu: Res<WaitMenu>, mut fade: ResMut<SleepFade>) {
     }
 }
 
-fn close(mut commands: Commands, mut menu: ResMut<WaitMenu>, roots: Query<Entity, With<WaitRoot>>, script: Option<ResMut<ScriptState>>) {
-    if menu.0.take().is_some() {
+fn close(mut commands: Commands, mut menu: ResMut<WaitMenu>, roots: Query<Entity, With<WaitRoot>>, script: Option<ResMut<ScriptState>>, mut ended: MessageWriter<RestEnded>) {
+    if let Some(m) = menu.0.take() {
+        if let Some(p) = m.passing.filter(|p| p.asked > p.left) {
+            ended.write(RestEnded { sleep: m.sleep, hours: p.asked - p.left });
+        }
         if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
             if rt.game.menu == Some(crate::script::MENU_SLEEP_WAIT) {
                 rt.game.close_menu();
