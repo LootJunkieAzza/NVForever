@@ -4106,6 +4106,163 @@ ANIM2_PROBES = (
            'rPlayer.AuxVarErase "*nvfK3"\nrPlayer.AuxVarErase "*nvfP3"\nrPlayer.AuxVarErase "*nvfP4"\nrPlayer.AuxVarErase "*nvfGH"\nSetFunctionValue 1')]
 )
 
+
+# reload1 (writes, session only): IsAnimPlayingEx category 4 (reload). The player, in third
+# person, is given a 10mm pistol (434F) and 20 rounds; the clip is set to 1 round
+# (SetCurrentAmmoRounds), TapControl 7 (the reload/ready control, wiki GetControlCodeByID
+# example) draws the weapon, a second tap 60 frames later reloads, and each frame of the 180
+# after keeps in an aux variable whether IsAnimPlayingEx 4 0 was ever 1. Then god mode: a
+# 10-point DamageActorValue Health with it off and on (LU Console "tgm"). Then a placed
+# NVProspectorFemaleT with the pistol and 20 rounds fights the player (god mode on) for 600
+# frames, its clip set to 1 round at the start, keeping whether 4 0 was ever 1 and whether its
+# clip ever went above 1. The player's weapon, ammo count, view and health are put back; the
+# NPC is disabled and deleted.
+def _r1(pid, body, text=False):
+    return (f"reload1.{pid}", "ref rPlayer\nref rNpc\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + 'let rNpc := rPlayer.AuxVarGetRef "*nvfR1"\n' + body, text, None, "")
+
+
+def _r1v(pid, expr):
+    return _r1(pid, f"SetFunctionValue ({expr})")
+
+
+def _r1w(pid, n):
+    return [_r1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _r1ever(who, var):
+    return f'if ({who}.IsAnimPlayingEx 4 0 0)\nrPlayer.AuxVarSetFlt "{var}" 1\nendif\n'
+
+
+RELOAD1_PROBES = (
+    # Save the view, weapon and ammo count.
+    [_r1("save", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfRV" fRes\nToggleFirstPerson 0\n'
+         'let rObj := rPlayer.GetEquippedObject 5\nrPlayer.AuxVarSetRef "*nvfRW" rObj\n'
+         + _form("rObj", NF["ammo10"]) + 'let fRes := rPlayer.GetItemCount rObj\nrPlayer.AuxVarSetFlt "*nvfRA" fRes\nSetFunctionValue 1')]
+    + _r1w("viewwait", 5)
+    + [_r1("pc.arm", _form("rObj", NF["pistol10"]) + "rPlayer.AddItem rObj 1 1\nrPlayer.EquipItem rObj 0 1\n"
+           + _form("rObj", NF["ammo10"]) + "rPlayer.AddItem rObj 20 1\nSetFunctionValue 1")]
+    + _r1w("pc.armwait", 10)
+    + [_r1("pc.clip1", "rPlayer.SetCurrentAmmoRounds 1\nSetFunctionValue 1")]
+    + _r1w("pc.clipwait", 2)
+    + [_r1v("pc.clip1.read", "rPlayer.GetCurrentAmmoRounds"),
+       _r1("pc.draw", "TapControl 7\nSetFunctionValue 1")]
+    + _r1w("pc.drawwait", 60)
+    + [_r1v("pc.drawn", "rPlayer.IsWeaponOut"),
+       _r1v("pc.drawn.clip", "rPlayer.GetCurrentAmmoRounds"),
+       _r1("pc.reload", 'rPlayer.AuxVarSetFlt "*nvfRP" 0\nTapControl 7\nSetFunctionValue 1')]
+    + [_r1(f"pc.f{i}", _r1ever("rPlayer", "*nvfRP") + "SetFunctionValue 1") for i in range(180)]
+    + [_r1v("pc.reload.ever", 'rPlayer.AuxVarGetFlt "*nvfRP"'),
+       _r1v("pc.reload.clip", "rPlayer.GetCurrentAmmoRounds")]
+    # God mode: damage with it off, then on.
+    + [_r1("god.off.damage", "let fRes := rPlayer.GetActorValue Health\nrPlayer.DamageActorValue Health 10\n"
+           "let fRes := fRes - (rPlayer.GetActorValue Health)\nrPlayer.RestoreActorValue Health 10\nSetFunctionValue fRes"),
+       _r1("god.on", 'Console "tgm"\nSetFunctionValue 1')]
+    + _r1w("god.onwait", 2)
+    + [_r1("god.on.damage", "let fRes := rPlayer.GetActorValue Health\nrPlayer.DamageActorValue Health 10\n"
+           "let fRes := fRes - (rPlayer.GetActorValue Health)\nrPlayer.RestoreActorValue Health 10\nSetFunctionValue fRes")]
+    # The NPC, placed at the player, moved 500 north after 10 frames.
+    + [_r1("npc.place", _form("rObj", FX["prospector"]) + 'let rNpc := rPlayer.PlaceAtMe rObj 1\n'
+           'rPlayer.AuxVarSetRef "*nvfR1" rNpc\nSetFunctionValue 1')]
+    + _r1w("npc.wait", 10)
+    + [_r1("npc.move", "rNpc.SetPos Y ((rPlayer.GetPos Y) + 500)\nSetFunctionValue 1")]
+    + _r1w("npc.movewait", 10)
+    + [_r1("npc.arm", _form("rObj", NF["pistol10"]) + "rNpc.AddItem rObj 1 1\nrNpc.EquipItem rObj 0 1\n"
+           + _form("rObj", NF["ammo10"]) + "rNpc.AddItem rObj 20 1\nSetFunctionValue 1")]
+    + _r1w("npc.armwait", 5)
+    + [_r1("fight.start", 'rNpc.StartCombat rPlayer\nrPlayer.AuxVarSetFlt "*nvfRN" 0\nrPlayer.AuxVarSetFlt "*nvfRC" 0\nSetFunctionValue 1')]
+    + _r1w("fight.startwait", 30)
+    + [_r1v("fight.incombat", "rNpc.IsInCombat"),
+       _r1("fight.clip1", "rNpc.SetCurrentAmmoRounds 1\nSetFunctionValue 1")]
+    + _r1w("fight.clipwait", 2)
+    + [_r1v("fight.clip1.read", "rNpc.GetCurrentAmmoRounds")]
+    + [_r1(f"fight.f{i}", _r1ever("rNpc", "*nvfRN")
+           + 'if (rNpc.GetCurrentAmmoRounds) > 1\nrPlayer.AuxVarSetFlt "*nvfRC" 1\nendif\nSetFunctionValue 1') for i in range(600)]
+    + [_r1v("fight.reload.ever", 'rPlayer.AuxVarGetFlt "*nvfRN"'),
+       _r1v("fight.clip.refilled", 'rPlayer.AuxVarGetFlt "*nvfRC"'),
+       _r1("fight.cleanup", 'rNpc.Disable\nrNpc.MarkForDelete\nConsole "tgm"\nrPlayer.AuxVarErase "*nvfR1"\n'
+           'rPlayer.AuxVarErase "*nvfRN"\nrPlayer.AuxVarErase "*nvfRC"\nrPlayer.AuxVarErase "*nvfRP"\nSetFunctionValue 1')]
+    + _r1w("god.offwait", 2)
+    + [_r1("god.off.again.damage", "let fRes := rPlayer.GetActorValue Health\nrPlayer.DamageActorValue Health 10\n"
+           "let fRes := fRes - (rPlayer.GetActorValue Health)\nrPlayer.RestoreActorValue Health 10\nSetFunctionValue fRes")]
+    # Put back the weapon, the ammo count and the view.
+    + [_r1("restore.weapon", _form("rObj", NF["pistol10"]) + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\n"
+           'let rObj := rPlayer.AuxVarGetRef "*nvfRW"\nif IsFormValid rObj\nrPlayer.EquipItem rObj 0 1\nendif\nSetFunctionValue 1'),
+       _r1("restore.ammo", _form("rObj", NF["ammo10"]) + 'let fRes := (rPlayer.GetItemCount rObj) - (rPlayer.AuxVarGetFlt "*nvfRA")\n'
+           "if fRes > 0\nrPlayer.RemoveItem rObj fRes 1\nelseif fRes < 0\nrPlayer.AddItem rObj (0 - fRes) 1\nendif\nSetFunctionValue 1"),
+       _r1("restore.ammo.check", _form("rObj", NF["ammo10"])
+           + 'SetFunctionValue ((rPlayer.GetItemCount rObj) == (rPlayer.AuxVarGetFlt "*nvfRA"))')]
+    + [_r1("restore.view", 'ToggleFirstPerson (rPlayer.AuxVarGetFlt "*nvfRV")\nrPlayer.AuxVarErase "*nvfRV"\n'
+           'rPlayer.AuxVarErase "*nvfRW"\nrPlayer.AuxVarErase "*nvfRA"\nSetFunctionValue 1')]
+)
+
+
+# sound1 (writes, session only): when IsSoundPlaying turns on and off, frame by frame. gaps1
+# read UIVATSLoop (15511B) as 0 in the frame of PlaySound and the next, 1 in the frame of
+# StopSound and 0 after, so here each frame after PlaySound is a row: the loop, 12 frames, then
+# GetSoundPlayers, StopSound and 6 frames; EMTMedicalBeep01 (174325) by PlaySound, 12 frames
+# and then at 30, 60 and 120 (still playing), then StopSound; the beep by PlaySound3D on the player, IsSoundPlaying with the
+# player and with Doc's base as the source, GetSoundPlayers, StopSoundAlt (JohnnyGuitar) and
+# 6 frames. IsSoundPlayingFromPath with the path GetSoundSourceFile gives and with "Data\Sound\"
+# before it. Only rows that repeat on a second capture are kept.
+def _s1(pid, body, text=False):
+    return (f"sound1.{pid}", "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+_S1L = _form("rObj", FX["vatsloop"])
+_S1B = _form("rObj", FX["beep"])
+
+
+def _s1f(pid, pre, n, src=""):
+    return [_s1(f"{pid}.f{i}", pre + f"SetFunctionValue (IsSoundPlaying rObj{src})") for i in range(n)]
+
+
+def _s1w(pid, n):
+    return [_s1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _s1players(pid, pre):
+    return [_s1(f"{pid}.players.size", pre + "let aArr := GetSoundPlayers rObj\nSetFunctionValue (ar_Size aArr)")]
+
+
+SOUND1_PROBES = (
+    # The loop.
+    [_s1("loop.before", _S1L + "SetFunctionValue (IsSoundPlaying rObj)"),
+     _s1("loop.file", _S1L + "SetFunctionValue (GetSoundSourceFile rObj)", True),
+     _s1("loop.play", _S1L + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("loop", _S1L, 12)
+    + [_s1("loop.f12.player", _S1L + "SetFunctionValue (IsSoundPlaying rObj rPlayer)")]
+    + _s1players("loop", _S1L)
+    + [_s1("loop.stop", _S1L + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("loop.stopped", _S1L, 6)
+    # The beep, once.
+    + [_s1("beep.file", _S1B + "SetFunctionValue (GetSoundSourceFile rObj)", True),
+       _s1("beep.before", _S1B + "SetFunctionValue (IsSoundPlaying rObj)"),
+       _s1("beep.play", _S1B + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("beep", _S1B, 12)
+    + _s1w("beep.wait30.", 18) + [_s1("beep.f30", _S1B + "SetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1w("beep.wait60.", 29) + [_s1("beep.f60", _S1B + "SetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1w("beep.wait120.", 59) + [_s1("beep.f120", _S1B + "SetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1players("beep", _S1B)
+    + [_s1("beep.stop", _S1B + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("beep.stopped", _S1B, 6)
+    # The beep on the player.
+    + [_s1("p3d.play", _S1B + "rPlayer.PlaySound3D rObj\nSetFunctionValue (IsSoundPlaying rObj rPlayer)")]
+    + _s1f("p3d", _S1B, 6, " rPlayer")
+    + [_s1("p3d.any", _S1B + "SetFunctionValue (IsSoundPlaying rObj)"),
+       _s1("p3d.other", _S1B + _form("rOther", NF["doc"]) + "SetFunctionValue (IsSoundPlaying rObj rOther)"),
+       _s1("p3d.path", _S1B + 'SetFunctionValue (IsSoundPlayingFromPath "fx\\emt\\medicalbeep\\emtmedicalbeep01.wav")'),
+       _s1("p3d.path.data", _S1B + 'SetFunctionValue (IsSoundPlayingFromPath "Data\\Sound\\fx\\emt\\medicalbeep\\emtmedicalbeep01.wav")'),
+       _s1("p3d.path.player", _S1B + 'SetFunctionValue (IsSoundPlayingFromPath "Data\\Sound\\fx\\emt\\medicalbeep\\emtmedicalbeep01.wav" rPlayer)')]
+    + _s1players("p3d", _S1B)
+    + [_s1("p3d.stopalt", _S1B + "SetFunctionValue (StopSoundAlt rObj rPlayer)")]
+    + _s1f("p3d.stopped", _S1B, 6, " rPlayer")
+    + [_s1("p3d.stopalt.again", _S1B + "SetFunctionValue (StopSoundAlt rObj rPlayer)"),
+       _s1("p3d.stop", _S1B + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("p3d.stop.after", _S1B, 3)
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4155,11 +4312,13 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "data2": DATA2_PROBES,
         "data3": DATA3_PROBES,
         "anim1": ANIM1_PROBES,
-        "anim2": ANIM2_PROBES}
+        "anim2": ANIM2_PROBES,
+        "reload1": RELOAD1_PROBES,
+        "sound1": SOUND1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1"}
 
 
 def script(body):
