@@ -10441,3 +10441,31 @@ expect = [
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
 
+
+[[scenario]]
+name = "fire-barrel-light"
+source = "owner report 2026-10-27: the Abandoned Shack's fire barrel (GSAbandonedShack, Barrel02Fire128, radius 128) gave off very little light. Its light now sits on barrel02firelight.nif's AttachLight node (102 units up, docs/spec-notes/model-lights.md §4) and flickering lights reach 1.5x their radius and dim to 0.8 (lights.rs FLAME_REACH, FLICKER_LOW), fitted to the owner's frames of the original"
+areas = ["effects", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fire_barrel_light.png" }
+args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 10
+manual = "fire_barrel_light.png against the owner's frames of the original (kept privately): warm light on the wall behind the barrel, the floor round it and the crate in front"
+expect = [
+  { re = 'particles: add-on node 14 \S+mpsfiresmall01\.nif: [1-9]', label = "the barrel's flames are drawn" },
+  { re = 'test aid: screenshot .*fire_barrel_light\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
+name = "jukebox-tubes"
+source = "owner report 2026-10-27: the Prospector Saloon's jukebox (JukeBoxDirtyNVCountry, jukeboxdirtynv.nif) lacked the original's glowing cyan tubes: shape JukeBox01:1's unlit shader names JBLightTubesClean.dds, an NiTexturingProperty after it jblighttubesdirty.dds, and the shader's texture now wins (nif_spawn.rs shape_props). Tube colour measured (73, 127, 109) against the original's (77, 131, 106)"
+areas = ["rendering", "effects"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:270:-12:3460", NVF_PLAY_TEST_LOOK = "2.5:90:-5", NVF_PLAY_TEST_SHOTS = "7:jukebox_tubes.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 10
+manual = "jukebox_tubes.png: the side tubes and arch bright cyan with green neon edges, flickering with the Idle sequence"
+expect = [
+  { re = 'activator: 00107D73 \(JukeBoxDirtyNVCountry\) on: plays its idle', label = "the jukebox is on and plays its idle" },
+  { re = 'test aid: screenshot .*jukebox_tubes\.png', label = "the frame is saved" },
+]

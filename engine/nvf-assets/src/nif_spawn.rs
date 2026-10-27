@@ -136,6 +136,9 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// The texture came from a BSShaderNoLightingProperty's file name: an
+    /// NiTexturingProperty after it keeps it.
+    shader_texture: bool,
     /// BSShaderFlags bit 19 "Dynamic_Alpha" [documented: nif.xml] on a
     /// BSShaderNoLightingProperty ([`shape_alpha_mode`]).
     dynamic_alpha: bool,
@@ -338,10 +341,18 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             p.unlit = true;
             if let Some(f) = s.text("file_name") {
                 p.textures = vec![f.to_string()];
+                p.shader_texture = !f.is_empty();
             }
             let fields = ["falloff_start_angle", "falloff_stop_angle", "falloff_start_opacity", "falloff_stop_opacity"];
             p.falloff = property_falloff(s.int("shader_flags").unwrap_or(0), fields.map(|n| s.float(n)));
         }
+        // The unlit shader's own texture wins over the base texture of an NiTexturingProperty
+        // listed after it, which then only adds its texture transform [hypothesis: in
+        // 3,783 shapes of Fallout - Meshes.bsa and Update.bsa holding both, two differ:
+        // the jukebox's light tubes, whose shader names `JBLightTubesClean.dds` (bright
+        // cyan in the owner's frames of 2026-10-27) and texturing `jblighttubesdirty.dds`,
+        // and a REPCONN mist layer].
+        "NiTexturingProperty" if p.shader_texture => {}
         "NiTexturingProperty" => {
             let src = s.strukt("base_texture").and_then(|b| b.block_ref("source")).and_then(|r| dec.get(r));
             if let Some(f) = src.and_then(|t| t.text("file_name")) {
