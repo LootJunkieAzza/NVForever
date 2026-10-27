@@ -156,6 +156,10 @@ owner, 2026-10-27]:
   walls" on the settings page (key `weapon-lower`); by hand works either way. The exit
   summary gives how many times it lowered.
 
+Lowering is the cue near walls; it no longer has to keep the weapon out of them: the arms
+rig and its weapon are drawn with their depth squeezed in front of the world, so no wall,
+door or actor hides them (owner report 2026-10-27; [first-person-depth.md](first-person-depth.md)).
+
 ### 1.5 The body in first person (owner request 2026-10-10; not the original's)
 
 A switch, off by default as the original draws the arms rig alone: `--first-person-body`,

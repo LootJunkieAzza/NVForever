@@ -219,11 +219,14 @@ const ARMS_SHADE_REACH: f32 = 256.0;
 #[derive(Component)]
 struct ArmsShade;
 
-/// A copy of material `m` whose sun shadows are the [`ArmsShade`] light's (`m` itself is
-/// shared with other actors and weapons).
+/// A copy of material `m` whose sun shadows are the [`ArmsShade`] light's and whose depth
+/// is squeezed in front of the world, so no wall, door or actor the camera stands against
+/// hides the arms or the weapon (`NifSurface::first_person`; `m` itself is shared with
+/// other actors and weapons).
 fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
     let Some(mut copy) = materials.get(m).cloned() else { return m.clone() };
     copy.extension.shade_light = true;
+    copy.extension.first_person = true;
     materials.add(copy)
 }
 

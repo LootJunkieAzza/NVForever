@@ -13,6 +13,9 @@
 #ifdef VISIBILITY_RANGE_DITHER
 #import bevy_pbr::pbr_functions::visibility_range_dither
 #endif
+#ifdef FIRST_PERSON_DEPTH
+#import nvf_assets::first_person_depth::squeeze
+#endif
 #ifdef MAY_DISCARD
 #import bevy_pbr::{
     pbr_types,
@@ -24,8 +27,14 @@
 const BLENDED_CUTOFF: f32 = 0.05;
 #endif
 
+// A first-person shape (nif_material.rs "First-person depth") writes its depth squeezed
+// in front of the world, as the main pass does.
 @fragment
+#ifdef FIRST_PERSON_DEPTH
+fn fragment(in: VertexOutput) -> @builtin(frag_depth) f32 {
+#else
 fn fragment(in: VertexOutput) {
+#endif
 #ifdef VISIBILITY_RANGE_DITHER
     visibility_range_dither(in.position, in.visibility_range_dither);
 #endif
@@ -71,5 +80,8 @@ fn fragment(in: VertexOutput) {
         // Premultiplied and multiply shapes: as Bevy tests them.
         prepass_alpha_discard(in);
     }
+#endif
+#ifdef FIRST_PERSON_DEPTH
+    return squeeze(in.position.z);
 #endif
 }

@@ -41,6 +41,10 @@
 // SOFT_EDGES (alpha-tested shapes in the main pass of a multisampled view): instead of
 // the alpha test, the fragment's alpha is the share of the pixel's samples it covers
 // (nif_material.rs `soft_edges`).
+//
+// FIRST_PERSON_DEPTH (the arms and weapon in view, main pass of a perspective view;
+// nif_material.rs "First-person depth"): the fragment's depth is written squeezed into the
+// nearest share of the depth range (first_person_depth.wgsl), so the world never hides it.
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -68,6 +72,7 @@
 #ifdef DEPTH_PREPASS
 #import bevy_pbr::prepass_utils
 #endif
+#import nvf_assets::first_person_depth
 #ifdef SHADE_LIGHT
 #import bevy_pbr::{
     pbr_types::PbrInput,
@@ -179,7 +184,9 @@ fn view_emissive_scale() -> f32 {
 // nor without a prepass. Called in uniform control flow (screen derivatives).
 fn soft_fade(frag_coord: vec4<f32>, world_pos: vec3<f32>, distance: f32) -> f32 {
 #ifdef DEPTH_PREPASS
-    let depth = prepass_utils::prepass_depth(frag_coord, 0u);
+    // A first-person shape's depth as it was before it was squeezed, so the fade is
+    // measured against where it is (nif_material.rs "First-person depth").
+    let depth = first_person_depth::unsqueeze(prepass_utils::prepass_depth(frag_coord, 0u));
     let scene = position_ndc_to_world(frag_coord_to_ndc(vec4(frag_coord.xy, max(depth, 1e-7), 1.0)));
     let scene_n = cross(dpdx(scene), dpdy(scene));
     let own_n = cross(dpdx(world_pos), dpdy(world_pos));
@@ -267,10 +274,35 @@ fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
 #endif
 #endif
 
+#ifdef FIRST_PERSON_DEPTH
+struct FirstPersonOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+// A first-person shape (nif_material.rs "First-person depth"): its colour, at its depth
+// squeezed in front of the world.
 @fragment
 fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
+) -> FirstPersonOutput {
+    let out = nif_fragment(in, is_front);
+    return FirstPersonOutput(out.color, first_person_depth::squeeze(in.position.z));
+}
+#else
+@fragment
+fn fragment(
+    in: VertexOutput,
+    @builtin(front_facing) is_front: bool,
+) -> FragmentOutput {
+    return nif_fragment(in, is_front);
+}
+#endif
+
+fn nif_fragment(
+    in: VertexOutput,
+    is_front: bool,
 ) -> FragmentOutput {
 #ifdef VISIBILITY_RANGE_DITHER
     visibility_range_dither(in.position, in.visibility_range_dither);

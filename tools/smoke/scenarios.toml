@@ -487,6 +487,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "first-person-depth"
+source = "owner report 2026-10-27 (weapon lowering, PR #858): a rifle pushed against a door in first person sank into it. The arms and weapon now draw their depth squeezed in front of the world (nvf_assets nif_material.rs \"First-person depth\", docs/design/first-person-depth.md): the varmint rifle drawn nose to the Prospector Saloon's east wall (it lowers for the wall), a frame, then aimed and fired into the wall, its flash drawn with the weapon. A build from before the change (and before weapon lowering) drew only the stock there, the rest hidden in the wall (checked 2026-10-27)"
+areas = ["player-body", "rendering"]
+paths = ["engine/nvf-assets/src/first_person_depth.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvforever/src/ssao.wgsl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_GIVE = "00004240:20", NVF_PLAY_TEST_GOTO = "2:469:244:3457", NVF_PLAY_TEST_LOOK = "2.5:80:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:aim,10:fire", NVF_PLAY_TEST_SHOTS = "7.5:fp_depth_wall.png,9.5:fp_depth_aim.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+manual = "fp_depth_wall.png: the whole lowered rifle and the left hand drawn over the wall, none of it hidden in it; fp_depth_aim.png: the rifle at the sights over the wall"
+expect = [
+  { re = 'weapon lowering: lowered against a surface ahead', label = "the rifle lowers for the wall (the setup: the barrel reaches into it)" },
+  { re = 'test aid: screenshot .*fp_depth_wall\.png', label = "the frame at the wall is saved" },
+  { re = 'shot fx: [1-9]\d* muzzle flashes drawn in front of the world with the first-person weapon', label = "the player's flash is drawn with the weapon" },
+]
+
+[[scenario]]
 name = "player-fire-comment"
 source = "GECK wiki Topics Tab: PLAYERFIREWEAPON is \"used when the player fires their weapon near an actor\"; the package's Fallout behaviour Reaction To Player Actions allows it (fnv-ai social.rs, packages.md §7.7): the player fires the 10mm pistol into the sky beside Easy Pete, who says one of his PLAYERFIREWEAPON lines (\"What in tarnation?\" or \"What in blazes?\")"
 areas = ["ai", "dialogue"]
