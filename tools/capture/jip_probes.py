@@ -2710,6 +2710,70 @@ GAPS3_PROBES = [
     _g3v("dropalt.after", "rPlayer.GetItemCount (GetFormFromMod \"FalloutNV.esm\" \"15169\")"),
 ]
 
+# Forty-seventh set: the next unbuilt, unprobed functions of
+# docs/handoff/modlist-function-counts.json read or set safely. Climate rows name a climate
+# (NVtheStripClimate 161242) so they do not depend on the save; gaps4.climate.current is
+# the one save row. Forms from fnvtool esm inventory [observed]: Recipe127mm 17BA3E,
+# musDocMitchellHouse (MUSC) 171B4A, VStreetCrBrahmin2 (CREA) 17B587. Changes put back.
+FX.update(stripclimate="161242", recipe127="17BA3E", musdoc="171B4A")
+
+
+def _g4(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g4v(pid, expr, text=False):
+    return _g4(pid, f"SetFunctionValue ({expr})", text)
+
+
+_CLM = _form("rObj", FX["stripclimate"])
+GAPS4_PROBES = [
+    _g4v("laa", "GetIsLAA"),
+    _g4v("climate.current", "GetFormIDString (GetCurrentClimate)", True),
+    _g4("climate.num", _CLM + "SetFunctionValue (GetClimateNumWeatherTypes rObj)"),
+    _g4("climate.weather0", _CLM + "SetFunctionValue (GetFormIDString (GetClimateNthWeatherType rObj 0))", True),
+    _g4("climate.global0", _CLM + "SetFunctionValue (GetFormIDString (GetClimateNthWeatherGlobal rObj 0))", True),
+    _g4("climate.weather.past", _CLM + "SetFunctionValue (GetFormIDString (GetClimateNthWeatherType rObj 99))", True),
+    _g4("isnight.strip", _CLM + "SetFunctionValue (IsNight rObj)"),
+    _g4("bodypart.brahmin", _form("rObj", FX["brahmin"]) + "SetFunctionValue (GetFormIDString (GetBodyPartData rObj))", True),
+    _g4("formrefs.stimpak", _form("rObj", NF["stimpak"]) + "let aA := GetFormRefs rObj\nSetFunctionValue (ar_Size aA)"),
+    _g4("formrefs.docbase", _form("rObj", NF["doc"]) + "let aA := GetFormRefs rObj 1\nSetFunctionValue (ar_Size aA)"),
+    _g4v("falltime.player", "rPlayer.GetFallTimeElapsed"),
+    _g4v("attacking.player", "rPlayer.IsAttacking"),
+    _g4v("combatwith.doc", "rDoc.IsInCombatWith rPlayer"),
+    _g4v("crimeorenemy.doc", "rDoc.IsCrimeOrEnemy"),
+    _g4v("runspeed.player.int", "Floor (rPlayer.GetRunSpeed)"),
+    _g4v("activequest", "GetFormIDString (GetActiveQuest)", True),
+    _g4(f"perk.entry0.function", _form("rObj", FX["toughness"]) + "SetFunctionValue (GetNthPerkEntryFunction rObj 0)"),
+    _g4("cell.imagespace.doc", _form("rObj", CELLS["doc"]) + "SetFunctionValue (GetFormIDString (GetCellImageSpace rObj))", True),
+    _g4("recipe.outputs", _form("rObj", FX["recipe127"]) + "let aA := GetRecipeOutputForms rObj\nSetFunctionValue (ar_Size aA)"),
+    _g4("recipe.output0", _form("rObj", FX["recipe127"]) + "let aA := GetRecipeOutputForms rObj\nlet rOther := aA[0]\n"
+        "SetFunctionValue (GetFormIDString rOther)", True),
+    _g4("music.playing", _form("rObj", FX["musdoc"]) + "SetFunctionValue (IsMusicPlaying rObj)"),
+    _g4v("music.playing.any", "IsMusicPlaying"),
+    # Weapon flags and sounds, put back.
+] + [_g4(f"weaponflag.pistol.{i}", _form("rObj", NF["pistol10"]) + f"SetFunctionValue (WeaponHasFlag {i} rObj)") for i in range(6)] + [
+    _g4("weaponflag.set", _form("rObj", NF["pistol10"]) + "let fRes := WeaponHasFlag 5 rObj\nSetWeaponFlag 5 1 rObj\n"
+        "let fRes := fRes * 10 + (WeaponHasFlag 5 rObj)\nSetWeaponFlag 5 0 rObj\nSetFunctionValue fRes"),
+] + [_g4(f"weaponsound.pistol.{i}", _form("rObj", NF["pistol10"]) + f"SetFunctionValue (GetFormIDString (GetWeaponSound rObj {i}))", True)
+     for i in range(4)] + [
+    _g4("weaponsound.set", _form("rObj", NF["pistol10"]) + _form("rOther", FX["beep"])
+        + 'let rDoc := GetWeaponSound rObj 0\nrPlayer.AuxVarSetRef "*nvfWS" rDoc\nSetWeaponSound rObj 0 rOther\n'
+        "SetFunctionValue (GetFormIDString (GetWeaponSound rObj 0))", True),
+    _g4("weaponsound.restore", _form("rObj", NF["pistol10"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfWS"\nSetWeaponSound rObj 0 rOther\n'
+        'rPlayer.AuxVarErase "*nvfWS"\nSetFunctionValue (GetFormIDString (GetWeaponSound rObj 0))', True),
+    # Sound flags.
+    _g4("soundflag.set", _form("rObj", FX["beep"]) + "SetFunctionValue (SetSoundFlag rObj 0 1)"),
+    _g4("soundflag.clear", _form("rObj", FX["beep"]) + "SetFunctionValue (SetSoundFlag rObj 0 0)"),
+    _g4("stopsoundalt.none", _form("rObj", FX["beep"]) + "SetFunctionValue (StopSoundAlt rObj rPlayer)"),
+    # Reference names and gravity.
+    _g4("refname.set", 'rDoc.SetRefName "NVF Ref Doc"\nSetFunctionValue (rDoc.GetName)', True),
+    _g4("refname.base", _form("rObj", NF["doc"]) + "SetFunctionValue (GetName rObj)", True),
+    _g4("gravity.set", "rPlayer.SetActorGravityMult 1\nSetFunctionValue 1"),
+    _g4v("optionalpatch.set.none", 'SetOptionalPatch "NVFNoSuchPatch" 1'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2739,11 +2803,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "rgb-ui": RGB_UI_PROBES,
         "gaps1": GAPS1_PROBES,
         "gaps2": GAPS2_PROBES,
-        "gaps3": GAPS3_PROBES}
+        "gaps3": GAPS3_PROBES,
+        "gaps4": GAPS4_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4"}
 
 
 def script(body):
