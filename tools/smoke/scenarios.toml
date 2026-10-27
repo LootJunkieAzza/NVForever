@@ -9812,6 +9812,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "knvse-idle-stop"
+source = "kNVSE ForcePlayIdle and ForceStopIdle on an NPC through the engine's idle player; GetPlayedIdle keeps the idle after the stop [observed: anim1]"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_plugins.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;10:RingoRef.ForcePlayIdle LooseCheeringClappingNoArmsUp;10.5:close;11:PrintC \"nvf idle playing %g\", (RingoRef.IsIdlePlaying);12:RingoRef.ForceStopIdle;12.5:close;14:PrintC \"nvf idle after stop %g kept %g\", (RingoRef.IsIdlePlaying), ((RingoRef.GetPlayedIdle) == LooseCheeringClappingNoArmsUp);14.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf idle playing 1"', label = "the engine plays the forced idle" },
+  { re = 'script: print "nvf idle after stop 0 kept 1"', label = "ForceStopIdle ends it; GetPlayedIdle still names it" },
+]
+
+[[scenario]]
 name = "jip-view-sneak"
 source = "JIP's ToggleFirstPerson and TogglePlayerSneaking (fnv_game::nvse_gaps): the engine takes the ask a frame later and IsPC1stPerson / IsSneaking read it [observed: gaps10, two frames]"
 areas = ["scripts", "player"]

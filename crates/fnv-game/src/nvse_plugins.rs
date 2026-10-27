@@ -493,6 +493,45 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // ---- idles and animations ----
+        // The last special idle the actor played, kept after it stops [observed: anim1,
+        // 00171DBB from the frame after ForcePlayIdle and still 4 frames after
+        // ForceStopIdle or StopIdle; hypothesis: kept until another plays].
+        "getplayedidle" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.last_idle).map_or(0, |i| i.0)),
+        // kNVSE: `idle`, played at once as PlayIdle's are [documented: ForcePlayIdle].
+        "forceplayidle" => {
+            if let (Some(a), Some(i)) = (subject, form(args, 0)) {
+                if g.ask_idle(a, i, crate::idles::IdleSource::Script) {
+                    g.extra.entry(a).or_default().last_idle = Some(i);
+                }
+            }
+            zero
+        }
+        // The special idle stops (the engine takes it at its next frame).
+        "stopidle" | "forcestopidle" => {
+            if let Some(a) = subject {
+                g.gaps.idle_stops.push(a);
+            }
+            zero
+        }
+        // `category subtype [flags]`: 1 any (1 0) or the standing idle (1 1), 2 moving,
+        // 3 attacking, 4 reloading, from what the engine tells the body does [observed:
+        // anim1, the standing player 1 1 0 0 0, the same with an idle played; hypothesis:
+        // the moving, attack and reload categories].
+        "isanimplayingex" => {
+            use crate::anim_state::{AnimAction, MoveDir};
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let Some(st) = g.senses.anim.get(&a) else { return Some(Ok(zero)) };
+            let moving = st.moving != MoveDir::None;
+            yes(match (num(args, 0, -1.0) as i64, num(args, 1, 0.0) as i64) {
+                (1, 0) => true,
+                (1, _) => !moving,
+                (2, _) => moving,
+                (3, _) => st.action.is_some_and(|x| matches!(x, AnimAction::Attack | AnimAction::FollowThrough | AnimAction::AttackReturn)),
+                (4, _) => st.action.is_some_and(|x| matches!(x, AnimAction::Reload | AnimAction::ReloadOpen)),
+                _ => false,
+            })
+        }
         // ---- ShowOff ----
         "applyeasing" => XVal::Num(ease(num(args, 0, 0.0), &text(args, 1), num(args, 2, 0.0) as i64)),
         // DNAM animation type, unarmed 0 [observed: plugins1, the unarmed player 0].

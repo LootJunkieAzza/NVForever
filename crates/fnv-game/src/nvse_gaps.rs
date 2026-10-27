@@ -39,6 +39,9 @@ pub struct GapsState {
     pub interaction_disabled: HashSet<FormId>,
     /// SetNthEffectBase's bases: (item, effect index).
     pub effect_bases: HashMap<(FormId, usize), FormId>,
+    /// Actors whose special idle scripts stopped (StopIdle, ForceStopIdle), for the
+    /// engine to take.
+    pub idle_stops: Vec<FormId>,
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
