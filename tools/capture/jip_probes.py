@@ -4400,6 +4400,65 @@ CONTROLS1_PROBES = (
     + [_c1("weap.cleanup", _form("rObj", NF["pistol10"]) + "rP.UnequipItem rObj 0 1\nrP.RemoveItem rObj 1 1\nSetFunctionValue 1")]
 )
 
+
+# hud1 (writes, session only): HUD reads that need no menu. GetHUDVisibilityOverride and
+# SetHUDVisibilityOverride (JohnnyGuitar; flag bits from the wiki page [documented]) read back
+# and put back; GetHUDShudderPower; GetReticlePos (JIP) size, and GetReticleTargetLimb with
+# nothing aimed at. Corner messages: GetNumQueuedCornerMessages (ShowOff) before, after three
+# MessageEx calls, and after ClearMessageQueue (JIP). Compass: GetNumCompassHostiles,
+# GetCompassTargets 0/1/2 sizes and GetNearestCompassHostile before and while a placed
+# NVProspectorFemaleT fights the player (god mode on, LU Console "tgm", and off after); the
+# NPC is disabled and deleted.
+def _h1(pid, body, text=False):
+    return (f"hud1.{pid}", "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\n" + _form("rP", NF["player"])
+            + 'let rNpc := rP.AuxVarGetRef "*nvfH1"\n' + body, text, None, "")
+
+
+def _h1v(pid, expr):
+    return _h1(pid, f"SetFunctionValue ({expr})")
+
+
+def _h1w(pid, n):
+    return [_h1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _h1compass(tag):
+    return ([_h1v(f"{tag}.hostiles.num", "GetNumCompassHostiles"),
+             _h1v(f"{tag}.hostiles.num.near", "GetNumCompassHostiles 100"),
+             _h1("%s.hostiles.size" % tag, "let aArr := GetCompassHostiles\nSetFunctionValue (ar_Size aArr)")]
+            + [_h1(f"{tag}.targets.{w}.size", f"let aArr := GetCompassTargets {w}\nSetFunctionValue (ar_Size aArr)") for w in (0, 1, 2)]
+            + [_h1(f"{tag}.nearest.npc", "let rObj := GetNearestCompassHostile\nSetFunctionValue (rObj == rNpc)"),
+               _h1(f"{tag}.nearest.valid", "let rObj := GetNearestCompassHostile\nSetFunctionValue (IsFormValid rObj)")])
+
+
+HUD1_PROBES = (
+    [_h1("vis.get", 'let fRes := GetHUDVisibilityOverride\nrP.AuxVarSetFlt "*nvfHV" fRes\nSetFunctionValue fRes'),
+     _h1("vis.set", "SetHUDVisibilityOverride 3\nSetFunctionValue (GetHUDVisibilityOverride)"),
+     _h1v("vis.set.next", "GetHUDVisibilityOverride"),
+     _h1("vis.restore", 'SetHUDVisibilityOverride (rP.AuxVarGetFlt "*nvfHV")\nrP.AuxVarErase "*nvfHV"\nSetFunctionValue (GetHUDVisibilityOverride)'),
+     _h1v("shudder", "GetHUDShudderPower"),
+     _h1("reticle.size", "let aArr := GetReticlePos\nSetFunctionValue (ar_Size aArr)"),
+     _h1v("reticle.limb", "GetReticleTargetLimb"),
+     _h1v("corner.before", "GetNumQueuedCornerMessages"),
+     _h1("corner.add", 'MessageEx "nvf one"\nMessageEx "nvf two"\nMessageEx "nvf three"\nSetFunctionValue (GetNumQueuedCornerMessages)'),
+     _h1v("corner.add.next", "GetNumQueuedCornerMessages"),
+     _h1("corner.clear", "ClearMessageQueue\nSetFunctionValue (GetNumQueuedCornerMessages)"),
+     _h1v("corner.clear.next", "GetNumQueuedCornerMessages")]
+    + _h1compass("calm")
+    + [_h1("npc.place", _form("rObj", FX["prospector"]) + 'let rNpc := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfH1" rNpc\nSetFunctionValue 1')]
+    + _h1w("npc.wait", 10)
+    + [_h1("npc.move", "rNpc.SetPos Y ((rP.GetPos Y) + 500)\nSetFunctionValue 1")]
+    + _h1w("npc.movewait", 10)
+    + _h1compass("npc.calm")
+    + [_h1("fight.start", 'Console "tgm"\nrNpc.StartCombat rP\nSetFunctionValue 1')]
+    + _h1w("fight.wait", 60)
+    + [_h1v("fight.incombat", "rNpc.IsInCombat")]
+    + _h1compass("fight")
+    + [_h1("cleanup", 'rNpc.StopCombat\nrNpc.Disable\nrNpc.MarkForDelete\nConsole "tgm"\nrP.AuxVarErase "*nvfH1"\nSetFunctionValue 1')]
+    + _h1w("cleanup.wait", 10)
+    + _h1compass("after")
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4453,11 +4512,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "reload1": RELOAD1_PROBES,
         "sound1": SOUND1_PROBES,
         "proj1": PROJ1_PROBES,
-        "controls1": CONTROLS1_PROBES}
+        "controls1": CONTROLS1_PROBES,
+        "hud1": HUD1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1"}
 
 
 def script(body):
