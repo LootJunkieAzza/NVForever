@@ -329,9 +329,21 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let k = num(args, 0, -1.0);
             yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
         }
-        // `weapon trait model`: the first-person model, 0 the plain one (WNAM), 1–7 the
-        // mod combinations (WNM1–WNM7) [documented: SetWeapon1stPersonModel; hypothesis:
-        // the trait numbers].
+        // `weapon trait [model]`: the first-person model, 0 the plain one (WNAM), 1–7 the
+        // mod combinations (WNM1–WNM7) [documented: SetWeapon1stPersonModel; observed:
+        // data1, the 10mm pistol's 0–3 read WNAM, WNM1, WNM2, WNM3; trait 0 set and back].
+        "getweapon1stpersonmodel" => {
+            let w = form(args, 0).unwrap_or(FormId(0));
+            let sub = match num(args, 1, -1.0) as i64 {
+                0 => "WNAM".to_string(),
+                k @ 1..=7 => format!("WNM{k}"),
+                _ => return Some(Ok(XVal::Ref(0))),
+            };
+            match crate::nvse::record_value(g, w, &sub, "") {
+                Some(XVal::Ref(r)) => XVal::Ref(r),
+                _ => XVal::Ref(0),
+            }
+        }
         "setweapon1stpersonmodel" => {
             let (Some(w), Some(m)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
