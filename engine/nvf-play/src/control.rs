@@ -662,28 +662,48 @@ pub fn orbit_shoulder(shoulder: [f32; 2], yaw: f32) -> [f32; 2] {
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DetachedCamera(pub bool);
 
-/// How fast a detached-camera player turns to the way they are pushed, radians a second
-/// [engineering choice: a half turn in a quarter second].
-pub const FREE_TURN_RATE: f32 = 4.0 * std::f32::consts::PI;
+/// How briskly a detached-camera player turns to the way they are pushed: the turn is a
+/// critically damped spring of this natural frequency, radians a second, so it eases out
+/// (with [`FREE_TURN_SPEED_UP`], in too): an eighth of a turn settles in about a third of
+/// a second, a quarter turn in 0.45 s, a half turn in 0.6 s [engineering choice: the owner 2026-10-27, a constant-rate turn "looks very
+/// slightly unnatural"].
+pub const FREE_TURN_SPRING: f32 = 14.0;
+/// The fastest that turn goes, radians a second [engineering choice: 540°/s].
+pub const FREE_TURN_MAX: f32 = 3.0 * std::f32::consts::PI;
+/// How fast the turn may speed up, radians a second squared: to its top speed in about a
+/// sixth of a second; slowing down is the spring's alone [engineering choice].
+pub const FREE_TURN_SPEED_UP: f32 = 60.0;
 
 /// An angle in (−π, π].
 pub fn wrap_angle(a: f32) -> f32 {
     std::f32::consts::PI - (std::f32::consts::PI - a).rem_euclid(std::f32::consts::TAU)
 }
 
-/// One frame of detached-camera movement: from the player's `heading`, the camera's
-/// `yaw` off it and the pushed `forward`/`right`, the new heading (turned at most `step`
-/// towards the pushed way as the camera sees it), the yaw that keeps the camera where it
-/// was, and how hard the player is pushed straight ahead.
-pub fn steer(heading: f32, yaw: f32, forward: f32, right: f32, step: f32) -> (f32, f32, f32) {
+/// One frame (`dt` seconds) of detached-camera movement: from the player's `heading`, the
+/// camera's `yaw` off it, the pushed `forward`/`right` and the turn's `spin` (radians a
+/// second, carried from frame to frame), the new heading (sprung towards the pushed way
+/// as the camera sees it: [`FREE_TURN_SPRING`]), the yaw that keeps the camera where it
+/// was, how hard the player is pushed straight ahead, and the new spin. Not pushed,
+/// nothing turns and the spin is lost.
+pub fn steer(heading: f32, yaw: f32, forward: f32, right: f32, spin: f32, dt: f32) -> (f32, f32, f32, f32) {
     let push = forward.hypot(right).min(1.0);
     if push == 0.0 {
-        return (heading, yaw, 0.0);
+        return (heading, yaw, 0.0, 0.0);
     }
     let camera = heading + yaw;
-    let turn = wrap_angle(camera + right.atan2(forward) - heading).clamp(-step, step);
+    let off = wrap_angle(camera + right.atan2(forward) - heading);
+    // A half turn's way round is the one already turning (no dithering at ±π).
+    let off = if off.abs() > 0.95 * std::f32::consts::PI && off * spin < 0.0 { off + std::f32::consts::TAU.copysign(spin) } else { off };
+    let w = FREE_TURN_SPRING;
+    let dt = dt.min(0.05);
+    let sprung = spin + (w * w * off - 2.0 * w * spin) * dt;
+    // Speeding up (the same way, or from turning the other way) at most so fast.
+    let sprung = if sprung.abs() > spin.abs() || sprung * spin < 0.0 { sprung.clamp(spin - FREE_TURN_SPEED_UP * dt, spin + FREE_TURN_SPEED_UP * dt) } else { sprung };
+    let spin = sprung.clamp(-FREE_TURN_MAX, FREE_TURN_MAX);
+    // Never past the way pushed.
+    let turn = if off >= 0.0 { (spin * dt).clamp(0.0, off) } else { (spin * dt).clamp(off, 0.0) };
     let h = (heading + turn).rem_euclid(std::f32::consts::TAU);
-    (h, wrap_angle(camera - h), push)
+    (h, wrap_angle(camera - h), push, spin)
 }
 
 /// The detached camera (module notes), after the frame's input and the locks: on in third
@@ -700,6 +720,7 @@ pub fn detach_camera(
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
     mut intent: ResMut<MoveIntent>,
+    mut spin: Local<f32>,
 ) {
     if *state.get() != PlayState::Playing {
         return;
@@ -718,9 +739,11 @@ pub fn detach_camera(
         info!("third-person camera: {}", if free { "detached, the player turns to the way they move" } else { "behind the player again" });
     }
     if !free {
+        *spin = 0.0;
         return;
     }
-    let (heading, yaw, push) = steer(player.heading, control.orbit.yaw, intent.forward, intent.right, FREE_TURN_RATE * time.delta_secs());
+    let (heading, yaw, push, s) = steer(player.heading, control.orbit.yaw, intent.forward, intent.right, *spin, time.delta_secs());
+    *spin = s;
     if push > 0.0 {
         player.heading = heading;
         control.orbit.yaw = yaw;
@@ -902,20 +925,34 @@ mod tests {
 
     #[test]
     fn a_detached_player_turns_to_the_way_pushed_and_the_camera_stays() {
-        use std::f32::consts::PI;
-        // Camera looking north (heading 0.3 + yaw −0.3), Back pressed: the player turns
-        // towards south, a step at a time, and is pushed straight ahead.
-        let (h, yaw, push) = steer(0.3, -0.3, -1.0, 0.0, 0.5);
-        assert!((h - 0.8).abs() < 1e-5 && (h + yaw).abs() < 1e-5 && push == 1.0, "{h} {yaw}");
-        // A big enough step: facing south outright.
-        let (h, yaw, _) = steer(0.3, -0.3, -1.0, 0.0, 10.0);
-        assert!((wrap_angle(h - PI)).abs() < 1e-5 && (wrap_angle(h + yaw)).abs() < 1e-5, "{h} {yaw}");
-        // Forward and right with the camera looking east: south-east. Diagonal pushes are
-        // not faster.
-        let (h, _, push) = steer(0.0, FRAC_PI_2, 1.0, 1.0, 10.0);
-        assert!((h - 3.0 * PI / 4.0).abs() < 1e-5 && (push - 1.0).abs() < 1e-6, "{h}");
-        // Not pushed: nothing turns.
-        assert_eq!(steer(1.0, 2.0, 0.0, 0.0, 10.0), (1.0, 2.0, 0.0));
+        use std::f32::consts::{FRAC_PI_4, PI};
+        // At 60 frames a second: the frames' headings, from facing a little off the
+        // camera's way (north: heading 0.3 + yaw −0.3) with forward/right pushed a second.
+        let run = |forward: f32, right: f32| {
+            let (mut h, mut yaw, mut spin) = (0.3, -0.3, 0.0);
+            (0..60)
+                .map(|_| {
+                    let push;
+                    (h, yaw, push, spin) = steer(h, yaw, forward, right, spin, 1.0 / 60.0);
+                    // The camera stays put; pushed straight ahead, never faster on a diagonal.
+                    assert!(wrap_angle(h + yaw).abs() < 1e-4 && push == 1.0, "{h} {yaw} {push}");
+                    h
+                })
+                .collect::<Vec<f32>>()
+        };
+        // Back: about a half turn to face south, easing in (the first frame at no more than
+        // half the top speed), at most 540°/s, settled within 0.6 s, one way round.
+        let back = run(-1.0, 0.0);
+        assert!(wrap_angle(back[0] - 0.3).abs() <= 0.5 * FREE_TURN_MAX / 60.0, "{}", back[0]);
+        assert!(back.windows(2).all(|w| wrap_angle(w[1] - w[0]).abs() <= FREE_TURN_MAX / 60.0 + 1e-5));
+        assert!(back[36..].iter().all(|h| wrap_angle(h - PI).abs() < 3f32.to_radians()), "{:?}", &back[25..35]);
+        assert!(back.windows(2).all(|w| wrap_angle(w[1] - w[0]) >= -1e-5), "one way round");
+        // Forward and right: north-east, settled within 0.4 s, never past it.
+        let diag = run(1.0, 1.0);
+        assert!(diag[24..].iter().all(|h| (h - FRAC_PI_4).abs() < 2f32.to_radians()), "{:?}", &diag[15..25]);
+        assert!(diag.iter().all(|h| *h <= FRAC_PI_4 + 1e-4));
+        // Not pushed: nothing turns and the spin goes.
+        assert_eq!(steer(1.0, 2.0, 0.0, 0.0, 3.0, 0.1), (1.0, 2.0, 0.0, 0.0));
         assert!((wrap_angle(3.0 * PI / 2.0) + FRAC_PI_2).abs() < 1e-5 && (wrap_angle(PI) - PI).abs() < 1e-5);
     }
 
