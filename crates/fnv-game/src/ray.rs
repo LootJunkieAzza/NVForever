@@ -4,9 +4,18 @@
 
 use std::cell::Cell;
 
+/// What a cast meets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastKind {
+    /// Everything but the terrain and the player (GetP2PRayCastRange).
+    Scene,
+    /// The terrain alone (GetTerrainHeight).
+    Terrain,
+}
+
 /// A cast from one game-space point toward another: the distance to the first hit along
 /// the segment, `None` for no hit.
-pub type Cast<'a> = dyn Fn([f32; 3], [f32; 3]) -> Option<f32> + 'a;
+pub type Cast<'a> = dyn Fn([f32; 3], [f32; 3], CastKind) -> Option<f32> + 'a;
 
 thread_local! {
     static CASTER: Cell<Option<*const Cast<'static>>> = const { Cell::new(None) };
@@ -29,11 +38,11 @@ pub fn with_caster<R>(caster: &Cast<'_>, body: impl FnOnce() -> R) -> R {
 }
 
 /// The engine's answer for a cast from `from` to `to`; `None` without a caster.
-pub fn cast(from: [f32; 3], to: [f32; 3]) -> Option<f32> {
+pub fn cast(from: [f32; 3], to: [f32; 3], kind: CastKind) -> Option<f32> {
     CASTER.with(|c| c.get()).and_then(|p| {
         // SAFETY: set by `with_caster`, whose borrow is live while the pointer is set.
         let f = unsafe { &*p };
-        f(from, to)
+        f(from, to, kind)
     })
 }
 
@@ -43,11 +52,11 @@ mod tests {
 
     #[test]
     fn a_lent_caster_answers_only_while_lent() {
-        assert_eq!(cast([0.0; 3], [0.0, 10.0, 0.0]), None);
+        assert_eq!(cast([0.0; 3], [0.0, 10.0, 0.0], CastKind::Scene), None);
         let wall = 4.0f32;
-        let f = move |a: [f32; 3], b: [f32; 3]| (b[1] - a[1] > wall).then_some(wall);
-        let inside = with_caster(&f, || cast([0.0; 3], [0.0, 10.0, 0.0]));
+        let f = move |a: [f32; 3], b: [f32; 3], _k: CastKind| (b[1] - a[1] > wall).then_some(wall);
+        let inside = with_caster(&f, || cast([0.0; 3], [0.0, 10.0, 0.0], CastKind::Scene));
         assert_eq!(inside, Some(4.0));
-        assert_eq!(cast([0.0; 3], [0.0, 10.0, 0.0]), None);
+        assert_eq!(cast([0.0; 3], [0.0, 10.0, 0.0], CastKind::Scene), None);
     }
 }

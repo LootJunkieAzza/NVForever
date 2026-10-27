@@ -1216,7 +1216,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if a == b {
                 return Some(Ok(zero));
             }
-            let hit = crate::ray::cast(a, b);
+            let hit = crate::ray::cast(a, b, crate::ray::CastKind::Scene);
             tracing::debug!("GetP2PRayCastRange {a:?} -> {b:?}: {hit:?}");
             XVal::Num(hit.map_or(0.0, f64::from))
         }
@@ -1230,6 +1230,33 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             XVal::Num(if on { 2.0 } else { 0.0 })
         }
+        // `x y`: the terrain's height there, from the engine's loaded terrain; outside it
+        // -20.48 [observed: gaps7, 60.3 at the player; -20.48 far outside the loaded cells].
+        "getterrainheight" => {
+            let (x, y) = (num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32);
+            let top = 100_000.0f32;
+            match crate::ray::cast([x, y, top], [x, y, -top], crate::ray::CastKind::Terrain) {
+                Some(d) => XVal::Num(f64::from(top - d)),
+                None => XVal::Num(-20.48),
+            }
+        }
+        // `[max]`: the distance along the crosshair to what it meets, 0 for nothing
+        // within reach (the engine's crosshair ray) [observed: gaps8, 93.84 on the save;
+        // hypothesis: nothing reads 0].
+        "getreticlerange" => {
+            let hit = g.senses.reticle.as_ref().and_then(|r| r.hit);
+            let max = num(args, 0, 0.0);
+            XVal::Num(hit.map_or(0.0, f64::from).min(if max > 0.0 { max } else { f64::MAX }))
+        }
+        // An attack is on the way: the body's attack, follow-through or return action
+        // [documented: IsAttacking; observed: gaps4, 0 standing; hypothesis: the actions].
+        "isattacking" => {
+            use crate::anim_state::AnimAction;
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            yes(g.senses.anim.get(&a).and_then(|s| s.action).is_some_and(|x| matches!(x, AnimAction::Attack | AnimAction::FollowThrough | AnimAction::AttackReturn)))
+        }
+        // [documented: IsPCInCombat] the player is hunted (`awareness`).
+        "ispcincombat" => yes(g.awareness.hunted(FormId::PLAYER_REF)),
         // Nothing to reload: the engine draws the equipped models as they are.
         "reloadequippedmodels" => zero,
         // NVForever is no 32-bit program [observed: gaps4, 0].
