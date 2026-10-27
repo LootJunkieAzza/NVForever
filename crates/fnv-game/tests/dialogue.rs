@@ -112,6 +112,7 @@ const CELL: u32 = 0x200;
 const NOTE_TAPE: u32 = 0xA60;
 const T_TAPE: u32 = 0xA61;
 const S_TAPE: u32 = 0xA62;
+const PATROL_REF: u32 = 0x322;
 const NPC1_REF: u32 = 0x320;
 const NPC2_REF: u32 = 0x321;
 
@@ -561,7 +562,9 @@ fn plugin_bytes() -> Vec<u8> {
     let note = record(b"NOTE", 0, NOTE_TAPE, &[sub(b"EDID", z("TestTapeNote")), sub(b"DATA", vec![3]), sub(b"SNAM", u32b(NPC1)), sub(b"TNAM", u32b(T_TAPE))]);
     let placed = |id: u32, base: u32, edid: &str| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TalkCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(NPC1_REF, NPC1, "TalkerREF"), placed(NPC2_REF, NPC2, "ChatterREF")].concat()));
+    // A patrol point whose result script (after XPPA) sets TestOut to 9.
+    let patrol = record(b"REFR", 0, PATROL_REF, &[vec![sub(b"EDID", z("PatrolREF")), sub(b"NAME", u32b(NPC2)), sub(b"XPRD", f32b(0.0)), sub(b"XPPA", vec![])], result(Some("9")), vec![sub(b"DATA", vec![0; 24])]].concat());
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(NPC1_REF, NPC1, "TalkerREF"), placed(NPC2_REF, NPC2, "ChatterREF"), patrol].concat()));
     [
         tes4(),
         top(b"GLOB", &globs),
@@ -1488,4 +1491,20 @@ fn a_voice_note_runs_its_lines_result_scripts() {
     let obs = t["observations"].as_array().unwrap();
     assert_eq!(obs[0]["info"], json!(FormId(S_TAPE).to_string()));
     assert_eq!(obs[1]["value"], json!(7.0));
+}
+
+/// The runner's `patrol_point` stands in for an actor walking to a patrol point: the
+/// point's result script runs (`Game::patrol_point_reached`; Dead Money's vault path
+/// marker sets bElijahArrivesVault this way).
+#[test]
+fn the_runner_reaches_a_patrol_point() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [{"op": "patrol_point", "actor": "TalkerREF", "point": "PatrolREF"}, {"op": "get_global", "name": "TestOut", "label": "out"}]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    assert_eq!(t["steps"][0].get("error"), None, "{}", t["steps"][0]);
+    assert_eq!(t["observations"][0]["value"], json!(9.0));
 }

@@ -329,6 +329,9 @@ pub enum Action {
     /// then its end script (`Game::holotape_script`; the voice's length is not waited
     /// for); observation `info`: the line, null for a note that plays none.
     PlayNote { note: String, #[serde(default)] label: Option<String> },
+    /// An actor arriving at a patrol point (the AI's walk, stood in):
+    /// `Game::patrol_point_reached`, the point's result script and topic.
+    PatrolPoint { actor: String, point: String },
     /// A comment in the input (why the next stand-in is there); no effect, no frames.
     Note { text: String },
     /// A console line run as the console runs it (`functions::console::call_words`):
@@ -1687,6 +1690,10 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             g.holotape_script(n, 1);
             obs.insert("info".into(), info.map_or(Json::Null, |i| json!(i.to_string())));
             lab = l.clone();
+        }
+        Action::PatrolPoint { actor, point } => {
+            let (a, p) = (resolve(g, actor)?, resolve(g, point)?);
+            g.patrol_point_reached(a, p);
         }
     }
     Ok(lab.map(|l| (l, obs)))
