@@ -10486,6 +10486,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "doc-chair-player-seated"
+source = "owner report 2026-10-27: sat on the couch while Doc Mitchell was still by the Vigor Tester, Doc got stuck on his way to his chair (VCG01DocMitchellTravelToExamSpot, VCG01 stage 80) and was moved on by the stuck rule"
+note = "stage 80 sends Doc to his chair (DocMitchellChairREF); he is put at his Vigor Tester marker (VCG01DocMarkerFaceTesterREF) and the player sits on the couch (00103E55) before he gets there. Before the fix the stuck rule moved him on 7 times along the 784 units: the physics step left the walked actors still while furniture held the player (nvf-play player.rs step_npcs_alone)"
+areas = ["ai", "furniture", "nav"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:setstage 00104C1C 80;8.1:00104C0F.moveto 00104C0E;8.3:close", NVF_PLAY_TEST_FACE = "9:00103E55", NVF_PLAY_TEST_LOOK = "9.5:283:-35", NVF_PLAY_TEST_ACTIVATE = "10" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { text = "furniture: the player is on 00103E55", label = "the player sits on the couch" },
+  { text = "furniture: 00104C0F is on 001055B8", label = "Doc Mitchell gets onto his chair" },
+  { text = "dialogue: conversation with DocMitchellREF started", label = "and starts the word test with the player on the couch (GSDocMitchellCouchTrigger's script)" },
+]
+forbid = [
+  { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
 name = "goodbye-greeting-stops-walker"
 source = "owner 2026-10-27 (the Goodsprings settler's water line 0010B3D6 said walking away): an actor saying its Goodbye greeting at the player stops and faces the player, its package going on after (docs/design/dialogue-play.md §1, Game::greets_player)"
 areas = ["dialogue", "residents"]
