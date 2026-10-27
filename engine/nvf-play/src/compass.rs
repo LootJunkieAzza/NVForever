@@ -203,6 +203,7 @@ fn gather(
     time: Res<Time>,
     state: Res<State<PlayState>>,
     player: Option<Res<Player>>,
+    control: Option<Res<crate::control::PlayerControl>>,
     location: Option<Res<Location>>,
     phys: Option<Res<PhysState>>,
     markers: Option<Res<DataState>>,
@@ -220,7 +221,9 @@ fn gather(
     }
     *poll = 0.0;
     let (Some(player), Some(phys)) = (player, phys) else { return };
-    let (feet, heading) = (player.feet, player.heading.to_degrees());
+    // Marks stand at their bearing from where the camera looks (the strip's middle).
+    let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
+    let feet = player.feet;
     let here = [feet[0], feet[1]];
     let bodies: std::collections::HashMap<u32, [f32; 3]> = phys.npcs.iter().map(|(&id, b)| (id, b.ch.feet)).collect();
     let mut marks: Vec<(Mark, i32)> = Vec::new();
