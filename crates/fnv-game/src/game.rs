@@ -2522,6 +2522,11 @@ impl<'a> Game<'a> {
     /// OnHit (creature, 0), OnActorEquip and OnEquip (player, pistol), OnLoad (the ref
     /// twice)]. OnDeath and OnActivate are sent where they happen, with their own
     /// arguments.
+    /// Whether an extender handler is set for `event` (lower case).
+    pub(crate) fn handled(&self, event: &str) -> bool {
+        self.handlers.iter().any(|h| h.event == event)
+    }
+
     pub(crate) fn ext_event(&mut self, ev: u16, on: FormId, other: Option<Value>) {
         if self.handlers.is_empty() || matches!(ev, event::GAME_MODE | event::MENU_MODE | event::ON_DEATH | event::ON_ACTIVATE) {
             return;
@@ -2601,8 +2606,9 @@ impl<'a> Game<'a> {
     /// it (a weapon's or a blast's object effect on an object it hits, a spell on an
     /// actor), the effect as the block's parameter. Returns whether a block ran.
     pub fn magic_effect_hits(&mut self, target: FormId, items: &[FormId], caster: Option<FormId>) -> bool {
-        let Some(script) = self.ref_script(target) else { return false };
-        if !self.data.script(script).is_some_and(|u| u.has_block(event::ON_MAGIC_EFFECT_HIT)) {
+        // The extender's OnMagicEffectHit handlers hear it on targets without the block.
+        let has_block = self.ref_script(target).is_some_and(|s| self.data.script(s).is_some_and(|u| u.has_block(event::ON_MAGIC_EFFECT_HIT)));
+        if !has_block && self.handlers.is_empty() {
             return false;
         }
         let effects: Vec<FormId> = items.iter().filter_map(|i| self.data.effect_items.get(i)).flatten().map(|e| e.effect).collect();
@@ -3312,7 +3318,8 @@ impl<'a> Game<'a> {
     /// jukebox's and the broken radio's OnLoad effects were not there on the line after
     /// Enable and were there one frame later, layer5-captures.md §8.3 d].
     pub fn note_enabled(&mut self, r: FormId) {
-        let has = self.ref_script(r).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD));
+        // The extender's OnLoad handlers hear every reference whose 3D loads, scripted or not.
+        let has = self.ref_script(r).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD)) || self.handled("onload");
         if has && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && !self.pending_onload.contains(&r) {
             self.pending_onload.push(r);
         }
@@ -3410,11 +3417,20 @@ impl<'a> Game<'a> {
         // layer5-captures.md §8.3 d]. Their Enable queues OnLoad again
         // (`Game::note_enabled`). References disabled through an enable parent are
         // treated the same [hypothesis: the plane was disabled by its own flag].
+        let all = self.handled("onload");
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
-            for r in refs {
+            for &r in &refs {
                 if self.world.peek(r).is_none_or(|s| !s.deleted) {
                     self.ref_event(r, event::ON_LOAD, None, None);
+                }
+            }
+            // The extender's OnLoad handlers hear the unscripted references too.
+            if all {
+                for r in self.refs_in_cell(c, false) {
+                    if !refs.contains(&r) {
+                        self.ext_event(event::ON_LOAD, r, None);
+                    }
                 }
             }
         }
@@ -3709,6 +3725,9 @@ impl<'a> Game<'a> {
         let data = self.data;
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
         let mut started: Vec<crate::aid::Applied> = Vec::new();
+        // The effects that took, kept here: one of duration 0 has finished by the hit check
+        // and is a hit all the same [hypothesis].
+        let mut took_ids: Vec<u32> = Vec::new();
         for (index, e) in items.iter().enumerate() {
             if mods.only.is_some_and(|o| o != index) {
                 continue;
@@ -3787,6 +3806,7 @@ impl<'a> Game<'a> {
                 continue;
             }
             self.start_change(id);
+            took_ids.push(id);
             let change = self.effects.iter().find(|x| x.id == id).and_then(|x| x.change);
             started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false });
             self.effect_archetype_start(id);
@@ -3798,7 +3818,7 @@ impl<'a> Game<'a> {
         // The target's OnMagicEffectHit for each effect that took (not abilities and worn
         // enchantments, which are not hits) [hypothesis: after the effects start].
         if !permanent {
-            let took = |id: u32| self.effects.iter().any(|x| x.id == id && !x.inactive);
+            let took = |id: u32| took_ids.contains(&id) || self.effects.iter().any(|x| x.id == id && !x.inactive);
             let mut hit: Vec<FormId> = started.iter().filter(|a| a.extended || took(a.id)).map(|a| a.effect).collect();
             hit.dedup();
             for e in hit {
