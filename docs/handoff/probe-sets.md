@@ -71,6 +71,7 @@ nothing is marked or loosened for them.
 | data1 | 75 | none yet | – | record setters still unbuilt in the counts, each set, read back and put back; ActorHasBaseFlag |
 | data2 | 54 | none yet | – | actor base flags (low) and ActorHasBaseFlag on four NPCs, NPC height, equipped data, activator water, ar_Cat |
 | data3 | 32 | none yet | – | map marker names, SortFormsByType order, ListAddArray/ListAddList at index 0, unique items, RewardXPExact, JohnnyGuitar AV-change event |
+| anim1 | 53 | none (engine side) | – | player idles in third person: IsAnimPlaying/IsAnimPlayingEx, ForcePlayIdle, ForceStopIdle, StopIdle, GetPlayedIdle per frame |
 
 ## Coverage
 

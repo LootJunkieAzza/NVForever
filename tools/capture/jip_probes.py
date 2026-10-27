@@ -3962,6 +3962,60 @@ DATA3_PROBES = (
        _d3("avchange.got.after", 'let fRes := rPlayer.AuxVarGetFlt "*nvfAV"\nrPlayer.AuxVarErase "*nvfAV"\nSetFunctionValue fRes')]
 )
 
+# Sixty-fifth set (this machine's share of the capture split, 2026-10-27: animation): the
+# player in third person, IsAnimPlaying and JIP IsAnimPlayingEx (categories 1 misc, 2
+# movement, 3 attack, 4 reload; sub-type 0 any, 1 idle) standing, then kNVSE ForcePlayIdle
+# LooseCheeringClappingNoArmsUp (IDLE 171DBB) read frame by frame, ForceStopIdle, the idle
+# again and JIP StopIdle, with JIP GetPlayedIdle each frame (IsAnimPlayingEx 1 1 read 1
+# while the player only stood, so it cannot show the idle [observed]). The view is put back. Rows whose frame of change varies between
+# captures are dropped after a second capture.
+FX.update(clapidle="171DBB")
+
+
+def _a1(pid, body, text=False):
+    return (f"anim.{pid}", "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]) + body,
+            text, None, "")
+
+
+def _a1v(pid, expr):
+    return _a1(pid, f"SetFunctionValue ({expr})")
+
+
+_EX = ((1, 0), (1, 1), (2, 0), (3, 0), (4, 0))
+
+
+def _anim_rows(prefix):
+    return ([_a1v(f"{prefix}.isanimplaying", "rPlayer.IsAnimPlaying")]
+            + [_a1v(f"{prefix}.ex.{c}.{t}", f"rPlayer.IsAnimPlayingEx {c} {t} 0") for c, t in _EX])
+
+
+_PLAYED = "let rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)"
+
+
+def _played(pid):
+    return _a1(pid, _PLAYED, True)
+
+
+ANIM1_PROBES = (
+    [_a1("view.third", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfA1" fRes\nToggleFirstPerson 0\nSetFunctionValue fRes')]
+    + [_a1(f"view.wait{i}", "SetFunctionValue 1") for i in range(4)]
+    + _anim_rows("stand") + [_played("stand.played")]
+    + [_a1("idle.play", _form("rObj", FX["clapidle"]) + "rPlayer.ForcePlayIdle rObj\nSetFunctionValue 1")]
+    + [_played(f"idle.f{i}.played") for i in range(6)]
+    + _anim_rows("idle")
+    + [_a1("idle.forcestop", "rPlayer.ForceStopIdle\nSetFunctionValue 1")]
+    + [_played(f"forcestop.f{i}.played") for i in range(4)]
+    + [_a1("idle.play2", _form("rObj", FX["clapidle"]) + "rPlayer.ForcePlayIdle rObj\nSetFunctionValue 1")]
+    + [_a1(f"idle2.wait{i}", "SetFunctionValue 1") for i in range(4)]
+    + [_played("idle2.played"),
+       _a1("idle.stopidle", "rPlayer.StopIdle\nSetFunctionValue 1")]
+    + [_played(f"stopidle.f{i}.played") for i in range(4)]
+    + _anim_rows("after")
+    + [_a1("view.restore", 'ToggleFirstPerson (rPlayer.AuxVarGetFlt "*nvfA1")\nrPlayer.AuxVarErase "*nvfA1"\nSetFunctionValue 1')]
+    + [_a1(f"view.rwait{i}", "SetFunctionValue 1") for i in range(4)]
+    + [_a1v("view.restored", "IsPC1stPerson")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4009,11 +4063,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "glta-order": GLTA_ORDER_PROBES,
         "data1": DATA1_PROBES,
         "data2": DATA2_PROBES,
-        "data3": DATA3_PROBES}
+        "data3": DATA3_PROBES,
+        "anim1": ANIM1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1"}
 
 
 def script(body):
