@@ -3559,6 +3559,70 @@ PLUGINS2_PROBES = (
            "SetFunctionValue (GetFormIDString rOther)", True)]
 )
 
+# Fifty-seventh set: whether GetName on a reference ever reads the reference's own name
+# (its FULL) rather than its base's, as the extender core asked after plugins2 (the
+# Goodsprings marker 0CDF51 read "<no name>"): the marker's base, then every reference
+# within two cells of the player (JIP GetRefs) whose GetName differs from its base's
+# GetName. Then the last plugin functions with something to read: JohnnyGuitar's add-perk
+# and remove-perk events (Toughness added to the player and removed), LU SetGlobalValue
+# (TimeScale, put back from GetGlobalValue: SetGlobalValue returned 0 in a first run, not the
+# previous value the wiki gives [observed]), JohnnyGuitar GetAvailableRadios.
+
+
+def _p3(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nref rFirst\nfloat fRes\nfloat fAx\nfloat fAy\narray_var aA\n"
+            "string_var sText\nstring_var sName\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _p3v(pid, expr, text=False):
+    return _p3(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _wait3(pid):
+    return _p3(pid, "SetFunctionValue 1")
+
+
+# Walks the references near the player; fAy counts those named apart from their base,
+# rFirst is the first of them.
+_NAMEWALK = ("let aA := GetRefs 0 2\nlet fAx := 0\nlet fAy := 0\nwhile fAx < (ar_Size aA)\nlet rObj := aA[fAx]\n"
+             "let rOther := rObj.GetBaseObject\nlet sText := rObj.GetName\nlet sName := GetName rOther\n"
+             "if eval (sText != sName)\nlet fAy := fAy + 1\nif fAy == 1\nlet rFirst := rObj\nendif\nendif\n"
+             "let fAx := fAx + 1\nloop\n")
+PLUGINS3_PROBES = (
+    [_p3("refname.marker.base", _form("rObj", FX["gsmarker"]) + "let rOther := rObj.GetBaseObject\n"
+         "SetFunctionValue (GetFormIDString rOther)", True),
+     _p3("refname.marker.basename", _form("rObj", FX["gsmarker"]) + "let rOther := rObj.GetBaseObject\n"
+         "SetFunctionValue (GetName rOther)", True),
+     _p3("refname.near.count", "let aA := GetRefs 0 2\nSetFunctionValue (ar_Size aA)"),
+     _p3("refname.near.differ", _NAMEWALK + "SetFunctionValue fAy"),
+     _p3("refname.near.first", _NAMEWALK + "if fAy\nSetFunctionValue (GetFormIDString rFirst)\nelse\nSetFunctionValue \"none\"\nendif", True),
+     _p3("refname.near.first.name", _NAMEWALK + "if fAy\nSetFunctionValue (rFirst.GetName)\nelse\nSetFunctionValue \"none\"\nendif", True),
+     _p3("refname.near.first.basename", _NAMEWALK + "if fAy\nlet rOther := rFirst.GetBaseObject\nSetFunctionValue (GetName rOther)\n"
+         "else\nSetFunctionValue \"none\"\nendif", True)]
+    # JohnnyGuitar perk events.
+    + [_p3("jg.perkevents.set", _form("rObj", FX["toughness"])
+           + 'SetJohnnyOnAddPerkEventHandler 1 (Begin Function {ref rPk, int iA, int iB}\n'
+             '  rPlayer.AuxVarSetFlt "*nvfAP" (iA * 10 + iB)\n  rPlayer.AuxVarSetRef "*nvfAK" rPk\nEnd) 0 rObj\n'
+           + 'SetJohnnyOnRemovePerkEventHandler 1 (Begin Function {ref rPk}\n  rPlayer.AuxVarSetRef "*nvfRK" rPk\nEnd) 0 rObj\n'
+           + "SetFunctionValue 1"),
+       _p3("jg.perkevents.add", _form("rObj", FX["toughness"]) + "rPlayer.AddPerk rObj\nSetFunctionValue (rPlayer.HasPerk rObj)"),
+       _wait3("jg.perkevents.wait0"), _wait3("jg.perkevents.wait1"),
+       _p3v("jg.perkevents.add.ranks", 'rPlayer.AuxVarGetFlt "*nvfAP"'),
+       _p3v("jg.perkevents.add.perk", 'GetFormIDString (rPlayer.AuxVarGetRef "*nvfAK")', True),
+       _p3("jg.perkevents.remove", _form("rObj", FX["toughness"]) + "rPlayer.RemovePerk rObj\nSetFunctionValue (rPlayer.HasPerk rObj)"),
+       _wait3("jg.perkevents.wait2"), _wait3("jg.perkevents.wait3"),
+       _p3v("jg.perkevents.remove.perk", 'GetFormIDString (rPlayer.AuxVarGetRef "*nvfRK")', True),
+       _p3("jg.perkevents.clear", 'rPlayer.AuxVarErase "*nvfAP"\nrPlayer.AuxVarErase "*nvfAK"\nrPlayer.AuxVarErase "*nvfRK"\n'
+           "SetFunctionValue 1")]
+    # LU SetGlobalValue, put back.
+    + [_p3("lu.setglobal", 'let fRes := GetGlobalValue TimeScale\nrPlayer.AuxVarSetFlt "*nvfTS" fRes\nlet fRes := SetGlobalValue TimeScale 31\n'
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetGlobalValue TimeScale))', True),
+       _p3("lu.setglobal.restore", 'let fRes := SetGlobalValue TimeScale (rPlayer.AuxVarGetFlt "*nvfTS")\nrPlayer.AuxVarErase "*nvfTS"\n'
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetGlobalValue TimeScale))', True),
+       _p3("jg.availableradios.player", "let aA := rPlayer.GetAvailableRadios\nSetFunctionValue (ar_Size aA)")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3598,11 +3662,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps10": GAPS10_PROBES,
         "gaps11": GAPS11_PROBES,
         "plugins1": PLUGINS1_PROBES,
-        "plugins2": PLUGINS2_PROBES}
+        "plugins2": PLUGINS2_PROBES,
+        "plugins3": PLUGINS3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3"}
 
 
 def script(body):
