@@ -26,6 +26,7 @@ const ITEM: u32 = 0x730;
 const DOOR_REF: u32 = 0x300;
 const TRAP_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
+const KILL_ACTOR: u16 = 0x108B;
 
 fn r(i: u16) -> Vec<u8> {
     [vec![b'r'], le16(i)].concat()
@@ -34,6 +35,11 @@ fn r(i: u16) -> Vec<u8> {
 /// `set <var i> to <var i> + 1`.
 fn bump(i: u16) -> Vec<u8> {
     set(var(b's', i), ex(&[var(b's', i), a("1"), a("+")]))
+}
+
+/// A function call statement with no parameters.
+fn call0(op: u16) -> Vec<u8> {
+    st(op, &le16(0))
 }
 
 /// A block with one form parameter (the unit's reference `i`).
@@ -53,7 +59,8 @@ fn placed(sig: &[u8; 4], fid: u32, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     // Door: nOpened (1), nClosed (2). Trap: nBurnt (1), nOther (2). NPC: nPowder (1),
-    // nBurnt (2), nSold (3).
+    // nBurnt (2), nSold (3), nKilled (4), nSeen (5): OnActivate kills it and then sets
+    // nKilled, OnDeath copies nKilled into nSeen.
     let scripts = [
         record(b"SCPT", 0, DOOR_SCRIPT, &[vec![sub(b"EDID", z("DoorScript"))], unit(0, &script(&[(event::ON_OPEN, None, bump(1)), (event::ON_CLOSE, None, bump(2))]), &[(1, "nOpened", 1), (2, "nClosed", 1)], &[])].concat()),
         record(
@@ -68,7 +75,18 @@ fn plugin_bytes() -> Vec<u8> {
             NPC_SCRIPT,
             &[
                 vec![sub(b"EDID", z("NpcScript"))],
-                unit(0, &script(&[(event::ON_ACTOR_EQUIP, on(1), bump(1)), (event::ON_MAGIC_EFFECT_HIT, on(2), bump(2)), (event::ON_SELL, None, bump(3))]), &[(1, "nPowder", 1), (2, "nBurnt", 1), (3, "nSold", 1)], &[ITEM, BURN_FX]),
+                unit(
+                    0,
+                    &script(&[
+                        (event::ON_ACTOR_EQUIP, on(1), bump(1)),
+                        (event::ON_MAGIC_EFFECT_HIT, on(2), bump(2)),
+                        (event::ON_SELL, None, bump(3)),
+                        (event::ON_ACTIVATE, None, [call0(KILL_ACTOR), set(var(b's', 4), ex(&[a("1")]))].concat()),
+                        (event::ON_DEATH, None, set(var(b's', 5), ex(&[var(b's', 4)]))),
+                    ]),
+                    &[(1, "nPowder", 1), (2, "nBurnt", 1), (3, "nSold", 1), (4, "nKilled", 1), (5, "nSeen", 1)],
+                    &[ITEM, BURN_FX],
+                ),
             ]
             .concat(),
         ),
@@ -195,4 +213,17 @@ fn on_actor_equip_runs_on_the_actor_and_on_sell_never_runs() {
     // Nothing in the engine fires OnSell; the frames do not run it either.
     g.frames(5);
     assert_eq!(count(&g, NPC_REF, 3), 0.0);
+}
+
+#[test]
+fn on_death_of_a_kill_actor_waits_for_the_killing_script_to_finish() {
+    // One for My Baby: the victim's script calls KillActor and then sets Boone's
+    // bGotRevenge; its OnDeath clears the accused when bGotRevenge is still 0. OnDeath
+    // runs after the killing script, so it sees what the script set after KillActor.
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.ref_event(FormId(NPC_REF), event::ON_ACTIVATE, None, None));
+    assert!(g.is_dead(FormId(NPC_REF)));
+    assert_eq!(count(&g, NPC_REF, 4), 1.0);
+    assert_eq!(count(&g, NPC_REF, 5), 1.0, "OnDeath ran before the rest of the killing block");
 }

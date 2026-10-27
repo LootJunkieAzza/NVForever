@@ -335,6 +335,28 @@ impl Game<'_> {
         // The body gets its death item before OnDeath runs [hypothesis: the order]
         // (`crate::death_items`).
         self.give_death_items(r, killer);
+        // OnDeath waits for the script that killed to finish (`Game::on_death`).
+        if self.in_script() {
+            self.defer_death(r, killer);
+        } else {
+            self.on_death(r, killer);
+        }
+        // Its effects end, but those whose base effect has "No Death Dispel" (a flamer's
+        // burning) and abilities (docs/spec-notes/hit-effects.md §4).
+        let data = self.data;
+        self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
+        self.death_line(r, killer);
+        true
+    }
+
+    /// The OnDeath of `r`: the extender's handlers, then the block. A death inside a
+    /// script run (KillActor) runs it once the outermost script has finished, not in the
+    /// middle of the killing script [hypothesis: One for My Baby's victim scripts call
+    /// `KillActor` and only then set Boone's `bGotRevenge`, while their OnDeath clears
+    /// the accused (`nAccusedIndex`) when `bGotRevenge` is still 0; run at once, every
+    /// revenge kill would clear it and Boone's "I found the bill of sale" line, which
+    /// needs it, would never show].
+    pub(crate) fn on_death(&mut self, r: FormId, killer: Option<FormId>) {
         // The extender's OnDeath handlers, before the block [hypothesis on the order;
         // docs/spec-notes/ext-events.md].
         let killer_val = fnv_script::vm::XVal::Ref(killer.map_or(0, |k| k.0));
@@ -345,12 +367,6 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.teammate = false;
         }
-        // Its effects end, but those whose base effect has "No Death Dispel" (a flamer's
-        // burning) and abilities (docs/spec-notes/hit-effects.md §4).
-        let data = self.data;
-        self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
-        self.death_line(r, killer);
-        true
     }
 
     /// The share (0–1) of a harmful effect's magnitude the target resists: its value of
