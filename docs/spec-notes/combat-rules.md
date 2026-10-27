@@ -482,7 +482,7 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   opens its inventory in the container menu (the dead-actor rule of
   `Game::default_activation`, now also on the by-hand path).
 - **HUD** [design]:
-  - a hit marker (white, red on a kill);
+  - no hit marker at the crosshair (removed at the owner's request 2026-10-27);
   - the last target's name and health bar for 4 s;
   - the player's health (`HP now/max`);
   - a line per kill with its XP.
