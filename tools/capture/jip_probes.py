@@ -3471,6 +3471,94 @@ PLUGINS1_PROBES = (
        _p1w("so.weaponranged.knife", FX["knife"], "IsWeaponRanged rObj")]
 )
 
+# Fifty-sixth set: what the extender core asked after plugins1 (GetIngestibleFlag on food,
+# drinks and a poison; ApplyEasing's other names; IsDLLLoaded on every DLL in the game's
+# Data\NVSE\Plugins folder and the extender's own), then more LU, JohnnyGuitar and
+# ShowOff functions: map markers, pickup sounds, recipe subcategories, activator sounds,
+# form lists. Forms from fnvtool esm inventory [observed]: Cram 08C552, NukaCola 01519E,
+# Beer 015197, NVPoisonGreaseScorpion 13D60F, the Goodsprings map marker 0CDF51,
+# RepNVGoodsprings 104C22, RepNVPrimm 0F2406. Reputation, sounds, subcategory and form list
+# are put back, except the stimpak's pickup and putdown sounds: setting them back to none
+# left the new sound in place [observed], session only. The marker's name is session only.
+FX.update(cram="8C552", nuka_cola="1519E", beer="15197", greasepoison="13D60F", gsmarker="CDF51", repprimm="F2406")
+
+
+def _p2(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _p2v(pid, expr, text=False):
+    return _p2(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _p2w(pid, key, expr, text=False):
+    return _p2(pid, _form("rObj", key) + f"SetFunctionValue ({expr})", text)
+
+
+def _restore2(setter, aux):
+    return (f'let rOther := rPlayer.AuxVarGetRef "{aux}"\nif rOther\n{setter} rOther\nelse\n{setter}\nendif\n'
+            f'rPlayer.AuxVarErase "{aux}"\n')
+
+
+PLUGINS2_PROBES = (
+    [_p2w(f"lu.ingestflag.{k}.{i}", FX[k], f"GetIngestibleFlag rObj {i}")
+     for k in ("cram", "nuka_cola", "beer", "greasepoison") for i in range(4)]
+    + [_p2v(f"so.easing.{f}.{m}", f'Floor ((ApplyEasing 0.25 "{f}" {m}) * 10000)')
+       for f in ("quart", "quint", "expo", "circ", "back", "elastic", "bounce") for m in (0, 1, 2)]
+    + [_p2v(f"jg.dllloaded.{n}", f'IsDLLLoaded "{n}"')
+       for n in ("ShowOffNVSE", "kNVSE", "MCM", "nvse_1_4", "nvse_steam_loader",
+                 "SHOWOFFNVSE", "jip_nvse.dll")]
+    # Map markers.
+    + [_p2("lu.marker.rep", _form("rDoc", FX["gsmarker"]) + "SetFunctionValue (GetFormIDString (rDoc.GetMapMarkerRep))", True),
+       _p2("lu.marker.rep.set", _form("rDoc", FX["gsmarker"]) + _form("rOther", FX["repprimm"])
+           + 'let rObj := rDoc.GetMapMarkerRep\nrPlayer.AuxVarSetRef "*nvfMR" rObj\nrDoc.SetMapMarkerRep rOther\n'
+           "SetFunctionValue (GetFormIDString (rDoc.GetMapMarkerRep))", True),
+       _p2("lu.marker.rep.restore", _form("rDoc", FX["gsmarker"]) + _restore2("rDoc.SetMapMarkerRep", "*nvfMR")
+           + "SetFunctionValue (GetFormIDString (rDoc.GetMapMarkerRep))", True),
+       _p2("lu.marker.name", _form("rDoc", FX["gsmarker"]) + "SetFunctionValue (rDoc.GetName)", True),
+       _p2("lu.marker.name.set", _form("rDoc", FX["gsmarker"]) + 'rDoc.SetMapMarkerName "NVF Springs"\nSetFunctionValue (rDoc.GetName)', True),
+       _p2v("jg.custommarker", "GetFormIDString (GetCustomMapMarker)", True)]
+    # Pickup and putdown sounds, put back.
+    + [_p2w("lu.pickupsound.stimpak", NF["stimpak"], "GetFormIDString (GetPickupSound rObj)", True),
+       _p2w("lu.putdownsound.stimpak", NF["stimpak"], "GetFormIDString (GetPutdownSound rObj)", True),
+       _p2w("lu.pickupsound.pistol", NF["pistol10"], "GetFormIDString (GetPickupSound rObj)", True),
+       _p2("lu.pickupsound.set", _form("rObj", NF["stimpak"]) + _form("rOther", FX["beep"])
+           + 'let rDoc := GetPickupSound rObj\nrPlayer.AuxVarSetRef "*nvfPS" rDoc\nSetPickupSound rObj rOther\n'
+           "SetFunctionValue (GetFormIDString (GetPickupSound rObj))", True),
+       _p2("lu.pickupsound.restore", _form("rObj", NF["stimpak"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfPS"\nSetPickupSound rObj rOther\nrPlayer.AuxVarErase "*nvfPS"\n'
+           + "SetFunctionValue (GetFormIDString (GetPickupSound rObj))", True),
+       _p2("lu.putdownsound.set", _form("rObj", NF["stimpak"]) + _form("rOther", FX["beep"])
+           + 'let rDoc := GetPutdownSound rObj\nrPlayer.AuxVarSetRef "*nvfPD" rDoc\nSetPutdownSound rObj rOther\n'
+           "SetFunctionValue (GetFormIDString (GetPutdownSound rObj))", True),
+       _p2("lu.putdownsound.restore", _form("rObj", NF["stimpak"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfPD"\nSetPutdownSound rObj rOther\nrPlayer.AuxVarErase "*nvfPD"\n'
+           + "SetFunctionValue (GetFormIDString (GetPutdownSound rObj))", True)]
+    # Recipe subcategory, put back; activator sound.
+    + [_p2("lu.recipe.subcategory.set", _form("rObj", FX["recipe127"])
+           + 'let rOther := GetRecipeSubcategory rObj\nrPlayer.AuxVarSetRef "*nvfRC" rOther\n'
+           "let rOther := GetRecipeCategory rObj\nSetRecipeSubcategory rObj rOther\n"
+           "SetFunctionValue (GetFormIDString (GetRecipeSubcategory rObj))", True),
+       _p2("lu.recipe.subcategory.restore", _form("rObj", FX["recipe127"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfRC"\n'
+           'SetRecipeSubcategory rObj rOther\nrPlayer.AuxVarErase "*nvfRC"\n'
+           "SetFunctionValue (GetFormIDString (GetRecipeSubcategory rObj))", True),
+       _p2w("lu.activatorsound.ebox", FX["ebox"], "GetFormIDString (GetActivatorSoundActivate rObj)", True),
+       _p2w("lu.activatorwater.ebox", FX["ebox"], "GetFormIDString (GetActivatorWaterType rObj)", True)]
+    # ShowOff RemoveFormFromFormList on list127: a stimpak added with AddFormToFormList at
+    # the end, then removed; and a form not in the list. ListAddList and ListAddArray read 0
+    # and -1 in a first run with an index past the end, and are left out.
+    + [_p2w("so.list.count", NF["list127"], "ListGetCount rObj"),
+       _p2("so.list.last", _form("rObj", NF["list127"]) + "let rOther := ListGetNthForm rObj ((ListGetCount rObj) - 1)\n"
+           "SetFunctionValue (GetFormIDString rOther)", True),
+       _p2("so.list.add", _form("rObj", NF["list127"]) + _form("rOther", NF["stimpak"])
+           + "let fRes := AddFormToFormList rObj rOther\nSetFunctionValue (fRes * 1000 + (ListGetCount rObj))"),
+       _p2("so.removeformfromlist", _form("rObj", NF["list127"]) + _form("rOther", NF["stimpak"])
+           + "let fRes := RemoveFormFromFormList rObj rOther\nSetFunctionValue (fRes * 1000 + (ListGetCount rObj))"),
+       _p2("so.removeformfromlist.absent", _form("rObj", NF["list127"]) + _form("rOther", NF["stimpak"])
+           + "let fRes := RemoveFormFromFormList rObj rOther\nSetFunctionValue (fRes * 1000 + (ListGetCount rObj))"),
+       _p2("so.list.last.after", _form("rObj", NF["list127"]) + "let rOther := ListGetNthForm rObj ((ListGetCount rObj) - 1)\n"
+           "SetFunctionValue (GetFormIDString rOther)", True)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3509,11 +3597,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps9": GAPS9_PROBES,
         "gaps10": GAPS10_PROBES,
         "gaps11": GAPS11_PROBES,
-        "plugins1": PLUGINS1_PROBES}
+        "plugins1": PLUGINS1_PROBES,
+        "plugins2": PLUGINS2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2"}
 
 
 def script(body):
