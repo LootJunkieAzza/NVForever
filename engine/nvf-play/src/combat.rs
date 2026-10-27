@@ -1315,6 +1315,18 @@ impl Plugin for CombatPlugin {
         if std::env::var_os("NVF_PLAY_TEST_GOD").is_some_and(|v| v != "0") {
             set_god_mode(true);
         }
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "reload-slows",
+                group: crate::pause::GROUP_MENUS,
+                label: "Slower while reloading",
+                note: "On: you and the NPCs move at 75% of your speed while a reload runs. Off: reloading does not slow anyone, as in the original.",
+                get: |_| reload_slows(),
+                set: |_, on| set_reload_slows(on),
+                slider: None,
+            },
+        );
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
             .init_resource::<ShotVisuals>()
@@ -1336,7 +1348,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1353,6 +1365,47 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
     if pace.0 != want {
         pace.0 = want;
         info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
+    }
+}
+
+/// The share of their speed the player and NPCs keep while they reload, with the
+/// settings page's `reload-slows` on [design: owner 2026-10-27, "slow the player and npc's
+/// down to about 75% move speed" during a reload; not the original's rule, which does not
+/// slow a reload]. NPCs: `nvforever` limping.rs.
+pub const RELOAD_PACE: f32 = 0.75;
+
+/// The `reload-slows` switch, for the process (NPCs are slowed by another crate); on by
+/// default [design: owner 2026-10-27].
+static RELOAD_SLOWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Whether a reload slows the one reloading.
+pub fn reload_slows() -> bool {
+    RELOAD_SLOWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Switch the reload's slowing on or off.
+pub fn set_reload_slows(on: bool) {
+    RELOAD_SLOWS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The share of its speed an actor keeps: [`RELOAD_PACE`] while it reloads with the
+/// setting on, all of it otherwise.
+pub fn reload_share(reloading: bool) -> f32 {
+    if reloading && reload_slows() {
+        RELOAD_PACE
+    } else {
+        1.0
+    }
+}
+
+/// The player moves slower while a reload runs ([`RELOAD_PACE`],
+/// `crate::player::ReloadPace`).
+fn reload_pace(c: Res<Combat>, pace: Option<ResMut<crate::player::ReloadPace>>) {
+    let Some(mut pace) = pace else { return };
+    let want = reload_share(c.cycle.as_ref().is_some_and(Cycle::reloading));
+    if pace.0 != want {
+        pace.0 = want;
+        info!("movement: moving at {:.0}% of the speed ({})", want * 100.0, if want < 1.0 { "reloading" } else { "not slowed by a reload" });
     }
 }
 
