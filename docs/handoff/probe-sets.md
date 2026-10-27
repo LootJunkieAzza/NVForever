@@ -59,6 +59,7 @@ nothing is marked or loosened for them.
 | gaps7 | 110 | L5.ext.gaps7 | not run yet | DPS critical part; explosion, perk and package flags; dimensions, terrain, item kinds |
 | gaps8 | 48 | L5.ext.gaps8 | not run yet | worldspace climate and flags, climate textures, armour audio and model paths, setters read back |
 | gaps9 | 103 | L5.ext.gaps9 | not run yet | melee and unarmed DPS: five weapons' record fields, crit damage 0, CritChance +10, skill +16 |
+| gaps10 | 57 | L5.ext.gaps10 | not run yet | ref map strings, RunScriptSnippet, array files (written in the game folder, removed after), impact data, ray casts, SetPosEx, sneaking, first person |
 
 ## Coverage
 
