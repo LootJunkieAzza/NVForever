@@ -376,6 +376,19 @@ pub enum Action {
     },
     /// The player leaves the conversation (`Game::end_dialogue`).
     EndTalk {},
+    // ---- terminals (docs/spec-notes/hacking.md §6) ----
+    /// The player picks entry `item` (0-based) of a terminal menu at reference `target`
+    /// (`terminal::choose`): of `menu` (a TERM, for a sub menu) or the reference's own
+    /// base; refused when the entry is not listed now (its conditions fail). Observations
+    /// `submenu`, `note` and `back`.
+    Terminal {
+        target: String,
+        item: usize,
+        #[serde(default)]
+        menu: Option<String>,
+        #[serde(default)]
+        label: Option<String>,
+    },
 }
 
 /// Frames that pass after an action (layer5-captures.md §4.1).
@@ -1283,7 +1296,24 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
             }
         }
-        Action::PressButton { button } => g.press_button(*button)?,
+        Action::PressButton { button } => {
+            // As the play loop answers a box (nvf-play script.rs `answer`/`finish_answer`):
+            // the button is set, one frame runs with the box still open, so MenuMode 1001
+            // blocks read it with GetButtonPressed, then the box closes.
+            let m = g.message_box.as_mut().ok_or("no message box is open")?;
+            m.pressed = Some(*button);
+            let message = m.message;
+            // A box the input left modeless (no `given` menu) is shown without a menu: the
+            // press frame runs with menu 1001 open all the same, as on screen.
+            let modeless = g.menu.is_none();
+            if modeless {
+                g.open_menu(menus::MESSAGE);
+            }
+            g.tick();
+            if g.menu == Some(menus::MESSAGE) && (modeless || g.boxes.first() == Some(&message)) {
+                g.close_menu();
+            }
+        }
         Action::Menu { menu } => match menu {
             Some(m) => g.open_menu(*m),
             None => {
@@ -1620,6 +1650,22 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             if !g.end_dialogue() {
                 return Err("no conversation is running".into());
             }
+        }
+        Action::Terminal { target, item, menu, label: l } => {
+            let r = resolve(g, target)?;
+            let base = match menu {
+                Some(m) => resolve(g, m)?,
+                None => g.world.placed.refs.get(&r).map(|p| p.base).ok_or_else(|| format!("{target} is not a placed reference"))?,
+            };
+            let listed = crate::terminal::items(g, r, base);
+            if !listed.contains(item) {
+                return Err(format!("entry {item} of terminal {base} is not listed now (listed: {listed:?})"));
+            }
+            let c = crate::terminal::choose(g, r, base, *item).ok_or_else(|| format!("terminal {base} has no entry {item}"))?;
+            obs.insert("submenu".into(), json!(c.submenu.map(|f| f.to_string())));
+            obs.insert("note".into(), json!(c.note.map(|f| f.to_string())));
+            obs.insert("back".into(), json!(c.back));
+            lab = l.clone();
         }
         Action::Consume { item, actor, label: l } => {
             let who = match actor {

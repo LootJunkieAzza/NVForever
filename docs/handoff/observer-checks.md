@@ -373,3 +373,34 @@ The numbers above stay put so links to them hold; each item here gives its own p
     hip-fired and one at the sights; then the same against a standing NPC. If the barrel
     is cut by the wall there, the original draws it with the world.
     ([first-person-depth](../design/first-person-depth.md))
+
+## Added 2026-10-27 (main-quest walkthroughs)
+
+28. **Does a SayTo that finds no line still end with SayToDone?** (P1: every ending.)
+    Ours now runs the speaker's SayToDone blocks for the topic in the next frame
+    [hypothesis]: the narrator's end-slide chain (SCPT 0x00161EB4) calls topics that have
+    no line for some endings (VEndingBrotherhood for the NCR ending with the Brotherhood
+    never met) and must still reach VEndingConclusion. To check: a query script that
+    SayTos a topic whose lines all fail, and a SayToDone block that sets a variable; read
+    it one and ten frames later. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** (P2.) 262 lines name a
+    fixed speaker other than the actor of their own GetIsID condition (167 end slides:
+    a Boomer, Nolan McNamara ... as speaker, GetIsID Narrator). Ours now lets that
+    condition decide when the line has one [hypothesis]. To check: the end slides of a
+    finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
+    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator).
+    ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+30. **Reputation axes outside 0-2.** Scripts call SetReputation RepNVNCR with axis 2
+    (Crocker's messenger, Vulpes's greeting) and conditions use GetReputationThreshold
+    axis 3 (VDialogueBenny) and GetReputation axis 2 (VMS36); the wiki documents 0/1
+    (fame/infamy) and 0-2 (mixed/good/bad). Ours refuses the call (the line's condition
+    fails, the script line does nothing). To check: GetReputation and GetReputationThreshold
+    with those axes after SetReputation X 2 5 on a fresh save.
+31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
+    mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
+    GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
+    To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
+32. **An expression that leaves extra values** (`GetStage Q N == 1`, compiled with two
+    arguments for GetStage): three begin scripts (e.g. INFO 0x00160731) stop with "2 values
+    left on the stack" in ours. To check: what Side Bets' report line does in the original
+    (it sets nothing on the canonical path).

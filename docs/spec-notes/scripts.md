@@ -1135,7 +1135,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
 | `say_to_done {actor, topic?}` | a SayTo or Say line finishing (SayToDone blocks) |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
-| `press_button {button}` | the player picking a message box button |
+| `press_button {button}` | the player picking a message box button: the button is set, one frame runs with the box open (MenuMode 1001 blocks read it, as in the play loop), then the box closes |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
 | `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
 | `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |
@@ -1146,6 +1146,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `choose {topic \| prompt \| index, max_frames?, label?}` | the player picking one of the choices offered, after waiting for the actor to finish speaking; observation `info` |
 | `wait_talk {start?, max_frames?, label?}` | waiting until choices are offered or the conversation is over (with `start`: until a script's StartConversation has started one first); observations `state`, `choices`, `actor` |
 | `end_talk {}` | the player leaving the conversation |
+| `terminal {target, item, menu?, label?}` | the player picking a terminal entry (`terminal::choose`, hacking.md §6): its result script runs on the terminal reference; `menu` names a sub menu's TERM; refused when the entry is not listed; observations `submenu`, `note`, `back` |
 
 Round 2 of the contract (layer5-captures.md §8.2), as the capture issues them:
 

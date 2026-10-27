@@ -177,6 +177,11 @@ pub(crate) struct Link {
 /// function catalogue) (docs/spec-notes/actor-flags.md §9).
 const VOICE_GATE_FUNCTIONS: [u16; 6] = [0x1AB, 0x48, 0x47, 0x44, 0x45, 0x174];
 
+/// GetIsID (function 0x48) on the subject: a line's own condition naming who says it.
+fn is_own_id_condition(c: &crate::cond::Condition) -> bool {
+    c.function == 0x48 && matches!(c.run_on, crate::cond::RunOn::Subject)
+}
+
 impl<'a> Game<'a> {
     // ---- which line ---------------------------------------------------------------
 
@@ -196,7 +201,14 @@ impl<'a> Game<'a> {
     ///   in the last `fSayOncePerDayInfoTimer` (12) game hours [documented:
     ///   Category:Dialogue: both are per actor];
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
-    ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID];
+    ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID], unless
+    ///   the line has a GetIsID condition on the subject of its own: then that condition
+    ///   decides. The wiki has the field act like GetIsID "when dialogue is exported";
+    ///   262 lines of FalloutNV.esm name a fixed speaker other than the actor of their
+    ///   own GetIsID condition, 167 of them the end slides (fixed speaker a Boomer or
+    ///   another character, GetIsID Narrator), which the narrator says
+    ///   [hypothesis: the condition is the run-time rule and the field a leftover;
+    ///   docs/handoff/mq-walkthrough-2026-10-27.md];
     /// - the line's quest is running and the quest's own conditions pass [owner
     ///   statement 2026-10-10: every actor has the line as long as the quest is active
     ///   and the conditions are met; documented: Quest Data Tab: quest conditions gate
@@ -233,7 +245,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        if let Some(s) = def.speaker.filter(|_| says == Says::Actor) {
+        if let Some(s) = def.speaker.filter(|_| says == Says::Actor && !def.conditions.iter().any(is_own_id_condition)) {
             if s != speaker && Some(s) != crate::functions::base_of(self, speaker) {
                 return false;
             }
