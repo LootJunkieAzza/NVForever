@@ -1189,7 +1189,7 @@ name = "combat-npc-reload"
 source = "owner 2026-10-17: NPCs never reloaded in test runs; they need the same magazine and reload as the player (npc_combat module notes: Reloading)"
 note = "Chet (GSChetRef) in the general store is given and made to equip a .357 Magnum Revolver (WeapNV357Revolver: 6 rounds, ReloadX, round by round) and set on the player, who cannot die (GOD). He empties the cylinder, reloads all six round by round with the opening clip and a reload clip per round, and fires again. NPCs use no ammunition from their inventory (owner 2026-10-17)"
 areas = ["combat"]
-paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/limping.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 45
@@ -1202,6 +1202,8 @@ expect = [
   { re = 'attack anims summary: .*?(?P<n>\d+) reload clips', range = [7, 100000], label = "the opening clip and a clip per round in the attack anims summary" },
   { re = 'npc combat summary: .*?(?P<n>\d+) shots', range = [7, 100000], label = "more than one cylinder fired" },
   { re = 'npc combat summary: .*? (?P<n>\d+) reloads \((?P<m>\d+) round by round\)', range = [1, 1000], label = "reloads in the npc combat summary" },
+  { re = 'limping: GSChetRef 0x00104C79 moves at 75% of its speed \(reloading\)', label = "Chet moves at 75% while he reloads (reload-slows, on by default; owner 2026-10-27)" },
+  { re = 'limping summary: .*by a reload (?P<n>\d+) times', range = [1, 1000], label = "reload slowdowns in the limping summary" },
 ]
 
 [[scenario]]
@@ -2586,6 +2588,8 @@ order = [[
 ]]
 expect = [
   { re = 'combat: reloaded \d+, magazine', min = 2, label = "both reloads finish" },
+  { re = 'movement: moving at 75% of the speed \(reloading\)', min = 2, label = "the player moves at 75% while reloading (reload-slows, on by default; owner 2026-10-27)" },
+  { re = 'movement: moving at 100% of the speed \(not slowed by a reload\)', min = 2, label = "... and at full speed after each reload" },
 ]
 
 [[scenario]]
