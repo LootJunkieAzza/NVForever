@@ -249,9 +249,15 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             if name == "getweatherrgbcolor" {
                 XVal::Num(changed(g, COLOR, slot).unwrap_or_else(|| weather_color(g, x, t, time, layer)))
             } else {
-                // RRRGGGBBB, each part kept as a byte [observed: G 711 reads 199].
+                // RRRGGGBBB [observed: rgb-ui, 31 values fit]: above 255255255 the call is
+                // ignored; the parts are packed unmasked as R + G·256 + B·65536 and read
+                // back as bytes, the rest carried into B (100999999 reads 100232002).
                 let v = num(args, 3, 0.0).max(0.0) as i64;
-                let (r, gg, b) = ((v / 1_000_000) % 256, (v / 1000 % 1000) % 256, (v % 1000) % 256);
+                if v > 255_255_255 {
+                    return Some(Ok(zero));
+                }
+                let w = v / 1_000_000 + (v / 1000 % 1000) * 256 + (v % 1000) * 65536;
+                let (r, gg, b) = (w & 255, (w >> 8) & 255, w >> 16);
                 g.traits.values.insert((x, COLOR, slot), (r * 1_000_000 + gg * 1000 + b) as f64);
                 zero
             }
