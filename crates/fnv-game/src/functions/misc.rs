@@ -35,6 +35,8 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     // layer5-captures.md §10.1]; other messages are corner notifications.
     if is_box || !buttons.is_empty() {
         g.show_box(m);
+    } else {
+        g.queue_corner_message();
     }
     none()
 }
