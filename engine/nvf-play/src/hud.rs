@@ -398,7 +398,8 @@ fn gather(
     let wheel_open = wheel.is_some_and(|w| w.is_open());
     let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open, ..view.clone() };
     if let Some(p) = &player {
-        now.heading = p.heading.to_degrees();
+        // Where the camera looks, not where the character faces (third person).
+        now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
     }
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);

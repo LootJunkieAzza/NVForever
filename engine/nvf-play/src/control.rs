@@ -203,6 +203,17 @@ impl PlayerControl {
     pub fn third_person_view(&self) -> bool {
         self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some() || self.cinematic
     }
+
+    /// The heading the view looks along for a player facing `heading`: turned by the
+    /// orbit in third person (circling, or the detached camera), else the player's own.
+    /// The compass follows it, so it shows where the camera looks [owner 2026-10-27].
+    pub fn view_heading(&self, heading: f32) -> f32 {
+        if self.third_person_view() && self.portrait.is_none() {
+            (heading + self.orbit.yaw).rem_euclid(std::f32::consts::TAU)
+        } else {
+            heading
+        }
+    }
 }
 
 /// The third-person camera's view line: the crosshair sits in the middle of the view, so
@@ -798,7 +809,7 @@ pub fn place_camera(
         return;
     }
     let o = control.orbit;
-    let heading = p.heading + o.yaw;
+    let heading = control.view_heading(p.heading);
     let pitch = (p.pitch + o.pitch).clamp(-crate::player::MAX_PITCH, crate::player::MAX_PITCH);
     t.rotation = space::look_rotation(heading, pitch);
     let shoulder = settings.map_or(DEFAULT_SHOULDER, |s| s.shoulder);
@@ -841,6 +852,20 @@ pub fn place_camera(
 mod tests {
     use super::*;
     use std::f32::consts::FRAC_PI_2;
+
+    #[test]
+    fn the_view_heading_follows_the_detached_camera() {
+        // First person: where the player faces.
+        let mut c = PlayerControl { pov: Pov::First, ..Default::default() };
+        assert_eq!(c.view_heading(1.0), 1.0);
+        // Third person with the camera turned a quarter round off the player: the camera's.
+        c.pov = Pov::Third;
+        c.orbit = Orbit { free: true, yaw: FRAC_PI_2, ..Default::default() };
+        assert!((c.view_heading(1.0) - (1.0 + FRAC_PI_2)).abs() < 1e-6);
+        // Wrapped into a turn.
+        c.orbit.yaw = -2.0;
+        assert!((c.view_heading(1.0) - (std::f32::consts::TAU - 1.0)).abs() < 1e-5);
+    }
 
     /// The distance from `p` to the line through `a` along unit `d`.
     fn off_line(p: [f32; 3], a: [f32; 3], d: [f32; 3]) -> f32 {
