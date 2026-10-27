@@ -151,7 +151,7 @@ fn show(
     };
     if lens {
         let (Some((mount, m)), Ok(cam)) = (mounts.iter().next(), main_cam.single()) else { return };
-        drawn.entities = draw_lens(&mut commands, &model, &mut models, &mut plain, mount, m.radius, cam);
+        drawn.entities = draw_lens(&mut commands, &model, &mut models, mount, m.radius, cam);
         info!("scope view: {path} in the lens (3D scope), radius {:.2}, reticle cut to {LENS_CIRCLE} units", m.radius);
         drawn.model = Some(path);
         drawn.lens = true;
@@ -224,7 +224,7 @@ fn target_image(images: &mut Assets<Image>, px: u32, hdr: bool) -> Handle<Image>
 
 /// The 3D scope: the reticle (the MOD3 model without its mask) and the zoomed world, each
 /// rendered into an image, shown on two discs at the eyepiece `mount`.
-fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, models: &mut ModelCtx, plain: &mut Assets<StandardMaterial>, mount: Entity, radius: f32, cam: Entity) -> Vec<Entity> {
+fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, models: &mut ModelCtx, mount: Entity, radius: f32, cam: Entity) -> Vec<Entity> {
     let mut entities = Vec::new();
     let reticle = target_image(&mut models.images, RETICLE_PX, false);
     let layer = RenderLayers::layer(SCOPE_LAYER);
@@ -286,8 +286,16 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
     entities.push(lens_cam);
     let disc = models.meshes.add(Circle::new(radius));
     let arms = RenderLayers::layer(crate::sky::ARMS_LAYER);
-    let world_mat = plain.add(StandardMaterial { base_color_texture: Some(world_image), unlit: true, fog_enabled: false, ..default() });
-    let reticle_mat = plain.add(StandardMaterial { base_color_texture: Some(reticle), unlit: true, fog_enabled: false, alpha_mode: AlphaMode::Blend, ..default() });
+    // NIF materials drawn as first-person shapes, as the rifle and its scope around them
+    // are (docs/design/first-person-depth.md): at world depth the squeezed scope tube hid
+    // the discs inside it.
+    let first_person = |base: StandardMaterial| {
+        let mut m = nvf_assets::nif_material::nif_material(base);
+        m.extension.first_person = true;
+        m
+    };
+    let world_mat = models.materials.add(first_person(StandardMaterial { base_color_texture: Some(world_image), unlit: true, fog_enabled: false, ..default() }));
+    let reticle_mat = models.materials.add(first_person(StandardMaterial { base_color_texture: Some(reticle), unlit: true, fog_enabled: false, alpha_mode: AlphaMode::Blend, ..default() }));
     for (name, mat, z) in [("Scope lens world", world_mat, 0.0), ("Scope lens reticle", reticle_mat, RETICLE_LIFT)] {
         let e = commands.spawn((Name::new(name), Mesh3d(disc.clone()), MeshMaterial3d(mat), Transform::from_xyz(0.0, 0.0, z), arms.clone(), bevy::light::NotShadowCaster)).id();
         commands.entity(mount).add_child(e);

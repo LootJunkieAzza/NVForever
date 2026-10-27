@@ -112,6 +112,18 @@
 //! NPC, docs/design/streaming-hitches.md §3]. Every other shape has no offset and the
 //! shader is unchanged (the `FACEGEN_TINT` shader def).
 //!
+//! First-person depth: the player's arms and weapon in view and the flash at their muzzle
+//! ([`NifSurface::first_person`], set by nvforever `player_body.rs` and `shot_fx.rs`) are
+//! drawn against the same depth buffer as the world, but with their depth squeezed into
+//! the nearest [`FIRST_PERSON_DEPTH_SHARE`] of the depth range (the fragment shaders write
+//! it, `first_person_depth.wgsl`): no wall, door or actor the camera stands against hides
+//! them, they still hide each other in their own order, and they keep the one camera's
+//! lighting, shadows, fog, multisampling and image space; their nodes stay where they are
+//! (muzzle, shell ejection, the weapon-lowering rays). The depth prepass holds the squeezed
+//! depth too, so water and blended world shapes are not drawn over them; the passes that
+//! read the prepass as distances undo it (soft intersections here, nvforever `ssao.wgsl`)
+//! [engineering choice, docs/design/first-person-depth.md].
+//!
 //! Bindless [engineering choice, docs/design/graphics-enhanced.md §5.6]: where the device
 //! supports it (Bevy decides; `BINDLESS` in the shaders), every NIF material's values and
 //! textures are reached through index tables, so the draws of shapes with different
@@ -135,6 +147,9 @@ const NIF_PREPASS_SHADER: Handle<Shader> = uuid_handle!("b1d6a2f4-7c35-4e0a-8f29
 
 /// nif_surface_bindings.wgsl (imported by the two above).
 const NIF_SURFACE_BINDINGS_SHADER: Handle<Shader> = uuid_handle!("3c8e1f60-9a4d-4b27-b5e2-7d0f6a91c348");
+
+/// first_person_depth.wgsl.
+const FIRST_PERSON_DEPTH_SHADER: Handle<Shader> = uuid_handle!("9e4a7c12-58d3-4f6b-a0e1-2c7b5d8f3a64");
 
 /// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
 /// (module docs). Call from `MaterialExtension::specialize` of materials whose meshes
@@ -173,6 +188,44 @@ fn depth_prepass_fragment(descriptor: &mut RenderPipelineDescriptor, shader: Han
         None => (defs.clone(), Vec::new()),
     };
     descriptor.fragment = Some(FragmentState { shader, shader_defs, targets, ..default() });
+}
+
+/// The pipeline of a first-person shape (module notes, "First-person depth"): in the main
+/// pass and the view's depth-only prepass of a perspective view, the fragment shader gets
+/// `FIRST_PERSON_DEPTH` and writes its depth squeezed; the prepass gets the NIF prepass
+/// fragment whatever the shape's alpha, to write it. Orthographic views (the
+/// [`NifSurface::shade_light`] light's shadow cascade, which the arms cast into) and
+/// prepasses with colour targets are left alone.
+fn first_person_depth(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS != MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE {
+        return;
+    }
+    let defs = &descriptor.vertex.shader_defs;
+    let prepass = defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"));
+    if prepass {
+        if defs.contains(&ShaderDefVal::from("PREPASS_FRAGMENT")) {
+            return;
+        }
+        depth_prepass_fragment(descriptor, NIF_PREPASS_SHADER);
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push("FIRST_PERSON_DEPTH".into());
+    }
+}
+
+/// The share of the depth range the depth of first-person shapes is squeezed into
+/// (module notes, "First-person depth"; first_person_depth.wgsl, the same value). Reverse
+/// z puts the near plane at 1, so they lie in [1 − share, 1]: a world surface hides them
+/// only nearer than near ÷ (1 − share) (5.08 units at the main camera's near plane of 5,
+/// which clips everything nearer than 5), and a share of 1/64 still leaves their own
+/// order about 4·10⁻⁵ of depth per 2 units at 60 units away, some 600 steps of a 32-bit
+/// float depth buffer near 1 [engineering choice].
+pub const FIRST_PERSON_DEPTH_SHARE: f32 = 1.0 / 64.0;
+
+/// The depth a first-person fragment at depth `z` writes (first_person_depth.wgsl
+/// `squeeze`).
+pub fn first_person_squeeze(z: f32) -> f32 {
+    1.0 - FIRST_PERSON_DEPTH_SHARE * (1.0 - z)
 }
 
 /// Anti-alias the cut-out edges of an alpha-tested material in the main pass of a
@@ -245,6 +298,10 @@ pub struct NifSurface {
     /// A blended shape that writes depth in the main pass (module notes, "Depth of blended
     /// hair"); its [`alpha_cut`](Self::alpha_cut) keeps faint fragments out of the depth.
     pub depth_write: bool,
+    /// A first-person shape (the arms and weapon in view, the flash at their muzzle):
+    /// drawn with its depth squeezed in front of the world (module notes, "First-person
+    /// depth").
+    pub first_person: bool,
     /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
     /// which the holes texture's alpha leaves a hole, negative for none; y the width of
     /// the edge band below it; z, w unused.
@@ -349,6 +406,7 @@ impl Default for NifSurface {
             hard_edges: false,
             shade_light: false,
             depth_write: false,
+            first_person: false,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
             soft: Vec4::ZERO,
@@ -368,6 +426,7 @@ pub struct NifSurfaceKey {
     /// The shape has a FaceGen offset ([`NifSurface::facegen_offset`]).
     pub facegen: bool,
     pub depth_write: bool,
+    pub first_person: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
@@ -379,6 +438,7 @@ impl From<&NifSurface> for NifSurfaceKey {
             shade_light: surface.shade_light,
             facegen: surface.facegen_offset.is_some(),
             depth_write: surface.depth_write,
+            first_person: surface.first_person,
         }
     }
 }
@@ -399,6 +459,9 @@ impl MaterialExtension for NifSurface {
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         nif_prepass(descriptor, key.mesh_key);
+        if key.bind_group_data.first_person {
+            first_person_depth(descriptor, key.mesh_key);
+        }
         if !key.bind_group_data.hard_edges {
             soft_edges(descriptor, key.mesh_key);
         }
@@ -622,6 +685,7 @@ impl Plugin for NifMaterialPlugin {
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, NIF_SURFACE_BINDINGS_SHADER, "nif_surface_bindings.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, FIRST_PERSON_DEPTH_SHADER, "first_person_depth.wgsl", Shader::from_wgsl);
         app.add_plugins(MaterialPlugin::<NifMaterial>::default())
             .add_systems(Startup, spawn_transmission_anchor)
             .add_systems(PostUpdate, see_through_casts_no_shadow);
@@ -789,25 +853,42 @@ mod tests {
         // Only the decal, refraction, hard-edge, shade-light and FaceGen switches select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false });
         assert_eq!(surface.alpha_cut, 0.0);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         surface.alpha_cut = 0.5;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false });
         // A FaceGen offset selects the tinting shader.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false });
+    }
+
+    /// First-person depth (module notes): the squeeze keeps the near plane at 1, puts the
+    /// far end at 1 − share, keeps the order, and is the shader's (same share).
+    #[test]
+    fn first_person_squeeze_keeps_order_in_front() {
+        assert_eq!(first_person_squeeze(1.0), 1.0);
+        assert_eq!(first_person_squeeze(0.0), 1.0 - FIRST_PERSON_DEPTH_SHARE);
+        // The main camera's near plane is 5: a hand at 15 units, a barrel at 60, a wall
+        // at 20 between them. Both stay in front of the wall and in their order.
+        let z = |d: f32| 5.0 / d;
+        let (hand, barrel, wall) = (first_person_squeeze(z(15.0)), first_person_squeeze(z(60.0)), z(20.0));
+        assert!(hand > barrel && barrel > wall);
+        // Two units apart at 60 units still differ by many steps of an f32 near 1.
+        assert!(first_person_squeeze(z(60.0)) - first_person_squeeze(z(62.0)) > 100.0 * f32::EPSILON);
+        assert!(include_str!("first_person_depth.wgsl").contains("const FIRST_PERSON_DEPTH_SHARE: f32 = 0.015625;"));
+        assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).

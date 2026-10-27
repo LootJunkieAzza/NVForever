@@ -362,3 +362,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     StartMenu tree, SetUIFloat on a trait with an expression and on a missing one, and
     SetUIFloat against SetUIFloatAlt on a templated list row (the "children tiles" bug
     MCM depends on). ([menu-xml §8](../spec-notes/menu-xml.md))
+
+## Added 2026-10-27 (first-person depth)
+
+27. **Does the original's first-person weapon go into walls?** (P3: one look in every
+    close fight indoors.) Ours draws the arms and weapon in front of the world whatever
+    is nearer (first-person-depth.md §1, [hypothesis] that the original does the same).
+    To check: in the Prospector Saloon, a varmint rifle drawn nose to the east wall
+    (the `first-person-depth` smoke spot, feet at 469, 244, 3457 facing 80°), a screenshot
+    hip-fired and one at the sights; then the same against a standing NPC. If the barrel
+    is cut by the wall there, the original draws it with the world.
+    ([first-person-depth](../design/first-person-depth.md))
