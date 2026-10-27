@@ -549,6 +549,17 @@ fn opened_since(g: &Game, since: usize) -> bool {
         .any(|e| matches!(&e.kind, EventKind::Activated { outcome: Some(v), .. } if v["result"] == "opened_container"))
 }
 
+/// The containers the player's activations since event `since` opened (their menus).
+fn containers_opened_since(g: &Game, since: usize) -> Vec<FormId> {
+    g.events[since..]
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "opened_container" => serde_json::from_value(v["container"].clone()).ok(),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The first of the player's activations since event `since` whose outcome is to talk
 /// (`fnv_sim::world::Outcome::Talk`): the actor or talking activator talked to.
 fn talk_since(g: &Game, since: usize) -> Option<FormId> {
@@ -1262,6 +1273,17 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                         obs.insert("info".into(), json!(info.to_string()));
                     }
                 }
+            }
+            // A container the player's activation opened: its menu opens and closes with
+            // nothing taken (`remove_all_items` stands in for taking), so its OnOpen and
+            // then OnClose run at the start of the next frame, as the play loop queues
+            // them from the container menu (nvf-play `engine_menu_opened` / `_closed`)
+            // [hypothesis: the menu's moments, game.rs `event::ON_OPEN`]. The Fort's
+            // player storage turns the Legion hostile this way (VMQ02 110).
+            for c in containers_opened_since(g, from) {
+                g.queue_ref_event(c, crate::game::event::ON_OPEN, Some(FormId::PLAYER_REF));
+                g.queue_ref_event(c, crate::game::event::ON_CLOSE, Some(FormId::PLAYER_REF));
+                obs.insert("opened".into(), json!(c.to_string()));
             }
         }
         Action::SayInfo { info, speaker, force } => {
