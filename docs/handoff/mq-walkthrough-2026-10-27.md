@@ -195,8 +195,15 @@ with a `save_load` before its middle action, and compares the quests at the end 
 completed, stages done, variables) and every observation; smoke `walkthrough-roundtrip`
 expects no chain to differ.
 
-Result [observed, 2026-10-27, 19 chains]: every chain ends the same after a save and load
-at its midpoint (saves of 70-370 KB). The first run differed in two of intro's stopwatch
+Result [observed, 2026-10-27]: of 19 chains, every one ends the same after a save and load
+at its midpoint (saves of 70-370 KB). With 28 chains, one differs: `fail-boulder-force`
+saves while the player is hunted after the Khans' fight; awareness (detection states,
+who hunts whom) is not part of a save by design (save-load.md: the engine measures again),
+and a headless run has no detection to measure it, so after the load the player is out of
+combat and CGTutorial's script resets its `VATSTimer` (0, not 16). Soft, and a lead for
+play: in the engine the quest script may run in the first frame after a load before
+detection does, read IsInCombat 0 and show the VATS tutorial message again when combat
+comes back [hypothesis, not run]. The smoke check carries it as known failing. The first run differed in two of intro's stopwatch
 readings by one frame: the op let a frame pass, which a save and load does not; it now
 takes none.
 

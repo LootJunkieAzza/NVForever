@@ -10703,7 +10703,7 @@ areas = ["quests", "scripts", "save"]
 paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-save/", "crates/fnv-sim/src/world.rs", "crates/fnvtool/src/script_cmd.rs"]
 commands = [["script", "roundtrip", "{data}", "{masters}", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough"]]
 expect = [
-  { json = "differing", equals = 0, label = "no chain ends differently after a save and load at its midpoint" },
+  { json = "differing", equals = 0, label = "no chain ends differently after a save and load at its midpoint", known_failing = "fail-boulder-force: awareness is not saved (the engine measures again after a load; save-load.md), and headless runs have no detection to measure it, so the player is out of combat after the load and CGTutorial's VATSTimer reads 0, not 16; handoff §6" },
 ]
 manual = "a chain that differs lists its first differences (final.quests.<quest>... / observations[i]...): the state that did not survive the save is what the snapshot (Game::snapshot) leaves out"
 
