@@ -3302,6 +3302,91 @@ GAPS10_PROBES = (
        _g10v("view.first.restored", "IsPC1stPerson")]
 )
 
+# Fifty-fourth set: the frame SetPosEx translates in, as the extender core asked after
+# gaps10 (Doc's heading, then 0 10 0 and 10 0 0 with both deltas; the player turned to
+# heading 90 the same way), and the JIP functions that work on an inventory reference,
+# read on the 10mm pistol equipped by the player (GetEquippedItemRef 5): current health,
+# mod flags, current ammo rounds. Positions, heading, health, flags and the inventory are
+# put back (the ammo to the count read first). SetAngle reads back a frame later.
+
+
+def _g11(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g11v(pid, expr, text=False):
+    return _g11(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _wait11(pid):
+    return _g11(pid, "SetFunctionValue 1")
+
+
+def _move(pid, who, aux, dx, dy):
+    """Translate `who` by (dx, dy, 0) in SetPosEx's translate mode and give the world X and Y deltas."""
+    return _g11(pid, f'let fAx := {who}.GetPos X\nlet fAy := {who}.GetPos Y\n{who}.SetPosEx {dx} {dy} 0 1\n'
+                     f'let fAx := Floor (({who}.GetPos X) - fAx + 0.5)\nlet fAy := Floor (({who}.GetPos Y) - fAy + 0.5)\n'
+                     'SetFunctionValue (sv_Construct "%g %g" fAx fAy)', True)
+
+
+_REF = "let rObj := rPlayer.GetEquippedItemRef 5\n"
+GAPS11_PROBES = (
+    # Doc's heading and translations, each put back.
+    [_g11v("posex.doc.anglez", "Floor ((rDoc.GetAngle Z) * 100)"),
+     _move("posex.doc.y10", "rDoc", "", 0, 10), _move("posex.doc.y10.back", "rDoc", "", 0, -10),
+     _move("posex.doc.x10", "rDoc", "", 10, 0), _move("posex.doc.x10.back", "rDoc", "", -10, 0),
+     _move("posex.doc.xy", "rDoc", "", 10, 10), _move("posex.doc.xy.back", "rDoc", "", -10, -10),
+     # The player at heading 90, then the heading put back.
+     _g11("posex.player.anglez", 'let fRes := rPlayer.GetAngle Z\nrPlayer.AuxVarSetFlt "*nvfAZ" fRes\nSetFunctionValue (Floor (fRes * 100))'),
+     _g11("posex.player.turn", "rPlayer.SetAngle Z 90\nSetFunctionValue (Floor ((rPlayer.GetAngle Z) * 100))"),
+     _wait11("posex.player.wait0"),
+     _move("posex.player.y10", "rPlayer", "", 0, 10), _move("posex.player.y10.back", "rPlayer", "", 0, -10),
+     _move("posex.player.x10", "rPlayer", "", 10, 0), _move("posex.player.x10.back", "rPlayer", "", -10, 0),
+     _g11("posex.player.turn0", "rPlayer.SetAngle Z 0\nSetFunctionValue (Floor ((rPlayer.GetAngle Z) * 100))"),
+     _wait11("posex.player.wait1"),
+     _move("posex.player.h0.y10", "rPlayer", "", 0, 10), _move("posex.player.h0.y10.back", "rPlayer", "", 0, -10),
+     _g11("posex.player.restore", 'rPlayer.SetAngle Z (rPlayer.AuxVarGetFlt "*nvfAZ")\nrPlayer.AuxVarErase "*nvfAZ"\n'
+          "SetFunctionValue (Floor ((rPlayer.GetAngle Z) * 100))")]
+    # The pistol, added and equipped with ammo.
+    + [_g11("ref.add", _form("rObj", NF["pistol10"]) + _form("rOther", NF["ammo10"])
+            + 'let fRes := rPlayer.GetItemCount rOther\nrPlayer.AuxVarSetFlt "*nvfAM" fRes\n'
+            "rPlayer.AddItem rObj 1 1\nrPlayer.AddItem rOther 24 1\nrPlayer.EquipItem rObj 0 1\n"
+            'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetItemCount rObj) fRes)', True),
+       _wait11("ref.wait0"), _wait11("ref.wait1"), _wait11("ref.wait2"),
+       _g11v("ref.equipped", "GetFormIDString (rPlayer.GetEquippedObject 5)", True),
+       _g11(f"ref.base", _REF + "SetFunctionValue (GetFormIDString (rObj.GetBaseObject))", True)]
+    + [_g11(f"ref.health.{m}", _REF + f"SetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth {m}) * 100))") for m in range(3)]
+    + [_g11("ref.health.set", _REF + 'let fRes := rObj.GetItemRefCurrentHealth\nrPlayer.AuxVarSetFlt "*nvfIH" fRes\n'
+            "SetFunctionValue (rObj.SetItemRefCurrentHealth 50)"),
+       _g11("ref.health.set.read", _REF + "SetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth) * 100))"),
+       _g11("ref.health.setpct", _REF + "let fRes := rObj.SetItemRefCurrentHealth 0.5 1\n"
+            "SetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth) * 100))"),
+       _g11("ref.health.restore", _REF + 'rObj.SetItemRefCurrentHealth (rPlayer.AuxVarGetFlt "*nvfIH")\nrPlayer.AuxVarErase "*nvfIH"\n'
+            "SetFunctionValue (Floor ((rObj.GetItemRefCurrentHealth) * 100))"),
+       _g11("ref.modflags", _REF + "SetFunctionValue (rObj.GetWeaponRefModFlags)"),
+       _g11("ref.modflags.set", _REF + "SetFunctionValue (rObj.SetWeaponRefModFlags 1)"),
+       _g11("ref.modflags.set.read", _REF + "SetFunctionValue (rObj.GetWeaponRefModFlags)"),
+       _g11v("ref.modtype.after", "rPlayer.EquippedWeaponHasModType 1"),
+       _g11("ref.modflags.restore", _REF + "let fRes := rObj.SetWeaponRefModFlags 0\nSetFunctionValue (rObj.GetWeaponRefModFlags)"),
+       _g11("ref.ammo", _REF + "SetFunctionValue (rObj.GetCurrentAmmoRounds)"),
+       _g11v("ref.ammo.player", "rPlayer.GetCurrentAmmoRounds"),
+       _g11("ref.ammo.set", _REF + "rObj.SetCurrentAmmoRounds 3\nSetFunctionValue (rObj.GetCurrentAmmoRounds)"),
+       _g11v("ref.ammo.set.player", "rPlayer.GetCurrentAmmoRounds"),
+       _g11("ammo.actor.set", 'let fRes := rPlayer.GetCurrentAmmoRounds\nrPlayer.AuxVarSetFlt "*nvfCR" fRes\n'
+            "rPlayer.SetCurrentAmmoRounds 3\nSetFunctionValue (rPlayer.GetCurrentAmmoRounds)"),
+       _g11("ammo.actor.restore", 'rPlayer.SetCurrentAmmoRounds (rPlayer.AuxVarGetFlt "*nvfCR")\nrPlayer.AuxVarErase "*nvfCR"\n'
+            "SetFunctionValue (rPlayer.GetCurrentAmmoRounds)"),
+       # Put back: unequip and remove the pistol and the ammo left.
+       _g11("ref.remove", _form("rObj", NF["pistol10"]) + _form("rOther", NF["ammo10"])
+            + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\n"
+            'rPlayer.RemoveItem rOther ((rPlayer.GetItemCount rOther) - (rPlayer.AuxVarGetFlt "*nvfAM")) 1\n'
+            'rPlayer.AuxVarErase "*nvfAM"\nSetFunctionValue 1'),
+       _wait11("ref.wait3"), _wait11("ref.wait4"),
+       _g11("ref.after", _form("rObj", NF["pistol10"]) + _form("rOther", NF["ammo10"])
+            + 'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetItemCount rObj) (rPlayer.GetItemCount rOther))', True)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3338,11 +3423,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps7": GAPS7_PROBES,
         "gaps8": GAPS8_PROBES,
         "gaps9": GAPS9_PROBES,
-        "gaps10": GAPS10_PROBES}
+        "gaps10": GAPS10_PROBES,
+        "gaps11": GAPS11_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11"}
 
 
 def script(body):
