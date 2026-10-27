@@ -2486,6 +2486,40 @@ SAVE_READ_PROBES = (
     + [_sv("read.cleanup", "EnablePlayerControlsAlt\nEnablePlayerControls\nSetFunctionValue 1")]
 )
 
+# Forty-third set: SetWeatherRGBColor with out-of-range parts, each set from the same
+# start (100100100) so the earlier value cannot show through, then read back; and
+# SetUIFloat on traits HUDMainMenu has (read first), read back the same frame and later.
+# The weather colour and the HUD trait are put back.
+_RGB_CASES = [100100100, 100256100, 100300100, 100511100, 100512100, 100999100, 100100256, 100100300,
+              100100999, 100300300, 100999999, 256100100, 999100100, 100255255, 100255256]
+_HUD_TRAITS = ["visible", "alpha", "x", "y", "width", "height", "depth"]
+
+
+def _ru(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rW8\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + "let rW8 := GetCurrentWeather\n" + body, text, None, "")
+
+
+_RGBREAD = 'SetFunctionValue (sv_Construct "%.0f" (GetWeatherRGBColor rW8 3 1))'
+
+RGB_UI_PROBES = (
+    [_ru("rgb.save", 'rPlayer.AuxVarSetFlt "*nvfRC" (GetWeatherRGBColor rW8 3 1)\n' + _RGBREAD, True)]
+    + [_ru(f"rgb.{v}", f"SetWeatherRGBColor rW8 3 1 100100100\nSetWeatherRGBColor rW8 3 1 {v}\n" + _RGBREAD, True) for v in _RGB_CASES]
+    + [_ru("rgb.restore", 'SetWeatherRGBColor rW8 3 1 (rPlayer.AuxVarGetFlt "*nvfRC")\nrPlayer.AuxVarErase "*nvfRC"\n' + _RGBREAD, True)]
+    + [_ru(f"ui.hud.{t}", f'SetFunctionValue (GetUIFloat "HUDMainMenu/{t}")') for t in _HUD_TRAITS]
+    + [_ru("ui.alpha.save", 'rPlayer.AuxVarSetFlt "*nvfUA" (GetUIFloat "HUDMainMenu/alpha")\nSetFunctionValue 1'),
+       _ru("ui.alpha.set", 'SetUIFloat "HUDMainMenu/alpha" 128\nSetFunctionValue (GetUIFloat "HUDMainMenu/alpha")'),
+       _ru("ui.alpha.next", 'SetFunctionValue (GetUIFloat "HUDMainMenu/alpha")')]
+    + [_ru(f"ui.alpha.wait{i}", "SetFunctionValue 1") for i in range(3)]
+    + [_ru("ui.alpha.later", 'SetFunctionValue (GetUIFloat "HUDMainMenu/alpha")'),
+       _ru("ui.alpha.restore", 'SetUIFloat "HUDMainMenu/alpha" (rPlayer.AuxVarGetFlt "*nvfUA")\nrPlayer.AuxVarErase "*nvfUA"\n'
+           'SetFunctionValue (GetUIFloat "HUDMainMenu/alpha")'),
+       _ru("ui.depth.set", 'let fRes := GetUIFloat "HUDMainMenu/depth"\nSetUIFloat "HUDMainMenu/depth" (fRes + 1)\n'
+           'let fRes := (GetUIFloat "HUDMainMenu/depth") - fRes\nSetUIFloat "HUDMainMenu/depth" ((GetUIFloat "HUDMainMenu/depth") - 1)\n'
+           "SetFunctionValue fRes"),
+       _ru("ui.missingtrait.set", 'SetUIFloat "HUDMainMenu/nvfnone" 5\nSetFunctionValue (GetUIFloat "HUDMainMenu/nvfnone")')]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2511,11 +2545,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jip-events2": JIP_EVENT2_PROBES,
         "nvse-leftovers": N13_PROBES,
         "save-set": SAVE_SET_PROBES,
-        "save-read": SAVE_READ_PROBES}
+        "save-read": SAVE_READ_PROBES,
+        "rgb-ui": RGB_UI_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui"}
 
 
 def script(body):
