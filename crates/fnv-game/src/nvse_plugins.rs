@@ -518,7 +518,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // 3 attacking, 4 reloading, from what the engine tells the body does; PlayGroup's
         // attack and reload groups do not count [observed: anim1 and anim2, standing 1 1
         // 0 0 0, an idle kept 30 frames after a stop; NPCs fighting the player read 2 and
-        // 3; PlayGroup AttackRight/ReloadA read 0; hypothesis: the reload category].
+        // 3; PlayGroup AttackRight/ReloadA read 0; reload1, 4 0 read 1 during the player's and an NPC's reload].
         "isanimplayingex" => {
             use crate::anim_state::{AnimAction, MoveDir};
             let a = subject.unwrap_or(FormId::PLAYER_REF);

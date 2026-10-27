@@ -25,7 +25,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let run: Result<Vec<String>, String> = match name {
         // LU's `Console "line"`: the line as the console runs it, a console-only command
         // or any function by name or alias [documented: Console; observed: anim2,
-        // `Console "tgm"` turned god mode on and off].
+        // `Console "tgm"` turned god mode on and off; reload1, damage 0 with it on].
         "console" => {
             let line = text(args, 0).unwrap_or_default();
             match con::split_call(&line) {

@@ -511,6 +511,24 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
 /// from 500 above the player meets the floor at the feet; engine3, casts from 100 to
 /// 1000 above the ground 200 away read past it with every flag; hypothesis: terrain
 /// is left out].
+/// The most speed one PushObject gives a body, game units per second [design: a script's
+/// push may be stronger than a shot's, `combat::OBJECT_PUSH_MAX_SPEED`].
+const SCRIPT_PUSH_MAX_SPEED: f32 = 2000.0;
+
+/// Scripts' PushObject pushes (`fnv_game::nvse_gaps`): each loose body is pushed along the
+/// line from the push's origin to its centre (straight up from the origin itself).
+fn apply_pushes(g: &mut Game, phys: &mut PhysState) {
+    for (r, origin, force) in std::mem::take(&mut g.gaps.pushes) {
+        let Some(c) = phys.world.ref_center(r.0) else { continue };
+        let d = [c[0] - origin[0], c[1] - origin[1], c[2] - origin[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let dir = if len > 1e-3 { [d[0] / len, d[1] / len, d[2] / len] } else { [0.0, 0.0, 1.0] };
+        let k = force * phys.world.params.units_per_metre;
+        let pushed = phys.world.push_ref(r.0, c, [dir[0] * k, dir[1] * k, dir[2] * k], SCRIPT_PUSH_MAX_SPEED);
+        debug!("script: PushObject {r} force {force}: {}", pushed.map_or("no loose body".to_string(), |v| format!("{v:.0} units/s")));
+    }
+}
+
 fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
     let filter = fnv_phys::world::Filter { exclude: phys.player.as_ref().map(|c| vec![c.key()]).unwrap_or_default(), no_terrain: true, ..Default::default() };
     let world = std::cell::RefCell::new(&mut phys.world);
@@ -1786,7 +1804,16 @@ pub(crate) fn run_scripts(
         }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
+        // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
+        rt.game.gaps.air_times = phys
+            .player
+            .iter()
+            .map(|c| (FormId::PLAYER_REF, c.air_time))
+            .chain(phys.npcs.iter().map(|(&r, b)| (FormId(r), b.ch.air_time)))
+            .filter(|(_, t)| *t > 0.0)
+            .collect();
         with_ray_caster(&mut phys, || rt.game.tick());
+        apply_pushes(&mut rt.game, &mut phys);
         rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.
