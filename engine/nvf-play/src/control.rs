@@ -414,6 +414,10 @@ pub fn tell_scripts(mut control: ResMut<PlayerControl>, mut script: Option<ResMu
     if let Some(sneak) = g.gaps.sneak_request.take() {
         control.sneak = sneak;
     }
+    if let Some(run) = g.gaps.always_run_request.take() {
+        control.always_run = run;
+    }
+    g.gaps.always_run = control.always_run;
     g.set_first_person(!control.third_person_view());
     let mut m = g.motion(fnv_sim::FormId::PLAYER_REF);
     if m.sneaking != control.sneak {

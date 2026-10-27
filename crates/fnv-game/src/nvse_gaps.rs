@@ -42,6 +42,9 @@ pub struct GapsState {
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
+    /// The player's always-run switch as the engine tells it, and SetAlwaysRun's ask.
+    pub always_run: bool,
+    pub always_run_request: Option<bool>,
     /// RunScriptSnippet's snippets waiting: (frames left, source, reference).
     pub snippets: Vec<(u32, String, FormId)>,
     /// SetNthEffectTraitNumeric's values: (item, effect index, trait).
