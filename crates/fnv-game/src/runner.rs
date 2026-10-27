@@ -602,6 +602,10 @@ fn field(g: &Game, q: FormId, f: &str) -> Result<Json, String> {
     Ok(match f {
         "running" => json!(s.running),
         "completed" => json!(s.completed || s.failed),
+        // The quest's failed flag alone (a stage with the Fail Quest flag ran), which
+        // `completed` (GetQuestCompleted) folds in; the walkthroughs' fail paths read it.
+        // No script function reads it [observed: QSDT flag 2 "Fail Quest", FalloutNV.esm].
+        "failed" => json!(s.failed),
         "stage" => json!(s.stage()),
         _ => {
             if let Some(n) = f.strip_prefix("done.") {

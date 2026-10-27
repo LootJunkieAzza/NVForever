@@ -766,7 +766,7 @@ fn the_runner_follows_the_actions_contract() {
             {"op": "get_quest", "quest": "Q", "fields": ["running", "stage", "done.10"], "label": "before"},
             {"op": "player_activate", "target": "TestActivatorREF"},
             {"op": "set_stage_read", "quest": "Q", "stage": 20, "field": "completed", "label": "read in the same script"},
-            {"op": "get_quest", "quest": "Q", "fields": ["running", "stage", "objective.10.displayed", "var.bRun", "var.nope"], "label": "after"},
+            {"op": "get_quest", "quest": "Q", "fields": ["running", "stage", "completed", "failed", "objective.10.displayed", "var.bRun", "var.nope"], "label": "after"},
             {"op": "set_local", "type": "short", "value": 3000000000.5, "label": "short"},
             {"op": "set_local", "type": "float", "value": -3000000000.0, "label": "float"},
             {"op": "press_button", "button": 1},
@@ -784,6 +784,8 @@ fn the_runner_follows_the_actions_contract() {
     let after = by("after");
     assert_eq!(after["running"], true);
     assert_eq!(after["stage"], 20);
+    assert_eq!(after["completed"], true);
+    assert_eq!(after["failed"], false);
     assert_eq!(after["objective.10.displayed"], true);
     assert!(after["errors"]["var.nope"].is_string());
     assert_eq!(by("short")["value"], -2147483648.0);
