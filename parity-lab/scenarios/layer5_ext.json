@@ -762,6 +762,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "gaps9"]
+  },
+  {
+   "id": "L5.ext.gaps10",
+   "layer": 5,
+   "description": "gaps10: ref map strings, RunScriptSnippet, arrays to and from a file, impact data sets and models, shell casings, ray casts, SetPosEx, tilt, effect bases, sneaking and first person",
+   "oracle": {"golden": "jip/gaps10.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps10.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps10"]
   }
  ]
 }

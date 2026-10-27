@@ -3210,6 +3210,98 @@ GAPS9_PROBES = (
         + [_g9(f"skill.{av.lower()}.restore", f'rPlayer.ModActorValue "{av}" -16\nSetFunctionValue (rPlayer.GetActorValue "{av}")')])]
 )
 
+# Fifty-third set: the next JIP functions of the counts with something to read back: ref
+# map strings, RunScriptSnippet, arrays written to and read from a file (nvfprobe_arr.txt
+# in the game folder, removed after the run), impact data sets and models (the 40mm
+# grenade explosion's impact data set 093BA4, gaps7), shell casings, worldspace image
+# spaces, ray casts, SetPosEx, tilt angles, effect bases, sneaking and first person.
+# Everything is put back except the dirt impact model and shell casing paths (session only).
+# IsThirdPerson is ppNVSE (not installed); IsPC1stPerson is read instead.
+
+
+def _g10(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\narray_var aA\n"
+            "Begin Function { }\n" + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g10v(pid, expr, text=False):
+    return _g10(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _g10w(pid, key, expr, text=False):
+    return _g10(pid, _form("rObj", key) + f"SetFunctionValue ({expr})", text)
+
+
+def _wait10(pid):
+    return _g10(pid, "SetFunctionValue 1")
+
+
+FX.update(ipds40="93BA4")
+_POS = "let fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\n"
+GAPS10_PROBES = (
+    # Ref map strings.
+    [_g10("refmap.setstring", 'rDoc.RefMapArraySetString "*nvfRS" "NVF str"\nSetFunctionValue (rDoc.RefMapArrayGetString "*nvfRS")', True),
+     _g10("refmap.getstring.none", 'SetFunctionValue (rPlayer.RefMapArrayGetString "*nvfRS")', True),
+     _g10("refmap.string.erase", 'rDoc.RefMapArrayErase "*nvfRS"\nSetFunctionValue (rDoc.RefMapArrayGetString "*nvfRS")', True),
+     # RunScriptSnippet on the player, put back.
+     _g10("snippet.luck", 'RunScriptSnippet 0 "ModAV Luck 1"\nSetFunctionValue (rPlayer.GetActorValue Luck)'),
+     _g10("snippet.luck.restore", 'RunScriptSnippet 0 "ModAV Luck -1"\nSetFunctionValue (rPlayer.GetActorValue Luck)'),
+     # Arrays to and from a file.
+     _g10("arrayfile.write", 'let aA := ar_List 4 5 6\nSetFunctionValue (WriteArrayToFile "nvfprobe_arr.txt" 0 aA)'),
+     _g10("arrayfile.read.size", 'let aA := ReadArrayFromFile "nvfprobe_arr.txt"\nSetFunctionValue (ar_Size aA)'),
+     _g10("arrayfile.read.1", 'let aA := ReadArrayFromFile "nvfprobe_arr.txt"\nlet fRes := aA[1]\nSetFunctionValue fRes'),
+     _g10("arrayfile.append", 'let aA := ar_List 7 8 9\nlet fRes := WriteArrayToFile "nvfprobe_arr.txt" 1 aA\n'
+          'let aA := ReadArrayFromFile "nvfprobe_arr.txt"\nSetFunctionValue (ar_Size aA)'),
+     _g10("arrayfile.missing", 'let aA := ReadArrayFromFile "nvfprobe_none.txt"\nSetFunctionValue (ar_Size aA)')]
+    # Impact data sets and models.
+    + [_g10w(f"ipds.gren40.{i}", FX["ipds40"], f"GetFormIDString (GetImpactDataSetForm rObj {i})", True) for i in range(12)]
+    + [_g10("ipct.model.0", _form("rObj", FX["ipds40"]) + "let rOther := GetImpactDataSetForm rObj 0\n"
+            "SetFunctionValue (GetImpactDataModel rOther)", True),
+       _g10("ipds.set", _form("rObj", FX["ipds40"]) + 'let rOther := GetImpactDataSetForm rObj 0\nrPlayer.AuxVarSetRef "*nvfID" rOther\n'
+            "let rOther := GetImpactDataSetForm rObj 4\nSetImpactDataSetForm rObj 0 rOther\n"
+            "SetFunctionValue (GetFormIDString (GetImpactDataSetForm rObj 0))", True),
+       _g10("ipds.restore", _form("rObj", FX["ipds40"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfID"\nSetImpactDataSetForm rObj 0 rOther\n'
+            'rPlayer.AuxVarErase "*nvfID"\nSetFunctionValue (GetFormIDString (GetImpactDataSetForm rObj 0))', True),
+       _g10("ipct.model.set", _form("rObj", FX["ipds40"]) + "let rOther := GetImpactDataSetForm rObj 0\n"
+            'SetImpactDataModel rOther "NVF\\Impact.nif"\nSetFunctionValue (GetImpactDataModel rOther)', True),
+       _g10w("shell.pistol", NF["pistol10"], "GetWeaponShellCasingModel rObj", True),
+       _g10("shell.set", _form("rObj", NF["pistol10"]) + 'SetWeaponShellCasingModel rObj "NVF\\Shell.nif"\n'
+            "SetFunctionValue (GetWeaponShellCasingModel rObj)", True),
+       _g10w("wrldimagespace.wasteland", FX["wasteland"], "GetFormIDString (GetWorldspaceImagespace rObj)", True)]
+    # Ray cast straight up from above the player, and from far away.
+    + [_g10("p2p.up", _POS + "SetFunctionValue (Floor (GetP2PRayCastRange fAx fAy (fAz + 100) fAx fAy (fAz + 20000) 0))"),
+       _g10("p2p.down", _POS + "SetFunctionValue (Floor (GetP2PRayCastRange fAx fAy (fAz + 100) fAx fAy (fAz - 1000) 0))")]
+    # SetPosEx on Doc, translated and put back.
+    + [_g10("posex.doc", 'let fAx := rDoc.GetPos X\nrPlayer.AuxVarSetFlt "*nvfPX" fAx\nrDoc.SetPosEx 10 0 0 1\n'
+            'SetFunctionValue (Floor ((rDoc.GetPos X) - fAx + 0.5))'),
+       _g10("posex.doc.restore", 'rDoc.SetPosEx -10 0 0 1\nlet fAx := rPlayer.AuxVarGetFlt "*nvfPX"\nrPlayer.AuxVarErase "*nvfPX"\n'
+            'SetFunctionValue (Floor ((rDoc.GetPos X) - fAx + 0.5))')]
+    # Tilt angle on Doc, put back.
+    + [_g10v("tilt.doc.x", "Floor ((rDoc.GetActorTiltAngle X) * 100)"),
+       _g10("tilt.doc.set", "rDoc.SetActorTiltAngle X 20\nSetFunctionValue (Floor ((rDoc.GetActorTiltAngle X) * 100))"),
+       _g10("tilt.doc.restore", "rDoc.SetActorTiltAngle X 0\nSetFunctionValue (Floor ((rDoc.GetActorTiltAngle X) * 100))")]
+    # Effect base of the stimpak's first effect, put back.
+    + [_g10w("effbase.stimpak.0", NF["stimpak"], "GetFormIDString (GetNthEffectBase rObj 0)", True),
+       _g10("effbase.set", _form("rObj", NF["stimpak"]) + _form("rOther", FX["silversting"])
+            + 'let rDoc := GetNthEffectBase rObj 0\nrPlayer.AuxVarSetRef "*nvfEB" rDoc\nlet rOther := GetNthEffectBase rOther 0\n'
+            "let rOther := SetNthEffectBase rObj 0 rOther\nSetFunctionValue (GetFormIDString rOther)", True),
+       _g10w("effbase.set.read", NF["stimpak"], "GetFormIDString (GetNthEffectBase rObj 0)", True),
+       _g10("effbase.restore", _form("rObj", NF["stimpak"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfEB"\nSetNthEffectBase rObj 0 rOther\n'
+            'rPlayer.AuxVarErase "*nvfEB"\nSetFunctionValue (GetFormIDString (GetNthEffectBase rObj 0))', True)]
+    # Sneaking and first person, put back.
+    + [_g10("sneak.toggle.on", "TogglePlayerSneaking 1\nSetFunctionValue 1"), _wait10("sneak.wait0"), _wait10("sneak.wait1"),
+       _g10v("sneak.on", "rPlayer.IsSneaking"),
+       _g10("sneak.toggle.off", "TogglePlayerSneaking 0\nSetFunctionValue 1"), _wait10("sneak.wait2"), _wait10("sneak.wait3"),
+       _g10v("sneak.off", "rPlayer.IsSneaking"),
+       _g10v("view.first", "IsPC1stPerson"),
+       _g10("view.toggle", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfTP" fRes\nToggleFirstPerson (1 - fRes)\nSetFunctionValue 1'),
+       _wait10("view.wait0"), _wait10("view.wait1"),
+       _g10v("view.first.after", "IsPC1stPerson"),
+       _g10("view.restore", 'let fRes := rPlayer.AuxVarGetFlt "*nvfTP"\nToggleFirstPerson fRes\nrPlayer.AuxVarErase "*nvfTP"\nSetFunctionValue 1'),
+       _wait10("view.wait2"), _wait10("view.wait3"),
+       _g10v("view.first.restored", "IsPC1stPerson")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3245,11 +3337,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps6": GAPS6_PROBES,
         "gaps7": GAPS7_PROBES,
         "gaps8": GAPS8_PROBES,
-        "gaps9": GAPS9_PROBES}
+        "gaps9": GAPS9_PROBES,
+        "gaps10": GAPS10_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10"}
 
 
 def script(body):
