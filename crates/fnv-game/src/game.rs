@@ -4562,7 +4562,18 @@ impl Host for Exec<'_, '_> {
         }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
-        self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
+        if let Some(s) = self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR")) {
+            return Some(s);
+        }
+        // A reference made at run time (a dropped item, PlaceAtMe) is a reference too, an
+        // actor's by its base [observed: rgb-ui, OnDrop's dropped stimpak is a reference
+        // in the game].
+        let base = self.game.world.peek(f)?.base;
+        Some(match self.game.data.sig(base) {
+            Some(s) if &s == b"NPC_" => *b"ACHR",
+            Some(s) if &s == b"CREA" => *b"ACRE",
+            _ => *b"REFR",
+        })
     }
 
     fn base_form(&mut self, form: u32) -> Option<u32> {
