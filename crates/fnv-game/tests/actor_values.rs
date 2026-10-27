@@ -308,9 +308,10 @@ fn the_players_skills_come_from_the_formula_and_follow_the_attributes() {
     call(&mut g, MOD, PLAYER, &[code(av::CHARISMA), n(20.0)]);
     assert_eq!(get(&mut g, PLAYER, av::CHARISMA), 24.0);
     assert_eq!(get(&mut g, PLAYER, av::SPEECH), 2.0 + 20.0 + 3.0);
-    // SetActorValue puts a number in the formula's place.
+    // SetActorValue sets the part beside the formula's: the formula's 25 stays
+    // [observed: gaps6, Guns 17 reads 67 after SetActorValue Guns 50].
     call(&mut g, SET, PLAYER, &[code(av::SPEECH), n(50.0)]);
-    assert_eq!(get(&mut g, PLAYER, av::SPEECH), 50.0);
+    assert_eq!(get(&mut g, PLAYER, av::SPEECH), 75.0);
     assert_eq!(get(&mut g, PLAYER, av::SPEED_MULTIPLIER), 100.0);
 }
 

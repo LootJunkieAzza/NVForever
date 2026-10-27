@@ -25,6 +25,8 @@ pub struct GapsState {
     pub gravity: HashMap<FormId, f64>,
     /// ToggleBipedSlotVisibility's hidden slots.
     pub hidden_slots: HashSet<u32>,
+    /// SetNthEffectTraitNumeric's values: (item, effect index, trait).
+    pub effect_traits: HashMap<(FormId, usize, i64), f64>,
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -85,6 +87,24 @@ impl Game<'_> {
         }
         self.gaps.pipboy_light
     }
+}
+
+/// A hit's damage with a weapon at the actor's skill: the base damage times 0.5 +
+/// skill / 200 (the skill counted up to 100), plus the actor's Melee Damage for a
+/// melee weapon and Unarmed Damage for an unarmed one [observed: gaps6, the pistol at
+/// Guns 17/67/117 and the knife at Melee 34/50 step that way, the third pistol point
+/// capped; the knife's 12.05 at Melee 34 is 15 × 0.67 + 2].
+fn weapon_damage(g: &mut Game, actor: FormId, w: FormId) -> f64 {
+    use crate::actor_values::{MELEE_DAMAGE, MELEE_WEAPONS, UNARMED, UNARMED_DAMAGE};
+    let damage = json_num(g.data.record_field(w, "DATA", "base_damage"));
+    let skill_code = g.data.weapon_skills.get(&w).map(|&s| s as u16);
+    let skill = skill_code.and_then(|s| crate::functions::actor::actor_value(g, actor, s).ok()).unwrap_or(0.0);
+    let bonus = match skill_code {
+        Some(MELEE_WEAPONS) => crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
+        Some(UNARMED) => crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
+        _ => 0.0,
+    };
+    damage * (0.5 + skill.clamp(0.0, 100.0) / 200.0) + bonus
 }
 
 /// WEAP sound IDs of GetWeaponSound: the subrecord and which of its repeats [observed:
@@ -273,16 +293,131 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 None => json_form(g.data.record_all(w, sub).get(k).copied()),
             }
         }
-        // JohnnyGuitar's DPS: damage at the actor's skill (0.5 + skill / 200) times shots
-        // a second [observed: gaps2, the 10mm pistol (22 damage, 2.75 shots) reads 41.44;
-        // hypothesis: the skill factor, which gives that with Guns 37].
+        // JohnnyGuitar's damage and DPS (`weapon_damage`): DPS is a hit's damage times
+        // the shots a second, plus a part for critical hits not built yet [observed:
+        // gaps6, the critical part is 2.2 a shot on the pistol and 1.0 on the knife at
+        // the probe save's stats; open].
+        "getcalculatedweapondamage" => {
+            let w = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::items::equipped_weapon(g, r))).unwrap_or(FormId(0));
+            XVal::Num(weapon_damage(g, subject.unwrap_or(FormId::PLAYER_REF), w))
+        }
         "getcalculatedweapondps" => {
             let w = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::items::equipped_weapon(g, r))).unwrap_or(FormId(0));
-            let a = subject.unwrap_or(FormId::PLAYER_REF);
-            let damage = json_num(g.data.record_field(w, "DATA", "base_damage"));
             let shots = json_num(g.data.record_field(w, "DNAM", "attack_shots_per_sec"));
-            let skill = g.data.weapon_skills.get(&w).and_then(|&s| crate::functions::actor::actor_value(g, a, s as u16).ok()).unwrap_or(0.0);
-            XVal::Num(damage * (0.5 + skill / 200.0) * shots)
+            XVal::Num(weapon_damage(g, subject.unwrap_or(FormId::PLAYER_REF), w) * shots)
+        }
+        // `item effect trait`: 0 magnitude, 1 area, 2 duration, 3 range (0 Self), 4 actor
+        // value [observed: gaps6, the stimpak's first reads 5 0 6 0; hypothesis: 4]; the
+        // setter returns 0 and holds for the session [observed].
+        "getntheffecttraitnumeric" | "setntheffecttraitnumeric" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let i = num(args, 1, -1.0);
+            let t = num(args, 2, -1.0) as i64;
+            if i < 0.0 {
+                return Some(Ok(zero));
+            }
+            let key = (f, i as usize, t);
+            if name == "setntheffecttraitnumeric" {
+                g.gaps.effect_traits.insert(key, num(args, 3, 0.0));
+                return Some(Ok(zero));
+            }
+            if let Some(v) = g.gaps.effect_traits.get(&key) {
+                return Some(Ok(XVal::Num(*v)));
+            }
+            let Some(e) = g.data.effect_items.get(&f).and_then(|l| l.get(i as usize)) else { return Some(Ok(zero)) };
+            XVal::Num(match t {
+                0 => f64::from(e.magnitude),
+                1 => f64::from(e.area),
+                2 => f64::from(e.duration),
+                3 => json_num(g.data.record_all(f, "EFIT").get(i as usize).and_then(|v| v.get("type"))),
+                4 => e.actor_value.map_or(-1.0, f64::from),
+                _ => 0.0,
+            })
+        }
+        // DESC, which GetFormDescription reads (the VM's); the VM formats it; returns 1
+        // and holds for the session [observed: gaps6, "NVF desc %g" 3 reads "NVF desc 3"].
+        "setformdescription" => {
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+            g.field_overrides.insert((f, "DESC/".into()), XVal::Str(text(args, 1)));
+            XVal::Num(1.0)
+        }
+        // The value GetValue reads (DATA value); returns 0 [observed: gaps6, 999 reads
+        // back].
+        "setvaluealt" => {
+            if let Some(f) = form(args, 0) {
+                g.field_overrides.insert((f, "DATA/value".into()), XVal::Num(num(args, 1, 0.0)));
+            }
+            zero
+        }
+        // EITM; SetObjectEffect takes only an enchantment of the item's kind, a weapon's
+        // on a weapon [observed: gaps6, an apparel enchantment on the pistol is refused;
+        // hypothesis: the kinds].
+        "getobjecteffect" => {
+            let f = form(args, 0).or_else(|| subject.map(|r| base(g, r))).unwrap_or(FormId(0));
+            match g.field_overrides.get(&(f, "EITM/".to_string())) {
+                Some(v) => v.clone(),
+                None => json_form(g.data.record_field(f, "EITM", "")),
+            }
+        }
+        "setobjecteffect" => {
+            let (Some(f), e) = (form(args, 0), form(args, 1)) else { return Some(Ok(zero)) };
+            let want = if g.data.sig(f) == Some(*b"WEAP") { 2 } else { 3 };
+            if e.is_none_or(|e| g.data.enchantment_types.get(&e) == Some(&want)) {
+                g.field_overrides.insert((f, "EITM/".into()), XVal::Ref(e.map_or(0, |e| e.0)));
+            }
+            zero
+        }
+        // PROJ DATA flags bit by bit, and the explosion [observed: gaps6, the 10mm
+        // projectile's flags 141 read 1 0 1 1 0 0; a null explosion does not clear it].
+        "getprojectileflag" | "setprojectileflag" => {
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+            let flags = match crate::nvse::record_value(g, f, "DATA", "flags") {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            let k = num(args, 1, -1.0);
+            if !(0.0..32.0).contains(&k) {
+                return Some(Ok(zero));
+            }
+            if name == "getprojectileflag" {
+                return Some(Ok(yes(flags >> (k as u64) & 1 != 0)));
+            }
+            let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << (k as u64) } else { flags & !(1 << (k as u64)) };
+            g.field_overrides.insert((f, "DATA/flags".into()), XVal::Num(new as f64));
+            zero
+        }
+        "getprojectileexplosion" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "DATA", "explosion")) {
+            Some(XVal::Ref(r)) => XVal::Ref(r),
+            _ => XVal::Ref(0),
+        },
+        "setprojectileexplosion" => {
+            if let (Some(f), Some(e)) = (form(args, 0), form(args, 1)) {
+                g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(e.0));
+            }
+            zero
+        }
+        // 0 for the player and the loaded actors, 3 for the rest [observed: gaps6, the
+        // player 0, Doc out of the loaded cells 3].
+        "getactorprocessinglevel" => {
+            let a = subject.unwrap_or(FormId(0));
+            XVal::Num(if a == FormId::PLAYER_REF || g.package_actors().contains(&a) { 0.0 } else { 3.0 })
+        }
+        // Returns 0 [observed: gaps6]; NVForever keeps every reference it changes.
+        "setpersistent" => zero,
+        // `limb`: the limb's condition to 0 [observed: gaps6, 2 (the left arm) leaves Left
+        // Attack Condition 0]; 0 head, 1 torso, 3 right arm, 4–5 legs [hypothesis: the
+        // order of the condition values].
+        "cripplelimb" => {
+            let a = subject.unwrap_or(FormId(0));
+            // Perception, Endurance, Left/Right Attack, Left/Right Mobility Condition
+            // (25–30).
+            let code = match num(args, 0, -1.0) as i64 {
+                k @ 0..=5 => 25 + k as u16,
+                _ => return Some(Ok(zero)),
+            };
+            let now = crate::functions::actor::actor_value(g, a, code).unwrap_or(0.0);
+            crate::functions::actor::add_damage(g, a, code, now.max(0.0));
+            zero
         }
         // ---- containers and inventories ----
         // `item count base` on the base's carried items [documented: BaseRemoveItem].

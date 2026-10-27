@@ -4606,6 +4606,10 @@ impl Host for Exec<'_, '_> {
 
     fn record_field(&mut self, form: u32, sub: &str, path: &str) -> Option<fnv_script::vm::XVal> {
         use fnv_script::vm::XVal;
+        // A script's change of the field for the session first (SetFormDescription …).
+        if let Some(v) = self.game.field_overrides.get(&(FormId(form), format!("{sub}/{path}"))) {
+            return Some(v.clone());
+        }
         let v = self.game.data.record_field(FormId(form), sub, path)?;
         Some(match v {
             serde_json::Value::Number(n) => XVal::Num(n.as_f64()?),

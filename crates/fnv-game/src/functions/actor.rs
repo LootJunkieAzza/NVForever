@@ -292,7 +292,12 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
         return none();
     }
-    set_base(g, r, code, a.num(1)?)?;
+    // The player's skill keeps its part from the attributes: SetActorValue sets the rest
+    // [observed: gaps6, Guns 17 (all from the attributes at level 1, untagged) reads 67
+    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same].
+    let v = a.num(1)?;
+    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) } else { v };
+    set_base(g, r, code, v)?;
     none()
 }
 

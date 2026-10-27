@@ -2631,6 +2631,19 @@ impl Vm<'_, '_> {
         if let Some(v) = self.quat_function(&lname, c)? {
             return Ok(v);
         }
+        // [documented: SetFormDescription `form "format" values…`; observed: gaps6,
+        // "NVF desc %g" 3 reads "NVF desc 3"]: formatted here, set by the game.
+        if lname == "setformdescription" {
+            let first = match c.args.first() {
+                Some(e) => self.xeval(e)?,
+                None => XVal::Ref(0),
+            };
+            let (t, _) = self.format_arg(c, 1)?;
+            return match self.host.ext_call(&lname, None, &[first, XVal::Str(t)]) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Ok(XVal::Num(0.0)),
+            };
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
