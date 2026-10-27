@@ -382,8 +382,9 @@ impl AutoActivate {
 /// (each absent in tests that build without them).
 pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
 
-/// What E acts on: the target, a queued activation, VATS mode holding the keys, the grab.
-type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, Option<Res<'w, crate::vats_mode::VatsMode>>, Option<ResMut<'w, crate::grab::GrabState>>);
+/// What E acts on: the target, a queued activation, VATS mode or the weapon wheel holding
+/// the keys, the grab.
+type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>);
 
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
@@ -391,7 +392,7 @@ pub(crate) fn activate(
     input: crate::bindings::ControlInput,
     (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
-    (target, next, vats, mut grab): ActivateFrom,
+    (target, next, (vats, wheel), mut grab): ActivateFrom,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
@@ -436,6 +437,10 @@ pub(crate) fn activate(
     }
     // VATS mode has Activate for itself (it fires the marks, docs/design/vats-mode.md §11.5).
     if vats.is_some_and(|v| v.holds_input()) {
+        return;
+    }
+    // Nor while the weapon wheel is open (docs/design/weapon-wheel.md §5).
+    if wheel.is_some_and(|w| w.holds_input()) {
         return;
     }
     // Scripts turned the player's movement off: world objects cannot be activated

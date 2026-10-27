@@ -42,7 +42,7 @@ pub mod travel;
 
 use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::Command;
 use crate::menu::MenuInput;
 use crate::player::Player;

@@ -399,8 +399,8 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     yes(g.extra.get(&r).is_some_and(|e| e.dead))
 }
 
-/// `actor.KillActor [killer] [limb] [cause]`: the actor dies; its OnDeath blocks run
-/// [hypothesis: at once], and the kill counts for GetDeadCount of its base (`Game::kill`,
+/// `actor.KillActor [killer] [limb] [cause]`: the actor dies at once; its OnDeath blocks
+/// run when the calling script has finished [hypothesis: `Game::on_death`], and the kill counts for GetDeadCount of its base (`Game::kill`,
 /// shared with combat deaths). The cause is what GetCauseofDeath then reads [documented:
 /// GECK wiki KillActor, "See GetCauseofDeath for death values"]. A limb given (≥ 0) is
 /// dismembered, on a dead actor too ("KillActor can be called on dead actors to dismember

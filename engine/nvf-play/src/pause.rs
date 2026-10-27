@@ -861,28 +861,47 @@ fn follow(first: usize, selected: usize, rows: usize) -> usize {
     crate::menu::model::keep_in_view(first, selected, rows, OPTION_ROWS)
 }
 
-/// The height of the scroll bar's track, between its arrows.
-fn bar_track() -> f32 {
-    OPTION_ROWS as f32 * OPTION_ROW - 2.0 * BAR_ARROW
+/// A list's window: the rows shown at once and each one's height.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Window {
+    shown: usize,
+    row: f32,
 }
 
-/// The scroll bar's marker for a list of `rows` from `first`: its top in the track and
-/// its height, or `None` when all the rows fit.
-fn bar_marker(rows: usize, first: usize) -> Option<(f32, f32)> {
-    let last = rows.checked_sub(OPTION_ROWS).filter(|l| *l > 0)?;
-    let track = bar_track();
-    let h = (track * OPTION_ROWS as f32 / rows as f32).clamp(BAR_MARKER_MIN, track);
-    Some((first.min(last) as f32 / last as f32 * (track - h), h))
-}
+/// The settings page's (and the Controls tab's) window of rows.
+const SETTINGS_WINDOW: Window = Window { shown: OPTION_ROWS, row: OPTION_ROW };
+/// The load page's window of saves.
+const LOAD_WINDOW: Window = Window { shown: LOAD_ROWS, row: ITEM };
 
-/// The first row shown with the marker's middle at `y` down the track (0 its top, 1 its
-/// bottom).
-fn bar_first(rows: usize, y: f32) -> usize {
-    let Some((_, h)) = bar_marker(rows, 0) else { return 0 };
-    let last = rows - OPTION_ROWS;
-    let track = bar_track();
-    let at = ((y * track - h / 2.0) / (track - h)).clamp(0.0, 1.0);
-    ((at * last as f32).round() as usize).min(last)
+impl Window {
+    /// The height of the scroll bar's track, between its arrows.
+    fn track(self) -> f32 {
+        self.shown as f32 * self.row - 2.0 * BAR_ARROW
+    }
+
+    /// The scroll bar's marker for a list of `rows` from `first`: its top in the track
+    /// and its height, or `None` when all the rows fit.
+    fn marker(self, rows: usize, first: usize) -> Option<(f32, f32)> {
+        let last = rows.checked_sub(self.shown).filter(|l| *l > 0)?;
+        let track = self.track();
+        let h = (track * self.shown as f32 / rows as f32).clamp(BAR_MARKER_MIN, track);
+        Some((first.min(last) as f32 / last as f32 * (track - h), h))
+    }
+
+    /// The first row shown with the marker's middle at `y` down the track (0 its top, 1
+    /// its bottom).
+    fn first_at(self, rows: usize, y: f32) -> usize {
+        let Some((_, h)) = self.marker(rows, 0) else { return 0 };
+        let last = rows - self.shown;
+        let track = self.track();
+        let at = ((y * track - h / 2.0) / (track - h)).clamp(0.0, 1.0);
+        ((at * last as f32).round() as usize).min(last)
+    }
+
+    /// Row `i` of a list shown from `first` is in the window (a row the pointer can take).
+    fn holds(self, first: usize, i: usize) -> bool {
+        (first..first + self.shown).contains(&i)
+    }
 }
 
 pub struct PausePlugin;
@@ -1058,7 +1077,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             }
             Page::Settings { selected } => settings_page(root, d, look, settings, selected, top),
             Page::Controls { selected, listening } => controls_page(root, d, look, settings, selected, listening, top),
-            Page::Load { selected } => load_page(root, d, f, list, selected),
+            Page::Load { selected } => load_page(root, d, look, list, selected),
         }
         // Back (and Defaults) at the bottom right.
         if d.page != Page::Main {
@@ -1239,12 +1258,18 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     version(root, f);
 }
 
-/// The scroll bar right of the rows when not all `rows` fit, from `first`: its arrows
-/// step the list, a press or drag on its track puts the marker there.
+/// The settings page's scroll bar, right of its rows.
 fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32) {
-    let Some((y, h)) = bar_marker(rows, first) else { return };
+    let bar = from_middle(OPTIONS_LEFT + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, SETTINGS_WINDOW.shown as f32 * SETTINGS_WINDOW.row);
+    window_bar(root, look, rows, first, SETTINGS_WINDOW, bar);
+}
+
+/// A list's scroll bar in `bar` when not all `rows` fit in `w`, from `first`: its arrows
+/// step the list, a press or drag on its track puts the marker there.
+fn window_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, w: Window, bar: Node) {
+    let Some((y, h)) = w.marker(rows, first) else { return };
     let bright = color(Shade::Bright);
-    let track = bar_track();
+    let track = w.track();
     let piece = |p: &mut ChildSpawnerCommands, k: usize, node: Node, b: Option<PauseButton>| {
         let mut e = match &look.bar[k] {
             Some((image, rect)) => p.spawn((node, ImageNode { rect: *rect, color: bright, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })),
@@ -1254,7 +1279,7 @@ fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, fi
             e.insert((Button, b));
         }
     };
-    root.spawn(from_middle(OPTIONS_LEFT + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, OPTION_ROWS as f32 * OPTION_ROW)).with_children(|p| {
+    root.spawn(bar).with_children(|p| {
         piece(p, 0, at(0.0, 0.0, BAR_W, BAR_ARROW), Some(PauseButton::ScrollStep(-1)));
         p.spawn((Button, PauseButton::ScrollTrack, RelativeCursorPosition::default(), at(0.0, BAR_ARROW, BAR_W, track))).with_children(|t| piece(t, 2, at(12.0, y, 6.0, h), None));
         piece(p, 1, at(0.0, BAR_ARROW + track, BAR_W, BAR_ARROW), Some(PauseButton::ScrollStep(1)));
@@ -1308,9 +1333,11 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, v: f32, 
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
-/// of [`LOAD_ROWS`] from [`PauseView::scroll`], moved only to keep the chosen one in
-/// view), left of the column.
-fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &LoadList, selected: usize) {
+/// of [`LOAD_ROWS`] from [`PauseView::scroll`], moved by the wheel, the scroll bar or the
+/// keys, never by the pointer), left of the column; the scroll bar at the rows' right
+/// when not all of them fit.
+fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &LoadList, selected: usize) {
+    let f = &look.faces;
     let panel = |top: f32, height: f32| from_right(RIGHT + COLUMN, top, LOAD_WIDTH, height);
     if list.saves.is_empty() {
         root.spawn(panel(LOAD_TOP, ITEM)).with_children(|t| sm_text(t, &f.entry, "No saves yet.", 10.0, BASE, color(Shade::Dim)));
@@ -1358,12 +1385,17 @@ fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &LoadL
             right_entry(root, &f.small, "No  N)", side(top + 2.0 * ITEM, ITEM), DELETE_WIDTH, Shade::Bright, false, PauseButton::DeleteAnswer(false));
         }
     }
+    // With the scroll bar the rows leave room for it at their right.
+    let bar = LOAD_WINDOW.marker(n, first).is_some();
+    let width = if bar { LOAD_WIDTH - BAR_W - BAR_GAP } else { LOAD_WIDTH };
+    window_bar(root, look, n, first, LOAD_WINDOW, from_right(RIGHT + COLUMN, LOAD_TOP, BAR_W, LOAD_WINDOW.shown as f32 * LOAD_WINDOW.row));
     for (row, (i, (path, h))) in list.saves.iter().enumerate().skip(first).take(LOAD_ROWS).enumerate() {
-        root.spawn((Button, PauseButton::LoadRow(i), boxed(panel(LOAD_TOP + row as f32 * ITEM, ITEM), i == selected))).with_children(|r| {
+        let node = from_right(RIGHT + COLUMN + LOAD_WIDTH - width, LOAD_TOP + row as f32 * ITEM, width, ITEM);
+        root.spawn((Button, PauseButton::LoadRow(i), boxed(node, i == selected))).with_children(|r| {
             sm_text(r, &f.entry, &stem(path), 10.0, BASE, color(Shade::Bright));
             let date = format!("{}  {}", kind_name(h.kind), crate::save::game_date(h));
             let w = f.small.font.width(&date);
-            sm_text(r, &f.small, &date, LOAD_WIDTH - w - 14.0, BASE, color(Shade::Dim));
+            sm_text(r, &f.small, &date, width - w - 14.0, BASE, color(Shade::Dim));
         });
     }
 }
@@ -1383,9 +1415,14 @@ fn open(
     mut view: ResMut<PauseView>,
     mut status: ResMut<PauseStatus>,
     mut next: ResMut<NextState<PlayState>>,
+    wheel: Option<Res<crate::weapon_wheel::WeaponWheel>>,
 ) {
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     if !keys.just_pressed(KeyCode::Escape) && !by_aid {
+        return;
+    }
+    // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game.
+    if wheel.is_some_and(|w| w.holds_input()) && !by_aid {
         return;
     }
     if by_aid {
@@ -1651,10 +1688,27 @@ fn choose(
     // The keep question or an open dropdown over the page: the rows under it do not follow
     // the pointer.
     let over = pending.is_some() || view.dropdown.is_some();
+    // Each list's first row drawn: the pointer takes only a row in its window, so a row
+    // left over from the window before (or one drawn past it) never moves the window.
+    let shown_from = |rows: usize, w: Window| view.scroll.min(rows.saturating_sub(w.shown));
+    let window = match *page {
+        Page::Settings { selected } => {
+            let r = group_rows(list, selected);
+            Some((r.start + shown_from(r.len(), SETTINGS_WINDOW), SETTINGS_WINDOW))
+        }
+        Page::Controls { .. } => Some((shown_from(control_rows(controller), SETTINGS_WINDOW), SETTINGS_WINDOW)),
+        Page::Load { .. } => Some((shown_from(menu.list.saves.len(), LOAD_WINDOW), LOAD_WINDOW)),
+        Page::Main => None,
+    };
+    let in_window = |b: &PauseButton| match (b, window) {
+        (PauseButton::Switch(i) | PauseButton::ControlRow(i) | PauseButton::LoadRow(i), Some((first, w))) => w.holds(first, *i),
+        _ => true,
+    };
     for (interaction, b) in &buttons {
         match (interaction, b, &mut *page) {
+            (Interaction::Hovered, b, _) if !in_window(b) => {}
             (Interaction::Hovered, PauseButton::Choice(r, k), _) if moved => {
-                if let Some(o) = view.dropdown.as_mut().filter(|o| o.row == *r) {
+                if let Some(o) = view.dropdown.as_mut().filter(|o| o.row == *r && (o.first..o.first + DROP_ROWS).contains(k)) {
                     o.at = *k;
                 }
             }
@@ -2036,7 +2090,6 @@ fn choose(
         }
         Page::Load { selected } => {
             let rows = menu.list.saves.len();
-            let wheel = menu.scroll.as_ref().map_or(0.0, |s| s.delta.y);
             let mut pick = None;
             if (keys.just_pressed(KeyCode::Delete) || clicked == Some(PauseButton::Delete) || act("delete")) && *selected < rows {
                 view.delete_ask = Some(*selected);
@@ -2046,9 +2099,9 @@ fn choose(
             } else if let Some(PauseButton::LoadRow(i)) = clicked {
                 *selected = i;
                 pick = Some(i);
-            } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || wheel > 0.0 || act("up") {
+            } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") {
                 *selected = (*selected).min(rows.saturating_sub(1)).saturating_sub(1);
-            } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || wheel < 0.0 || act("down") {
+            } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") {
                 *selected = (*selected + 1).min(rows.saturating_sub(1));
             } else if (keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || act("pick")) && *selected < rows {
                 pick = Some(*selected);
@@ -2059,23 +2112,24 @@ fn choose(
             }
         }
     }
-    // The saves' window follows the keys' choice; a row under the pointer is in it
-    // already, so hovering never scrolls it.
-    if let Page::Load { selected } = *page {
-        view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, menu.list.saves.len(), LOAD_ROWS);
-    }
-    // The settings page's and the Controls tab's window of rows: the wheel, the scroll
-    // bar's arrows and its marker move it, and the choice with it where it would leave
-    // the window; else the window follows the choice.
+    // The settings page's, the Controls tab's and the load page's window of rows: the
+    // wheel, the scroll bar's arrows and its marker move it, and the choice with it where
+    // it would leave the window; else the window follows the choice (the keys'; the
+    // pointer takes only rows in the window, so it never moves it).
     let window = match *page {
         Page::Settings { selected } => {
             let r = group_rows(list, selected);
-            Some((r.len(), selected.saturating_sub(r.start)))
+            Some((r.len(), selected.saturating_sub(r.start), SETTINGS_WINDOW))
         }
-        Page::Controls { selected, .. } => Some((control_rows(controller), selected)),
-        _ => None,
+        Page::Controls { selected, .. } => Some((control_rows(controller), selected, SETTINGS_WINDOW)),
+        Page::Load { selected } if view.delete_ask.is_none() => Some((menu.list.saves.len(), selected, LOAD_WINDOW)),
+        Page::Load { selected } => {
+            view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, menu.list.saves.len(), LOAD_ROWS);
+            None
+        }
+        Page::Main => None,
     };
-    if let Some((n, sel)) = window.filter(|w| w.0 > 0) {
+    if let Some((n, sel, w)) = window.filter(|w| w.0 > 0) {
         use bevy::input::mouse::MouseScrollUnit;
         view.wheel += menu.scroll.as_ref().map_or(0.0, |s| match s.unit {
             MouseScrollUnit::Line => s.delta.y,
@@ -2088,13 +2142,13 @@ fn choose(
         if let Some(PauseButton::ScrollStep(s)) = clicked {
             by += i64::from(s);
         }
-        let last = n.saturating_sub(OPTION_ROWS);
+        let last = n.saturating_sub(w.shown);
         let mut first = view.scroll.min(last);
         let mut scrolled = by != 0;
         if view.bar_dragging {
             if mouse.pressed(MouseButton::Left) {
                 if let Some(p) = meters.iter().find(|(b, _)| **b == PauseButton::ScrollTrack).and_then(|(_, at)| at.normalized) {
-                    first = bar_first(n, p.y + 0.5);
+                    first = w.first_at(n, p.y + 0.5);
                     scrolled = true;
                 }
             } else {
@@ -2103,19 +2157,19 @@ fn choose(
         }
         let sel = if scrolled {
             first = (first as i64 + by).clamp(0, last as i64) as usize;
-            sel.clamp(first, (first + OPTION_ROWS).min(n) - 1)
+            sel.clamp(first, (first + w.shown).min(n) - 1)
         } else {
-            first = follow(first, sel, n);
+            first = crate::menu::model::keep_in_view(first, sel, n, w.shown);
             sel
         };
         if first != view.scroll {
-            info!("pause menu: rows {}-{} of {} shown", first + 1, (first + OPTION_ROWS).min(n), n);
+            info!("pause menu: rows {}-{} of {} shown", first + 1, (first + w.shown).min(n), n);
             view.scroll = first;
         }
         match &mut *page {
             Page::Settings { selected } => *selected = group_rows(list, *selected).start + sel,
-            Page::Controls { selected, .. } => *selected = sel,
-            _ => {}
+            Page::Controls { selected, .. } | Page::Load { selected } => *selected = sel,
+            Page::Main => {}
         }
     }
     if let Page::Load { selected } = *page {
@@ -2421,18 +2475,31 @@ mod tests {
 
     #[test]
     fn the_scroll_bar_shows_only_when_rows_are_hidden_and_its_marker_follows_the_list() {
-        assert_eq!(bar_marker(9, 0), None);
-        assert_eq!(bar_marker(4, 0), None);
-        let (top, h) = bar_marker(30, 0).unwrap();
+        let w = SETTINGS_WINDOW;
+        assert_eq!(w.marker(9, 0), None);
+        assert_eq!(w.marker(4, 0), None);
+        let (top, h) = w.marker(30, 0).unwrap();
         assert_eq!(top, 0.0);
-        assert!((h - bar_track() * 9.0 / 30.0).abs() < 1e-3);
-        let (end, _) = bar_marker(30, 21).unwrap();
-        assert!((end + h - bar_track()).abs() < 1e-3);
+        assert!((h - w.track() * 9.0 / 30.0).abs() < 1e-3);
+        let (end, _) = w.marker(30, 21).unwrap();
+        assert!((end + h - w.track()).abs() < 1e-3);
         // A press at the track's ends scrolls to the list's ends, its middle halfway.
-        assert_eq!(bar_first(30, 0.0), 0);
-        assert_eq!(bar_first(30, 1.0), 21);
-        assert_eq!(bar_first(30, 0.5), 11);
-        assert_eq!(bar_first(5, 0.7), 0);
+        assert_eq!(w.first_at(30, 0.0), 0);
+        assert_eq!(w.first_at(30, 1.0), 21);
+        assert_eq!(w.first_at(30, 0.5), 11);
+        assert_eq!(w.first_at(5, 0.7), 0);
+        // The load page's bar shows past eight saves and reaches the last eight.
+        assert_eq!(LOAD_WINDOW.marker(8, 0), None);
+        assert!(LOAD_WINDOW.marker(21, 0).is_some());
+        assert_eq!(LOAD_WINDOW.first_at(21, 1.0), 13);
+    }
+
+    #[test]
+    fn the_pointer_takes_only_rows_in_the_window() {
+        // Rows 5-12 shown: a row drawn before the window moved (4 or 13) is not taken.
+        assert!(LOAD_WINDOW.holds(5, 5) && LOAD_WINDOW.holds(5, 12));
+        assert!(!LOAD_WINDOW.holds(5, 4) && !LOAD_WINDOW.holds(5, 13));
+        assert!(SETTINGS_WINDOW.holds(0, 8) && !SETTINGS_WINDOW.holds(0, 9));
     }
 
     #[test]

@@ -22,7 +22,9 @@
 //! collision is [hypothesis]: after a scripted `player.Drop` the game reported the same
 //! position for 10 s [observed], while clutter moved by `SetPos` fell and rolled
 //! [observed, physics.md §4.2]; a drop from the inventory menu is not captured
-//! (capture for the owner: simulation.md §5).
+//! (capture for the owner: simulation.md §5). The player's own drop from the inventory
+//! menu is placed by design instead (`World::player_drop_item_at`): at chest height, each
+//! new reference in the next free place of a ring around the player.
 
 use crate::phys::cells::{PhysCell, Space};
 use crate::sim::SimState;

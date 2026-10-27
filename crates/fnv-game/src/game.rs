@@ -1193,6 +1193,9 @@ pub struct Game<'a> {
     pub instances: BTreeMap<InstKey, Instance>,
     pub extra: BTreeMap<FormId, RefExtra>,
     pub player: PlayerState,
+    /// Players 2–4 of a co-op game, in slot order (`crate::coop`; docs/design/coop-save.md).
+    /// Kept and saved; nothing plays them yet.
+    pub coop: Vec<crate::coop::CoopPlayer>,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -1300,6 +1303,9 @@ pub struct Game<'a> {
     /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
     /// world in place ([`Game::queue_ref_event`]).
     pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// Deaths during a script run (KillActor, a script's damage) whose OnDeath blocks wait
+    /// for the outermost script to finish, with their killers ([`Game::kill`]).
+    deferred_deaths: Vec<(FormId, Option<FormId>)>,
     /// The open flag last seen on each scripted door with OnOpen or OnClose blocks
     /// ([`Game::watch_doors`]). Not saved: a door first seen after a load is taken as
     /// it stands.
@@ -1439,6 +1445,9 @@ pub struct GameSnapshot {
     /// (`functions::misc::ScriptLooks::fade_moves`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fade_moves: BTreeMap<FormId, crate::functions::misc::FadeMove>,
+    /// Players 2–4 of a co-op game (`crate::coop`); absent in a one-player save.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coop: Vec<crate::coop::CoopPlayer>,
 }
 
 impl GameSnapshot {
@@ -1447,7 +1456,8 @@ impl GameSnapshot {
     /// loaded (`gone`), where a field and not a key names them. References whose base form
     /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
     /// dropped), script instances whose key or script is gone, magic effects whose effect,
-    /// source, target or script is gone (and their effect scripts), and the radio station
+    /// source, target or script is gone (and their effect scripts; a co-op player's
+    /// likewise), and the radio station
     /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
     /// fails as one of any form that does not exist [hypothesis: the original's behaviour
     /// with a missing plugin is not documented]. Returns how many were dropped.
@@ -1459,6 +1469,13 @@ impl GameSnapshot {
         let before = self.effects.len();
         self.effects.retain(|e| !gone(e.effect) && !gone(e.source) && !gone(e.target) && !e.script.is_some_and(&gone));
         n += before - self.effects.len();
+        // A co-op player's effects go as the game's own player's do; its inventory and
+        // values are keyed by form, which the remap already dropped.
+        for p in &mut self.coop {
+            let before = p.effects.len();
+            p.effects.retain(|e| !gone(e.effect) && !gone(e.source) && !e.script.is_some_and(&gone));
+            n += before - p.effects.len();
+        }
         let live: BTreeSet<u32> = self.effects.iter().map(|e| e.id).collect();
         let before = self.instances.len();
         self.instances.retain(|(k, inst)| {
@@ -1696,6 +1713,7 @@ impl<'a> Game<'a> {
             instances: BTreeMap::new(),
             extra: BTreeMap::new(),
             player: PlayerState::default(),
+            coop: Vec::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
@@ -1731,6 +1749,7 @@ impl<'a> Game<'a> {
             door_gates: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
+            deferred_deaths: Vec::new(),
             door_open_seen: BTreeMap::new(),
             events: Vec::new(),
             unhandled: BTreeMap::new(),
@@ -1761,6 +1780,26 @@ impl<'a> Game<'a> {
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
         if let Some((item, count)) = acquired {
             self.challenge_acquired(item, count);
+        }
+    }
+
+    /// Notes that reached the player's inventory (taken from a container, picked up,
+    /// AddItem, bought) become the player's notes and leave the inventory: a note is
+    /// never an inventory item [documented: GECK wiki GetItemCount, "does not work with
+    /// Notes"; observed: GetItemCount 0 for a holotape just added, capture
+    /// `fa_batch3_actions`]. The owner's playtest: Jeannie May's Bill of Sale, taken from
+    /// her safe, was a misc item and missing from the Pip-Boy's notes.
+    pub fn file_carried_notes(&mut self) {
+        let Some(inv) = self.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()) else { return };
+        let forms = &self.world.forms;
+        let carried: Vec<(FormId, i32)> =
+            inv.iter().filter(|&(i, n)| n > 0 && forms.item(i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Note)).collect();
+        for (note, n) in carried {
+            let _ = self.world.remove_item(FormId::PLAYER_REF, note, n);
+            if self.player.notes.insert(note) {
+                tracing::info!("notes: {} {note} filed with the player's notes", self.data.name(note));
+                self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
+            }
         }
     }
 
@@ -2029,6 +2068,9 @@ impl<'a> Game<'a> {
         let mut ex = Exec { game: self, unit, locals, ctx };
         let r = Vm::new(table, &mut ex, opts).run(stmts);
         self.depth -= 1;
+        if self.depth == 0 {
+            self.run_deferred_deaths();
+        }
         match r {
             Ok(exit) => exit == fnv_script::vm::Exit::Returned,
             Err(e) => {
@@ -2517,6 +2559,26 @@ impl<'a> Game<'a> {
         self.queued_ref_events.push((r, event, by));
     }
 
+    /// A script is running (a block, a result script, a function a script called).
+    pub(crate) fn in_script(&self) -> bool {
+        self.depth > 0
+    }
+
+    /// `r` died during a script run: its OnDeath runs when the outermost script ends.
+    pub(crate) fn defer_death(&mut self, r: FormId, killer: Option<FormId>) {
+        self.deferred_deaths.push((r, killer));
+    }
+
+    /// The OnDeath blocks of deaths during the script run that just ended; deaths in those
+    /// blocks run theirs after them.
+    fn run_deferred_deaths(&mut self) {
+        while !self.deferred_deaths.is_empty() {
+            for (r, killer) in std::mem::take(&mut self.deferred_deaths) {
+                self.on_death(r, killer);
+            }
+        }
+    }
+
     /// OnOpen and OnClose of the scripted doors among `refs`: a door's open flag that
     /// changed since the last look runs the block (the player's activation, a script's
     /// SetOpenState, an NPC opening it on its way). The first look at a door only notes
@@ -2618,6 +2680,8 @@ impl<'a> Game<'a> {
         if !self.challenge_queue.rewards.is_empty() {
             self.run_challenge_rewards();
         }
+        // In menu mode too: a note taken in the container menu files at once.
+        self.file_carried_notes();
         if self.loading {
             self.side_blocks(menus::LOADING);
             return;
@@ -4094,6 +4158,7 @@ impl<'a> Game<'a> {
             nav_switches: self.nav_switches.clone(),
             securitron_faces: self.texture_swaps.securitron.clone(),
             fade_moves: self.script_looks.fade_moves.clone(),
+            coop: self.coop.clone(),
         }
     }
 
@@ -4143,6 +4208,7 @@ impl<'a> Game<'a> {
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
         g.nav_switches = s.nav_switches.clone();
+        g.coop = crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;
         for (&on, texture) in &s.securitron_faces {
             g.texture_swaps.set_securitron(on, texture.clone());
         }

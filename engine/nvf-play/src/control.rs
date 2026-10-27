@@ -9,7 +9,9 @@
 //!   single tap reloads that much later [design].
 //! - Use (left mouse) attacks while held ([`PlayerControl::trigger`], `crate::combat`);
 //!   with the weapon away it draws it first [hypothesis].
-//! - Ammo Swap (hotkey 2) asks `crate::combat` for the next carried ammo type.
+//! - Ammo Swap (hotkey 2) asks `crate::combat` for the next carried ammo type; the
+//!   hotkeys 1 to 8 are the weapon wheel's (`crate::weapon_wheel`, which sets
+//!   [`PlayerControl::ammo_swap`] on a tap of 2).
 //! - Block (right mouse, Left Alt), held: guns aim down the sights, fists and melee
 //!   weapons block.
 //! - Always Run (Caps Lock) toggles running as the default (on by default:
@@ -26,8 +28,10 @@
 //!   takes Use, Block and Activate while it is on.
 //! - Grab (Z) held picks up what is under the crosshair and carries it (`crate::grab`,
 //!   docs/spec-notes/grab.md).
-//! - The game's other controls (the hotkeys, Quick Save, Quick Load) are bound but not
-//!   built: pressing one says so on screen.
+//! - The game's other controls (Quick Save, Quick Load) are bound but not built here:
+//!   pressing one says so on screen.
+//! - While the weapon wheel holds the input ([`PlayerControl::wheel`]) Use and Block are
+//!   not the game's.
 //! - Scripts turn groups of controls off and on (`DisablePlayerControls`,
 //!   `EnablePlayerControls`): [`ControlLocks`], applied to every frame's requests by
 //!   [`enforce_locks`].
@@ -147,6 +151,8 @@ pub struct PlayerControl {
     pub lowered: bool,
     /// Ammo Swap pressed; `crate::combat` clears it.
     pub ammo_swap: bool,
+    /// The weapon wheel has the mouse and the attack keys (`crate::weapon_wheel`).
+    pub wheel: bool,
     /// The third-person camera's line through the crosshair, set by [`place_camera`]
     /// each frame; `None` in first person and while the camera circles. Activation and
     /// the player's shots aim along it ([`Crosshair::ray`]).
@@ -175,6 +181,7 @@ impl Default for PlayerControl {
             reload_tap: None,
             lowered: false,
             ammo_swap: false,
+            wheel: false,
             crosshair: None,
             portrait: None,
             cinematic: false,
@@ -507,14 +514,7 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 }
 
 /// The controls that are bound but not built yet.
-const NOT_BUILT: [Control; 9] = [
-    Control::Hotkey1,
-    Control::Hotkey3,
-    Control::Hotkey4,
-    Control::Hotkey5,
-    Control::Hotkey6,
-    Control::Hotkey7,
-    Control::Hotkey8,
+const NOT_BUILT: [Control; 2] = [
     Control::QuickSave,
     Control::QuickLoad,
 ];
@@ -580,21 +580,20 @@ pub fn read_controls(
     }
     // Use draws the weapon when it is away; held with it out, it is the trigger. The
     // press that draws does not fire.
-    if input.just_pressed(Control::Use) && !c.weapon_out {
+    if c.wheel {
+        c.trigger = false;
+    } else if input.just_pressed(Control::Use) && !c.weapon_out {
         c.weapon_out = true;
         c.trigger = false;
     } else {
         c.trigger = c.weapon_out && input.pressed(Control::Use) && (c.trigger || input.just_pressed(Control::Use));
-    }
-    if input.just_pressed(Control::AmmoSwap) {
-        c.ammo_swap = true;
     }
     for ctl in NOT_BUILT {
         if input.just_pressed(ctl) {
             message = Some(format!("{}: not available yet", Bindings::name(ctl)));
         }
     }
-    c.aiming = input.pressed(Control::Block);
+    c.aiming = input.pressed(Control::Block) && !c.wheel;
     if c.lowered && (c.aiming || c.trigger || !c.weapon_out) {
         c.lowered = false;
     }

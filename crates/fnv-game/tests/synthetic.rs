@@ -629,6 +629,61 @@ fn snapshots_round_trip() {
     assert_eq!(g.instances, h.instances);
 }
 
+/// Players 2–4 of a co-op game (docs/design/coop-save.md): each keeps its own actor
+/// (inventory, place), values (health damage), character and effects through a save,
+/// apart from the game's own player and from each other; the quests stay shared.
+#[test]
+fn coop_players_round_trip_apart_from_the_player() {
+    use fnv_game::coop::{CoopError, CoopPlayer};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    // A one-player snapshot writes no `coop`.
+    assert!(!serde_json::to_string(&g.snapshot()).unwrap().contains("\"coop\""));
+    let health = 16u16;
+    let mut p2 = CoopPlayer::copy_of_player(&g, 2).unwrap();
+    p2.character.name = Some("Second".into());
+    p2.character.xp = 250.0;
+    p2.character.perks.insert(FormId(0xABC), 1);
+    p2.actor.pos = [10.0, 20.0, 30.0];
+    p2.actor.inventory.get_or_insert_with(fnv_sim::Inventory::new).add(FormId(0x4242), 3);
+    p2.extra.av_damage.insert(health, 40.0);
+    p2.heading_deg = 90.0;
+    let mut p4 = CoopPlayer::copy_of_player(&g, 4).unwrap();
+    p4.character.name = Some("Fourth".into());
+    p4.extra.dead = true;
+    g.set_coop_player(p4).unwrap();
+    g.set_coop_player(p2.clone()).unwrap();
+    assert_eq!(g.coop.iter().map(|p| p.slot).collect::<Vec<_>>(), vec![2, 4]);
+    assert_eq!(g.set_coop_player(CoopPlayer { slot: 1, ..p2.clone() }), Err(CoopError::BadSlot(1)));
+    assert_eq!(g.set_coop_player(CoopPlayer { slot: 5, ..p2.clone() }), Err(CoopError::BadSlot(5)));
+    g.set_stage(FormId(QUEST), 10);
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.coop, g.coop);
+    assert_eq!(h.coop_player(2), Some(&p2));
+    assert!(h.coop_player(3).is_none());
+    assert!(h.coop_player(4).unwrap().extra.dead);
+    // The game's own player kept none of it.
+    assert_eq!(h.player.name, g.player.name);
+    assert!(h.player.perks.is_empty());
+    assert!(!h.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.dead || e.av_damage.contains_key(&health)));
+    assert_ne!(h.world.peek(FormId::PLAYER_REF).unwrap().pos, [10.0, 20.0, 30.0]);
+    // The quests are saved once, not per player.
+    assert_eq!(h.quests, g.quests);
+    assert_eq!(text.matches("\"quests\"").count(), 1);
+    // A snapshot naming one slot twice is refused.
+    let mut twice = back.clone();
+    twice.coop.push(twice.coop[0].clone());
+    let world = World::restore(&f.forms, &f.refs, &twice.sim).unwrap();
+    assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
+}
+
 #[test]
 fn a_save_made_with_another_load_order_drops_the_missing_plugins_forms() {
     // docs/design/save-load.md §4.1. The save was made with [Test.esm, Extra.esm] and is

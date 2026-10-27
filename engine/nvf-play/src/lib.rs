@@ -53,6 +53,7 @@ pub mod holotape;
 pub mod interface;
 pub mod intro;
 pub mod levelup;
+pub mod hotkeys;
 pub mod hud;
 pub mod hud_breath;
 pub mod hud_limbs;
@@ -108,10 +109,12 @@ pub mod credits;
 mod test_aid;
 pub mod sfx;
 pub mod sneak_gauges;
+pub mod ui_colour;
 pub mod ui_sounds;
 pub mod stress;
 pub mod vats_mode;
 pub mod kill_cam;
+pub mod weapon_wheel;
 pub mod voice;
 pub mod voice_filter;
 pub mod wait;
@@ -339,9 +342,11 @@ impl Plugin for PlayPlugin {
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
             .add_plugins(kill_cam::KillCamPlugin)
+            .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin)
-            .add_plugins(hardcore::HardcorePlugin);
+            .add_plugins(hardcore::HardcorePlugin)
+            .add_plugins(ui_colour::UiColourPlugin);
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);
