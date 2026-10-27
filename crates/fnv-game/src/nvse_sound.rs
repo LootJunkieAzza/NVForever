@@ -67,11 +67,9 @@ impl SoundState {
     }
 
     /// Whether `p` counts as playing in `frame`: from the second frame after it was asked
-    /// for, until its end, and in the frame StopSound stopped it [observed: sound1 on this
-    /// machine, sound2a–d (twice) and the peer's sky-sound, IsSoundPlaying 0 in PlaySound's
-    /// frame and the next and 1 from the one after; the peer's sound1 read 1 a frame earlier,
-    /// hypothesis: the audio system's start takes one or two frames; 1 in StopSound's frame,
-    /// 0 from the next].
+    /// for, until its end, and in the frame StopSound stopped it [observed: sound1 on both
+    /// machines, sound2a–d (twice) and sky-sound, IsSoundPlaying 0 in PlaySound's frame and
+    /// the next and 1 from the one after; 1 in StopSound's frame, 0 from the next].
     fn playing(&self, p: &Played, frame: u64) -> bool {
         p.frame + 1 < frame && p.stopped.is_none_or(|f| f == frame) && p.until.is_none_or(|u| self.clock < u)
     }

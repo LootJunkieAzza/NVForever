@@ -9858,6 +9858,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "jip-raycast-points"
+source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
+areas = ["scripts", "physics"]
+paths = ["crates/fnv-game/src/nvse_jip3.rs", "crates/fnv-game/src/ray.rs", "crates/fnv-script/src/vm.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RunScriptSnippet 0 \"float fA%rfloat fX%rfloat fY%rfloat fZ%rlet fA := GetPointRayCastPos (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) 90 0 fX fY fZ%rPrintC %qnvf ray down %%g %%.0f%q, fA, (((player.GetPos Z) + 100) - fZ)\";9.5:RunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 100 0 0 fA fB%rPrintC %qnvf between %%g %%g%q, fA, fB\";10:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 12
+expect = [
+  { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
+  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
+]
+
+[[scenario]]
 name = "knvse-idle-stop"
 source = "kNVSE ForcePlayIdle and ForceStopIdle on an NPC through the engine's idle player; GetPlayedIdle keeps the idle after the stop [observed: anim1]"
 areas = ["scripts", "actors"]

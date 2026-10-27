@@ -542,16 +542,20 @@ fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
         let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         let mut w = world.borrow_mut();
-        match kind {
-            fnv_game::ray::CastKind::Scene => w.queries().ray(a, d, len, &filter).map(|h| h.distance),
+        let hit = match kind {
+            fnv_game::ray::CastKind::Scene => w.queries().ray(a, d, len, &filter),
+            fnv_game::ray::CastKind::World => w.queries().ray(a, d, len, &fnv_phys::world::Filter { no_terrain: false, ..filter.clone() }),
             // The terrain's own hit, past anything standing on it.
-            fnv_game::ray::CastKind::Terrain => w
-                .queries()
-                .ray_all(a, d, len, &fnv_phys::world::Filter::default())
-                .into_iter()
-                .find(|h| matches!(h.owner, fnv_phys::world::Owner::Terrain { .. }))
-                .map(|h| h.distance),
-        }
+            fnv_game::ray::CastKind::Terrain => w.queries().ray_all(a, d, len, &fnv_phys::world::Filter::default()).into_iter().find(|h| matches!(h.owner, fnv_phys::world::Owner::Terrain { .. })),
+        };
+        hit.map(|h| {
+            let form = match h.owner {
+                fnv_phys::world::Owner::Ref { form_id, .. } | fnv_phys::world::Owner::Actor { form_id, .. } => Some(form_id),
+                fnv_phys::world::Owner::Character { id } => Some(id),
+                fnv_phys::world::Owner::Terrain { .. } => None,
+            };
+            fnv_game::ray::Hit { distance: h.distance, point: h.point, form, material: h.material }
+        })
     };
     fnv_game::ray::with_caster(&caster, f)
 }

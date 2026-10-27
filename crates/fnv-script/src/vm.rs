@@ -2651,6 +2651,11 @@ impl Vm<'_, '_> {
                 None => Ok(XVal::Num(0.0)),
             };
         }
+        // Functions that give their results in script variables: the host answers with an
+        // array of the return value and then each output, written to the variables here.
+        if let Some(outs) = out_params(&lname) {
+            return self.out_call(&lname, c, outs);
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
@@ -2873,6 +2878,34 @@ impl Vm<'_, '_> {
     }
 
     /// An extender function the host builds (`Host::ext_call`); `None` when it does not.
+    /// A function whose arguments at `outs` are script variables it writes: the other
+    /// arguments go to the host, whose answer is an array of the return value followed by
+    /// one value per output.
+    fn out_call(&mut self, lname: &str, c: &XCall, outs: &[usize]) -> Result<XVal, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for (k, a) in c.args.iter().enumerate() {
+            if !outs.contains(&k) {
+                args.push(self.xeval(a)?);
+            }
+        }
+        let r = match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map_err(VmError::Host)?,
+            None => return Err(VmError::NotBuilt(format!("the extender function {lname}"))),
+        };
+        let XVal::Array(id) = r else { return Ok(r) };
+        let vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
+        for (i, &k) in outs.iter().enumerate() {
+            if let (Some(XExpr::Var { var, .. }), Some(v)) = (c.args.get(k), vals.get(i + 1)) {
+                self.write_var(var, v.clone())?;
+            }
+        }
+        Ok(vals.first().cloned().unwrap_or(XVal::Num(0.0)))
+    }
+
     fn host_function(&mut self, lname: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
         let on = match &c.on {
             Some(e) => Some(self.xeval(e)?.value()?),
@@ -2895,6 +2928,17 @@ impl Vm<'_, '_> {
             None => Ok(None),
         }
     }
+}
+
+/// The argument positions a function writes its results into, for [`Vm::out_call`]
+/// [documented: the functions' pages, "outputs … into the specified script variables"].
+fn out_params(lname: &str) -> Option<&'static [usize]> {
+    Some(match lname {
+        "getangleex" => &[0, 1, 2],
+        "getanglesbetweenpoints" => &[6, 7],
+        "getpointraycastpos" => &[5, 6, 7],
+        _ => return None,
+    })
 }
 
 /// Where `Label n` stands in a statement list.

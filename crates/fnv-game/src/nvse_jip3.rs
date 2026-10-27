@@ -37,6 +37,22 @@ fn yes(b: bool) -> XVal {
     XVal::Num(if b { 1.0 } else { 0.0 })
 }
 
+/// The answer of a function with output variables (`fnv_script::vm`'s out_call): the
+/// return value, then the outputs.
+fn outputs(g: &mut Game, ret: XVal, outs: &[f64]) -> XVal {
+    let entries = std::iter::once(ret).chain(outs.iter().map(|v| XVal::Num(*v))).enumerate().map(|(i, v)| (fnv_script::vm::XKey::Num(i as f64), v)).collect();
+    XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+}
+
+/// The way a pitch `x` and heading `z` (radians) look: x positive down, z clockwise from
+/// north (+y), as the references' angles are kept.
+fn facing(x: f32, z: f32) -> [f32; 3] {
+    [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()]
+}
+
+/// The default reach of a cast with no range given [hypothesis].
+const RAY_REACH: f32 = 50_000.0;
+
 impl Game<'_> {
     /// The player used door `door`: kept when it stands outside (GetPCLastExteriorDoor).
     pub(crate) fn note_player_door(&mut self, door: FormId) {
@@ -210,6 +226,67 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             1 => yes(!g.toggles.actors_ai_off),
             _ => zero,
         },
+        // `xVar yVar zVar [local]`: the reference's angles in degrees [documented:
+        // GetAngleEx; hypothesis: local and global are the same for an unparented
+        // reference].
+        "getangleex" => {
+            let rot = subject.and_then(|r| g.ref_pos_rot(r)).map_or([0.0; 3], |(_, r)| r);
+            let d = |a: f32| f64::from(a.to_degrees());
+            outputs(g, zero, &[d(rot[0]), d(rot[1]), d(rot[2])])
+        }
+        // `x0 y0 z0 x1 y1 z1 → pitch heading`: the angles, in degrees, of the way from the
+        // first point to the second, pitch positive down as references' [documented:
+        // GetAnglesBetweenPoints; hypothesis: the signs and the 0..360 heading].
+        "getanglesbetweenpoints" => {
+            let p: Vec<f64> = (0..6).map(|k| num(args, k, 0.0)).collect();
+            let (dx, dy, dz) = (p[3] - p[0], p[4] - p[1], p[5] - p[2]);
+            let pitch = (-dz).atan2(dx.hypot(dy)).to_degrees();
+            let heading = dx.atan2(dy).to_degrees().rem_euclid(360.0);
+            outputs(g, zero, &[pitch, heading])
+        }
+        // `x y z pitch heading → x y z [flags] [range]`: where a cast from the point the way
+        // of the angles (degrees) first meets the scene; 0 for no hit [documented:
+        // GetPointRayCastPos; hypothesis: the second angle is the heading, the collision
+        // flags not told apart].
+        "getpointraycastpos" => {
+            let o = [num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32];
+            let dir = facing((num(args, 3, 0.0) as f32).to_radians(), (num(args, 4, 0.0) as f32).to_radians());
+            let reach = Some(num(args, 6, 0.0) as f32).filter(|r| *r > 0.0).unwrap_or(RAY_REACH);
+            let to = [o[0] + dir[0] * reach, o[1] + dir[1] * reach, o[2] + dir[2] * reach];
+            match crate::ray::cast_hit(o, to, crate::ray::CastKind::World) {
+                Some(h) => outputs(g, XVal::Num(1.0), &[f64::from(h.point[0]), f64::from(h.point[1]), f64::from(h.point[2])]),
+                None => outputs(g, zero, &[0.0, 0.0, 0.0]),
+            }
+        }
+        // `xGlobal yGlobal zGlobal [offset] [flags] [node] [range]` and `[flags] [node]`:
+        // a cast from the reference along its facing (an actor from its eyes) [documented:
+        // GetRayCastPos, GetRayCastRef; hypothesis: the root node's place and the actor's
+        // eye 64 above its feet; the node names not read].
+        "getraycastpos" | "getraycastref" => {
+            let Some(r) = subject else { return Some(Ok(zero)) };
+            let Some((pos, rot)) = g.ref_pos_rot(r) else { return Some(Ok(zero)) };
+            let actor = r == FormId::PLAYER_REF || g.data.actors.contains_key(&crate::functions::base_of(g, r).unwrap_or(r));
+            let dir = facing(rot[0], rot[2]);
+            let pos_ray = name == "getraycastpos";
+            let offset = if pos_ray { num(args, 3, 0.0) as f32 } else { 0.0 };
+            let reach = if pos_ray { Some(num(args, 6, 0.0) as f32).filter(|r| *r > 0.0).unwrap_or(RAY_REACH) } else { RAY_REACH };
+            let base = [pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }];
+            let o = [base[0] + dir[0] * offset, base[1] + dir[1] * offset, base[2] + dir[2] * offset];
+            let to = [o[0] + dir[0] * reach, o[1] + dir[1] * reach, o[2] + dir[2] * reach];
+            let hit = crate::ray::cast_hit(o, to, crate::ray::CastKind::World);
+            if pos_ray {
+                if let Some(h) = hit {
+                    for (k, v) in h.point.iter().enumerate() {
+                        if let Some(gl) = form(args, k) {
+                            let _ = g.world.set_global(gl, *v);
+                        }
+                    }
+                }
+                yes(hit.is_some())
+            } else {
+                XVal::Ref(hit.and_then(|h| h.form).unwrap_or(0))
+            }
+        }
         _ => return None,
     };
     Some(Ok(v))
