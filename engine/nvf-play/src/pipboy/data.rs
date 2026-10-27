@@ -12,8 +12,9 @@
 //!   notes of the active quest.
 //! - **Radio**: the stations the Pip-Boy receives here (`crate::radio`'s list), the
 //!   playing one's square filled; a click or Enter tunes to a station or, on the playing
-//!   one, turns the radio off; the waveform panel at the right (a still wave while it
-//!   plays, the flat line while it is off).
+//!   one, turns the radio off; the waveform panel at the right (a trace that runs to the
+//!   left and rises with the sound while it plays, the flat line while it is off;
+//!   [`wave_moves`]).
 //! - **World Map**: the worldspace's map picture with the map markers the player knows
 //!   (found within their radius, made visible by ShowMap or by their flag), the active
 //!   quest's markers and the player's arrow; dragged to pan, the wheel zooms; the
@@ -42,7 +43,7 @@ pub mod travel;
 
 use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
-use crate::interface::{pipboy_amber as amber, at};
+use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
 use crate::menu::MenuInput;
 use crate::player::Player;
@@ -60,7 +61,7 @@ use outline::Outline;
 use travel::{FastTravelAsk, FastTravelGo, Popup};
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 // ---- the tabs ---------------------------------------------------------------------------
 
@@ -191,10 +192,25 @@ const LOCAL_CELLS: (i32, i32) = (3, 2);
 /// Each wheel step zooms a map by this factor, between 1 and 4 times [design].
 const ZOOM_STEP: f32 = 1.25;
 const ZOOM: (f32, f32) = (1.0, 4.0);
-/// The still wave drawn while the radio plays [design]: its height and waves across.
-const WAVE_AMPLITUDE: f32 = 70.0;
-const WAVE_CYCLES: f32 = 3.0;
-const WAVE_SEGMENTS: usize = 72;
+/// The trace drawn while the radio plays: its greatest height either side of the middle
+/// [observed: the capture, about a third of the panel at its loudest], the waves across
+/// the panel [observed: 8], how fast its envelope runs to the left, panels a second
+/// [observed: 7; the waves themselves stand nearly still], how fast the waves drift
+/// [design], the loudness (root mean square) drawn at full height [design: the radio's
+/// songs measure about 0.025 through, `mus_roundhouse_rock.mp3` -32 dB] and the
+/// straight pieces it is drawn of.
+const WAVE_AMPLITUDE: f32 = 110.0;
+const WAVE_CYCLES: f32 = 8.0;
+const WAVE_SCROLL: f32 = 7.0;
+const WAVE_DRIFT: f32 = 0.4;
+const WAVE_LOUD: f32 = 0.04;
+const WAVE_SEGMENTS: usize = 128;
+/// The envelope's rise and fall: a knot every this many pieces, each at a height between
+/// these shares of the loudness [design: the capture's bursts and lulls].
+const WAVE_KNOT: u64 = 10;
+const WAVE_SWING: (f32, f32) = (0.3, 1.0);
+/// A holotape's trace, at this share of full height (its sound is not measured) [design].
+const HOLOTAPE_LOUDNESS: f32 = 0.6;
 /// How often the page looks at the quests and the markers while the game runs, seconds.
 const POLL: f32 = 0.25;
 const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
@@ -1439,8 +1455,8 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
                     c.image(p, path, at(data.x + DATA_W - IMAGE, data.y + TEXT_AT.y, IMAGE, IMAGE), amber(TEXT));
                 }
                 // The Radio tab's wave panel [design: holotapes.md §3].
-                Right::Audio { playing } => wave(p, c, *playing),
-                Right::Wave { on } => wave(p, c, *on),
+                Right::Audio { playing } => wave(p, c, playing.then_some(WaveSource::Holotape)),
+                Right::Wave { on } => wave(p, c, on.then_some(WaveSource::Radio)),
             }
         }
     }
@@ -1614,34 +1630,123 @@ fn note_text(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, text: &str
     (total - TEXT_H).max(0.0)
 }
 
-/// The radio's waveform panel.
-fn wave(p: &mut ChildSpawnerCommands, c: &mut Ctx, on: bool) {
+/// The radio's waveform panel; the trace's pieces are placed by [`wave_moves`].
+fn wave(p: &mut ChildSpawnerCommands, c: &mut Ctx, on: Option<WaveSource>) {
     let line = amber(LINE);
     let o = MAIN.min + WAVE.min;
     let (w, h) = (WAVE.width(), WAVE.height());
     c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(o.x, o.y + h - TICKS + 2.0, w, TICKS), line);
     c.image(p, "Interface\\Shared\\Meter\\tickmark_vert.dds", at(o.x + w - TICKS + 2.0, o.y, TICKS, h), line);
-    let mid = o.y + (h - THICK) / 2.0 - 8.0;
-    let len = w - 5.0;
-    if !on {
-        c.line(p, o.x, mid, len, THICK, line);
+    let (left, mid, len) = wave_line();
+    let Some(source) = on else {
+        c.line(p, left, mid, len, THICK, line);
         return;
-    }
-    // A still sine wave [design: the original plays an animated model here].
-    let at_x = |i: usize| i as f32 / WAVE_SEGMENTS as f32 * len;
-    let at_y = |x: f32| mid - WAVE_AMPLITUDE * (x / len * WAVE_CYCLES * std::f32::consts::TAU).sin() * (1.0 - (2.0 * x / len - 1.0).powi(2)).sqrt();
+    };
+    let piece = len / WAVE_SEGMENTS as f32;
     for i in 0..WAVE_SEGMENTS {
-        let (xa, xb) = (at_x(i), at_x(i + 1));
-        let (a, b) = (Vec2::new(xa, at_y(xa)), Vec2::new(xb, at_y(xb)));
+        p.spawn((at(left + i as f32 * piece, mid, piece, THICK), BackgroundColor(line), UiTransform::default(), WaveSegment { i, source }, Pickable::IGNORE));
+    }
+}
+
+/// Where the flat line lies: its left end, its top and its length.
+fn wave_line() -> (f32, f32, f32) {
+    let o = MAIN.min + WAVE.min;
+    (o.x, o.y + (WAVE.height() - THICK) / 2.0 - 8.0, WAVE.width() - 5.0)
+}
+
+/// What a waveform panel's trace follows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum WaveSource {
+    Radio,
+    Holotape,
+}
+
+/// One straight piece of the waveform panel's trace.
+#[derive(Component)]
+pub struct WaveSegment {
+    i: usize,
+    source: WaveSource,
+}
+
+/// The waveform panel's trace [observed: a capture of the original's Radio tab]: waves
+/// standing nearly still across the panel under an envelope that runs to the left, its
+/// height the sound's loudness as it came in (silence draws the flat line, a lull small
+/// ripples).
+#[derive(Resource, Default)]
+pub struct WaveScope {
+    /// Per point of the trace, oldest at the left: the envelope and the share of the
+    /// second, faster wave.
+    points: VecDeque<(f32, f32)>,
+    /// Pieces run in, not yet whole.
+    scroll: f32,
+    /// Points made so far (picks the envelope's knots).
+    made: u64,
+    /// The waves' drift, cycles.
+    phase: f32,
+}
+
+impl WaveScope {
+    /// Run the trace on by `dt` seconds with the sound at `loudness`.
+    fn step(&mut self, dt: f32, loudness: f32) {
+        let level = (loudness.max(0.0) / WAVE_LOUD).sqrt().min(1.0);
+        self.scroll += dt * WAVE_SCROLL * WAVE_SEGMENTS as f32;
+        let fresh = if self.points.len() <= WAVE_SEGMENTS { WAVE_SEGMENTS + 1 } else { (self.scroll as usize).min(WAVE_SEGMENTS + 1) };
+        self.scroll = self.scroll.fract();
+        for _ in 0..fresh {
+            self.made += 1;
+            let swing = WAVE_SWING.0 + (WAVE_SWING.1 - WAVE_SWING.0) * knotted(self.made, 0);
+            self.points.push_back((level * swing, knotted(self.made, 1)));
+        }
+        while self.points.len() > WAVE_SEGMENTS + 1 {
+            self.points.pop_front();
+        }
+        self.phase = (self.phase + dt * WAVE_DRIFT).fract();
+    }
+
+    /// The trace's height at point `i` (0 at the left, [`WAVE_SEGMENTS`] at the right),
+    /// -1 to 1, up positive.
+    fn height(&self, i: usize) -> f32 {
+        let Some(&(envelope, mix)) = self.points.get(i) else { return 0.0 };
+        let t = (i as f32 / WAVE_SEGMENTS as f32 * WAVE_CYCLES + self.phase) * std::f32::consts::TAU;
+        envelope * ((1.0 - 0.4 * mix) * t.sin() + 0.4 * mix * (2.7 * t + 1.3).sin())
+    }
+}
+
+/// A smooth value from 0 to 1 at point `n`, eased between knots every [`WAVE_KNOT`]
+/// points; `stream` picks one of several unrelated runs.
+fn knotted(n: u64, stream: u64) -> f32 {
+    let knot = |k: u64| {
+        let mut x = k.wrapping_add(stream.wrapping_mul(0x9E37_79B9_7F4A_7C15)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        x ^= x >> 31;
+        x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+        x ^= x >> 29;
+        (x >> 40) as f32 / (1u64 << 24) as f32
+    };
+    let (k, f) = (n / WAVE_KNOT, (n % WAVE_KNOT) as f32 / WAVE_KNOT as f32);
+    let f = f * f * (3.0 - 2.0 * f);
+    knot(k) + (knot(k + 1) - knot(k)) * f
+}
+
+/// Move the waveform panel's trace while it is shown: the Pip-Boy radio's loudness
+/// (`crate::radio`) or a holotape's steady one.
+pub fn wave_moves(time: Res<Time<Real>>, radio: Option<Res<Radio>>, mut scope: ResMut<WaveScope>, mut pieces: Query<(&WaveSegment, &mut Node, &mut UiTransform)>) {
+    let Some(source) = pieces.iter().next().map(|(s, ..)| s.source) else { return };
+    let loudness = match source {
+        WaveSource::Radio => radio.map_or(0.0, |r| r.pipboy_loudness()),
+        WaveSource::Holotape => HOLOTAPE_LOUDNESS * HOLOTAPE_LOUDNESS * WAVE_LOUD,
+    };
+    scope.step(time.delta_secs(), loudness);
+    let (left, mid, len) = wave_line();
+    let point = |i: usize| Vec2::new(i as f32 / WAVE_SEGMENTS as f32 * len, mid - WAVE_AMPLITUDE * scope.height(i));
+    for (s, mut node, mut turn) in &mut pieces {
+        let (a, b) = (point(s.i), point(s.i + 1));
         let d = b - a;
         let middle = (a + b) / 2.0;
         let length = d.length() + THICK / 2.0;
-        p.spawn((
-            at(o.x + middle.x - length / 2.0, middle.y - THICK / 2.0, length, THICK),
-            BackgroundColor(line),
-            UiTransform::from_rotation(Rot2::radians(d.y.atan2(d.x))),
-            Pickable::IGNORE,
-        ));
+        node.left = u(left + middle.x - length / 2.0);
+        node.top = u(middle.y - THICK / 2.0);
+        node.width = u(length);
+        *turn = UiTransform::from_rotation(Rot2::radians(d.y.atan2(d.x)));
     }
 }
 
@@ -1713,5 +1818,33 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
             let below = o.y + HBOX_NAME_Y + c.line_height(1);
             c.text(p, 1, d, centre.x, below, Align::Centre, amber(TEXT));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn silence_draws_the_flat_line() {
+        let mut scope = WaveScope::default();
+        scope.step(1.0 / 60.0, 0.0);
+        assert!((0..=WAVE_SEGMENTS).all(|i| scope.height(i) == 0.0));
+    }
+
+    #[test]
+    fn the_envelope_runs_to_the_left_and_follows_the_sound() {
+        let mut scope = WaveScope::default();
+        scope.step(1.0 / 60.0, WAVE_LOUD);
+        let before: Vec<f32> = scope.points.iter().map(|p| p.0).collect();
+        assert!(before.iter().all(|&e| e >= WAVE_SWING.0 && e <= WAVE_SWING.1));
+        scope.scroll = 0.0;
+        // A lull comes in at the right while the loud part moves left.
+        scope.step(0.05, 0.0);
+        let moved = (0.05 * WAVE_SCROLL * WAVE_SEGMENTS as f32) as usize;
+        assert_eq!(scope.points.len(), WAVE_SEGMENTS + 1);
+        assert_eq!(scope.points[0].0, before[moved]);
+        assert_eq!(scope.points[WAVE_SEGMENTS].0, 0.0);
+        assert!((0..=WAVE_SEGMENTS).any(|i| scope.height(i).abs() > 0.2));
     }
 }

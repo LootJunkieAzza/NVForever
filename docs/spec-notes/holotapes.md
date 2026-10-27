@@ -61,7 +61,8 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
   [hypothesis]. The Pip-Boy radio is left as it is [hypothesis: whether the original
   mutes the radio under a holotape is not known].
 - **On the page.** A Sound or Voice note shows the Radio tab's wave panel at the right:
-  the still wave while it plays, the flat line otherwise [design: the original's audio
+  the moving trace while it plays (at a steady height: the note's sound is not
+  measured), the flat line otherwise [design: the original's audio
   note panel is not measured; pipboy.md §5.3 had the empty meter].
 - **A Sound note** plays its SOUN once at the listener (`crate::sfx::PlaySound`) and
   cannot be stopped [hypothesis; no master note uses it].

@@ -299,6 +299,7 @@ impl Plugin for PipBoyPlugin {
             .add_message::<data::travel::FastTravelAsk>()
             .add_message::<data::travel::FastTravelGo>()
             .init_resource::<data::travel::Pending>()
+            .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
             .add_systems(
                 Update,
@@ -316,6 +317,7 @@ impl Plugin for PipBoyPlugin {
                     flat_screen,
                     frame::draw,
                     (stats::draw, items::draw, data::draw),
+                    data::wave_moves,
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),
