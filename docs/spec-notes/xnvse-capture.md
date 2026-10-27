@@ -67,6 +67,13 @@ All calls use the C calling convention of 32-bit MSVC (cdecl); `bool` is one byt
   pointer / array / form pointer / double) followed by a u8 type: 0 invalid (nothing
   returned), 1 number (double), 2 form, 3 string (C string owned by the game's heap),
   4 array; 16 bytes, 8-byte aligned. The caller initialises the type to 0.
+- **Form and array results** (plugin version 10): the plugin passes a form or array
+  result, unchanged, as the single argument of a compiled helper function (`ref rX` or
+  `array_var aX` parameter), as it passes event arguments to event probes. A form becomes
+  `{"form": "<GetFormIDString>"}`. An array is read by `ar_Keys` and then `aX[key]` per
+  key: keys 0, 1, 2 … give a JSON list, others a JSON object; arrays in arrays are
+  followed 3 deep, 256 elements at most [observed: job cap10, 2026-10-27, the player
+  `00000014`, GetAvailableRadios as a list of 5 forms, nested and empty lists].
 
 ## 3. Script functions the jobs use [documented: GECK wiki function pages]
 

@@ -373,6 +373,12 @@ impl Job {
 pub enum Value {
     Number(f64),
     Text(String),
+    /// A form: its load-order FormID as GetFormIDString writes it (plugin version 10).
+    Form(String),
+    /// An array's elements in key order (plugin version 10).
+    List(Vec<Value>),
+    /// A map's (or a list with gaps') keys and values, in key order (plugin version 10).
+    Map(Vec<(String, Value)>),
     Nothing,
 }
 
@@ -382,6 +388,9 @@ impl Value {
             Value::Number(n) if n.is_finite() => json!(n),
             Value::Number(_) | Value::Nothing => Json::Null,
             Value::Text(s) => json!(s),
+            Value::Form(id) => json!({ "form": id }),
+            Value::List(v) => Json::Array(v.iter().map(Value::to_json).collect()),
+            Value::Map(v) => Json::Object(v.iter().map(|(k, x)| (k.clone(), x.to_json())).collect()),
         }
     }
 }
@@ -847,6 +856,14 @@ impl Runner {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+
+    #[test]
+    fn forms_and_arrays_as_json() {
+        let v = Value::List(vec![Value::Form("00000014".into()), Value::Number(2.5), Value::Text("a".into()), Value::List(vec![]), Value::Nothing]);
+        assert_eq!(v.to_json(), json!([{ "form": "00000014" }, 2.5, "a", [], null]));
+        let m = Value::Map(vec![("a".into(), Value::Number(1.0)), ("b".into(), Value::Form("0000000F".into()))]);
+        assert_eq!(m.to_json(), json!({ "a": 1.0, "b": { "form": "0000000F" } }));
+    }
 
     #[derive(Default)]
     struct Mock {

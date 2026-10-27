@@ -25,7 +25,7 @@ use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
 use ffi::*;
 use runner::{Event, EventSpec, Heard, Host, Job, Runner, Shot, Value, MAX_EVENTS};
 
-pub const PLUGIN_VERSION: u32 = 9;
+pub const PLUGIN_VERSION: u32 = 10;
 const PLUGIN_NAME: &CStr = c"NVForeverCapture";
 pub const DEFAULT_DIR: &str = r"C:\fnv-private\capture";
 
@@ -127,7 +127,7 @@ unsafe fn element_value(el: &Element) -> Result<Value, String> {
         ELEMENT_NUMBER => Ok(Value::Number(el.data.num)),
         ELEMENT_STRING if !el.data.text.is_null() => Ok(Value::Text(CStr::from_ptr(el.data.text).to_string_lossy().into_owned())),
         ELEMENT_STRING => Ok(Value::Text(String::new())),
-        k => Err(format!("unsupported result type {k} (return numbers or strings)")),
+        k => Err(format!("unsupported result type {k} (forms and arrays are read only from queries)")),
     }
 }
 
@@ -205,7 +205,81 @@ struct GameHost {
     dir: PathBuf,
 }
 
+/// Helper functions that turn a form or array result into values (plugin version 10):
+/// the form or array is passed back into a compiled function as its argument, as event
+/// probes are passed the event's forms [observed: forms (events since version 9); arrays:
+/// to be confirmed by a capture].
+const FORM_ID_HELPER: &str = "ref rX\nBegin Function {rX}\nSetFunctionValue (GetFormIDString rX)\nEnd\n";
+const ARRAY_KEYS_HELPER: &str = "array_var aX\nBegin Function {aX}\nSetFunctionValue (ar_Keys aX)\nEnd\n";
+/// Elements read from one array at most, and how deep arrays in arrays are followed.
+const ARRAY_MAX: usize = 256;
+const ARRAY_DEPTH: u32 = 3;
+
 impl GameHost {
+    /// Run a compiled helper on one form or array; its raw result element.
+    fn call_on(&mut self, helper: &str, handle: *mut c_void) -> Result<Element, String> {
+        let s = self.compile(helper)?;
+        let mut el = Element::empty();
+        // SAFETY: `s` came from CompileScript; one argument, a form or array handle the
+        // game itself gave as a result.
+        let ok = unsafe { (self.script.call_function)(s, std::ptr::null_mut(), std::ptr::null_mut(), &mut el, 1, handle) };
+        if ok {
+            Ok(el)
+        } else {
+            Err("helper call failed".into())
+        }
+    }
+
+    /// A result element as a value, forms and arrays included.
+    fn resolve(&mut self, el: &Element, depth: u32) -> Result<Value, String> {
+        match el.kind {
+            ELEMENT_FORM => {
+                // SAFETY: a form element carries a form pointer.
+                let f = unsafe { el.data.handle };
+                if f.is_null() {
+                    return Ok(Value::Nothing);
+                }
+                let id = self.call_on(FORM_ID_HELPER, f)?;
+                // SAFETY: filled by CallFunction.
+                match unsafe { element_value(&id) }? {
+                    Value::Text(s) => Ok(Value::Form(s)),
+                    v => Err(format!("GetFormIDString gave {v:?}")),
+                }
+            }
+            ELEMENT_ARRAY if depth < ARRAY_DEPTH => {
+                // SAFETY: an array element carries the array.
+                let a = unsafe { el.data.handle };
+                // The keys first (ar_Keys: numbers for a list, numbers or strings for a
+                // map), then each value by its key.
+                let k = self.call_on(ARRAY_KEYS_HELPER, a)?;
+                let keys = match self.resolve(&k, ARRAY_DEPTH - 1)? {
+                    Value::List(k) => k,
+                    v => return Err(format!("ar_Keys gave {v:?}")),
+                };
+                let mut out = Vec::new();
+                for (i, key) in keys.iter().take(ARRAY_MAX).enumerate() {
+                    let (name, index) = match key {
+                        Value::Number(n) => (format!("{n}"), format!("{n}")),
+                        Value::Text(s) if !s.contains('"') => (s.clone(), format!("\"{s}\"")),
+                        k => return Err(format!("key {i}: {k:?} cannot be read back")),
+                    };
+                    let helper = format!("array_var aX\nBegin Function {{aX}}\nSetFunctionValue aX[{index}]\nEnd\n");
+                    let e = self.call_on(&helper, a).map_err(|e| format!("element {name}: {e}"))?;
+                    out.push((name, self.resolve(&e, depth + 1)?));
+                }
+                // A list whose keys are 0, 1, 2 … is a JSON list; anything else a map.
+                if keys.iter().enumerate().all(|(i, k)| *k == Value::Number(i as f64)) {
+                    Ok(Value::List(out.into_iter().map(|(_, v)| v).collect()))
+                } else {
+                    Ok(Value::Map(out))
+                }
+            }
+            ELEMENT_ARRAY => Err("array nested too deep".into()),
+            // SAFETY: filled by CallFunction.
+            _ => unsafe { element_value(el) },
+        }
+    }
+
     fn compile(&mut self, text: &str) -> Result<*mut c_void, String> {
         if let Some(&s) = self.compiled.get(text) {
             return Ok(s);
@@ -230,8 +304,7 @@ impl Host for GameHost {
         if !ok {
             return Err("script call failed".into());
         }
-        // SAFETY: filled by CallFunction above.
-        unsafe { element_value(&el) }
+        self.resolve(&el, 0)
     }
 
     fn listen(&mut self, events: &[EventSpec]) -> Result<(), String> {
