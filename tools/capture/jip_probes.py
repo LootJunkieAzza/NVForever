@@ -2774,6 +2774,57 @@ GAPS4_PROBES = [
     _g4v("optionalpatch.set.none", 'SetOptionalPatch "NVFNoSuchPatch" 1'),
 ]
 
+# Forty-eighth set: what the extender core asked after building gaps2-4: the save's Guns
+# skill and hardcore state (DPS and the stimpak's effects depend on them), weapon sound
+# IDs 3-11 on weapons that have more sounds (WeapMinigun 00433F, WeapGatlingLaser 00432E,
+# WeapFlamer 00432D), perk entry types and functions on more perks, GetActorValueModifier
+# after damage by type filter, and GetRunSpeed sneaking and armoured. Forms from
+# fnvtool esm inventory [observed]. Damage, sneak and armour are put back.
+_G5_PERKS = {"leadbelly": "44CA9", "intensetraining": "44CB1", "educated": "31DD8", "radresistance": "31DA9",
+             "smallframe": "135EC6", "commando": "99828"}
+
+
+def _g5(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+def _g5v(pid, expr, text=False):
+    return _g5(pid, f"SetFunctionValue ({expr})", text)
+
+
+GAPS5_PROBES = (
+    [_g5v("save.guns", 'rPlayer.GetActorValue "Guns"'),
+     _g5v("save.guns.base", 'rPlayer.GetBaseActorValue "Guns"'),
+     _g5v("save.hardcore", "rPlayer.IsHardcore"),
+     _g5v("save.level", "rPlayer.GetLevel")]
+    + [_g5(f"weapsound.{w}.{i}", _form("rObj", fid) + f"SetFunctionValue (GetFormIDString (GetWeaponSound rObj {i}))", True)
+       for w, fid in (("minigun", "433F"), ("gatling", "432E"), ("flamer", "432D")) for i in range(12)]
+    + [_g5(f"perk.{k}.{what}.{i}", _form("rObj", fid) + f"SetFunctionValue ({fn} rObj {i})")
+       for k, fid in _G5_PERKS.items() for i in range(2)
+       for what, fn in (("type", "GetNthPerkEntryType"), ("function", "GetNthPerkEntryFunction"))]
+    + [_g5(f"perk.{k}.count", _form("rObj", fid) + "SetFunctionValue (GetPerkEntryCount rObj)") for k, fid in _G5_PERKS.items()]
+    # Actor value modifiers after damage.
+    + [_g5v(f"avmod.before.{f}", f"rPlayer.GetActorValueModifier Health {f}") for f in (0, 1, 2, 3)]
+    + [_g5("avmod.damage", "rPlayer.DamageAV Health 30\nSetFunctionValue (rPlayer.GetAV Health)")]
+    + [_g5v(f"avmod.after.{f}", f"rPlayer.GetActorValueModifier Health {f}") for f in (0, 1, 2, 3)]
+    + [_g5("avmod.restore", "rPlayer.RestoreAV Health 30\nSetFunctionValue (rPlayer.GetActorValueModifier Health)")]
+    # Run speed: standing, sneaking, armoured.
+    + [_g5v("run.base", "Floor (rPlayer.GetRunSpeed)"),
+       _g5("run.sneak.on", "rPlayer.SetForceSneak 1\nSetFunctionValue 1")]
+    + [_g5(f"run.sneak.wait{i}", "SetFunctionValue 1") for i in range(3)]
+    + [_g5v("run.sneak", "Floor (rPlayer.GetRunSpeed)"),
+       _g5v("run.sneak.issneaking", "rPlayer.IsSneaking"),
+       _g5("run.sneak.off", "rPlayer.SetForceSneak 0\nSetFunctionValue 1")]
+    + [_g5(f"run.sneak.offwait{i}", "SetFunctionValue 1") for i in range(3)]
+    + [_g5v("run.sneak.after", "Floor (rPlayer.GetRunSpeed)"),
+       _g5("run.armour.on", _form("rObj", NF["leather"]) + "rPlayer.AddItem rObj 1 1\nrPlayer.EquipItem rObj 0 1\nSetFunctionValue 1")]
+    + [_g5(f"run.armour.wait{i}", "SetFunctionValue 1") for i in range(2)]
+    + [_g5v("run.armour", "Floor (rPlayer.GetRunSpeed)"),
+       _g5("run.armour.off", _form("rObj", NF["leather"]) + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\nSetFunctionValue 1")]
+    + [_g5(f"run.armour.offwait{i}", "SetFunctionValue 1") for i in range(2)]
+    + [_g5v("run.armour.after", "Floor (rPlayer.GetRunSpeed)")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2804,11 +2855,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps1": GAPS1_PROBES,
         "gaps2": GAPS2_PROBES,
         "gaps3": GAPS3_PROBES,
-        "gaps4": GAPS4_PROBES}
+        "gaps4": GAPS4_PROBES,
+        "gaps5": GAPS5_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5"}
 
 
 def script(body):
