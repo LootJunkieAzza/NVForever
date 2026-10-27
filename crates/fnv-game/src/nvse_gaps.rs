@@ -42,6 +42,8 @@ pub struct GapsState {
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
+    /// JohnnyGuitar's perk handlers: (on add, the function, the perk it waits for).
+    pub perk_handlers: Vec<(bool, XVal, Option<FormId>)>,
     /// SetMapMarkerRep's reputations, by marker reference (`None`: cleared).
     pub marker_reputations: HashMap<FormId, Option<FormId>>,
     /// SetRecipeCategory's and SetRecipeSubcategory's forms: (recipe, sub).
@@ -105,6 +107,19 @@ fn bit(flags: f64, bit: f64) -> XVal {
 }
 
 impl Game<'_> {
+    /// JohnnyGuitar's perk handlers on the player gaining or losing a perk: (perk, rank
+    /// before, rank after) on a gain, (perk) on a loss [observed: plugins3, Toughness
+    /// gave (Toughness, 0, 1) and then Toughness].
+    pub(crate) fn perk_event(&mut self, perk: FormId, gained: bool, before: u8, after: u8) {
+        let hs: Vec<XVal> = self.gaps.perk_handlers.iter().filter(|(add, _, p)| *add == gained && p.is_none_or(|p| p == perk)).map(|(_, f, _)| f.clone()).collect();
+        for f in hs {
+            let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
+            if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
+                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+            }
+        }
+    }
+
     /// RunScriptSnippet's snippets whose delay has passed run (`Game::tick`).
     pub(crate) fn run_due_snippets(&mut self) {
         if self.gaps.snippets.is_empty() {
@@ -269,7 +284,31 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(json_num(g.data.record_field(f, "DATA", key)))
         }
         // ---- globals ----
-        "getglobalvariable" => XVal::Num(form(args, 0).and_then(|f| g.world.global(f).ok()).map_or(0.0, f64::from)),
+        // LU's take the global by name too [observed: plugins3, `GetGlobalValue
+        // TimeScale`].
+        "getglobalvariable" | "getglobalvalue" => {
+            let f = form(args, 0).or_else(|| g.data.by_edid(&text(args, 0)));
+            XVal::Num(f.and_then(|f| g.world.global(f).ok()).map_or(0.0, f64::from))
+        }
+        // LU's: returns 0, not the old value the page gives [observed: plugins3].
+        "setglobalvalue" => {
+            if let Some(f) = form(args, 0).or_else(|| g.data.by_edid(&text(args, 0))) {
+                let _ = g.world.set_global(f, num(args, 1, 0.0) as f32);
+            }
+            zero
+        }
+        // `set|remove function flag [perk]` [documented: SetJohnnyOnAddPerkEventHandler;
+        // observed: plugins3].
+        "setjohnnyonaddperkeventhandler" | "setjohnnyonremoveperkeventhandler" => {
+            let add = name == "setjohnnyonaddperkeventhandler";
+            let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
+            let perk = form(args, 3);
+            g.gaps.perk_handlers.retain(|(a, h, p)| !(*a == add && *h == f && *p == perk));
+            if num(args, 0, 1.0) != 0.0 {
+                g.gaps.perk_handlers.push((add, f, perk));
+            }
+            zero
+        }
         // Returns 0 [observed: gaps3, TimeScale set to 12 reads back 12].
         "setglobalvariable" => {
             if let Some(f) = form(args, 0) {

@@ -331,11 +331,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 _ => form_of(field(g, a, "DAT2", "consumed_ammo")),
             }
         }
-        // [documented: GetName] the full name of a reference's base or a form; "" none.
+        // [documented: GetName] the full name of a form; on a reference the name
+        // SetRefName gave it, else its base's, never the reference's own FULL [observed:
+        // plugins3, the Goodsprings map marker reads its base's "<no name>"-less name and
+        // 605 references round the player read their bases'; gaps4, SetRefName's name].
         "getname" => {
             let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
             let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
-            let n = named(f).or_else(|| crate::functions::base_of(g, f).and_then(named));
+            let n = match crate::functions::base_of(g, f).filter(|&b| b != f) {
+                Some(b) => g.gaps.ref_names.get(&f).cloned().or_else(|| named(b)),
+                None => named(f),
+            };
             XVal::Str(n.unwrap_or_default())
         }
         // [documented: GetParentCell] the cell the reference is in.
