@@ -3243,9 +3243,17 @@ impl<'a> Game<'a> {
     }
 
     /// Stop the line a speaker is saying, without its end script. A conversation between
-    /// actors whose line is cut ends there [hypothesis].
+    /// actors whose line is cut ends there [hypothesis]. A Goodbye greeting at the player
+    /// is never cut: whatever stops it (its speaker dying, disabled or deleted, another
+    /// line, a fight) ends it as if said to the end, its end result script and Add
+    /// Topics applying [owner statement 2026-10-27, of the Goodsprings settler's water:
+    /// "do this for any reason as a catch all"].
     pub(crate) fn cut_line(&mut self, speaker: FormId) {
         if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker) {
+            if self.speech[k].greeting && self.speech[k].target == Some(FormId::PLAYER_REF) {
+                self.end_line(k);
+                return;
+            }
             let s = self.speech.remove(k);
             self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
             if let (Some(lines), Some(target)) = (s.conversation, s.target) {
@@ -3260,6 +3268,17 @@ impl<'a> Game<'a> {
     /// counts, as for the other menus.
     pub fn is_talking(&self, actor: FormId) -> bool {
         self.speech.iter().any(|s| s.speaker == actor) || self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_some())
+    }
+
+    /// Whether an actor is saying its Goodbye greeting at the player (the player talked
+    /// to it, no conversation: [`Speech::greeting`]). The engine keeps it where it
+    /// stands, turned to the player, until the line is over; its package goes on after
+    /// [owner statement 2026-10-27, the Goodsprings settler's water line: "make her stop
+    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is in a
+    /// combat state (Alert, Combat, Lost): the line then ends as if said to the end
+    /// (`Game::update_speech_of`) and it fights.
+    pub fn greets_player(&self, actor: FormId) -> bool {
+        !self.awareness.state(actor).in_combat() && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
     }
 
     /// One frame of dialogue (game time only, like script time [hypothesis: a line does
@@ -3286,52 +3305,62 @@ impl<'a> Game<'a> {
         for s in self.speech.iter_mut().filter(|s| only.is_none_or(|o| o == s.speaker)) {
             s.remaining -= dt;
             let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
+            // A Goodbye greeting at the player whose speaker is drawn into a fight ends at
+            // once as if said to the end (`Game::cut_line`, `Game::greets_player`) [owner
+            // statement 2026-10-27: "skip to the end of the line as if she finished
+            // speaking", "all the code runs"].
+            let fights = s.greeting && s.target == Some(FormId::PLAYER_REF) && self.awareness.state(s.speaker).in_combat();
             if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
                 cut.push(s.speaker);
-            } else if s.remaining <= 1e-9 {
+            } else if s.remaining <= 1e-9 || fights {
                 ended.push((s.speaker, s.info));
             }
         }
         for sp in cut {
             self.cut_line(sp);
         }
-        let data = self.data;
         for (speaker, info) in ended {
-            let Some(k) = self.speech.iter().position(|s| s.speaker == speaker && s.info == info) else { continue };
-            let s = self.speech.remove(k);
-            self.emit(EventKind::LineEnded { speaker, info, cut: false });
-            if let Some(def) = data.infos.get(&info) {
-                if let Some(u) = def.end.filter(|_| !s.end_ran) {
-                    self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
-                    self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
-                }
-                // A greeting said at the player ends as a conversation's line does
-                // (`Game::start_dialogue`): its Add Topics join the known topics, and it
-                // is no SayTo line [hypothesis for both].
-                if s.greeting {
-                    for &t in &def.add_topics {
-                        if self.player.topics.insert(t) {
-                            self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
-                        }
+            if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker && s.info == info) {
+                self.end_line(k);
+            }
+        }
+    }
+
+    /// The line `self.speech[k]` is over, said to the end: its end result script runs on
+    /// its speaker, then what follows the kind of line ([`Game::update_speech`]).
+    fn end_line(&mut self, k: usize) {
+        let data = self.data;
+        let s = self.speech.remove(k);
+        let (speaker, info) = (s.speaker, s.info);
+        self.emit(EventKind::LineEnded { speaker, info, cut: false });
+        if let Some(def) = data.infos.get(&info) {
+            if let Some(u) = def.end.filter(|_| !s.end_ran) {
+                self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
+                self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+            }
+            // A greeting said at the player ends as a conversation's line does
+            // (`Game::start_dialogue`): its Add Topics join the known topics, and it
+            // is no SayTo line [hypothesis for both].
+            if s.greeting {
+                for &t in &def.add_topics {
+                    if self.player.topics.insert(t) {
+                        self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
                     }
                 }
             }
-            if s.greeting {
-                continue;
-            }
-            // A conversation between actors goes on (`crate::dialogue`); its lines are no
-            // SayTo lines [hypothesis].
-            if let Some(lines) = s.conversation {
-                self.next_conversation_line(&s, lines);
-                continue;
-            }
-            if s.hello {
-                continue;
-            }
-            // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
-            // tutorials, docs/spec-notes/level-design.md §11.2 D1].
-            self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
         }
+        if s.greeting || s.hello {
+            return;
+        }
+        // A conversation between actors goes on (`crate::dialogue`); its lines are no
+        // SayTo lines [hypothesis].
+        if let Some(lines) = s.conversation {
+            self.next_conversation_line(&s, lines);
+            return;
+        }
+        // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
+        // tutorials, docs/spec-notes/level-design.md §11.2 D1].
+        self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,

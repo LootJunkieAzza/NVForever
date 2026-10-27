@@ -619,7 +619,10 @@ impl Ai {
         }));
         for (who, to) in pairs {
             let Some(a) = self.agents.get(&who) else { continue };
-            if !self.is_high(who) || a.using.is_some() || a.activity == Activity::Travelling || a.talk == Some(Talking::Speaking) {
+            // One on its way turns only for its Goodbye greeting at the player, which the
+            // engine stops it for (`Game::greets_player`).
+            let walking = a.activity == Activity::Travelling && !game.greets_player(who);
+            if !self.is_high(who) || a.using.is_some() || walking || a.talk == Some(Talking::Speaking) {
                 continue;
             }
             if let Some(at) = goal::place_of_ref(game, to) {

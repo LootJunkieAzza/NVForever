@@ -947,6 +947,37 @@ fn a_goodbye_line_ends_the_conversation() {
     assert!(h.dialogue.is_none());
 }
 
+/// A fight breaking out while an actor says its Goodbye greeting at the player ends the
+/// line at once as if said to the end: its end script runs, its Add Topics apply, and the
+/// actor is no longer held for it (`Game::greets_player`).
+#[test]
+fn a_goodbye_greeting_ends_as_said_when_its_speaker_fights() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 7.0);
+    g.frames(3);
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    g.frames(2);
+    assert!(g.greets_player(actor()) && out(&g) == 3.0);
+    g.start_combat(actor(), FormId::PLAYER_REF);
+    assert!(!g.greets_player(actor()));
+    g.frames(1);
+    assert!(g.speech.is_empty());
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(A_BARK))));
+    assert_eq!(out(&g), 4.0);
+    assert!(g.player.topics.contains(&FormId(T_ADDED)));
+    // Its speaker disabled mid-line: the same, the line ends as said.
+    let mut h = game(&f);
+    set_global(&mut h, G_GATE, 7.0);
+    h.frames(3);
+    assert_eq!(h.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    h.frames(2);
+    h.world.set_enabled(actor(), false).unwrap();
+    h.frames(1);
+    assert!(h.speech.is_empty() && out(&h) == 4.0 && h.player.topics.contains(&FormId(T_ADDED)));
+    assert!(!h.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. })));
+}
+
 #[test]
 fn a_goodbye_greeting_is_said_at_the_player_without_a_conversation() {
     let f = fixture();
@@ -962,6 +993,8 @@ fn a_goodbye_greeting_is_said_at_the_player_without_a_conversation() {
     assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1009.0))]), 0.0);
     // The actor says the line at the player; its begin script ran.
     assert!(matches!(g.speech.as_slice(), [s] if s.speaker == actor() && s.target == Some(FormId::PLAYER_REF) && s.info == FormId(A_BARK) && s.greeting));
+    // The engine holds it, turned to the player, while it says it.
+    assert!(g.greets_player(actor()));
     assert_eq!((call(&mut g, 0x108D, NPC1_REF, &[]), call(&mut g, 0x1032, NPC1_REF, &[])), (1.0, 1.0));
     assert_eq!(out(&g), 3.0);
     // The game goes on while it is heard: GameMode blocks run, game time passes.
@@ -973,7 +1006,7 @@ fn a_goodbye_greeting_is_said_at_the_player_without_a_conversation() {
         g.tick();
     }
     let heard = (g.frame - f0) as f32;
-    assert!(g.speech.is_empty() && heard > 30.0);
+    assert!(g.speech.is_empty() && heard > 30.0 && !g.greets_player(actor()));
     assert_eq!(ticks(&g), (3.0 + heard, 0.0));
     assert!(g.time > t0);
     // Its end: the end script and the Add Topics list, and no conversation event.
@@ -981,12 +1014,16 @@ fn a_goodbye_greeting_is_said_at_the_player_without_a_conversation() {
     assert!(g.player.topics.contains(&FormId(T_ADDED)));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(A_BARK))));
     assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { .. })));
-    // Talked to again while it speaks: the line is cut and the greeting starts afresh.
+    // Talked to again while it speaks: the line ends as if said (a Goodbye greeting at
+    // the player is never cut, `Game::cut_line`) and the greeting starts afresh.
     g.start_dialogue(actor(), None).unwrap();
     g.frames(2);
+    let said = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(A_BARK))).count();
+    let before = said(&g);
     assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
     assert_eq!(g.speech.len(), 1);
-    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: true, .. } if info == FormId(A_BARK))));
+    assert_eq!(said(&g), before + 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: true, .. } if info == FormId(A_BARK))));
     // StartConversation without a topic is the same greeting, but the actor starts it:
     // a force greet holds the player in a conversation until the line is over, and the
     // Goodbye flag ends it then (`Game::force_greet`).
