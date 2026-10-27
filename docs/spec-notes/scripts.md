@@ -911,6 +911,10 @@ scales 10–70].
   all five scales) [observed; the tier names are documented on the GECK wiki]. The grid
   is the one this note guessed in round 3; only the boundaries changed (they were
   25/50/75 %).
+- Axes other than 0 and 1 (FalloutNV.esm calls SetReputation with 2, AddReputation with 2
+  and 3, and conditions GetReputation with 2 and GetReputationThreshold with 3) change
+  nothing and read 0, with no call error; GetReputationThreshold reads 0 for axes other
+  than 0-2 [hypothesis: the wiki documents only these axes; observer check 30].
 Trace event `reputation_changed` (SetReputation included).
 
 **Effect scripts.** `Game::apply_magic_item(target, item, caster, permanent)`: each
