@@ -3148,6 +3148,68 @@ GAPS8_PROBES = (
        _g8v("reticlerange.int", "Floor (GetReticleRange)")]
 )
 
+# Fifty-second set: melee and unarmed DPS, as the extender core asked after gaps7 (the
+# knife's rate and crit part did not fit the record). For WeapKnifeCombat 004326,
+# WeapNVMachete 0CE569, WeapSledgehammer 004351, Fists 0001F4 and WeapBrassKnuckles
+# 004324 [observed, fnvtool esm inventory]: the record fields the formula may use, then
+# GetCalculatedWeaponDamage and GetCalculatedWeaponDPS at the save's skills, with crit
+# damage 0, with CritChance +10, and with the weapon's skill +16. Everything is put back.
+# GetWeaponSpeed did not compile here [observed]; GetWeaponAnimMult is read instead.
+_G9_WEAPONS = {"knife": "4326", "machete": "CE569", "sledge": "4351", "fists": "1F4", "knuckles": "4324"}
+_G9_FIELDS = (("critdamage", "GetWeaponCritDamage rObj"), ("critmult", "Floor ((GetWeaponCritChance rObj) * 1000)"),
+              ("attackdamage", "GetAttackDamage rObj"),
+              ("reach", "Floor ((GetWeaponReach rObj) * 1000)"), ("animmult", "Floor ((GetWeaponAnimMult rObj) * 1000)"),
+              ("animattackmult", "Floor ((GetWeaponAnimAttackMult rObj) * 1000)"),
+              ("attackanim", "GetWeaponAttackAnimation rObj"), ("skill", "GetWeaponSkill rObj"), ("type", "GetWeaponType rObj"))
+
+
+def _g9(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+def _g9v(pid, expr, text=False):
+    return _g9(pid, f"SetFunctionValue ({expr})", text)
+
+
+_DPS9 = "SetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))"
+_DMG9 = "SetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))"
+
+
+def _g9w(w):
+    fid = _G9_WEAPONS[w]
+    return (
+        [_g9(f"{w}.{k}", _form("rObj", fid) + f"SetFunctionValue ({e})") for k, e in _G9_FIELDS]
+        + [_g9(f"{w}.damage", _form("rObj", fid) + _DMG9),
+           _g9(f"{w}.dps", _form("rObj", fid) + _DPS9),
+           _g9(f"{w}.dmg0", _form("rObj", fid) + 'let fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt "*nvfCD" fRes\n'
+               "SetWeaponCritDamage 0 rObj\n" + _DPS9),
+           _g9(f"{w}.dmg0.restore", _form("rObj", fid) + 'SetWeaponCritDamage (rPlayer.AuxVarGetFlt "*nvfCD") rObj\n'
+               'rPlayer.AuxVarErase "*nvfCD"\nSetFunctionValue (GetWeaponCritDamage rObj)')]
+    )
+
+
+_SKILLS = (("MeleeWeapons", ("knife", "machete", "sledge")), ("Unarmed", ("fists", "knuckles")))
+GAPS9_PROBES = (
+    [_g9v(f"melee.av.{av.lower()}", f'Floor ((rPlayer.GetActorValue "{av}") * 100)')
+     for av in ("MeleeWeapons", "Unarmed", "Strength", "Agility", "MeleeDamage", "UnarmedDamage", "CritChance")]
+    + [r for w in _G9_WEAPONS for r in _g9w(w)]
+    # CritChance +10.
+    + [_g9("cc.mod10", 'rPlayer.ModActorValue "CritChance" 10\nSetFunctionValue (Floor ((rPlayer.GetActorValue "CritChance") * 100))')]
+    + [_g9(f"{w}.cc20", _form("rObj", fid) + _DPS9) for w, fid in _G9_WEAPONS.items()]
+    + [_g9("cc.restore", 'rPlayer.ModActorValue "CritChance" -10\nSetFunctionValue (Floor ((rPlayer.GetActorValue "CritChance") * 100))')]
+    # Each weapon's skill +16: damage and DPS, then crit damage 0 again.
+    + [r for av, ws in _SKILLS for r in (
+        [_g9(f"skill.{av.lower()}.mod16", f'rPlayer.ModActorValue "{av}" 16\nSetFunctionValue (rPlayer.GetActorValue "{av}")')]
+        + [r2 for w in ws for r2 in (
+            _g9(f"{w}.s16.damage", _form("rObj", _G9_WEAPONS[w]) + _DMG9),
+            _g9(f"{w}.s16.dps", _form("rObj", _G9_WEAPONS[w]) + _DPS9),
+            _g9(f"{w}.s16.dmg0", _form("rObj", _G9_WEAPONS[w]) + 'let fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt "*nvfCD" fRes\n'
+                "SetWeaponCritDamage 0 rObj\n" + _DPS9),
+            _g9(f"{w}.s16.dmg0.restore", _form("rObj", _G9_WEAPONS[w]) + 'SetWeaponCritDamage (rPlayer.AuxVarGetFlt "*nvfCD") rObj\n'
+                'rPlayer.AuxVarErase "*nvfCD"\nSetFunctionValue (GetWeaponCritDamage rObj)'))]
+        + [_g9(f"skill.{av.lower()}.restore", f'rPlayer.ModActorValue "{av}" -16\nSetFunctionValue (rPlayer.GetActorValue "{av}")')])]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3182,11 +3244,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps5": GAPS5_PROBES,
         "gaps6": GAPS6_PROBES,
         "gaps7": GAPS7_PROBES,
-        "gaps8": GAPS8_PROBES}
+        "gaps8": GAPS8_PROBES,
+        "gaps9": GAPS9_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9"}
 
 
 def script(body):
