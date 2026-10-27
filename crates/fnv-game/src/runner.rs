@@ -67,6 +67,11 @@ pub struct Input {
     /// References whose final state is reported.
     #[serde(default)]
     pub report: Vec<String>,
+    /// The load order the chain is written for (`fnvtool script cover` runs it over
+    /// these plugins; empty: the first plugin of the load order it is given).
+    /// `script run` uses the plugins on its command line and ignores this.
+    #[serde(default)]
+    pub plugins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -277,7 +282,8 @@ pub enum Action {
     AdvanceSeconds { seconds: f64 },
     /// An actor (the player by default) activates by hand: OnActivate instead of the
     /// default action.
-    PlayerActivate { target: String, #[serde(default)] actor: Option<String> },
+    /// With `label`, observation `info` when the activation opened a conversation.
+    PlayerActivate { target: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
     /// A dialogue line (INFO) is said: its result scripts run on the speaker.
     SayInfo { info: String, #[serde(default)] speaker: Option<String>, #[serde(default)] force: bool },
     /// The first of several lines whose conditions pass is said (the speaker picks the
@@ -287,6 +293,13 @@ pub enum Action {
     Package { actor: String, package: String, event: String },
     /// A `SayTo` line finished (SayToDone blocks of the speaker).
     SayToDone { actor: String, #[serde(default)] topic: Option<String> },
+    /// An actor walking a patrol reaches one of its points: the point's patrol script
+    /// runs on the actor and its topic is said (`Game::patrol_point_reached`, as the AI
+    /// layer calls it).
+    PatrolPoint { actor: String, point: String },
+    /// An actor (the player by default) fires a weapon it carries: the weapon's OnFire
+    /// blocks run (`Game::weapon_fired`, as the play loop calls it).
+    Fire { weapon: String, #[serde(default)] actor: Option<String> },
     /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
     /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
     /// (OnTriggerLeave).
@@ -534,6 +547,15 @@ fn opened_since(g: &Game, since: usize) -> bool {
     g.events[since..]
         .iter()
         .any(|e| matches!(&e.kind, EventKind::Activated { outcome: Some(v), .. } if v["result"] == "opened_container"))
+}
+
+/// The first of the player's activations since event `since` whose outcome is to talk
+/// (`fnv_sim::world::Outcome::Talk`): the actor or talking activator talked to.
+fn talk_since(g: &Game, since: usize) -> Option<FormId> {
+    g.events[since..].iter().find_map(|e| match &e.kind {
+        EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "talk" => serde_json::from_value(v["actor"].clone()).ok(),
+        _ => None,
+    })
 }
 
 /// The menu code of the container menu [observed: `MenuMode 1008` was true while a
@@ -1217,13 +1239,26 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("value".into(), json!(g.world.global(id).map_err(|e| e.to_string())? as f64));
             lab = l.clone();
         }
-        Action::PlayerActivate { target, actor } => {
+        Action::PlayerActivate { target, actor, label: l } => {
+            lab = l.clone();
             let actor = match actor {
                 Some(a) => resolve(g, a)?,
                 None => FormId::PLAYER_REF,
             };
             let t = resolve(g, target)?;
+            let from = g.events.len();
             g.activate(actor, t, ActMode::Hand)?;
+            // The player's activation whose default action is to talk (an actor, or a
+            // talking activator whose OnActivate ends with `Activate`) opens the
+            // conversation, as the play loop's does (nvf-play `talk_after`); an actor
+            // with nothing to say opens none. Observation `info`: the greeting said.
+            if actor == FormId::PLAYER_REF && g.dialogue.is_none() {
+                if let Some(who) = talk_since(g, from) {
+                    if let Ok(info) = g.start_dialogue(who, None) {
+                        obs.insert("info".into(), json!(info.to_string()));
+                    }
+                }
+            }
         }
         Action::SayInfo { info, speaker, force } => {
             let i = resolve(g, info)?;
@@ -1276,6 +1311,23 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 None => None,
             };
             g.ref_event(a, event::SAY_TO_DONE, t, None);
+        }
+        Action::PatrolPoint { actor, point } => {
+            let (a, p) = (resolve(g, actor)?, resolve(g, point)?);
+            let has_topic = g.world.placed.get(p).and_then(|r| r.patrol_topic).is_some();
+            if !g.data.patrol_scripts.contains_key(&p) && !has_topic {
+                return Err(format!("{} has no patrol script or topic", g.data.name(p)));
+            }
+            g.patrol_point_reached(a, p);
+        }
+        Action::Fire { weapon, actor } => {
+            let (a, w) = (actor_or_player(g, actor)?, resolve(g, weapon)?);
+            if g.world.item_count(a, w).unwrap_or(0) <= 0 {
+                return Err(format!("{} carries no {}", g.data.name(a), g.data.name(w)));
+            }
+            if !g.weapon_fired(a, w) {
+                return Err(format!("{} has no OnFire block", g.data.name(w)));
+            }
         }
         Action::TriggerEnter { trigger, actor, event: ev } => {
             let t = resolve(g, trigger)?;
@@ -1728,7 +1780,19 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
 /// [`run`], with dialogue responses as long as their voice files where `voice` knows
 /// them (`crate::voice`, docs/spec-notes/voice.md §8).
 pub fn run_with_voice(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, voice: Option<Voice>) -> Result<Json, String> {
-    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice)
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice, false).map(|(t, _)| t)
+}
+
+/// [`run_with_voice`], recording what the run reached of the scripts
+/// (`crate::coverage`): the trace and the coverage.
+pub fn run_with_coverage(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    voice: Option<Voice>,
+) -> Result<(Json, crate::coverage::Coverage), String> {
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice, true).map(|(t, c)| (t, c.unwrap_or_default()))
 }
 
 /// The line-length hook a run is given ([`crate::game::Game::voice`]).
@@ -1770,7 +1834,7 @@ pub fn run_dialogue_with_voice(
     text: bool,
     voice: Option<Voice>,
 ) -> Result<Json, String> {
-    let full = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice)?;
+    let (full, _) = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice, false)?;
     let form = |v: &Json| v.as_str().and_then(|s| s.parse::<FormId>().ok());
     let edid = |v: &Json| form(v).and_then(|f| data.edid_of.get(&f).cloned());
     let mut events = Vec::new();
@@ -1830,7 +1894,15 @@ pub fn run_dialogue_with_voice(
     }))
 }
 
-fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, format: &str, voice: Option<Voice>) -> Result<Json, String> {
+fn run_as(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    format: &str,
+    voice: Option<Voice>,
+    cover: bool,
+) -> Result<(Json, Option<crate::coverage::Coverage>), String> {
     if input.format != format {
         return Err(format!("unsupported actions format {:?} (expected {format})", input.format));
     }
@@ -1857,6 +1929,9 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
     };
     let mut g = Game::new(data, world, cfg);
     g.voice = voice;
+    if cover {
+        g.coverage = Some(Default::default());
+    }
     if input.new_game {
         g.new_game();
         new_game_start(&mut g);
@@ -1973,7 +2048,7 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
         g.unhandled.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
     let stubbed: Map<String, Json> =
         g.stubbed.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
-    Ok(json!({
+    let trace = json!({
         "format": TRACE_FORMAT,
         "seed": input.seed,
         "frame_seconds": input.frame_seconds,
@@ -1991,7 +2066,8 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
             "unhandled": unhandled,
             "stubbed": stubbed,
         },
-    }))
+    });
+    Ok((trace, g.coverage.take()))
 }
 
 fn action_label(a: &Action) -> Option<String> {
@@ -2014,6 +2090,7 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAv { label, .. }
         | Action::SampleAvDamage { label, .. }
         | Action::Talk { label, .. }
+        | Action::PlayerActivate { label, .. }
         | Action::Choose { label, .. }
         | Action::WaitTalk { label, .. }
         | Action::SampleJumps { label, .. }

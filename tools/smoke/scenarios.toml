@@ -10484,3 +10484,213 @@ expect = [
   { re = 'activator: 00107D73 \(JukeBoxDirtyNVCountry\) on: plays its idle', label = "the jukebox is on and plays its idle" },
   { re = 'test aid: screenshot .*jukebox_tubes\.png', label = "the frame is saved" },
 ]
+
+[[scenario]]
+name = "mq-ending-legion"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-legion.actions.json, the end slides from VHDLegionBattle 100 (the Legion ending, story state 62): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ending-legion.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ending-legion.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ending global (62 = Legion).value", equals = 62.0, label = "milestone: ending global (62 = Legion): value = 62.0" },
+  { json = "observations.?label=milestone: VEnding started.var.bstartslideshow", equals = 1.0, label = "Legion ending, milestone: VEnding started: var.bstartslideshow = 1.0" },
+  { json = "observations.?label=milestone: VEndingConclusion said, credits timer started.found", equals = true, label = "Legion ending, milestone: VEndingConclusion said, credits timer started: found = true" },
+  { json = "observations.?label=final: FadeToCreditsTimer faded out (ExitGame called).var.bfadeoutdone", equals = 1.0, label = "Legion ending, final: FadeToCreditsTimer faded out (ExitGame called): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
+
+[[scenario]]
+name = "mq-ending-house"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-house.actions.json, the end slides from VHDHouseBattle 100 (the House ending, story state 63): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ending-house.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ending-house.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ending global (63 = House).value", equals = 63.0, label = "milestone: ending global (63 = House): value = 63.0" },
+  { json = "observations.?label=milestone: VEnding started.var.bstartslideshow", equals = 1.0, label = "House ending, milestone: VEnding started: var.bstartslideshow = 1.0" },
+  { json = "observations.?label=milestone: VEndingConclusion said, credits timer started.found", equals = true, label = "House ending, milestone: VEndingConclusion said, credits timer started: found = true" },
+  { json = "observations.?label=final: FadeToCreditsTimer faded out (ExitGame called).var.bfadeoutdone", equals = 1.0, label = "House ending, final: FadeToCreditsTimer faded out (ExitGame called): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
+
+[[scenario]]
+name = "mq-ending-independent"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-independent.actions.json, the end slides from VHDIndependentBattle 100 (the independent ending without the Securitron vault, story state 64): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ending-independent.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ending-independent.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ending global (64 = independent, Securitron vault not opened).value", equals = 64.0, label = "milestone: ending global (64 = independent, Securitron vault not opened): value = 64.0" },
+  { json = "observations.?label=milestone: VEnding started.var.bstartslideshow", equals = 1.0, label = "independent ending, milestone: VEnding started: var.bstartslideshow = 1.0" },
+  { json = "observations.?label=milestone: VEndingConclusion said, credits timer started.found", equals = true, label = "independent ending, milestone: VEndingConclusion said, credits timer started: found = true" },
+  { json = "observations.?label=final: FadeToCreditsTimer faded out (ExitGame called).var.bfadeoutdone", equals = 1.0, label = "independent ending, final: FadeToCreditsTimer faded out (ExitGame called): var.bfadeoutdone = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
+
+[[scenario]]
+name = "mq-reputation-axes"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md item 10: crates/fnv-game/walkthrough/reputation-axes.actions.json, the lines that call the reputation functions with axis 2 (Crocker's messenger, Vulpes's greeting): infamy is cleared and the script goes on past the axis-2 call"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/reputation-axes.actions.json", "crates/fnv-game/src/functions/reputation.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/runner.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/reputation-axes.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: NCR infamy cleared by the messenger.infamy", equals = 0.0, label = "milestone: NCR infamy cleared by the messenger: infamy = 0.0" },
+  { json = "observations.?label=milestone: Kings' Gambit (VMS23) flags set after the axis-2 call.var.breputationclear", equals = 1.0, label = "milestone: VMS23 breputationclear = 1.0" },
+  { json = "observations.?label=milestone: Legion infamy cleared by Vulpes.infamy", equals = 0.0, label = "milestone: Legion infamy cleared by Vulpes: infamy = 0.0" },
+  { json = "observations.?label=final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_do_nothing).threshold.good", equals = 6, label = "final: the Strip's good tier = 6 (Idolized)" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; docs/handoff/mq-walkthrough-2026-10-27.md item 10 and observer check 30"
+
+[[scenario]]
+name = "walkthrough-coverage"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md §5: every walkthrough chain in crates/fnv-game/walkthrough run with coverage recorded (fnvtool script cover), compared with the ten masters' quests, scripts and dialogue lines"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/coverage.rs", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnvtool/src/script_cmd.rs", "tools/smoke/expected/walkthrough-coverage.toml"]
+commands = [["script", "cover", "{data}", "{masters}", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough"]]
+# The totals live in expected/walkthrough-coverage.toml: a branch that adds a chain or
+# reaches further raises them there; a drop fails this run.
+expect_file = "expected/walkthrough-coverage.toml"
+manual = "a drop: run the command with --detail and compare the quests and scripts with main's; a rise: write the new summary into expected/walkthrough-coverage.toml"
+
+[[scenario]]
+name = "mq-volare"
+kind = "tool"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/volare.actions.json (a tribe outcome the Yes Man / House chains give as done), Volare! (VMS15): Pearl's first task (stage 20), the Boomers' trust (30), Loyal's ballast, the B-29 raised (40), Pearl closes the quest (110) and pledges the Boomers to the player's side (VStoryEventBoomers 1)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/volare.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/volare.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS15 20.stage", equals = 20, label = "milestone: VMS15 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS15 20.objective.25.displayed", equals = true, label = "milestone: VMS15 20: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VMS15 30.done.30", equals = true, label = "milestone: VMS15 30: done.30 = true" },
+  { json = "observations.?label=milestone: VMS15 30.stage", equals = 30, label = "milestone: VMS15 30: stage = 30" },
+  { json = "observations.?label=milestone: VMS15 40.done.40", equals = true, label = "milestone: VMS15 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMS15 40.stage", equals = 40, label = "milestone: VMS15 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS15 110.done.110", equals = true, label = "milestone: VMS15 110: done.110 = true" },
+  { json = "observations.?label=milestone: VMS15 110.completed", equals = true, label = "milestone: VMS15 110: completed = true" },
+  { json = "observations.?label=final: VMS15 110.done.110", equals = true, label = "final: VMS15 110: done.110 = true" },
+  { json = "observations.?label=final: VMS15 110.completed", equals = true, label = "final: VMS15 110: completed = true" },
+  { json = "observations.?label=final: VStoryEventBoomers.value", equals = 1.0, label = "final: VStoryEventBoomers: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
+
+[[scenario]]
+name = "mq-how-little-we-know"
+kind = "tool"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/how-little-we-know.actions.json (a tribe outcome the Yes Man / House chains give as done), How Little We Know (VMS21): the receptionist, Cachino and his journal (stage 10), Clanden dealt with, Cachino's plan (20), the bosses killed at the meeting (50, VStoryEventRacket 1)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/how-little-we-know.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/how-little-we-know.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS21 10.done.10", equals = true, label = "milestone: VMS21 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS21 10.stage", equals = 10, label = "milestone: VMS21 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS21 20.done.20", equals = true, label = "milestone: VMS21 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS21 20.stage", equals = 20, label = "milestone: VMS21 20: stage = 20" },
+  { json = "observations.?label=final: VMS21 50.done.50", equals = true, label = "final: VMS21 50: done.50 = true" },
+  { json = "observations.?label=final: VMS21 50.completed", equals = true, label = "final: VMS21 50: completed = true" },
+  { json = "observations.?label=final: VStoryEventRacket.value", equals = 1.0, label = "final: VStoryEventRacket: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
+
+[[scenario]]
+name = "mq-beyond-the-beef"
+kind = "tool"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/beyond-the-beef.actions.json (a tribe outcome the Yes Man / House chains give as done), Beyond the Beef (VMS18), Heck's side: Marjorie, Mortimer's key, the investigator, Chauncey in the steam room (objective 50), Ted found and walked back to his father (objective 80)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/beyond-the-beef.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/beyond-the-beef.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: objectives 10 and 80.objective.10.displayed", equals = true, label = "milestone: objectives 10 and 80: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: objectives 10 and 80.objective.80.displayed", equals = true, label = "milestone: objectives 10 and 80: objective.80.displayed = true" },
+  { json = "observations.?label=milestone: objective 50.var.bKnowsTedAlive", equals = 1.0, label = "milestone: objective 50: var.bKnowsTedAlive = 1.0" },
+  { json = "observations.?label=milestone: objective 50.objective.40.completed", equals = true, label = "milestone: objective 50: objective.40.completed = true" },
+  { json = "observations.?label=milestone: Ted follows.var.bTedFollowing", equals = 1.0, label = "milestone: Ted follows: var.bTedFollowing = 1.0" },
+  { json = "observations.?label=final: VMS18 objective 80.objective.80.completed", equals = true, label = "final: VMS18 objective 80: objective.80.completed = true" },
+  { json = "observations.?label=final: VMS18 objective 80.objective.90.displayed", equals = true, label = "final: VMS18 objective 80: objective.90.displayed = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
+
+[[scenario]]
+name = "mq-brotherhood"
+kind = "tool"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/brotherhood.actions.json (a tribe outcome the Yes Man / House chains give as done), Hidden Valley and Still in the Dark (VMS55): the intercom password, Ramos (stage 2), the Ranger (10, 15), the patrols (20), the scouts (30), Lorenzo's parts (40), McNamara's close (100) and the pact with the NCR (VStoryEventBoS 1)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/brotherhood.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/brotherhood.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS55 2.done.2", equals = true, label = "milestone: VMS55 2: done.2 = true" },
+  { json = "observations.?label=milestone: VMS55 2.stage", equals = 2, label = "milestone: VMS55 2: stage = 2" },
+  { json = "observations.?label=milestone: VMS55 10.done.10", equals = true, label = "milestone: VMS55 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS55 10.stage", equals = 10, label = "milestone: VMS55 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS55 15.done.15", equals = true, label = "milestone: VMS55 15: done.15 = true" },
+  { json = "observations.?label=milestone: VMS55 15.stage", equals = 15, label = "milestone: VMS55 15: stage = 15" },
+  { json = "observations.?label=milestone: VMS55 20.done.20", equals = true, label = "milestone: VMS55 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS55 20.stage", equals = 20, label = "milestone: VMS55 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS55 30.done.30", equals = true, label = "milestone: VMS55 30: done.30 = true" },
+  { json = "observations.?label=milestone: VMS55 30.stage", equals = 30, label = "milestone: VMS55 30: stage = 30" },
+  { json = "observations.?label=milestone: VMS55 40.done.40", equals = true, label = "milestone: VMS55 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMS55 40.stage", equals = 40, label = "milestone: VMS55 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS55 100.done.100", equals = true, label = "milestone: VMS55 100: done.100 = true" },
+  { json = "observations.?label=milestone: VMS55 100.completed", equals = true, label = "milestone: VMS55 100: completed = true" },
+  { json = "observations.?label=final: VMS55 100.done.100", equals = true, label = "final: VMS55 100: done.100 = true" },
+  { json = "observations.?label=final: VMS55 100.completed", equals = true, label = "final: VMS55 100: completed = true" },
+  { json = "observations.?label=final: VStoryEventBoS.value", equals = 1.0, label = "final: VStoryEventBoS: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
+
+[[scenario]]
+name = "mq-khans"
+kind = "tool"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/khans.actions.json (a tribe outcome the Yes Man / House chains give as done), Oh My Papa (VMS45), the NCR side: Papa Khan and Regis (stage 20), Jack, Melissa and the ledger (objective 55), Papa Khan's refusal (75), Moore's order (70), Regis takes the Khans to the NCR (50, VStoryEventKhans 1)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/khans.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/khans.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS45 20.done.20", equals = true, label = "milestone: VMS45 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS45 20.stage", equals = 20, label = "milestone: VMS45 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS45 objective 55.var.NumObjectivesComplete", equals = 3.0, label = "milestone: VMS45 objective 55: var.NumObjectivesComplete = 3.0" },
+  { json = "observations.?label=milestone: VMS45 objective 55.objective.50.completed", equals = true, label = "milestone: VMS45 objective 55: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VMS45 objective 75.stage", equals = 20, label = "milestone: VMS45 objective 75: stage = 20" },
+  { json = "observations.?label=milestone: VMS45 objective 75.objective.55.completed", equals = true, label = "milestone: VMS45 objective 75: objective.55.completed = true" },
+  { json = "observations.?label=milestone: VMS45 objective 80.objective.75.completed", equals = true, label = "milestone: VMS45 objective 80: objective.75.completed = true" },
+  { json = "observations.?label=milestone: VMS45 objective 80.objective.80.displayed", equals = true, label = "milestone: VMS45 objective 80: objective.80.displayed = true" },
+  { json = "observations.?label=milestone: VMS45 objective 70.objective.80.completed", equals = true, label = "milestone: VMS45 objective 70: objective.80.completed = true" },
+  { json = "observations.?label=milestone: VMS45 objective 70.objective.70.displayed", equals = true, label = "milestone: VMS45 objective 70: objective.70.displayed = true" },
+  { json = "observations.?label=final: VMS45 50.done.50", equals = true, label = "final: VMS45 50: done.50 = true" },
+  { json = "observations.?label=final: VMS45 50.completed", equals = true, label = "final: VMS45 50: completed = true" },
+  { json = "observations.?label=final: VStoryEventKhans.value", equals = 1.0, label = "final: VStoryEventKhans: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
+
+[[scenario]]
+name = "mq-honest-hearts"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/honest-hearts.actions.json (HonestHearts.esm, Daniel's path): Happy Trails Expedition's intro slides, Arrival at Zion, the Supply Train errands, The Grand Staircase and its errands, Gathering Storms, Flight from Zion with Prisoners of War (cell door OnOpen), Sanctity of the Dead and Retake the Bridge, the Pine Creek detonator, the end slides and Departing Paradise 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/honest-hearts.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/combat.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/honest-hearts.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Happy Trails Expedition done (intro slides said).found", equals = true, label = "milestone: Happy Trails Expedition done (intro slides said): found = true" },
+  { json = "observations.?label=milestone: Arrival at Zion done.stage", equals = 100, label = "milestone: Arrival at Zion done: stage = 100" },
+  { json = "observations.?label=milestone: Roadside Attraction done.stage", equals = 100, label = "milestone: Roadside Attraction done: stage = 100" },
+  { json = "observations.?label=milestone: Gone Fishin' done.stage", equals = 100, label = "milestone: Gone Fishin' done: stage = 100" },
+  { json = "observations.?label=milestone: Tourist Trap done.stage", equals = 100, label = "milestone: Tourist Trap done: stage = 100" },
+  { json = "observations.?label=milestone: Deliverer of Sorrows done.stage", equals = 100, label = "milestone: Deliverer of Sorrows done: stage = 100" },
+  { json = "observations.?label=milestone: The Grand Staircase done.stage", equals = 100, label = "milestone: The Grand Staircase done: stage = 100" },
+  { json = "observations.?label=milestone: The Advance Scouts done.found", equals = true, label = "milestone: The Advance Scouts done: found = true" },
+  { json = "observations.?label=milestone: The Treacherous Road done.found", equals = true, label = "milestone: The Treacherous Road done: found = true" },
+  { json = "observations.?label=milestone: River Monsters done.found", equals = true, label = "milestone: River Monsters done: found = true" },
+  { json = "observations.?label=milestone: Gathering Storms done.stage", equals = 100, label = "milestone: Gathering Storms done: stage = 100" },
+  { json = "observations.?label=milestone: Prisoners of War done (door's OnOpen).found", equals = true, label = "milestone: Prisoners of War done (door's OnOpen): found = true" },
+  { json = "observations.?label=milestone: Sanctity of the Dead done.found", equals = true, label = "milestone: Sanctity of the Dead done: found = true" },
+  { json = "observations.?label=milestone: Retake the Bridge done.found", equals = true, label = "milestone: Retake the Bridge done: found = true" },
+  { json = "observations.?label=milestone: Flight from Zion done.stage", equals = 100, label = "milestone: Flight from Zion done: stage = 100" },
+  { json = "observations.?label=milestone: end slides said (Departing Paradise 10).found", equals = true, label = "milestone: end slides said (Departing Paradise 10): found = true" },
+  { json = "observations.?label=final: Departing Paradise done (door to the Mojave).stage", equals = 100, label = "final: Departing Paradise done (door to the Mojave): stage = 100" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the hh add-on report (handoff doc section to be added by the coordinator)"

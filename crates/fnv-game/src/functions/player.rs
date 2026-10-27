@@ -192,18 +192,15 @@ pub fn reset_xp(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// Axis 0 is infamy, 1 fame [documented: GECK wiki GetReputation].
-fn rep_axis(a: &Args) -> Result<usize, String> {
-    match a.int(1)? {
-        0 => Ok(0),
-        1 => Ok(1),
-        o => Err(format!("reputation axis {o} is not 0 (infamy) or 1 (fame)")),
-    }
+/// Axis 0 is infamy, 1 fame [documented: GECK wiki GetReputation]; any other axis is
+/// `None`: see [`super::reputation::axis`].
+fn rep_axis(a: &Args) -> Result<Option<usize>, String> {
+    super::reputation::axis(a, 1)
 }
 
 pub fn get_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = a.form(0)?;
-    let i = rep_axis(a)?;
+    let Some(i) = rep_axis(a)? else { return Ok(Value::ZERO) };
     Ok(Value::Num(g.player.reputation.get(&r).map(|v| v[i]).unwrap_or(0.0)))
 }
 
@@ -212,7 +209,7 @@ pub fn get_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// §9.3 a].
 pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = a.form(0)?;
-    let i = rep_axis(a)?;
+    let Some(i) = rep_axis(a)? else { return none() };
     super::reputation::store(g, r, i, a.num(2)?);
     none()
 }

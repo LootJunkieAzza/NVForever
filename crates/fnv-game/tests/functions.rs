@@ -441,6 +441,21 @@ fn reputation_limits_levels_and_ignored_sizes() {
     }
 }
 
+/// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) change nothing and read
+/// 0, with no call error [hypothesis: `reputation::axis`].
+#[test]
+fn reputation_other_axes_do_nothing() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x1238, None, &[r(REP), n(1.0), n(12.0)]);
+    call(&mut g, 0x1238, None, &[r(REP), n(2.0), n(0.0)]);
+    call(&mut g, 0x1239, None, &[r(REP), n(3.0), n(1.0)]);
+    assert_eq!(g.player.reputation[&FormId(REP)], [0.0, 12.0]);
+    assert_eq!(call(&mut g, 0x123D, None, &[r(REP), n(2.0)]), 0.0);
+    assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(2.0)]), 0.0);
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(3.0)]), 0.0);
+}
+
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
 #[test]
 fn resurrect_generates_a_dead_actor_again_where_it_lies() {

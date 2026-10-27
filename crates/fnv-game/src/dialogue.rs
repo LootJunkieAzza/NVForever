@@ -555,6 +555,7 @@ impl<'a> Game<'a> {
         let seconds = self.line_seconds(actor, info);
         let first = order.first().map_or(seconds, |&r| self.response_seconds(actor, info, r));
         self.emit(EventKind::LineStarted { speaker: actor, target: Some(FormId::PLAYER_REF), topic, info, seconds });
+        self.cover_info(info);
         if let Some(c) = self.dialogue.as_mut() {
             c.line = Some(Line { topic, info, response: 0, remaining: first });
             c.choices.clear();

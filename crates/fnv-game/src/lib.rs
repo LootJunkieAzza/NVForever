@@ -59,6 +59,7 @@ pub mod combat_style;
 pub mod companion_wheel;
 pub mod coop;
 pub mod cond;
+pub mod coverage;
 pub mod crafting;
 pub mod crime;
 pub mod data;
