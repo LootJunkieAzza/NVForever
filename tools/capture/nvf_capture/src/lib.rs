@@ -211,6 +211,7 @@ struct GameHost {
 /// to be confirmed by a capture].
 const FORM_ID_HELPER: &str = "ref rX\nBegin Function {rX}\nSetFunctionValue (GetFormIDString rX)\nEnd\n";
 const ARRAY_KEYS_HELPER: &str = "array_var aX\nBegin Function {aX}\nSetFunctionValue (ar_Keys aX)\nEnd\n";
+const ARRAY_SIZE_HELPER: &str = "array_var aX\nBegin Function {aX}\nSetFunctionValue (ar_Size aX)\nEnd\n";
 /// Elements read from one array at most, and how deep arrays in arrays are followed.
 const ARRAY_MAX: usize = 256;
 const ARRAY_DEPTH: u32 = 3;
@@ -228,6 +229,24 @@ impl GameHost {
         } else {
             Err("helper call failed".into())
         }
+    }
+
+    /// The elements of a list keyed 0, 1, 2 … as plain numbers or strings (ar_Keys' own
+    /// result: reading it through `resolve` would ask for its keys again, without end).
+    fn plain_list(&mut self, a: *mut c_void) -> Result<Vec<Value>, String> {
+        // SAFETY: filled by CallFunction.
+        let n = match unsafe { element_value(&self.call_on(ARRAY_SIZE_HELPER, a)?) }? {
+            Value::Number(n) if n >= 0.0 => (n as usize).min(ARRAY_MAX),
+            v => return Err(format!("ar_Size gave {v:?}")),
+        };
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let helper = format!("array_var aX\nBegin Function {{aX}}\nSetFunctionValue aX[{i}]\nEnd\n");
+            let e = self.call_on(&helper, a)?;
+            // SAFETY: filled by CallFunction.
+            out.push(unsafe { element_value(&e) }?);
+        }
+        Ok(out)
     }
 
     /// A result element as a value, forms and arrays included.
@@ -252,10 +271,11 @@ impl GameHost {
                 // The keys first (ar_Keys: numbers for a list, numbers or strings for a
                 // map), then each value by its key.
                 let k = self.call_on(ARRAY_KEYS_HELPER, a)?;
-                let keys = match self.resolve(&k, ARRAY_DEPTH - 1)? {
-                    Value::List(k) => k,
-                    v => return Err(format!("ar_Keys gave {v:?}")),
-                };
+                if k.kind != ELEMENT_ARRAY {
+                    return Err("ar_Keys gave no array".into());
+                }
+                // SAFETY: an array element carries the array.
+                let keys = self.plain_list(unsafe { k.data.handle })?;
                 let mut out = Vec::new();
                 for (i, key) in keys.iter().take(ARRAY_MAX).enumerate() {
                     let (name, index) = match key {
