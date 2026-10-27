@@ -1303,6 +1303,9 @@ pub struct Game<'a> {
     /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
     /// world in place ([`Game::queue_ref_event`]).
     pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// Deaths during a script run (KillActor, a script's damage) whose OnDeath blocks wait
+    /// for the outermost script to finish, with their killers ([`Game::kill`]).
+    deferred_deaths: Vec<(FormId, Option<FormId>)>,
     /// The open flag last seen on each scripted door with OnOpen or OnClose blocks
     /// ([`Game::watch_doors`]). Not saved: a door first seen after a load is taken as
     /// it stands.
@@ -1746,6 +1749,7 @@ impl<'a> Game<'a> {
             door_gates: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
+            deferred_deaths: Vec::new(),
             door_open_seen: BTreeMap::new(),
             events: Vec::new(),
             unhandled: BTreeMap::new(),
@@ -2064,6 +2068,9 @@ impl<'a> Game<'a> {
         let mut ex = Exec { game: self, unit, locals, ctx };
         let r = Vm::new(table, &mut ex, opts).run(stmts);
         self.depth -= 1;
+        if self.depth == 0 {
+            self.run_deferred_deaths();
+        }
         match r {
             Ok(exit) => exit == fnv_script::vm::Exit::Returned,
             Err(e) => {
@@ -2550,6 +2557,26 @@ impl<'a> Game<'a> {
     /// script run (the container menu opened or closed: OnOpen, OnClose).
     pub fn queue_ref_event(&mut self, r: FormId, event: u16, by: Option<FormId>) {
         self.queued_ref_events.push((r, event, by));
+    }
+
+    /// A script is running (a block, a result script, a function a script called).
+    pub(crate) fn in_script(&self) -> bool {
+        self.depth > 0
+    }
+
+    /// `r` died during a script run: its OnDeath runs when the outermost script ends.
+    pub(crate) fn defer_death(&mut self, r: FormId, killer: Option<FormId>) {
+        self.deferred_deaths.push((r, killer));
+    }
+
+    /// The OnDeath blocks of deaths during the script run that just ended; deaths in those
+    /// blocks run theirs after them.
+    fn run_deferred_deaths(&mut self) {
+        while !self.deferred_deaths.is_empty() {
+            for (r, killer) in std::mem::take(&mut self.deferred_deaths) {
+                self.on_death(r, killer);
+            }
+        }
     }
 
     /// OnOpen and OnClose of the scripted doors among `refs`: a door's open flag that
