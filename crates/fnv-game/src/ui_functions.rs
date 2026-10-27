@@ -45,6 +45,12 @@ fn yes(b: bool) -> XVal {
 
 /// The UI function `name` (any case) with its arguments; `None` when it is not one of
 /// these.
+/// The trait path MCM's functions stand for: `StartMenu/MCM/*:child/*:grandchild/setting`.
+fn mcm_path(args: &[XVal]) -> String {
+    let i = |k| num(args, k) as i64;
+    format!("StartMenu/MCM/*:{}/*:{}/{}", i(0), i(1), text(args, 2))
+}
+
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     let lname = name.to_ascii_lowercase();
     let path = text(args, 0);
@@ -54,6 +60,20 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         "setuifloat" | "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
         "setuistring" | "setuistringalt" | "setuistringex" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
         "moduifloat" => yes(g.ui_tree.mod_float(&path, num(args, 1))),
+        // MCM's shorthands for the traits of `StartMenu/MCM/*:child/*:grandchild/setting`
+        // [documented: SetMCMFloat and SetMCMString give the SetUIFloat and SetUIString
+        // they equal]. A trait that is not there reads 0, not GetUIFloat's -999 [observed:
+        // the mcm set, GetMCMFloat 1 1 "_enable" 0 and GetUIFloat on StartMenu -999 with
+        // the start menu closed]; SetMCMFloat returns 0 [hypothesis].
+        "getmcmfloat" => XVal::Num(g.ui_tree.get_float(&mcm_path(args)).unwrap_or(0.0)),
+        "setmcmfloat" => {
+            g.ui_tree.set_float(&mcm_path(args), num(args, 3));
+            XVal::Num(0.0)
+        }
+        "setmcmstring" => {
+            g.ui_tree.set_string(&mcm_path(args), &text(args, 3));
+            XVal::Num(0.0)
+        }
         "iscomponentloaded" => yes(g.ui_tree.is_loaded(&path)),
         "injectuixml" => {
             let file = text(args, 1);

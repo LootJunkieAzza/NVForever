@@ -107,3 +107,24 @@ fn injection_and_loading() {
     g.ui_files = None;
     assert_eq!(n(run(&mut g, "InjectUIXML", &[s("HUDMenu"), s("data\\menus\\prefabs\\mod\\gauge.xml")])), 0.0);
 }
+
+#[test]
+fn mcm_functions_stand_for_start_menu_traits() {
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\start.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM"> <rect name="Mods"/>
+           <rect name="Mod"> <rect name="Title"/> <rect name="Option"> <_enable> 1 </_enable> <string> off </string> </rect> </rect>
+           </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus\\start.xml").unwrap();
+    g.ui_tree.update();
+    assert_eq!(n(run(&mut g, "GetMCMFloat", &[XVal::Num(1.0), XVal::Num(1.0), s("_enable")])), 1.0);
+    run(&mut g, "SetMCMFloat", &[XVal::Num(1.0), XVal::Num(1.0), s("_enable"), XVal::Num(0.0)]);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/Mod/Option/_enable")])), 0.0);
+    run(&mut g, "SetMCMString", &[XVal::Num(1.0), XVal::Num(1.0), s("string"), s("on")]);
+    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Mod/Option/string")]), s("on"));
+    // A trait that is not there reads 0, where GetUIFloat reads NOT_FOUND.
+    assert_eq!(n(run(&mut g, "GetMCMFloat", &[XVal::Num(5.0), XVal::Num(5.0), s("_enable")])), 0.0);
+}

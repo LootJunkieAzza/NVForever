@@ -2850,6 +2850,20 @@ impl Vm<'_, '_> {
                     None => Ok(XVal::Num(0.0)),
                 }
             }
+            // [documented: SetMCMString `child grandchild setting "format" values…`]: the
+            // format is the fourth argument.
+            "setmcmstring" => {
+                let mut args = Vec::new();
+                for e in c.args.iter().take(3) {
+                    args.push(self.xeval(e)?);
+                }
+                let (t, _) = self.format_arg(c, 3)?;
+                args.push(XVal::Str(t));
+                match self.host.ext_call(&lname, None, &args) {
+                    Some(r) => Ok(r.map_err(VmError::Host)?),
+                    None => Ok(XVal::Num(0.0)),
+                }
+            }
             // [documented: SetModelPathEx; SetIconPathEx; SetBipedModelPathEx;
             // SetBipedIconPathEx] likewise, then the plain setter.
             "setnameex" | "setnthfactionranknameex" | "setmodelpathex" | "seticonpathex" | "setbipedmodelpathex" | "setbipediconpathex" => {
