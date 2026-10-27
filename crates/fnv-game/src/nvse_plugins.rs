@@ -40,9 +40,9 @@ fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
 }
 
 /// The script extender plugin files NVForever stands in for, by name without `.dll`
-/// [observed: plugins1, "johnnyguitar" and "jip_nvse" give 1; hypothesis: the others'
-/// file names].
-const DLLS: [&str; 5] = ["jip_nvse", "johnnyguitar", "showoffnvse", "knvse", "nvse_extender"];
+/// [observed: plugins1, "johnnyguitar" and "jip_nvse" give 1; the files in the owner's
+/// Data\NVSE\Plugins: jip_nvse, johnnyguitar, ShowOffNVSE, kNVSE, MCM].
+const DLLS: [&str; 5] = ["jip_nvse", "johnnyguitar", "showoffnvse", "knvse", "mcm"];
 
 /// ALCH ENIT flag bits by LU's flag ID [observed: plugins1, the stimpak (flags 5: No
 /// Auto-Calc, Medicine) reads 0 1 0 1, Silver Sting 0 0 0 0; hypothesis: 0 food, 2 the
