@@ -804,6 +804,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "plugins1"]
+  },
+  {
+   "id": "L5.ext.plugins2",
+   "layer": 5,
+   "description": "plugins2: GetIngestibleFlag on food, drink and poison, ApplyEasing's other curves, IsDLLLoaded names, map marker reputation, pickup and putdown sounds, recipe subcategory, RemoveFormFromFormList",
+   "oracle": {"golden": "jip/plugins2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugins2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "plugins2"]
   }
  ]
 }
