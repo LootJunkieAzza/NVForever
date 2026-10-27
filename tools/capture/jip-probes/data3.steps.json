@@ -1,0 +1,178 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "data3",
+ "title": "data3, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CDF51\"\nSetFunctionValue (rObj.GetMapMarkerName)\nEnd\n",
+   "label": "marker.name",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CDF51\"\nrObj.SetMapMarkerName \"NVF Springs\"\nSetFunctionValue (rObj.GetMapMarkerName)\nEnd\n",
+   "label": "marker.name.set",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet aA := ar_List rObj rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1519E\"\nar_Append aA rObj\nar_Append aA rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nar_Append aA rObj\nlet aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "sort.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet aA := ar_List rObj rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1519E\"\nar_Append aA rObj\nar_Append aA rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nar_Append aA rObj\nlet aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "sort.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet aA := ar_List rObj rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1519E\"\nar_Append aA rObj\nar_Append aA rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nar_Append aA rObj\nlet aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\nlet rObj := aA[1]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "sort.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet aA := ar_List rObj rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1519E\"\nar_Append aA rObj\nar_Append aA rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nar_Append aA rObj\nlet aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\nlet rObj := aA[2]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "sort.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet aA := ar_List rObj rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1519E\"\nar_Append aA rObj\nar_Append aA rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nar_Append aA rObj\nlet aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\nlet rObj := aA[3]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "sort.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet aA := ar_List rObj rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1519E\"\nar_Append aA rObj\nar_Append aA rOther\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nar_Append aA rObj\nlet aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\nlet rObj := aA[4]\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "sort.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (ListGetCount rObj)\nEnd\n",
+   "label": "data3.list.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nlet aA := ar_List rOther\nlet fRes := ListAddArray rObj aA 0\nlet rOther := ListGetNthForm rObj 0\nSetFunctionValue (sv_Construct \"%g %g %i\" fRes (ListGetCount rObj) rOther)\nEnd\n",
+   "label": "listaddarray.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nListRemoveNthForm rObj 0\nSetFunctionValue (ListGetCount rObj)\nEnd\n",
+   "label": "listaddarray.0.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1537E6\"\nlet fRes := ListAddList rObj rOther 0\nlet rOther := ListGetNthForm rObj 0\nSetFunctionValue (sv_Construct \"%g %g %i\" fRes (ListGetCount rObj) rOther)\nEnd\n",
+   "label": "listaddlist.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1537E6\"\nSetFunctionValue (ListGetCount rObj)\nEnd\n",
+   "label": "listaddlist.ammolist.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"1537E6\"\nlet fRes := (ListGetCount rObj) - 3\nwhile fRes > 0\nListRemoveNthForm rObj 0\nlet fRes := fRes - 1\nloop\nSetFunctionValue (ListGetCount rObj)\nEnd\n",
+   "label": "listaddlist.0.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nlet rOther := ListGetNthForm rObj ((ListGetCount rObj) - 1)\nSetFunctionValue (GetFormIDString rOther)\nEnd\n",
+   "label": "list.last",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (IsItemUnique rObj)\nEnd\n",
+   "label": "unique.stimpak",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (IsItemUnique rObj)\nEnd\n",
+   "label": "unique.pistol",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nToggleItemUnique rObj 1\nSetFunctionValue (IsItemUnique rObj)\nEnd\n",
+   "label": "unique.toggle",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nToggleItemUnique rObj 0\nSetFunctionValue (IsItemUnique rObj)\nEnd\n",
+   "label": "unique.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValue XP)\nEnd\n",
+   "label": "xp.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRewardXPExact 5\nSetFunctionValue (rPlayer.GetActorValue XP)\nEnd\n",
+   "label": "xp.reward",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "xp.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetActorValue XP)\nEnd\n",
+   "label": "xp.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\n  if iAV == 11\n    rPlayer.AuxVarSetFlt \"*nvfAV\" (iAV * 10000 + fOld * 100 + fNew)\n  endif\nEnd) 0\nSetFunctionValue 1\nEnd\n",
+   "label": "avchange.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue Luck 1\nSetFunctionValue (rPlayer.GetActorValue Luck)\nEnd\n",
+   "label": "avchange.mod",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "avchange.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "avchange.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.AuxVarGetFlt \"*nvfAV\")\nEnd\n",
+   "label": "avchange.got",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue Luck -1\nSetFunctionValue (rPlayer.GetActorValue Luck)\nEnd\n",
+   "label": "avchange.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "avchange.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "avchange.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := rPlayer.AuxVarGetFlt \"*nvfAV\"\nrPlayer.AuxVarErase \"*nvfAV\"\nSetFunctionValue fRes\nEnd\n",
+   "label": "avchange.got.after",
+   "field": "value"
+  }
+ ]
+}
