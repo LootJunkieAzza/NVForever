@@ -19,6 +19,8 @@ pub struct Jip3State {
     pub moved_seen: HashMap<(Option<FormId>, Option<FormId>), Option<FormId>>,
     /// JohnnyGuitar's event handlers set here: (event, function, filter form or list).
     pub jg_handlers: Vec<(JgEvent, XVal, Option<FormId>)>,
+    /// FreezeTime's mode: game time stands still (`Game::tick`).
+    pub time_frozen: bool,
 }
 
 /// The JohnnyGuitar events whose handlers this file keeps.
@@ -326,6 +328,67 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             } else {
                 XVal::Ref(hit.and_then(|h| h.form).unwrap_or(0))
             }
+        }
+        // LU `list type [modIndex] [noClear]`: the list emptied (unless noClear), then every
+        // loaded form of the type added, from one plugin when modIndex is given; type 57
+        // (cells) only interiors [documented: GetLoadedType].
+        "getloadedtype" => {
+            let Some(l) = form(args, 0) else { return Some(Ok(zero)) };
+            let code = num(args, 1, -1.0) as i32;
+            let index = num(args, 2, -1.0) as i64;
+            let keep = num(args, 3, 0.0) != 0.0;
+            let mut forms = g.data.forms_of_type(code);
+            if index >= 0 {
+                forms.retain(|f| i64::from(f.0 >> 24) == index);
+            }
+            if code == 57 {
+                forms.retain(|c| g.world.placed.world_of(*c).is_none());
+            }
+            let list = g.edited_list(l);
+            if !keep {
+                list.clear();
+            }
+            for f in forms {
+                if !list.contains(&f) {
+                    list.push(f);
+                }
+            }
+            zero
+        }
+        // The effects with a duration on the actor, each as [source, base effect,
+        // magnitude, seconds left, caster, duration] [documented: GetTempEffects; hypothesis:
+        // the order is the effects' own].
+        "gettempeffects" => {
+            let Some(a) = subject else { return Some(Ok(zero)) };
+            let rows: Vec<Vec<XVal>> = g
+                .effects
+                .iter()
+                .filter(|e| e.target == a && !e.permanent && e.duration > 0.0)
+                .map(|e| {
+                    vec![
+                        XVal::Ref(e.source.0),
+                        XVal::Ref(e.effect.0),
+                        XVal::Num(f64::from(e.magnitude)),
+                        XVal::Num((e.duration - e.elapsed).max(0.0)),
+                        XVal::Ref(e.caster.map_or(0, |c| c.0)),
+                        XVal::Num(e.duration),
+                    ]
+                })
+                .collect();
+            let mut outer = Vec::with_capacity(rows.len());
+            for (i, r) in rows.into_iter().enumerate() {
+                let inner = r.into_iter().enumerate().map(|(k, v)| (fnv_script::vm::XKey::Num(k as f64), v)).collect();
+                outer.push((fnv_script::vm::XKey::Num(i as f64), XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, inner))));
+            }
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, outer))
+        }
+        // `[on]`: game time stands still while on; with no argument only reads it
+        // [documented: FreezeTime; hypothesis: the engine's animations and physics run on].
+        "freezetime" => {
+            if let Some(XVal::Num(n)) = args.first() {
+                g.gaps.jip3.time_frozen = *n != 0.0;
+            }
+            yes(g.gaps.jip3.time_frozen)
         }
         // `set|remove function flag [filter]`: JohnnyGuitar's handlers kept here
         // (`Game::jg_event`) [documented: the SetJohnnyOn…EventHandler pages].

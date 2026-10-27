@@ -2709,7 +2709,8 @@ impl<'a> Game<'a> {
         let dt = self.cfg.frame_seconds;
         // A conversation with the player is menu mode too (`Game::in_menu`).
         let in_menu = self.in_menu();
-        if !in_menu {
+        // FreezeTime holds game time (`nvse_jip3`).
+        if !in_menu && !self.gaps.jip3.time_frozen {
             self.time += dt;
         }
         // `Disable 1` holds that ended (`functions::refs::disable`).
