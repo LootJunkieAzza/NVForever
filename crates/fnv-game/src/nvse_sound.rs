@@ -66,11 +66,14 @@ impl SoundState {
         self.played.retain(|p| p.stopped.is_none_or(|f| f >= frame) && p.until.is_none_or(|u| clock < u));
     }
 
-    /// Whether `p` counts as playing in `frame`: from the frame after it was asked for, until
-    /// its end, and in the frame StopSound stopped it [observed: sound1, IsSoundPlaying 0 in
-    /// PlaySound's frame and 1 from the next; 1 in StopSound's frame, 0 from the next].
+    /// Whether `p` counts as playing in `frame`: from the second frame after it was asked
+    /// for, until its end, and in the frame StopSound stopped it [observed: sound1 on this
+    /// machine, sound2a–d (twice) and the peer's sky-sound, IsSoundPlaying 0 in PlaySound's
+    /// frame and the next and 1 from the one after; the peer's sound1 read 1 a frame earlier,
+    /// hypothesis: the audio system's start takes one or two frames; 1 in StopSound's frame,
+    /// 0 from the next].
     fn playing(&self, p: &Played, frame: u64) -> bool {
-        p.frame < frame && p.stopped.is_none_or(|f| f == frame) && p.until.is_none_or(|u| self.clock < u)
+        p.frame + 1 < frame && p.stopped.is_none_or(|f| f == frame) && p.until.is_none_or(|u| self.clock < u)
     }
 }
 
@@ -97,7 +100,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let zero = XVal::Num(0.0);
     let frame = g.frame;
     let v = match name {
-        // `sound [source]`: a sound a script played is playing; with a source, only one
+        // `sound [source]`: a sound a script played is playing (`SoundState::playing`); with a source, only one
         // played at that reference [observed: sound1, PlaySound3D on the player read 1
         // with the player, 0 with Doc Mitchell's base, 1 with no source; a looping SOUN
         // (EMTMedicalBeep01) still 1 after 120 frames, a one-shot (UIVATSLoop) 1 for one
@@ -159,12 +162,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_sound_plays_from_the_next_frame_until_it_ends_or_stops() {
+    fn a_sound_plays_from_the_second_frame_until_it_ends_or_stops() {
         let mut st = SoundState::default();
         let id = st.ask(FormId(7), None, 10);
         let p = st.played[0].clone();
         assert!(!st.playing(&p, 10));
-        assert!(st.playing(&p, 11));
+        assert!(!st.playing(&p, 11));
+        assert!(st.playing(&p, 12));
         st.heard(id, Some(0.05));
         st.tick(0.02, 11);
         assert!(st.playing(&st.played[0].clone(), 12));
@@ -172,9 +176,9 @@ mod tests {
         assert!(st.played.is_empty());
         // Stopped: still playing in the stop's frame, gone after.
         st.ask(FormId(7), None, 20);
-        st.played[0].stopped = Some(21);
-        assert!(st.playing(&st.played[0].clone(), 21));
-        st.tick(0.02, 22);
+        st.played[0].stopped = Some(23);
+        assert!(st.playing(&st.played[0].clone(), 23));
+        st.tick(0.02, 24);
         assert!(st.played.is_empty());
     }
 }
