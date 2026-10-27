@@ -90,7 +90,10 @@
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
-//! view (as with `--auto-walk`).
+//! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
+//! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`): with them alone the run is played by
+//! hand as usual and only logs its frame times, and a load's new run keeps them
+//! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
 //! Debug switches for a session played by hand (off unless set; development tools, not
 //! part of a release; the run stays attended):
@@ -177,7 +180,7 @@ enum Press {
     Release,
     Fire,
     Reload,
-    /// Ready Item tapped twice: lower or raise the weapon (`PlayerControl::lowered`).
+    /// Lower Weapon (H): lower or raise the weapon (`PlayerControl::lowered`).
     Lower,
     Swap,
     AimActor,
@@ -350,13 +353,24 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
     fired.into_iter().map(|(_, v)| v).collect()
 }
 
-/// Whether a test aid drives this run (some `NVF_PLAY_TEST_*` variable is set).
+/// The test aids that only log what the run costs (nvforever stress_sample.rs and
+/// profile.rs): they leave the run attended, and a load's new run keeps them.
+pub const MEASURING_AIDS: [&str; 2] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE"];
+
+/// Whether this environment variable is a test aid that drives the run (any
+/// `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`]).
+pub fn drives_run(key: &str) -> bool {
+    key.starts_with("NVF_PLAY_TEST_") && !MEASURING_AIDS.contains(&key)
+}
+
+/// Whether a test aid drives this run (some `NVF_PLAY_TEST_*` variable is set, not only
+/// the [`MEASURING_AIDS`]).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Unattended(pub bool);
 
 impl Unattended {
     pub fn from_env() -> Unattended {
-        Unattended(std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_"))))
+        Unattended(std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(drives_run)))
     }
 }
 
@@ -724,6 +738,15 @@ mod tests {
         assert!(due.is_empty());
         let mut due = vec![(2.0, 'b'), (1.0, 'a')];
         assert_eq!(take_due(&mut due, 5.0), vec!['a', 'b'], "in time order");
+    }
+
+    #[test]
+    fn measuring_aids_leave_the_run_attended() {
+        assert!(!drives_run("NVF_PLAY_TEST_SAMPLE"));
+        assert!(!drives_run("NVF_PLAY_TEST_PROFILE"));
+        assert!(drives_run("NVF_PLAY_TEST_GOD"));
+        assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");
+        assert!(!drives_run("NVF_PLAY_DEBUG_GIVE"));
     }
 
     #[test]

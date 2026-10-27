@@ -3,20 +3,23 @@
 //!
 //! - **One at a time.** Picking a note that plays ([`Holotape::picks`], from the DATA
 //!   page's use of the row: a click, Enter, or the test aid's `key=use` / `note=`)
-//!   starts it and stops the one playing; picking the one playing stops it
-//!   [hypothesis: holotapes.md §3].
+//!   starts it from its beginning and stops the one playing; picking the one playing
+//!   pauses it, and again goes on [owner 2026-10-27: holotapes.md §3].
+//! - **Its progress**: the seconds played and the whole length (the responses' lengths
+//!   added up), for the Notes tab's meter ([`Holotape::progress`]); the clock stands
+//!   while it is paused or held.
 //! - **A Voice note** plays its line (`fnv_game::holotapes::tape`) in its speaker's voice:
 //!   each response's file in turn (`fnv_voice::VoiceBank::file` with the speaker's base,
 //!   the voice type's folder), one after another, at full volume and not placed, in the
-//!   Voice category. It goes on while the Pip-Boy is put away [hypothesis] and is held
-//!   by the pause menu. A response without a file is skipped (logged).
+//!   Voice category. It goes on while the Pip-Boy is put away [owner 2026-10-27] and is
+//!   held by the pause menu. A response without a file is skipped (logged).
 //! - **A Sound note** plays its sound once at the listener (`crate::sfx::PlaySound`); it
 //!   cannot be stopped [hypothesis: no Sound note of the masters names a sound,
 //!   holotapes.md §2].
 //!
 //! Log lines: `holotape: <note> plays <line> said by <speaker>, <n> responses`, then
 //! `holotape: playing <path> (<seconds> s) response <k>/<n>` per response, `holotape:
-//! stopped <note>` and `holotape: <note> is over`.
+//! paused <note>` / `holotape: <note> goes on` and `holotape: <note> is over`.
 
 use crate::audio_out::SoundCategory;
 use crate::script::ScriptState;
@@ -33,8 +36,13 @@ use fnv_sim::FormId;
 pub struct Holotape {
     /// Notes picked in the Notes list (Sound and Voice notes), taken next frame.
     pub picks: Vec<FormId>,
-    /// The note playing.
+    /// The note playing (also while paused).
     pub playing: Option<FormId>,
+    /// Paused by the player (picked again while it plays).
+    pub paused: bool,
+    /// Seconds played of the note, and its whole length.
+    elapsed: f64,
+    total: f64,
     /// The responses still to play: path and seconds.
     queue: Vec<(String, f64)>,
     count: usize,
@@ -57,6 +65,15 @@ impl Holotape {
         self.playing = None;
         self.queue.clear();
         self.held = false;
+        self.paused = false;
+        (self.elapsed, self.total) = (0.0, 0.0);
+    }
+
+    /// The note playing (or paused): its seconds still to play and the share played.
+    pub fn progress(&self) -> Option<(FormId, f64, f32)> {
+        let note = self.playing?;
+        let share = if self.total > 0.0 { (self.elapsed / self.total).clamp(0.0, 1.0) as f32 } else { 0.0 };
+        Some((note, (self.total - self.elapsed).max(0.0), share))
     }
 }
 
@@ -80,8 +97,12 @@ fn play(
     let picks = std::mem::take(&mut st.picks);
     for (i, note) in picks.iter().enumerate() {
         if st.playing == Some(*note) {
-            st.stop(&mut commands);
-            info!("holotape: stopped {}", g.data.name(*note));
+            st.paused = !st.paused;
+            if st.paused {
+                info!("holotape: paused {}", g.data.name(*note));
+            } else {
+                info!("holotape: {} goes on", g.data.name(*note));
+            }
             continue;
         }
         match tape(g.data, *note) {
@@ -115,6 +136,7 @@ fn play(
                     .collect();
                 st.queue.reverse();
                 st.count = st.queue.len();
+                st.total = st.queue.iter().map(|q| q.1).sum();
                 st.playing = Some(*note);
                 st.ends_at = now;
                 info!("holotape: {} plays {} said by {}, {} responses", g.data.name(*note), g.data.name(info), g.data.name(speaker), n);
@@ -123,12 +145,15 @@ fn play(
         }
     }
     let Some(note) = st.playing else { return };
-    // The pause menu holds it: the sound's end moves on by the time held.
-    if paused.0 {
+    // The pause menu or the player holds it: the sound's end moves on by the time held.
+    let hold = paused.0 || st.paused;
+    if hold {
         st.ends_at += time.delta_secs_f64();
+    } else {
+        st.elapsed = (st.elapsed + time.delta_secs_f64()).min(st.total);
     }
-    if paused.0 != st.held {
-        st.held = paused.0;
+    if hold != st.held {
+        st.held = hold;
         if let Some(sink) = st.entity.and_then(|e| sinks.get(e).ok()) {
             if st.held {
                 sink.pause();
@@ -142,7 +167,7 @@ fn play(
     }
     st.entity = None;
     let Some((path, seconds)) = st.queue.pop() else {
-        st.playing = None;
+        st.stop(&mut commands);
         info!("holotape: {} is over", g.data.name(note));
         return;
     };

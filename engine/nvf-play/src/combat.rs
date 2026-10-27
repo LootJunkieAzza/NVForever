@@ -2081,8 +2081,22 @@ impl CombatWorld for PhysView<'_> {
         if len < 1e-4 {
             return None;
         }
-        // The world only: no body, living or dead, shields another from a blast.
-        let f = Filter { exclude_layers: layers::character_ignores(), no_actors: true, ..Default::default() };
+        // The world only: no body, living or dead, shields another from a blast, nor
+        // anything small or see-through (clutter, small debris, dropped weapons, fences,
+        // thin trees); walls, rocks, the ground and wrecks do (the owner, 2026-10-27).
+        let passes = layers::LayerSet::from_layers(&[
+            layers::TRANSPARENT,
+            layers::TRANSPARENT_SMALL,
+            layers::TRANSPARENT_SMALL_ANIM,
+            layers::INVISIBLE_WALL,
+            layers::CLUTTER,
+            layers::WEAPON,
+            layers::PROJECTILE,
+            layers::TREES,
+            layers::BIPED,
+            layers::DEAD_BIP,
+        ]);
+        let f = Filter { exclude_layers: layers::character_ignores().union(passes), no_actors: true, ..Default::default() };
         let h = self.q.ray(from, d, len, &f)?;
         Some(WorldHit {
             point: h.point,
@@ -3053,10 +3067,15 @@ pub(crate) fn apply_hit(
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback);
     }
     // The hit's effects go on before its damage (`hit_effects`).
+    let span = info_span!("combat::hit_effects").entered();
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
+    drop(span);
+    let span = info_span!("combat::game_hit").entered();
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
+    drop(span);
     let name = sim.ref_name(Some(&rt.game), target.0).map_or_else(|| target.to_string(), str::to_string);
     if let Some((spell, on_death)) = crit.filter(|_| info.critical && !r.immune) {
+        let _span = info_span!("combat::crit_effect").entered();
         let done = with_world(rt, sim, |rt| rt.game.apply_crit_effect(target, spell, on_death, r.died, info.attacker));
         if let fnv_game::ash_piles::CritEffect::Applied(ids) = done {
             let spell_name = rt.game.data.name(spell);

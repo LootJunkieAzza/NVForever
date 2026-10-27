@@ -148,6 +148,22 @@ pub fn damage_stages_of(nodes: &[ModelNode], i: usize) -> Option<(i32, i32)> {
     out
 }
 
+/// Where a light model's light sits, as a transform from the model's root: its node
+/// named `AttachLight` (or `AttachLight<n>`), with the nodes above it
+/// (docs/spec-notes/model-lights.md §4). `None`: no such node.
+pub fn attach_light(nodes: &[ModelNode]) -> Option<Affine3A> {
+    let is_attach = |n: &ModelNode| {
+        n.name.as_deref().is_some_and(|s| s.len() >= 11 && s[..11].eq_ignore_ascii_case("AttachLight") && s[11..].bytes().all(|b| b.is_ascii_digit()))
+    };
+    let mut at = Some(nodes.iter().position(is_attach)?);
+    let mut t = Affine3A::IDENTITY;
+    while let Some(n) = at {
+        t = nodes[n].local * t;
+        at = nodes[n].parent;
+    }
+    Some(t)
+}
+
 /// The nodes of a file below its roots, parents before children, and each one's index
 /// by block.
 pub fn model_nodes(objects: &[SceneObject]) -> (Vec<ModelNode>, HashMap<usize, usize>) {
@@ -1485,6 +1501,25 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
 mod tests {
     use super::*;
     use fnv_nif::scene::Transform as NifTransform;
+
+    #[test]
+    fn attach_light_takes_the_nodes_above_it() {
+        let node = |name: &str, parent, z| ModelNode {
+            name: Some(name.into()),
+            parent,
+            local: Affine3A::from_translation(Vec3::new(0.0, 0.0, z)),
+            billboard: None,
+            addon: None,
+            damage_stages: None,
+        };
+        // barrel02firelight.nif: AttachLight 102 units up, beside the add-on node.
+        let barrel = [node("AddOnNode14", None, 72.5), node("AttachLight", None, 102.0)];
+        assert_eq!(attach_light(&barrel).map(|t| t.translation.z), Some(102.0));
+        let nested = [node("Dummy", None, 10.0), node("attachlight01", Some(0), 5.0)];
+        assert_eq!(attach_light(&nested).map(|t| t.translation.z), Some(15.0));
+        assert_eq!(attach_light(&[node("AttachLightBeam", None, 1.0)]), None);
+        assert_eq!(attach_light(&[]), None);
+    }
 
     #[test]
     fn nodes_below_damage_stages_take_their_ranges() {

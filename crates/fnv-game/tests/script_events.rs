@@ -23,7 +23,9 @@ const DOOR: u32 = 0x700;
 const TRAP: u32 = 0x710;
 const NPC: u32 = 0x720;
 const ITEM: u32 = 0x730;
+const BOX: u32 = 0x740;
 const DOOR_REF: u32 = 0x300;
+const BOX_REF: u32 = 0x302;
 const TRAP_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
 const KILL_ACTOR: u16 = 0x108B;
@@ -93,6 +95,8 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let door = record(b"DOOR", 0, DOOR, &[sub(b"EDID", z("TestDoor")), sub(b"SCRI", DOOR_SCRIPT.to_le_bytes().to_vec())]);
+    // A container running the door's script (nOpened, nClosed).
+    let cont = record(b"CONT", 0, BOX, &[sub(b"EDID", z("TestBox")), sub(b"SCRI", DOOR_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", [vec![0], 0f32.to_le_bytes().to_vec()].concat())]);
     let trap = record(b"ACTI", 0, TRAP, &[sub(b"EDID", z("TestTrap")), sub(b"SCRI", TRAP_SCRIPT.to_le_bytes().to_vec())]);
     let item = record(b"MISC", 0, ITEM, &[sub(b"EDID", z("TestPowder"))]);
     let npc = record(
@@ -109,7 +113,7 @@ fn plugin_bytes() -> Vec<u8> {
     let mut ench = vec![sub(b"EDID", z("Burning")), sub(b"ENIT", [u32s(&[2, 0, 0]), vec![0; 4]].concat())];
     ench.extend([sub(b"EFID", BURN_FX.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[1, 0, 5, 1]), 16i32.to_le_bytes().to_vec()].concat())]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(b"REFR", DOOR_REF, DOOR), placed(b"REFR", TRAP_REF, TRAP), placed(b"ACHR", NPC_REF, NPC)].concat()));
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(b"REFR", DOOR_REF, DOOR), placed(b"REFR", TRAP_REF, TRAP), placed(b"REFR", BOX_REF, BOX), placed(b"ACHR", NPC_REF, NPC)].concat()));
     [
         tes4(),
         top(b"MGEF", &[mgef(BURN_FX, "Burn"), mgef(OTHER_FX, "Other")].concat()),
@@ -117,6 +121,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"SCPT", &scripts),
         top(b"MISC", &item),
         top(b"ACTI", &trap),
+        top(b"CONT", &cont),
         top(b"DOOR", &door),
         top(b"NPC_", &npc),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -185,6 +190,25 @@ fn a_queued_open_runs_on_the_next_frame() {
     g.queue_ref_event(FormId(DOOR_REF), event::ON_CLOSE, Some(FormId::PLAYER_REF));
     g.tick();
     assert_eq!(count(&g, DOOR_REF, 2), 1.0);
+}
+
+#[test]
+fn the_runners_player_activation_of_a_container_runs_its_on_open_and_on_close() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "player_activate", "target": format!("0x{BOX_REF:08X}"), "label": "open"},
+            {"op": "get_ref", "ref": format!("0x{BOX_REF:08X}"), "fields": ["var.nOpened", "var.nClosed"], "label": "after"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("open")["opened"], format!("0x{BOX_REF:08X}"));
+    assert_eq!(by("after")["var.nOpened"], 1.0);
+    assert_eq!(by("after")["var.nClosed"], 1.0);
 }
 
 #[test]

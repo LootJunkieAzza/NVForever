@@ -54,15 +54,26 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
   Pip-Boy as a conversation's line does]. A response without a file is skipped and
   logged.
 - **Picking.** Use on a Sound or Voice note's row (click, Enter, Space, the test aid's
-  `key=use` or `note=<FormID>`) starts it; one holotape plays at a time, so another
-  pick stops the one playing first; using the one playing stops it [hypothesis]. A pick
-  made before the voice index is built (its thread, at start) waits for it.
-- **While it plays** it goes on with the Pip-Boy put away and is held by the pause menu
-  [hypothesis]. The Pip-Boy radio is left as it is [hypothesis: whether the original
-  mutes the radio under a holotape is not known].
-- **On the page.** A Sound or Voice note shows the Radio tab's wave panel at the right:
-  the still wave while it plays, the flat line otherwise [design: the original's audio
-  note panel is not measured; pipboy.md §5.3 had the empty meter].
+  `key=use` or `note=<FormID>`) starts it from its beginning; one holotape plays at a
+  time, so another pick stops the one playing (or paused) first; using the one playing
+  pauses it, and using it again goes on from there [owner 2026-10-27; the original's
+  menu file names the button "Stop Audio" then, map_menu.xml]. A pick made before the
+  voice index is built (its thread, at start) waits for it.
+- **While it plays** it goes on with the Pip-Boy put away [owner 2026-10-27] and is
+  held by the pause menu [hypothesis]. The Pip-Boy radio is left as it is [hypothesis:
+  whether the original mutes the radio under a holotape is not known].
+- **On the page.** A Sound or Voice note shows the audio meter at the right
+  (`MM_DataAudioInfo`, map_menu.xml [documented]): the time remaining right-aligned at
+  the top of the data box, the tick meter (`tickmark_horiz.dds`, 32 high) under it and
+  an 8 by 32 marker at the share played of the meter's width less 8. The time reads
+  minutes, seconds and tenths, "00:30:9 remaining" [observed: a capture of the original
+  playing Post-War Audio Log]. The marker starts at the left when the note is used and
+  moves right as it plays; a note highlighted that is not the one playing (and every
+  note once it is over) shows "00:00:0 remaining" with the marker at the right end
+  [observed: the same capture; the menu file's completion is that of the highlighted
+  note]. The length is the responses' lengths added up; the clock stands while the
+  note is paused or held. The Radio tab's waveform is not shown for a note [documented:
+  `MM_WaveformRect` is visible on the Radio tab only].
 - **A Sound note** plays its SOUN once at the listener (`crate::sfx::PlaySound`) and
   cannot be stopped [hypothesis; no master note uses it].
 - Not built: the subtitles of a holotape's responses (whether the original shows them is

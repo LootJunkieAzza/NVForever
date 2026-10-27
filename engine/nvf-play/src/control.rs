@@ -4,9 +4,11 @@
 //! - Crouch/Sneak (Left Ctrl) toggles sneaking.
 //! - Ready Item (R): with the weapon away, draws it; with it out, a tap reloads and a hold
 //!   of [`HOLSTER_HOLD`] puts it away [hypothesis: the game's tap/hold split]. Reloading
-//!   is `crate::combat`'s. Two taps within [`DOUBLE_TAP`] lower the weapon or raise it
-//!   again instead ([`PlayerControl::lowered`]; the owner's request, 2026-10-26), so a
-//!   single tap reloads that much later [design].
+//!   is `crate::combat`'s.
+//! - Lower Weapon (H, NVForever's own) lowers the drawn weapon or raises it again
+//!   ([`PlayerControl::lowered`]) [design: the owner 2026-10-26 asked for it on Ready
+//!   Item tapped twice; 2026-10-27 moved to its own key, since waiting for a second tap
+//!   held every reload back].
 //! - Use (left mouse) attacks while held ([`PlayerControl::trigger`], `crate::combat`);
 //!   with the weapon away it draws it first [hypothesis].
 //! - Ammo Swap (hotkey 2) asks `crate::combat` for the next carried ammo type; the
@@ -151,11 +153,8 @@ pub struct PlayerControl {
     /// A reload was asked for (Ready Item tapped with the weapon out); `crate::combat`
     /// clears it.
     pub reload: bool,
-    /// Seconds since a tap of Ready Item that may yet be the first of two (it reloads
-    /// when [`DOUBLE_TAP`] passes without a second).
-    pub reload_tap: Option<f32>,
-    /// The player lowered the weapon by hand (two taps of Ready Item): it stays down
-    /// until two more taps, aiming, the trigger or putting it away (the first-person pose
+    /// The player lowered the weapon by hand (Lower Weapon): it stays down until Lower
+    /// Weapon again, a reload, aiming, the trigger or putting it away (the first-person pose
     /// is `nvforever`'s `weapon_lower.rs`).
     pub lowered: bool,
     /// Ammo Swap pressed; `crate::combat` clears it.
@@ -187,7 +186,6 @@ impl Default for PlayerControl {
             ready_held: None,
             trigger: false,
             reload: false,
-            reload_tap: None,
             lowered: false,
             ammo_swap: false,
             wheel: false,
@@ -467,9 +465,6 @@ pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, 
 
 /// Holding Ready Item this long with the weapon out holsters it, seconds [hypothesis].
 pub const HOLSTER_HOLD: f32 = 0.5;
-/// A second tap of Ready Item within this many seconds of the first lowers or raises the
-/// weapon instead of reloading [design].
-pub const DOUBLE_TAP: f32 = 0.25;
 /// The circling camera swings back behind the player with this time constant, seconds
 /// [engineering choice].
 pub const ORBIT_RETURN: f32 = 0.15;
@@ -579,21 +574,13 @@ pub fn read_controls(
             c.ready_held = None;
         } else if input.just_released(Control::ReadyItem) || !input.pressed(Control::ReadyItem) {
             c.ready_held = None;
-            if c.reload_tap.take().is_some() {
-                c.lowered = !c.lowered;
-                info!("Ready Item tapped twice: the weapon {}", if c.lowered { "lowered" } else { "raised" });
-            } else {
-                c.reload_tap = Some(0.0);
-            }
-        }
-    }
-    if let Some(t) = c.reload_tap.as_mut() {
-        *t += time.delta_secs();
-        if *t > DOUBLE_TAP {
-            c.reload_tap = None;
             c.reload = true;
             c.lowered = false;
         }
+    }
+    if input.just_pressed(Control::LowerWeapon) && c.weapon_out {
+        c.lowered = !c.lowered;
+        info!("Lower Weapon pressed: the weapon {}", if c.lowered { "lowered" } else { "raised" });
     }
     // Use draws the weapon when it is away; held with it out, it is the trigger. The
     // press that draws does not fire.

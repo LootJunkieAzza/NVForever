@@ -10,13 +10,14 @@ import argparse
 import os
 from pathlib import Path
 
-from . import battle, cells, lib, markers, tour
+from . import battle, cells, lib, markers, soak, tour
 
 TESTS = {
     "cells": "every interior cell of the masters loads without crashing (exteriors: tour)",
     "markers": "fast travel to every map marker: refusals, arrivals, crashes, missing files and script errors",
     "tour": "laps of the Mojave, the engine's counts and the process's memory sampled for leaks",
     "battle": "NCR against the Legion in Goodsprings: frame time, memory, combat measures",
+    "soak": "the tour's lap with containers, doors and fights mixed in: hitches put down to their cause",
 }
 
 
@@ -83,6 +84,18 @@ def parser() -> argparse.ArgumentParser:
                    help="a further test aid for the game, e.g. NVF_PLAY_TEST_NO_READ_AHEAD=1 to compare a run without "
                         "the actor read-ahead (repeatable)")
 
+    s = tests.add_parser("soak", help=TESTS["soak"])
+    common(s)
+    s.add_argument("--world", default="WastelandNV")
+    s.add_argument("--towns", nargs="+", default=None, metavar="CELL", help="the towns of the lap (default: the tour's)")
+    s.add_argument("--laps", type=int, default=1)
+    s.add_argument("--step", type=float, default=1024.0, help="units a step")
+    s.add_argument("--dwell", type=float, default=1.0, help="seconds between steps")
+    s.add_argument("--every", type=float, default=5.0, help="seconds between samples")
+    s.add_argument("--event-every", type=float, default=20.0, help="seconds between events (container, door, fight in turn)")
+    s.add_argument("--hang", type=float, default=180.0)
+    s.add_argument("--aid", action="append", default=[], metavar="NAME=VALUE",
+                   help="a further test aid for the game, e.g. NVF_PLAY_TEST_PROFILE=5 with a profile build (repeatable)")
     b = tests.add_parser("battle", help=TESTS["battle"])
     common(b)
     b.add_argument("--per-side", type=int, default=10, help="fighters a side (10, 25, 50)")
@@ -94,6 +107,11 @@ def parser() -> argparse.ArgumentParser:
     b.add_argument("--every", type=float, default=2.0, help="seconds between samples")
     b.add_argument("--centre", default=f"{battle.CENTRE[0]:g},{battle.CENTRE[1]:g}", help="x,y the battle is round")
     b.add_argument("--gap", type=float, default=3000.0, help="units between the sides")
+    for p in (t, b, s):
+        g = p.add_argument_group("budget", "frame-time limits after start-up; a run over any of them fails (exit 1)")
+        g.add_argument("--budget-mean-ms", type=float, default=None, help="largest mean frame")
+        g.add_argument("--budget-low1-ms", type=float, default=None, help="largest 1%% low frame")
+        g.add_argument("--budget-worst-ms", type=float, default=None, help="largest single frame")
     return ap
 
 
@@ -178,11 +196,33 @@ def main(argv=None) -> int:
         res = tour.run(ctx, route, a.laps, a.every, a.hang, start, est, aids)
         lines = tour.report(res)
         bad = 0 if res["status"] == "ok" else 1
+    elif a.test == "soak":
+        if not ctx.fnvtool.exists():
+            raise SystemExit(f"no fnvtool at {ctx.fnvtool}: build it (root workspace) or pass --fnvtool")
+        wid, _, _ = tour.world_bounds(ctx, a.world)
+        pts, stops = tour.town_route(tour.world_cells(ctx, a.world), tour.nav_cells(ctx, a.world), a.towns or tour.TOWNS)
+        print("soak: through " + ", ".join(stops))
+        route = tour.route_text(wid, pts, a.step, a.dwell, a.laps)
+        perimeter = sum(((pts[i][0] - pts[i - 1][0]) ** 2 + (pts[i][1] - pts[i - 1][1]) ** 2) ** 0.5 for i in range(len(pts)))
+        steps = perimeter / a.step + len(pts)
+        tour_seconds = a.laps * steps * a.dwell
+        est = a.laps * steps * (a.dwell + 3.0) + 600
+        res = soak.run(ctx, route, pts, a.world, a.laps, a.every, a.hang, ["--cell", "Goodsprings", "--hour", "12"], est,
+                       tour_seconds, a.event_every, dict(kv.split("=", 1) for kv in a.aid))
+        lines = soak.report(res)
+        bad = 0 if res["status"] == "ok" else 1
     else:
         cx, cy = (float(v) for v in a.centre.split(","))
         res = battle.run(ctx, a.per_side, a.third, a.seconds, a.every, (cx, cy), a.gap, dict(kv.split("=", 1) for kv in a.aid))
         lines = battle.report(res)
         bad = 0 if res["status"] == "ok" else 1
+    if a.test in ("tour", "battle", "soak"):
+        budget = lib.Budget(a.budget_mean_ms, a.budget_low1_ms, a.budget_worst_ms)
+        failed = lib.over_budget(res.get("frames"), budget)
+        res["budget"] = {"mean_ms": budget.mean_ms, "low1_ms": budget.low1_ms, "worst_ms": budget.worst_ms, "failed": failed}
+        # Right after the status line, so the first lines printed carry the verdict.
+        lines[3:3] = lib.budget_report(budget, failed)
+        bad += len(failed)
     lib.write_results(ctx.out, res, lines)
     print("\n".join(lines[:12]))
     print(f"\nresults: {ctx.out / 'results.json'}\nreport:  {ctx.out / 'report.md'}")

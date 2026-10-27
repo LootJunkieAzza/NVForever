@@ -2748,19 +2748,22 @@ expect = [
 
 [[scenario]]
 name = "pipboy-holotape"
-source = "ESM gap audit row 14 (docs/spec-notes/holotapes.md §3, §4): a Voice note (holotape) picked in the Pip-Boy's Notes list plays its line's voice files, one response after another; picked again it stops"
+source = "ESM gap audit row 14 (docs/spec-notes/holotapes.md §3, §4): a Voice note (holotape) picked in the Pip-Boy's Notes list plays its line's voice files, one response after another; picked again it pauses, again it goes on, and it keeps playing with the Pip-Boy put away (owner 2026-10-27)"
 areas = ["pipboy", "audio"]
 paths = ["engine/nvf-play/src/holotape.rs", "engine/nvf-play/src/pipboy/data.rs", "crates/fnv-game/src/holotapes.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,23.5:note=001618BF,25:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,23.5:note=001618BF,26:note=001618BF,27:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720"]
-run_seconds = 27
-note = "VMQ01BeagleJournalNote (001618BF, Beagle's journal): speaker PrimmDeputy, topic VMQ01BeagleJournal, one line (001618B7) of six responses in MaleAdult11, the first 6.36 s long; the second note= at 23.5 s, during the second response, stops it"
+run_seconds = 36
+note = "VMQ01BeagleJournalNote (001618BF, Beagle's journal): speaker PrimmDeputy, topic VMQ01BeagleJournal, one line (001618B7) of six responses in MaleAdult11, the first 6.36 s long; the second note= at 23.5 s, during the second response (6.87 s), pauses it, the third at 26 s goes on; the third response starts after the Pip-Boy is put away at 27 s"
 order = [[
   "pipboy data: note … (0x001618BF) picked",
   "holotape: VMQ01BeagleJournalNote plays … said by PrimmDeputy, 6 responses",
   'holotape: playing sound\voice\falloutnv.esm\maleadult11\nvprimmdep_vmq01beaglejour_001618b7_1.ogg (6.36 s) response 1/6',
   'holotape: playing sound\voice\falloutnv.esm\maleadult11\nvprimmdep_vmq01beaglejour_001618b7_2.ogg (6.87 s) response 2/6',
-  "holotape: stopped VMQ01BeagleJournalNote",
+  "holotape: paused VMQ01BeagleJournalNote",
+  "holotape: VMQ01BeagleJournalNote goes on",
+  "test aid: pipboy Close at 27.0 s",
+  "holotape: playing … response 3/6",
 ]]
 
 [[scenario]]
@@ -3050,6 +3053,18 @@ expect = [
 ]
 
 # ------------------------------------------------------------------ far world (playtest 2026-10-11, items 26-28)
+
+[[scenario]]
+name = "blit-warm"
+source = "owner's playtest 2026-10-27 (heavy hitching): a 1.3 s frame entering Primm was Bevy's upscaling pass blocking on the water reflection camera's first pipeline (engine/nvforever/src/blit_warm.rs, docs/design/streaming-hitches.md §3)"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/blit_warm.rs"]
+args = ["--cell", "GSDocMitchellHouse"]
+run_seconds = 8
+expect = [
+  { re = 'blit warm: 12 upscaling pipelines queued for compiling at start-up', label = "every upscaling key is compiled at start-up, not when a camera first draws" },
+  "run log: the game exited normally",
+]
 
 [[scenario]]
 name = "crash-report"
@@ -4112,10 +4127,10 @@ manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png
 [[scenario]]
 name = "perk-legion-lunge"
 source = "owner 2026-10-24: move the player forward during Legion Assault's lunge (docs/spec-notes/perk-entry-points.md §11.4)"
-note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.8 s). The distance is measured from the swing's start, and the key stays down a little after it (a first run: the swing began 0.53 s after Use, the key came up 0.26 s later; 394 units, about 60 of them walked), so the range allows up to about 90 walked; without the lunge it would be that walking alone"
+note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.6 s). The distance is measured from the swing's start, and the key stays down a little after it, so the range allows up to about 90 walked; without the lunge it would be that walking alone. The swing starts when Use has been held CombatTuning::power_hold (0.4 s): a first run had it 0.53 s after Use (394 units, about 60 walked) with the key up at 8.8 s, but on 2026-10-27 it began on time at 0.41 s and the 0.4 s still walked made 463, so the key now comes up at 8.6 s (about 70 walked on time, 25 when 0.13 s late)"
 areas = ["combat", "perks", "melee"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.8:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.6:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
 run_seconds = 14
 order = [[
@@ -5334,17 +5349,19 @@ name = "save-ai-write"
 source = "docs/design/save-load.md §3.3, §5 item 4: the residents' package progress (patrol points, sandbox days) goes into a save; save-ai-load reads it, so run them together"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
-env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
+env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "21:moveto:DocMitchellREF:player:300:0:0,21.5:moveto:CraigBooneREF:player:-300:0:0", NVF_PLAY_TEST_CONSOLE = "24:save smoke-ai;25:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
 run_seconds = 28
 expect = [
   { re = 'save: wrote .*smoke-ai\.nvfsave \(manual', label = "the save is written" },
   { re = 'DocMitchellREF: put at .* by a script \(MoveTo\)', label = "Doc Mitchell is moved out of his house before the save" },
+  { re = 'CraigBooneREF: put at .* by a script \(MoveTo\)', label = "Boone is moved from Novac to Goodsprings before the save" },
 ]
 
 [[scenario]]
 name = "save-ai-load"
 source = "docs/design/save-load.md §3.3, §5 item 4: loading save-ai-write's save puts the residents' package progress back; sandboxers go on with the day's times they had"
+note = "the actor saved outside its placed cell is Boone (placed in Novac), not Doc Mitchell: since 8e64ae95 (2026-10-26) the actors of interiors a door away from the loaded cells are residents from the start, so Doc (placed in his house) comes in that way, is drawn and walks on, and never reaches the placed-elsewhere step this checks"
 areas = ["save", "ai"]
 paths = ["crates/fnv-ai/src/progress.rs", "crates/fnv-ai/src/sandbox.rs", "engine/nvforever/src/residents.rs"]
 env = { NVFOREVER_HOME = "save-ai-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
@@ -5353,7 +5370,7 @@ run_seconds = 24
 expect = [
   { re = 'load: package progress of (?P<n>\d+) residents kept', range = [1, 1000], label = "the save holds progress" },
   { re = 'goes on with .*(from the save|its sandbox day as saved)', label = "a resident goes on where the save had it" },
-  { re = 'DocMitchellREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
+  { re = 'CraigBooneREF: at .* away from the cell it was placed in: a resident from there', label = "an actor saved outside the cell it was placed in is drawn and goes on there (Jeannie May and Victor in Novac, owner 2026-10-26)" },
 ]
 
 [[scenario]]
@@ -5778,6 +5795,20 @@ expect = [
   { re = 'particles: model meshes.effects.explosiongrenadefrag.nif: 4 system' },
   { re = 'shot fx:.*\b1 explosions' },
   { re = 'decals: ExplosionDirtImpact leaves DecalDirtScorch .* on the world', label = "the blast leaves its scorch on the ground (impact-decals.md)" },
+]
+
+[[scenario]]
+name = "grenade-blast-big-creature"
+source = "owner 2026-10-27: 40 mm grenades fired beside giant radscorpions often did them no harm; a blast now reaches every body within its radius by its nearest part, seen from the blast or just above it, and only walls, rocks, the ground and wrecks shield (projectile.rs blast, combat.rs cover_ray)"
+note = "a large radscorpion (CrRadscorpion2Large) placed 500 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the player fires two 40 mm grenades at it at 9.1 and 11.1 s"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrRadscorpion2Large:1:500:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,11:aimactor,11.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat: explosion 40mmGrenadeExplosion at', label = "the grenades go off" },
+  { re = 'combat: blast 40mmGrenadeExplosion on 0xFF[0-9A-F]{6} at \d+', label = "a blast catches the radscorpion" },
 ]
 
 [[scenario]]
@@ -6276,10 +6307,10 @@ expect = [
 [[scenario]]
 name = "flamer-burns-npc"
 source = "owner's playtest 2026-10-16: the player's flamer sets an NPC on fire; the burn has No Death Dispel, so a corpse burns on for the rest of its time (docs/spec-notes/hit-effects.md §4)"
-note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 6 s"
+note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 11 s. Moving him there loads the scripts that open about a dozen message boxes in a row (the pre-order packs, the add-ons' load messages: seen since 2026-10-26 at the latest); the trigger does nothing while one is up, so they close after 0.3 s and the weapon, aim and trigger wait until 9.5 s"
 areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "5.5:weapon,6.5:aimnpc,7:fire,10:fire", NVF_PLAY_TEST_SHOTS = "9:npc_burning.png,12:npc_burning2.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "9.5:weapon,10.5:aimnpc,11:fire,14:fire", NVF_PLAY_TEST_SHOTS = "13:npc_burning.png,16:npc_burning2.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -7670,15 +7701,16 @@ expect = [
 [[scenario]]
 name = "vats-mark-forehead"
 source = "owner's playtest 2026-10-24: a VATS mark on the head needed the crosshair on the neck; the human head's capsule stopped at the base of the skull (Bip01 Head has no bone above it) and now reaches the crown (engine/nvforever/src/limbs.rs skull_tip, docs/design/combat.md §5.9)"
-note = "GSGeneralStore (energy-resist-hit's spot), god mode, a .357 drawn and loaded; V at 16 s (after the add-on packs' start-up boxes: a run that pressed V at 12 s met them, and an open menu keeps the mode off) enters VATS mode (clock 0.05), aimnpc=0.95@0 puts the crosshair on the nearest NPC's forehead (95 % of its height, over the centre of its head, part 0 of DefaultBodyPartData; above the top of the old head ball) and a click marks it: the mark is on the head. A first run aimed over the body's middle (aimnpc=0.93): Chet leans, his head 17 units to the side of it, and the ray passed beside the head. 40 s: the interior is ready at once, and on a busy machine the scripts (whose start the aids wait for) were not running by 18 s, so two runs ended before any aid"
+note = "GSGeneralStore (energy-resist-hit's spot), god mode, a .357 drawn and loaded; V at 16 s (after the add-on packs' start-up boxes: a run that pressed V at 12 s met them, and an open menu keeps the mode off) enters VATS mode (clock 0.05), aimnpc=0.95@0 puts the crosshair on the nearest NPC's forehead (95 % of its height, over the centre of its head, part 0 of DefaultBodyPartData; above the top of the old head ball) and a click marks it: the mark is on the head. Right clicks at 16.5 and 16.55 take the mark back and end the mode (vats-mode-dof's way out): nothing else ends it now that the start-up boxes come behind the loading screen, before V (b8aa64a4), and the rest of the run at the 0.05 clock outlasted the runner's timeout (2026-10-27). A first run aimed over the body's middle (aimnpc=0.93): Chet leans, his head 17 units to the side of it, and the ray passed beside the head. 40 s: the interior is ready at once, and on a busy machine the scripts (whose start the aids wait for) were not running by 18 s, so two runs ended before any aid"
 areas = ["combat", "vats"]
 paths = ["engine/nvforever/src/limbs.rs", "engine/nvf-play/src/hitvol.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/test_aid.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.5:mouse-right,16.55:mouse-right" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
   { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode with the .357" },
   { re = 'vats mode: marked .* \((?i:head)\), mark 1;', label = "the click on the forehead marks the head" },
+  { re = 'vats mode: off', label = "the right clicks end the mode, so the run ends on time" },
 ]]
 expect = [
   { text = "vats mode: nothing to mark under the crosshair", count = 0, label = "the forehead is part of the head's volume" },
@@ -10424,6 +10456,35 @@ expect = [
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
 
+
+[[scenario]]
+name = "fire-barrel-light"
+source = "owner report 2026-10-27: the Abandoned Shack's fire barrel (GSAbandonedShack, Barrel02Fire128, radius 128) gave off very little light. Its light now sits on barrel02firelight.nif's AttachLight node (102 units up, docs/spec-notes/model-lights.md §4) and flickering lights reach 1.5x their radius and dim to 0.8 (lights.rs FLAME_REACH, FLICKER_LOW), fitted to the owner's frames of the original"
+areas = ["effects", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fire_barrel_light.png" }
+args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 10
+manual = "fire_barrel_light.png against the owner's frames of the original (kept privately): warm light on the wall behind the barrel, the floor round it and the crate in front"
+expect = [
+  { re = 'particles: add-on node 14 \S+mpsfiresmall01\.nif: [1-9]', label = "the barrel's flames are drawn" },
+  { re = 'test aid: screenshot .*fire_barrel_light\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
+name = "jukebox-tubes"
+source = "owner report 2026-10-27: the Prospector Saloon's jukebox (JukeBoxDirtyNVCountry, jukeboxdirtynv.nif) lacked the original's glowing cyan tubes: shape JukeBox01:1's unlit shader names JBLightTubesClean.dds, an NiTexturingProperty after it jblighttubesdirty.dds, and the shader's texture now wins (nif_spawn.rs shape_props). Tube colour measured (73, 127, 109) against the original's (77, 131, 106)"
+areas = ["rendering", "effects"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:270:-12:3460", NVF_PLAY_TEST_LOOK = "2.5:90:-5", NVF_PLAY_TEST_SHOTS = "7:jukebox_tubes.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 10
+manual = "jukebox_tubes.png: the side tubes and arch bright cyan with green neon edges, flickering with the Idle sequence"
+expect = [
+  { re = 'activator: 00107D73 \(JukeBoxDirtyNVCountry\) on: plays its idle', label = "the jukebox is on and plays its idle" },
+  { re = 'test aid: screenshot .*jukebox_tubes\.png', label = "the frame is saved" },
+]
+
 [[scenario]]
 name = "mq-ending-legion"
 kind = "tool"
@@ -10695,3 +10756,125 @@ expect = [
   { json = "observations.?label=final: MQ03b 100 (Lonesome Road complete, no missile launched).stage", equals = 100, label = "final: MQ03b 100: stage = 100" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the owblr add-on walkthrough report"
+
+[[scenario]]
+name = "mq-fail-benny-fled"
+kind = "tool"
+source = "the headless main-quest branch walkthrough crates/fnv-game/walkthrough/fail-benny-fled.actions.json: Benny talked out of the ambush and fled (VMQTops 80 with VStoryEventBennyFled), Vulpes and the Fort with the chip on Caesar, the chip handed back (VMQ02 5), the vault destroyed (VMQHouse1 fails, 110), Benny's fate (VMQ02 objective 8) and Benny killed at the Fort (objective 9)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-benny-fled.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-benny-fled.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQTops 20 (invited to the suite).stage", equals = 20, label = "milestone: VMQTops 20 (invited to the suite): stage = 20" },
+  { json = "observations.?label=milestone: VMQTops 20 (invited to the suite).var.bennyambush", equals = 1.0, label = "milestone: VMQTops 20 (invited to the suite): var.bennyambush = 1.0" },
+  { json = "observations.?label=milestone: Benny fled (VStoryEventBennyFled).value", equals = 1.0, label = "milestone: Benny fled (VStoryEventBennyFled): value = 1.0" },
+  { json = "observations.?label=milestone: VMQTops 80 (Benny fled).done.80", equals = true, label = "milestone: VMQTops 80 (Benny fled): done.80 = true" },
+  { json = "observations.?label=milestone: VMQTops 80 (Benny fled).completed", equals = true, label = "milestone: VMQTops 80 (Benny fled): completed = true" },
+  { json = "observations.?label=milestone: VMQ02 1 (sent to the Fort).found", equals = true, label = "milestone: VMQ02 1 (sent to the Fort): found = true" },
+  { json = "observations.?label=milestone: VMQ02 2 (at the Fort).found", equals = true, label = "milestone: VMQ02 2 (at the Fort): found = true" },
+  { json = "observations.?label=milestone: VMQ02 3 (met Caesar).found", equals = true, label = "milestone: VMQ02 3 (met Caesar): found = true" },
+  { json = "observations.?label=milestone: VMQ02 5 (chip handed back).found", equals = true, label = "milestone: VMQ02 5 (chip handed back): found = true" },
+  { json = "observations.?label=milestone: VMQ02 7 (vault destroyed).found", equals = true, label = "milestone: VMQ02 7 (vault destroyed): found = true" },
+  { json = "observations.?label=fail: VMQHouse1 110 (vault destroyed).failed", equals = true, label = "fail: VMQHouse1 110 (vault destroyed): failed = true" },
+  { json = "observations.?label=fail: VMQHouse1 110 (vault destroyed).stage", equals = 110, label = "fail: VMQHouse1 110 (vault destroyed): stage = 110" },
+  { json = "observations.?label=milestone: VMQ02 objective 8 (deal with Benny).objective.8.displayed", equals = true, label = "milestone: VMQ02 objective 8 (deal with Benny): objective.8.displayed = true" },
+  { json = "observations.?label=milestone: Benny killed at the Fort.value", equals = 1.0, label = "milestone: Benny killed at the Fort: value = 1.0" },
+  { json = "observations.?label=final: the chip on the player.count", equals = 1, label = "final: the chip on the player: count = 1" },
+  { json = "observations.?label=final: VMQ02 objective 9 (Benny dealt with, the chip back).failed", equals = false, label = "final: VMQ02 objective 9 (Benny dealt with, the chip back): failed = false" },
+  { json = "observations.?label=final: VMQ02 objective 9 (Benny dealt with, the chip back).stage", equals = 10, label = "final: VMQ02 objective 9 (Benny dealt with, the chip back): stage = 10" },
+  { json = "observations.?label=final: VMQ02 objective 9 (Benny dealt with, the chip back).running", equals = true, label = "final: VMQ02 objective 9 (Benny dealt with, the chip back): running = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the fail paths, their ways on and the stalls are in the fails report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-fail-house-killed"
+kind = "tool"
+source = "the headless main-quest branch walkthrough crates/fnv-game/walkthrough/fail-house-killed.actions.json: Mr. House killed at his chamber during The House Always Wins II (VMQHouse2 110, VMQHouseFail 1 and 5); Yes Man's plan still starts VMQYesMan01 and 02 (the Wild Card failsafe)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-killed.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-killed.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: House neutralized.value", equals = 1.0, label = "milestone: House neutralized: value = 1.0" },
+  { json = "observations.?label=fail: VMQHouseFail 5 (House's line has gone bust).failed", equals = true, label = "fail: VMQHouseFail 5 (House's line has gone bust): failed = true" },
+  { json = "observations.?label=fail: VMQHouseFail 5 (House's line has gone bust).done.1", equals = true, label = "fail: VMQHouseFail 5 (House's line has gone bust): done.1 = true" },
+  { json = "observations.?label=fail: VMQHouseFail 5 (House's line has gone bust).done.5", equals = true, label = "fail: VMQHouseFail 5 (House's line has gone bust): done.5 = true" },
+  { json = "observations.?label=fail: VMQHouse2 110.failed", equals = true, label = "fail: VMQHouse2 110: failed = true" },
+  { json = "observations.?label=fail: VMQHouse2 110.done.110", equals = true, label = "fail: VMQHouse2 110: done.110 = true" },
+  { json = "observations.?label=fail: VMQHouse2 110.stage", equals = 110, label = "fail: VMQHouse2 110: stage = 110" },
+  { json = "observations.?label=milestone: Wild Card failsafe running.done.1", equals = true, label = "milestone: Wild Card failsafe running: done.1 = true" },
+  { json = "observations.?label=milestone: Wild Card failsafe running.stage", equals = 1, label = "milestone: Wild Card failsafe running: stage = 1" },
+  { json = "observations.?label=milestone: VMQYesMan02 started.running", equals = true, label = "milestone: VMQYesMan02 started: running = true" },
+  { json = "observations.?label=milestone: VMQYesMan02 started.objective.20.displayed", equals = true, label = "milestone: VMQYesMan02 started: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMQYesMan01 started with House already dead.stage", equals = 0, label = "final: VMQYesMan01 started with House already dead: stage = 0" },
+  { json = "observations.?label=final: VMQYesMan01 started with House already dead.running", equals = true, label = "final: VMQYesMan01 started with House already dead: running = true" },
+  { json = "observations.?label=final: VMQYesMan01 started with House already dead.objective.50.displayed", equals = false, label = "final: VMQYesMan01 started with House already dead: objective.50.displayed = false" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the fail paths, their ways on and the stalls are in the fails report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-fail-legion-betrayed"
+kind = "tool"
+source = "the headless main-quest branch walkthrough crates/fnv-game/walkthrough/fail-legion-betrayed.actions.json: a Legion worker (VMQ02 10) reports two NCR tasks to Moore: the Legion's warning (VMQCaesarFail 1) and its fail (VMQCaesarFail 5, VMQ02 110); VMQ05 stays running"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-legion-betrayed.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-legion-betrayed.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQCaesarFail 1 (the Legion's warning).done.1", equals = true, label = "milestone: VMQCaesarFail 1 (the Legion's warning): done.1 = true" },
+  { json = "observations.?label=milestone: VMQCaesarFail 1 (the Legion's warning).stage", equals = 1, label = "milestone: VMQCaesarFail 1 (the Legion's warning): stage = 1" },
+  { json = "observations.?label=fail: VMQCaesarFail 5 (in damnatio memoriae).failed", equals = true, label = "fail: VMQCaesarFail 5 (in damnatio memoriae): failed = true" },
+  { json = "observations.?label=fail: VMQCaesarFail 5 (in damnatio memoriae).done.5", equals = true, label = "fail: VMQCaesarFail 5 (in damnatio memoriae): done.5 = true" },
+  { json = "observations.?label=fail: VMQCaesarFail 5 (in damnatio memoriae).stage", equals = 5, label = "fail: VMQCaesarFail 5 (in damnatio memoriae): stage = 5" },
+  { json = "observations.?label=fail: VMQ02 110 (Render Unto Caesar failed).failed", equals = true, label = "fail: VMQ02 110 (Render Unto Caesar failed): failed = true" },
+  { json = "observations.?label=fail: VMQ02 110 (Render Unto Caesar failed).done.110", equals = true, label = "fail: VMQ02 110 (Render Unto Caesar failed): done.110 = true" },
+  { json = "observations.?label=fail: VMQ02 110 (Render Unto Caesar failed).stage", equals = 110, label = "fail: VMQ02 110 (Render Unto Caesar failed): stage = 110" },
+  { json = "observations.?label=final: VMQ05 still running (the NCR's line open).failed", equals = false, label = "final: VMQ05 still running (the NCR's line open): failed = false" },
+  { json = "observations.?label=final: VMQ05 still running (the NCR's line open).stage", equals = 20, label = "final: VMQ05 still running (the NCR's line open): stage = 20" },
+  { json = "observations.?label=final: VMQ05 still running (the NCR's line open).running", equals = true, label = "final: VMQ05 still running (the NCR's line open): running = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the fail paths, their ways on and the stalls are in the fails report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-fail-boulder-force"
+kind = "tool"
+source = "the headless main-quest branch walkthrough crates/fnv-game/walkthrough/fail-boulder-force.actions.json: Boulder City Showdown ended by force (the six Khans killed: VMS20 100, outcome 4); Jessup's note on his body ends VMQ01 at 100 and starts VMQTops at 10"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-boulder-force.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-boulder-force.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS20 10.done.10", equals = true, label = "milestone: VMS20 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS20 10.stage", equals = 10, label = "milestone: VMS20 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS20 100 by force (outcome 4).failed", equals = false, label = "milestone: VMS20 100 by force (outcome 4): failed = false" },
+  { json = "observations.?label=milestone: VMS20 100 by force (outcome 4).done.100", equals = true, label = "milestone: VMS20 100 by force (outcome 4): done.100 = true" },
+  { json = "observations.?label=milestone: VMS20 100 by force (outcome 4).var.bBoulderCityOutcome", equals = 4.0, label = "milestone: VMS20 100 by force (outcome 4): var.bBoulderCityOutcome = 4.0" },
+  { json = "observations.?label=final: VMQ01 100 (Jessup's note).done.100", equals = true, label = "final: VMQ01 100 (Jessup's note): done.100 = true" },
+  { json = "observations.?label=final: VMQ01 100 (Jessup's note).completed", equals = true, label = "final: VMQ01 100 (Jessup's note): completed = true" },
+  { json = "observations.?label=final: VMQ01 100 (Jessup's note).stage", equals = 100, label = "final: VMQ01 100 (Jessup's note): stage = 100" },
+  { json = "observations.?label=final: VMQTops 10.done.10", equals = true, label = "final: VMQTops 10: done.10 = true" },
+  { json = "observations.?label=final: VMQTops 10.stage", equals = 10, label = "final: VMQTops 10: stage = 10" },
+  { json = "observations.?label=final: VMQTops 10.running", equals = true, label = "final: VMQTops 10: running = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the fail paths, their ways on and the stalls are in the fails report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-fail-fort-storage"
+kind = "tool"
+source = "the headless main-quest branch walkthrough crates/fnv-game/walkthrough/fail-fort-storage.actions.json: the Fort's player storage robbed (its OnOpen: VMQ02 110, VMQCaesarFail 5), Caesar killed for the chip, Yes Man's plan starts VMQYesMan01 and 02"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-fort-storage.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-fort-storage.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQ02 1 (sent to the Fort).found", equals = true, label = "milestone: VMQ02 1 (sent to the Fort): found = true" },
+  { json = "observations.?label=milestone: VMQ02 2 (at the Fort).found", equals = true, label = "milestone: VMQ02 2 (at the Fort): found = true" },
+  { json = "observations.?label=milestone: gear confiscated.running", equals = true, label = "milestone: gear confiscated: running = true" },
+  { json = "observations.?label=milestone: gear confiscated.var.bFortEquipmentStored", equals = 1.0, label = "milestone: gear confiscated: var.bFortEquipmentStored = 1.0" },
+  { json = "observations.?label=fail: VMQ02 110 (the Legion turns hostile).failed", equals = true, label = "fail: VMQ02 110 (the Legion turns hostile): failed = true" },
+  { json = "observations.?label=fail: VMQ02 110 (the Legion turns hostile).done.110", equals = true, label = "fail: VMQ02 110 (the Legion turns hostile): done.110 = true" },
+  { json = "observations.?label=fail: VMQ02 110 (the Legion turns hostile).stage", equals = 110, label = "fail: VMQ02 110 (the Legion turns hostile): stage = 110" },
+  { json = "observations.?label=milestone: the chip taken back from Caesar.count", equals = 1, label = "milestone: the chip taken back from Caesar: count = 1" },
+  { json = "observations.?label=milestone: VMQYesMan02 started.running", equals = true, label = "milestone: VMQYesMan02 started: running = true" },
+  { json = "observations.?label=milestone: VMQYesMan02 started.objective.20.displayed", equals = true, label = "milestone: VMQYesMan02 started: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMQYesMan01 started after the Legion's fail.stage", equals = 0, label = "final: VMQYesMan01 started after the Legion's fail: stage = 0" },
+  { json = "observations.?label=final: VMQYesMan01 started after the Legion's fail.running", equals = true, label = "final: VMQYesMan01 started after the Legion's fail: running = true" },
+  { json = "observations.?label=final: VMQYesMan01 started after the Legion's fail.objective.50.displayed", equals = true, label = "final: VMQYesMan01 started after the Legion's fail: objective.50.displayed = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the fail paths, their ways on and the stalls are in the fails report (handoff doc section to be added by the coordinator)"

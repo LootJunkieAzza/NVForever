@@ -995,7 +995,7 @@ fn spawn_ref(
             base.form_id,
             base.model.as_deref(),
             models,
-            (to_cell * ref_affine(&p)).translation.into(),
+            to_cell * ref_affine(&p),
             light_scale,
             &p,
             emittance,
@@ -1290,7 +1290,7 @@ fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt.translation.into(), light_scale, p, emittance) {
+            if crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
                 stats.lights_hidden += 1;
             } else {

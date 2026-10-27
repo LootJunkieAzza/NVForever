@@ -1044,6 +1044,9 @@ fn action_files(paths: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// An action chain with its file name.
+type NamedChain = (String, fnv_game::runner::Input);
+
 /// `script cover`: every chain run over the load order it names (`plugins`, else the
 /// first plugin given; the data built once per load order), the coverage merged with
 /// the saved logs and compared with the whole load order given, the summary printed.
@@ -1123,7 +1126,7 @@ fn each_chain(
     let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
     let schema = Schema::load_dir(&a.schema)?;
-    let mut groups: Vec<(Vec<String>, Vec<(String, fnv_game::runner::Input)>)> = Vec::new();
+    let mut groups: Vec<(Vec<String>, Vec<NamedChain>)> = Vec::new();
     for file in files {
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let input = read_actions(file)?;
