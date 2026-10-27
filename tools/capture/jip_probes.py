@@ -3900,6 +3900,68 @@ DATA2_PROBES = (
        _d2("arcat.last", "let aA := ar_List 1 2\nlet aB := ar_List 3 4 5\nar_Cat aA aB\nlet fRes := aA[(ar_Size aA) - 1]\nSetFunctionValue fRes")]
 )
 
+# Sixty-fourth set: the rest of the readable unbuilt functions the extender core listed after
+# data2: Get/SetMapMarkerName on the Goodsprings marker (session only, the name is a string),
+# SortFormsByType's element order, ShowOff ListAddArray/ListAddList at index 0 on list127
+# (removed again with ListRemoveNthForm 0), ToggleItemUnique with IsItemUnique (put back),
+# RewardXPExact against the XP actor value (5 XP, session only), and JohnnyGuitar's
+# actor-value-change event on Luck (ModAV Luck +1 then -1).
+
+
+def _d3(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+def _wait3d(pid):
+    return _d3(pid, "SetFunctionValue 1")
+
+
+_SORT = (_form("rObj", NF["stimpak"]) + _form("rOther", NF["pistol10"])
+         + "let aA := ar_List rObj rOther\n" + _form("rObj", NF["leather"]) + _form("rOther", FX["nuka_cola"])
+         + "ar_Append aA rObj\nar_Append aA rOther\n" + _form("rObj", FX["knife"]) + "ar_Append aA rObj\n"
+         + "let aB := ar_List 40 47\nlet aA := SortFormsByType aA aB\n")
+_L = _form("rObj", NF["list127"])
+DATA3_PROBES = (
+    [_d3("marker.name", _form("rObj", FX["gsmarker"]) + "SetFunctionValue (rObj.GetMapMarkerName)", True),
+     _d3("marker.name.set", _form("rObj", FX["gsmarker"]) + 'rObj.SetMapMarkerName "NVF Springs"\nSetFunctionValue (rObj.GetMapMarkerName)', True),
+     _d3("sort.size", _SORT + "SetFunctionValue (ar_Size aA)")]
+    + [_d3(f"sort.{i}", _SORT + f"let rObj := aA[{i}]\nSetFunctionValue (GetFormIDString rObj)", True) for i in range(5)]
+    # Form lists at index 0.
+    + [_d3("data3.list.count", _L + "SetFunctionValue (ListGetCount rObj)"),
+       _d3("listaddarray.0", _L + _form("rOther", NF["stimpak"]) + "let aA := ar_List rOther\n"
+           "let fRes := ListAddArray rObj aA 0\nlet rOther := ListGetNthForm rObj 0\n"
+           'SetFunctionValue (sv_Construct "%g %g %i" fRes (ListGetCount rObj) rOther)', True),
+       _d3("listaddarray.0.remove", _L + "ListRemoveNthForm rObj 0\nSetFunctionValue (ListGetCount rObj)"),
+       _d3("listaddlist.0", _L + _form("rOther", FX["ammolist10"])
+           + "let fRes := ListAddList rObj rOther 0\nlet rOther := ListGetNthForm rObj 0\n"
+           'SetFunctionValue (sv_Construct "%g %g %i" fRes (ListGetCount rObj) rOther)', True),
+       _d3("listaddlist.ammolist.count", _form("rObj", FX["ammolist10"]) + "SetFunctionValue (ListGetCount rObj)"),
+       _d3("listaddlist.0.remove", _L + _form("rOther", FX["ammolist10"])
+           + "let fRes := (ListGetCount rObj) - 3\nwhile fRes > 0\nListRemoveNthForm rObj 0\nlet fRes := fRes - 1\nloop\n"
+           "SetFunctionValue (ListGetCount rObj)"),
+       _d3("list.last", _L + "let rOther := ListGetNthForm rObj ((ListGetCount rObj) - 1)\nSetFunctionValue (GetFormIDString rOther)", True)]
+    # Unique items, put back.
+    + [_d3("unique.stimpak", _form("rObj", NF["stimpak"]) + "SetFunctionValue (IsItemUnique rObj)"),
+       _d3("unique.pistol", _form("rObj", NF["pistol10"]) + "SetFunctionValue (IsItemUnique rObj)"),
+       _d3("unique.toggle", _form("rObj", NF["stimpak"]) + "ToggleItemUnique rObj 1\nSetFunctionValue (IsItemUnique rObj)"),
+       _d3("unique.restore", _form("rObj", NF["stimpak"]) + "ToggleItemUnique rObj 0\nSetFunctionValue (IsItemUnique rObj)")]
+    # RewardXPExact.
+    + [_d3("xp.before", "SetFunctionValue (rPlayer.GetActorValue XP)"),
+       _d3("xp.reward", "RewardXPExact 5\nSetFunctionValue (rPlayer.GetActorValue XP)"),
+       _wait3d("xp.wait0"),
+       _d3("xp.after", "SetFunctionValue (rPlayer.GetActorValue XP)")]
+    # JohnnyGuitar actor-value change on Luck.
+    + [_d3("avchange.set", 'SetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\n'
+           '  if iAV == 11\n    rPlayer.AuxVarSetFlt "*nvfAV" (iAV * 10000 + fOld * 100 + fNew)\n  endif\nEnd) 0\nSetFunctionValue 1'),
+       _d3("avchange.mod", 'rPlayer.ModActorValue Luck 1\nSetFunctionValue (rPlayer.GetActorValue Luck)'),
+       _wait3d("avchange.wait0"), _wait3d("avchange.wait1"),
+       _d3("avchange.got", 'SetFunctionValue (rPlayer.AuxVarGetFlt "*nvfAV")'),
+       _d3("avchange.restore", 'rPlayer.ModActorValue Luck -1\nSetFunctionValue (rPlayer.GetActorValue Luck)'),
+       _wait3d("avchange.wait2"), _wait3d("avchange.wait3"),
+       _d3("avchange.got.after", 'let fRes := rPlayer.AuxVarGetFlt "*nvfAV"\nrPlayer.AuxVarErase "*nvfAV"\nSetFunctionValue fRes')]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3946,11 +4008,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "engine3": ENGINE3_PROBES,
         "glta-order": GLTA_ORDER_PROBES,
         "data1": DATA1_PROBES,
-        "data2": DATA2_PROBES}
+        "data2": DATA2_PROBES,
+        "data3": DATA3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3"}
 
 
 def script(body):
