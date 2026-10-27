@@ -107,6 +107,7 @@ pub mod terminal;
 pub mod tutorial_menu;
 pub mod credits;
 mod test_aid;
+pub use test_aid::{drives_run, MEASURING_AIDS};
 pub mod sfx;
 pub mod sneak_gauges;
 pub mod ui_colour;
