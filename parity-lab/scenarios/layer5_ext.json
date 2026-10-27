@@ -692,6 +692,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps5",
+   "layer": 5,
+   "description": "The extender core's questions after building gaps2-4: the save's Guns, hardcore state and level, weapon sound IDs 0-11 on three weapons, perk entry types, functions and counts on six perks, GetActorValueModifier by filter after damage, GetRunSpeed sneaking and armoured; set gaps5 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps5.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps5.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
   }
  ]
 }
