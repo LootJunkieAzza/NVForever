@@ -184,10 +184,17 @@ impl Setting {
         }
     }
 
-    /// The state as kept in the INI.
+    /// The state as kept in the INI: a slider's to the thousandth [`Slider::fit`] keeps
+    /// (a step under a hundredth, a colour's 1 of 255, needs it), at least two places.
     fn stored_text(&self, v: f32) -> String {
         match self.slider {
-            Some(_) => format!("{v:.2}"),
+            Some(_) => {
+                let mut t = format!("{v:.3}");
+                if t.ends_with('0') {
+                    t.pop();
+                }
+                t
+            }
             None => if v > 0.5 { "1" } else { "0" }.to_string(),
         }
     }

@@ -35,7 +35,7 @@
 
 use super::frame::{self, Align, Card, Ctx, Kit, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{self, Category, Command, MenuModel, Mode, Row, Side};
 use crate::menu::{ActiveMenu, MenuInput};
 use crate::sim::SimState;
