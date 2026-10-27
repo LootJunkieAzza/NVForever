@@ -2572,6 +2572,81 @@ GAPS1_PROBES = [
     _g1("sound.loop.stopped", _form("rObj", FX["vatsloop"]) + "SetFunctionValue (IsSoundPlaying rObj)"),
 ]
 
+# Forty-fifth set: the most used functions of docs/handoff/modlist-function-counts.json
+# that were neither built nor probed, taking the ones a script can read or set safely
+# (menus, pauses and dialogue left out), and whether a stimpak used by the player raises
+# OnMagicEffectHit on the player (the extender core asked). Forms from fnvtool esm
+# inventory [observed]: Ammo10mmJHPHandLoad 140AA8, AmmoEffectMagnumDTReduction 17BA46,
+# VStreetCrBrahmin2 (CREA) 17B587, Toughness 031DE0, GameHour 000038,
+# VLootAmmoBoxGen30 167815 holding 02FE5D. Changes are put back or session only.
+FX.update(jhp="140AA8", amef="17BA46")
+
+
+def _g2(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g2v(pid, expr, text=False):
+    return _g2(pid, f"SetFunctionValue ({expr})", text)
+
+
+GAPS2_PROBES = [
+    # Effects of an ingestible.
+    _g2("eff.stim.num", _form("rObj", NF["stimpak"]) + "SetFunctionValue (GetNumEffects rObj)"),
+    _g2("eff.stim.0", _form("rObj", NF["stimpak"]) + "SetFunctionValue (GetFormIDString (GetNthEffectBase rObj 0))", True),
+    _g2("eff.stim.past", _form("rObj", NF["stimpak"]) + "SetFunctionValue (GetFormIDString (GetNthEffectBase rObj 9))", True),
+    # Ammo effects.
+    _g2("ammo.jhp.num", _form("rObj", FX["jhp"]) + "SetFunctionValue (GetNumAmmoEffects rObj)"),
+    _g2("ammo.jhp.0", _form("rObj", FX["jhp"]) + "SetFunctionValue (GetFormIDString (GetNthAmmoEffect rObj 0))", True),
+    _g2("ammo.10mm.num", _form("rObj", NF["ammo10"]) + "SetFunctionValue (GetNumAmmoEffects rObj)"),
+] + [_g2(f"amef.trait.{i}", _form("rObj", FX["amef"]) + f"SetFunctionValue (GetAmmoEffectTraitNumeric rObj {i})") for i in range(4)] + [
+    # Globals, perks, creatures.
+    _g2("global.gamehour.int", _form("rObj", FX["gamehour"]) + "SetFunctionValue (Floor (GetGlobalVariable rObj))"),
+] + [_g2(f"perkflag.toughness.{i}", _form("rObj", FX["toughness"]) + f"SetFunctionValue (GetPerkFlag rObj {i})") for i in range(5)] + [
+    _g2("creaturetype.brahmin", _form("rObj", FX["brahmin"]) + "SetFunctionValue (GetCreatureType rObj)"),
+    _g2v("creaturetype.doc", "rDoc.GetCreatureType"),
+    _g2("pickupsound.stim", _form("rObj", NF["stimpak"]) + "SetFunctionValue (GetFormIDString (GetPickupSound rObj))", True),
+    _g2("pickupsound.pistol", _form("rObj", NF["pistol10"]) + "SetFunctionValue (GetFormIDString (GetPickupSound rObj))", True),
+    _g2v("optionalpatch.none", 'GetOptionalPatch "NVFNoSuchPatch"'),
+    # Inventory.
+    _g2v("invweight.player", "Floor (rPlayer.GetInventoryWeight)"),
+    _g2v("invweight.player.playable", "Floor (rPlayer.GetInventoryWeight 1)"),
+    _g2("allitems.player", "let aA := rPlayer.GetAllItems\nSetFunctionValue (ar_Size aA)"),
+    _g2("allitems.player.weapons", "let aA := rPlayer.GetAllItems 40\nSetFunctionValue (ar_Size aA)"),
+    _g2("equippeditemref.none", "SetFunctionValue (GetFormIDString (rPlayer.GetEquippedItemRef 5))", True),
+    _g2("dps.pistol", _form("rObj", NF["pistol10"]) + "SetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))"),
+    _g2("basecontainer.remove", _form("rObj", FX["ammobox"]) + _form("rOther", FX["boxlist"])
+        + "BaseRemoveItem rOther 1 rObj\nSetFunctionValue 1"),
+    # Actor values, teammates, distance, combat.
+    _g2v("avmod.player.health", 'rPlayer.GetActorValueModifier Health'),
+    _g2("teammates", "let aA := GetTeammates\nSetFunctionValue (ar_Size aA)"),
+    _g2v("distance2d.doc", "Floor (rPlayer.GetDistance2D rDoc)"),
+    _g2v("crosshairwater", "GetFormIDString (GetCrosshairWater)", True),
+    # Names and toggles, put back.
+    _g2("fullnamealt", 'let fRes := 1\nrDoc.SetFullNameAlt "NVF Alt Doc"\nSetFunctionValue (rDoc.GetName)', True),
+    _g2("fullnamealt.base", _form("rObj", NF["doc"]) + 'SetFunctionValue (GetName rObj)', True),
+    _g2("fullnamealt.restore", 'rDoc.SetFullNameAlt "Doc Mitchell"\nSetFunctionValue (rDoc.GetName)', True),
+    _g2v("pipboylight.state", "TogglePipBoyLight"),
+    _g2("pipboylight.on", "TogglePipBoyLight 1\nSetFunctionValue (TogglePipBoyLight)"),
+    _g2("pipboylight.off", "TogglePipBoyLight 0\nSetFunctionValue (TogglePipBoyLight)"),
+    _g2v("pipboylight.off.next", "TogglePipBoyLight"),
+    _g2("combatdisabled", "SetFunctionValue (rDoc.SetCombatDisabled 1)"),
+    _g2("combatdisabled.again", "SetFunctionValue (rDoc.SetCombatDisabled 0)"),
+    _g2v("hasscriptblock.doc.gamemode", "rDoc.HasScriptBlock 0"),
+    _g2v("isanimplayingex.player", "rPlayer.IsAnimPlayingEx 0 0 0"),
+    # Does a stimpak the player uses raise OnMagicEffectHit on the player?
+    _g2("mgef.reg", 'SetEventHandler "OnMagicEffectHit" (Begin Function {ref rE1, ref rE2}\n'
+        '  rPlayer.AuxVarSetFlt "*nvfMG" (rE1 == rPlayer) -1\n  rPlayer.AuxVarSetRef "*nvfMG.e" rE2 -1\nEnd)\nSetFunctionValue 1'),
+    _g2("mgef.damage", 'rPlayer.DamageAV Health 30\nSetFunctionValue 1'),
+    _g2("mgef.use", _form("rObj", NF["stimpak"]) + "rPlayer.EquipItem rObj 0 1\nSetFunctionValue 1"),
+] + [_g2(f"mgef.wait{i}", "SetFunctionValue 1") for i in range(3)] + [
+    _g2v("mgef.fired", '(rPlayer.AuxVarSize "*nvfMG") > 0'),
+    _g2v("mgef.onplayer", 'rPlayer.AuxVarGetFlt "*nvfMG" 0'),
+    _g2v("mgef.effect", 'GetFormIDString (rPlayer.AuxVarGetRef "*nvfMG.e" 0)', True),
+    _g2("mgef.cleanup", 'rPlayer.RestoreAV Health 100\nrPlayer.AuxVarErase "*nvfMG"\nrPlayer.AuxVarErase "*nvfMG.e"\nSetFunctionValue 1'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2599,11 +2674,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "save-set": SAVE_SET_PROBES,
         "save-read": SAVE_READ_PROBES,
         "rgb-ui": RGB_UI_PROBES,
-        "gaps1": GAPS1_PROBES}
+        "gaps1": GAPS1_PROBES,
+        "gaps2": GAPS2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2"}
 
 
 def script(body):

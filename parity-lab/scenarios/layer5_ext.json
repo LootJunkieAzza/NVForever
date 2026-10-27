@@ -650,6 +650,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps2",
+   "layer": 5,
+   "description": "The most used unbuilt functions of modlist-function-counts.json no other set called (effects, ammo effects, globals, perk flags, creature type, pickup sound, inventory weight and items, DPS, BaseRemoveItem, actor value modifiers, teammates, distance, SetFullNameAlt, Pip-Boy light, SetCombatDisabled, HasScriptBlock, IsAnimPlayingEx) and a stimpak's OnMagicEffectHit on the player; set gaps2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
   }
  ]
 }
