@@ -73,7 +73,8 @@ All calls use the C calling convention of 32-bit MSVC (cdecl); `bool` is one byt
   `{"form": "<GetFormIDString>"}`. An array is read by `ar_Keys` and then `aX[key]` per
   key: keys 0, 1, 2 … give a JSON list, others a JSON object; arrays in arrays are
   followed 3 deep, 256 elements at most [observed: job cap10, 2026-10-27, the player
-  `00000014`, GetAvailableRadios as a list of 5 forms, nested and empty lists].
+  `00000014`, GetAvailableRadios as a list of 5 forms, nested and empty lists, a string-keyed
+  map as `{"a": 1, "b": 2}`].
 
 ## 3. Script functions the jobs use [documented: GECK wiki function pages]
 
