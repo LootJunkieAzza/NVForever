@@ -976,8 +976,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `x y z [translate]`: the position, or with translate a move in the reference's
-        // own frame (turned by its heading) [observed: gaps10, Doc's +10 moved his X by
-        // -10 and -10 put him back; hypothesis: the frame].
+        // own frame, +Y ahead: world ΔX = x cos h + y sin h, ΔY = y cos h − x sin h for
+        // the heading h [observed: gaps11, Doc at 186.36° and the player at 0° and 90°].
         "setposex" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let Some((p, rot)) = g.ref_pos_rot(r) else { return Some(Ok(zero)) };
@@ -999,6 +999,34 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // SetActorTiltAngle X 20].
         "getactortiltangle" => zero,
         "setactortiltangle" => zero,
+        // On an inventory reference: its condition, 1 as a fraction of the base health;
+        // returns 1 [observed: gaps11, 50 reads 50; 0.5 1 reads 40 of the pistol's 80].
+        "setitemrefcurrenthealth" | "setweaponrefmodflags" => {
+            let Some((c, it)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(zero)) };
+            let full = crate::nvse::record_value(g, it, "DATA", "health").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            let v = num(args, 0, 0.0);
+            let ok = g.world.inventory_mut(c).is_ok_and(|inv| {
+                let Some((_, e, _)) = inv.groups().find(|(i, _, _)| *i == it) else { return false };
+                if name == "setweaponrefmodflags" {
+                    inv.set_mods_one(it, e, v.clamp(0.0, 255.0) as u8)
+                } else {
+                    let cond = if num(args, 1, 0.0) != 0.0 { v } else if full > 0.0 { v / full } else { 1.0 };
+                    inv.set_condition_one(it, e, cond as f32)
+                }
+            });
+            yes(ok)
+        }
+        // The magazine of the actor (the player's as the engine tells it); an inventory
+        // reference has none and SetCurrentAmmoRounds on one does nothing [observed:
+        // gaps11, the item 0, the player 12; the player set to 3 reads 3].
+        "getcurrentammorounds" | "setcurrentammorounds" => {
+            let Some(a) = subject.filter(|&r| g.temp_item(r).is_none()) else { return Some(Ok(zero)) };
+            if a != FormId::PLAYER_REF {
+                return Some(Ok(zero));
+            }
+            let call = if name == "setcurrentammorounds" { "setplayercurrentammorounds" } else { "getplayercurrentammorounds" };
+            return crate::nvse::call(g, ctx, call, None, args);
+        }
         // ---- keywords ----
         // The base forms with the keyword [observed: gaps3, one after AssignKeyword, an
         // unknown keyword an empty array].
