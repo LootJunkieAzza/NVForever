@@ -3623,6 +3623,74 @@ PLUGINS3_PROBES = (
        _p3("jg.availableradios.player", "let aA := rPlayer.GetAvailableRadios\nSetFunctionValue (ar_Size aA)")]
 )
 
+# Fifty-eighth set: goldens from the original game for the functions the extender core
+# builds into the engine (it asked after plugins3): GetP2PRayCastRange from the player's
+# position + 100 Z out to 5000 units at headings 0/90/180/270, with the player's position
+# (Doc is in another cell on this save, so no actor push); PushObject on a stimpak placed
+# at the player (displacement over frames, then the stimpak is disabled and deleted);
+# ToggleFirstPerson and TogglePlayerSneaking read every frame after the toggle; the forms
+# GetAvailableRadios gives. Each step runs in its own frame [observed, capture plugin].
+# How far the stimpak moves, and whether the switch back to first person shows in the first
+# to the third frame, differed between captures; only what repeated is kept [observed].
+
+
+def _e1(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fAx\nfloat fAy\nfloat fAz\narray_var aA\n"
+            "Begin Function { }\n" + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _e1v(pid, expr, text=False):
+    return _e1(pid, f"SetFunctionValue ({expr})", text)
+
+
+_EYE = "let fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := (rPlayer.GetPos Z) + 100\n"
+
+
+def _ray(pid, dx, dy):
+    return _e1(pid, _EYE + f"SetFunctionValue (Floor (GetP2PRayCastRange fAx fAy fAz (fAx + {dx}) (fAy + {dy}) fAz 0))")
+
+
+def _frames(prefix, n, expr):
+    return [_e1v(f"{prefix}.f{i}", expr) for i in range(n)]
+
+
+_STIM = 'let rObj := rPlayer.AuxVarGetRef "*nvfST"\n'
+ENGINE1_PROBES = (
+    # Positions and ray casts.
+    [_e1v("pos.player", 'sv_Construct "%g %g %g" (Floor (rPlayer.GetPos X)) (Floor (rPlayer.GetPos Y)) (Floor (rPlayer.GetPos Z))', True),
+     _e1v("pos.cell.player", "GetFormIDString (rPlayer.GetParentCell)", True),
+     _ray("ray.n", 0, 5000), _ray("ray.e", 5000, 0), _ray("ray.s", 0, -5000), _ray("ray.w", -5000, 0),
+     _ray("ray.ne", 3536, 3536), _ray("ray.down", 0, 0),
+     _e1("ray.down.terrain", "let fAx := rPlayer.GetPos X\nlet fAy := rPlayer.GetPos Y\nlet fAz := rPlayer.GetPos Z\n"
+         "SetFunctionValue (Floor (GetP2PRayCastRange fAx fAy (fAz + 100) fAx fAy (fAz - 1000) 0))")]
+    # PushObject on a placed stimpak.
+    + [_e1("push.place", _form("rOther", NF["stimpak"]) + "let rObj := rPlayer.PlaceAtMe rOther 1\nrPlayer.AuxVarSetRef \"*nvfST\" rObj\n"
+           "SetFunctionValue 1")]
+    + [_e1(f"push.settle{i}", "SetFunctionValue 1") for i in range(5)]
+    + [_e1("push.start", _STIM + 'let fAx := rObj.GetPos X\nlet fAy := rObj.GetPos Y\nrPlayer.AuxVarSetFlt "*nvfSX" fAx\n'
+           'rPlayer.AuxVarSetFlt "*nvfSY" fAy\nrObj.PushObject 0 -50 0 20\nSetFunctionValue 1')]
+    + [_e1(f"push.wait{i}", "SetFunctionValue 1") for i in range(8)]
+    + [_e1("push.moved", _STIM + 'let fAx := (rObj.GetPos X) - (rPlayer.AuxVarGetFlt "*nvfSX")\n'
+           'let fAy := (rObj.GetPos Y) - (rPlayer.AuxVarGetFlt "*nvfSY")\nSetFunctionValue ((Sqrt (fAx * fAx + fAy * fAy)) > 1)')]
+    + [_e1("push.cleanup", _STIM + 'rObj.Disable\nrObj.MarkForDelete\nrPlayer.AuxVarErase "*nvfST"\nrPlayer.AuxVarErase "*nvfSX"\n'
+           'rPlayer.AuxVarErase "*nvfSY"\nSetFunctionValue 1')]
+    # Toggle timing, frame by frame.
+    + [_e1("timing.view.toggle", "ToggleFirstPerson 0\nSetFunctionValue (IsPC1stPerson)")]
+    + _frames("timing.view.after", 5, "IsPC1stPerson")
+    + [_e1("timing.view.toggle.back", "ToggleFirstPerson 1\nSetFunctionValue (IsPC1stPerson)")]
+    + [_e1v(f"timing.view.back.f{i}", "IsPC1stPerson") for i in range(3, 5)]
+    + [_e1("timing.sneak.toggle", "TogglePlayerSneaking 1\nSetFunctionValue (rPlayer.IsSneaking)")]
+    + _frames("timing.sneak.after", 5, "rPlayer.IsSneaking")
+    + [_e1("timing.sneak.toggle.back", "TogglePlayerSneaking 0\nSetFunctionValue (rPlayer.IsSneaking)")]
+    + _frames("timing.sneak.back", 5, "rPlayer.IsSneaking")
+    # The radios the player can hear.
+    + [_e1("radios.size", "let aA := rPlayer.GetAvailableRadios\nSetFunctionValue (ar_Size aA)")]
+    + [_e1(f"radios.{i}", f"let aA := rPlayer.GetAvailableRadios\nlet rObj := aA[{i}]\nSetFunctionValue (GetFormIDString rObj)", True)
+       for i in range(5)]
+    + [_e1(f"radios.{i}.base", f"let aA := rPlayer.GetAvailableRadios\nlet rObj := aA[{i}]\nlet rOther := rObj.GetBaseObject\n"
+           "SetFunctionValue (GetFormIDString rOther)", True) for i in range(5)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3663,11 +3731,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps11": GAPS11_PROBES,
         "plugins1": PLUGINS1_PROBES,
         "plugins2": PLUGINS2_PROBES,
-        "plugins3": PLUGINS3_PROBES}
+        "plugins3": PLUGINS3_PROBES,
+        "engine1": ENGINE1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1"}
 
 
 def script(body):
