@@ -39,9 +39,28 @@ pub struct GapsState {
     pub interaction_disabled: HashSet<FormId>,
     /// SetNthEffectBase's bases: (item, effect index).
     pub effect_bases: HashMap<(FormId, usize), FormId>,
+    /// Actors whose special idle scripts stopped (StopIdle, ForceStopIdle), for the
+    /// engine to take.
+    pub idle_stops: Vec<FormId>,
+    /// The placed radio stations, from the engine: (reference, starts disabled, where it
+    /// broadcasts from); `None` until the engine sets them.
+    pub radio_sites: Option<Vec<(FormId, bool, fnv_world::radio::Broadcast)>>,
+    /// The armed mines of the loaded cells that someone other than the player put down,
+    /// from the engine's mines at their last frame.
+    pub armed_mines: HashSet<FormId>,
+    /// Seconds each actor's body has been off the ground, from the engine's physics at
+    /// the last step (absent on the ground).
+    pub air_times: HashMap<FormId, f32>,
+    /// PushObject's pushes, for the engine to take: (the reference, the push's origin,
+    /// its force).
+    pub pushes: Vec<(FormId, [f32; 3], f32)>,
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
+    /// JohnnyGuitar's actor value change handlers: (the function, the code it waits for).
+    pub av_handlers: Vec<(XVal, Option<u16>)>,
+    /// SetMapMarkerName's names, by marker reference.
+    pub marker_names: HashMap<FormId, String>,
     /// JohnnyGuitar's quest handlers: (on start, the function, the quest it waits for).
     pub quest_handlers: Vec<(bool, XVal, Option<FormId>)>,
     /// JohnnyGuitar's perk handlers: (on add, the function, the perk it waits for).
@@ -123,6 +142,18 @@ impl Game<'_> {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
                 self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+            }
+        }
+    }
+
+    /// JohnnyGuitar's actor value change handlers on a change of one of the actor's
+    /// values: (code, old value, new value) (`functions::actor` tells them).
+    pub(crate) fn av_event(&mut self, _actor: FormId, code: u16, old: f64, new: f64) {
+        let hs: Vec<XVal> = self.gaps.av_handlers.iter().filter(|(_, c)| c.is_none_or(|c| c == code)).map(|(f, _)| f.clone()).collect();
+        for f in hs {
+            let args = vec![XVal::Num(f64::from(code)), XVal::Num(old), XVal::Num(new)];
+            if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
+                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar actor value handler".into(), error });
             }
         }
     }
@@ -1200,7 +1231,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if a == b {
                 return Some(Ok(zero));
             }
-            let hit = crate::ray::cast(a, b);
+            let hit = crate::ray::cast(a, b, crate::ray::CastKind::Scene);
             tracing::debug!("GetP2PRayCastRange {a:?} -> {b:?}: {hit:?}");
             XVal::Num(hit.map_or(0.0, f64::from))
         }
@@ -1214,6 +1245,100 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             XVal::Num(if on { 2.0 } else { 0.0 })
         }
+        // `x y`: the terrain's height there, from the engine's loaded terrain; outside it
+        // -20.48 [observed: gaps7, 60.3 at the player; -20.48 far outside the loaded cells].
+        // `x y z force [origin]`: the reference's loose body is pushed away from the
+        // origin (the reference's place, or `origin`'s, moved by x y z), towards it for a
+        // negative force; the engine applies it at its next frame [documented: PushObject;
+        // hypothesis: the force read as Impact Force is, mass x metres per second].
+        "pushobject" => {
+            let Some(r) = subject else { return Some(Ok(zero)) };
+            let at = form(args, 4).unwrap_or(r);
+            if let Some((p, _)) = g.ref_pos_rot(at) {
+                let origin = [p[0] + num(args, 0, 0.0) as f32, p[1] + num(args, 1, 0.0) as f32, p[2] + num(args, 2, 0.0) as f32];
+                g.gaps.pushes.push((r, origin, num(args, 3, 0.0) as f32));
+            }
+            zero
+        }
+        // JohnnyGuitar: the station references a receiver placed where the reference
+        // stands would get, by the engine's reception rule (`fnv_world::radio::reception`),
+        // in FormID order; none is an empty array [documented: GetAvailableRadios;
+        // hypothesis: the order; a receiver in an interior counts its own cell only].
+        "getavailableradios" => {
+            let Some(r) = subject else { return Some(Ok(zero)) };
+            let cell = g.cell_of(r);
+            let world = cell.and_then(|c| g.world.placed.world_of(c));
+            let position = g.ref_pos_rot(r).map_or([0.0; 3], |(p, _)| p);
+            let l = fnv_world::radio::Listener {
+                world: world.map_or(0, |w| w.0),
+                interior: if world.is_none() { cell.map(|c| c.0) } else { None },
+                position,
+            };
+            let mut found: Vec<u32> = g
+                .gaps
+                .radio_sites
+                .iter()
+                .flatten()
+                .filter(|(s, off, b)| g.world.is_enabled(*s).unwrap_or(!off) && fnv_world::radio::reception(b, &l).is_some())
+                .map(|(s, _, _)| s.0)
+                .collect();
+            found.sort_unstable();
+            list(g, found.into_iter().map(XVal::Ref).collect())
+        }
+        // A live mine that is not going off, 0 for the player's own mines and anything
+        // else [documented: GetMineArmed, "always returns 0 on player-placed mines";
+        // hypothesis: a burning fuse reads 0].
+        "getminearmed" => yes(subject.is_some_and(|r| g.gaps.armed_mines.contains(&r))),
+        // Seconds since the actor's body left the ground, 0 on it [documented:
+        // GetFallTimeElapsed; hypothesis: a jump counts as a fall from leaving the ground].
+        "getfalltimeelapsed" => XVal::Num(f64::from(subject.and_then(|a| g.gaps.air_times.get(&a)).copied().unwrap_or(0.0))),
+        // `navmesh`: the switches DisableNavmesh and EnableNavMesh keep, the navmesh named
+        // by reference (`functions::navigation`) [documented: DisableNavMeshAlt,
+        // EnableNavMeshAlt].
+        "disablenavmeshalt" | "enablenavmeshalt" => {
+            if let Some(m) = form(args, 0) {
+                g.nav_switches.navmeshes.insert(m, name == "enablenavmeshalt");
+            }
+            zero
+        }
+        // `thing [scan]`: the player's theft of the item or container reference, as taking
+        // it would be (`crime`: karma unless the owner is Evil, the owner's side turns on
+        // the player when it sees it) [documented: SendStealingAlarm]. With `scan` 1 no
+        // alarm, as nothing here marks items stolen; other thieves send none [hypothesis:
+        // NVForever's crimes are the player's].
+        "sendstealingalarm" => {
+            let thief = subject.unwrap_or(FormId::PLAYER_REF);
+            if let (Some(r), true, false) = (form(args, 0), thief == FormId::PLAYER_REF, num(args, 1, 0.0) != 0.0) {
+                let item = base(g, r);
+                g.player_stole(Some(r), None, item, 1);
+            }
+            zero
+        }
+        "getterrainheight" => {
+            let (x, y) = (num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32);
+            let top = 100_000.0f32;
+            match crate::ray::cast([x, y, top], [x, y, -top], crate::ray::CastKind::Terrain) {
+                Some(d) => XVal::Num(f64::from(top - d)),
+                None => XVal::Num(-20.48),
+            }
+        }
+        // `[max]`: the distance along the crosshair to what it meets, 0 for nothing
+        // within reach (the engine's crosshair ray) [observed: gaps8, 93.84 on the save;
+        // hypothesis: nothing reads 0].
+        "getreticlerange" => {
+            let hit = g.senses.reticle.as_ref().and_then(|r| r.hit);
+            let max = num(args, 0, 0.0);
+            XVal::Num(hit.map_or(0.0, f64::from).min(if max > 0.0 { max } else { f64::MAX }))
+        }
+        // An attack is on the way: the body's attack, follow-through or return action
+        // [documented: IsAttacking; observed: gaps4, 0 standing; hypothesis: the actions].
+        "isattacking" => {
+            use crate::anim_state::AnimAction;
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            yes(g.senses.anim.get(&a).and_then(|s| s.action).is_some_and(|x| matches!(x, AnimAction::Attack | AnimAction::FollowThrough | AnimAction::AttackReturn)))
+        }
+        // [documented: IsPCInCombat] the player is hunted (`awareness`).
+        "ispcincombat" => yes(g.awareness.hunted(FormId::PLAYER_REF)),
         // Nothing to reload: the engine draws the equipped models as they are.
         "reloadequippedmodels" => zero,
         // NVForever is no 32-bit program [observed: gaps4, 0].

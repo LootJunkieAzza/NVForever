@@ -175,7 +175,12 @@ pub fn restore(g: &mut Game, actor: FormId, code: u16, amount: f64) {
 }
 
 /// The current value: the permanent value and the temporary modifier, minus the damage.
+/// The player's XP is the experience the game keeps [observed: data3, GetActorValue XP
+/// reads RewardXPExact's 5 at once].
 pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+    if actor == FormId::PLAYER_REF && code == crate::actor_values::XP {
+        return Ok(g.player.xp);
+    }
     Ok(permanent(g, actor, code)? + temporary(g, actor, code) - damage(g, actor, code))
 }
 
@@ -280,6 +285,39 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) } else { v };
     set_base(g, r, code, v)?;
     none()
+}
+
+/// The actor value functions with JohnnyGuitar's actor value change handlers told of a
+/// change: (code, old value, new value) [observed: data3, ModAV Luck +1 gave (11, 10,
+/// 11), -1 (11, 11, 10)].
+fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> Result<Value, String>) -> Result<Value, String> {
+    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty());
+    let before = target.and_then(|(r, c)| actor_value(g, r, c).ok());
+    let out = f(g, ctx, a)?;
+    if let (Some((r, c)), Some(old)) = (target, before) {
+        if let Ok(new) = actor_value(g, r, c) {
+            if new != old {
+                g.av_event(r, c, old, new);
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn set_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, set_actor_value)
+}
+pub fn mod_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, mod_actor_value)
+}
+pub fn force_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, force_actor_value)
+}
+pub fn damage_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, damage_actor_value)
+}
+pub fn restore_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, restore_actor_value)
 }
 
 /// `ForceActorValue`: the current value becomes the given number, by changing the
