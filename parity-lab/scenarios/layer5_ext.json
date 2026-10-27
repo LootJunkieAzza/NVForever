@@ -790,6 +790,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "gaps11"]
+  },
+  {
+   "id": "L5.ext.plugins1",
+   "layer": 5,
+   "description": "plugins1: the most used unprobed LU, JohnnyGuitar and ShowOff functions (idle paths, perk entry value 2, recipes, base item counts, ingestible, template and race flags, always run, remap, easing, DLL checks)",
+   "oracle": {"golden": "jip/plugins1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugins1.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "plugins1"]
   }
  ]
 }
