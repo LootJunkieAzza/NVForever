@@ -3842,6 +3842,64 @@ DATA1_PROBES = (
        for k, fid in (("docbase", NF["doc"]), ("playerbase", NF["playerbase"])) for i in range(16)]
 )
 
+# Sixty-third set: ActorHasBaseFlag on bases where flag 1 (essential) should show
+# (GSSunnySmiles 104E84, CraigBoone 092BD2, RoseofSharonCassidy 133FDD, Benny 101C9B) and
+# called on the player's reference, next to GetActorBaseFlagsLow of the same bases; then
+# more data functions still unbuilt in the counts: Set/GetActorBaseFlagsLow, Set/GetNPCHeight
+# (Sunny, put back), GetEquippedData and GetNoUnequip on the equipped 10mm pistol,
+# SetActivatorWaterType (ElectricBox01, put back), ar_Cat. Forms from fnvtool esm inventory
+# [observed].
+FX.update(sunny="104E84", boone="92BD2", cass="133FDD", benny="101C9B", cleanwater="1009CA")
+
+
+def _d2(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aA\narray_var aB\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+_NPCS = (("sunny", FX["sunny"]), ("boone", FX["boone"]), ("cass", FX["cass"]), ("benny", FX["benny"]),
+         ("doc", NF["doc"]), ("player", NF["playerbase"]))
+_REF2 = "let rObj := rPlayer.GetEquippedItemRef 5\n"
+DATA2_PROBES = (
+    [_d2(f"baseflags.{k}", _form("rObj", fid) + "SetFunctionValue (GetActorBaseFlagsLow rObj)") for k, fid in _NPCS]
+    + [_d2(f"hasbaseflag.{k}.{i}", _form("rObj", fid) + f"SetFunctionValue (ActorHasBaseFlag {i} rObj)")
+       for k, fid in _NPCS[:4] for i in (0, 1, 3, 4)]
+    + [_d2(f"hasbaseflag.playerref.{i}", f"SetFunctionValue (rPlayer.ActorHasBaseFlag {i})") for i in range(6)]
+    + [_d2("baseflags.playerref", "SetFunctionValue (rPlayer.GetActorBaseFlagsLow)")]
+    # Base flags set on Sunny's base, put back.
+    + [_d2("baseflags.sunny.set", _form("rObj", FX["sunny"]) + 'let fRes := GetActorBaseFlagsLow rObj\nrPlayer.AuxVarSetFlt "*nvfBF" fRes\n'
+           "SetActorBaseFlagsLow (fRes + 8) rObj\nSetFunctionValue (GetActorBaseFlagsLow rObj)"),
+       _d2("baseflags.sunny.set.flag3", _form("rObj", FX["sunny"]) + "SetFunctionValue (ActorHasBaseFlag 3 rObj)"),
+       _d2("baseflags.sunny.restore", _form("rObj", FX["sunny"]) + 'SetActorBaseFlagsLow (rPlayer.AuxVarGetFlt "*nvfBF") rObj\n'
+           'rPlayer.AuxVarErase "*nvfBF"\nSetFunctionValue (GetActorBaseFlagsLow rObj)')]
+    # NPC height, put back.
+    + [_d2(f"npcheight.{k}", _form("rObj", fid) + "SetFunctionValue (Floor ((GetNPCHeight rObj) * 1000))") for k, fid in _NPCS[:5]]
+    + [_d2("npcheight.sunny.set", _form("rObj", FX["sunny"]) + 'let fRes := GetNPCHeight rObj\nrPlayer.AuxVarSetFlt "*nvfNH" fRes\n'
+           "let fRes := SetNPCHeight 1.25 rObj\nSetFunctionValue (sv_Construct \"%g %g\" (Floor (fRes * 1000)) (Floor ((GetNPCHeight rObj) * 1000)))", True),
+       _d2("npcheight.sunny.restore", _form("rObj", FX["sunny"]) + 'let fRes := SetNPCHeight (rPlayer.AuxVarGetFlt "*nvfNH") rObj\n'
+           'rPlayer.AuxVarErase "*nvfNH"\nSetFunctionValue (Floor ((GetNPCHeight rObj) * 1000))')]
+    # Equipped data on the 10mm pistol (added, equipped, removed after).
+    + [_d2("eqdata.add", _form("rObj", NF["pistol10"]) + "rPlayer.AddItem rObj 1 1\nrPlayer.EquipItem rObj 0 1\nSetFunctionValue 1")]
+    + [_d2(f"eqdata.wait{i}", "SetFunctionValue 1") for i in range(3)]
+    + [_d2("eqdata.size", "let aA := rPlayer.GetEquippedData 5\nSetFunctionValue (ar_Size aA)"),
+       _d2("eqdata.0", "let aA := rPlayer.GetEquippedData 5\nlet rObj := aA[0]\nSetFunctionValue (GetFormIDString rObj)", True),
+       _d2("eqdata.1", "let aA := rPlayer.GetEquippedData 5\nlet fRes := aA[1]\nSetFunctionValue (Floor (fRes * 100))"),
+       _d2("eqdata.2", "let aA := rPlayer.GetEquippedData 5\nlet fRes := aA[2]\nSetFunctionValue fRes"),
+       _d2("eqdata.none", "let aA := rPlayer.GetEquippedData 9\nSetFunctionValue (ar_Size aA)"),
+       _d2("nounequip.pistol", _REF2 + "SetFunctionValue (rObj.GetNoUnequip)"),
+       _d2("eqdata.remove", _form("rObj", NF["pistol10"]) + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\n"
+           "SetFunctionValue (rPlayer.GetItemCount rObj)")]
+    # Activator water type, put back; ar_Cat.
+    + [_d2("waterset.ebox", _form("rObj", FX["ebox"]) + _form("rOther", FX["cleanwater"])
+           + 'let rPlayer := GetActivatorWaterType rObj\nPlayerRef.AuxVarSetRef "*nvfWT" rPlayer\n'
+           "SetActivatorWaterType rOther rObj\nlet rOther := GetActivatorWaterType rObj\nSetFunctionValue (GetFormIDString rOther)", True),
+       _d2("waterset.ebox.restore", _form("rObj", FX["ebox"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfWT"\n'
+           'SetActivatorWaterType rOther rObj\nrPlayer.AuxVarErase "*nvfWT"\n'
+           "let rOther := GetActivatorWaterType rObj\nSetFunctionValue (GetFormIDString rOther)", True),
+       _d2("arcat", "let aA := ar_List 1 2\nlet aB := ar_List 3 4 5\nar_Cat aA aB\nSetFunctionValue (ar_Size aA)"),
+       _d2("arcat.last", "let aA := ar_List 1 2\nlet aB := ar_List 3 4 5\nar_Cat aA aB\nlet fRes := aA[(ar_Size aA) - 1]\nSetFunctionValue fRes")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3887,11 +3945,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "engine2": ENGINE2_PROBES,
         "engine3": ENGINE3_PROBES,
         "glta-order": GLTA_ORDER_PROBES,
-        "data1": DATA1_PROBES}
+        "data1": DATA1_PROBES,
+        "data2": DATA2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2"}
 
 
 def script(body):
