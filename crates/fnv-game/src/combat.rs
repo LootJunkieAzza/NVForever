@@ -57,7 +57,7 @@ use serde::Serialize;
 pub use crate::actor_values::{HEALTH, LIMB_CONDITIONS};
 
 /// What scripts ask of the engine's combat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum CombatRequest {
     /// Set off the placed explosives of this actor that detonate
     /// (`DetonatePlacedExplosives`).
@@ -68,6 +68,9 @@ pub enum CombatRequest {
     /// KillActor's limb argument. The engine knows the actor's body parts
     /// (docs/spec-notes/dismemberment.md §5).
     Dismember { actor: FormId, location: i32, by: Option<FormId> },
+    /// Set off an explosion placed by a script (PlaceAtMe of an EXPL) where it was placed,
+    /// nobody's.
+    Explode { explosion: FormId, at: [f32; 3] },
 }
 
 /// What damage did to a destructible reference (step C7).

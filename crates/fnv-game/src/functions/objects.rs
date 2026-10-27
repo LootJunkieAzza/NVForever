@@ -69,10 +69,17 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         rot = [0.0, 0.0, rot[2]];
     }
     let (refs, each) = if is_item(g, base) { (1, count) } else { (count, 1) };
+    // A placed explosion goes off where it is placed [observed: jip-hits and showoff1, a
+    // MineFragExplosion PlaceAtMe'd at the player hit the player; hypothesis: that it is
+    // nobody's blast].
+    let explodes = g.data.sig(base) == Some(*b"EXPL");
     let mut last = None;
     for _ in 0..refs {
         let r = g.world.place(base, cell, pos, rot, each).map_err(|e| e.to_string())?;
         note_created(g, r);
+        if explodes {
+            g.combat_requests.push(crate::combat::CombatRequest::Explode { explosion: base, at: pos });
+        }
         last = Some(r);
     }
     Ok(last.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
