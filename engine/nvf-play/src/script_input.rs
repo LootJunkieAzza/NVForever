@@ -5,7 +5,7 @@
 //! `bindings::ControlInput` leaves out, so the player's controls ignore them), and the
 //! keys scripts tapped are pressed for one frame.
 
-use crate::bindings::{dik_key, Bindings, GAME_CONTROLS};
+use crate::bindings::{dik_key, Binding, Bindings, GAME_CONTROLS};
 use bevy::prelude::*;
 use fnv_game::script_input::MOUSE_BASE;
 
@@ -51,25 +51,48 @@ fn key_code(k: KeyCode) -> Option<u16> {
     (0u8..=255).find(|&c| dik_key(c) == Some(k)).map(u16::from)
 }
 
+/// Let go of a key or mouse button the scripts pressed.
+fn release(c: u16, keys: &mut ButtonInput<KeyCode>, mouse: &mut ButtonInput<MouseButton>) {
+    match c.checked_sub(MOUSE_BASE) {
+        Some(_) => mouse_of(c).into_iter().for_each(|b| mouse.release(b)),
+        None => dik_key(c as u8).into_iter().for_each(|k| keys.release(k)),
+    }
+}
+
 fn script_input(
     mut script: Option<ResMut<crate::script::ScriptState>>,
-    bindings: Option<Res<Bindings>>,
+    mut bindings: Option<ResMut<Bindings>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut blocked: ResMut<ScriptBlocked>,
     mut tapped: Local<Vec<u16>>,
+    mut script_held: Local<Vec<u16>>,
 ) {
     // Last frame's taps end.
     for c in tapped.drain(..) {
-        match c.checked_sub(MOUSE_BASE) {
-            Some(_) => mouse_of(c).into_iter().for_each(|b| mouse.release(b)),
-            None => dik_key(c as u8).into_iter().for_each(|k| keys.release(k)),
-        }
+        release(c, &mut keys, &mut mouse);
     }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let input = &mut rt.game.input;
+    // Keys scripts held last frame and no longer hold (ReleaseKey, ReleaseControl) are let go.
+    for c in script_held.drain(..).filter(|c| !input.script_held.contains(c)) {
+        release(c, &mut keys, &mut mouse);
+    }
+    // SetControl's changes reach the player's controls first.
+    if let Some(b) = bindings.as_deref_mut() {
+        for (c, mouse, code) in std::mem::take(&mut input.rebinds) {
+            let Some(&(control, _, _)) = GAME_CONTROLS.get(c) else { continue };
+            let old = b.get(control);
+            let new = if mouse {
+                Binding { mouse: code.and_then(mouse_of), ..old }
+            } else {
+                Binding { key: code.and_then(|k| u8::try_from(k).ok()).and_then(dik_key), ..old }
+            };
+            b.set(control, new);
+        }
+    }
     input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
-    if let Some(b) = bindings {
+    if let Some(b) = bindings.as_deref() {
         // The engine's controls are the extender's 0–27, in the same order.
         input.bindings = GAME_CONTROLS.iter().map(|(c, _, _)| {
             let bind = b.get(*c);
@@ -88,6 +111,7 @@ fn script_input(
             tapped.push(c);
         }
     }
+    script_held.extend(input.script_held.iter().copied());
 }
 
 /// The rounds in the player's magazine for GetPlayerCurrentAmmoRounds.

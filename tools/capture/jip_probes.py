@@ -3962,6 +3962,503 @@ DATA3_PROBES = (
        _d3("avchange.got.after", 'let fRes := rPlayer.AuxVarGetFlt "*nvfAV"\nrPlayer.AuxVarErase "*nvfAV"\nSetFunctionValue fRes')]
 )
 
+# Sixty-fifth set (this machine's share of the capture split, 2026-10-27: animation): the
+# player in third person, IsAnimPlaying and JIP IsAnimPlayingEx (categories 1 misc, 2
+# movement, 3 attack, 4 reload; sub-type 0 any, 1 idle) standing, then kNVSE ForcePlayIdle
+# LooseCheeringClappingNoArmsUp (IDLE 171DBB) read frame by frame, ForceStopIdle, the idle
+# again and JIP StopIdle, with JIP GetPlayedIdle each frame (IsAnimPlayingEx 1 1 read 1
+# while the player only stood, so it cannot show the idle [observed]). The view is put back. Rows whose frame of change varies between
+# captures are dropped after a second capture.
+FX.update(clapidle="171DBB")
+
+
+def _a1(pid, body, text=False):
+    return (f"anim.{pid}", "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]) + body,
+            text, None, "")
+
+
+def _a1v(pid, expr):
+    return _a1(pid, f"SetFunctionValue ({expr})")
+
+
+_EX = ((1, 0), (1, 1), (2, 0), (3, 0), (4, 0))
+
+
+def _anim_rows(prefix):
+    return ([_a1v(f"{prefix}.isanimplaying", "rPlayer.IsAnimPlaying")]
+            + [_a1v(f"{prefix}.ex.{c}.{t}", f"rPlayer.IsAnimPlayingEx {c} {t} 0") for c, t in _EX])
+
+
+_PLAYED = "let rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)"
+
+
+def _played(pid):
+    return _a1(pid, _PLAYED, True)
+
+
+ANIM1_PROBES = (
+    [_a1("view.third", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfA1" fRes\nToggleFirstPerson 0\nSetFunctionValue fRes')]
+    + [_a1(f"view.wait{i}", "SetFunctionValue 1") for i in range(4)]
+    + _anim_rows("stand") + [_played("stand.played")]
+    + [_a1("idle.play", _form("rObj", FX["clapidle"]) + "rPlayer.ForcePlayIdle rObj\nSetFunctionValue 1")]
+    + [_played(f"idle.f{i}.played") for i in range(6)]
+    + _anim_rows("idle")
+    + [_a1("idle.forcestop", "rPlayer.ForceStopIdle\nSetFunctionValue 1")]
+    + [_played(f"forcestop.f{i}.played") for i in range(4)]
+    + [_a1("idle.play2", _form("rObj", FX["clapidle"]) + "rPlayer.ForcePlayIdle rObj\nSetFunctionValue 1")]
+    + [_a1(f"idle2.wait{i}", "SetFunctionValue 1") for i in range(4)]
+    + [_played("idle2.played"),
+       _a1("idle.stopidle", "rPlayer.StopIdle\nSetFunctionValue 1")]
+    + [_played(f"stopidle.f{i}.played") for i in range(4)]
+    + _anim_rows("after")
+    + [_a1("view.restore", 'ToggleFirstPerson (rPlayer.AuxVarGetFlt "*nvfA1")\nrPlayer.AuxVarErase "*nvfA1"\nSetFunctionValue 1')]
+    + [_a1(f"view.rwait{i}", "SetFunctionValue 1") for i in range(4)]
+    + [_a1v("view.restored", "IsPC1stPerson")]
+)
+
+# Sixty-sixth set: what the extender core asked after anim1. The player (third person, put
+# back): ForcePlayIdle, ForceStopIdle, then GetPlayedIdle 30 frames later. A placed
+# NVProspectorFemaleT (NPC_ 17B586) placed at the player, then after 10 frames moved 400
+# units north (moved at once, or 1500 away, it read 0 even standing): IsAnimPlayingEx standing, then
+# walking to the player as a teammate over 120 frames; a second one 600 north, and the two
+# fight for 360 frames (knife against 10mm pistol), each frame keeping in an aux variable
+# whether IsAnimPlayingEx 3 (attack) or 4 (reload) was ever 1. PlayGroup AttackRight and
+# ReloadA read 0 in a first run, and two prospectors would not fight each other, so both
+# attack the player, with god mode on (LU Console "tgm") for the fight and off after. Both
+# NPCs are disabled and deleted.
+FX.update(prospector="17B586")
+
+
+def _a2(pid, body, text=False):
+    return (f"anim2.{pid}", "ref rPlayer\nref rNpc\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + 'let rNpc := rPlayer.AuxVarGetRef "*nvfN2"\n' + body, text, None, "")
+
+
+def _a2v(pid, expr):
+    return _a2(pid, f"SetFunctionValue ({expr})")
+
+
+def _w2(pid, n):
+    return [_a2(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _ex2(pid, who="rNpc"):
+    return [_a2v(f"{pid}.ex.{c}.{t}", f"{who}.IsAnimPlayingEx {c} {t} 0") for c, t in ((1, 0), (1, 1), (2, 0), (3, 0), (4, 0))]
+
+
+ANIM2_PROBES = (
+    # The player: a stop, then 30 frames.
+    [_a2("view.third", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfA2" fRes\nToggleFirstPerson 0\nSetFunctionValue fRes')]
+    + _w2("view.wait", 4)
+    + [_a2("pc.play", _form("rObj", FX["clapidle"]) + "rPlayer.ForcePlayIdle rObj\nSetFunctionValue 1")]
+    + _w2("pc.playwait", 3)
+    + [_a2("pc.stop", "rPlayer.ForceStopIdle\nSetFunctionValue 1")]
+    + _w2("pc.stopwait", 30)
+    + [_a2("pc.played.f30", "let rObj := rPlayer.GetPlayedIdle\nSetFunctionValue (GetFormIDString rObj)", True)]
+    + _ex2("pc.f30", "rPlayer")
+    + [_a2("view.restore", 'ToggleFirstPerson (rPlayer.AuxVarGetFlt "*nvfA2")\nrPlayer.AuxVarErase "*nvfA2"\nSetFunctionValue 1')]
+    # Two NPCs, 1500 and 1700 units north of the player.
+    + [_a2("npc.place", _form("rObj", FX["prospector"]) + 'let rNpc := rPlayer.PlaceAtMe rObj 1\n'
+           'rPlayer.AuxVarSetRef "*nvfN2" rNpc\nlet rNpc := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfN3" rNpc\n'
+           "SetFunctionValue 1")]
+    + _w2("npc.wait", 10)
+    + [_a2("npc.move", 'rNpc.SetPos Y ((rPlayer.GetPos Y) + 400)\nlet rObj := rPlayer.AuxVarGetRef "*nvfN3"\n'
+           "rObj.SetPos Y ((rPlayer.GetPos Y) + 600)\nSetFunctionValue 1")]
+    + _w2("npc.movewait", 10)
+    + _ex2("npc.stand")
+    + [_a2v("npc.stand.dist.far", "(rNpc.GetDistance rPlayer) > 300")]
+    # Walking as a teammate, 120 frames.
+    + [_a2("npc.follow", 'rNpc.SetPlayerTeammate 1\nrNpc.EvaluatePackage\nrPlayer.AuxVarSetFlt "*nvfMV" 0\n'
+           'let fRes := rNpc.GetDistance rPlayer\nrPlayer.AuxVarSetFlt "*nvfMD" fRes\nSetFunctionValue 1')]
+    + [_a2(f"npc.walk.f{i}", 'let fRes := rNpc.IsAnimPlayingEx 2 0 0\n'
+           'if fRes > (rPlayer.AuxVarGetFlt "*nvfMV")\nrPlayer.AuxVarSetFlt "*nvfMV" fRes\nendif\nSetFunctionValue 1') for i in range(120)]
+    + [_a2v("npc.walk.ever", 'rPlayer.AuxVarGetFlt "*nvfMV"'),
+       _a2v("npc.walk.closer", '(rNpc.GetDistance rPlayer) < ((rPlayer.AuxVarGetFlt "*nvfMD") - 50)'),
+       _a2("npc.unfollow", 'rNpc.SetPlayerTeammate 0\nrNpc.EvaluatePackage\nrPlayer.AuxVarErase "*nvfMV"\nrPlayer.AuxVarErase "*nvfMD"\nSetFunctionValue 1')]
+    # A fight: the first with a knife, the second with a 10mm pistol.
+    + [_a2("fight.arm", _form("rObj", FX["knife"]) + "rNpc.AddItem rObj 1 1\nrNpc.EquipItem rObj 0 1\n"
+           'let rNpc := rPlayer.AuxVarGetRef "*nvfN3"\n' + _form("rObj", NF["pistol10"]) + "rNpc.AddItem rObj 1 1\n"
+           "rNpc.EquipItem rObj 0 1\n" + _form("rObj", NF["ammo10"]) + "rNpc.AddItem rObj 40 1\nSetFunctionValue 1")]
+    + _w2("fight.armwait", 5)
+    + [_a2("fight.godmode", 'Console "tgm"\nSetFunctionValue 1')]
+    + [_a2("fight.start", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\nrNpc.StartCombat rPlayer\nrObj.StartCombat rPlayer\n'
+           'rPlayer.AuxVarSetFlt "*nvfK2" 0\n'
+           'rPlayer.AuxVarSetFlt "*nvfK3" 0\nrPlayer.AuxVarSetFlt "*nvfP3" 0\nrPlayer.AuxVarSetFlt "*nvfP4" 0\n'
+           'let fRes := GameHour\nrPlayer.AuxVarSetFlt "*nvfGH" fRes\nSetFunctionValue 1')]
+    + _w2("fight.startwait", 30)
+    + [_a2v("fight.incombat.knife", "rNpc.IsInCombat"),
+       _a2("fight.target.knife", "let rObj := rNpc.GetCombatTarget\nSetFunctionValue (rObj == rPlayer)")]
+    + [_a2(f"fight.f{i}", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\n'
+           'if (rNpc.IsAnimPlayingEx 3 0 0)\nrPlayer.AuxVarSetFlt "*nvfK3" 1\nendif\n'
+           'if (rNpc.IsAnimPlayingEx 2 0 0)\nrPlayer.AuxVarSetFlt "*nvfK2" 1\nendif\n'
+           'if (rObj.IsAnimPlayingEx 3 0 0)\nrPlayer.AuxVarSetFlt "*nvfP3" 1\nendif\n'
+           'if (rObj.IsAnimPlayingEx 4 0 0)\nrPlayer.AuxVarSetFlt "*nvfP4" 1\nendif\nSetFunctionValue 1') for i in range(360)]
+    + [_a2v("fight.gamehour.advanced", '(GameHour - (rPlayer.AuxVarGetFlt "*nvfGH")) > 0'),
+       _a2v("fight.knife.move.ever", 'rPlayer.AuxVarGetFlt "*nvfK2"'),
+       _a2v("fight.health.knife.lost", "(rNpc.GetActorValue Health) < (rNpc.GetBaseActorValue Health)"),
+       _a2("fight.health.pistol.lost", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\n'
+           "SetFunctionValue ((rObj.GetActorValue Health) < (rObj.GetBaseActorValue Health))"),
+       _a2v("fight.knife.attack.ever", 'rPlayer.AuxVarGetFlt "*nvfK3"'),
+       _a2v("fight.pistol.attack.ever", 'rPlayer.AuxVarGetFlt "*nvfP3"'),
+       _a2v("fight.pistol.reload.ever", 'rPlayer.AuxVarGetFlt "*nvfP4"'),
+       _a2("fight.cleanup", 'let rObj := rPlayer.AuxVarGetRef "*nvfN3"\nrNpc.Disable\nrNpc.MarkForDelete\n'
+           'rObj.Disable\nrObj.MarkForDelete\nConsole "tgm"\nrPlayer.AuxVarErase "*nvfK2"\nrPlayer.AuxVarErase "*nvfN2"\nrPlayer.AuxVarErase "*nvfN3"\n'
+           'rPlayer.AuxVarErase "*nvfK3"\nrPlayer.AuxVarErase "*nvfP3"\nrPlayer.AuxVarErase "*nvfP4"\nrPlayer.AuxVarErase "*nvfGH"\nSetFunctionValue 1')]
+)
+
+
+# reload1 (writes, session only): IsAnimPlayingEx category 4 (reload). The player, in third
+# person, is given a 10mm pistol (434F) and 20 rounds; the clip is set to 1 round
+# (SetCurrentAmmoRounds), TapControl 7 (the reload/ready control, wiki GetControlCodeByID
+# example) draws the weapon, a second tap 60 frames later reloads, and each frame of the 180
+# after keeps in an aux variable whether IsAnimPlayingEx 4 0 was ever 1. Then god mode: a
+# 10-point DamageActorValue Health with it off and on (LU Console "tgm"). Then a placed
+# NVProspectorFemaleT with the pistol and 20 rounds fights the player (god mode on) for 600
+# frames, its clip set to 1 round at the start, keeping whether 4 0 was ever 1 and whether its
+# clip ever went above 1. The player's weapon, ammo count, view and health are put back; the
+# NPC is disabled and deleted.
+def _r1(pid, body, text=False):
+    return (f"reload1.{pid}", "ref rPlayer\nref rNpc\nref rObj\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + 'let rNpc := rPlayer.AuxVarGetRef "*nvfR1"\n' + body, text, None, "")
+
+
+def _r1v(pid, expr):
+    return _r1(pid, f"SetFunctionValue ({expr})")
+
+
+def _r1w(pid, n):
+    return [_r1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _r1ever(who, var):
+    return f'if ({who}.IsAnimPlayingEx 4 0 0)\nrPlayer.AuxVarSetFlt "{var}" 1\nendif\n'
+
+
+RELOAD1_PROBES = (
+    # Save the view, weapon and ammo count.
+    [_r1("save", 'let fRes := IsPC1stPerson\nrPlayer.AuxVarSetFlt "*nvfRV" fRes\nToggleFirstPerson 0\n'
+         'let rObj := rPlayer.GetEquippedObject 5\nrPlayer.AuxVarSetRef "*nvfRW" rObj\n'
+         + _form("rObj", NF["ammo10"]) + 'let fRes := rPlayer.GetItemCount rObj\nrPlayer.AuxVarSetFlt "*nvfRA" fRes\nSetFunctionValue 1')]
+    + _r1w("viewwait", 5)
+    + [_r1("pc.arm", _form("rObj", NF["pistol10"]) + "rPlayer.AddItem rObj 1 1\nrPlayer.EquipItem rObj 0 1\n"
+           + _form("rObj", NF["ammo10"]) + "rPlayer.AddItem rObj 20 1\nSetFunctionValue 1")]
+    + _r1w("pc.armwait", 10)
+    + [_r1("pc.clip1", "rPlayer.SetCurrentAmmoRounds 1\nSetFunctionValue 1")]
+    + _r1w("pc.clipwait", 2)
+    + [_r1v("pc.clip1.read", "rPlayer.GetCurrentAmmoRounds"),
+       _r1("pc.draw", "TapControl 7\nSetFunctionValue 1")]
+    + _r1w("pc.drawwait", 60)
+    + [_r1v("pc.drawn", "rPlayer.IsWeaponOut"),
+       _r1v("pc.drawn.clip", "rPlayer.GetCurrentAmmoRounds"),
+       _r1("pc.reload", 'rPlayer.AuxVarSetFlt "*nvfRP" 0\nTapControl 7\nSetFunctionValue 1')]
+    + [_r1(f"pc.f{i}", _r1ever("rPlayer", "*nvfRP") + "SetFunctionValue 1") for i in range(180)]
+    + [_r1v("pc.reload.ever", 'rPlayer.AuxVarGetFlt "*nvfRP"'),
+       _r1v("pc.reload.clip", "rPlayer.GetCurrentAmmoRounds")]
+    # God mode: damage with it off, then on.
+    + [_r1("god.off.damage", "let fRes := rPlayer.GetActorValue Health\nrPlayer.DamageActorValue Health 10\n"
+           "let fRes := fRes - (rPlayer.GetActorValue Health)\nrPlayer.RestoreActorValue Health 10\nSetFunctionValue fRes"),
+       _r1("god.on", 'Console "tgm"\nSetFunctionValue 1')]
+    + _r1w("god.onwait", 2)
+    + [_r1("god.on.damage", "let fRes := rPlayer.GetActorValue Health\nrPlayer.DamageActorValue Health 10\n"
+           "let fRes := fRes - (rPlayer.GetActorValue Health)\nrPlayer.RestoreActorValue Health 10\nSetFunctionValue fRes")]
+    # The NPC, placed at the player, moved 500 north after 10 frames.
+    + [_r1("npc.place", _form("rObj", FX["prospector"]) + 'let rNpc := rPlayer.PlaceAtMe rObj 1\n'
+           'rPlayer.AuxVarSetRef "*nvfR1" rNpc\nSetFunctionValue 1')]
+    + _r1w("npc.wait", 10)
+    + [_r1("npc.move", "rNpc.SetPos Y ((rPlayer.GetPos Y) + 500)\nSetFunctionValue 1")]
+    + _r1w("npc.movewait", 10)
+    + [_r1("npc.arm", _form("rObj", NF["pistol10"]) + "rNpc.AddItem rObj 1 1\nrNpc.EquipItem rObj 0 1\n"
+           + _form("rObj", NF["ammo10"]) + "rNpc.AddItem rObj 20 1\nSetFunctionValue 1")]
+    + _r1w("npc.armwait", 5)
+    + [_r1("fight.start", 'rNpc.StartCombat rPlayer\nrPlayer.AuxVarSetFlt "*nvfRN" 0\nrPlayer.AuxVarSetFlt "*nvfRC" 0\nSetFunctionValue 1')]
+    + _r1w("fight.startwait", 30)
+    + [_r1v("fight.incombat", "rNpc.IsInCombat"),
+       _r1("fight.clip1", "rNpc.SetCurrentAmmoRounds 1\nSetFunctionValue 1")]
+    + _r1w("fight.clipwait", 2)
+    + [_r1v("fight.clip1.read", "rNpc.GetCurrentAmmoRounds")]
+    + [_r1(f"fight.f{i}", _r1ever("rNpc", "*nvfRN")
+           + 'if (rNpc.GetCurrentAmmoRounds) > 1\nrPlayer.AuxVarSetFlt "*nvfRC" 1\nendif\nSetFunctionValue 1') for i in range(600)]
+    + [_r1v("fight.reload.ever", 'rPlayer.AuxVarGetFlt "*nvfRN"'),
+       _r1v("fight.clip.refilled", 'rPlayer.AuxVarGetFlt "*nvfRC"'),
+       _r1("fight.cleanup", 'rNpc.Disable\nrNpc.MarkForDelete\nConsole "tgm"\nrPlayer.AuxVarErase "*nvfR1"\n'
+           'rPlayer.AuxVarErase "*nvfRN"\nrPlayer.AuxVarErase "*nvfRC"\nrPlayer.AuxVarErase "*nvfRP"\nSetFunctionValue 1')]
+    + _r1w("god.offwait", 2)
+    + [_r1("god.off.again.damage", "let fRes := rPlayer.GetActorValue Health\nrPlayer.DamageActorValue Health 10\n"
+           "let fRes := fRes - (rPlayer.GetActorValue Health)\nrPlayer.RestoreActorValue Health 10\nSetFunctionValue fRes")]
+    # Put back the weapon, the ammo count and the view.
+    + [_r1("restore.weapon", _form("rObj", NF["pistol10"]) + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\n"
+           'let rObj := rPlayer.AuxVarGetRef "*nvfRW"\nif IsFormValid rObj\nrPlayer.EquipItem rObj 0 1\nendif\nSetFunctionValue 1'),
+       _r1("restore.ammo", _form("rObj", NF["ammo10"]) + 'let fRes := (rPlayer.GetItemCount rObj) - (rPlayer.AuxVarGetFlt "*nvfRA")\n'
+           "if fRes > 0\nrPlayer.RemoveItem rObj fRes 1\nelseif fRes < 0\nrPlayer.AddItem rObj (0 - fRes) 1\nendif\nSetFunctionValue 1"),
+       _r1("restore.ammo.check", _form("rObj", NF["ammo10"])
+           + 'SetFunctionValue ((rPlayer.GetItemCount rObj) == (rPlayer.AuxVarGetFlt "*nvfRA"))')]
+    + [_r1("restore.view", 'ToggleFirstPerson (rPlayer.AuxVarGetFlt "*nvfRV")\nrPlayer.AuxVarErase "*nvfRV"\n'
+           'rPlayer.AuxVarErase "*nvfRW"\nrPlayer.AuxVarErase "*nvfRA"\nSetFunctionValue 1')]
+)
+
+
+# sound1 (writes, session only): when IsSoundPlaying turns on and off, frame by frame. gaps1
+# read UIVATSLoop (15511B) as 0 in the frame of PlaySound and the next, 1 in the frame of
+# StopSound and 0 after, so here each frame after PlaySound is a row: the loop, 12 frames, then
+# GetSoundPlayers, StopSound and 6 frames; EMTMedicalBeep01 (174325) by PlaySound, 12 frames
+# and then at 30, 60 and 120 (still playing), then StopSound; the beep by PlaySound3D on the player, IsSoundPlaying with the
+# player and with Doc's base as the source, GetSoundPlayers, StopSoundAlt (JohnnyGuitar) and
+# 6 frames. IsSoundPlayingFromPath with the path GetSoundSourceFile gives and with "Data\Sound\"
+# before it. Only rows that repeat on a second capture are kept.
+def _s1(pid, body, text=False):
+    return (f"sound1.{pid}", "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + body, text, None, "")
+
+
+_S1L = _form("rObj", FX["vatsloop"])
+_S1B = _form("rObj", FX["beep"])
+
+
+def _s1f(pid, pre, n, src=""):
+    return [_s1(f"{pid}.f{i}", pre + f"SetFunctionValue (IsSoundPlaying rObj{src})") for i in range(n)]
+
+
+def _s1w(pid, n):
+    return [_s1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _s1players(pid, pre):
+    return [_s1(f"{pid}.players.size", pre + "let aArr := GetSoundPlayers rObj\nSetFunctionValue (ar_Size aArr)")]
+
+
+SOUND1_PROBES = (
+    # The loop.
+    [_s1("loop.before", _S1L + "SetFunctionValue (IsSoundPlaying rObj)"),
+     _s1("loop.file", _S1L + "SetFunctionValue (GetSoundSourceFile rObj)", True),
+     _s1("loop.play", _S1L + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("loop", _S1L, 12)
+    + [_s1("loop.f12.player", _S1L + "SetFunctionValue (IsSoundPlaying rObj rPlayer)")]
+    + _s1players("loop", _S1L)
+    + [_s1("loop.stop", _S1L + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("loop.stopped", _S1L, 6)
+    # The beep, once.
+    + [_s1("beep.file", _S1B + "SetFunctionValue (GetSoundSourceFile rObj)", True),
+       _s1("beep.before", _S1B + "SetFunctionValue (IsSoundPlaying rObj)"),
+       _s1("beep.play", _S1B + "PlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("beep", _S1B, 12)
+    + _s1w("beep.wait30.", 18) + [_s1("beep.f30", _S1B + "SetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1w("beep.wait60.", 29) + [_s1("beep.f60", _S1B + "SetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1w("beep.wait120.", 59) + [_s1("beep.f120", _S1B + "SetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1players("beep", _S1B)
+    + [_s1("beep.stop", _S1B + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("beep.stopped", _S1B, 6)
+    # The beep on the player.
+    + [_s1("p3d.play", _S1B + "rPlayer.PlaySound3D rObj\nSetFunctionValue (IsSoundPlaying rObj rPlayer)")]
+    + _s1f("p3d", _S1B, 6, " rPlayer")
+    + [_s1("p3d.any", _S1B + "SetFunctionValue (IsSoundPlaying rObj)"),
+       _s1("p3d.other", _S1B + _form("rOther", NF["doc"]) + "SetFunctionValue (IsSoundPlaying rObj rOther)"),
+       _s1("p3d.path", _S1B + 'SetFunctionValue (IsSoundPlayingFromPath "fx\\emt\\medicalbeep\\emtmedicalbeep01.wav")'),
+       _s1("p3d.path.data", _S1B + 'SetFunctionValue (IsSoundPlayingFromPath "Data\\Sound\\fx\\emt\\medicalbeep\\emtmedicalbeep01.wav")'),
+       _s1("p3d.path.player", _S1B + 'SetFunctionValue (IsSoundPlayingFromPath "Data\\Sound\\fx\\emt\\medicalbeep\\emtmedicalbeep01.wav" rPlayer)')]
+    + _s1players("p3d", _S1B)
+    + [_s1("p3d.stopalt", _S1B + "SetFunctionValue (StopSoundAlt rObj rPlayer)")]
+    + _s1f("p3d.stopped", _S1B, 6, " rPlayer")
+    + [_s1("p3d.stopalt.again", _S1B + "SetFunctionValue (StopSoundAlt rObj rPlayer)"),
+       _s1("p3d.stop", _S1B + "StopSound rObj\nSetFunctionValue (IsSoundPlaying rObj)")]
+    + _s1f("p3d.stop.after", _S1B, 3)
+)
+
+
+# proj1 (writes, session only): a live projectile in flight. The player looks 60 degrees up
+# and fires the 10mm pistol (FireWeapon); the projectile is found by walking GetFirstRef 51 3 /
+# GetNextRef (the way the SetProjectileRefSpeedMult page gives [documented]) for the one whose
+# source is the player, kept in an aux variable, and read frame by frame: speed multiplier,
+# life time, distance travelled, source, weapon, damage. Then SetProjectileRefSpeedMult 0.5,
+# SetProjectileRefDamage 5 and SetProjectileRefSource to a placed NVProspectorFemaleT, read in
+# the same frame and the frames after; 30 frames later a walk counts what is left. Each read checks the projectile is still there (IsFormValid);
+# the view angle is put back and the NPC disabled and deleted.
+def _p1j(pid, body, text=False):
+    return (f"proj1.{pid}", "ref rP\nref rGun\nref rProj\nref rNpc\nfloat fRes\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rGun", NF["pistol10"])
+            + 'let rProj := rP.AuxVarGetRef "*nvfPR"\nlet rNpc := rP.AuxVarGetRef "*nvfPN"\n' + body, text, None, "")
+
+
+def _p1jv(pid, expr):
+    """A read of the kept projectile: -99 when it is gone."""
+    return _p1j(pid, f"let fRes := -99\nif IsFormValid rProj\nlet fRes := {expr}\nendif\nSetFunctionValue fRes")
+
+
+_P1WALK = ("let fRes := 0\nlet rProj := GetFirstRef 51 3\nwhile rProj\n"
+           "if (rProj.GetProjectileRefSource) == rP\nlet fRes += 1\nrP.AuxVarSetRef \"*nvfPR\" rProj\nendif\n"
+           "let rProj := GetNextRef\nloop\n")
+
+
+def _p1reads(tag):
+    return [_p1jv(f"{tag}.exists", "1"),
+            _p1jv(f"{tag}.speedmult", "rProj.GetProjectileRefSpeedMult"),
+            _p1jv(f"{tag}.lifetime.pos", "(rProj.GetProjectileRefLifeTime) > 0"),
+            _p1jv(f"{tag}.distance.pos", "(rProj.GetProjectileRefDistanceTraveled) > 0"),
+            _p1jv(f"{tag}.source.player", "(rProj.GetProjectileRefSource) == rP"),
+            _p1jv(f"{tag}.source.npc", "(rProj.GetProjectileRefSource) == rNpc"),
+            _p1jv(f"{tag}.weapon.pistol", "(rProj.GetProjectileRefWeapon) == rGun"),
+            _p1jv(f"{tag}.damage", "rProj.GetProjectileRefDamage"),
+            _p1jv(f"{tag}.type", "GetType (rProj.GetBaseObject)")]
+
+
+PROJ1_PROBES = (
+    [_p1j("npc.place", _form("rNpc", FX["prospector"]) + 'let rNpc := rP.PlaceAtMe rNpc 1\nrP.AuxVarSetRef "*nvfPN" rNpc\n'
+          'let fRes := rP.GetAngle X\nrP.AuxVarSetFlt "*nvfPA" fRes\nSetFunctionValue 1')]
+    + [_p1j(f"npc.wait{i}", "SetFunctionValue 1") for i in range(10)]
+    + [_p1j("npc.move", "rNpc.SetPos Y ((rP.GetPos Y) - 600)\nSetFunctionValue 1"),
+       _p1j("aim", "rP.SetAngle X -60\nSetFunctionValue 1")]
+    + [_p1j(f"aim.wait{i}", "SetFunctionValue 1") for i in range(5)]
+    + [_p1j("fire.walk", 'rP.AuxVarErase "*nvfPR"\nrP.FireWeapon rGun\n' + _P1WALK + "SetFunctionValue fRes"),
+       _p1j("f1.walk", _P1WALK + "SetFunctionValue fRes")]
+    + _p1reads("f1")
+    + [_p1jv("set.speedmult", "rProj.SetProjectileRefSpeedMult 0.5"),
+       _p1jv("set.speedmult.read", "rProj.GetProjectileRefSpeedMult"),
+       _p1jv("set.damage", "rProj.SetProjectileRefDamage 5"),
+       _p1jv("set.damage.read", "rProj.GetProjectileRefDamage"),
+       _p1j("set.source", "let fRes := -99\nif IsFormValid rProj\nrProj.SetProjectileRefSource rNpc\n"
+            "let fRes := (rProj.GetProjectileRefSource) == rNpc\nendif\nSetFunctionValue fRes")]
+    + _p1reads("after")
+    + [_p1j(f"late.wait{i}", "SetFunctionValue 1") for i in range(30)]
+    + [_p1j("late.walk", _P1WALK + "SetFunctionValue fRes"),
+       _p1jv("late.exists", "1")]
+    + [_p1j("cleanup", 'rP.SetAngle X (rP.AuxVarGetFlt "*nvfPA")\nrNpc.Disable\nrNpc.MarkForDelete\n'
+            'rP.AuxVarErase "*nvfPR"\nrP.AuxVarErase "*nvfPN"\nrP.AuxVarErase "*nvfPA"\nSetFunctionValue 1')]
+)
+
+
+# controls1 (writes, session only): GetControl for controls 0-16 on the keyboard (type 0) and
+# Attack/Block on the mouse (type 1): these are this install's bindings, not defaults, so they
+# can differ on another machine. SetControl 7 to scancode 48 and back in consecutive frames
+# (the page says changes reach the .ini on exit [documented]; the capture ends the game by
+# killing it, and the binding is put back first either way). HoldControl 0 (Forward) for 30
+# frames: IsControlPressed while held, whether the player moved more than 10 units, then
+# ReleaseControl: whether the player moved more than 10 units in the 10 frames after, and
+# more than 1 unit in one frame 30 frames after; the position is put back. The 10mm pistol
+# equipped, SetWeaponOut 1 read at 10, 30, 60 and 90 frames (gaps3 read 0 after 5), then
+# HolsterWeapon read at 5 to 120 frames, then SetWeaponOut 0 the same; the pistol is removed.
+def _c1(pid, body, text=False):
+    return (f"controls1.{pid}", "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\n" + _form("rP", NF["player"]) + body,
+            text, None, "")
+
+
+def _c1v(pid, expr):
+    return _c1(pid, f"SetFunctionValue ({expr})")
+
+
+def _c1w(pid, n):
+    return [_c1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+# The squared distance from the saved position.
+_C1MOVED = ('let fDx := (rP.GetPos X) - (rP.AuxVarGetFlt "*nvfCX")\nlet fRes := (rP.GetPos Y) - (rP.AuxVarGetFlt "*nvfCY")\n'
+            "let fRes := (fDx * fDx) + (fRes * fRes)\n")
+# The same from where the player was at the release.
+_C1REL = _C1MOVED.replace("*nvfCX", "*nvfRX").replace("*nvfCY", "*nvfRY")
+
+
+def _c1checks(tag, ats=(10, 30, 60, 90)):
+    out, done = [], 0
+    for at in ats:
+        out += _c1w(f"{tag}.wait{at}.", at - done - 1) + [_c1v(f"{tag}.f{at}", "rP.IsWeaponOut")]
+        done = at
+    return out
+
+
+CONTROLS1_PROBES = (
+    [_c1v(f"get.key.{c}", f"GetControl {c} 0") for c in range(17)]
+    + [_c1v(f"get.mouse.{c}", f"GetControl {c} 1") for c in (4, 6)]
+    + [_c1("set.key7", 'let fRes := GetControl 7 0\nrP.AuxVarSetFlt "*nvfCK" fRes\nSetControl 7 48 0\nSetFunctionValue (GetControl 7 0)'),
+       _c1v("set.key7.next", "GetControl 7 0"),
+       _c1("set.key7.restore", 'SetControl 7 (rP.AuxVarGetFlt "*nvfCK") 0\nrP.AuxVarErase "*nvfCK"\nSetFunctionValue (GetControl 7 0)')]
+    # Forward, held.
+    + [_c1("hold.save", 'let fRes := rP.GetPos X\nrP.AuxVarSetFlt "*nvfCX" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt "*nvfCY" fRes\n'
+           "HoldControl 0\nSetFunctionValue (IsControlPressed 0)")]
+    + _c1w("hold.wait", 2)
+    + [_c1v("hold.pressed", "IsControlPressed 0"),
+       _c1v("hold.pressed.ignore", "IsControlPressed 0 1")]
+    + _c1w("hold.walk", 26)
+    + [_c1("hold.moved", _C1MOVED + "SetFunctionValue (fRes > 100)"),
+       _c1("release", 'let fRes := rP.GetPos X\nrP.AuxVarSetFlt "*nvfRX" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt "*nvfRY" fRes\n'
+           "ReleaseControl 0\nSetFunctionValue (IsControlPressed 0)")]
+    + _c1w("release.wait", 10)
+    + [_c1v("release.pressed", "IsControlPressed 0"),
+       _c1("release.moved", _C1REL + "SetFunctionValue (fRes > 100)")]
+    + _c1w("release.settle", 20)
+    + [_c1("release.still", 'let fRes := rP.GetPos X\nrP.AuxVarSetFlt "*nvfRX" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt "*nvfRY" fRes\nSetFunctionValue 1'),
+       _c1("release.still.moved", _C1REL + "SetFunctionValue (fRes > 1)"),
+       _c1("hold.restore", 'rP.SetPos X (rP.AuxVarGetFlt "*nvfCX")\nrP.SetPos Y (rP.AuxVarGetFlt "*nvfCY")\n'
+           'rP.AuxVarErase "*nvfCX"\nrP.AuxVarErase "*nvfCY"\nrP.AuxVarErase "*nvfRX"\nrP.AuxVarErase "*nvfRY"\nSetFunctionValue 1')]
+    # SetWeaponOut and HolsterWeapon.
+    + [_c1("weap.add", _form("rObj", NF["pistol10"]) + "rP.AddItem rObj 1 1\nrP.EquipItem rObj 0 1\nSetFunctionValue 1")]
+    + _c1w("weap.addwait", 10)
+    + [_c1v("weap.before", "rP.IsWeaponOut"),
+       _c1("weap.out", "rP.SetWeaponOut 1\nSetFunctionValue (rP.IsWeaponOut)")]
+    + _c1checks("weap.out")
+    + [_c1("weap.holster", "rP.HolsterWeapon\nSetFunctionValue (rP.IsWeaponOut)")]
+    + _c1checks("weap.holster", (5, 10, 15, 20, 30, 60, 120))
+    + [_c1("weap.setout0", "rP.SetWeaponOut 0\nSetFunctionValue (rP.IsWeaponOut)")]
+    + _c1checks("weap.setout0", (10, 30, 60, 120))
+    + [_c1("weap.cleanup", _form("rObj", NF["pistol10"]) + "rP.UnequipItem rObj 0 1\nrP.RemoveItem rObj 1 1\nSetFunctionValue 1")]
+)
+
+
+# hud1 (writes, session only): HUD reads that need no menu. GetHUDVisibilityOverride and
+# SetHUDVisibilityOverride (JohnnyGuitar; flag bits from the wiki page [documented]) read back
+# and put back; GetHUDShudderPower; GetReticlePos (JIP) size, and GetReticleTargetLimb with
+# nothing aimed at. Corner messages: GetNumQueuedCornerMessages (ShowOff) before, after three
+# MessageEx calls, and after ClearMessageQueue (JIP). Compass: GetNumCompassHostiles,
+# GetCompassTargets 0/1/2 sizes and GetNearestCompassHostile before and while a placed
+# NVProspectorFemaleT fights the player (god mode on, LU Console "tgm", and off after); the
+# NPC is disabled and deleted.
+def _h1(pid, body, text=False):
+    return (f"hud1.{pid}", "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\n" + _form("rP", NF["player"])
+            + 'let rNpc := rP.AuxVarGetRef "*nvfH1"\n' + body, text, None, "")
+
+
+def _h1v(pid, expr):
+    return _h1(pid, f"SetFunctionValue ({expr})")
+
+
+def _h1w(pid, n):
+    return [_h1(f"{pid}{i}", "SetFunctionValue 1") for i in range(n)]
+
+
+def _h1compass(tag):
+    return ([_h1v(f"{tag}.hostiles.num", "GetNumCompassHostiles"),
+             _h1v(f"{tag}.hostiles.num.near", "GetNumCompassHostiles 100"),
+             _h1("%s.hostiles.size" % tag, "let aArr := GetCompassHostiles\nSetFunctionValue (ar_Size aArr)")]
+            + [_h1(f"{tag}.targets.{w}.size", f"let aArr := GetCompassTargets {w}\nSetFunctionValue (ar_Size aArr)") for w in (0, 1, 2)]
+            + [_h1(f"{tag}.nearest.npc", "let rObj := GetNearestCompassHostile\nSetFunctionValue (rObj == rNpc)"),
+               _h1(f"{tag}.nearest.valid", "let rObj := GetNearestCompassHostile\nSetFunctionValue (IsFormValid rObj)")])
+
+
+HUD1_PROBES = (
+    [_h1("vis.get", 'let fRes := GetHUDVisibilityOverride\nrP.AuxVarSetFlt "*nvfHV" fRes\nSetFunctionValue fRes'),
+     _h1("vis.set", "SetHUDVisibilityOverride 3\nSetFunctionValue (GetHUDVisibilityOverride)"),
+     _h1v("vis.set.next", "GetHUDVisibilityOverride"),
+     _h1("vis.restore", 'SetHUDVisibilityOverride (rP.AuxVarGetFlt "*nvfHV")\nrP.AuxVarErase "*nvfHV"\nSetFunctionValue (GetHUDVisibilityOverride)'),
+     _h1v("shudder", "GetHUDShudderPower"),
+     _h1("reticle.size", "let aArr := GetReticlePos\nSetFunctionValue (ar_Size aArr)"),
+     _h1v("reticle.limb", "GetReticleTargetLimb"),
+     _h1v("corner.before", "GetNumQueuedCornerMessages"),
+     _h1("corner.add", 'MessageEx "nvf one"\nMessageEx "nvf two"\nMessageEx "nvf three"\nSetFunctionValue (GetNumQueuedCornerMessages)'),
+     _h1v("corner.add.next", "GetNumQueuedCornerMessages"),
+     _h1("corner.clear", "ClearMessageQueue\nSetFunctionValue (GetNumQueuedCornerMessages)"),
+     _h1v("corner.clear.next", "GetNumQueuedCornerMessages")]
+    + _h1compass("calm")
+    + [_h1("npc.place", _form("rObj", FX["prospector"]) + 'let rNpc := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfH1" rNpc\nSetFunctionValue 1')]
+    + _h1w("npc.wait", 10)
+    + [_h1("npc.move", "rNpc.SetPos Y ((rP.GetPos Y) + 500)\nSetFunctionValue 1")]
+    + _h1w("npc.movewait", 10)
+    + _h1compass("npc.calm")
+    + [_h1("fight.start", 'Console "tgm"\nrNpc.StartCombat rP\nSetFunctionValue 1')]
+    + _h1w("fight.wait", 60)
+    + [_h1v("fight.incombat", "rNpc.IsInCombat")]
+    + _h1compass("fight")
+    + [_h1("cleanup", 'rNpc.StopCombat\nrNpc.Disable\nrNpc.MarkForDelete\nConsole "tgm"\nrP.AuxVarErase "*nvfH1"\nSetFunctionValue 1')]
+    + _h1w("cleanup.wait", 10)
+    + _h1compass("after")
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4009,11 +4506,18 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "glta-order": GLTA_ORDER_PROBES,
         "data1": DATA1_PROBES,
         "data2": DATA2_PROBES,
-        "data3": DATA3_PROBES}
+        "data3": DATA3_PROBES,
+        "anim1": ANIM1_PROBES,
+        "anim2": ANIM2_PROBES,
+        "reload1": RELOAD1_PROBES,
+        "sound1": SOUND1_PROBES,
+        "proj1": PROJ1_PROBES,
+        "controls1": CONTROLS1_PROBES,
+        "hud1": HUD1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1"}
 
 
 def script(body):

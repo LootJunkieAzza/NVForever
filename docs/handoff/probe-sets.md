@@ -71,6 +71,13 @@ nothing is marked or loosened for them.
 | data1 | 75 | none yet | – | record setters still unbuilt in the counts, each set, read back and put back; ActorHasBaseFlag |
 | data2 | 54 | none yet | – | actor base flags (low) and ActorHasBaseFlag on four NPCs, NPC height, equipped data, activator water, ar_Cat |
 | data3 | 32 | none yet | – | map marker names, SortFormsByType order, ListAddArray/ListAddList at index 0, unique items, RewardXPExact, JohnnyGuitar AV-change event |
+| anim1 | 53 | none (engine side) | – | player idles in third person: IsAnimPlaying/IsAnimPlayingEx, ForcePlayIdle, ForceStopIdle, StopIdle, GetPlayedIdle per frame |
+| anim2 | 607 | none (engine side) | – | GetPlayedIdle 30 frames after a stop; IsAnimPlayingEx on placed NPCs standing, following, and attacking the player (god mode on) |
+| reload1 | 946 | none (engine side) | – | IsAnimPlayingEx 4 (reload) on the player (clip set to 1, TapControl 7 twice) and on an NPC fighting the player; DamageActorValue with god mode off and on (LU Console "tgm") |
+| sound1 | 181 | none (engine side) | – | IsSoundPlaying frame by frame after PlaySound, PlaySound3D, StopSound and StopSoundAlt; GetSoundPlayers; IsSoundPlayingFromPath |
+| proj1 | 76 | none (engine side) | – | a live 10mm projectile found by ref-walking in flight: its getters, then SetProjectileRefSpeedMult/Damage/Source read back the same frame and the next |
+| controls1 | 436 | none (engine side) | – | GetControl bindings (this install's), SetControl and back, HoldControl/ReleaseControl Forward (movement), SetWeaponOut 1/0 and HolsterWeapon over 120 frames |
+| hud1 | 139 | none (engine side) | – | HUD visibility override, shudder, reticle position and limb, the corner-message queue, compass hostiles and targets before and during a fight |
 
 ## Coverage
 

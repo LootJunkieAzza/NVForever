@@ -9884,6 +9884,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "hud-controls"
+source = "nvse_hud and script_input (docs/spec-notes/ext-hud.md): SetWeaponOut draws and holsters the player's weapon through the engine, HoldControl holds a control from the next frame, SetControl rebinds and reads back, MessageEx joins the corner queue [observed: controls1, hud1]"
+areas = ["scripts", "player"]
+paths = ["crates/fnv-game/src/nvse_hud.rs", "crates/fnv-game/src/script_input.rs", "engine/nvf-play/src/script_input.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem WeapNV10mmPistol 1;player.EquipItem WeapNV10mmPistol;9:player.SetWeaponOut 1;HoldControl 2;SetControl 15 48;MessageEx \"nvf corner\";PrintC \"nvf queued %g\", (GetNumQueuedCornerMessages);9.5:close;11:PrintC \"nvf out %g held %g bind %g\", (player.IsWeaponOut), (IsControlPressed 2), (GetControl 15);ReleaseControl 2;SetControl 15 20;player.SetWeaponOut 0;11.5:close;13:PrintC \"nvf away %g held %g bind %g\", (player.IsWeaponOut), (IsControlPressed 2), (GetControl 15);13.5:player.RemoveItem WeapNV10mmPistol 1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf queued [1-9]', label = "MessageEx joins the corner-message queue" },
+  { re = 'script: print "nvf out 1 held 1 bind 48"', label = "the weapon is drawn, Left is held, Rest is rebound" },
+  { re = 'script: print "nvf away 0 held 0 bind 20"', label = "holstered, released and the binding put back" },
+]
+
+[[scenario]]
 name = "nif-blocks-mirror"
 source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
 areas = ["scripts", "actors"]

@@ -1015,6 +1015,8 @@ pub struct Game<'a> {
     pub jip2: crate::nvse_jip2::Jip2State,
     /// The most called functions no earlier set built (`crate::nvse_gaps`).
     pub gaps: crate::nvse_gaps::GapsState,
+    /// The HUD reads and the scripted weapon draws (`crate::nvse_hud`).
+    pub hud: crate::nvse_hud::HudState,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
@@ -1653,6 +1655,7 @@ impl<'a> Game<'a> {
             package_overrides: std::collections::HashMap::new(),
             jip2: Default::default(),
             gaps: Default::default(),
+            hud: Default::default(),
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
@@ -2677,6 +2680,8 @@ impl<'a> Game<'a> {
         let (dt, frame) = (self.cfg.frame_seconds, self.frame);
         self.gaps.sounds.tick(dt, frame);
         self.projectiles_tick(dt as f32);
+        self.hud_tick();
+        self.input.next_frame();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -4504,6 +4509,8 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
             self.game.show_box(none);
+        } else {
+            self.game.queue_corner_message();
         }
     }
 

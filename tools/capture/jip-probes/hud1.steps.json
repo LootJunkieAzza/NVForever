@@ -1,0 +1,703 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "hud1",
+ "title": "hud1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet fRes := GetHUDVisibilityOverride\nrP.AuxVarSetFlt \"*nvfHV\" fRes\nSetFunctionValue fRes\nEnd\n",
+   "label": "hud1.vis.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetHUDVisibilityOverride 3\nSetFunctionValue (GetHUDVisibilityOverride)\nEnd\n",
+   "label": "hud1.vis.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetHUDVisibilityOverride)\nEnd\n",
+   "label": "hud1.vis.set.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetHUDVisibilityOverride (rP.AuxVarGetFlt \"*nvfHV\")\nrP.AuxVarErase \"*nvfHV\"\nSetFunctionValue (GetHUDVisibilityOverride)\nEnd\n",
+   "label": "hud1.vis.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetHUDShudderPower)\nEnd\n",
+   "label": "hud1.shudder",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetReticlePos\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.reticle.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetReticleTargetLimb)\nEnd\n",
+   "label": "hud1.reticle.limb",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumQueuedCornerMessages)\nEnd\n",
+   "label": "hud1.corner.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nMessageEx \"nvf one\"\nMessageEx \"nvf two\"\nMessageEx \"nvf three\"\nSetFunctionValue (GetNumQueuedCornerMessages)\nEnd\n",
+   "label": "hud1.corner.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumQueuedCornerMessages)\nEnd\n",
+   "label": "hud1.corner.add.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nClearMessageQueue\nSetFunctionValue (GetNumQueuedCornerMessages)\nEnd\n",
+   "label": "hud1.corner.clear",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumQueuedCornerMessages)\nEnd\n",
+   "label": "hud1.corner.clear.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles)\nEnd\n",
+   "label": "hud1.calm.hostiles.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles 100)\nEnd\n",
+   "label": "hud1.calm.hostiles.num.near",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassHostiles\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.calm.hostiles.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 0\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.calm.targets.0.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 1\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.calm.targets.1.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 2\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.calm.targets.2.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (rObj == rNpc)\nEnd\n",
+   "label": "hud1.calm.nearest.npc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (IsFormValid rObj)\nEnd\n",
+   "label": "hud1.calm.nearest.valid",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B586\"\nlet rNpc := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfH1\" rNpc\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.place",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.wait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nrNpc.SetPos Y ((rP.GetPos Y) + 500)\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.move",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.npc.movewait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles)\nEnd\n",
+   "label": "hud1.npc.calm.hostiles.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles 100)\nEnd\n",
+   "label": "hud1.npc.calm.hostiles.num.near",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassHostiles\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.npc.calm.hostiles.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 0\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.npc.calm.targets.0.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 1\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.npc.calm.targets.1.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 2\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.npc.calm.targets.2.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (rObj == rNpc)\nEnd\n",
+   "label": "hud1.npc.calm.nearest.npc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (IsFormValid rObj)\nEnd\n",
+   "label": "hud1.npc.calm.nearest.valid",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nConsole \"tgm\"\nrNpc.StartCombat rP\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.start",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait31",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait33",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait34",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait35",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait36",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait37",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait38",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait39",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait40",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait41",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait42",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait43",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait44",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait45",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait46",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait47",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait48",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait49",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait50",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait51",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait52",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait53",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait54",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait55",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait56",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait57",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait58",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.fight.wait59",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (rNpc.IsInCombat)\nEnd\n",
+   "label": "hud1.fight.incombat",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles)\nEnd\n",
+   "label": "hud1.fight.hostiles.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles 100)\nEnd\n",
+   "label": "hud1.fight.hostiles.num.near",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassHostiles\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.fight.hostiles.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 0\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.fight.targets.0.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 1\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.fight.targets.1.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 2\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.fight.targets.2.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (rObj == rNpc)\nEnd\n",
+   "label": "hud1.fight.nearest.npc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (IsFormValid rObj)\nEnd\n",
+   "label": "hud1.fight.nearest.valid",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nrNpc.StopCombat\nrNpc.Disable\nrNpc.MarkForDelete\nConsole \"tgm\"\nrP.AuxVarErase \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "hud1.cleanup.wait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles)\nEnd\n",
+   "label": "hud1.after.hostiles.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nSetFunctionValue (GetNumCompassHostiles 100)\nEnd\n",
+   "label": "hud1.after.hostiles.num.near",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassHostiles\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.after.hostiles.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 0\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.after.targets.0.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 1\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.after.targets.1.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet aArr := GetCompassTargets 2\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "hud1.after.targets.2.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (rObj == rNpc)\nEnd\n",
+   "label": "hud1.after.nearest.npc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rNpc\nref rObj\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rNpc := rP.AuxVarGetRef \"*nvfH1\"\nlet rObj := GetNearestCompassHostile\nSetFunctionValue (IsFormValid rObj)\nEnd\n",
+   "label": "hud1.after.nearest.valid",
+   "field": "value"
+  }
+ ]
+}

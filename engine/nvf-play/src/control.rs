@@ -404,7 +404,7 @@ pub fn enforce_locks(
 /// Tell the scripts the camera's view (IsPC1stPerson) and whether the player sneaks
 /// (IsSneaking) every frame; movement is told by detection (`nvforever` `detection.rs`).
 /// First JIP's ToggleFirstPerson and TogglePlayerSneaking take effect
-/// (`fnv_game::nvse_gaps`).
+/// (`fnv_game::nvse_gaps`), and the scripted draws and holsters (`fnv_game::nvse_hud`).
 pub fn tell_scripts(mut control: ResMut<PlayerControl>, mut script: Option<ResMut<crate::script::ScriptState>>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let g = &mut rt.game;
@@ -413,6 +413,13 @@ pub fn tell_scripts(mut control: ResMut<PlayerControl>, mut script: Option<ResMu
     }
     if let Some(sneak) = g.gaps.sneak_request.take() {
         control.sneak = sneak;
+    }
+    // SetWeaponOut and HolsterWeapon on the player (`fnv_game::nvse_hud`); an NPC's draw
+    // follows the rule the engine draws by, which SetWeaponOut 1 holds.
+    for (who, out) in std::mem::take(&mut g.hud.weapon_asks) {
+        if who == fnv_sim::FormId::PLAYER_REF {
+            control.weapon_out = out;
+        }
     }
     if let Some(run) = g.gaps.always_run_request.take() {
         control.always_run = run;
