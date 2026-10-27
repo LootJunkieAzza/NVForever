@@ -9953,6 +9953,9 @@ expect = [
   { re = 'hotkeys: slot 5: equipped Merc Charmer Outfit', label = "a tap of 5 puts the outfit on" },
   { re = 'hotkeys: slot 5: took off Merc Charmer Outfit', label = "another tap takes it off" },
   { re = 'hotkeys: slot 8: empty', label = "an empty slot does nothing" },
+  { re = 'ui sounds: inventory item put on: (?!none found)\S+', label = "equipping from a slot plays the item's put-on sound, as the ITEMS page" },
+  { re = 'ui sounds: inventory item used: (?!none found)\S+', label = "a Stimpak used from a slot plays its consume sound" },
+  { re = 'ui sounds: inventory item taken off: (?!none found)\S+', label = "taking the outfit off from a slot plays its take-off sound" },
   { re = 'weapon wheel summary: 6 taps, opened 2 times, used slots \[3\], 1 cancelled', label = "the summary" },
 ]
 forbid = [

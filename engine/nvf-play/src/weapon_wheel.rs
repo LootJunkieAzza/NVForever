@@ -19,6 +19,9 @@
 //!   next ammo (`PlayerControl::ammo_swap`).
 //! - A weapon equipped from a slot is drawn [design: as RDR2's wheel and the original's
 //!   hotkeys, which ready the weapon (hypothesis)].
+//! - A slot used, by a tap or from the wheel, plays what the Pip-Boy's ITEMS page plays
+//!   for the same thing (`crate::ui_sounds`): the item's put-on or take-off sound, an aid
+//!   item's consume sound, the refusal sound for an item not carried or refused.
 //!
 //! Test aid `NVF_PLAY_TEST_HOTKEYS=<seconds>:<step>[,…]` (world seconds): `assign:<slot>:<item>`
 //! (an editor ID or a FormID the player carries), `tap:<slot>`, `hold:<slot>` (the key
@@ -35,6 +38,7 @@ use crate::control::PlayerControl;
 use crate::hotkeys::{self, Hotkeys, Slot, Used, AMMO_SWAP, CONTROLS, SLOTS};
 use crate::pause::AidTime;
 use crate::sim::SimState;
+use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{ItemUsed, PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -302,6 +306,7 @@ impl Plugin for WeaponWheelPlugin {
             Err(_) => Vec::new(),
         };
         app.init_resource::<WeaponWheel>()
+            .add_message::<UiSound>()
             .init_resource::<Hotkeys>()
             .init_resource::<WheelStats>()
             .insert_resource(WheelAid { steps, ..default() })
@@ -370,6 +375,7 @@ fn read(
     mut wheel: ResMut<WeaponWheel>,
     mut control: ResMut<PlayerControl>,
     (hotkeys, mut sim, mut used, mut stats): (Res<Hotkeys>, ResMut<SimState>, MessageWriter<ItemUsed>, ResMut<WheelStats>),
+    mut sounds: MessageWriter<UiSound>,
 ) {
     let mut f = Frame { dt: real.delta_secs(), ..default() };
     for (i, &c) in CONTROLS.iter().enumerate() {
@@ -419,7 +425,7 @@ fn read(
                 } else {
                     stats.chosen.push(n);
                 }
-                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used);
+                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds);
                 if matches!(o, Outcome::Chose(_)) {
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
                 }
@@ -441,8 +447,22 @@ fn read(
     control.wheel = wheel.holds_input();
 }
 
+/// The inventory's sound for what a slot did, as the Pip-Boy's ITEMS page plays it
+/// (`crate::ui_sounds`): the item's own put-on or take-off sound, an aid item's consume
+/// sound, the refusal sound; none for an empty slot or a weapon already in hand.
+fn sound_of(slot: Option<Slot>, outcome: &Used) -> Option<UiEvent> {
+    let item = slot.map(|s| FormId(s.item));
+    match outcome {
+        Used::Equipped => Some(UiEvent::Equipped { item: item?, on: true }),
+        Used::TookOff => Some(UiEvent::Equipped { item: item?, on: false }),
+        Used::UsedUp(item) => Some(UiEvent::Used { item: *item }),
+        Used::NotCarried | Used::Refused(_) => Some(UiEvent::Refused),
+        Used::Empty | Used::InHand => None,
+    }
+}
+
 /// Use slot `n` (a tap, or the wheel let go on it); returns what happened.
-fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>) -> String {
+fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>) -> String {
     if n == AMMO_SWAP {
         control.ammo_swap = true;
         info!("hotkeys: slot 2: Ammo Swap");
@@ -451,6 +471,9 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
     let slot = hotkeys.0[n];
     let name = slot.map_or_else(String::new, |s| crate::menu::model::display_name(sim.forms, FormId(s.item)));
     let outcome = hotkeys::use_slot(&mut sim.world, slot);
+    if let Some(event) = sound_of(slot, &outcome) {
+        sounds.write(UiSound { menu: UiMenu::Inventory, event });
+    }
     match &outcome {
         Used::UsedUp(item) => {
             used.write(ItemUsed { item: item.0, limb: None });
@@ -487,6 +510,18 @@ mod tests {
     fn down(mut f: Frame, k: usize) -> Frame {
         f.down[k] = true;
         f
+    }
+
+    #[test]
+    fn a_used_slot_sounds_as_the_items_page() {
+        let slot = Some(Slot { item: 0x1234, mods: 0 });
+        let item = FormId(0x1234);
+        assert_eq!(sound_of(slot, &Used::Equipped), Some(UiEvent::Equipped { item, on: true }));
+        assert_eq!(sound_of(slot, &Used::TookOff), Some(UiEvent::Equipped { item, on: false }));
+        assert_eq!(sound_of(slot, &Used::UsedUp(item)), Some(UiEvent::Used { item }));
+        assert_eq!(sound_of(slot, &Used::NotCarried), Some(UiEvent::Refused));
+        assert_eq!(sound_of(slot, &Used::InHand), None);
+        assert_eq!(sound_of(None, &Used::Empty), None);
     }
 
     #[test]

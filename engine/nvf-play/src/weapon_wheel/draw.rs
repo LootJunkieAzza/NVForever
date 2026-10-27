@@ -39,18 +39,22 @@ const RAISE: f32 = 20.0;
 /// The slices' radii, the hub's, the gap between slices (degrees each side) and the lit
 /// rim's band outside the slices.
 pub const OUTER: f32 = 372.0;
-pub const INNER: f32 = 160.0;
-const HUB: f32 = 150.0;
+pub const INNER: f32 = 178.0;
+const HUB: f32 = 168.0;
 const GAP: f32 = 1.6;
 const RIM: [f32; 2] = [380.0, 392.0];
 // The rim stays inside the square, the hub inside the slices.
 const _: () = assert!(RIM[1] < SIZE / 2.0 && HUB < INNER && INNER < OUTER && OUTER < RIM[0]);
 
 /// An item picture's size, and the Ammo Swap icon's.
-const ICON: f32 = 150.0;
+const ICON: f32 = 132.0;
 const SWAP_ICON: f32 = 70.0;
-/// The widest name the hub takes in the large font.
-const NAME_WIDTH: f32 = 230.0;
+/// The hub's text keeps this far inside its outline; a figure's row, a rule's room, and
+/// how far out the figures' labels and values stand at most.
+const HUB_PAD: f32 = 12.0;
+const ROW: f32 = 22.0;
+const RULE_ROOM: f32 = 10.0;
+const BAR_HALF: f32 = 112.0;
 /// An outline's width.
 const LINE: f32 = 2.0;
 /// An unpicked slice's picture and count are drawn at this strength; a slot whose item
@@ -386,7 +390,7 @@ fn draw(
                     picture(m, kit, data, &mut images, bc, icon, at(mid.x - side / 2.0, mid.y - side / 2.0 - 6.0, side, side), bright.with_alpha(strength));
                 }
                 if let Some(n) = &v.count {
-                    text(m, &kit.medium, n, mid.x, mid.y + 46.0, 0, bright.with_alpha(strength.max(0.68)));
+                    text(m, &kit.medium, n, mid.x, mid.y + 40.0, 0, bright.with_alpha(strength.max(0.68)));
                 }
             }
             hub_text(m, kit, &s.hub, c, bright);
@@ -396,39 +400,177 @@ fn draw(
     });
 }
 
-fn hub_text(m: &mut ChildSpawnerCommands, kit: &Kit, h: &HubView, c: f32, bright: Color) {
-    let rule = |m: &mut ChildSpawnerCommands, y: f32| {
-        m.spawn((at(c - 110.0, c + y, 220.0, 1.5), BackgroundColor(bright.with_alpha(0.5))));
+/// One thing the hub draws: `y` its top from the hub's middle, `half` how far out to
+/// each side it may reach.
+#[derive(Debug, Clone, PartialEq)]
+enum Piece {
+    Text { big: bool, s: String, y: f32, alpha: f32 },
+    Bar { label: &'static str, fill: f32, value: String, y: f32, half: f32 },
+    Choice { name: String, n: String, now: bool, y: f32, half: f32 },
+    Rule { y: f32, half: f32 },
+}
+
+/// A text block before it is placed: its font (the large one may give way to the
+/// medium), its words and its lines as set so far.
+struct Block {
+    big: bool,
+    shrink: bool,
+    source: String,
+    lines: Vec<String>,
+    alpha: f32,
+}
+
+enum Row {
+    Text(Block),
+    /// The figures or the ammunition choices, `ROW` each.
+    Table(usize),
+    Rule,
+}
+
+/// `s` cut short with dots until it is no wider than `width`.
+fn clip(font: &fnv_font::Font, s: &str, width: f32) -> String {
+    if font.width(s) <= width {
+        return s.to_string();
+    }
+    let mut chars: Vec<char> = s.chars().collect();
+    let cut = |chars: &[char]| format!("{}...", chars.iter().collect::<String>().trim_end());
+    while !chars.is_empty() && font.width(&cut(&chars)) > width {
+        chars.pop();
+    }
+    cut(&chars)
+}
+
+/// `s` set in lines no wider than `width`, two at most (the second cut short).
+fn wrap(font: &fnv_font::Font, s: &str, width: f32) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for w in s.split_whitespace() {
+        let full = lines.len() == 2;
+        match lines.last_mut() {
+            Some(l) if full || font.width(&format!("{l} {w}")) <= width => {
+                l.push(' ');
+                l.push_str(w);
+            }
+            _ => lines.push(w.to_string()),
+        }
+    }
+    lines.into_iter().map(|l| clip(font, &l, width)).collect()
+}
+
+/// Where the hub's text and figures go, every piece inside the circle of radius `r`
+/// round the hub's middle: a block too wide where it stands takes the medium font, then
+/// a second line, then is cut short; the kind gives way when the whole is too tall.
+fn hub_layout(h: &HubView, large: &fnv_font::Font, medium: &fnv_font::Font, r: f32) -> Vec<Piece> {
+    let half_at = |y0: f32, y1: f32| {
+        let d = y0.abs().max(y1.abs()).min(r);
+        (r * r - d * d).sqrt()
     };
-    if !h.kind.is_empty() {
-        text(m, &kit.medium, &h.kind.to_uppercase(), c, c - 128.0, 0, bright.with_alpha(0.75));
+    let font = |big: bool| if big { large } else { medium };
+    let table = h.bars.len().min(6).max(h.choices.len().min(5));
+    let bottom = h.ammo.as_ref().map(|(name, counts)| vec![format!("<  {name}  >"), counts.clone()]).or_else(|| h.note.clone().map(|n| vec![n]));
+    let block = |big: bool, s: String, alpha: f32| Row::Text(Block { big, shrink: big, lines: vec![s.clone()], source: s, alpha });
+    for with_kind in [true, false] {
+        let mut rows = Vec::new();
+        if with_kind && !h.kind.is_empty() {
+            rows.push(block(false, h.kind.to_uppercase(), 0.75));
+        }
+        rows.push(block(true, h.name.trim().to_string(), 1.0));
+        rows.push(Row::Rule);
+        if table > 0 {
+            rows.push(Row::Table(table));
+            if bottom.is_some() {
+                rows.push(Row::Rule);
+            }
+        }
+        for (k, s) in bottom.iter().flatten().enumerate() {
+            rows.push(block(false, s.clone(), if h.ammo.is_some() && k == 0 { 1.0 } else { 0.8 }));
+        }
+        let height = |row: &Row| match row {
+            Row::Text(b) => b.lines.len() as f32 * font(b.big).size,
+            Row::Table(n) => *n as f32 * ROW,
+            Row::Rule => RULE_ROOM,
+        };
+        // A change only grows the stack, moving blocks out to where the circle is
+        // narrower, so a few rounds settle it; what is still too wide is cut below.
+        for _ in 0..6 {
+            let mut y = -rows.iter().map(height).sum::<f32>() / 2.0;
+            let mut changed = false;
+            for row in &mut rows {
+                let tall = height(row);
+                if let Row::Text(b) = row {
+                    let room = 2.0 * half_at(y, y + tall);
+                    if b.lines.iter().any(|l| font(b.big).width(l) > room) {
+                        if b.shrink && b.big {
+                            b.big = false;
+                        } else {
+                            b.lines = wrap(font(b.big), &b.source, room);
+                        }
+                        changed = true;
+                    }
+                }
+                y += tall;
+            }
+            if !changed {
+                break;
+            }
+        }
+        let total: f32 = rows.iter().map(height).sum();
+        if total > 2.0 * r && with_kind && !h.kind.is_empty() {
+            continue;
+        }
+        let mut out = Vec::new();
+        let mut y = -total / 2.0;
+        for row in &rows {
+            let tall = height(row);
+            match row {
+                Row::Text(b) => {
+                    let size = font(b.big).size;
+                    for (k, l) in b.lines.iter().enumerate() {
+                        let top = y + k as f32 * size;
+                        let room = 2.0 * half_at(top, top + size);
+                        out.push(Piece::Text { big: b.big, s: clip(font(b.big), l, room), y: top, alpha: b.alpha });
+                    }
+                }
+                Row::Rule => out.push(Piece::Rule { y: y + RULE_ROOM / 2.0, half: half_at(y, y + RULE_ROOM).min(110.0) }),
+                Row::Table(_) => {
+                    let half = half_at(y, y + tall).min(BAR_HALF);
+                    for (k, (label, fill, value)) in h.bars.iter().take(6).enumerate() {
+                        out.push(Piece::Bar { label, fill: *fill, value: value.clone(), y: y + k as f32 * ROW, half });
+                    }
+                    for (k, (name, n, now)) in h.choices.iter().take(5).enumerate() {
+                        let n = n.to_string();
+                        let room = 2.0 * half - medium.width(&n) - medium.width("> ") - 12.0;
+                        out.push(Piece::Choice { name: clip(medium, name, room), n, now: *now, y: y + k as f32 * ROW, half });
+                    }
+                }
+            }
+            y += tall;
+        }
+        return out;
     }
-    // A long name in the smaller font, so it stays inside the hub.
-    let fits = kit.large.font.lines(h.name.trim(), None).first().is_none_or(|l| l.width <= NAME_WIDTH);
-    let (name_face, name_top) = if fits { (&kit.large, c - 102.0) } else { (&kit.medium, c - 96.0) };
-    text(m, name_face, &h.name, c, name_top, 0, bright);
-    rule(m, -66.0);
-    let row = 24.0;
-    for (k, (label, fill, value)) in h.bars.iter().enumerate().take(6) {
-        let y = c - 58.0 + k as f32 * row;
-        text(m, &kit.medium, label, c - 112.0, y, -1, bright.with_alpha(0.9));
-        let (x0, w) = (c - 58.0, 86.0);
-        m.spawn((Node { border: UiRect::all(Val::Px(1.0)), ..at(x0, y + 7.0, w, 10.0) }, BorderColor::all(bright.with_alpha(0.45))));
-        m.spawn((at(x0 + 2.0, y + 9.0, (w - 4.0) * fill, 6.0), BackgroundColor(bright.with_alpha(0.9))));
-        text(m, &kit.medium, value, c + 112.0, y, 1, bright.with_alpha(0.9));
-    }
-    for (k, (name, n, now)) in h.choices.iter().enumerate().take(5) {
-        let y = c - 58.0 + k as f32 * row;
-        let a = if *now { 1.0 } else { 0.62 };
-        text(m, &kit.medium, &format!("{}{name}", if *now { "> " } else { "  " }), c - 112.0, y, -1, bright.with_alpha(a));
-        text(m, &kit.medium, &n.to_string(), c + 112.0, y, 1, bright.with_alpha(a));
-    }
-    rule(m, 66.0);
-    if let Some((name, counts)) = &h.ammo {
-        text(m, &kit.medium, &format!("<  {name}  >"), c, c + 70.0, 0, bright);
-        text(m, &kit.medium, counts, c, c + 94.0, 0, bright.with_alpha(0.8));
-    } else if let Some(n) = &h.note {
-        text(m, &kit.medium, n, c, c + 78.0, 0, bright.with_alpha(0.8));
+    Vec::new()
+}
+
+fn hub_text(m: &mut ChildSpawnerCommands, kit: &Kit, h: &HubView, c: f32, bright: Color) {
+    for piece in hub_layout(h, &kit.large.font, &kit.medium.font, HUB - HUB_PAD) {
+        match piece {
+            Piece::Text { big, s, y, alpha } => text(m, if big { &kit.large } else { &kit.medium }, &s, c, c + y, 0, bright.with_alpha(alpha)),
+            Piece::Rule { y, half } => {
+                m.spawn((at(c - half, c + y, 2.0 * half, 1.5), BackgroundColor(bright.with_alpha(0.5))));
+            }
+            Piece::Bar { label, fill, value, y, half } => {
+                let y = c + y;
+                text(m, &kit.medium, label, c - half, y, -1, bright.with_alpha(0.9));
+                let (x0, w) = (c - half + 54.0, 2.0 * half - 138.0);
+                m.spawn((Node { border: UiRect::all(Val::Px(1.0)), ..at(x0, y + 6.0, w, 10.0) }, BorderColor::all(bright.with_alpha(0.45))));
+                m.spawn((at(x0 + 2.0, y + 8.0, (w - 4.0) * fill, 6.0), BackgroundColor(bright.with_alpha(0.9))));
+                text(m, &kit.medium, &value, c + half, y, 1, bright.with_alpha(0.9));
+            }
+            Piece::Choice { name, n, now, y, half } => {
+                let a = if now { 1.0 } else { 0.62 };
+                text(m, &kit.medium, &format!("{}{name}", if now { "> " } else { "  " }), c - half, c + y, -1, bright.with_alpha(a));
+                text(m, &kit.medium, &n, c + half, c + y, 1, bright.with_alpha(a));
+            }
+        }
     }
 }
 
@@ -440,5 +582,62 @@ mod tests {
     fn the_slices_sit_inside_the_square() {
         let u = slice_uniform(-22.5, 22.5, INNER, OUTER, Color::BLACK, Color::WHITE, LINE);
         assert!((u.shape.w - OUTER / (SIZE / 2.0)).abs() < 1e-6);
+    }
+
+    /// Every piece's corners inside the circle of radius `r`.
+    fn inside(pieces: &[Piece], large: &fnv_font::Font, medium: &fnv_font::Font, r: f32) {
+        let ok = |x: f32, y: f32| x * x + y * y <= r * r + 0.5;
+        for p in pieces {
+            let (w, y, tall) = match p {
+                Piece::Text { big, s, y, .. } => {
+                    let f = if *big { large } else { medium };
+                    (f.width(s) / 2.0, *y, f.size)
+                }
+                Piece::Bar { y, half, .. } | Piece::Choice { y, half, .. } => (*half, *y, ROW),
+                Piece::Rule { y, half } => (*half, *y, 1.5),
+            };
+            assert!(ok(w, y) && ok(w, y + tall), "{p:?} leaves the hub");
+        }
+    }
+
+    #[test]
+    fn the_hub_keeps_everything_inside() {
+        // About as wide as the game's fonts [observed: the owner's pictures].
+        let large = crate::interface::plain_font(31.0, 18.0);
+        let medium = crate::interface::plain_font(25.0, 15.0);
+        let r = HUB - HUB_PAD;
+        let bar = |l| (l, 0.5, "100%".to_string());
+        let weapon = HubView {
+            kind: "Weapons".into(),
+            name: "Sturdy Caravan Shotgun".into(),
+            bars: vec![bar("DAM"), bar("DPS"), bar("WG"), bar("VAL"), bar("CND")],
+            ammo: Some(("20ga".into(), "2 / 40".into())),
+            ..default()
+        };
+        let empty = HubView { name: "Empty".into(), note: Some("Pip-Boy: select an item, press 1, 3-8".into()), ..default() };
+        let swap = HubView {
+            kind: "Ammo".into(),
+            name: "Ammo Swap".into(),
+            choices: (0..5).map(|k| (format!("Very Long Ammunition Name {k}"), 1234, k == 0)).collect(),
+            ..default()
+        };
+        let long = HubView {
+            kind: "Apparel".into(),
+            name: "Lucky Shades of the Very Long Mod Name Collection".into(),
+            bars: vec![bar("DT"), bar("WG"), bar("VAL"), bar("CND")],
+            note: Some("Not carried".into()),
+            ..default()
+        };
+        for h in [&weapon, &empty, &swap, &long] {
+            inside(&hub_layout(h, &large, &medium, r), &large, &medium, r);
+        }
+        // Nothing is lost when it fits: the weapon keeps its kind, its figures and its
+        // whole name over two lines; the empty slot's hint is whole.
+        let texts = |h: &HubView| -> Vec<String> {
+            hub_layout(h, &large, &medium, r).into_iter().filter_map(|p| if let Piece::Text { s, .. } = p { Some(s) } else { None }).collect()
+        };
+        assert_eq!(texts(&weapon), ["WEAPONS", "Sturdy Caravan", "Shotgun", "<  20ga  >", "2 / 40"]);
+        assert_eq!(hub_layout(&weapon, &large, &medium, r).iter().filter(|p| matches!(p, Piece::Bar { .. })).count(), 5);
+        assert!(texts(&empty).iter().all(|l| !l.ends_with("...")), "{:?}", texts(&empty));
     }
 }
