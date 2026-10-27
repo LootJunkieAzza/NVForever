@@ -32,7 +32,7 @@ impl Status {
     }
 }
 
-/// The workstreams of the owner's list 2 (docs/handoff/playtest-2026-10-12.md §3).
+/// The workstreams of the owner's list 2 (docs/handoff/archive/playtest-2026-10-12.md §3).
 pub const CRIME: &str = "J karma and crime";
 pub const FOLLOWERS: &str = "H followers";
 
