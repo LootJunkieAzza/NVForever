@@ -44,6 +44,9 @@ pub struct GapsState {
     pub sneak_request: Option<bool>,
     /// JohnnyGuitar's perk handlers: (on add, the function, the perk it waits for).
     pub perk_handlers: Vec<(bool, XVal, Option<FormId>)>,
+    /// The angles GetAngle still reads after a SetAngle this frame: (reference, axis) ->
+    /// degrees.
+    pub angles_shown: HashMap<(FormId, usize), f64>,
     /// SetMapMarkerRep's reputations, by marker reference (`None`: cleared).
     pub marker_reputations: HashMap<FormId, Option<FormId>>,
     /// SetRecipeCategory's and SetRecipeSubcategory's forms: (recipe, sub).
@@ -57,8 +60,6 @@ pub struct GapsState {
     pub always_run_request: Option<bool>,
     /// RunScriptSnippet's snippets waiting: (frames left, source, reference).
     pub snippets: Vec<(u32, String, FormId)>,
-    /// SetNthEffectTraitNumeric's values: (item, effect index, trait).
-    pub effect_traits: HashMap<(FormId, usize, i64), f64>,
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -126,6 +127,7 @@ impl Game<'_> {
 
     /// RunScriptSnippet's snippets whose delay has passed run (`Game::tick`).
     pub(crate) fn run_due_snippets(&mut self) {
+        self.gaps.angles_shown.clear();
         if self.gaps.snippets.is_empty() {
             return;
         }
@@ -334,9 +336,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => return Some(Ok(zero)),
             };
             let now = g.gaps.perk_flags.get(&(f, k as u8)).copied().unwrap_or(now);
-            // SetPerkFlag returns the old flag, for the session [observed: gaps7].
+            // SetPerkFlag returns 0, for the session [observed: gaps7, 0 both ways].
             if name == "setperkflag" {
                 g.gaps.perk_flags.insert((f, k as u8), num(args, 2, 0.0) != 0.0);
+                return Some(Ok(zero));
             }
             yes(now)
         }
@@ -456,34 +459,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let chance = crate::functions::actor::actor_value(g, a, crate::actor_values::CRITICAL_CHANCE).unwrap_or(0.0).max(0.0) / 100.0;
             let crit = crate::nvse::record_value(g, w, "CRDT", "critical_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) * crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0);
             XVal::Num((weapon_damage(g, a, w).0 + chance * crit) * shots)
-        }
-        // `item effect trait`: 0 magnitude, 1 area, 2 duration, 3 range (0 Self), 4 actor
-        // value [observed: gaps6, the stimpak's first reads 5 0 6 0; hypothesis: 4]; the
-        // setter returns 0 and holds for the session [observed].
-        "getntheffecttraitnumeric" | "setntheffecttraitnumeric" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let i = num(args, 1, -1.0);
-            let t = num(args, 2, -1.0) as i64;
-            if i < 0.0 {
-                return Some(Ok(zero));
-            }
-            let key = (f, i as usize, t);
-            if name == "setntheffecttraitnumeric" {
-                g.gaps.effect_traits.insert(key, num(args, 3, 0.0));
-                return Some(Ok(zero));
-            }
-            if let Some(v) = g.gaps.effect_traits.get(&key) {
-                return Some(Ok(XVal::Num(*v)));
-            }
-            let Some(e) = g.data.effect_items.get(&f).and_then(|l| l.get(i as usize)) else { return Some(Ok(zero)) };
-            XVal::Num(match t {
-                0 => f64::from(e.magnitude),
-                1 => f64::from(e.area),
-                2 => f64::from(e.duration),
-                3 => json_num(g.data.record_all(f, "EFIT").get(i as usize).and_then(|v| v.get("type"))),
-                4 => e.actor_value.map_or(-1.0, f64::from),
-                _ => 0.0,
-            })
         }
         // DESC, which GetFormDescription reads (the VM's); the VM formats it; returns 1
         // and holds for the session [observed: gaps6, "NVF desc %g" 3 reads "NVF desc 3"].
@@ -948,7 +923,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.field_overrides.insert((f, key.into()), XVal::Ref(form(args, 2).map_or(0, |e| e.0)));
             zero
         }
-        // EXPL DATA flags; returns the old bit [observed: gaps7].
+        // EXPL DATA flags; returns 0 [observed: gaps7, 0 both ways].
         "setexplosionflag" => {
             let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             let flags = match crate::nvse::record_value(g, f, "DATA", "flags") {
@@ -961,13 +936,35 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << (k as u64) } else { flags & !(1 << (k as u64)) };
             g.field_overrides.insert((f, "DATA/flags".into()), XVal::Num(new as f64));
-            XVal::Num((flags >> (k as u64) & 1) as f64)
+            zero
         }
-        // The leveled list a placed actor came from; 0 for others [documented:
-        // GetLeveledActorBase].
+        // The leveled list a placed actor came from, else its own base [documented:
+        // GetLeveledActorBase; observed: gaps7, Doc his base 00104C0C].
         "getleveledactorbase" => {
-            let b = subject.and_then(|r| g.world.placed.get(r)).map(|p| p.base);
-            XVal::Ref(b.filter(|b| g.data.leveled_actors.contains_key(b)).map_or(0, |b| b.0))
+            let b = subject.map(|r| g.world.placed.get(r).map_or_else(|| base(g, r), |p| p.base));
+            XVal::Ref(b.map_or(0, |b| b.0))
+        }
+        // An actor can move [documented: IsMobile; observed: gaps7, Doc 1].
+        "ismobile" => yes(subject.is_some_and(|r| crate::ai::is_actor_base(g.world.forms, base(g, r)))),
+        // A null form when none is set [observed: plugins2, 00000000].
+        "getcustommapmarker" => XVal::Ref(0),
+        // `[base]`: the base's item list, one entry each [observed: gaps7, the Nuka-Cola
+        // machine 3, Doc 7; hypothesis: each element the item].
+        "getbaseitems" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let items: Vec<XVal> = g.world.base_entries(b).unwrap_or_default().iter().map(|e| XVal::Ref(e.item.0)).collect();
+            list(g, items)
+        }
+        // `typeCode [modIndex]`: the loaded forms of the type in FormID order, of one
+        // plugin when given [observed: gaps1, weapons 496 in all, 265 of FalloutNV.esm,
+        // the first 000001F6; aid 226 and 189].
+        "getloadedtypearray" => {
+            let code = num(args, 0, -1.0) as i32;
+            let plugin = args.get(1).map(|_| num(args, 1, 0.0) as u32);
+            let mut forms: Vec<FormId> = g.data.forms_of_type(code).into_iter().filter(|f| plugin.is_none_or(|p| f.0 >> 24 == p)).collect();
+            forms.sort();
+            let forms = forms.into_iter().map(|f| XVal::Ref(f.0)).collect();
+            list(g, forms)
         }
         // Carried weight over capacity, in percent [observed: gaps7, the player 46.50].
         "getencumbrancerate" => {
@@ -1182,9 +1179,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `x1 y1 z1 x2 y2 z2 [flag]`: the distance from the first point to the first thing
-        // hit on the way to the second, 0 for none (`crate::ray`, the engine's physics)
-        // [observed: engine1, 997 and 1963 to the walls by the airport, 0 with no hit or a
-        // zero-length cast; hypothesis: the flag's layers are not told apart].
+        // hit on the way to the second, 0 for none (`crate::ray`, the engine's physics, no
+        // terrain) [observed: engine1, 997 and 1963 to the walls by the airport, 0 with no
+        // hit or a zero-length cast; engine2 and engine3, flags 0–4 read alike].
         "getp2praycastrange" => {
             let p: Vec<f32> = (0..6).map(|k| num(args, k, 0.0) as f32).collect();
             let (a, b) = ([p[0], p[1], p[2]], [p[3], p[4], p[5]]);

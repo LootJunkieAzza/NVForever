@@ -21,11 +21,23 @@ fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
         return Some(v.clone());
     }
     Some(match g.data.record_field(form, sub, path)? {
-        Json::Number(n) => XVal::Num(n.as_f64()?),
+        Json::Number(n) => XVal::Num(record_float(n.as_f64()?)),
         Json::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
         Json::String(s) => XVal::Str(s.clone()),
         _ => return None,
     })
+}
+
+/// A record's number as the game reads it: a float32 field by its shortest decimal (1.3,
+/// not 1.29999995), so that `x * 1000` floors to 1300 [observed: gaps9, Floor of
+/// GetWeaponAnimAttackMult × 1000 on the machete (1.3 in the record) reads 1300].
+pub(crate) fn record_float(x: f64) -> f64 {
+    let f = x as f32;
+    if x.fract() != 0.0 && f64::from(f) == x {
+        format!("{f}").parse().unwrap_or(x)
+    } else {
+        x
+    }
 }
 
 /// [`field`] for the sibling files.
@@ -331,17 +343,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 _ => form_of(field(g, a, "DAT2", "consumed_ammo")),
             }
         }
-        // [documented: GetName] the full name of a form; on a reference the name
-        // SetRefName gave it, else its base's, never the reference's own FULL [observed:
-        // plugins3, the Goodsprings map marker reads its base's "<no name>"-less name and
-        // 605 references round the player read their bases'; gaps4, SetRefName's name].
+        // [documented: GetName] the full name of a form; on a reference always its
+        // base's, neither the reference's own FULL nor SetRefName's name; a static
+        // without one reads "<no name>" [observed: plugins3, the Goodsprings map marker
+        // and the 605 references round the player; gaps4, Doc after SetRefName].
         "getname" => {
             let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
             let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
-            let n = match crate::functions::base_of(g, f).filter(|&b| b != f) {
-                Some(b) => g.gaps.ref_names.get(&f).cloned().or_else(|| named(b)),
-                None => named(f),
-            };
+            let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
+            let n = named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string()));
             XVal::Str(n.unwrap_or_default())
         }
         // [documented: GetParentCell] the cell the reference is in.

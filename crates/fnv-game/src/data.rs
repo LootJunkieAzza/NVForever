@@ -1988,6 +1988,12 @@ impl GameData {
         }
     }
 
+    /// The loaded forms whose type has that form type code
+    /// (`functions::items::form_type_code`).
+    pub fn forms_of_type(&self, code: i32) -> Vec<FormId> {
+        self.sigs.iter().filter(|(_, s)| crate::functions::items::form_type_code(s) == Some(code)).map(|(&f, _)| f).collect()
+    }
+
     pub fn sig(&self, id: FormId) -> Option<[u8; 4]> {
         self.sigs.get(&id).copied()
     }

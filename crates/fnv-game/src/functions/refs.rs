@@ -315,15 +315,24 @@ fn placed_by_script(g: &mut Game, r: FormId, moved: bool) {
 /// GetAngle/SetAngle take degrees]. The player's X angle is its view's pitch, -89 looking
 /// up and 89 looking at its feet [documented: GECK wiki GetAngle], written by the engine
 /// (nvf-play `player::sync_sim`).
+/// A SetAngle shows from the next frame [observed: gaps11, GetAngle Z read the old
+/// heading in SetAngle's frame].
 pub fn get_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
+    if let Some(v) = g.gaps.angles_shown.get(&(r, i)) {
+        return Ok(Value::Num(*v));
+    }
     Ok(Value::Num((place(g, r)?.2[i] as f64).to_degrees()))
 }
 
 pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
+    if !g.gaps.angles_shown.contains_key(&(r, i)) {
+        let old = (place(g, r)?.2[i] as f64).to_degrees();
+        g.gaps.angles_shown.insert((r, i), old);
+    }
     let v = a.num(1)?.to_radians() as f32;
     g.world.get(r).map_err(|e| e.to_string())?.rot[i] = v;
     placed_by_script(g, r, false);
