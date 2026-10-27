@@ -2647,6 +2647,69 @@ GAPS2_PROBES = [
     _g2("mgef.cleanup", 'rPlayer.RestoreAV Health 100\nrPlayer.AuxVarErase "*nvfMG"\nrPlayer.AuxVarErase "*nvfMG.e"\nSetFunctionValue 1'),
 ]
 
+# Forty-sixth set: the next unbuilt, unprobed functions of
+# docs/handoff/modlist-function-counts.json that a script can read or set safely. Left
+# out: menus and the cursor's movement, pauses, FakeScriptEvent (runs another script's
+# block), output-variable forms (WorldToScreen), 3D-only reads. The base effect is the
+# stimpak's first (0000014E, gaps2); TimeScale is FalloutNV.esm 00003A. Changes are put
+# back or session only.
+def _g3(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g3v(pid, expr, text=False):
+    return _g3(pid, f"SetFunctionValue ({expr})", text)
+
+
+_MGEF = _form("rObj", "14E")
+GAPS3_PROBES = [
+    _g3v("menu.active", "GetActiveMenuMode"),
+    _g3v("time.multiplier", "GetGlobalTimeMultiplier"),
+] + [_g3(f"actors.level{i}", f"let aA := GetActorsByProcessingLevel {i}\nSetFunctionValue (ar_Size aA)") for i in range(3)] + [
+    # Level 3 holds about 2,000 actors and its count moved by one between two captures.
+    _g3("actors.level3.any", "let aA := GetActorsByProcessingLevel 3\nSetFunctionValue ((ar_Size aA) > 1000)"),
+    _g3("folders.nvse", 'let aA := GetFoldersInFolder "NVSE"\nSetFunctionValue (ar_Size aA)'),
+    _g3("folders.nvse.first", 'let aA := GetFoldersInFolder "NVSE"\nlet sText := aA[0]\nSetFunctionValue sText', True),
+    _g3("folders.none", 'let aA := GetFoldersInFolder "NVFNoFolder"\nSetFunctionValue (ar_Size aA)'),
+    _g3v("ground.player", "rPlayer.GetGroundMaterial"),
+    _g3v("ragdolled.player", "rPlayer.GetIsRagdolled"),
+    _g3(f"perk.entries", _form("rObj", FX["toughness"]) + "SetFunctionValue (GetPerkEntryCount rObj)"),
+    _g3(f"perk.entry0.type", _form("rObj", FX["toughness"]) + "SetFunctionValue (GetNthPerkEntryType rObj 0)"),
+    _g3("mgef.archetype", _MGEF + "SetFunctionValue (GetBaseEffectArchetype rObj)"),
+    _g3("mgef.av", _MGEF + "SetFunctionValue (GetBaseEffectAV rObj)"),
+] + [_g3(f"mgef.flag.{i}", _MGEF + f"SetFunctionValue (GetBaseEffectFlag rObj {i})") for i in range(4)] + [
+] + [_g3(f"effectflag.stim.{i}", _form("rObj", NF["stimpak"]) + f"SetFunctionValue (GetEffectFlag rObj {i})") for i in range(3)] + [
+] + [_g3(f"cellflag.doc.{i}", _form("rObj", CELLS["doc"]) + f"SetFunctionValue (GetCellFlag rObj {i})") for i in range(4)] + [
+    _g3("keywordforms", _form("rObj", NF["doc"]) + 'AssignKeyword rObj "NVFGapKey"\nlet aA := GetKeywordForms "NVFGapKey"\nSetFunctionValue (ar_Size aA)'),
+    _g3("keywordforms.none", 'let aA := GetKeywordForms "NVFNoKey"\nSetFunctionValue (ar_Size aA)'),
+    _g3("global.set", _form("rObj", "3A") + 'let fRes := GetGlobalVariable rObj\nrPlayer.AuxVarSetFlt "*nvfGV" fRes\n'
+        "SetFunctionValue (SetGlobalVariable rObj 12)"),
+    _g3("global.set.read", _form("rObj", "3A") + "SetFunctionValue (GetGlobalVariable rObj)"),
+    _g3("global.restore", _form("rObj", "3A") + 'SetGlobalVariable rObj (rPlayer.AuxVarGetFlt "*nvfGV")\nrPlayer.AuxVarErase "*nvfGV"\n'
+        "SetFunctionValue (GetGlobalVariable rObj)"),
+    _g3v("combatdisabled.before", "rDoc.GetCombatDisabled"),
+    _g3("combatdisabled.set", "rDoc.SetCombatDisabled 1\nSetFunctionValue (rDoc.GetCombatDisabled)"),
+    _g3("combatdisabled.clear", "rDoc.SetCombatDisabled 0\nSetFunctionValue (rDoc.GetCombatDisabled)"),
+    _g3("effectshader.none", _form("rObj", "14E") + "SetFunctionValue (rPlayer.HasEffectShader rObj)"),
+    _g3("destruction.pistol", _form("rObj", NF["pistol10"]) + "SetFunctionValue (GetDestructionDataNumStages rObj)"),
+    _g3("cursor.x", "SetFunctionValue (GetCursorPos X)"),
+    _g3("biped.slot2", "SetFunctionValue (ToggleBipedSlotVisibility 2)"),
+    _g3("reloadmodels", "rPlayer.ReloadEquippedModels\nSetFunctionValue 1"),
+    # SetWeaponOut on the player with the pistol equipped.
+    _g3("weaponout.add", _form("rObj", NF["pistol10"]) + "rPlayer.AddItem rObj 1 1\nrPlayer.EquipItem rObj 0 1\nSetFunctionValue 1"),
+    _g3("weaponout.draw", "rPlayer.SetWeaponOut 1\nSetFunctionValue (rPlayer.IsWeaponOut)"),
+] + [_g3(f"weaponout.wait{i}", "SetFunctionValue 1") for i in range(5)] + [
+    _g3v("weaponout.drawn", "rPlayer.IsWeaponOut"),
+    _g3("weaponout.holster", "rPlayer.SetWeaponOut 0\nSetFunctionValue 1"),
+] + [_g3(f"weaponout.wait.h{i}", "SetFunctionValue 1") for i in range(5)] + [
+    _g3v("weaponout.holstered", "rPlayer.IsWeaponOut"),
+    _g3("weaponout.cleanup", _form("rObj", NF["pistol10"]) + "rPlayer.UnequipItem rObj 0 1\nrPlayer.RemoveItem rObj 1 1\nSetFunctionValue 1"),
+    # DropAlt.
+    _g3("dropalt", _form("rObj", NF["stimpak"]) + "let fRes := rPlayer.GetItemCount rObj\nrPlayer.DropAlt rObj 1\nSetFunctionValue fRes"),
+    _g3v("dropalt.after", "rPlayer.GetItemCount (GetFormFromMod \"FalloutNV.esm\" \"15169\")"),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2675,11 +2738,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "save-read": SAVE_READ_PROBES,
         "rgb-ui": RGB_UI_PROBES,
         "gaps1": GAPS1_PROBES,
-        "gaps2": GAPS2_PROBES}
+        "gaps2": GAPS2_PROBES,
+        "gaps3": GAPS3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3"}
 
 
 def script(body):
