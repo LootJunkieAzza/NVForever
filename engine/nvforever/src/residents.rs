@@ -1233,11 +1233,18 @@ impl Core {
         });
         // Whoever is on furniture, or getting off it, does not walk yet; nor do two actors
         // talking to each other (`fnv_ai::social`), unless the script that started their
-        // conversation allowed movement (`Game::conversation_moves`).
+        // conversation allowed movement (`Game::conversation_moves`); nor one saying its
+        // Goodbye greeting at the player (`Game::greets_player`).
         let held: HashSet<u32> = self
             .list
             .iter()
-            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor)) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
+            .filter(|r| {
+                matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))
+                    || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor))
+                    || self.ai.holds_for_chat(r.actor)
+                    || game.greets_player(r.actor)
+                    || self.staggering.contains(&r.actor.0)
+            })
             .map(|r| r.actor.0)
             .collect();
         if !self.prepared {

@@ -10484,3 +10484,20 @@ expect = [
   { re = 'activator: 00107D73 \(JukeBoxDirtyNVCountry\) on: plays its idle', label = "the jukebox is on and plays its idle" },
   { re = 'test aid: screenshot .*jukebox_tubes\.png', label = "the frame is saved" },
 ]
+
+[[scenario]]
+name = "goodbye-greeting-stops-walker"
+source = "owner 2026-10-27 (the Goodsprings settler's water line 0010B3D6 said walking away): an actor saying its Goodbye greeting at the player stops and faces the player, its package going on after (docs/design/dialogue-play.md §1, Game::greets_player)"
+areas = ["dialogue", "residents"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-ai/src/social.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/speech_look.rs"]
+note = "GoodspringsSettler04Ref walks her evening trips at 21.9 (the residents scenario); the player talks to her four times, her greeting being a Goodbye line (dialogue-play.md §1)"
+env = { NVF_PLAY_TEST_TALK = "20:GoodspringsSettler04Ref=;40:GoodspringsSettler04Ref=;60:GoodspringsSettler04Ref=;80:GoodspringsSettler04Ref=" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "GoodspringsSettler04Ref", "--hour", "21.9", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'dialogue: \S+ says its greeting \S+ at the player \(a Goodbye line: no conversation\)', label = "the settler says her Goodbye greeting at the player" },
+  { re = 'actor 00104F08 held \(staggering, seated or talking\): its character stops \(was walking at [1-9]', label = "talked to on her way, she stops" },
+  { re = 'speech look: line \S+ over: GoodspringsSettler04Ref has the player [+-][0-5]° off its front', label = "she faces the player by the end of the line" },
+  { re = 'ai summary.*GoodspringsSettler04Ref: GSSettler04SleepPackage22x8, (on its way|there)', label = "her package goes on after the lines" },
+  { re = 'ai summary.*\b0 unreachable', label = "no walk left unreachable" },
+]
