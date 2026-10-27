@@ -3721,6 +3721,30 @@ ENGINE2_PROBES = (
     + [_e2("music.after.any", "SetFunctionValue (IsMusicPlaying)")]
 )
 
+# Sixtieth set: straight-down GetP2PRayCastRange casts 200 units away from the player (at
+# X+200 and at Y+200) from Z+100, Z+500 and Z+1000 to Z-1000, and from Z+100 to Z-200,
+# with GetTerrainHeight at the same points, as the extender core asked after engine2 (the
+# casts from the player's own X, Y read about 99 below the player from Z+100).
+
+
+def _e3(pid, dx, dy, z0, z1):
+    return (pid, "ref rPlayer\nfloat fAx\nfloat fAy\nfloat fAz\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + f"let fAx := (rPlayer.GetPos X) + {dx}\nlet fAy := (rPlayer.GetPos Y) + {dy}\nlet fAz := rPlayer.GetPos Z\n"
+            + f"SetFunctionValue (Floor ((GetP2PRayCastRange fAx fAy (fAz + {z0}) fAx fAy (fAz + {z1}) 0) * 10))", False, None, "")
+
+
+def _e3t(pid, dx, dy):
+    return (pid, "ref rPlayer\nfloat fAx\nfloat fAy\nBegin Function { }\n" + _form("rPlayer", NF["player"])
+            + f"let fAx := (rPlayer.GetPos X) + {dx}\nlet fAy := (rPlayer.GetPos Y) + {dy}\n"
+            + "SetFunctionValue (Floor (((GetTerrainHeight fAx fAy) - (rPlayer.GetPos Z)) * 10))", False, None, "")
+
+
+ENGINE3_PROBES = (
+    [_e3(f"ray.{k}.z{z0}", dx, dy, z0, -1000) for k, dx, dy in (("x200", 200, 0), ("y200", 0, 200)) for z0 in (100, 500, 1000)]
+    + [_e3("ray.x200.z100.short", 200, 0, 100, -200)]
+    + [_e3t(f"terrain.{k}", dx, dy) for k, dx, dy in (("here", 0, 0), ("x200", 200, 0), ("y200", 0, 200))]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3763,11 +3787,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "plugins2": PLUGINS2_PROBES,
         "plugins3": PLUGINS3_PROBES,
         "engine1": ENGINE1_PROBES,
-        "engine2": ENGINE2_PROBES}
+        "engine2": ENGINE2_PROBES,
+        "engine3": ENGINE3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3"}
 
 
 def script(body):
