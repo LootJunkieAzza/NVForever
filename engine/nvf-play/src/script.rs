@@ -511,9 +511,14 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
 /// from 500 above the player meets the floor at the feet; engine3, casts from 100 to
 /// 1000 above the ground 200 away read past it with every flag; hypothesis: terrain
 /// is left out].
-/// The most speed one PushObject gives a body, game units per second [design: a script's
-/// push may be stronger than a shot's, `combat::OBJECT_PUSH_MAX_SPEED`].
-const SCRIPT_PUSH_MAX_SPEED: f32 = 2000.0;
+/// The speed one unit of PushObject's force gives a body, game units per second
+/// [observed: phys2, a tin can gained about 23 units a frame at 50 frames a second from a
+/// force of 500 and 237 from 5000, up or sideways; hypothesis: the same speed whatever
+/// the body's mass].
+const SCRIPT_PUSH_SPEED: f32 = 2.3;
+/// The most speed one PushObject gives a body, game units per second [design: above the
+/// fastest observed, 11,900 from a force of 5000].
+const SCRIPT_PUSH_MAX_SPEED: f32 = 20_000.0;
 
 /// Scripts' PushObject pushes (`fnv_game::nvse_gaps`): each loose body is pushed along the
 /// line from the push's origin to its centre (straight up from the origin itself).
@@ -523,7 +528,8 @@ fn apply_pushes(g: &mut Game, phys: &mut PhysState) {
         let d = [c[0] - origin[0], c[1] - origin[1], c[2] - origin[2]];
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         let dir = if len > 1e-3 { [d[0] / len, d[1] / len, d[2] / len] } else { [0.0, 0.0, 1.0] };
-        let k = force * phys.world.params.units_per_metre;
+        let Some(m) = phys.world.ref_mass(r.0) else { continue };
+        let k = force * SCRIPT_PUSH_SPEED * m;
         let pushed = phys.world.push_ref(r.0, c, [dir[0] * k, dir[1] * k, dir[2] * k], SCRIPT_PUSH_MAX_SPEED);
         debug!("script: PushObject {r} force {force}: {}", pushed.map_or("no loose body".to_string(), |v| format!("{v:.0} units/s")));
     }

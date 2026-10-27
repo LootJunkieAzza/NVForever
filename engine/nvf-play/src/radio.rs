@@ -592,8 +592,19 @@ fn pipboy_controls(
     let (Some(places), Some(rt)) = (places, script.rt.as_mut()) else { return };
     // The placed stations, for scripts' GetAvailableRadios (`fnv_game::nvse_gaps`).
     if rt.game.gaps.radio_sites.is_none() {
-        let mut sites: Vec<_> = places.sites.iter().filter_map(|(&r, s)| Some((FormId(r), s.initially_disabled, s.broadcast.clone()?))).collect();
-        sites.sort_by_key(|s| s.0);
+        let mut sites: Vec<_> = places
+            .sites
+            .iter()
+            .filter_map(|(&r, s)| {
+                Some(fnv_game::nvse_gaps::RadioSite {
+                    station: FormId(r),
+                    initially_disabled: s.initially_disabled,
+                    on_pipboy: places.forms.stations.get(&s.base).is_some_and(|f| f.on_pipboy()),
+                    broadcast: s.broadcast.clone()?,
+                })
+            })
+            .collect();
+        sites.sort_by_key(|s| s.station);
         rt.game.gaps.radio_sites = Some(sites);
     }
     let radio = &mut *radio;
