@@ -25,6 +25,18 @@ pub struct GapsState {
     pub gravity: HashMap<FormId, f64>,
     /// ToggleBipedSlotVisibility's hidden slots.
     pub hidden_slots: HashSet<u32>,
+    /// SetPackageFlag's general flags, by package.
+    pub package_flags: HashMap<FormId, u32>,
+    /// SetPerkLevel's levels.
+    pub perk_levels: HashMap<FormId, u8>,
+    /// SetPerkFlag's flags: (perk, flag ID 0 trait, 1 playable, 2 hidden).
+    pub perk_flags: HashMap<(FormId, u8), bool>,
+    /// SetContainerRespawns's flags, by container base.
+    pub respawns: HashMap<FormId, bool>,
+    /// SetDestructionDataHealth's values.
+    pub destruction_health: HashMap<FormId, i32>,
+    /// References whose activation SetInteractionDisabled turned off.
+    pub interaction_disabled: HashSet<FormId>,
     /// SetNthEffectTraitNumeric's values: (item, effect index, trait).
     pub effect_traits: HashMap<(FormId, usize, i64), f64>,
 }
@@ -96,7 +108,7 @@ impl Game<'_> {
 /// capped; the knife's 12.05 at Melee 34 is 15 × 0.67 + 2].
 fn weapon_damage(g: &mut Game, actor: FormId, w: FormId) -> f64 {
     use crate::actor_values::{MELEE_DAMAGE, MELEE_WEAPONS, UNARMED, UNARMED_DAMAGE};
-    let damage = json_num(g.data.record_field(w, "DATA", "base_damage"));
+    let damage = crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0);
     let skill_code = g.data.weapon_skills.get(&w).map(|&s| s as u16);
     let skill = skill_code.and_then(|s| crate::functions::actor::actor_value(g, actor, s).ok()).unwrap_or(0.0);
     let bonus = match skill_code {
@@ -105,6 +117,29 @@ fn weapon_damage(g: &mut Game, actor: FormId, w: FormId) -> f64 {
         _ => 0.0,
     };
     damage * (0.5 + skill.clamp(0.0, 100.0) / 200.0) + bonus
+}
+
+/// MessageExAlt's default faces, `#0`–`#6` [documented: MessageExAlt].
+const FACES: [&str; 7] = ["sad", "neutral", "angry", "thinking", "very_happy", "surprised", "in_pain"];
+
+/// A MessageExAlt text's leading `icon|` and `$sound|` parts and the text after them.
+fn split_styled(t: &str) -> (String, Option<String>, Option<String>) {
+    let (mut icon, mut sound) = (None, None);
+    let mut rest = t;
+    while let Some((head, tail)) = rest.split_once('|') {
+        let h = head.trim();
+        if let Some(s) = h.strip_prefix('$') {
+            sound = Some(s.to_string());
+        } else if let Some(k) = h.strip_prefix('#').and_then(|d| d.parse::<usize>().ok()) {
+            icon = FACES.get(k).map(|f| format!("Interface\\Icons\\Message Icons\\glow_message_vaultboy_{f}.dds"));
+        } else if h.to_ascii_lowercase().ends_with(".dds") {
+            icon = Some(h.to_string());
+        } else {
+            break;
+        }
+        rest = tail;
+    }
+    (rest.to_string(), icon, sound)
 }
 
 /// WEAP sound IDs of GetWeaponSound: the subrecord and which of its repeats [observed:
@@ -188,14 +223,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- perks ----
         // PERK DATA: 0 trait, 1 playable, 2 hidden [observed: gaps2, Toughness reads
         // 0 1 0 0 0; hypothesis: the order of the flags on the page, 3 and on none].
-        "getperkflag" => {
-            let p = form(args, 0).and_then(|f| g.data.perks.get(&f));
-            yes(p.is_some_and(|p| match num(args, 1, -1.0) as i64 {
+        "getperkflag" | "setperkflag" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let k = num(args, 1, -1.0) as i64;
+            let Some(p) = g.data.perks.get(&f) else { return Some(Ok(zero)) };
+            let now = match k {
                 0 => p.is_trait,
                 1 => p.playable,
                 2 => p.hidden,
-                _ => false,
-            }))
+                _ => return Some(Ok(zero)),
+            };
+            let now = g.gaps.perk_flags.get(&(f, k as u8)).copied().unwrap_or(now);
+            // SetPerkFlag returns the old flag, for the session [observed: gaps7].
+            if name == "setperkflag" {
+                g.gaps.perk_flags.insert((f, k as u8), num(args, 2, 0.0) != 0.0);
+            }
+            yes(now)
         }
         // [observed: gaps3, Toughness 2 entries]
         "getperkentrycount" => XVal::Num(form(args, 0).and_then(|f| g.data.perks.get(&f)).map_or(0, |p| p.entries.len()) as f64),
@@ -301,10 +344,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let w = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::items::equipped_weapon(g, r))).unwrap_or(FormId(0));
             XVal::Num(weapon_damage(g, subject.unwrap_or(FormId::PLAYER_REF), w))
         }
+        // A gun's critical part is Critical Chance % × CRDT damage × CRDT multiplier a shot
+        // [observed: gaps7, the pistol's 2.2 a shot at Critical Chance 10, doubling with
+        // it, 0 with either CRDT number 0, the same at Guns 17 and 67]. A melee weapon's
+        // hit rate and critical part are open (the knife: 2.69 hits a second against 3.23
+        // in the record, and a critical part that grows with the skill).
         "getcalculatedweapondps" => {
             let w = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::items::equipped_weapon(g, r))).unwrap_or(FormId(0));
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
             let shots = json_num(g.data.record_field(w, "DNAM", "attack_shots_per_sec"));
-            XVal::Num(weapon_damage(g, subject.unwrap_or(FormId::PLAYER_REF), w) * shots)
+            let chance = crate::functions::actor::actor_value(g, a, crate::actor_values::CRITICAL_CHANCE).unwrap_or(0.0).max(0.0) / 100.0;
+            let crit = crate::nvse::record_value(g, w, "CRDT", "critical_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) * crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            XVal::Num((weapon_damage(g, a, w) + chance * crit) * shots)
         }
         // `item effect trait`: 0 magnitude, 1 area, 2 duration, 3 range (0 Self), 4 actor
         // value [observed: gaps6, the stimpak's first reads 5 0 6 0; hypothesis: 4]; the
@@ -569,6 +620,263 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
+        // OBND size on the axis times the reference's scale [observed: gaps7, Doc 46 ×
+        // 34 × 132, the Nuka-Cola machine 90 × 70 × 184].
+        "getobjectdimensions" => {
+            let f = form(args, 1).or(subject).unwrap_or(FormId(0));
+            let b = base(g, f);
+            let scale = if f != b { g.world.peek(f).and_then(|s| s.scale).or_else(|| g.world.placed.get(f).and_then(|p| p.scale)).unwrap_or(1.0) } else { 1.0 };
+            let k = match args.first() {
+                Some(XVal::Str(s)) => match s.to_ascii_uppercase().as_str() { "X" => 0, "Y" => 1, _ => 2 },
+                Some(XVal::Num(n)) => match *n as i64 { 88 => 0, 89 => 1, _ => 2 },
+                _ => 2,
+            };
+            XVal::Num(g.data.object_bounds.get(&b).map_or(0.0, |o| f64::from(o[k + 3] - o[k]) * f64::from(scale)))
+        }
+        // None to list gives no array [observed: gaps7, ar_Null for the player's perks,
+        // followers, temporary effects and detecting actors, Doc's dropped weapons].
+        "getplayerperks" => {
+            let mut p: Vec<FormId> = g.player.perks.keys().copied().collect();
+            p.sort();
+            if p.is_empty() { zero } else { let p = p.into_iter().map(|f| XVal::Ref(f.0)).collect(); list(g, p) }
+        }
+        "getfollowers" | "getdroppedrefs" | "getdetectingactors" => zero,
+        // The first member of the list the actor carries [observed: gaps7, the player
+        // with the 10mm ammo list gives Ammo10mm, with a list it has none of 0].
+        "pickfromlist" => {
+            let a = subject.unwrap_or(FormId(0));
+            let l = form(args, 0).unwrap_or(FormId(0));
+            let members = crate::functions::list_members(g, l);
+            XVal::Ref(members.into_iter().find(|&m| g.world.item_count(a, m).unwrap_or(0) > 0).map_or(0, |m| m.0))
+        }
+        // All its effects hostile and detrimental (MGEF flags 1 and 4) [documented:
+        // GetIsPoison; observed: gaps7, Silver Sting 1, the stimpak 0].
+        "getispoison" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let effects = g.data.effect_items.get(&f).map(Vec::as_slice).unwrap_or_default();
+            yes(!effects.is_empty() && effects.iter().all(|e| g.data.magic_effects.get(&e.effect).is_some_and(|m| m.flags & 0x5 == 0x5)))
+        }
+        "isarmoraddon" => yes(form(args, 0).is_some_and(|f| g.data.sig(f) == Some(*b"ARMA"))),
+        // A form type an inventory holds [documented: GetIsItem].
+        "getisitem" => {
+            let f = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            yes(g.data.sig(f).is_some_and(|s| crate::functions::items::form_type_code(&s).is_some() || matches!(&s, b"CCRD" | b"CHIP" | b"CMNY" | b"IMOD")))
+        }
+        "getdestructiondatahealth" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            XVal::Num(g.gaps.destruction_health.get(&f).copied().or_else(|| g.data.destructibles.get(&f).map(|d| d.health)).unwrap_or(0) as f64)
+        }
+        // Returns 0, for the session [observed: gaps8, 75 reads back].
+        "setdestructiondatahealth" => {
+            if let Some(f) = form(args, 0) {
+                g.gaps.destruction_health.insert(f, num(args, 1, 0.0) as i32);
+            }
+            zero
+        }
+        // CONT's Respawns flag; SetContainerRespawns takes the value first and returns 0
+        // [observed: gaps8].
+        "getcontainerrespawns" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let rec = match g.world.forms.get(b).map(|x| &x.data) {
+                Some(fnv_sim::forms::BaseData::Container(c)) => c.respawns,
+                _ => false,
+            };
+            yes(g.gaps.respawns.get(&b).copied().unwrap_or(rec))
+        }
+        "setcontainerrespawns" => {
+            if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
+                g.gaps.respawns.insert(b, num(args, 0, 0.0) != 0.0);
+            }
+            zero
+        }
+        // On the reference, not its base [observed: gaps8, Doc 0 then 1 then 0, the base
+        // 0].
+        "getinteractiondisabled" => yes(subject.is_some_and(|r| g.gaps.interaction_disabled.contains(&r))),
+        "setinteractiondisabled" => {
+            if let Some(r) = subject {
+                if num(args, 0, 0.0) != 0.0 {
+                    g.gaps.interaction_disabled.insert(r);
+                } else {
+                    g.gaps.interaction_disabled.remove(&r);
+                }
+            }
+            zero
+        }
+        // ---- worldspaces and climates ----
+        // WRLD CNAM; the setter for the session [observed: gaps8, WastelandNV 0008809B,
+        // set to the Strip's and back].
+        "getworldspaceclimate" => match form(args, 0).and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
+            Some(XVal::Ref(c)) => XVal::Ref(c),
+            _ => XVal::Ref(0),
+        },
+        "setworldspaceclimate" => {
+            if let (Some(w), Some(c)) = (form(args, 0), form(args, 1)) {
+                g.field_overrides.insert((w, "CNAM/".into()), XVal::Ref(c.0));
+            }
+            zero
+        }
+        // The player's worldspace's climate; none indoors [observed: gaps4 and gaps8,
+        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate].
+        "getcurrentclimate" => {
+            let w = g.cell_of(FormId::PLAYER_REF).and_then(|c| g.world.placed.world_of(c));
+            match w.and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
+                Some(XVal::Ref(c)) => XVal::Ref(c),
+                _ => XVal::Ref(0),
+            }
+        }
+        "refreshcurrentclimate" => zero,
+        // WRLD DATA flags bit by bit [observed: gaps8, WastelandNV only 7].
+        "getworldspaceflag" | "setworldspaceflag" => {
+            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
+            let flags = match crate::nvse::record_value(g, w, "DATA", "") {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            let k = num(args, 1, -1.0);
+            if !(0.0..16.0).contains(&k) {
+                return Some(Ok(zero));
+            }
+            if name == "setworldspaceflag" {
+                let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << (k as u64) } else { flags & !(1 << (k as u64)) };
+                g.field_overrides.insert((w, "DATA/".into()), XVal::Num(new as f64));
+                return Some(Ok(zero));
+            }
+            yes(flags >> (k as u64) & 1 != 0)
+        }
+        // CLMT GNAM and MODL [observed: gaps8, the Strip's sky\NV_sunglare.dds and
+        // Sky\Stars.nif; a set texture reads back].
+        "getclimatesunglaretexture" | "getclimatesuntexture" | "getclimatenightskymodel" => {
+            let sub = match name {
+                "getclimatesunglaretexture" => "GNAM",
+                "getclimatesuntexture" => "FNAM",
+                _ => "MODL",
+            };
+            match form(args, 0).and_then(|c| crate::nvse::record_value(g, c, sub, "")) {
+                Some(XVal::Str(s)) => XVal::Str(s),
+                _ => XVal::Str(String::new()),
+            }
+        }
+        "setclimatesunglaretexture" | "setclimatesuntexture" | "setclimatenightskymodel" => {
+            let sub = match name {
+                "setclimatesunglaretexture" => "GNAM/",
+                "setclimatesuntexture" => "FNAM/",
+                _ => "MODL/",
+            };
+            if let Some(c) = form(args, 0) {
+                g.field_overrides.insert((c, sub.into()), XVal::Str(text(args, 1)));
+            }
+            zero
+        }
+        // ARMO TNAM; setting none leaves it [observed: gaps8, leather 0013D3B5, the
+        // hazmat suit's none does not clear it].
+        "getarmoraudiotemplate" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "TNAM", "")) {
+            Some(XVal::Ref(t)) => XVal::Ref(t),
+            _ => XVal::Ref(0),
+        },
+        "setarmoraudiotemplate" => {
+            if let (Some(f), Some(t)) = (form(args, 0), form(args, 1)) {
+                g.field_overrides.insert((f, "TNAM/".into()), XVal::Ref(t.0));
+            }
+            zero
+        }
+        // `armor slot "path"` (formatted by the VM): 0 male biped MODL, 1 female MOD3, 2
+        // male world MOD2, 3 female world MOD4, as GetBipedModelPath reads them
+        // [documented: SetBipedModelPathAlt; observed: gaps8, the set path reads back].
+        "setbipedmodelpathalt" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let sub = match num(args, 1, -1.0) as i64 {
+                0 => "MODL/",
+                1 => "MOD3/",
+                2 => "MOD2/",
+                3 => "MOD4/",
+                _ => return Some(Ok(zero)),
+            };
+            g.field_overrides.insert((f, sub.into()), XVal::Str(text(args, 2)));
+            zero
+        }
+        // The base's MODL [observed: gaps7, the dog's creature skeleton, Doc's
+        // Characters\_Male\Skeleton.NIF].
+        "getskeletonmodel" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            XVal::Str(g.data.record_field(b, "MODL", "").and_then(Json::as_str).unwrap_or_default().to_string())
+        }
+        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.data.cells.get(&c)).and_then(|c| c.owner).map_or(0, |o| o.0)),
+        // PKDT general flags bit by bit [observed: gaps7, Doc's sandbox 9 and 21 set];
+        // SetPackageFlag returns 0, for the session [observed: gaps8].
+        "getpackageflag" | "setpackageflag" => {
+            let p = form(args, 0).unwrap_or(FormId(0));
+            let k = num(args, 1, -1.0);
+            if !(0.0..32.0).contains(&k) {
+                return Some(Ok(zero));
+            }
+            let Some(def) = g.data.package_defs.get(&p) else { return Some(Ok(zero)) };
+            let flags = g.gaps.package_flags.get(&p).copied().unwrap_or(def.flags);
+            let old = flags >> (k as u32) & 1;
+            if name == "setpackageflag" {
+                let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << (k as u32) } else { flags & !(1 << (k as u32)) };
+                g.gaps.package_flags.insert(p, new);
+                return Some(Ok(zero));
+            }
+            XVal::Num(f64::from(old))
+        }
+        // PERK DATA min level; SetPerkLevel for the session [observed: gaps7, Bloody Mess
+        // 6, set to 8 and back].
+        "getperklevel" => {
+            let p = form(args, 0).unwrap_or(FormId(0));
+            XVal::Num(g.gaps.perk_levels.get(&p).copied().or_else(|| g.data.perks.get(&p).map(|d| d.min_level)).map_or(0.0, f64::from))
+        }
+        "setperklevel" => {
+            if let Some(p) = form(args, 0) {
+                g.gaps.perk_levels.insert(p, num(args, 1, 0.0).clamp(0.0, 255.0) as u8);
+            }
+            zero
+        }
+        // The explosion's form traits, 0 light … 6 placed impact object as GetExplosion-
+        // TraitForm reads them; no form clears it [observed: gaps7].
+        "setexplosiontraitform" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let key = match num(args, 1, -1.0) as i64 {
+                0 => "DATA/light",
+                1 => "DATA/sound_1",
+                2 => "DATA/sound_2",
+                3 => "DATA/impact_dataset",
+                4 => "INAM/",
+                5 => "EITM/",
+                6 => "MNAM/",
+                _ => return Some(Ok(zero)),
+            };
+            g.field_overrides.insert((f, key.into()), XVal::Ref(form(args, 2).map_or(0, |e| e.0)));
+            zero
+        }
+        // EXPL DATA flags; returns the old bit [observed: gaps7].
+        "setexplosionflag" => {
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+            let flags = match crate::nvse::record_value(g, f, "DATA", "flags") {
+                Some(XVal::Num(x)) => x as u64,
+                _ => 0,
+            };
+            let k = num(args, 1, -1.0);
+            if !(0.0..32.0).contains(&k) {
+                return Some(Ok(zero));
+            }
+            let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << (k as u64) } else { flags & !(1 << (k as u64)) };
+            g.field_overrides.insert((f, "DATA/flags".into()), XVal::Num(new as f64));
+            XVal::Num((flags >> (k as u64) & 1) as f64)
+        }
+        // The leveled list a placed actor came from; 0 for others [documented:
+        // GetLeveledActorBase].
+        "getleveledactorbase" => {
+            let b = subject.and_then(|r| g.world.placed.get(r)).map(|p| p.base);
+            XVal::Ref(b.filter(|b| g.data.leveled_actors.contains_key(b)).map_or(0, |b| b.0))
+        }
+        // Carried weight over capacity, in percent [observed: gaps7, the player 46.50].
+        "getencumbrancerate" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let w = g.world.carried_weight(a).unwrap_or(0.0);
+            let cap = crate::functions::actor::actor_value(g, a, crate::actor_values::CARRY_WEIGHT).unwrap_or(0.0);
+            XVal::Num(if cap > 0.0 { w / cap * 100.0 } else { 0.0 })
+        }
+        "gethardcoretracking" => yes(!g.jip2.hardcore_tracking_off),
         // ---- keywords ----
         // The base forms with the keyword [observed: gaps3, one after AssignKeyword, an
         // unknown keyword an empty array].
@@ -616,6 +924,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getactivequest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),
         // ---- the player and the interface ----
+        // `seconds "[icon|][$sound|]text"`: a corner message; the icon a texture under the
+        // textures folder or `#0`–`#6` the page's default faces, the sound a SOUN's Editor
+        // ID after `$` [documented: MessageExAlt].
+        "messageexalt" => {
+            let seconds = num(args, 0, 2.0) as f32;
+            let (text, icon, sound) = split_styled(&text(args, 1));
+            if let Some(s) = sound.and_then(|s| g.data.by_edid(&s)) {
+                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true });
+            }
+            g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
+            zero
+        }
         // [observed: gaps2, off at the start; on at once, off from the next frame]
         "togglepipboylight" => {
             match args.first() {
@@ -670,6 +990,16 @@ mod tests {
         assert_eq!(weapon_sound_sub(1), Some(("SNAM", 1)));
         assert_eq!(weapon_sound_sub(2), Some(("XNAM", 0)));
         assert_eq!(weapon_sound_sub(12), None);
+    }
+
+    #[test]
+    fn styled_messages_take_their_icon_and_sound_off_the_front() {
+        let (t, i, s) = split_styled("Interface\\Icons\\a.dds|$UIRepGood|Name is X|Y");
+        assert_eq!((t.as_str(), i.as_deref(), s.as_deref()), ("Name is X|Y", Some("Interface\\Icons\\a.dds"), Some("UIRepGood")));
+        let (t, i, _) = split_styled("#0|Test");
+        assert_eq!(t, "Test");
+        assert!(i.is_some_and(|i| i.ends_with("glow_message_vaultboy_sad.dds")));
+        assert_eq!(split_styled("plain").0, "plain");
     }
 
     #[test]

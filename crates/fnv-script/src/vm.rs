@@ -2631,15 +2631,21 @@ impl Vm<'_, '_> {
         if let Some(v) = self.quat_function(&lname, c)? {
             return Ok(v);
         }
-        // [documented: SetFormDescription `form "format" values…`; observed: gaps6,
-        // "NVF desc %g" 3 reads "NVF desc 3"]: formatted here, set by the game.
-        if lname == "setformdescription" {
-            let first = match c.args.first() {
-                Some(e) => self.xeval(e)?,
-                None => XVal::Ref(0),
-            };
-            let (t, _) = self.format_arg(c, 1)?;
-            return match self.host.ext_call(&lname, None, &[first, XVal::Str(t)]) {
+        // [documented: SetFormDescription `form "format" values…`, observed: gaps6,
+        // "NVF desc %g" 3 reads "NVF desc 3"; MessageExAlt `seconds "format" values…`,
+        // the game reading the icon and sound off the front]: formatted here, done by
+        // the game.
+        // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
+        // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
+        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" {
+            let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
+            let mut first = Vec::new();
+            for e in c.args.iter().take(at) {
+                first.push(self.xeval(e)?);
+            }
+            let (t, _) = self.format_arg(c, at)?;
+            first.push(XVal::Str(t));
+            return match self.host.ext_call(&lname, None, &first) {
                 Some(r) => r.map_err(VmError::Host),
                 None => Ok(XVal::Num(0.0)),
             };

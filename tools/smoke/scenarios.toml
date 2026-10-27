@@ -9781,7 +9781,7 @@ name = "nvse-engine-events"
 source = "The extender's events that only the running engine raises (docs/handoff/nvse-next-batch.md §6): OnLoad of a placed unscripted item, OnHit/OnHitWith of a hit, OnMagicEffectHit of a stimpak, OnPackageStart, OnCombatEnd; handlers set from the console as one-line lambdas"
 areas = ["scripts", "actors"]
 paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/objects.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_HIT = "11:RingoRef:1:WeapNV9mmPistol", NVF_PLAY_TEST_CONSOLE = "8:SetEventHandler \"OnLoad\" ({ref rT, ref rB} => PrintC \"nvf ev onload\");SetEventHandler \"OnHit\" ({ref rT, ref rB} => PrintC \"nvf ev onhit\");SetEventHandler \"OnHitWith\" ({ref rT, ref rB} => PrintC \"nvf ev onhitwith\");SetEventHandler \"OnMagicEffectHit\" ({ref rT, ref rB} => PrintC \"nvf ev onmagiceffecthit\");SetEventHandler \"OnPackageStart\" ({ref rT, ref rB} => PrintC \"nvf ev onpackagestart\");SetEventHandler \"OnCombatEnd\" ({ref rT, ref rB} => PrintC \"nvf ev oncombatend\");9:RingoRef.MoveTo player 0 200 0;10:player.PlaceAtMe WeapNV9mmPistol 1;10.5:close;12:RingoRef.AddItem Stimpak 1;RingoRef.EquipItem Stimpak;13:RingoRef.AddScriptPackage GSTrudyEveningPackage20x2;14:RingoRef.StartCombat player;17:RingoRef.StopCombat" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_HIT = "11:RingoRef:1:WeapNV9mmPistol", NVF_PLAY_TEST_CONSOLE = "8:SetEventHandler \"OnLoad\" ({ref rT, ref rB} => PrintC \"nvf ev onload\");SetEventHandler \"OnHit\" ({ref rT, ref rB} => PrintC \"nvf ev onhit\");SetEventHandler \"OnHitWith\" ({ref rT, ref rB} => PrintC \"nvf ev onhitwith\");SetEventHandler \"OnMagicEffectHit\" ({ref rT, ref rB} => PrintC \"nvf ev onmagiceffecthit\");SetEventHandler \"OnPackageStart\" ({ref rT, ref rB} => PrintC \"nvf ev onpackagestart\");SetEventHandler \"OnCombatEnd\" ({ref rT, ref rB} => PrintC \"nvf ev oncombatend\");9:RingoRef.MoveTo player 0 200 0;10:player.PlaceAtMe WeapNV9mmPistol 1;10.5:close;12:RingoRef.AddItem Stimpak 1;RingoRef.EquipItem Stimpak;13:RingoRef.AddScriptPackage GSTrudyEveningPackage20x2;14:RingoRef.StartCombat player;17:RingoRef.StopCombat;18:MessageExAlt 4 \"#0|NVF note %g\" 7" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
 run_seconds = 20
 expect = [
@@ -9791,6 +9791,7 @@ expect = [
   { re = 'script: print "nvf ev onmagiceffecthit"', label = "OnMagicEffectHit: Ringo's stimpak" },
   { re = 'script: print "nvf ev onpackagestart"', label = "OnPackageStart: the added package starts" },
   { re = 'script: print "nvf ev oncombatend"', label = "OnCombatEnd: StopCombat ends Ringo's fight" },
+  { re = 'on screen: NVF note 7', label = "MessageExAlt: a formatted corner message (queued behind the VATS tutorial note)" },
 ]
 
 [[scenario]]

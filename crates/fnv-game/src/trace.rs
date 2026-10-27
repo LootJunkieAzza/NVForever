@@ -47,6 +47,14 @@ pub enum EventKind {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         hidden: Vec<usize>,
     },
+    /// A corner message a script styled itself (MessageExAlt): the seconds it stays and
+    /// its icon (a texture under the textures folder; none for the default).
+    NoteShown {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        icon: Option<String>,
+        seconds: f32,
+    },
     Moved { reference: FormId, #[serde(skip_serializing_if = "Option::is_none")] cell: Option<FormId>, pos: [f32; 3] },
     Activated { reference: FormId, by: FormId, #[serde(skip_serializing_if = "Option::is_none")] outcome: Option<serde_json::Value> },
     /// An activate parent's default activation set off one of its activate children,
