@@ -175,7 +175,7 @@ const RANKS: [&str; 4] = ["main", "faction", "add-on", "other"];
 
 /// The actor a line belongs to: its fixed speaker, else the actor of its own GetIsID
 /// condition (dialogue.rs `can_say_as`).
-fn line_actor(data: &GameData, info: &crate::data::InfoDef) -> Option<FormId> {
+pub(crate) fn line_actor(data: &GameData, info: &crate::data::InfoDef) -> Option<FormId> {
     info.conditions
         .iter()
         .find(|c| c.function == 0x48 && matches!(c.run_on, crate::cond::RunOn::Subject))

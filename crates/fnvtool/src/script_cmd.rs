@@ -101,6 +101,24 @@ pub enum ScriptCmd {
         #[arg(long)]
         coverage: Option<PathBuf>,
     },
+    /// Run every quest stage, dialogue line, terminal and package result script of the
+    /// load order once, headless and by itself, and group the script errors and unknown
+    /// functions met by cause (fnv.script.sweep/1; docs/handoff/mq-walkthrough-2026-10-27.md
+    /// §7). Prints the totals and the commonest causes of each kind.
+    Sweep {
+        #[command(flatten)]
+        a: ScriptArgs,
+        /// How many causes of each kind the output lists (the rest in `--detail`).
+        #[arg(long, default_value_t = 12)]
+        top: usize,
+        /// Write every cause with up to five of its scripts here.
+        #[arg(long)]
+        detail: Option<PathBuf>,
+        /// Write the scripts run as a coverage log (fnv.script.coverage-log/1) here, for
+        /// `script cover --logs`.
+        #[arg(long)]
+        log: Option<PathBuf>,
+    },
     /// Run each action chain twice, as it is and with a save and load (fnv-save) before
     /// its middle action, and compare the quests at the end and the observations
     /// (fnv.script.roundtrip/1; docs/handoff/mq-walkthrough-2026-10-27.md §6).
@@ -208,6 +226,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             run_actions(&a, &actions, !no_voice_lengths, &ini, coverage.as_deref())
         }
         ScriptCmd::Roundtrip { a, actions } => roundtrip(&a, &actions),
+        ScriptCmd::Sweep { a, top, detail, log } => sweep(&a, top, detail.as_deref(), log.as_deref()),
         ScriptCmd::Cover { a, actions, logs, detail, log_dir, untouched } => {
             cover(&a, &actions, &logs, detail.as_deref(), log_dir.as_deref(), untouched)
         }
@@ -1132,6 +1151,40 @@ fn each_chain(
         }
     }
     Ok(())
+}
+
+/// `script sweep`: [`fnv_game::sweep::sweep`] over the whole load order.
+fn sweep(a: &ScriptArgs, top: usize, detail: Option<&std::path::Path>, log: Option<&std::path::Path>) -> anyhow::Result<Value> {
+    let tp = table_path(a);
+    let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
+    let table = FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+    let plugins = open_load_order(&a.lo)?;
+    let lo = LoadOrder::new(&plugins)?;
+    let schema = Schema::load_dir(&a.schema)?;
+    let forms = fnv_sim::FormStore::build(&lo, &schema);
+    let refs = fnv_sim::RefTable::build(&lo, &schema);
+    let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    let (mut r, cov) = fnv_game::sweep::sweep(&data, &forms, &refs, 5);
+    if let Some(p) = log {
+        std::fs::write(p, serde_json::to_string(&cov.log(&data, "result-script sweep"))?).with_context(|| p.display().to_string())?;
+    }
+    if let Some(p) = detail {
+        std::fs::write(p, serde_json::to_string_pretty(&r)?).with_context(|| p.display().to_string())?;
+    }
+    if let Some(causes) = r["causes"].as_object_mut() {
+        for v in causes.values_mut() {
+            if let Some(list) = v.as_array_mut() {
+                list.truncate(top);
+                for c in list.iter_mut() {
+                    if let Some(e) = c["e.g."].as_array_mut() {
+                        e.truncate(2);
+                    }
+                }
+            }
+        }
+    }
+    Ok(r)
 }
 
 /// Steps of a trace that failed.

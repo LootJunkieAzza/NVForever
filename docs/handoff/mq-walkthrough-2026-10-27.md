@@ -199,3 +199,47 @@ Result [observed, 2026-10-27, 19 chains]: every chain ends the same after a save
 at its midpoint (saves of 70-370 KB). The first run differed in two of intro's stopwatch
 readings by one frame: the op let a frame pass, which a save and load does not; it now
 takes none.
+
+## 7. The result-script sweep
+
+`fnvtool script sweep <Data> <masters> --schema schemas/fnv [--detail sweep.json] [--log
+sweep-coverage.json]` (crates/fnv-game/src/sweep.rs) runs every result script with
+statements once, each in a game of its own started as the runner starts one, on the
+reference it would run on where the data names one (a placed reference of a line's actor,
+of the terminal, of the first placed actor whose package list holds the package; a stage
+script on its quest). It groups the call failures, script errors and unknown functions met
+by cause, the numbers in the error taken out. Smoke `script-sweep` checks the totals
+against `tools/smoke/expected/script-sweep.toml`. `--log` writes the scripts run as a
+coverage log, which `script cover --logs` merges (it is not part of the walkthrough
+totals: it runs everything once, out of context).
+
+Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
+384 terminal and 558 package scripts run; 292 met a problem, under
+56 causes. No function is unknown (no `unhandled` cause). By what they are:
+- **Context the sweep cannot give** (most): "no calling reference" (a terminal used only as
+  a sub menu, a package only AddScriptPackage gives), "called on an empty reference" (a
+  reference variable an earlier scene sets), RemoveItem/AddItem "count must be positive"
+  (Nipton's and the Kings' trade lines remove as many as the player carries: 0 alone),
+  EquipItem of an item the actor does not carry yet.
+- **AddPerk on an actor other than the player** (26 scripts, companion perks among them):
+  refused, "perks of actors other than the player are not modelled"; the companions
+  walkthrough (batch 3, item 2) takes it.
+- **`GetStage Q N == 1` with an extra argument** (3 lines, e.g. INFO 0x001588E5): a script
+  error stops the begin script before its SetStage; item 12 of §2, observer check 32.
+
+The commonest call failures:
+
+  | scripts | cause | e.g. |
+  |---|---|---|
+  | 47 | GetLinkedRef: no calling reference | TERM FalloutNV.esm:064B6E item 0 |
+  | 34 | SetActorValue: no calling reference | PACK FalloutNV.esm:02800E begin |
+  | 32 | RemoveItem: count must be positive, got # | INFO FalloutNV.esm:0F3E50 end |
+  | 26 | AddPerk: perks of actors other than the player are not modelled | INFO FalloutNV.esm:0B16C8 begin |
+  | 21 | AddItem: count must be positive, got # | INFO FalloutNV.esm:0F3E50 end |
+  | 20 | Disable: no calling reference | PACK FalloutNV.esm:07E1D1 end |
+  | 17 | GetInFaction: no calling reference | INFO FalloutNV.esm:145C6B end |
+  | 13 | Disable: called on an empty reference | PACK FalloutNV.esm:1231B6 end |
+  | 13 | RemoveItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
+  | 12 | AddItemHealthPercent: no calling reference | PACK FalloutNV.esm:0273AE begin |
+  | 12 | EquipItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
+  | 11 | SetDestroyed: called on an empty reference | TERM DeadMoney.esm:006CAF item 0 |

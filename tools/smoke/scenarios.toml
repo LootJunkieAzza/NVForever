@@ -10645,3 +10645,15 @@ expect = [
   { json = "differing", equals = 0, label = "no chain ends differently after a save and load at its midpoint" },
 ]
 manual = "a chain that differs lists its first differences (final.quests.<quest>... / observations[i]...): the state that did not survive the save is what the snapshot (Game::snapshot) leaves out"
+
+[[scenario]]
+name = "script-sweep"
+kind = "tool"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md §7: every quest stage, dialogue line, terminal and package result script of the ten masters run once, headless and by itself (fnvtool script sweep); the script errors and failed calls met, grouped by cause"
+areas = ["scripts", "quests", "dialogue"]
+paths = ["crates/fnv-game/src/sweep.rs", "crates/fnv-game/src/functions/", "crates/fnv-script/src/vm.rs", "crates/fnvtool/src/script_cmd.rs", "tools/smoke/expected/script-sweep.toml"]
+commands = [["script", "sweep", "{data}", "{masters}", "--schema", "schemas/fnv"]]
+# The totals live in expected/script-sweep.toml: a branch that fixes a cause lowers them
+# there; a rise fails this run.
+expect_file = "expected/script-sweep.toml"
+manual = "a rise: run the command with --detail and compare the causes with main's; a drop: write the new summary into expected/script-sweep.toml"
