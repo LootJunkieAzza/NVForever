@@ -23,6 +23,26 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let ctx = ConsoleCtx { on: subject, active_quest: g.ui.active_quest };
     let words: Vec<String> = (0..args.len()).filter_map(|k| text(args, k)).collect();
     let run: Result<Vec<String>, String> = match name {
+        // LU's `Console "line"`: the line as the console runs it, a console-only command
+        // or any function by name or alias [documented: Console; observed: anim2,
+        // `Console "tgm"` turned god mode on and off].
+        "console" => {
+            let line = text(args, 0).unwrap_or_default();
+            match con::split_call(&line) {
+                Some((on_name, func, words)) => {
+                    let on = match on_name {
+                        Some(n) => crate::runner::resolve(g, &n).ok(),
+                        None => subject,
+                    };
+                    let ctx = ConsoleCtx { on, active_quest: g.ui.active_quest };
+                    match con::lookup(&func) {
+                        Some(f) => f(g, &ctx, &words),
+                        None => con::call_words(g, on, &func, &words, "Console").map(|_| Vec::new()),
+                    }
+                }
+                None => Ok(Vec::new()),
+            }
+        }
         "con_closeallmenus" => con::close_all_menus(g, &ctx, &[]),
         "con_quitgame" => con::quit_game(g, &ctx, &[]),
         // `name [dump]`: the dump's text file is not written [decision: NVForever writes

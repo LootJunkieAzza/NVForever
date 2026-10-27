@@ -515,9 +515,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `category subtype [flags]`: 1 any (1 0) or the standing idle (1 1), 2 moving,
-        // 3 attacking, 4 reloading, from what the engine tells the body does [observed:
-        // anim1, the standing player 1 1 0 0 0, the same with an idle played; hypothesis:
-        // the moving, attack and reload categories].
+        // 3 attacking, 4 reloading, from what the engine tells the body does; PlayGroup's
+        // attack and reload groups do not count [observed: anim1 and anim2, standing 1 1
+        // 0 0 0, an idle kept 30 frames after a stop; NPCs fighting the player read 2 and
+        // 3; PlayGroup AttackRight/ReloadA read 0; hypothesis: the reload category].
         "isanimplayingex" => {
             use crate::anim_state::{AnimAction, MoveDir};
             let a = subject.unwrap_or(FormId::PLAYER_REF);
