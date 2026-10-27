@@ -37,6 +37,10 @@ pub struct GapsState {
     pub destruction_health: HashMap<FormId, i32>,
     /// References whose activation SetInteractionDisabled turned off.
     pub interaction_disabled: HashSet<FormId>,
+    /// SetNthEffectBase's bases: (item, effect index).
+    pub effect_bases: HashMap<(FormId, usize), FormId>,
+    /// RunScriptSnippet's snippets waiting: (frames left, source, reference).
+    pub snippets: Vec<(u32, String, FormId)>,
     /// SetNthEffectTraitNumeric's values: (item, effect index, trait).
     pub effect_traits: HashMap<(FormId, usize, i64), f64>,
 }
@@ -91,6 +95,21 @@ fn bit(flags: f64, bit: f64) -> XVal {
 }
 
 impl Game<'_> {
+    /// RunScriptSnippet's snippets whose delay has passed run (`Game::tick`).
+    pub(crate) fn run_due_snippets(&mut self) {
+        if self.gaps.snippets.is_empty() {
+            return;
+        }
+        for s in &mut self.gaps.snippets {
+            s.0 = s.0.saturating_sub(1);
+        }
+        let (due, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.gaps.snippets).into_iter().partition(|s| s.0 == 0);
+        self.gaps.snippets = wait;
+        for (_, src, on) in due {
+            run_snippet(self, &src, on);
+        }
+    }
+
     /// The Pip-Boy light as scripts see it (`GapsState::light_off_at`).
     fn pipboy_light(&mut self) -> bool {
         if self.gaps.light_off_at.is_some_and(|t| self.time > t) {
@@ -120,6 +139,18 @@ fn weapon_damage(g: &mut Game, actor: FormId, w: FormId) -> (f64, f64) {
     };
     (scaled, hit)
 }
+
+/// Run a snippet's lines on a reference, as the console runs a line; an error is logged.
+fn run_snippet(g: &mut Game, src: &str, on: FormId) {
+    if let Err(e) = g.run_source(src, RunCtx { self_ref: Some(on), ..Default::default() }) {
+        tracing::warn!("RunScriptSnippet: {e}");
+    }
+}
+
+/// IPDS DATA's materials in GetImpactDataSetForm's order [observed: gaps10, the 40mm
+/// grenade's set: 0–2 stone, dirt, grass, 4 metal, 8 water, 9 hollow metal; 10 and 11
+/// none on it].
+const IMPACT_MATERIALS: [&str; 12] = ["stone", "dirt", "grass", "glass", "metal", "wood", "organic", "cloth", "water", "hollow_metal", "organic_bug", "organic_glow"];
 
 /// MessageExAlt's default faces, `#0`–`#6` [documented: MessageExAlt].
 const FACES: [&str; 7] = ["sad", "neutral", "angry", "thinking", "very_happy", "surprised", "in_pain"];
@@ -176,8 +207,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getnumeffects" => XVal::Num(form(args, 0).and_then(|f| g.data.effect_items.get(&f)).map_or(0, Vec::len) as f64),
         "getntheffectbase" => {
             let i = num(args, 1, 0.0);
-            let e = form(args, 0).and_then(|f| g.data.effect_items.get(&f)).and_then(|l| if i >= 0.0 { l.get(i as usize) } else { None });
-            XVal::Ref(e.map_or(0, |e| e.effect.0))
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let e = g.data.effect_items.get(&f).and_then(|l| if i >= 0.0 { l.get(i as usize) } else { None });
+            match e {
+                Some(e) => XVal::Ref(g.gaps.effect_bases.get(&(f, i as usize)).copied().unwrap_or(e.effect).0),
+                None => XVal::Ref(0),
+            }
+        }
+        // Returns 0 (not the old base), for the session [observed: gaps10, the stimpak's
+        // first effect set to Silver Sting's reads 00033595, and back].
+        "setntheffectbase" => {
+            let (Some(f), Some(b)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            let i = num(args, 1, -1.0);
+            if i >= 0.0 && g.data.effect_items.get(&f).is_some_and(|l| (i as usize) < l.len()) {
+                g.gaps.effect_bases.insert((f, i as usize), b);
+            }
+            XVal::Ref(0)
         }
         // ENIT flags, bit by bit [observed: gaps3, the stimpak's flags 5 read 1 0 1].
         "geteffectflag" => {
@@ -876,6 +921,84 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if cap > 0.0 { w / cap * 100.0 } else { 0.0 })
         }
         "gethardcoretracking" => yes(!g.jip2.hardcore_tracking_off),
+        // `frames "source"` (formatted by the VM, `%r` a new line): the lines run on the
+        // calling reference, the player when there is none, at once for 0, else that many
+        // frames later [documented: RunScriptSnippet; observed: gaps10, "ModAV Luck 1"
+        // raised the player's Luck at once].
+        "runscriptsnippet" => {
+            let delay = num(args, 0, 0.0).max(0.0) as u32;
+            let src = text(args, 1);
+            let on = subject.unwrap_or(FormId::PLAYER_REF);
+            if delay == 0 {
+                run_snippet(g, &src, on);
+            } else {
+                g.gaps.snippets.push((delay, src, on));
+            }
+            zero
+        }
+        // IPDS DATA by material and IPCT MODL [observed: gaps10].
+        "getimpactdatasetform" | "setimpactdatasetform" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let Some(m) = IMPACT_MATERIALS.get(num(args, 1, -1.0).max(-1.0) as usize).filter(|_| num(args, 1, -1.0) >= 0.0) else { return Some(Ok(XVal::Ref(0))) };
+            if name == "setimpactdatasetform" {
+                g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(form(args, 2).map_or(0, |x| x.0)));
+                return Some(Ok(zero));
+            }
+            match crate::nvse::record_value(g, f, "DATA", m) {
+                Some(XVal::Ref(r)) => XVal::Ref(r),
+                _ => XVal::Ref(0),
+            }
+        }
+        "getimpactdatamodel" | "getweaponshellcasingmodel" => {
+            let f = form(args, 0).unwrap_or(FormId(0));
+            let sub = if name == "getimpactdatamodel" { "MODL" } else { "MOD2" };
+            match crate::nvse::record_value(g, f, sub, "") {
+                Some(XVal::Str(s)) => XVal::Str(s),
+                _ => XVal::Str(String::new()),
+            }
+        }
+        "setimpactdatamodel" | "setweaponshellcasingmodel" => {
+            if let Some(f) = form(args, 0) {
+                let sub = if name == "setimpactdatamodel" { "MODL/" } else { "MOD2/" };
+                g.field_overrides.insert((f, sub.into()), XVal::Str(text(args, 1)));
+            }
+            zero
+        }
+        // WRLD INAM [observed: gaps10, WastelandNV 0008809D].
+        "getworldspaceimagespace" => match form(args, 0).and_then(|w| crate::nvse::record_value(g, w, "INAM", "")) {
+            Some(XVal::Ref(r)) => XVal::Ref(r),
+            _ => XVal::Ref(0),
+        },
+        "setworldspaceimagespace" => {
+            if let (Some(w), Some(i)) = (form(args, 0), form(args, 1)) {
+                g.field_overrides.insert((w, "INAM/".into()), XVal::Ref(i.0));
+            }
+            zero
+        }
+        // `x y z [translate]`: the position, or with translate a move in the reference's
+        // own frame (turned by its heading) [observed: gaps10, Doc's +10 moved his X by
+        // -10 and -10 put him back; hypothesis: the frame].
+        "setposex" => {
+            let Some(r) = subject else { return Some(Ok(zero)) };
+            let Some((p, rot)) = g.ref_pos_rot(r) else { return Some(Ok(zero)) };
+            let d = [num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32];
+            let to = if num(args, 3, 0.0) != 0.0 {
+                let (s, c) = rot[2].sin_cos();
+                [p[0] + d[0] * c + d[1] * s, p[1] - d[0] * s + d[1] * c, p[2] + d[2]]
+            } else {
+                d
+            };
+            if let Ok(st) = g.world.get(r) {
+                st.pos = to;
+            }
+            g.moved.insert(r);
+            g.teleported.insert(r);
+            zero
+        }
+        // No tilt shows on a person [observed: gaps10, Doc reads 0 before and after
+        // SetActorTiltAngle X 20].
+        "getactortiltangle" => zero,
+        "setactortiltangle" => zero,
         // ---- keywords ----
         // The base forms with the keyword [observed: gaps3, one after AssignKeyword, an
         // unknown keyword an empty array].

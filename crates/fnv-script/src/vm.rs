@@ -2637,7 +2637,8 @@ impl Vm<'_, '_> {
         // the game.
         // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
         // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
-        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" {
+        // RunScriptSnippet `delay "format" values…` likewise [documented].
+        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" || lname == "runscriptsnippet" {
             let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
             let mut first = Vec::new();
             for e in c.args.iter().take(at) {

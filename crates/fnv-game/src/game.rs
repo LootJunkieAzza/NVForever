@@ -2671,6 +2671,7 @@ impl<'a> Game<'a> {
         self.run_delayed();
         self.run_box_callback();
         self.track_velocity();
+        self.run_due_snippets();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).

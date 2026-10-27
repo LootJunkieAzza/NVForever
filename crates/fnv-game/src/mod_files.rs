@@ -96,6 +96,20 @@ pub struct ModFiles {
     cache: HashMap<String, HashMap<String, String>>,
 }
 
+/// The folder of NVForever's layer standing for the game's own folder.
+const GAME_ROOT: &str = "GameRoot";
+
+/// A value as an array file writes it: numbers as `%g` does, forms as their hex ID.
+fn cell_text(v: &XVal) -> String {
+    match v {
+        XVal::Num(x) if x.fract() == 0.0 && x.abs() < 1e15 => format!("{}", *x as i64),
+        XVal::Num(x) => format!("{x}"),
+        XVal::Ref(r) => format!("{r:08X}"),
+        XVal::Str(s) => s.clone(),
+        XVal::Array(_) => String::new(),
+    }
+}
+
 /// A Data-relative path with `/` turned to `\` and lower case, for the maps.
 fn norm(p: &str) -> String {
     p.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase()
@@ -114,6 +128,33 @@ impl ModFiles {
             lower.strip_prefix("config\\").map(|_| c.join(&rel["config\\".len()..]))
         });
         config.into_iter().chain(r.read.iter().map(|root| root.join(&rel))).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
+    }
+
+    /// A file under the game's own folder (JIP's array files): this session's write,
+    /// else NVForever's copy (its layer's `GameRoot` folder), else the game folder's.
+    fn read_root(&self, rel: &str) -> Option<String> {
+        let key = format!("<root>\\{}", norm(rel));
+        if let Some(t) = self.written.get(&key) {
+            return Some(t.clone());
+        }
+        let rel = rel.replace('/', "\\");
+        let r = roots();
+        let mine = r.write.map(|w| w.join(GAME_ROOT).join(&rel));
+        let game = r.read.last().and_then(|d| d.parent()).map(|d| d.join(&rel));
+        mine.into_iter().chain(game).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
+    }
+
+    /// Write a file of the game's own folder: into NVForever's layer, never the game's
+    /// folder (CLAUDE.md charter; docs/design/install-layout.md).
+    fn write_root(&mut self, rel: &str, text: String) {
+        if let Some(w) = roots().write {
+            let p = w.join(GAME_ROOT).join(rel.replace('/', "\\"));
+            if let Some(d) = p.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            let _ = std::fs::write(&p, text.as_bytes());
+        }
+        self.written.insert(format!("<root>\\{}", norm(rel)), text);
     }
 
     fn write(&mut self, rel: &str, text: String) {
@@ -261,6 +302,70 @@ fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
 pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
     let v = match name {
+        // ---- JIP's array files, under the game's folder ----
+        // `path append array [transpose]`: a list is one line of tab-separated values; a
+        // list of lists is its columns side by side (transposed: its rows); appending
+        // starts a new line; returns 1 [observed: gaps10, ar_List 4 5 6 writes `4\t5\t6`
+        // with no newline after, appending 7 8 9 adds `\n7\t8\t9`].
+        "writearraytofile" => {
+            let path = text(args, 0).unwrap_or_default();
+            let append = num(args, 1, 0.0) != 0.0;
+            let transpose = num(args, 3, 0.0) != 0.0;
+            let Some(XVal::Array(id)) = args.get(2) else { return Some(Ok(zero)) };
+            let vals: Vec<XVal> = g.ext.array(*id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
+            let cols: Vec<Vec<XVal>> = vals
+                .iter()
+                .filter_map(|v| match v {
+                    XVal::Array(i) => g.ext.array(*i).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()),
+                    _ => None,
+                })
+                .collect();
+            let rows: Vec<Vec<XVal>> = if cols.is_empty() {
+                vec![vals]
+            } else if transpose {
+                cols
+            } else {
+                let n = cols.iter().map(Vec::len).max().unwrap_or(0);
+                (0..n).map(|i| cols.iter().map(|c| c.get(i).cloned().unwrap_or(XVal::Str(String::new()))).collect()).collect()
+            };
+            let body = rows.iter().map(|r| r.iter().map(cell_text).collect::<Vec<_>>().join("\t")).collect::<Vec<_>>().join("\n");
+            let text = match g.mod_files.read_root(&path).filter(|_| append) {
+                Some(old) if !old.is_empty() => format!("{old}\n{body}"),
+                _ => body,
+            };
+            g.mod_files.write_root(&path, text);
+            XVal::Num(1.0)
+        }
+        // `path [transpose]`: one line gives a list of its values; more give a list of
+        // columns (transposed: of rows); numbers read as numbers; a missing file gives
+        // no array [observed: gaps10, 4 5 6 reads back with element 1 = 5; two lines of
+        // three give 3; missing -1].
+        "readarrayfromfile" => {
+            let path = text(args, 0).unwrap_or_default();
+            let transpose = num(args, 1, 0.0) != 0.0;
+            let Some(t) = g.mod_files.read_root(&path) else { return Some(Ok(zero)) };
+            let parse = |c: &str| match c.trim().parse::<f64>() {
+                Ok(x) => XVal::Num(x),
+                Err(_) => XVal::Str(c.to_string()),
+            };
+            let rows: Vec<Vec<XVal>> = t.lines().filter(|l| !l.trim().is_empty()).map(|l| l.split('\t').map(parse).collect()).collect();
+            let list = |g: &mut Game, items: Vec<XVal>| {
+                let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+                XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+            };
+            if rows.len() == 1 {
+                let r = rows.into_iter().next().unwrap_or_default();
+                return Some(Ok(list(g, r)));
+            }
+            let groups: Vec<Vec<XVal>> = if transpose {
+                rows
+            } else {
+                let n = rows.iter().map(Vec::len).max().unwrap_or(0);
+                (0..n).map(|i| rows.iter().filter_map(|r| r.get(i).cloned()).collect()).collect()
+            };
+            let inner: Vec<XVal> = groups.into_iter().map(|c| list(g, c)).collect();
+            list(g, inner)
+        }
         // ---- LU: read the file each time; write it at once ----
         "getinifloat" | "getinistring" => {
             let Some((s, k)) = text(args, 0).as_deref().and_then(section_key) else { return Some(Ok(zero)) };
