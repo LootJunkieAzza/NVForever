@@ -706,6 +706,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps6",
+   "layer": 5,
+   "description": "GetCalculatedWeaponDPS on the skill curve (pistol at three Guns values, combat knife at two Melee values) and the next unprobed JIP functions (effect traits, form descriptions, SetValueAlt, object effects, projectile flags and explosions, aux variables as arrays, ref-map refs, poison, detection, processing level, SetPersistent, CrippleLimb, SetStickDisabled, IsComponentLoaded); set gaps6 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps6.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps6.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
   }
  ]
 }
