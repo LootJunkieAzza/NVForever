@@ -60,6 +60,11 @@ Mods].
   `MWD7` `VarmintRifleScopedSilencedExt.NIF`, its mods 1 extended magazines, 2 scope, 3
   silencer]. "Mods are implemented by swapping the model, not by adding components ...
   8 models for 3 mods" [documented: GECK wiki Weapon Mods].
+- A weapon with no `WNAM` draws its `MODL` in first person; with mods on it draws the
+  combination's `MWD` model there when it has no `WNM` form for it [observed: a mod's
+  weapon, `CM4A1` from MMP, has `MWD` models and no `WNAM`/`WNM`, and showed its mods in
+  third person only; hypothesis: the original shows them in both views]. A weapon with a
+  `WNAM` but no `WNM` for the combination keeps its plain first-person model.
 - The 10mm Pistol [observed]: slot 1 `ModNV10mmPistolExtMags` Increase Clip Capacity 4,
   slot 2 `ModNV10mmPistolLaserSight` Decrease Spread 0.4, slot 3 `ModNV10mmPistolSilencer`
   Silence; clip 12, min spread 0.8, `reload_animation_mod` ReloadA. The Varmint Rifle:
