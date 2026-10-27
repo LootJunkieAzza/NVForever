@@ -7,8 +7,9 @@ The state of every system is in `docs/status.md`; the open gameplay decisions fo
 are in `docs/owner-review.md` (a short ranked list: add a bullet, never a running log), the
 questions the original game can answer in `docs/handoff/observer-checks.md`. **Read first**:
 the code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion,
-playthrough blockers; its 2026-10-25 note and §7 say what is still open: the main-quest
-walkthroughs, the Hoover Dam load test, a recorded parity-lab run) and the owner's
+playthrough blockers; its 2026-10-25 note and §7 say what is still open: the Hoover Dam
+load test, a recorded parity-lab run; the main-quest walkthroughs past Novac and their
+stalls: `docs/handoff/mq-walkthrough-2026-10-27.md`) and the owner's
 `playtest-list-7.md`. What ESM data the engine still does nothing with:
 `docs/handoff/esm-audit-2026-10-25.md`. Finished, kept for their Outcome sections and
 history only, in `docs/handoff/archive/`: playtest lists 1-5, the queue of 2026-10-20, the

@@ -16,7 +16,7 @@ add-ons. Nothing was run in the game. Tags: [observed] = read in code, data or l
 > (patrol points and sandbox days, #730), the credits (#750), NPC grenades (#739),
 > dismemberment by blasts and NPC blows (#748), the *Response combat lines (#734), the
 > package behaviours (#757), companion perks (#715) and light colour controllers (#658).
-> Still open from §7: the headless main-quest walkthroughs (3), the Hoover Dam load test
+> Still open from §7 (the main-quest walkthroughs, 3, done 2026-10-27: mq-walkthrough-2026-10-27.md): the Hoover Dam load test
 > (6), melee VATS specials (8, now an owner question: owner-review.md item 31), a recorded
 > full parity-lab run (9) and the documentation sweep (10, partly done 2026-10-25). The
 > smoke runner has 553 scenarios (431 here).
@@ -186,14 +186,14 @@ scenarios [observed].
 | VCG02 Back in the Saddle | Works, flaky | sunny-wells; shoot-bottles flaky on main |
 | VCG03 By a Campfire | Works | crafting, compass-quest-target |
 | VMS16 Ghost Town Gunfight | Parts work; Run Goodsprings Run untested | trudy-gunfight-armed |
-| VMQ01 They Went That-a-Way | Pieces tested (Primm, Nipton, Novac, REPCONN); Boulder City untested | follower-boone, crucified-stay, intercom-goodbye-line |
-| Ring-a-Ding-Ding: Strip gate, Tops, Benny | **Untested** (only the Strip crowd) | strip-crowd-evening |
-| Lucky 38, Mr. House, VMQHouse | **Untested** | — |
-| Yes Man (VMQYesMan) | **Untested**; MoveToTerminal unreachable in `fnvtool ai reach` | actor-behaviour.md §7 |
-| NCR path (Kimball's speech, vertibird) | **Untested** | — |
-| Legion path (Cottonwood Cove, the Fort's confiscation, arena) | **Untested** | — |
-| Hoover Dam (vHDBattleController, ~300 named actors) | **Untested; performance unmeasured** | — |
-| End slides (VEndingScript, NarratorScript, SwapTexture) | Built, never run | — |
+| VMQ01 They Went That-a-Way | Pieces tested (Primm, Nipton, Novac, REPCONN); Boulder City walked headless 2026-10-27 (mq-boulder-city) | follower-boone, crucified-stay, intercom-goodbye-line |
+| Ring-a-Ding-Ding: Strip gate, Tops, Benny | Walked headless 2026-10-27 (mq-tops); not played | strip-crowd-evening |
+| Lucky 38, Mr. House, VMQHouse | Walked headless 2026-10-27 to VHDHouseBattle 10 (mq-house); not played | — |
+| Yes Man (VMQYesMan) | Walked headless 2026-10-27 (mq-yesman); MoveToTerminal's "unreachable" is the check's, not the quest's (mq-walkthrough §1) | actor-behaviour.md §7 |
+| NCR path (Kimball's speech, vertibird) | Walked headless 2026-10-27 to Eureka! 30 (mq-ncr); not played | — |
+| Legion path (Cottonwood Cove, the Fort's confiscation, arena) | Walked headless 2026-10-27 to Veni Vidi Vici 100 (mq-legion); not played | — |
+| Hoover Dam (vHDBattleController, ~300 named actors) | Quest flow walked headless 2026-10-27 (all four battles; the panel: mq-dam-panel); **not played, performance unmeasured** | — |
+| End slides (VEndingScript, NarratorScript, SwapTexture) | The NCR ending's slides run headless to ExitGame 2026-10-27 after two fixes (mq-ending); not played | — |
 | Credits | ~~Missing~~ Built 2026-10-25 (#750), never run at the end of a playthrough | gap-audit S3 |
 | Add-ons (DM, HH, OWB, LR, GRA) | Every called function registered; no quest played. HH Prisoners of War stalls (OnOpen) | — |
 
@@ -282,7 +282,7 @@ tools; point CLAUDE.md at this file, gap-audit §7 and playtest list 7.
 1. ~~Fire OnOpen, OnClose, OnActorEquip, OnMagicEffectHit~~ (done 2026-10-23; OnSell
    deliberately not fired, as in the original).
 2. ~~Pass script unlocks to NPC pathing~~ (done 2026-10-23, `Ai::apply_door_locks`).
-3. **Headless main-quest walkthroughs**: `fnvtool script run` chains like
+3. ~~**Headless main-quest walkthroughs**~~ (done 2026-10-27: every chain reaches its last stage headless, three engine stalls fixed, [mq-walkthrough-2026-10-27.md](mq-walkthrough-2026-10-27.md), smoke `mq-*`): `fnvtool script run` chains like
    `walkthrough/intro.actions.json` for each main-quest chain, then one smoke scenario per
    milestone: the Strip gate, the Lucky 38 elevator, the Fort's confiscation, the Hoover
    Dam panel, VEnding. This turns "untested" into a list.

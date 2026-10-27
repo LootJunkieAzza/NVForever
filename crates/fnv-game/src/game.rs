@@ -1272,6 +1272,9 @@ pub struct Game<'a> {
     pub boxes: Vec<FormId>,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
+    /// SayTo calls that found no line the speaker could say, (speaker, topic): their
+    /// SayToDone blocks run in the next frame ([`Game::say`]); not saved.
+    pub say_to_unsaid: Vec<(FormId, FormId)>,
     /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
     /// they talk to each other ([`Game::conversation_moves`]); not saved.
     pub moving_talkers: BTreeSet<FormId>,
@@ -1742,6 +1745,7 @@ impl<'a> Game<'a> {
             message_box: None,
             boxes: Vec::new(),
             speech: Vec::new(),
+            say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
@@ -3110,10 +3114,20 @@ impl<'a> Game<'a> {
     /// next unsaid line each time, also the first line of the topic when it had never
     /// been said (stage 60 without 55), layer5-captures.md §10.3]. A speaker already
     /// saying a line stops it (its end script does not run) [hypothesis].
+    ///
+    /// A SayTo that finds no line the speaker can say still finishes: the speaker's
+    /// SayToDone blocks for the topic run in the next frame [hypothesis: the end slides
+    /// (the narrator's SayToDone chain, VEnding) call topics that have no line for some
+    /// endings, e.g. VEndingBrotherhood for the NCR ending with the Brotherhood never
+    /// met, and the chain must go on to VEndingConclusion; observer-checks.md;
+    /// docs/handoff/mq-walkthrough-2026-10-27.md].
     pub fn say(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool) -> Option<FormId> {
         let listener = target.or(Some(FormId::PLAYER_REF));
         let Some(info) = self.select_line(speaker, listener, topic) else {
             self.emit(EventKind::NoLine { speaker, topic });
+            if say_to {
+                self.say_to_unsaid.push((speaker, topic));
+            }
             return None;
         };
         self.say_line(speaker, target, topic, info, if say_to { LineKind::SayTo } else { LineKind::Say });
@@ -3255,6 +3269,9 @@ impl<'a> Game<'a> {
     /// runs on its speaker, then the speaker's SayToDone blocks (after Say too, D1). A speaker
     /// that was disabled, deleted or died stops its line [hypothesis].
     fn update_speech(&mut self, dt: f64) {
+        for (speaker, topic) in std::mem::take(&mut self.say_to_unsaid) {
+            self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(topic.0)), None);
+        }
         self.update_speech_of(dt, None);
         self.combat_lines_tick();
     }
