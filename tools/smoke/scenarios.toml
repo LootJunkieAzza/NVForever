@@ -471,6 +471,20 @@ expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arriv
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]
+name = "weapon-lower"
+source = "engine/nvforever/src/weapon_lower.rs (owner request 2026-10-26): with the 10mm pistol drawn and Easy Pete moved right in front of the view, the first-person weapon lowers for him (a friendly actor), comes up while aiming and lowers again after; docs/design/player-body.md §1.4b"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/weapon_lower.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:45:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aim,10.5:aim" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch=-15", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'weapon lowering: lowered for a friendly actor ahead', label = "the pistol lowers for Easy Pete in front" },
+  { re = 'weapon lowering: raised', label = "aiming brings it up" },
+  { re = 'player body summary: weapon lowering on, lowered (?P<n>\d+) times', range = [2, 1e9], label = "lowered again after aiming" },
+]
+
+[[scenario]]
 name = "player-fire-comment"
 source = "GECK wiki Topics Tab: PLAYERFIREWEAPON is \"used when the player fires their weapon near an actor\"; the package's Fallout behaviour Reaction To Player Actions allows it (fnv-ai social.rs, packages.md §7.7): the player fires the 10mm pistol into the sky beside Easy Pete, who says one of his PLAYERFIREWEAPON lines (\"What in tarnation?\" or \"What in blazes?\")"
 areas = ["ai", "dialogue"]

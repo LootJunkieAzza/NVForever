@@ -122,6 +122,32 @@ view by code [hypothesis; the values are not known]. NVForever's sway
 - A switch, on by default: `--no-weapon-sway`, "Weapon sway" on the settings page (key
   `weapon-sway`). The exit summary gives the most turn lag and the deepest bob.
 
+### 1.4b The weapon lowered near walls and friends (owner request 2026-10-26)
+
+The original keeps the first-person weapon up whatever is ahead, so it pokes through
+walls and companions; its `_1stperson` clips have no lowered pose [observed: the owner's
+play; the folder's file list]. NVForever lowers it by code
+(`engine/nvforever/src/weapon_lower.rs`) [design, constants tuned by eye with the
+owner, 2026-10-27]:
+
+- Two rays ahead of the view, from the eye and from about where the weapon is held. A
+  surface within 40 units eases it down, fully at 22; a living actor within 72 units
+  that would not attack the player (`fnv_game::rest::hostile_to_player`, by its hit
+  volumes) lowers it fully. A hostile actor never does.
+- Ready Item (R) tapped twice within 0.25 s lowers or raises it by hand
+  (`nvf_play::control`); a single tap reloads 0.25 s later than before for that.
+- Aiming, the trigger and an attack bring it up at once and keep it up 0.6 s; a reload
+  keeps it up for the reload clip's length. Aiming, the trigger and putting the weapon
+  away also end a lowering by hand. Shots still leave from the view.
+- The pose turns the arms about the eye (pitched 9° down, turned 10° in, canted 5°), on
+  top of the sway, so nothing near the camera rises into the view: turned about the
+  hands, the sleeves swung up across it. Rifles take 80 % of it, heavy weapons and
+  launchers 35 % (they sit at the foot of the view or on the shoulder). Not for fists,
+  under the Pip-Boy, while an idle drives the view or in third person.
+- A switch for the automatic part, on by default: `--no-weapon-lower`, "Lower weapon near
+  walls" on the settings page (key `weapon-lower`); by hand works either way. The exit
+  summary gives how many times it lowered.
+
 ### 1.5 The body in first person (owner request 2026-10-10; not the original's)
 
 A switch, off by default as the original draws the arms rig alone: `--first-person-body`,
