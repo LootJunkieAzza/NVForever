@@ -134,5 +134,6 @@ Notes [observed]:
   Legion chain shows VEnding starting; the House and independent battles' last stages
   (VHDHouseBattle 100, VHDIndependentBattle 100 in `dam-panel`) start it the same way.
 - No add-on quest was walked (DM, HH, OWB, LR).
+- Smoke `sunny-wells` fails on main (325cdaf1): Cheyenne runs after Sunny instead of walking. It was rerun alone with this branch's two play changes switched off and still failed, so it is marked `known_failing`; not explained yet.
 - Game runs: these chains say the quest flow holds. They do not show that the AI walks
   there, the fights end or the Dam's ~300 actors run at speed (audit §7 item 6).

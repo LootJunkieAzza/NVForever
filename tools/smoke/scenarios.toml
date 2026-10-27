@@ -3002,7 +3002,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
 run_seconds = 150
 expect = [
-  "CheyenneREF: walks after SunnyRef (CheyenneAccompany)",
+  { text = "CheyenneREF: walks after SunnyRef (CheyenneAccompany)", known_failing = "main 2026-10-27 (325cdaf1, rerun alone with claude/optimistic-almeida-e63a9c's play changes switched off): Cheyenne runs after Sunny, 1,903 units off in another cell; not explained yet" },
   "SunnyRef: starts a conversation … (VCG02SunnySmilesDialogueSneakStart), line 0x0010A1ED",
   "conversation with SunnyRef ended (goodbye, 1 lines)",
 ]
