@@ -393,8 +393,9 @@ The numbers above stay put so links to them hold; each item here gives its own p
 30. **Reputation axes outside 0-2.** Scripts call SetReputation RepNVNCR with axis 2
     (Crocker's messenger, Vulpes's greeting) and conditions use GetReputationThreshold
     axis 3 (VDialogueBenny) and GetReputation axis 2 (VMS36); the wiki documents 0/1
-    (fame/infamy) and 0-2 (mixed/good/bad). Ours refuses the call (the line's condition
-    fails, the script line does nothing). To check: GetReputation and GetReputationThreshold
+    (fame/infamy) and 0-2 (mixed/good/bad). Ours does nothing and reads 0 (reputation.rs
+    `axis`), so Benny's greeting for a player liked on the Strip (axis 3 >= 3) is never
+    chosen. To check: GetReputation and GetReputationThreshold
     with those axes after SetReputation X 2 5 on a fresh save.
 31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
     mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
