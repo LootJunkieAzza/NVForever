@@ -1369,6 +1369,39 @@ fn drops_land_ahead_of_and_above_the_holder() {
 }
 
 #[test]
+fn hand_drops_land_at_chest_height_in_a_ring() {
+    use fnv_sim::world::{player_drop_offset, DROP_AHEAD, PLAYER_DROP_ABOVE, PLAYER_DROP_RING};
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(STIMPAK), 20).unwrap();
+    // Facing north: the first lands ahead (+Y) at chest height, the next to its right
+    // (towards +X), the next to its left, ..., the eighth behind.
+    let mut seen = Vec::new();
+    for _ in 0..PLAYER_DROP_RING {
+        let r = w.player_drop_item(id(STIMPAK), 1).unwrap()[0];
+        seen.push(w.peek(r).unwrap().pos);
+    }
+    assert_eq!(seen[0], [0.0, DROP_AHEAD, PLAYER_DROP_ABOVE]);
+    assert!(seen[1][0] > 1.0 && seen[2][0] < -1.0, "{seen:?}");
+    assert!((seen[7][1] + DROP_AHEAD).abs() < 1e-3 && seen[7][0].abs() < 1e-3, "{seen:?}");
+    for (i, a) in seen.iter().enumerate() {
+        for b in &seen[i + 1..] {
+            assert!((a[0] - b[0]).hypot(a[1] - b[1]) > 30.0, "{seen:?}");
+        }
+    }
+    // The ring is full: the next goes in the second, farther out, straight ahead.
+    let r = w.player_drop_item(id(STIMPAK), 1).unwrap()[0];
+    assert_eq!(w.peek(r).unwrap().pos[..2], player_drop_offset(0.0, PLAYER_DROP_RING));
+    assert!(w.peek(r).unwrap().pos[1] > DROP_AHEAD + 1.0);
+    // Taking the first back frees its place.
+    let first = w.created().next().unwrap().0;
+    w.activate(p, first).unwrap();
+    let r = w.player_drop_item(id(STIMPAK), 1).unwrap()[0];
+    assert_eq!(w.peek(r).unwrap().pos, [0.0, DROP_AHEAD, PLAYER_DROP_ABOVE]);
+}
+
+#[test]
 fn created_lists_drops_taken_ones_included() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
