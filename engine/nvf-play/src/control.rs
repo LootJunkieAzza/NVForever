@@ -34,8 +34,8 @@
 //!   takes Use, Block and Activate while it is on.
 //! - Grab (Z) held picks up what is under the crosshair and carries it (`crate::grab`,
 //!   docs/spec-notes/grab.md).
-//! - The game's other controls (Quick Save, Quick Load) are bound but not built here:
-//!   pressing one says so on screen.
+//! - Quick Save (F5) and Quick Load (F9) are `crate::save`'s. A control bound but not built
+//!   would go in [`NOT_BUILT`], which says so on screen when it is pressed; none is now.
 //! - While the weapon wheel holds the input ([`PlayerControl::wheel`]) Use and Block are
 //!   not the game's.
 //! - Scripts turn groups of controls off and on (`DisablePlayerControls`,
@@ -523,10 +523,7 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 }
 
 /// The controls that are bound but not built yet.
-const NOT_BUILT: [Control; 2] = [
-    Control::QuickSave,
-    Control::QuickLoad,
-];
+const NOT_BUILT: [Control; 0] = [];
 
 /// Toggles, holds, the third-person zoom; see the module notes.
 pub fn read_controls(

@@ -138,11 +138,11 @@ plain shapes in the HUD colour. Mockups: `mock1.png`, `mock2.png`, `mock4.png`.
 | part | source |
 |---|---|
 | dark disc behind the wheel | `textures\interface\companion_wheel\hud_comp_bkg.dds`, a soft-edged black disc [observed], as the companion wheel draws its matte |
-| the eight slices | drawn: annular sectors of 45°, 1.6° gaps, inner radius 160, outer 372 (interface units of the 960-high view) [design]. Unlit: near-black at 60 % with a dim amber outline; lit: amber at 27 % with a full outline and a bright arc just outside the rim (the reference's red arc, in the HUD colour) |
-| item pictures | the item's own Pip-Boy picture (its record's `ICON`, `interface\icons\pipboyimages\…`, the Vault Boy art the ITEMS page shows), tinted with the HUD colour, 150 units; dimmed to 60 % when not picked |
+| the eight slices | drawn: annular sectors of 45°, 1.6° gaps, inner radius 178, outer 372 (interface units of the 960-high view) [design]. Unlit: near-black at 60 % with a dim amber outline; lit: amber at 27 % with a full outline and a bright arc just outside the rim (the reference's red arc, in the HUD colour) |
+| item pictures | the item's own Pip-Boy picture (its record's `ICON`, `interface\icons\pipboyimages\…`, the Vault Boy art the ITEMS page shows), tinted with the HUD colour, 132 units; dimmed to 60 % when not picked |
 | fallback picture | the type icons `interface\icons\typeicons\hot_keys_icon_*.dds` (small guns, melee, stimpak, chems, mine …) when an item has no `ICON` [observed: 17 kinds] |
 | Ammo Swap | `interface\icons\typeicons\hot_keys_icon_ammoswap.dds` [documented: hotkeys.xml] |
-| hub | drawn circle, radius 150, near-black, amber outline |
+| hub | drawn circle, radius 168, near-black, amber outline; everything in it stays 12 units inside the outline: each line is measured against the circle where it stands and takes the medium font, then a second line, then is cut short with dots; the kind line goes first when the whole is too tall (owner 2026-10-27: nothing may overlap the slices) |
 | text | the game's fonts through `fnv-font` (`glow_monofonto_medium.fnt` for names, font 1 for the title) in the HUD colour (`interface::amber`) |
 | figure bars | the Pip-Boy's own cards' figures (DAM or DPS, WG, VAL, CND, and range) as filled bars [design]; values from `pipboy/items.rs` `info_tiles` / `weapon_dps` |
 | ammo line | `< .357 Magnum >` and `loaded / carried`, as the HUD's ammo counter |
@@ -163,7 +163,11 @@ The HUD (`hud.rs`) is hidden while the wheel is open [design: as the reference].
 
 The Pip-Boy's existing interface sounds (`pipboy/sounds.rs`): a click when the picked
 slice changes, the equip sound on release [design; which sound files is a choice for the
-owner's ear]. Nothing on a tap beyond the equip itself.
+owner's ear]. A slot used by a tap or from the wheel plays what the ITEMS page plays for
+the same thing (owner 2026-10-27, `ui_sounds`, inventory events): putting on a weapon or
+apparel plays the item's own put-on sound, taking apparel off its take-off sound, an aid
+item its consume sound (ALCH `ENIT`), an item not carried or refused the refusal sound;
+an empty slot or a weapon already in hand none.
 
 ## 9. Build order
 

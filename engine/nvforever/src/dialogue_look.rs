@@ -329,7 +329,7 @@ fn rotation(m: &Affine3A) -> Quat {
 /// The bones to turn on a human-style skeleton, or why none.
 fn head_rig(rig: &ActorRig, combat: Option<&Combat>) -> Result<HeadRig, String> {
     // The body part that head tracking is set up on, when the actor has body part data.
-    let data = combat.and_then(|c| c.forms.body_parts_for(FormId(rig.base), &rig.skeleton).and_then(|d| c.forms.body_parts.get(&d)));
+    let data = combat.and_then(|c| c.forms.body_parts_for(FormId(rig.body), &rig.skeleton).and_then(|d| c.forms.body_parts.get(&d)));
     let part = data.and_then(|d| d.parts.iter().find(|p| p.flags.iter().any(|f| f == HEADTRACKING_FLAG)));
     if data.is_some() && part.is_none() {
         return Err("its body part data allows no head tracking".into());

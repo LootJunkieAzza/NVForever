@@ -66,7 +66,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { dismember_chance: 75.0, sever_share: 25.0, mess_part_chance: 100.0, mess_torso_crippled: 80.0, mess_torso_intact: 20.0, mess_neither_scale: 0.5, explode_delay: 0.03 }
+        Settings { dismember_chance: 75.0, sever_share: 30.0, mess_part_chance: 100.0, mess_torso_crippled: 80.0, mess_torso_intact: 20.0, mess_neither_scale: 0.5, explode_delay: 0.03 }
     }
 }
 
@@ -124,18 +124,19 @@ pub fn chances(part: &BodyPart, b: &Blow, s: &Settings) -> (f32, f32) {
     }
     // Which way it goes: the weapon's On Hit where the part allows a choice. Bloody Mess
     // explodes what the weapon could not take otherwise (No Dismember/Explode, the torso).
+    // Percent of the parts taken that are severed.
     let sever = match b.on_hit {
         _ if !severable => 0.0,
-        _ if !explodable => 1.0,
-        OnHit::Normal => s.sever_share / 100.0,
-        OnHit::DismemberOnly => 1.0,
+        _ if !explodable => 100.0,
+        OnHit::Normal => s.sever_share,
+        OnHit::DismemberOnly => 100.0,
         OnHit::ExplodeOnly | OnHit::Neither => 0.0,
     };
-    if !b.bloody_mess && ((sever == 0.0 && !b.on_hit.may_explode()) || (sever == 1.0 && !b.on_hit.may_sever())) {
+    if !b.bloody_mess && ((sever == 0.0 && !b.on_hit.may_explode()) || (sever == 100.0 && !b.on_hit.may_sever())) {
         return (0.0, 0.0);
     }
     let gone = gone.clamp(0.0, 100.0);
-    (gone * (1.0 - sever), gone * sever)
+    (gone * (100.0 - sever) / 100.0, gone * sever / 100.0)
 }
 
 /// What the blow does to the part, given a roll uniform in [0, 1).
@@ -212,12 +213,12 @@ mod tests {
     #[test]
     fn a_kill_takes_the_head_three_times_in_four_whatever_the_overkill() {
         let s = Settings::default();
-        // Normal formula: a quarter of the parts taken are severed.
-        assert_eq!(chances(&head(), &blow(OnHit::Normal, 5.0), &s), (56.25, 18.75));
-        assert_eq!(chances(&head(), &blow(OnHit::Normal, 500.0), &s), (56.25, 18.75));
+        // Normal formula: 30 % of the parts taken are severed.
+        assert_eq!(chances(&head(), &blow(OnHit::Normal, 5.0), &s), (52.5, 22.5));
+        assert_eq!(chances(&head(), &blow(OnHit::Normal, 500.0), &s), (52.5, 22.5));
         let mut intact = blow(OnHit::Normal, 5.0);
         intact.crippled = false;
-        assert_eq!(chances(&head(), &intact, &s), (56.25, 18.75));
+        assert_eq!(chances(&head(), &intact, &s), (52.5, 22.5));
     }
 
     #[test]
@@ -246,7 +247,7 @@ mod tests {
         b.bloody_mess = true;
         assert_eq!(chances(&head(), &b, &s), (100.0, 0.0));
         b.on_hit = OnHit::Normal;
-        assert_eq!(chances(&head(), &b, &s), (75.0, 25.0));
+        assert_eq!(chances(&head(), &b, &s), (70.0, 30.0));
         b.on_hit = OnHit::Neither;
         assert_eq!(chances(&head(), &b, &s), (50.0, 0.0));
         assert_eq!(chances(&torso(), &b, &s), (40.0, 0.0));
@@ -256,8 +257,8 @@ mod tests {
     fn one_roll_decides() {
         let s = Settings::default();
         let b = Blow { on_hit: OnHit::Normal, corpse: true, overkill: 10.0, max_health: 100.0, ..Blow::default() };
-        assert_eq!(decide(&head(), &b, &s, 0.56), Some(Fate::Explode));
-        assert_eq!(decide(&head(), &b, &s, 0.57), Some(Fate::Sever));
+        assert_eq!(decide(&head(), &b, &s, 0.52), Some(Fate::Explode));
+        assert_eq!(decide(&head(), &b, &s, 0.53), Some(Fate::Sever));
         assert_eq!(decide(&head(), &b, &s, 0.75), None);
     }
 

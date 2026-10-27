@@ -1945,7 +1945,7 @@ order = [[
   { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
 ]]
 expect = [
-  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
+  { text = "ui sounds: level up opened: MUSSuccess", label = "the level-up screen's music" },
   { text = "ui sounds: level up value raised: UIMenuPrevNext", label = "a + clicked" },
   { text = "ui sounds: level up value lowered: UIMenuPrevNext", label = "a - clicked" },
   { text = "ui sounds: level up refused: UIMenuCancel", label = "Continue with points left" },
@@ -2011,8 +2011,9 @@ order = [[
 ]]
 expect = [
   { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
-  { text = "xp meter: sound UILevelUp", label = "the level-up sting" },
-  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
+  { text = "xp meter: sound UILevelUpText", label = "the bar filled: the level-up sound" },
+  { text = "ui sounds: level up opened: MUSSuccess", label = "the level-up screen's music" },
+  { gap = ["xp meter: sound UILevelUpText", "levelup: menu open"], range = [4.9, 6.0], label = "the menu opens 5 s after the level-up sound" },
 ]
 manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png the pointer at the end and LEVEL UP; xp_levelup_menu.png the level-up menu"
 
@@ -4670,6 +4671,8 @@ expect = [
   { re = 'companion wheel: stay_follow \(Wait\): CraigBooneREF says \S+ \(FollowersWait\)', label = "Wait says his FollowersWait line" },
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerWAIT', label = "his Wait package after the wheel closes" },
   { re = 'companion wheel: stay_follow \(Follow\): CraigBooneREF says \S+ \(FollowersLetsGo\)', label = "Follow says his Let's Go line" },
+  { re = 'companion wheel: stay_follow now shows Follow', label = "Wait shows on the wheel as soon as it is pressed (owner, 2026-10-27)" },
+  { re = 'companion wheel: stay_follow now shows Wait', label = "Follow (Let's Go's end script) takes effect as soon as it is pressed (owner, 2026-10-27)" },
   { re = 'companion wheel: near_far \(Far\): CraigBooneREF says \S+ \(FollowersTacticsDistanceLong\)', label = "Far says the long-distance line" },
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerLONG', label = "his long Follow package" },
   { re = 'companion wheel: aggressive_passive \(Aggressive\): CraigBooneREF says \S+ \(FollowersTacticsCombatAggressive\)', label = "Aggressive" },
@@ -6780,6 +6783,21 @@ expect = [
 forbid = [{ re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
 
 [[scenario]]
+name = "loose-items-float"
+source = "owner 2026-10-25: loose items float like ragdolls; in the original they float or sink by their Havok material (docs/spec-notes/ragdoll.md section 8, captures fl_items_lake and fl_heavy_lake: cloth, wood, bottles and cans floated, metal and glass sank)"
+note = "the player swims out from the Boulder Beach shore as wade-in-swim and drops a teddy bear (cloth), a Nuka-Cola (bottle) and a toaster (metal) at 19-20 s; at exit the bear and the bottle float with their tops at the surface and the toaster lies on the bed"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/buoyancy.rs", "crates/fnv-phys/src/water.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0", NVF_PLAY_TEST_CONSOLE = "18:player.additem 0001F21F 1;18.3:player.additem 0001519E 1;18.6:player.additem 0009A808 1;19:player.drop 0001F21F 1;19.5:player.drop 0001519E 1;20:player.drop 0009A808 1;20.5:close" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'physics: (?P<n>\d+) loose item bodies in water at exit', range = [3, 20], label = "the three dropped items are in the water (the bear has 6 bodies)" },
+  { re = 'physics: \d+ loose item bodies in water at exit: .*\(floats, its top \d+ units from the surface\).*\(floats, its top \d+ units from the surface\)', label = "the bear and the bottle float, their tops above the surface" },
+  { re = 'physics: \d+ loose item bodies in water at exit: .*\(sinks, its top -\d{2,3} units from the surface\)', label = "the toaster lies on the bed" },
+]
+
+[[scenario]]
 name = "aim-zoom"
 source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
 note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
@@ -7022,7 +7040,7 @@ name = "character-creator"
 source = "docs/spec-notes/character-creator.md §7: the race menu (1036) drawn by the creator, live look, Done"
 areas = ["chargen", "menus", "actors"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:tab:hair,22.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png,21.8:creator_hair_tab.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 30
 order = [[
@@ -7050,7 +7068,7 @@ expect = [
   { re = 'creator: camera \(test aid NVF_PLAY_TEST_CREATOR\): turned 69°, tilted (?P<n>\d+)°', range = [16, 19], label = "turned 60° and tilted 15° on the face framing" },
   { re = 'creator: camera .*, 61 units away, looking (?P<n>\d+) under the eye', range = [5, 15], label = "zoomed in on the whole body: aimed near the face, not the pelvis" },
 ]
-manual = "creator_open.png … creator_body_zoomed.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders"
+manual = "creator_open.png … creator_hair_tab.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders; hair_tab: the Hair tab with no Region row, a scrollbar at the right of the rows"
 
 [[scenario]]
 name = "actor-creator"
@@ -9968,6 +9986,9 @@ expect = [
   { re = 'hotkeys: slot 5: equipped Merc Charmer Outfit', label = "a tap of 5 puts the outfit on" },
   { re = 'hotkeys: slot 5: took off Merc Charmer Outfit', label = "another tap takes it off" },
   { re = 'hotkeys: slot 8: empty', label = "an empty slot does nothing" },
+  { re = 'ui sounds: inventory item put on: (?!none found)\S+', label = "equipping from a slot plays the item's put-on sound, as the ITEMS page" },
+  { re = 'ui sounds: inventory item used: (?!none found)\S+', label = "a Stimpak used from a slot plays its consume sound" },
+  { re = 'ui sounds: inventory item taken off: (?!none found)\S+', label = "taking the outfit off from a slot plays its take-off sound" },
   { re = 'weapon wheel summary: 6 taps, opened 2 times, used slots \[3\], 1 cancelled', label = "the summary" },
 ]
 forbid = [
@@ -10020,3 +10041,37 @@ expect = [
   { re = 'hotkeys: slot 4: equipped \.357 Magnum Revolver', label = "a tap of 4 after closing equips the revolver" },
 ]
 order = [["pipboy hotkeys: key 3 held", "hotkeys: slot 3 holds", "moved from slot 3", "slot 2 is Ammo Swap", "cannot be hotkeyed", "hotkeys: slot 4: equipped"]]
+
+[[scenario]]
+name = "dismember-geckos"
+source = "creature dismemberment (docs/spec-notes/dismemberment.md §2.6): creatures go by their own body part data (CREA PNAM). NVGecko's head is severable and explodable (no replacement model; GoreBits01 debris), its legs severable only; the gecko skins have partitions and meat caps [observed: FalloutNV.esm BPTD, nvgecko.nif]"
+note = "the player stands among the Goodsprings geckos (VERGSGecko2/3REF, gecko 4 moved beside them); the hit aid kills gecko 2 with a sniper rifle on the head (overkill: explodes), kills gecko 3 with a machete and chops its corpse's head and left foreleg (Dismember Only, 50 % each, seeded rolls), and KillActor explodes gecko 4's head"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "engine/nvforever/src/dismember.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "4:moveto:VERGSGecko4REF:player:150:250:0", NVF_PLAY_TEST_HIT = "8:VERGSGecko2REF:500:WeapSniperRifle:limb=PerceptionCondition,10:VERGSGecko3REF:200:WeapNVMachete:limb=PerceptionCondition,10.5:VERGSGecko3REF:40:WeapNVMachete:limb=PerceptionCondition,11:VERGSGecko3REF:40:WeapNVMachete:limb=PerceptionCondition,11.5:VERGSGecko3REF:40:WeapNVMachete:limb=PerceptionCondition,12:VERGSGecko3REF:40:WeapNVMachete:limb=LeftAttackCondition,12.5:VERGSGecko3REF:40:WeapNVMachete:limb=LeftAttackCondition,13:VERGSGecko3REF:40:WeapNVMachete:limb=LeftAttackCondition,13.5:VERGSGecko3REF:40:WeapNVMachete:limb=LeftAttackCondition", NVF_PLAY_TEST_CONSOLE = "15:VERGSGecko4REF.KillActor player 1;15.5:close", NVF_PLAY_TEST_LOOK = "5:0:-20", NVF_PLAY_TEST_SHOTS = "7:geckos_before.png,9:geckos_head.png,14.5:geckos_severed.png,17:geckos_after.png" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-69180,-17450,9000", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'dismember: .* 0x00157B3D: Head exploded \(overkill', label = "the sniper rifle explodes gecko 2's head" },
+  { re = 'dismember: gore for 00157B3D Head exploded: [1-9][0-9]* pieces', label = "its head throws gore bits" },
+  { re = 'dismember: .* 0x00157B3E: Head severed', label = "a machete cuts gecko 3's head off" },
+  { re = 'dismember: .* 0x00157B3E: Left Foreleg severed', label = "and its left foreleg" },
+  { re = 'dismember: 00157B3E part at location 1 cut from its ragdoll', label = "the head leaves the ragdoll" },
+  { re = 'dismember: .* 0x00157B3F: Head exploded \(KillActor\)', label = "KillActor explodes gecko 4's head" },
+]
+manual = "geckos_head.png, geckos_severed.png and geckos_after.png: gecko 2 headless with a neck cap and bits about; gecko 3's head and a foreleg lying apart, capped; gecko 4 headless"
+
+[[scenario]]
+name = "combat-npc-range-swap"
+source = "owner request 2026-10-25: \"the incinerator would be better at a distance and the flamer up close\" (docs/design/combat-ai.md §22, the target's distance)"
+note = "Cook-Cook (FiendCookCookRef) is moved 900 units from the player and set on the player at 3.5 s, god mode: he fights with his Incinerator (it fires from 276 to 1,500 units). At 10 s he is moved 100 units from the player, inside the Incinerator's blast: he takes up his Flamer. At 18 s he is moved 1,100 units off, beyond the flame's 640: he takes up the Incinerator again"
+areas = ["combat"]
+paths = ["crates/fnv-game/src/rearm.rs", "crates/fnv-ai/src/rearm.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:FiendCookCookRef:player:0:900:0,3.5:combat:FiendCookCookRef:player,10:moveto:FiendCookCookRef:player:0:100:0,18:moveto:FiendCookCookRef:player:0:1100:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 28
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapNVIncinerator \(gun\)', label = "he starts with his Incinerator" },
+  { re = 'FiendCookCookRef: rearm: takes up WeapFlamer for its target (?P<n>\d+) units away', range = [0, 276], label = "up close, inside the Incinerator's blast, the Flamer" },
+  { re = 'FiendCookCookRef: rearm: takes up WeapNVIncinerator for its target (?P<n>\d+) units away', range = [640, 1500], label = "far off, beyond the flame, the Incinerator again" },
+]

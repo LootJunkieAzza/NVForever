@@ -347,12 +347,16 @@ pub fn depart(
     mut script: Option<ResMut<ScriptState>>,
     mut travel: MessageWriter<TravelRequest>,
     mut passed: MessageWriter<HourPassed>,
+    landing: Option<ResMut<crate::save::FastTravelLanding>>,
 ) {
     if *state.get() != PlayState::Playing {
         return;
     }
     let Some(t) = pending.0.take() else { return };
     travel.write(TravelRequest(t.travel));
+    if let Some(mut l) = landing {
+        l.0 = true;
+    }
     if t.hours > 0.0 {
         match sim.world.advance_hours(t.hours) {
             Ok(c) => info!("fast travel: {:.2} hours passed (GameHour {:.3}, GameDaysPassed {:.3})", t.hours, c.hour, c.days_passed),

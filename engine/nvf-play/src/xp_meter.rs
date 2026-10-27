@@ -10,10 +10,10 @@
 //! - Any rise of the experience shows the meter, whatever gave it (kills, locks, places
 //!   found, `RewardXP`): the model compares with what it saw last. A fall (`ResetXP`) or
 //!   a new level only resets what it saw.
-//! - When the next level is earned, the level-up menu opens once the meter is gone and
-//!   the player is in the world, out of every menu and hunted by nobody
-//!   ([`fnv_game::experience::level_up`]); one level at a time, the next after the menu
-//!   closes.
+//! - When the next level is earned, the bar's "LEVEL UP" plays `UILevelUpText` and the
+//!   level-up menu opens [`LEVEL_UP_DELAY`] seconds later, once the player is also in the
+//!   world, out of every menu and hunted by nobody ([`fnv_game::experience::level_up`]);
+//!   one level at a time, the next (sound and wait again) after the menu closes.
 //! - Logged: `xp meter: +<n> XP (<xp> in all): level <l>, <p> % to <l+1>`,
 //!   `xp meter: LEVEL UP (<l> -> <l+1>)`, `xp meter: +<n> XP at the level cap <max>: not
 //!   shown`, `xp: level up taken: level <l> (cap <max>)`, and the cap once:
@@ -89,6 +89,12 @@ const FADE: f32 = 0.25;
 /// How long the meter stays after the last gain, and how long the pointer takes to move.
 const HOLD: f32 = 3.0;
 const SLIDE: f32 = 0.6;
+/// From the level-up sound to the level-up menu, counted while the HUD is up [owner,
+/// 2026-10-24: "play this sound then wait 5 seconds before showing the level up screen"].
+pub const LEVEL_UP_DELAY: f32 = 5.0;
+/// The level-up sound, when the bar is filled [owner, 2026-10-24: "when the xp bar is
+/// filled it should play the ui_leveluptext.wav"; observed: SOUN `UILevelUpText` names it].
+const LEVEL_UP_SOUND: &str = "UILevelUpText";
 
 /// What the meter shows.
 #[derive(Debug, Clone, PartialEq)]
@@ -253,17 +259,7 @@ fn watch(
         let dlcs = experience::STORY_DLCS.iter().filter(|d| rt.game.data.load_order.iter().any(|p| p.eq_ignore_ascii_case(d))).count();
         info!("xp: level cap {} ({dlcs} story add-ons)", now.max);
     }
-    let mut play = |name: &'static str| {
-        let Some(sfx) = sfx.as_deref() else { return };
-        let found = *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f));
-        match found {
-            Some(sound) => {
-                info!("xp meter: sound {name}");
-                sounds.write(PlaySound { sound, at: None });
-            }
-            None => warn!("xp meter: sound {name} not found"),
-        }
-    };
+    let mut play = |name: &'static str| play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, name);
     match meter.observe(&now) {
         Some(Seen::Gained { amount, level_up }) => {
             info!("xp meter: +{amount} XP ({} in all): level {}, {:.0} % to {}{}", now.xp, now.level, now.fraction() * 100.0, now.level + 1, if level_up { ", next level earned" } else { "" });
@@ -276,24 +272,67 @@ fn watch(
     }
     // Held, its time standing still, while the HUD is not up (menus, conversations).
     if view.shown && meter.bypass_change_detection().step(time.delta_secs()) {
+        // The sound and the wait for the menu are `level_up`'s.
         info!("xp meter: LEVEL UP ({} -> {})", now.level, now.level + 1);
-        // The short sting (`ui_levelup.wav`, 0.9 s) [owner, 2026-10-16: a sound when you
-        // get a level up; the level-up screen's music-like piece is `UILevelUpText`,
-        // `crate::ui_sounds`].
-        play("UILevelUp");
     }
 }
 
-/// Open the level-up menu for an earned level once the meter is gone and the player can
-/// take it: in the world, out of every menu, and nobody fighting or searching for them
-/// ([`experience::hunters`], the owner's rule).
-fn level_up(state: Res<State<PlayState>>, view: Res<HudView>, meter: Res<Meter>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, mut waiting: Local<usize>) {
-    if *state.get() != PlayState::Playing || !view.shown || !meter.idle() {
+/// Play a SOUN by Editor ID at the listener, its FormID looked up once.
+fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId>>, sounds: &mut MessageWriter<PlaySound>, name: &'static str) {
+    let Some(sfx) = sfx else { return };
+    let found = *cache.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f));
+    match found {
+        Some(sound) => {
+            info!("xp meter: sound {name}");
+            sounds.write(PlaySound { sound, at: None });
+        }
+        None => warn!("xp meter: sound {name} not found"),
+    }
+}
+
+/// For an earned level: the level-up sound once the bar shows "LEVEL UP" (or at once when
+/// no bar is up, as for the second of two levels earned together), then the level-up menu
+/// [`LEVEL_UP_DELAY`] seconds later once the player can take it: in the world, out of
+/// every menu, and nobody fighting or searching for them ([`experience::hunters`], the
+/// owner's rule). The wait counts only while the HUD is up.
+#[allow(clippy::too_many_arguments)]
+fn level_up(
+    time: Res<Time>,
+    state: Res<State<PlayState>>,
+    view: Res<HudView>,
+    meter: Res<Meter>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut sim: ResMut<SimState>,
+    sfx: Option<Res<Sfx>>,
+    mut sounds: MessageWriter<PlaySound>,
+    mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
+    mut since_sound: Local<Option<f32>>,
+    mut waiting: Local<usize>,
+) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+        *since_sound = None;
+        return;
+    };
+    if !experience::level_up_due(&rt.game) {
+        *since_sound = None;
         return;
     }
-    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    if *state.get() != PlayState::Playing || !view.shown {
+        return;
+    }
+    let Some(since) = since_sound.as_mut() else {
+        if meter.level_up_word() || meter.idle() {
+            play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND);
+            *since_sound = Some(0.0);
+        }
+        return;
+    };
+    *since += time.delta_secs();
+    if *since < LEVEL_UP_DELAY {
+        return;
+    }
     let g = &rt.game;
-    if g.in_menu() || !experience::level_up_due(g) {
+    if g.in_menu() {
         return;
     }
     let hunters = experience::hunters(g);
@@ -306,6 +345,7 @@ fn level_up(state: Res<State<PlayState>>, view: Res<HudView>, meter: Res<Meter>,
     if hunters > 0 {
         return;
     }
+    *since_sound = None;
     let (level, max) = with_world(rt, &mut sim, |rt| (experience::level_up(&mut rt.game), experience::max_level(&rt.game)));
     info!("xp: level up taken: level {level} (cap {max})");
 }

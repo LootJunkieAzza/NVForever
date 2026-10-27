@@ -63,7 +63,7 @@
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
+    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler, fog},
     mesh_view_types::FOG_MODE_ATMOSPHERIC,
@@ -136,6 +136,40 @@ fn falloff_opacity(cos_angle: f32, p: vec4<f32>) -> f32 {
 fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
     let display = pow(max(lit, vec3(0.0)), vec3(1.0 / 2.2)) + pow(max(emissive, vec3(0.0)), vec3(1.0 / 2.2));
     return pow(saturate(display), vec3(2.2));
+}
+
+// Hot light sources (nif.md §6 "Emitted light on screen"). The original draws emitted
+// light and clips each channel on screen, so a lamp's glass burns white-yellow with an
+// orange edge; the renderer's tonemapper (Bevy's Tony McMapface, in the HDR view) rolls
+// very bright orange off to cream. Where a shape emits light, the lit colour plus the
+// emitted light is held to HOT_MAX per channel and passed through the inverse of the
+// tonemapper's grey response (the same table as nvforever sky.wgsl), so after the
+// tonemapper it lands where clipping would put it. Lit surfaces without emitted light
+// keep the tonemapper [hypothesis from the original's frames of Dead Money's lantern].
+const HOT_MAX: f32 = 0.95;
+const TONY_N: u32 = 24u;
+var<private> TONY_IN: array<f32, 24> = array<f32, 24>(0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0);
+var<private> TONY_OUT: array<f32, 24> = array<f32, 24>(0.0, 0.0056, 0.0113, 0.0222, 0.0437, 0.0723, 0.0999, 0.1470, 0.1812, 0.2542, 0.3140, 0.3663, 0.4125, 0.4910, 0.5457, 0.6172, 0.6867, 0.7454, 0.8070, 0.8796, 0.9216, 0.9473, 0.9771, 0.9875);
+
+fn tony_inverse(y: f32) -> f32 {
+    for (var i = 1u; i < TONY_N; i++) {
+        if y <= TONY_OUT[i] {
+            let t = (y - TONY_OUT[i - 1u]) / max(TONY_OUT[i] - TONY_OUT[i - 1u], 1e-6);
+            return mix(TONY_IN[i - 1u], TONY_IN[i], t);
+        }
+    }
+    return TONY_IN[TONY_N - 1u];
+}
+
+// `lit` plus the emitted light `e` as a hot source: held per channel, mapped through
+// the inverse response. Only light that goes past white is a hot source: blended in as
+// the emitted light's brightest channel rises from 0.8 to 1.5, so faint effect shapes
+// (window light rays, white × 1 under a warm emittance colour) and the dark parts of a
+// glow map keep the tonemapper; the lantern glass (× 10) and neon (× 25) burn.
+fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
+    let d = min(lit + e, vec3(HOT_MAX));
+    let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
+    return mix(lit + e, hot, smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b))));
 }
 
 // The linear light an additive shape (blend factors SRC_ALPHA or ONE, and ONE) of linear
@@ -413,6 +447,13 @@ fn nif_fragment(
 #else
     var out: FragmentOutput;
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
+#ifndef TONEMAP_IN_SHADER
+#ifndef BLEND_MULTIPLY
+        // Hot light source (hot_light): the emitted light is added after the lighting.
+        let hot_e = pbr_input.material.emissive.rgb;
+        pbr_input.material.emissive = vec4(vec3(0.0), pbr_input.material.emissive.a);
+#endif
+#endif
         out.color = apply_pbr_lighting(pbr_input);
 #ifdef SHADE_LIGHT
         out.color = with_shade_light(pbr_input, out.color);
@@ -431,6 +472,11 @@ fn nif_fragment(
             ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
         }
         out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
+#ifndef TONEMAP_IN_SHADER
+#ifndef BLEND_MULTIPLY
+        out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+#endif
+#endif
     } else {
         out.color = pbr_input.material.base_color;
 #ifndef BLEND_MULTIPLY
@@ -448,7 +494,15 @@ fn nif_fragment(
 #ifdef TONEMAP_IN_SHADER
             out.color = vec4(min(unlit_e, out.color.rgb), out.color.a);
 #else
-            out.color = vec4(unlit_e, out.color.a);
+            // Solid emitters (opaque or cut-out: neon tubes, lit signs) burn as hot sources;
+            // glows and beams that blend or add over the frame stay soft (hot_light), or a
+            // lamp's glow card burns into a hard disc on the wall behind it.
+            let unlit_blend = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+            if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+                out.color = vec4(unlit_e, out.color.a);
+            } else {
+                out.color = vec4(hot_light(vec3(0.0), unlit_e), out.color.a);
+            }
 #endif
         }
 #endif

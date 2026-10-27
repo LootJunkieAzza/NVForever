@@ -124,7 +124,12 @@ pub struct Prompt {
     pub crime: bool,
     /// The Activate control's key or button and ")"; empty: [`KEY`].
     pub key: String,
+    /// A line under the name: [`EMPTY`] for a container or body with nothing in it.
+    pub note: Option<String>,
 }
+
+/// Under the name of an empty container or body [owner 2026-10-27].
+const EMPTY: &str = "[Empty]";
 
 /// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
 pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
@@ -156,7 +161,8 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.worth())]),
             _ => None,
         });
-        Prompt { action, name, figures, crime: t.crime, key: String::new() }
+        let note = t.empty.then(|| EMPTY.to_string());
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), note }
     }
 }
 
@@ -207,6 +213,10 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
             set(name.clone(), NAME_X - name.width / 2.0, name_base),
         ]
     };
+    // The note on its own line under the name, centred as the name is [design].
+    if let Some(note) = p.note.as_deref().map(line) {
+        texts.push(set(note.clone(), NAME_X - note.width / 2.0, name_base + LINE_PITCH));
+    }
     let divider = p.figures.as_ref().map(|[weight, value]| {
         let top = name_base + DIVIDER_BELOW;
         let base = top + FIGURES_BELOW;
@@ -556,7 +566,16 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new() }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+    }
+
+    #[test]
+    fn an_empty_container_says_so_under_its_name() {
+        let p = Prompt { note: Some(EMPTY.into()), ..prompt("Open", "Footlocker", None) };
+        let l = layout(&p, &font());
+        let [_, _, name, note] = &l.texts[..] else { panic!("{:?}", l.texts) };
+        assert_eq!((note.x + note.line.width / 2.0, note.base), (NAME_X, name.base + LINE_PITCH));
+        assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).texts.len(), 3);
     }
 
     #[test]
@@ -612,7 +631,7 @@ mod tests {
 
     #[test]
     fn the_prompt_steps_aside_for_the_bar_over_the_same_actor() {
-        let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false };
+        let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
         assert!(under_bar(&t, 0x1234));
         assert!(!under_bar(&t, 0x5678));
     }

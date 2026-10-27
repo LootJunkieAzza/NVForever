@@ -146,3 +146,17 @@ pixels (the font's glyphs start a little after their pen position).
   its solid end the spread of §6 from the middle and never nearer than 4 units. Off, or
   with any other weapon, the arrows as before; the filled crosshair is unchanged.
 - Log: `reticle: gun cross (four bars)` and `reticle: arrows` when it changes.
+
+## 8. Empty containers and bodies; a key's sound (owner 2026-10-27)
+
+- [design: owner 2026-10-27] Over a container to open, or a dead body (or its ash or goo
+  pile) to search, that holds nothing the container menu would list (non-playable items
+  are not listed), a third line "[Empty]" stands under the name, centred as the name is,
+  one line pitch (40 units) lower. A locked container is not looked into. An untouched
+  container's contents are rolled when it is first aimed at, as opening it would roll
+  them (`activate::holds_nothing`). Log: `target … (Open, empty)`.
+- [design: owner 2026-10-27; hypothesis: that the original plays this sound for a key]
+  A lock opened with the player's key plays `UILockpickingUnlock`, the sound of a picked
+  lock (lockpicking.md §6). Only E's own default activation does so; a script's
+  `Activate` that unlocks with the key is silent. Log: `activate …: unlocked with the
+  key, the unlock sound plays`.

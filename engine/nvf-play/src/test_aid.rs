@@ -286,13 +286,13 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
 
 /// `NVF_PLAY_TEST_KEYS`: what is still to press, and what is down until when.
 #[derive(Resource, Default)]
-struct RealPresses {
+pub(crate) struct RealPresses {
     due: Vec<(f32, (RealInput, f32))>,
     down: Vec<(RealInput, f32)>,
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
-fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>) {
+pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>) {
     let Some(now) = time.world_secs() else { return };
     let p = &mut *p;
     p.down.retain(|&(input, until)| {

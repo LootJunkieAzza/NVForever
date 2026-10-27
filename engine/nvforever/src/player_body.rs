@@ -829,6 +829,7 @@ impl PlayerBody {
         let rig = crate::limbs::ActorRig {
             reference: FormId::PLAYER_REF.0,
             base: FormId::PLAYER_BASE.0,
+            body: FormId::PLAYER_BASE.0,
             skeleton: r.skeleton.clone(),
             skel: r.animator.skel.clone(),
             nodes: r.animator.nodes.clone(),
