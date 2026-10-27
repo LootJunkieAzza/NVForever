@@ -2825,6 +2825,100 @@ GAPS5_PROBES = (
     + [_g5v("run.armour.after", "Floor (rPlayer.GetRunSpeed)")]
 )
 
+# Forty-ninth set: GetCalculatedWeaponDPS on the skill curve (the 10mm pistol at Guns
+# 17, 50 and 100; WeapKnifeCombat 004326 at the save's skills and at Melee Weapons 50),
+# as the extender core asked, then the next unprobed JIP functions of the counts that
+# have a getter or a visible effect. The 10mm pistol's projectile is 02CD5F (projectile
+# set); MineFragExplosion 07078B; EnchFourEyesHat 17B78D. Skills, values, flags and the
+# player's limb are put back; the perk description and the pistol's effect are session
+# only (a string_var cannot be passed back, gaps1).
+FX.update(knife="4326", fourenc="17B78D", pistolproj="2CD5F")
+
+
+def _g6(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g6v(pid, expr, text=False):
+    return _g6(pid, f"SetFunctionValue ({expr})", text)
+
+
+_DPS = "SetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))"
+GAPS6_PROBES = [
+    # DPS on the skill curve. SetActorValue on a skill read back doubled in a first run
+    # (17 read 34), so each point records GetActorValue and GetBaseActorValue too, and
+    # the skill is put back with ModActorValue by the difference from the value read first.
+    _g6("dps.guns.save", 'let fRes := rPlayer.GetActorValue "Guns"\nrPlayer.AuxVarSetFlt "*nvfGS" fRes\nSetFunctionValue fRes'),
+    _g6("dps.pistol.start", _form("rObj", NF["pistol10"]) + _DPS),
+    _g6("dps.guns.set50", 'rPlayer.SetActorValue "Guns" 50\n'
+        'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetActorValue "Guns") (rPlayer.GetBaseActorValue "Guns"))', True),
+    _g6("dps.pistol.at50", _form("rObj", NF["pistol10"]) + _DPS),
+    _g6("dps.guns.set100", 'rPlayer.SetActorValue "Guns" 100\n'
+        'SetFunctionValue (sv_Construct "%g %g" (rPlayer.GetActorValue "Guns") (rPlayer.GetBaseActorValue "Guns"))', True),
+    _g6("dps.pistol.at100", _form("rObj", NF["pistol10"]) + _DPS),
+    _g6("dps.guns.restore", 'rPlayer.ModActorValue "Guns" ((rPlayer.AuxVarGetFlt "*nvfGS") - (rPlayer.GetActorValue "Guns"))\n'
+        'rPlayer.AuxVarErase "*nvfGS"\nSetFunctionValue (rPlayer.GetActorValue "Guns")'),
+    _g6("dps.pistol.again", _form("rObj", NF["pistol10"]) + _DPS),
+    _g6("dps.melee.save", 'let fRes := rPlayer.GetActorValue "MeleeWeapons"\nrPlayer.AuxVarSetFlt "*nvfMS" fRes\nSetFunctionValue fRes'),
+    _g6("dps.knife", _form("rObj", FX["knife"]) + _DPS),
+    _g6("dps.knife.damage", _form("rObj", FX["knife"]) + "SetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))"),
+    _g6("dps.melee.mod16", 'rPlayer.ModActorValue "MeleeWeapons" 16\nSetFunctionValue (rPlayer.GetActorValue "MeleeWeapons")'),
+    _g6("dps.knife.at.mod16", _form("rObj", FX["knife"]) + _DPS),
+    _g6("dps.melee.restore", 'rPlayer.ModActorValue "MeleeWeapons" ((rPlayer.AuxVarGetFlt "*nvfMS") - (rPlayer.GetActorValue "MeleeWeapons"))\n'
+        'rPlayer.AuxVarErase "*nvfMS"\nSetFunctionValue (rPlayer.GetActorValue "MeleeWeapons")'),
+    # Effect traits.
+] + [_g6(f"efftrait.stim.0.{t}", _form("rObj", NF["stimpak"]) + f"SetFunctionValue (GetNthEffectTraitNumeric rObj 0 {t})") for t in range(4)] + [
+    _g6("efftrait.set", _form("rObj", NF["stimpak"]) + "let fRes := GetNthEffectTraitNumeric rObj 0 0\nrPlayer.AuxVarSetFlt \"*nvfET\" fRes\n"
+        "SetFunctionValue (SetNthEffectTraitNumeric rObj 0 0 77)"),
+    _g6("efftrait.set.read", _form("rObj", NF["stimpak"]) + "SetFunctionValue (GetNthEffectTraitNumeric rObj 0 0)"),
+    _g6("efftrait.restore", _form("rObj", NF["stimpak"]) + 'SetNthEffectTraitNumeric rObj 0 0 (rPlayer.AuxVarGetFlt "*nvfET")\n'
+        'rPlayer.AuxVarErase "*nvfET"\nSetFunctionValue (GetNthEffectTraitNumeric rObj 0 0)'),
+    # Description, value, object effect.
+    _g6("desc.toughness", _form("rObj", FX["toughness"]) + "SetFunctionValue (sv_Length (GetFormDescription rObj))"),
+    _g6("desc.set", _form("rObj", FX["toughness"]) + 'SetFunctionValue (SetFormDescription rObj "NVF desc %g" 3)'),
+    _g6("desc.set.read", _form("rObj", FX["toughness"]) + "SetFunctionValue (GetFormDescription rObj)", True),
+    # SetValueAlt returned 0 in a first run, not the old value: the value is read first.
+    _g6("value.set", _form("rObj", NF["pistol10"]) + 'let fRes := GetValue rObj\nrPlayer.AuxVarSetFlt "*nvfVA" fRes\n'
+        "SetFunctionValue (SetValueAlt rObj 999)"),
+    _g6("value.set.read", _form("rObj", NF["pistol10"]) + "SetFunctionValue (GetValue rObj)"),
+    _g6("value.restore", _form("rObj", NF["pistol10"]) + 'SetValueAlt rObj (rPlayer.AuxVarGetFlt "*nvfVA")\nrPlayer.AuxVarErase "*nvfVA"\n'
+        "SetFunctionValue (GetValue rObj)"),
+    _g6("objeffect.pistol", _form("rObj", NF["pistol10"]) + "SetFunctionValue (GetFormIDString (GetObjectEffect rObj))", True),
+    _g6("objeffect.set", _form("rObj", NF["pistol10"]) + _form("rOther", FX["fourenc"]) + "SetFunctionValue (SetObjectEffect rObj rOther)"),
+    _g6("objeffect.set.read", _form("rObj", NF["pistol10"]) + "SetFunctionValue (GetFormIDString (GetObjectEffect rObj))", True),
+    # Projectile flags and explosion.
+] + [_g6(f"projflag.pistol.{i}", _form("rObj", FX["pistolproj"]) + f"SetFunctionValue (GetProjectileFlag rObj {i})") for i in range(6)] + [
+    _g6("projflag.set", _form("rObj", FX["pistolproj"]) + "let fRes := GetProjectileFlag rObj 3\nSetProjectileFlag rObj 3 1\n"
+        "let fRes := fRes * 10 + (GetProjectileFlag rObj 3)\nSetProjectileFlag rObj 3 0\nSetFunctionValue fRes"),
+    _g6("projexplosion", _form("rObj", FX["pistolproj"]) + "SetFunctionValue (GetFormIDString (GetProjectileExplosion rObj))", True),
+    _g6("projexplosion.set", _form("rObj", FX["pistolproj"]) + _form("rOther", "7078B")
+        + 'let rDoc := GetProjectileExplosion rObj\nrPlayer.AuxVarSetRef "*nvfPX" rDoc\n'
+        "SetProjectileExplosion rObj rOther\nSetFunctionValue (GetFormIDString (GetProjectileExplosion rObj))", True),
+    _g6("projexplosion.restore", _form("rObj", FX["pistolproj"]) + 'let rOther := rPlayer.AuxVarGetRef "*nvfPX"\n'
+        'SetProjectileExplosion rObj rOther\nrPlayer.AuxVarErase "*nvfPX"\n'
+        "SetFunctionValue (GetFormIDString (GetProjectileExplosion rObj))", True),
+    # Aux variables as arrays; ref maps of refs.
+    _g6("auxarray.get", 'rPlayer.AuxVarSetFlt "*nvfAA" 1 0\nrPlayer.AuxVarSetFlt "*nvfAA" 2 1\n'
+        'let aA := rPlayer.AuxiliaryVariableGetAsArray "*nvfAA"\nSetFunctionValue (ar_Size aA)'),
+    _g6("auxarray.set", 'let aA := ar_List 5 6 7\nlet fRes := rPlayer.AuxiliaryVariableSetFromArray "*nvfAB" aA\n'
+        'SetFunctionValue (sv_Construct "%g %g %g" fRes (rPlayer.AuxVarSize "*nvfAB") (rPlayer.AuxVarGetFlt "*nvfAB" 2))', True),
+    _g6("refmap.setref", 'rDoc.RefMapArraySetRef "*nvfRR" rPlayer\nSetFunctionValue (GetFormIDString (rDoc.RefMapArrayGetRef "*nvfRR"))', True),
+    _g6("refmap.erase", 'SetFunctionValue (rDoc.RefMapArrayErase "*nvfRR")'),
+    _g6("refmap.erased", 'SetFunctionValue (GetFormIDString (rDoc.RefMapArrayGetRef "*nvfRR"))', True),
+    # Actor states.
+    _g6v("poisoned.player", "rPlayer.GetIsPoisoned"),
+    _g6v("detection.pc", "GetPCDetectionState"),
+    _g6v("proclevel.player", "rPlayer.GetActorProcessingLevel"),
+    _g6v("proclevel.doc", "rDoc.GetActorProcessingLevel"),
+    _g6v("persistent.doc", "rDoc.SetPersistent 1"),
+    _g6("cripple.player", "rPlayer.CrippleLimb 2\nSetFunctionValue (rPlayer.GetActorValue LeftAttackCondition)"),
+    _g6("cripple.restore", "rPlayer.RestoreAV LeftAttackCondition 100\nSetFunctionValue (rPlayer.GetActorValue LeftAttackCondition)"),
+    _g6("stick.disable", "SetStickDisabled 0 1\nSetStickDisabled 0 0\nSetFunctionValue 1"),
+    _g6v("uicomponent.hud", 'IsComponentLoaded "HUDMainMenu"'),
+    _g6v("uicomponent.none", 'IsComponentLoaded "NVFNoComponent"'),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -2856,11 +2950,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps2": GAPS2_PROBES,
         "gaps3": GAPS3_PROBES,
         "gaps4": GAPS4_PROBES,
-        "gaps5": GAPS5_PROBES}
+        "gaps5": GAPS5_PROBES,
+        "gaps6": GAPS6_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6"}
 
 
 def script(body):
