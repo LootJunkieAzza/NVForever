@@ -202,8 +202,33 @@ Start with `report.md`.
 - **tour.** "Possible leaks" names the counts to look at; `samples.csv` plots them over
   time.
 - **battle.** Numbers to compare between builds and with npc-behaviour-compare.md's rows.
+- **Slowest frames by span.** With a build that has the spans (`cargo build --release -p
+  nvforever --features nvforever/profile`, in a target folder of its own: it rebuilds
+  Bevy) and `--aid NVF_PLAY_TEST_PROFILE=5`, every frame of 100 ms or more logs its own
+  spans (`profile hitch:`, nvforever profile.rs). Tour and battle reports list the ten
+  slowest with their costliest spans: read each row down to the first span that explains
+  the time (a schedule holds its systems).
 
 A hung launch's `.stacks.txt` shows where every thread stood.
+
+### 6.1 Frame-time budget (the release check)
+
+`tour` and `battle` take `--budget-mean-ms`, `--budget-low1-ms` and `--budget-worst-ms`
+(after start-up). A run over any of them fails (exit 1) and its report says
+`Budget: FAIL` with what broke it, right under the status line. Before a release, on an
+idle machine (no other games, smoke runs or builds), with a normal release build:
+
+```
+python tools/stress run tour   --towns Goodsprings Primm --budget-low1-ms 50 --budget-worst-ms 250 [--exe ... --data ... --fnvtool ...]
+python tools/stress run battle --per-side 10 --seconds 90 --budget-low1-ms 50 --budget-worst-ms 500 [--exe ... --data ...]
+```
+
+The limits are what the build of 2026-10-27 kept with room to spare [observed: Goodsprings–
+Primm tour 1 % low 31 ms, worst 173 ms; 10-a-side battle 1 % low 33–44 ms, worst
+262–348 ms]; before that build's fixes (streaming-hitches.md §3) the tour's worst frame
+was 1,344 ms. When one fails, run it again with a profile build and
+`--aid NVF_PLAY_TEST_PROFILE=5` for the spans of each slow frame. The battle places all its
+fighters at once (`ai::draw_and_place`, about 130 ms), which play does not.
 
 ## 7. Adding a test
 

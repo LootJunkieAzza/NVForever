@@ -14,6 +14,11 @@
 //! profile`); without it the lines say no spans were seen. The layer is installed only
 //! when the variable is set.
 //!
+//! A frame of 100 ms or more ([`HITCH_MS`], real time from one frame's report to the
+//! next) also logs `profile hitch: <ms> ms; spans ms: <span> <ms> (<entries>), …`: the
+//! spans that ended in it, over every thread, so a single stall is not lost in a window's
+//! means.
+//!
 //! Each window also logs `profile scene: <n> mesh entities (<v> visible, <c> moved this
 //! frame), <m> distinct meshes, <u> distinct materials in use (<a> material assets)`: what
 //! the renderer batches by, and how many entities it extracts again because their
@@ -40,6 +45,13 @@ use std::time::Instant;
 /// Spans listed in a line, the most costly first.
 const LISTED: usize = 40;
 
+/// A frame at least this long (milliseconds of real time from one report to the next)
+/// logs its own spans (`profile hitch:`), which a window's means would hide.
+const HITCH_MS: f64 = 100.0;
+
+/// Spans listed in a hitch's line.
+const LISTED_HITCH: usize = 25;
+
 /// The window in seconds, when `NVF_PLAY_TEST_PROFILE` asks for a profile.
 pub fn interval() -> Option<f32> {
     static EVERY: OnceLock<Option<f32>> = OnceLock::new();
@@ -48,6 +60,9 @@ pub fn interval() -> Option<f32> {
 
 /// Time per span key in the current window: (seconds, entries).
 static TOTALS: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
+
+/// Time per span key since the last frame's report: (seconds, entries).
+static FRAME: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
 
 /// The layer, when the profile is asked for.
 pub fn layer() -> Option<BoxedLayer> {
@@ -110,6 +125,11 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for SpanTimes {
         let secs = at.elapsed().as_secs_f64();
         let mut totals = TOTALS.lock().unwrap_or_else(|e| e.into_inner());
         let e = totals.get_or_insert_with(HashMap::new).entry(t.key.clone()).or_default();
+        e.0 += secs;
+        e.1 += 1;
+        drop(totals);
+        let mut frame = FRAME.lock().unwrap_or_else(|e| e.into_inner());
+        let e = frame.get_or_insert_with(HashMap::new).entry(t.key.clone()).or_default();
         e.0 += secs;
         e.1 += 1;
     }
@@ -187,7 +207,17 @@ fn report(
     meshes: Query<(&Mesh3d, Option<&MeshMaterial3d<nvf_assets::NifMaterial>>, &ViewVisibility)>,
     moved: Query<(), (With<Mesh3d>, Changed<GlobalTransform>)>,
     materials: Res<Assets<nvf_assets::NifMaterial>>,
+    mut last: Local<Option<Instant>>,
 ) {
+    // A slow frame's own spans: those ended since the last report, whatever the thread.
+    let now = Instant::now();
+    let frame = FRAME.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
+    if let Some(at) = last.replace(now) {
+        let ms = now.duration_since(at).as_secs_f64() * 1000.0;
+        if ms >= HITCH_MS {
+            info!("{}", hitch_line(ms, &frame));
+        }
+    }
     let dt = time.delta_secs();
     w.since += dt;
     w.frames += 1;
@@ -236,6 +266,19 @@ fn line(secs: f32, frames: u32, frame_secs: f32, totals: &HashMap<String, (f64, 
     }
 }
 
+/// The line for one slow frame: `profile hitch: <ms> ms; spans ms: <span> <ms> (<n>), …`,
+/// each span's time in that frame and how often it was entered.
+fn hitch_line(ms: f64, frame: &HashMap<String, (f64, u64)>) -> String {
+    let mut spans: Vec<(&String, &(f64, u64))> = frame.iter().collect();
+    spans.sort_by(|a, b| b.1 .0.total_cmp(&a.1 .0));
+    let listed: Vec<String> = spans.iter().take(LISTED_HITCH).map(|(k, (s, n))| format!("{k} {:.1} ({n})", s * 1000.0)).collect();
+    if listed.is_empty() {
+        format!("profile hitch: {ms:.0} ms; no spans seen (build with --features profile)")
+    } else {
+        format!("profile hitch: {ms:.0} ms; spans ms: {}", listed.join(", "))
+    }
+}
+
 /// The processor time the process has used so far, user and kernel, seconds.
 #[cfg(windows)]
 fn process_cpu_secs() -> Option<f64> {
@@ -273,5 +316,15 @@ mod tests {
         let l = line(1.0, 10, 1.0, &t, 10.0);
         assert!(l.contains("per frame ms: b 10.00, a 1.00"), "{l}");
         assert!(line(1.0, 0, 0.0, &HashMap::new(), 1.0).contains("no spans seen"));
+    }
+
+    #[test]
+    fn a_hitch_lists_its_own_spans_costliest_first() {
+        let mut t = HashMap::new();
+        t.insert("a".to_string(), (0.010, 1));
+        t.insert("b".to_string(), (0.500, 3));
+        let l = hitch_line(612.4, &t);
+        assert!(l.starts_with("profile hitch: 612 ms; spans ms: b 500.0 (3), a 10.0 (1)"), "{l}");
+        assert!(hitch_line(150.0, &HashMap::new()).contains("no spans seen"));
     }
 }

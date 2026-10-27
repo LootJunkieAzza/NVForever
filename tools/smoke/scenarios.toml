@@ -3052,6 +3052,18 @@ expect = [
 # ------------------------------------------------------------------ far world (playtest 2026-10-11, items 26-28)
 
 [[scenario]]
+name = "blit-warm"
+source = "owner's playtest 2026-10-27 (heavy hitching): a 1.3 s frame entering Primm was Bevy's upscaling pass blocking on the water reflection camera's first pipeline (engine/nvforever/src/blit_warm.rs, docs/design/streaming-hitches.md §3)"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/blit_warm.rs"]
+args = ["--cell", "GSDocMitchellHouse"]
+run_seconds = 8
+expect = [
+  { re = 'blit warm: 12 upscaling pipelines queued for compiling at start-up', label = "every upscaling key is compiled at start-up, not when a camera first draws" },
+  "run log: the game exited normally",
+]
+
+[[scenario]]
 name = "crash-report"
 source = "owner's playtest 2026-10-11 (crash outside Crimson Caravan, nothing logged): the run log and a crash report for a panic (engine/nvforever/src/crash.rs)"
 areas = ["crash"]

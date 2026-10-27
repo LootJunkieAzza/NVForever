@@ -252,6 +252,14 @@ const BAKE_THREADS: usize = 2;
 /// thread, and cached chunks finish many at once.
 const BAKES_PER_FRAME: usize = 2;
 
+/// Main-thread time (ms) a frame spends rebuilding terrain chunks and object blocks for
+/// the loaded cells; the rest wait for the next frames, the old meshes drawn meanwhile (the
+/// LOD terrain sits behind loaded terrain by its depth bias). Crossing a cell rebuilt every
+/// changed chunk in one frame, 60–71 ms (`lod::update_lod` in `profile hitch` lines,
+/// tools/stress tour Goodsprings–Primm, 2026-10-27) [observed]; the budget is an
+/// engineering choice, at least one rebuild a frame so the work always moves on.
+const REBUILD_BUDGET_MS: f32 = 4.0;
+
 /// Generated terrain chunks: bakes in flight, chunks ready to draw.
 pub struct GenState {
     pub job: GenJob,
@@ -527,6 +535,9 @@ pub fn update_lod(
         }
     }
     let mut changed = false;
+    let started = std::time::Instant::now();
+    let mut rebuilt = 0usize;
+    let over_budget = |rebuilt: usize| rebuilt > 0 && started.elapsed().as_secs_f32() * 1000.0 >= REBUILD_BUDGET_MS;
     let chosen = std::mem::take(&mut lod.chosen);
     for &chunk in &chosen {
         let mut cut: Vec<Grid> = full.iter().filter(|&&c| in_chunk(c, chunk)).copied().collect();
@@ -538,6 +549,10 @@ pub fn update_lod(
         if lod.terrain.get(&chunk).is_some_and(|t| t.key == key) {
             continue;
         }
+        if over_budget(rebuilt) {
+            break;
+        }
+        rebuilt += 1;
         if let Some(old) = lod.terrain.remove(&chunk) {
             despawn_all(&mut commands, old.entities);
         }
@@ -565,7 +580,10 @@ pub fn update_lod(
                 }
                 b.steps = steps;
             }
+            // Over the budget: the old block stays as it is until a later frame.
+            Some(_) if over_budget(rebuilt) => {}
             _ => {
+                rebuilt += 1;
                 if let Some(old) = lod.block_entities.remove(&sq) {
                     despawn_all(&mut commands, old.entities.into_iter().chain(old.pieces.into_iter().map(|(_, e)| e)));
                 }

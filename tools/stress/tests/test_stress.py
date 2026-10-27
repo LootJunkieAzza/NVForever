@@ -427,6 +427,35 @@ class BattleTest(unittest.TestCase):
         self.assertIn("nvforever", c["system_times"])
 
 
+class PerfTest(unittest.TestCase):
+    """The span profile's own hitch lines and the frame-time budget."""
+
+    LINES = [
+        "2026-10-27T19:46:58.857134Z  INFO nvforever::profile: profile hitch: 988 ms; spans ms: update 980.1 (1), "
+        "Update 950.0 (1), world::load_cell 12.5 (3)",
+        "2026-10-27T19:46:50.000000Z  INFO nvforever::profile: profile hitch: 120 ms; spans ms: render 110.0 (1)",
+        "2026-10-27T19:46:51.000000Z  INFO nvforever::profile: profile hitch: 150 ms; no spans seen (build with --features profile)",
+    ]
+
+    def test_hitches_slowest_first_with_their_spans(self):
+        h = lib.profile_hitches(self.LINES)
+        self.assertEqual([x["ms"] for x in h], [988.0, 120.0])
+        self.assertEqual(h[0]["spans"][2], {"span": "world::load_cell", "ms": 12.5, "entries": 3})
+        rep = "\n".join(lib.profile_hitch_report(h))
+        self.assertIn("| 988 | 8.9 | update 980.1 (1); Update 950 (1); world::load_cell 12.5 (3) |", rep)
+        self.assertEqual(lib.profile_hitch_report([]), [])
+
+    def test_budget(self):
+        frames = {"mean_ms": 17.0, "low1_ms": 53.0, "worst_ms": 988.0}
+        self.assertEqual(lib.over_budget(frames, lib.Budget()), [])
+        self.assertEqual(lib.over_budget(frames, lib.Budget(mean_ms=20, low1_ms=60)), [])
+        failed = lib.over_budget(frames, lib.Budget(low1_ms=33.4, worst_ms=250))
+        self.assertEqual(failed, ["1% low frame 53 ms over the budget's 33.4 ms", "worst frame 988 ms over the budget's 250 ms"])
+        self.assertEqual(lib.over_budget(None, lib.Budget(worst_ms=250)), ["no frame statistics in the log (the run ended early?)"])
+        self.assertIn("Budget: FAIL (1% low 33.4 ms, worst 250 ms)", lib.budget_report(lib.Budget(low1_ms=33.4, worst_ms=250), failed))
+        self.assertEqual(lib.budget_report(lib.Budget(worst_ms=250), []), ["", "Budget: PASS (worst 250 ms)."])
+
+
 @unittest.skipUnless(os.name == "nt", "the fake game is a .cmd")
 class LaunchTest(unittest.TestCase):
     """lib.run against a fake game: a script that prints lines, then crashes or hangs."""

@@ -56,6 +56,7 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod frame_pace;
+mod blit_warm;
 mod handoff;
 mod furniture;
 mod graphics;
@@ -1194,6 +1195,7 @@ fn main() -> AppExit {
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
+    .add_plugins(blit_warm::BlitWarmPlugin)
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
         enabled: !args.no_grass,
         fade_start: args.grass_distance.max(0.0),

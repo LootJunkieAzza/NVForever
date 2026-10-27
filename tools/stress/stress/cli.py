@@ -85,6 +85,11 @@ def parser() -> argparse.ArgumentParser:
     b.add_argument("--every", type=float, default=2.0, help="seconds between samples")
     b.add_argument("--centre", default=f"{battle.CENTRE[0]:g},{battle.CENTRE[1]:g}", help="x,y the battle is round")
     b.add_argument("--gap", type=float, default=3000.0, help="units between the sides")
+    for p in (t, b):
+        g = p.add_argument_group("budget", "frame-time limits after start-up; a run over any of them fails (exit 1)")
+        g.add_argument("--budget-mean-ms", type=float, default=None, help="largest mean frame")
+        g.add_argument("--budget-low1-ms", type=float, default=None, help="largest 1%% low frame")
+        g.add_argument("--budget-worst-ms", type=float, default=None, help="largest single frame")
     return ap
 
 
@@ -162,6 +167,13 @@ def main(argv=None) -> int:
         res = battle.run(ctx, a.per_side, a.third, a.seconds, a.every, (cx, cy), a.gap, dict(kv.split("=", 1) for kv in a.aid))
         lines = battle.report(res)
         bad = 0 if res["status"] == "ok" else 1
+    if a.test in ("tour", "battle"):
+        budget = lib.Budget(a.budget_mean_ms, a.budget_low1_ms, a.budget_worst_ms)
+        failed = lib.over_budget(res.get("frames"), budget)
+        res["budget"] = {"mean_ms": budget.mean_ms, "low1_ms": budget.low1_ms, "worst_ms": budget.worst_ms, "failed": failed}
+        # Right after the status line, so the first lines printed carry the verdict.
+        lines[3:3] = lib.budget_report(budget, failed)
+        bad += len(failed)
     lib.write_results(ctx.out, res, lines)
     print("\n".join(lines[:12]))
     print(f"\nresults: {ctx.out / 'results.json'}\nreport:  {ctx.out / 'report.md'}")

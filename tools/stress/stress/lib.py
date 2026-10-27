@@ -290,6 +290,73 @@ def stray_report(s: dict) -> list[str]:
     return out
 
 
+PROFILE_HITCH = re.compile(r"profile hitch: ([\d.]+) ms; spans ms: (.*?)\s*$")
+HITCH_SPAN = re.compile(r"^(.+) ([\d.]+) \((\d+)\)$")
+
+
+def profile_hitches(lines: list[str], top: int = 10, spans: int = 8) -> list[dict]:
+    """The slowest `top` frames the span profile logged on their own (nvforever
+    profile.rs, a build with `--features profile` and NVF_PLAY_TEST_PROFILE), each with its
+    `spans` costliest spans: what each stall was spent on."""
+    out = []
+    for ln in lines:
+        if not (m := PROFILE_HITCH.search(clean(ln))):
+            continue
+        listed = []
+        for part in m.group(2).split(", "):
+            if s := HITCH_SPAN.match(part.strip()):
+                listed.append({"span": s.group(1), "ms": float(s.group(2)), "entries": int(s.group(3))})
+        out.append({"ms": float(m.group(1)), "at_s": stamp_secs(clean(ln)), "spans": listed[:spans]})
+    out.sort(key=lambda h: -h["ms"])
+    return out[:top]
+
+
+def profile_hitch_report(items: list[dict]) -> list[str]:
+    if not items:
+        return []
+    t0 = min((h["at_s"] for h in items if h["at_s"] is not None), default=None)
+    out = ["", "## Slowest frames by span (profile build)", "",
+           "Spans nest (a schedule holds its systems), so read down to the first one that explains the time.", "",
+           "| ms | log s | spans (ms, entries) |", "|---|---|---|"]
+    for h in items:
+        at = f"{h['at_s'] - t0:.1f}" if t0 is not None and h["at_s"] is not None else ""
+        out.append(f"| {h['ms']:g} | {at} | " + "; ".join(f"{s['span']} {s['ms']:g} ({s['entries']})" for s in h["spans"]) + " |")
+    return out
+
+
+@dataclass
+class Budget:
+    """Frame-time limits a run must keep (after start-up); None: not checked."""
+    mean_ms: float | None = None
+    low1_ms: float | None = None
+    worst_ms: float | None = None
+
+    def asked(self) -> bool:
+        return any(v is not None for v in (self.mean_ms, self.low1_ms, self.worst_ms))
+
+
+def over_budget(frames: dict | None, b: Budget) -> list[str]:
+    """What broke the budget, in words; empty when the run kept it."""
+    if not b.asked():
+        return []
+    if not frames:
+        return ["no frame statistics in the log (the run ended early?)"]
+    out = []
+    for key, limit, name in (("mean_ms", b.mean_ms, "mean"), ("low1_ms", b.low1_ms, "1% low"), ("worst_ms", b.worst_ms, "worst")):
+        if limit is not None and frames[key] > limit:
+            out.append(f"{name} frame {frames[key]:g} ms over the budget's {limit:g} ms")
+    return out
+
+
+def budget_report(b: Budget, failed: list[str]) -> list[str]:
+    if not b.asked():
+        return []
+    limits = ", ".join(f"{n} {v:g} ms" for n, v in (("mean", b.mean_ms), ("1% low", b.low1_ms), ("worst", b.worst_ms)) if v is not None)
+    if not failed:
+        return ["", f"Budget: PASS ({limits})."]
+    return ["", f"Budget: FAIL ({limits})", ""] + [f"- {f}" for f in failed]
+
+
 def write_results(out: Path, results: dict, report: list[str]) -> None:
     (out / "results.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     (out / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
