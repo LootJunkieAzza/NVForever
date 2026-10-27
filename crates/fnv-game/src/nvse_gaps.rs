@@ -101,22 +101,24 @@ impl Game<'_> {
     }
 }
 
-/// A hit's damage with a weapon at the actor's skill: the base damage times 0.5 +
-/// skill / 200 (the skill counted up to 100), plus the actor's Melee Damage for a
-/// melee weapon and Unarmed Damage for an unarmed one [observed: gaps6, the pistol at
-/// Guns 17/67/117 and the knife at Melee 34/50 step that way, the third pistol point
-/// capped; the knife's 12.05 at Melee 34 is 15 × 0.67 + 2].
-fn weapon_damage(g: &mut Game, actor: FormId, w: FormId) -> f64 {
+/// A weapon's damage by JohnnyGuitar's rules: the base damage times 0.5 + skill / 200
+/// (the skill counted up to 100), and the damage of a hit adding the actor's Melee Damage
+/// to a melee weapon's and Unarmed Damage to an unarmed one's, whose hit takes no skill
+/// factor. Returns (the skill-scaled base, the hit) [observed: gaps6 and gaps9, the pistol
+/// at Guns 17/67/117 (the last capped), the knife's 12.05 = 15 × 0.67 + 2, brass knuckles
+/// 19.35 = 18 + 1.35 at Unarmed 17, fists 1.35].
+fn weapon_damage(g: &mut Game, actor: FormId, w: FormId) -> (f64, f64) {
     use crate::actor_values::{MELEE_DAMAGE, MELEE_WEAPONS, UNARMED, UNARMED_DAMAGE};
     let damage = crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0);
     let skill_code = g.data.weapon_skills.get(&w).map(|&s| s as u16);
     let skill = skill_code.and_then(|s| crate::functions::actor::actor_value(g, actor, s).ok()).unwrap_or(0.0);
-    let bonus = match skill_code {
-        Some(MELEE_WEAPONS) => crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
-        Some(UNARMED) => crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
-        _ => 0.0,
+    let scaled = damage * (0.5 + skill.clamp(0.0, 100.0) / 200.0);
+    let hit = match skill_code {
+        Some(MELEE_WEAPONS) => scaled + crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
+        Some(UNARMED) => damage + crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
+        _ => scaled,
     };
-    damage * (0.5 + skill.clamp(0.0, 100.0) / 200.0) + bonus
+    (scaled, hit)
 }
 
 /// MessageExAlt's default faces, `#0`–`#6` [documented: MessageExAlt].
@@ -336,26 +338,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 None => json_form(g.data.record_all(w, sub).get(k).copied()),
             }
         }
-        // JohnnyGuitar's damage and DPS (`weapon_damage`): DPS is a hit's damage times
-        // the shots a second, plus a part for critical hits not built yet [observed:
-        // gaps6, the critical part is 2.2 a shot on the pistol and 1.0 on the knife at
-        // the probe save's stats; open].
+        // JohnnyGuitar's damage and DPS (`weapon_damage`).
         "getcalculatedweapondamage" => {
             let w = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::items::equipped_weapon(g, r))).unwrap_or(FormId(0));
-            XVal::Num(weapon_damage(g, subject.unwrap_or(FormId::PLAYER_REF), w))
+            XVal::Num(weapon_damage(g, subject.unwrap_or(FormId::PLAYER_REF), w).1)
         }
-        // A gun's critical part is Critical Chance % × CRDT damage × CRDT multiplier a shot
-        // [observed: gaps7, the pistol's 2.2 a shot at Critical Chance 10, doubling with
-        // it, 0 with either CRDT number 0, the same at Guns 17 and 67]. A melee weapon's
-        // hit rate and critical part are open (the knife: 2.69 hits a second against 3.23
-        // in the record, and a critical part that grows with the skill).
+        // The record's attack rate × (the skill-scaled base, without the Melee or Unarmed
+        // Damage bonus, + Critical Chance % × CRDT damage × CRDT multiplier), for every
+        // kind of weapon [observed: gaps7 and gaps9, the pistol, combat knife, machete,
+        // sledgehammer and brass knuckles; the critical part doubles with Critical Chance
+        // and does not change with the skill; fists 0].
         "getcalculatedweapondps" => {
             let w = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::items::equipped_weapon(g, r))).unwrap_or(FormId(0));
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let shots = json_num(g.data.record_field(w, "DNAM", "attack_shots_per_sec"));
             let chance = crate::functions::actor::actor_value(g, a, crate::actor_values::CRITICAL_CHANCE).unwrap_or(0.0).max(0.0) / 100.0;
             let crit = crate::nvse::record_value(g, w, "CRDT", "critical_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) * crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0);
-            XVal::Num((weapon_damage(g, a, w) + chance * crit) * shots)
+            XVal::Num((weapon_damage(g, a, w).0 + chance * crit) * shots)
         }
         // `item effect trait`: 0 magnitude, 1 area, 2 duration, 3 range (0 Self), 4 actor
         // value [observed: gaps6, the stimpak's first reads 5 0 6 0; hypothesis: 4]; the
