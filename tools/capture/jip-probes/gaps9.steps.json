@@ -1,0 +1,523 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "gaps9",
+ "title": "gaps9, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"MeleeWeapons\") * 100))\nEnd\n",
+   "label": "av.meleeweapons",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"Unarmed\") * 100))\nEnd\n",
+   "label": "av.unarmed",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"Strength\") * 100))\nEnd\n",
+   "label": "av.strength",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"Agility\") * 100))\nEnd\n",
+   "label": "av.agility",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"MeleeDamage\") * 100))\nEnd\n",
+   "label": "av.meleedamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"UnarmedDamage\") * 100))\nEnd\n",
+   "label": "av.unarmeddamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"CritChance\") * 100))\nEnd\n",
+   "label": "av.critchance",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "knife.critdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((GetWeaponCritChance rObj) * 1000))\nEnd\n",
+   "label": "knife.critmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "knife.attackdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((GetWeaponReach rObj) * 1000))\nEnd\n",
+   "label": "knife.reach",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((GetWeaponAnimMult rObj) * 1000))\nEnd\n",
+   "label": "knife.animmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((GetWeaponAnimAttackMult rObj) * 1000))\nEnd\n",
+   "label": "knife.animattackmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (GetWeaponAttackAnimation rObj)\nEnd\n",
+   "label": "knife.attackanim",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (GetWeaponSkill rObj)\nEnd\n",
+   "label": "knife.skill",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (GetWeaponType rObj)\nEnd\n",
+   "label": "knife.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "knife.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knife.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knife.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "knife.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "machete.critdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((GetWeaponCritChance rObj) * 1000))\nEnd\n",
+   "label": "machete.critmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "machete.attackdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((GetWeaponReach rObj) * 1000))\nEnd\n",
+   "label": "machete.reach",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((GetWeaponAnimMult rObj) * 1000))\nEnd\n",
+   "label": "machete.animmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((GetWeaponAnimAttackMult rObj) * 1000))\nEnd\n",
+   "label": "machete.animattackmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (GetWeaponAttackAnimation rObj)\nEnd\n",
+   "label": "machete.attackanim",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (GetWeaponSkill rObj)\nEnd\n",
+   "label": "machete.skill",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (GetWeaponType rObj)\nEnd\n",
+   "label": "machete.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "machete.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "machete.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "machete.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "machete.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "sledge.critdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((GetWeaponCritChance rObj) * 1000))\nEnd\n",
+   "label": "sledge.critmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "sledge.attackdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((GetWeaponReach rObj) * 1000))\nEnd\n",
+   "label": "sledge.reach",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((GetWeaponAnimMult rObj) * 1000))\nEnd\n",
+   "label": "sledge.animmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((GetWeaponAnimAttackMult rObj) * 1000))\nEnd\n",
+   "label": "sledge.animattackmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (GetWeaponAttackAnimation rObj)\nEnd\n",
+   "label": "sledge.attackanim",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (GetWeaponSkill rObj)\nEnd\n",
+   "label": "sledge.skill",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (GetWeaponType rObj)\nEnd\n",
+   "label": "sledge.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "sledge.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "sledge.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "sledge.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "sledge.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "fists.critdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((GetWeaponCritChance rObj) * 1000))\nEnd\n",
+   "label": "fists.critmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "fists.attackdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((GetWeaponReach rObj) * 1000))\nEnd\n",
+   "label": "fists.reach",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((GetWeaponAnimMult rObj) * 1000))\nEnd\n",
+   "label": "fists.animmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((GetWeaponAnimAttackMult rObj) * 1000))\nEnd\n",
+   "label": "fists.animattackmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (GetWeaponAttackAnimation rObj)\nEnd\n",
+   "label": "fists.attackanim",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (GetWeaponSkill rObj)\nEnd\n",
+   "label": "fists.skill",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (GetWeaponType rObj)\nEnd\n",
+   "label": "fists.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "fists.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "fists.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "fists.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "fists.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "knuckles.critdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((GetWeaponCritChance rObj) * 1000))\nEnd\n",
+   "label": "knuckles.critmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "knuckles.attackdamage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((GetWeaponReach rObj) * 1000))\nEnd\n",
+   "label": "knuckles.reach",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((GetWeaponAnimMult rObj) * 1000))\nEnd\n",
+   "label": "knuckles.animmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((GetWeaponAnimAttackMult rObj) * 1000))\nEnd\n",
+   "label": "knuckles.animattackmult",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (GetWeaponAttackAnimation rObj)\nEnd\n",
+   "label": "knuckles.attackanim",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (GetWeaponSkill rObj)\nEnd\n",
+   "label": "knuckles.skill",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (GetWeaponType rObj)\nEnd\n",
+   "label": "knuckles.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "knuckles.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knuckles.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knuckles.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "knuckles.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue \"CritChance\" 10\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"CritChance\") * 100))\nEnd\n",
+   "label": "cc.mod10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knife.cc20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "machete.cc20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "sledge.cc20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "fists.cc20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knuckles.cc20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue \"CritChance\" -10\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"CritChance\") * 100))\nEnd\n",
+   "label": "cc.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue \"MeleeWeapons\" 16\nSetFunctionValue (rPlayer.GetActorValue \"MeleeWeapons\")\nEnd\n",
+   "label": "skill.meleeweapons.mod16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "knife.s16.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knife.s16.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knife.s16.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4326\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "knife.s16.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "machete.s16.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "machete.s16.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "machete.s16.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CE569\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "machete.s16.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "sledge.s16.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "sledge.s16.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "sledge.s16.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4351\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "sledge.s16.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue \"MeleeWeapons\" -16\nSetFunctionValue (rPlayer.GetActorValue \"MeleeWeapons\")\nEnd\n",
+   "label": "skill.meleeweapons.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue \"Unarmed\" 16\nSetFunctionValue (rPlayer.GetActorValue \"Unarmed\")\nEnd\n",
+   "label": "skill.unarmed.mod16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "fists.s16.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "fists.s16.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "fists.s16.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1F4\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "fists.s16.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((GetCalculatedWeaponDamage rObj) * 100))\nEnd\n",
+   "label": "knuckles.s16.damage",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knuckles.s16.dps",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nlet fRes := GetWeaponCritDamage rObj\nrPlayer.AuxVarSetFlt \"*nvfCD\" fRes\nSetWeaponCritDamage 0 rObj\nSetFunctionValue (Floor ((rPlayer.GetCalculatedWeaponDPS rObj) * 100))\nEnd\n",
+   "label": "knuckles.s16.dmg0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4324\"\nSetWeaponCritDamage (rPlayer.AuxVarGetFlt \"*nvfCD\") rObj\nrPlayer.AuxVarErase \"*nvfCD\"\nSetFunctionValue (GetWeaponCritDamage rObj)\nEnd\n",
+   "label": "knuckles.s16.dmg0.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.ModActorValue \"Unarmed\" -16\nSetFunctionValue (rPlayer.GetActorValue \"Unarmed\")\nEnd\n",
+   "label": "skill.unarmed.restore",
+   "field": "value"
+  }
+ ]
+}

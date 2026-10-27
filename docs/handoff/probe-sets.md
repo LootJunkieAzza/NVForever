@@ -58,6 +58,7 @@ nothing is marked or loosened for them.
 | gaps2-gaps6 | – | L5.ext.gaps2-6 | – | the counts' next functions; the extender core's questions; DPS on the skill curve |
 | gaps7 | 110 | L5.ext.gaps7 | not run yet | DPS critical part; explosion, perk and package flags; dimensions, terrain, item kinds |
 | gaps8 | 48 | L5.ext.gaps8 | not run yet | worldspace climate and flags, climate textures, armour audio and model paths, setters read back |
+| gaps9 | 103 | L5.ext.gaps9 | not run yet | melee and unarmed DPS: five weapons' record fields, crit damage 0, CritChance +10, skill +16 |
 
 ## Coverage
 

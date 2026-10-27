@@ -748,6 +748,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "gaps8"]
+  },
+  {
+   "id": "L5.ext.gaps9",
+   "layer": 5,
+   "description": "gaps9: melee and unarmed DPS (knife, machete, sledgehammer, fists, brass knuckles) at the save's skills, crit damage 0, CritChance +10 and skill +16",
+   "oracle": {"golden": "jip/gaps9.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps9.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps9"]
   }
  ]
 }
