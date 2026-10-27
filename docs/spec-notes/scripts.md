@@ -1129,7 +1129,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | op | stands in for |
 |---|---|
 | `advance_seconds` | time passing at the fixed frame step |
-| `player_activate {target, actor?}` | activation by hand (OnActivate instead of the default) |
+| `player_activate {target, actor?, label?}` | activation by hand (OnActivate instead of the default); when the player's activation ends in the default action of talking (an actor, or a talking activator whose OnActivate calls `Activate`), the conversation opens as in the play loop; observation `info` |
 | `say_info {info, speaker?, force?}` | a dialogue line being said: its begin and end result scripts run on the speaker; refused when its conditions fail (with the conditions and their values in the error) unless `force` |
 | `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |

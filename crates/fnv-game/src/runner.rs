@@ -277,7 +277,8 @@ pub enum Action {
     AdvanceSeconds { seconds: f64 },
     /// An actor (the player by default) activates by hand: OnActivate instead of the
     /// default action.
-    PlayerActivate { target: String, #[serde(default)] actor: Option<String> },
+    /// With `label`, observation `info` when the activation opened a conversation.
+    PlayerActivate { target: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
     /// A dialogue line (INFO) is said: its result scripts run on the speaker.
     SayInfo { info: String, #[serde(default)] speaker: Option<String>, #[serde(default)] force: bool },
     /// The first of several lines whose conditions pass is said (the speaker picks the
@@ -534,6 +535,15 @@ fn opened_since(g: &Game, since: usize) -> bool {
     g.events[since..]
         .iter()
         .any(|e| matches!(&e.kind, EventKind::Activated { outcome: Some(v), .. } if v["result"] == "opened_container"))
+}
+
+/// The first of the player's activations since event `since` whose outcome is to talk
+/// (`fnv_sim::world::Outcome::Talk`): the actor or talking activator talked to.
+fn talk_since(g: &Game, since: usize) -> Option<FormId> {
+    g.events[since..].iter().find_map(|e| match &e.kind {
+        EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "talk" => serde_json::from_value(v["actor"].clone()).ok(),
+        _ => None,
+    })
 }
 
 /// The menu code of the container menu [observed: `MenuMode 1008` was true while a
@@ -1217,13 +1227,26 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("value".into(), json!(g.world.global(id).map_err(|e| e.to_string())? as f64));
             lab = l.clone();
         }
-        Action::PlayerActivate { target, actor } => {
+        Action::PlayerActivate { target, actor, label: l } => {
+            lab = l.clone();
             let actor = match actor {
                 Some(a) => resolve(g, a)?,
                 None => FormId::PLAYER_REF,
             };
             let t = resolve(g, target)?;
+            let from = g.events.len();
             g.activate(actor, t, ActMode::Hand)?;
+            // The player's activation whose default action is to talk (an actor, or a
+            // talking activator whose OnActivate ends with `Activate`) opens the
+            // conversation, as the play loop's does (nvf-play `talk_after`); an actor
+            // with nothing to say opens none. Observation `info`: the greeting said.
+            if actor == FormId::PLAYER_REF && g.dialogue.is_none() {
+                if let Some(who) = talk_since(g, from) {
+                    if let Ok(info) = g.start_dialogue(who, None) {
+                        obs.insert("info".into(), json!(info.to_string()));
+                    }
+                }
+            }
         }
         Action::SayInfo { info, speaker, force } => {
             let i = resolve(g, info)?;
@@ -2014,6 +2037,7 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAv { label, .. }
         | Action::SampleAvDamage { label, .. }
         | Action::Talk { label, .. }
+        | Action::PlayerActivate { label, .. }
         | Action::Choose { label, .. }
         | Action::WaitTalk { label, .. }
         | Action::SampleJumps { label, .. }
