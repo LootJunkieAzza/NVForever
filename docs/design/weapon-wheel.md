@@ -2,8 +2,8 @@
 
 Status 2026-10-23: **built** on `claude/weapon-wheel` (`engine/nvf-play/src/hotkeys.rs`,
 `weapon_wheel.rs`, `weapon_wheel/draw.rs`, `weapon_wheel/slice.wgsl`; smoke scenario
-`weapon-wheel`). Not built yet: the Pip-Boy's hotkey panel picture (§3, assigning works
-without it), the sounds (§8). Owner request: every hotkey (1–8)
+`weapon-wheel`). The Pip-Boy's hotkey panel (§3) since 2026-10-27
+(`pipboy/hotkey_panel.rs`, smoke `pipboy-hotkey-assign`). Not built yet: the sounds (§8). Owner request: every hotkey (1–8)
 works as a quick key when tapped, and opens a wheel of all eight when held, modelled on
 Red Dead Redemption 2's weapon wheel (the owner's reference picture is kept privately in
 `C:\fnv-private\references\weapon_wheel\owner-reference.webp`, never committed).
@@ -64,10 +64,12 @@ replaced by a fixed `IM_AmmoSwap` image (`interface\icons\typeicons\hot_keys_ico
 - **Assigning** [documented: menus\main\inventory_menu.xml `IM_HotkeyButton`,
   `&-sInventoryHotKey;`, opens `IM_HotKeyWheel`, the panel above over a compass rose
   `interface\hotkeys\hot_keys_rose.dds`]: in the original a "Hotkey" hint on the ITEMS
-  page opens the panel, and a key or a box picks the slot. **Built**: on the ITEMS page a
-  hotkey's key (1, 3–8 as bound) puts the selected item in that slot at once
-  (`hotkeys::assign_from_pipboy`) [design]; the same item in another slot moves
-  [hypothesis: the move rule]. The panel's picture is not drawn yet.
+  page opens the panel, and a key or a box picks the slot. **Built** (2026-10-27, the
+  owner: "hold your key and left click your item to assign"): while a hotkey's key is
+  held on the ITEMS page the panel shows in the item picture's place (the file's boxes,
+  rose and line, moved right to clear the list; `pipboy/hotkey_panel.rs`), and a left
+  click on a row (or Enter on the selected one) puts that item in the held slot; the same
+  item in another slot moves [hypothesis: the move rule]. Smoke `pipboy-hotkey-assign`.
 - **Empty slot**: a tap says nothing happens [design: the HUD message "Hotkey N is empty"
   replaces today's "not available yet"]; on the wheel the slice reads EMPTY.
 - **Item gone** (sold, dropped, used up): the slot keeps the item and shows it at half

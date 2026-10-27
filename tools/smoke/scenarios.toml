@@ -9945,3 +9945,24 @@ forbid = [
   { re = 'pause menu: open', label = "Esc on the wheel opens the pause menu" },
   { re = 'hotkeys: slot 1: equipped', label = "the held key 1 also acted as a tap" },
 ]
+
+[[scenario]]
+name = "pipboy-hotkey-assign"
+source = "owner 2026-10-26: on the Pip-Boy's ITEMS page, hold a hotkey's key and left-click an item to put it in that slot, the original's hotkey panel showing meanwhile (engine/nvf-play/src/pipboy/hotkey_panel.rs, docs/design/weapon-wheel.md §3)"
+note = "the player is given a .357 Magnum Revolver (first on the Weapons tab by its name) and 24 rounds; on ITEMS key 3 is held and the first row clicked (slot 3), then key 4 (the revolver moves from slot 3), key 2 (refused: Ammo Swap); on the Ammo tab key 5 and a click on its first row (ammunition cannot be hotkeyed). After the Pip-Boy closes, a tap of 4 equips the revolver (were it equipped by a click, the tap would say it is already in hand). The screenshot shows the panel with key 3 held"
+areas = ["hotkeys", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,14:point=260:150,15:hotkey=3,16:click=260:150,17.5:hotkey=4,18:click=260:150,19:hotkey=2,19.5:click=260:150,20:hotkey=off,21:tab=4,22:hotkey=5,22.5:click=260:150,23.5:hotkey=off,24:close", NVF_PLAY_TEST_HOTKEYS = "27:tap:4", NVF_PLAY_TEST_SHOTS = "17:pipboy_hotkeys.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
+run_seconds = 32
+expect = [
+  "pipboy hotkeys: key 3 held",
+  { re = 'pipboy hotkeys: panel drawn, key 3 chosen', label = "the panel shows while key 3 is held" },
+  { re = 'hotkeys: slot 3 holds \.357 Magnum Revolver \(0x0008F216\)', label = "a click with 3 held puts the revolver in slot 3" },
+  { re = 'hotkeys: slot 4 holds \.357 Magnum Revolver \(0x0008F216\) \(moved from slot 3\)', label = "with 4 held it moves to slot 4" },
+  { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', label = "key 2 takes no item" },
+  { re = 'hotkeys: .* cannot be hotkeyed', label = "ammunition cannot be hotkeyed" },
+  "pipboy hotkeys: let go",
+  { re = 'hotkeys: slot 4: equipped \.357 Magnum Revolver', label = "a tap of 4 after closing equips the revolver" },
+]
+order = [["pipboy hotkeys: key 3 held", "hotkeys: slot 3 holds", "moved from slot 3", "slot 2 is Ammo Swap", "cannot be hotkeyed", "hotkeys: slot 4: equipped"]]

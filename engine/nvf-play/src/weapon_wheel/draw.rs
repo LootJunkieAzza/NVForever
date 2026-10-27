@@ -164,22 +164,6 @@ struct WheelRoot;
 #[derive(Component)]
 struct Darken;
 
-/// The hotkey type icon for an item without a picture of its own [observed: the files in
-/// `textures\interface\icons\typeicons`].
-fn type_icon(kind: ItemKind, skill: Option<&str>) -> &'static str {
-    match (kind, skill.unwrap_or("")) {
-        (ItemKind::Weapon, "EnergyWeapons") => "Interface\\Icons\\typeicons\\hot_keys_icon_energyweapons.dds",
-        (ItemKind::Weapon, "MeleeWeapons") => "Interface\\Icons\\typeicons\\hot_keys_icon_meleeweapons.dds",
-        (ItemKind::Weapon, "Unarmed") => "Interface\\Icons\\typeicons\\hot_keys_icon_unarmedweapons.dds",
-        (ItemKind::Weapon, "Explosives") => "Interface\\Icons\\typeicons\\hot_keys_icon_throwweapons.dds",
-        (ItemKind::Weapon, "BigGuns") => "Interface\\Icons\\typeicons\\hot_keys_icon_bigguns.dds",
-        (ItemKind::Weapon, _) => "Interface\\Icons\\typeicons\\hot_keys_icon_smallguns.dds",
-        (ItemKind::Armor, _) => "Interface\\Icons\\typeicons\\hot_keys_icon_bodywear.dds",
-        (ItemKind::Book, _) => "Interface\\Icons\\typeicons\\hot_keys_icon_books.dds",
-        _ => "Interface\\Icons\\typeicons\\hot_keys_icon_stimpack.dds",
-    }
-}
-
 fn kind_name(kind: ItemKind) -> &'static str {
     match kind {
         ItemKind::Weapon => "Weapons",
@@ -212,7 +196,7 @@ fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::C
         let item = sim.forms.item(id);
         let (carried, _) = crate::hotkeys::carried(&mut sim.world, *slot);
         let weapon = combat.and_then(|c| c.forms.weapons.get(&id));
-        let icon = item.and_then(|it| it.icon.clone()).filter(|p| !p.trim().is_empty()).or_else(|| item.map(|it| type_icon(it.kind, weapon.and_then(|w| w.skill.as_deref())).to_string()));
+        let icon = item.and_then(|it| it.icon.clone()).filter(|p| !p.trim().is_empty()).or_else(|| item.map(|it| crate::pipboy::hotkey_panel::type_icon(it.kind, weapon.and_then(|w| w.skill.as_deref())).to_string()));
         let n = match (item.map(|i| i.kind), combat, weapon) {
             (Some(ItemKind::Weapon), Some(c), Some(w)) if !c.forms.ammo_choices(w).is_empty() => {
                 let ammo = if in_hand == Some(id) { c.player_ammo() } else { c.forms.ammo_for(id, |a| count(sim, Some(a)) > 0) };
@@ -451,14 +435,6 @@ fn hub_text(m: &mut ChildSpawnerCommands, kit: &Kit, h: &HubView, c: f32, bright
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn every_kind_has_a_type_icon() {
-        for k in [ItemKind::Weapon, ItemKind::Armor, ItemKind::Aid, ItemKind::Book] {
-            assert!(type_icon(k, None).ends_with(".dds"));
-        }
-        assert!(type_icon(ItemKind::Weapon, Some("EnergyWeapons")).contains("energyweapons"));
-    }
 
     #[test]
     fn the_slices_sit_inside_the_square() {

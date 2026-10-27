@@ -306,7 +306,6 @@ impl Plugin for WeaponWheelPlugin {
             .init_resource::<WheelStats>()
             .insert_resource(WheelAid { steps, ..default() })
             .add_systems(Update, (run_aid, read).chain().in_set(PlaySet::Input).before(crate::control::read_controls))
-            .add_systems(Update, hotkeys::assign_from_pipboy.in_set(PlaySet::Ui))
             .add_systems(Last, report);
         crate::save::add_save_hook(app, hotkeys::SAVE_HOOK);
         draw::build(app);
@@ -454,7 +453,7 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
     let outcome = hotkeys::use_slot(&mut sim.world, slot);
     match &outcome {
         Used::UsedUp(item) => {
-            used.write(ItemUsed { item: item.0 });
+            used.write(ItemUsed { item: item.0, limb: None });
         }
         Used::Equipped if slot.is_some_and(|s| sim.forms.item(FormId(s.item)).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon)) => control.weapon_out = true,
         _ => {}

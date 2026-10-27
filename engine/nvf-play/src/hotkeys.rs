@@ -7,9 +7,10 @@
 //!   hotkeys.xml, eight boxes; hypothesis: which kinds can be hotkeyed]. Slot 2 is Ammo
 //!   Swap and holds nothing [documented: the same file puts `IM_AmmoSwap` in its place].
 //!   An item is in one slot at most: putting it in another moves it [hypothesis].
-//! - **Assigning**: on the Pip-Boy's ITEMS page, a hotkey's key (1, 3 to 8 by default)
-//!   puts the selected item in that slot ([`assign_from_pipboy`]) [design: the game opens
-//!   its hotkey panel first (`IM_HotkeyButton`); the panel is not drawn yet].
+//! - **Assigning**: on the Pip-Boy's ITEMS page, hold a hotkey's key and left-click an
+//!   item (or press Enter on the selected one); the hotkey panel shows while the key is
+//!   held (`crate::pipboy::hotkey_panel`) [design, the owner 2026-10-26: the game opens
+//!   its panel with a Hotkey button (`IM_HotkeyButton`) instead].
 //! - **Using a slot** ([`use_slot`]): as Enter on the ITEMS page, except that the weapon in
 //!   hand stays in hand [design: no unequip by accident]: equip a weapon, put on or take
 //!   off apparel, use one aid item. A slot whose item is no longer carried stays, drawn at
@@ -18,7 +19,7 @@
 //!
 //! Log lines: `hotkeys: slot <n> holds <name> (<form>)`, `hotkeys: slot <n>: <outcome>`.
 
-use crate::bindings::{Bindings, Control};
+use crate::bindings::Control;
 use crate::save::SaveHook;
 use bevy::prelude::*;
 use fnv_sim::forms::{FormStore, ItemKind};
@@ -164,36 +165,6 @@ fn refusal(e: &SimError) -> String {
         SimError::EquipLocked { .. } => "locked by a script".into(),
         SimError::NoPowerArmorTraining(_) => "needs Power Armor Training".into(),
         other => other.to_string(),
-    }
-}
-
-/// The slot whose key was just pressed on the ITEMS page, by the player's bindings
-/// (keys only: a controller's D-pad moves the list there).
-pub fn pressed_slot(bindings: &Bindings, keys: &ButtonInput<KeyCode>) -> Option<usize> {
-    CONTROLS.iter().enumerate().find(|(_, &c)| bindings.get(c).key.is_some_and(|k| keys.just_pressed(k))).map(|(i, _)| i)
-}
-
-/// A hotkey's key pressed on the Pip-Boy's ITEMS page puts the selected item in its slot.
-pub fn assign_from_pipboy(
-    pip: Res<crate::pipboy::PipBoy>,
-    active: Res<crate::menu::ActiveMenu>,
-    keys: Res<ButtonInput<KeyCode>>,
-    bindings: Res<Bindings>,
-    mut hotkeys: ResMut<Hotkeys>,
-) {
-    if !pip.open() || pip.page != crate::pipboy::Page::Items {
-        return;
-    }
-    let Some(index) = pressed_slot(&bindings, &keys) else { return };
-    let Some(r) = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player)) else { return };
-    let slot = Slot { item: r.item.0, mods: r.mods };
-    match hotkeys.assign(index, slot, r.kind) {
-        Ok(from) => {
-            let moved = from.map_or_else(String::new, |f| format!(" (moved from slot {})", f + 1));
-            info!("hotkeys: slot {} holds {} ({}){moved}", index + 1, r.name, r.item);
-        }
-        Err(Refused::AmmoSwap) => info!("hotkeys: slot 2 is Ammo Swap: {} not assigned", r.name),
-        Err(Refused::NotUsable) => info!("hotkeys: {} cannot be hotkeyed", r.name),
     }
 }
 
