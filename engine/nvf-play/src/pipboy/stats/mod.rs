@@ -656,9 +656,10 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         let top = o.y + HINT_Y + size.y * slot as f32;
         let r = Rect::new(right - size.x, top, right, top + size.y);
         let hovered = v.hover == Some(Spot::Hint(i));
-        // Dim unless pointed at [observed: dim on all three screenshots; hypothesis:
-        // bright with its box when pointed at].
-        let colour = if hovered { bright() } else { amber(DIMMED) };
+        // Dim unless pointed at or usable [observed: dim on all three screenshots;
+        // hypothesis: bright with its box when pointed at; design: owner 2026-10-27, a
+        // Stimpak or Doctor's Bag that would heal is lit (`Hints::lit`)].
+        let colour = if hovered || s.hints.lit[i] { bright() } else { amber(DIMMED) };
         if hovered {
             c.boxed(p, r, amber(LINE), None);
         }
