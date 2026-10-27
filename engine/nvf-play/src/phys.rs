@@ -1437,6 +1437,12 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         let l = &phys.player_lift;
         info!("physics: the player's drawn height took up {} steps and bumps, lifted {:.1} units at most", l.taken_up, l.most);
     }
+    // Loose items in water (`fnv_phys::buoyancy`): floating at the surface or sunk.
+    let wet = phys.world.loose_in_water();
+    if !wet.is_empty() {
+        let list: Vec<String> = wet.iter().map(|(id, floats, top)| format!("{id:08X} ({}, its top {top:.0} units from the surface)", if *floats { "floats" } else { "sinks" })).collect();
+        info!("physics: {} loose item bodies in water at exit: {}", wet.len(), list.join(", "));
+    }
     // Placed bodies physics has moved (pushed, shot, knocked over), as they are now.
     for (&id, p) in phys.placed_dynamic.iter().filter(|(_, p)| p.moved) {
         if let Some(b) = phys.world.ref_bodies(id).first() {

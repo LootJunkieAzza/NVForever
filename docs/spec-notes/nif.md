@@ -477,6 +477,33 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `pbr_input_from_standard_material` fills the emissive light in only for lit materials
   [observed: bevy_pbr 0.19 `pbr_fragment.wgsl`], so an unlit shape's stayed black. The
   shader now reads the material's emissive light for unlit shapes itself.
+- **Emitted light on screen** (2026-10-23). In the original's frames of Dead Money's wall
+  lantern (front and three-quarter, private `dm_lamp_front.png`, `dm_lamp_side.png`) the
+  glass (lit shape, emissive (0.76, 0.55, 0.20) × 10 × the image space's Emissive Mult)
+  burns white-yellow with an orange edge, as light clipped per channel on screen. The
+  renderer's tonemapper (Bevy's Tony McMapface, HDR view) rolled the same light off to a
+  flat cream, so the lamp did not read as a light source (owner: "the base game's lamp is
+  literally glowing really bright compared to ours"). Rule [hypothesis from those
+  frames]: where a shape emits light (lit shapes' emissive × glow map, unlit shapes'
+  emissive light), the lit colour plus the emitted light is held to 0.95 per channel and
+  passed through the inverse of the tonemapper's grey response (the sky's table, world.md
+  §6), so after the tonemapper it lands where clipping would put it. Only light past
+  white counts: the mapping is blended in as the emitted light's brightest channel rises
+  from 0.8 to 1.5, so faint effect shapes keep the tonemapper (Doc Mitchell's window
+  light rays, `indfxlightrays*.nif`, white × 1 under NVInteriorRegion's warm emittance,
+  turned into orange-red beams when every emitter was mapped; in the original they are
+  barely visible), as do the dark parts of a glow map and surfaces that emit nothing.
+  Unlit shapes that blend or add (glow cards, beams) are never hot sources: under Dead
+  Money's Emissive Mult the lantern's glow card passed white and burned into a hard
+  yellow disc on an unlit wall (owner: "looking really unnatural"); kept soft it is a
+  warm haze. Solid unlit emitters (neon tubes, opaque or cut-out) are (the owner wants the natural look kept: "I don't want all
+  the walls glowing"). The light glow (Bevy bloom) then catches only those hot pixels,
+  so the lantern gets a local halo. The lab's 15 frames move by under 0.01. Tried and
+  left out: per-channel clipping of the whole picture (glass right, saloon −0.03), and
+  placed lights summed in display values, (fade × falloff)^2.2 or fade^2.2 alone (the
+  lantern's wall brighter, but Doc Mitchell's living room −0.04, the saloon up to −0.15
+  with clipping). The lantern's wall still lacks the original's saturated yellow; the
+  weather grade's tint (world.md §6, adapter tint amount) is the open lead.
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim

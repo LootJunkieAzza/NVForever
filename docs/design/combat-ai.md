@@ -1841,6 +1841,20 @@ Combat is not a parity target; the rules are **[design]** unless tagged. Rules:
   no ammunition for counts only with a source of that ammunition within the same reach:
   ammunition on the ground, in a dead actor's inventory or in a container that is not
   locked. With no way there (navmesh) the item is given up for this fight.
+- **The target's distance** (owner 2026-10-25: "the incinerator would be better at a
+  distance and the flamer up close"). A weapon with a flame or an explosive projectile
+  fires only within its reach (WEAP Max Range times the style's Ranged Weapon Max Range
+  Mult unless Range - Fixed, never beyond its projectile's Range) and, explosive, only
+  beyond its explosion's radius plus 64 units: the combat AI's own limits (§16,
+  `npc_combat::gun_reach`); other weapons fire at every distance. A fighter whose weapon
+  does not fire at its target's distance holds the best weapon of its own class it
+  carries that does, 64 units inside that weapon's limits, at most every 3 s
+  (`Game::take_up_for_distance`). So Cook-Cook keeps his Incinerator from 276 units
+  (its fire burst's radius 212, plus 64) out to 1,500 (its Max Range), takes up his Flamer
+  (128 damage a second against the Incinerator's 42; its flame reaches 640) for a target
+  nearer than 276, and the Incinerator again for one beyond 640 [observed: FalloutNV.esm,
+  `fnvtool combat weapon`]. The weapon's own projectile is read: an ammunition that
+  brings its own would change the reach (none of these two does).
 - **The fetch.** It runs there (the ammunition first when it is nearer), and holds its
   fire meanwhile (as a fleeing actor, `npc_combat`). At each item it stops and plays the
   pick-up idle, `LoosePickUpGroundObject` (`PickUpGroundObject_0.3.kf`), a child of
@@ -1854,7 +1868,8 @@ Combat is not a parity target; the rules are **[design]** unless tagged. Rules:
 - **Fists** remain what an NPC fights with when nothing is usable and nothing is within
   reach.
 - **Not changed**: the weapon an actor starts with (the outfitting's rule by damage,
-  observed in the original for Cook-Cook, actors.md §9.3) and what a held gun without
+  observed in the original for Cook-Cook, actors.md §9.3; it gives way only for the
+  target's distance, above) and what a held gun without
   ammunition does (it fires: NPCs use no ammunition, owner 2026-10-17).
 
 **Checks**: unit tests `fnv_game::rearm` (damage per second, the rank's order, a weapon's
