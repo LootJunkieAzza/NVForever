@@ -56,6 +56,7 @@ impl Game<'_> {
     /// Queue a music type for the engine and trace it.
     pub fn ask_music(&mut self, music: FormId) {
         self.emit(EventKind::MusicAsked { music });
+        self.gaps.music_type = Some(music);
         if self.music_requests.len() >= MAX_PENDING {
             self.music_requests.remove(0);
         }

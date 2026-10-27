@@ -9796,16 +9796,18 @@ expect = [
 
 [[scenario]]
 name = "jip-raycast-sneak"
-source = "JIP's GetP2PRayCastRange through the engine's physics (fnv_game::ray): straight down from above the player hits the ground, a zero-length cast 0; TogglePlayerSneaking reads in its own frame [observed: engine1]"
+source = "JIP's GetP2PRayCastRange through the engine's physics (fnv_game::ray), the player's capsule not hit; a zero-length cast 0; TogglePlayerSneaking reads in its own frame; IsMusicPlaying after PlayMusic [observed: engine1, engine2]"
 areas = ["scripts", "physics"]
 paths = ["crates/fnv-game/src/ray.rs", "crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/script.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf ray down %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) - 1000));9.5:PrintC \"nvf ray none %.0f\", (GetP2PRayCastRange 0 0 0 0 0 0);10:TogglePlayerSneaking 1;PrintC \"nvf sneak now %g\", (player.IsSneaking);11:TogglePlayerSneaking 0;12:close" }
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf ray down %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) - 1000));9.5:PrintC \"nvf ray none %.0f\", (GetP2PRayCastRange 0 0 0 0 0 0);9.7:PrintC \"nvf ray high %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 500) (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) - 500));10.5:PlayMusic musDocMitchellHouse;PrintC \"nvf music %g\", (IsMusicPlaying musDocMitchellHouse);10:TogglePlayerSneaking 1;PrintC \"nvf sneak now %g\", (player.IsSneaking);11:TogglePlayerSneaking 0;12:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
 run_seconds = 14
 expect = [
   { re = 'script: print "nvf ray down (9[0-9]|1[0-9][0-9])"', label = "the cast down from 100 above the player meets the ground about 100 below the start" },
   { re = 'script: print "nvf ray none 0"', label = "a zero-length cast hits nothing" },
   { re = 'script: print "nvf sneak now 1"', label = "IsSneaking reads the toggle in its own frame" },
+  { re = 'script: print "nvf ray high (49[0-9]|50[0-9])"', label = "from 500 above, past the player's own capsule, to the ground at the feet [observed: engine2, 498.9]" },
+  { re = 'script: print "nvf music 2"', label = "IsMusicPlaying gives 2 for the type PlayMusic just asked for [observed: engine2]" },
 ]
 
 [[scenario]]

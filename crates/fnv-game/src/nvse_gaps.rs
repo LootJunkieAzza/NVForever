@@ -48,6 +48,10 @@ pub struct GapsState {
     pub marker_reputations: HashMap<FormId, Option<FormId>>,
     /// SetRecipeCategory's and SetRecipeSubcategory's forms: (recipe, sub).
     pub recipe_categories: HashMap<(FormId, bool), FormId>,
+    /// The music type a script last asked for (PlayMusic), and whether the engine plays
+    /// any music.
+    pub music_type: Option<FormId>,
+    pub music_any: bool,
     /// The player's always-run switch as the engine tells it, and SetAlwaysRun's ask.
     pub always_run: bool,
     pub always_run_request: Option<bool>,
@@ -1190,6 +1194,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let hit = crate::ray::cast(a, b);
             tracing::debug!("GetP2PRayCastRange {a:?} -> {b:?}: {hit:?}");
             XVal::Num(hit.map_or(0.0, f64::from))
+        }
+        // 2 playing, 0 not (1 paused is not told apart); a type from the frame PlayMusic
+        // asks for it, none given any music [documented: IsMusicPlaying; observed:
+        // engine2, musDocMitchellHouse reads 2 in PlayMusic's frame, the place's music 2].
+        "ismusicplaying" => {
+            let on = match form(args, 0) {
+                Some(t) => g.gaps.music_type == Some(t),
+                None => g.gaps.music_any || g.gaps.music_type.is_some(),
+            };
+            XVal::Num(if on { 2.0 } else { 0.0 })
         }
         // Nothing to reload: the engine draws the equipped models as they are.
         "reloadequippedmodels" => zero,
