@@ -500,7 +500,7 @@ fn keys_and_controls(
             Press::Jump => intent.jump = true,
             Press::Zoom(d) => control.distance = d.clamp(crate::control::MIN_DISTANCE, crate::control::MAX_DISTANCE),
             Press::Orbit(yaw, pitch) => {
-                control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true };
+                control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true, free: false };
             }
             Press::Release => control.orbit.held = false,
             Press::Fire => aids.fire_held = !aids.fire_held,

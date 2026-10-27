@@ -22,6 +22,12 @@
 //!   the game's hold-POV camera; design: the owner 2026-10-19, replacing playtest list 5
 //!   item 23's return to first person].
 //!   The mouse wheel zooms the third-person camera.
+//! - Detached camera (the settings page's Gameplay switch, off by default): in third
+//!   person with the weapon away the mouse turns the camera around the player, not the
+//!   player, and the player turns to run the way they are pushed, seen from the camera
+//!   ([`detach_camera`]) [design: the owner 2026-10-27, "360 movement in third person
+//!   with your weapon holstered"; not in the original]. Drawing the weapon turns the
+//!   player to where the camera looks.
 //! - VATS (V) is VATS mode's (`crate::vats_mode`, docs/design/vats-mode.md), which also
 //!   takes Use, Block and Activate while it is on.
 //! - Grab (Z) held picks up what is under the crosshair and carries it (`crate::grab`,
@@ -68,6 +74,9 @@ pub struct Orbit {
     pub held: bool,
     /// The mouse moved while it was down (so letting go does not switch the view).
     pub moved: bool,
+    /// The camera is detached ([`detach_camera`]): `yaw` is where it looks off the
+    /// player's heading, and it does not swing back.
+    pub free: bool,
 }
 
 impl Orbit {
@@ -618,6 +627,77 @@ pub fn orbit_shoulder(shoulder: [f32; 2], yaw: f32) -> [f32; 2] {
     [shoulder[0] * k, shoulder[1]]
 }
 
+/// Whether the third-person camera comes away from the player's back with the weapon
+/// away (the settings page's Gameplay switch; module notes).
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DetachedCamera(pub bool);
+
+/// How fast a detached-camera player turns to the way they are pushed, radians a second
+/// [engineering choice: a half turn in a quarter second].
+pub const FREE_TURN_RATE: f32 = 4.0 * std::f32::consts::PI;
+
+/// An angle in (−π, π].
+pub fn wrap_angle(a: f32) -> f32 {
+    std::f32::consts::PI - (std::f32::consts::PI - a).rem_euclid(std::f32::consts::TAU)
+}
+
+/// One frame of detached-camera movement: from the player's `heading`, the camera's
+/// `yaw` off it and the pushed `forward`/`right`, the new heading (turned at most `step`
+/// towards the pushed way as the camera sees it), the yaw that keeps the camera where it
+/// was, and how hard the player is pushed straight ahead.
+pub fn steer(heading: f32, yaw: f32, forward: f32, right: f32, step: f32) -> (f32, f32, f32) {
+    let push = forward.hypot(right).min(1.0);
+    if push == 0.0 {
+        return (heading, yaw, 0.0);
+    }
+    let camera = heading + yaw;
+    let turn = wrap_angle(camera + right.atan2(forward) - heading).clamp(-step, step);
+    let h = (heading + turn).rem_euclid(std::f32::consts::TAU);
+    (h, wrap_angle(camera - h), push)
+}
+
+/// The detached camera (module notes), after the frame's input and the locks: on in third
+/// person with the weapon away, the player's own view not taken by anything else; the
+/// player turns to the way they move and walks straight ahead. Going off (the weapon
+/// drawn, first person, the switch) turns the player to where the camera looked.
+#[allow(clippy::too_many_arguments)]
+pub fn detach_camera(
+    time: Res<Time>,
+    state: Res<State<PlayState>>,
+    switch: Res<DetachedCamera>,
+    seat: Res<crate::furniture::PlayerSeat>,
+    driven: Option<Res<crate::player::ViewDriven>>,
+    mut control: ResMut<PlayerControl>,
+    mut player: ResMut<Player>,
+    mut intent: ResMut<MoveIntent>,
+) {
+    if *state.get() != PlayState::Playing {
+        return;
+    }
+    let c = *control;
+    let free = switch.0 && c.pov == Pov::Third && !c.weapon_out && c.portrait.is_none() && !c.cinematic && seat.hold.is_none() && !driven.is_some_and(|d| d.0);
+    if free != c.orbit.free {
+        let o = &mut control.orbit;
+        o.free = free;
+        if !free {
+            // The player faces where the camera looked, and the camera stays behind them.
+            player.heading = (player.heading + o.yaw).rem_euclid(std::f32::consts::TAU);
+            player.pitch = (player.pitch + o.pitch).clamp(-crate::player::MAX_PITCH, crate::player::MAX_PITCH);
+            (o.yaw, o.pitch) = (0.0, 0.0);
+        }
+        info!("third-person camera: {}", if free { "detached, the player turns to the way they move" } else { "behind the player again" });
+    }
+    if !free {
+        return;
+    }
+    let (heading, yaw, push) = steer(player.heading, control.orbit.yaw, intent.forward, intent.right, FREE_TURN_RATE * time.delta_secs());
+    if push > 0.0 {
+        player.heading = heading;
+        control.orbit.yaw = yaw;
+        (intent.forward, intent.right) = (push, 0.0);
+    }
+}
+
 /// The camera: at the eye in first person; behind the shoulder in third person (turned by
 /// the orbit while circling), in front of whatever collision lies between the pivot and
 /// that spot.
@@ -641,7 +721,7 @@ pub fn place_camera(
             None => info!("crosshair: the eye's view"),
         }
     }
-    if !control.orbit.held {
+    if !control.orbit.held && !control.orbit.free {
         // Swing back behind the player.
         let k = (-time.delta_secs() / ORBIT_RETURN).exp();
         let o = &mut control.orbit;
@@ -671,7 +751,9 @@ pub fn place_camera(
     let heading = p.heading + o.yaw;
     let pitch = (p.pitch + o.pitch).clamp(-crate::player::MAX_PITCH, crate::player::MAX_PITCH);
     t.rotation = space::look_rotation(heading, pitch);
-    let shoulder = orbit_shoulder(settings.map_or(DEFAULT_SHOULDER, |s| s.shoulder), o.yaw);
+    let shoulder = settings.map_or(DEFAULT_SHOULDER, |s| s.shoulder);
+    // Detached, the camera keeps its shoulder wherever it looks.
+    let shoulder = if o.free { shoulder } else { orbit_shoulder(shoulder, o.yaw) };
     let pivot = body.pivot.unwrap_or(eye);
     let (base, want) = third_person_spot(pivot, heading, pitch, shoulder, control.distance);
     // The camera is not pushed in by actors' hit volumes (combat C3).
@@ -699,7 +781,8 @@ pub fn place_camera(
     }
     t.translation = space::to_bevy(out);
     // While circling, the camera does not look where the player does: aim from the eye.
-    if !control.orbit.active() {
+    // Detached, what the player uses is what the camera looks at.
+    if !control.orbit.active() || control.orbit.free {
         control.crosshair = Some(Crosshair::placed(out, heading, pitch, pivot));
     }
 }
@@ -785,6 +868,25 @@ mod tests {
         // First person: straight at it from the eye.
         let (h, p) = Crosshair::aim_at(None, [0.0, 0.0, 0.0], [100.0, 0.0, 100.0]);
         assert!((h - FRAC_PI_2).abs() < 1e-5 && (p - std::f32::consts::FRAC_PI_4).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_detached_player_turns_to_the_way_pushed_and_the_camera_stays() {
+        use std::f32::consts::PI;
+        // Camera looking north (heading 0.3 + yaw −0.3), Back pressed: the player turns
+        // towards south, a step at a time, and is pushed straight ahead.
+        let (h, yaw, push) = steer(0.3, -0.3, -1.0, 0.0, 0.5);
+        assert!((h - 0.8).abs() < 1e-5 && (h + yaw).abs() < 1e-5 && push == 1.0, "{h} {yaw}");
+        // A big enough step: facing south outright.
+        let (h, yaw, _) = steer(0.3, -0.3, -1.0, 0.0, 10.0);
+        assert!((wrap_angle(h - PI)).abs() < 1e-5 && (wrap_angle(h + yaw)).abs() < 1e-5, "{h} {yaw}");
+        // Forward and right with the camera looking east: south-east. Diagonal pushes are
+        // not faster.
+        let (h, _, push) = steer(0.0, FRAC_PI_2, 1.0, 1.0, 10.0);
+        assert!((h - 3.0 * PI / 4.0).abs() < 1e-5 && (push - 1.0).abs() < 1e-6, "{h}");
+        // Not pushed: nothing turns.
+        assert_eq!(steer(1.0, 2.0, 0.0, 0.0, 10.0), (1.0, 2.0, 0.0));
+        assert!((wrap_angle(3.0 * PI / 2.0) + FRAC_PI_2).abs() < 1e-5 && (wrap_angle(PI) - PI).abs() < 1e-5);
     }
 
     #[test]
@@ -883,7 +985,7 @@ mod tests {
 
     #[test]
     fn orbit_released_swings_back() {
-        let o = Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true };
+        let o = Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true, free: false };
         assert_eq!(o.released(), Orbit { held: false, ..o });
         assert!(o.released().active());
     }
@@ -907,7 +1009,7 @@ mod tests {
             aiming: true,
             auto_move: true,
             pov: Pov::Third,
-            orbit: Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true },
+            orbit: Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true, free: false },
             ready_held: Some(0.1),
             trigger: true,
             reload: true,

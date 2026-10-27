@@ -356,7 +356,11 @@ impl Plugin for PlayerPlugin {
             .init_resource::<RunPace>()
             .init_resource::<PerkSpeed>()
             .init_resource::<Lunge>()
-            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk).chain().after(PlaySet::Input).before(PlaySet::Physics))
+            .init_resource::<crate::control::DetachedCamera>()
+            .add_systems(
+                Update,
+                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
+            )
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
@@ -368,6 +372,18 @@ impl Plugin for PlayerPlugin {
                     .after(crate::phys::PhysSystems),
             )
             .add_systems(Update, crate::control::place_camera.in_set(PlaySet::Physics).after(log_status));
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "detached-camera",
+                group: crate::pause::GROUP_MENUS,
+                label: "Detached third-person camera",
+                note: "On: in third person with your weapon away the mouse turns the camera around you, not your character, and your character turns to run whichever way you push, as the camera sees it. Drawing your weapon turns you to where the camera looks. Off: the camera stays behind you, as in the original.",
+                get: |w| w.resource::<crate::control::DetachedCamera>().0,
+                set: |w, on| w.resource_mut::<crate::control::DetachedCamera>().0 = on,
+                slider: None,
+            },
+        );
     }
 }
 
@@ -705,6 +721,14 @@ fn mouse_look(
         o.yaw = (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         o.pitch = pitch;
         o.moved = true;
+        return;
+    }
+    if control.orbit.free {
+        // The detached camera (`crate::control::detach_camera`): the camera turns, the
+        // player does not.
+        let (yaw, pitch) = look_with(control.orbit.yaw, player.pitch, delta, s, inv);
+        control.orbit.yaw = crate::control::wrap_angle(yaw);
+        player.pitch = pitch;
         return;
     }
     (player.heading, player.pitch) = look_with(player.heading, player.pitch, delta, s, inv);

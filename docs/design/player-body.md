@@ -91,6 +91,13 @@ exist. The draw/holster timing follows the clips of the rig in view.
   circling angles, the shoulder offset fading to the centre as it turns away from
   behind; from first person the view shows the third-person body meanwhile. Let go, it
   swings back behind (time constant 0.15 s) and first person returns.
+- Detached (the settings page's Gameplay switch "Detached third-person camera", off by
+  default; the owner 2026-10-27): in third person with the weapon away the mouse turns
+  the camera, kept at its full shoulder offset, and not the player; moving, the player
+  turns (720°/s) to the pushed way as the camera sees it and walks straight ahead, so
+  Back runs towards the camera. Drawing the weapon (or first person, or the switch off)
+  turns the player to the camera's heading at once. The crosshair follows the camera's
+  line meanwhile [design: not in the original; `control::detach_camera`].
 - The crosshair's ray starts at the eye (`Player::eye`, the `Camera1st` position), so it
   matches the first-person view; in third person it still starts there [engineering
   choice; the game's third-person pick is not known].
