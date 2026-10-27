@@ -648,6 +648,11 @@ impl PhysWorld {
         Some(dv.length() / k)
     }
 
+    /// The mass of a reference's heaviest dynamic body; `None` without one.
+    pub fn ref_mass(&self, form_id: u32) -> Option<f32> {
+        self.refs.get(&form_id)?.iter().filter_map(|&b| self.w.bodies.get(b).filter(|x| x.is_dynamic()).map(|x| x.mass())).max_by(f32::total_cmp)
+    }
+
     /// The centre of mass of a reference's first body, game units.
     pub fn ref_center(&self, form_id: u32) -> Option<[f32; 3]> {
         let b = *self.refs.get(&form_id)?.first()?;

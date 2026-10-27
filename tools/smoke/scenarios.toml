@@ -9813,14 +9813,15 @@ expect = [
 
 [[scenario]]
 name = "jip-radios-fall"
-source = "JohnnyGuitar GetAvailableRadios from the engine's placed stations and reception rule; JIP GetFallTimeElapsed from the engine's character physics, 0 on the ground"
+source = "JohnnyGuitar GetAvailableRadios: the enabled Pip-Boy stations that broadcast everywhere, from the engine's placed stations [observed: radio1]; JIP GetFallTimeElapsed from the engine's character physics, 0 on the ground"
 areas = ["scripts", "physics"]
 paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/script.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf radios %g\", (ar_Size (player.GetAvailableRadios));9.5:PrintC \"nvf fall ground %g\", (player.GetFallTimeElapsed);10:player.MoveTo player 0 0 600;10.05:close;10.6:PrintC \"nvf fall air %.2f\", (player.GetFallTimeElapsed);11:close" }
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf radios %g\", (ar_Size (player.GetAvailableRadios));9.0:PrintC \"nvf st 0 %n\", ((player.GetAvailableRadios)[0]);9.5:PrintC \"nvf fall ground %g\", (player.GetFallTimeElapsed);10:player.MoveTo player 0 0 600;10.05:close;10.6:PrintC \"nvf fall air %.2f\", (player.GetFallTimeElapsed);11:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
 run_seconds = 13
 expect = [
-  { re = 'script: print "nvf radios [1-9]', label = "Goodsprings gets at least one placed station (Radio New Vegas covers the Mojave)" },
+  { re = 'script: print "nvf radios 3"', label = "a new game at Goodsprings: Mojave Music Radio and two add-on broadcasts (Radio New Vegas starts disabled)" },
+  { re = 'script: print "nvf st 0 Mojave Music Radio"', label = "the first, in FormID order, is Mojave Music Radio" },
   { re = 'script: print "nvf fall ground 0"', label = "standing on the ground, no fall time" },
   { re = 'script: print "nvf fall air (0\.[1-9]|[1-9])', label = "half a second after MoveTo lifts the player 600 units, the fall time counts" },
 ]

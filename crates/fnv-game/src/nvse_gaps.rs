@@ -9,6 +9,16 @@ use fnv_sim::FormId;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 
+/// A placed radio station, as the engine reads it.
+#[derive(Debug, Clone)]
+pub struct RadioSite {
+    pub station: FormId,
+    pub initially_disabled: bool,
+    /// On the Pip-Boy's list (the station has no Non-Pipboy flag).
+    pub on_pipboy: bool,
+    pub broadcast: fnv_world::radio::Broadcast,
+}
+
 /// This file's session state.
 #[derive(Debug, Default)]
 pub struct GapsState {
@@ -42,9 +52,8 @@ pub struct GapsState {
     /// Actors whose special idle scripts stopped (StopIdle, ForceStopIdle), for the
     /// engine to take.
     pub idle_stops: Vec<FormId>,
-    /// The placed radio stations, from the engine: (reference, starts disabled, where it
-    /// broadcasts from); `None` until the engine sets them.
-    pub radio_sites: Option<Vec<(FormId, bool, fnv_world::radio::Broadcast)>>,
+    /// The placed radio stations, from the engine; `None` until the engine sets them.
+    pub radio_sites: Option<Vec<RadioSite>>,
     /// The armed mines of the loaded cells that someone other than the player put down,
     /// from the engine's mines at their last frame.
     pub armed_mines: HashSet<FormId>,
@@ -1250,7 +1259,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `x y z force [origin]`: the reference's loose body is pushed away from the
         // origin (the reference's place, or `origin`'s, moved by x y z), towards it for a
         // negative force; the engine applies it at its next frame [documented: PushObject;
-        // hypothesis: the force read as Impact Force is, mass x metres per second].
+        // observed: phys2, the speed grows with the force, `nvf_play::script`].
         "pushobject" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let at = form(args, 4).unwrap_or(r);
@@ -1260,37 +1269,37 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // JohnnyGuitar: the station references a receiver placed where the reference
-        // stands would get, by the engine's reception rule (`fnv_world::radio::reception`),
-        // in FormID order; none is an empty array [documented: GetAvailableRadios;
-        // hypothesis: the order; a receiver in an interior counts its own cell only].
+        // JohnnyGuitar: the enabled Pip-Boy stations that broadcast everywhere, wherever
+        // the reference stands, in FormID order; none is an empty array [documented:
+        // GetAvailableRadios; observed: phys2, phys3, radio1, the same 5 inside the
+        // nvftest interior and outdoors at Goodsprings: Radio New Vegas, Mojave Music
+        // Radio and the three add-ons' broadcasts; not the radius stations nor the
+        // everywhere stations off the Pip-Boy (Gomorrah's lounge music, EDE's frequency);
+        // hypothesis: the order, which was not FormID order].
         "getavailableradios" => {
-            let Some(r) = subject else { return Some(Ok(zero)) };
-            let cell = g.cell_of(r);
-            let world = cell.and_then(|c| g.world.placed.world_of(c));
-            let position = g.ref_pos_rot(r).map_or([0.0; 3], |(p, _)| p);
-            let l = fnv_world::radio::Listener {
-                world: world.map_or(0, |w| w.0),
-                interior: if world.is_none() { cell.map(|c| c.0) } else { None },
-                position,
-            };
+            if subject.is_none() {
+                return Some(Ok(zero));
+            }
             let mut found: Vec<u32> = g
                 .gaps
                 .radio_sites
                 .iter()
                 .flatten()
-                .filter(|(s, off, b)| g.world.is_enabled(*s).unwrap_or(!off) && fnv_world::radio::reception(b, &l).is_some())
-                .map(|(s, _, _)| s.0)
+                .filter(|s| s.on_pipboy && matches!(s.broadcast.range, fnv_world::radio::BroadcastRange::Everywhere))
+                .filter(|s| g.world.is_enabled(s.station).unwrap_or(!s.initially_disabled))
+                .map(|s| s.station.0)
                 .collect();
             found.sort_unstable();
             list(g, found.into_iter().map(XVal::Ref).collect())
         }
         // A live mine that is not going off, 0 for the player's own mines and anything
         // else [documented: GetMineArmed, "always returns 0 on player-placed mines";
-        // hypothesis: a burning fuse reads 0].
+        // observed: phys1, phys2, a placed frag mine read 1 from its first frame, the
+        // player 0; hypothesis: a burning fuse reads 0].
         "getminearmed" => yes(subject.is_some_and(|r| g.gaps.armed_mines.contains(&r))),
         // Seconds since the actor's body left the ground, 0 on it [documented:
-        // GetFallTimeElapsed; hypothesis: a jump counts as a fall from leaving the ground].
+        // GetFallTimeElapsed; observed: phys3, rising 0.094 every 5 frames from a SetPos
+        // lift of 600 to 1.297, 0 from the landing on; hypothesis: a jump counts too].
         "getfalltimeelapsed" => XVal::Num(f64::from(subject.and_then(|a| g.gaps.air_times.get(&a)).copied().unwrap_or(0.0))),
         // `navmesh`: the switches DisableNavmesh and EnableNavMesh keep, the navmesh named
         // by reference (`functions::navigation`) [documented: DisableNavMeshAlt,
