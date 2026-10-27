@@ -2674,6 +2674,8 @@ impl<'a> Game<'a> {
         self.run_box_callback();
         self.track_velocity();
         self.run_due_snippets();
+        let (dt, frame) = (self.cfg.frame_seconds, self.frame);
+        self.gaps.sounds.tick(dt, frame);
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).

@@ -229,7 +229,7 @@ impl Game<'_> {
 
     fn act_sound(&mut self, edid: &str, at: FormId) {
         if let Some(sound) = self.data.by_edid(edid) {
-            self.ask_sound(SoundRequest { sound, at: Some(at), system: false });
+            self.ask_sound(SoundRequest { sound, at: Some(at), system: false, id: 0 });
         }
     }
 

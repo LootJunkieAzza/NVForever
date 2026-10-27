@@ -9827,6 +9827,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "nvse-sounds"
+source = "IsSoundPlaying, StopSound, GetSoundPlayers over the sounds scripts play: from the frame after PlaySound, a Loop SOUN until StopSound, still 1 in StopSound's frame, PlaySound3D's source [observed: sound1]"
+areas = ["scripts", "audio"]
+paths = ["crates/fnv-game/src/nvse_sound.rs", "crates/fnv-game/src/sound.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PlaySound EMTMedicalBeep01;PrintC \"nvf snd same %g\", (IsSoundPlaying EMTMedicalBeep01);9.2:close;9.5:PrintC \"nvf snd next %g\", (IsSoundPlaying EMTMedicalBeep01);9.7:close;11.5:PrintC \"nvf snd later %g\", (IsSoundPlaying EMTMedicalBeep01);11.6:StopSound EMTMedicalBeep01;PrintC \"nvf snd stop frame %g\", (IsSoundPlaying EMTMedicalBeep01);11.8:close;12.2:PrintC \"nvf snd stopped %g\", (IsSoundPlaying EMTMedicalBeep01);12.4:player.PlaySound3D EMTMedicalBeep01;12.6:close;13:PrintC \"nvf snd3d %g %g %g %g\", (IsSoundPlaying EMTMedicalBeep01 player), (IsSoundPlaying EMTMedicalBeep01 00104C0C), (IsSoundPlaying EMTMedicalBeep01), (ar_Size (GetSoundPlayers EMTMedicalBeep01));13.2:StopSound EMTMedicalBeep01;PlaySound UIVATSLoop;13.4:close;14.5:PrintC \"nvf vats %g\", (IsSoundPlaying UIVATSLoop);14.7:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf snd same 0"', label = "not playing in PlaySound's own frame" },
+  { re = 'script: print "nvf snd next 1"', label = "playing from the next frame" },
+  { re = 'script: print "nvf snd later 1"', label = "a Loop SOUN still plays 2 s on" },
+  { re = 'script: print "nvf snd stop frame 1"', label = "still 1 in StopSound's frame" },
+  { re = 'script: print "nvf snd stopped 0"', label = "0 after StopSound" },
+  { re = 'script: print "nvf snd3d 1 0 1 1"', label = "PlaySound3D on the player: 1 with the player, 0 with another, 1 with none; one player" },
+  { re = 'script: print "nvf vats 0"', label = "the one-shot UIVATSLoop is over a second later" },
+]
+
+[[scenario]]
 name = "knvse-idle-stop"
 source = "kNVSE ForcePlayIdle and ForceStopIdle on an NPC through the engine's idle player; GetPlayedIdle keeps the idle after the stop [observed: anim1]"
 areas = ["scripts", "actors"]

@@ -60,6 +60,8 @@ pub struct GapsState {
     /// Seconds each actor's body has been off the ground, from the engine's physics at
     /// the last step (absent on the ground).
     pub air_times: HashMap<FormId, f32>,
+    /// The sounds scripts played, for the sound functions (`crate::nvse_sound`).
+    pub sounds: crate::nvse_sound::SoundState,
     /// PushObject's pushes, for the engine to take: (the reference, the push's origin,
     /// its force).
     pub pushes: Vec<(FormId, [f32; 3], f32)>,
@@ -1186,7 +1188,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let seconds = num(args, 0, 2.0) as f32;
             let (text, icon, sound) = split_styled(&text(args, 1));
             if let Some(s) = sound.and_then(|s| g.data.by_edid(&s)) {
-                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true });
+                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0 });
             }
             g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
             zero

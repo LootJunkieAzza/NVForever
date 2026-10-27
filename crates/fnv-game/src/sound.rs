@@ -30,12 +30,15 @@ pub struct SoundRequest {
     /// `PlaySound`'s SystemSound flag: it plays in menu mode too; without it the sound
     /// may wait for game mode [documented: GECK wiki PlaySound].
     pub system: bool,
+    /// Its id in the sound functions' list (`crate::nvse_sound`), for the engine's answer.
+    pub id: u32,
 }
 
 impl Game<'_> {
     /// Queue a sound for the engine and trace it.
-    pub fn ask_sound(&mut self, r: SoundRequest) {
+    pub fn ask_sound(&mut self, mut r: SoundRequest) {
         self.emit(EventKind::SoundAsked { sound: r.sound, at: r.at, system: r.system });
+        r.id = self.gaps.sounds.ask(r.sound, r.at, self.frame);
         if self.sound_requests.len() >= MAX_PENDING {
             self.sound_requests.remove(0);
         }
@@ -48,7 +51,7 @@ impl Game<'_> {
 pub fn play_sound(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let sound = a.form(0)?;
     let system = a.num_or(1, 0.0) != 0.0;
-    g.ask_sound(SoundRequest { sound, at: None, system });
+    g.ask_sound(SoundRequest { sound, at: None, system, id: 0 });
     none()
 }
 
@@ -78,6 +81,6 @@ pub fn play_music(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn play_sound_3d(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let sound = a.form(0)?;
     let at = ctx.subject()?;
-    g.ask_sound(SoundRequest { sound, at: Some(at), system: false });
+    g.ask_sound(SoundRequest { sound, at: Some(at), system: false, id: 0 });
     none()
 }

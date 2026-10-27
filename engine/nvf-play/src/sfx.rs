@@ -97,6 +97,20 @@ pub struct LoopSound {
 #[derive(Component)]
 struct Looping(FormId);
 
+/// A sound a script played (`fnv_game::nvse_sound`), which StopSound stops.
+#[derive(Component)]
+struct ScriptPlayed(FormId);
+
+/// Sounds scripts play, between the rules and this module: what to play (from
+/// `crate::world_sounds`), what StopSound stopped, and the answer for each played sound,
+/// its seconds or `None` for one that loops until stopped.
+#[derive(Resource, Default)]
+pub struct ScriptSounds {
+    pub plays: Vec<(u32, FormId, Option<[f32; 3]>)>,
+    pub stops: Vec<FormId>,
+    pub heard: Vec<(u32, Option<f32>)>,
+}
+
 /// Something that sounds as long as it is there, at a place (game space): sent every
 /// frame it should sound; [`crate::ambient`] plays its SOUN as it plays a sound marker
 /// (looping, or now and then for Play At Random) while the listener is within reach.
@@ -663,6 +677,8 @@ fn play(
     mut loops: MessageReader<LoopSound>,
     looping: Query<(Entity, &Looping)>,
     playing: Query<&OneShot>,
+    scripted: Query<(Entity, &ScriptPlayed)>,
+    mut script_sounds: ResMut<ScriptSounds>,
     sfx: Option<ResMut<Sfx>>,
     settings: Res<SfxSettings>,
     player: Option<Res<Player>>,
@@ -704,6 +720,46 @@ fn play(
     }
     for r in requests.read() {
         one_shot_heard(&mut commands, sfx, &data.vfs, &mut assets, &settings, r.sound, r.at, player.as_deref());
+    }
+    // Scripts' sounds: StopSound's first, then the new ones. A SOUN with the Loop flag
+    // goes round until StopSound stops it [observed: sound1, EMTMedicalBeep01 (Loop)
+    // still playing 120 frames on; UIVATSLoop (no Loop flag) over after one frame];
+    // a placed one loops at the listener [design].
+    let ss = &mut *script_sounds;
+    for s in ss.stops.drain(..) {
+        for (e, p) in &scripted {
+            if p.0 == s {
+                commands.entity(e).try_despawn();
+            }
+        }
+    }
+    for (id, sound, at) in std::mem::take(&mut ss.plays) {
+        let looping = sfx.forms.sounds.get(&sound).is_some_and(|s| s.has("Loop"));
+        if looping {
+            ss.heard.push((id, None));
+            let Some((s, name, path, handle)) = source(sfx, &data.vfs, &mut assets, sound) else { continue };
+            let gain = static_gain(&s) * settings.volume.max(0.0);
+            debug!("sfx: {name} {path} looping for a script, gain {gain:.3}");
+            if settings.play {
+                sfx.played += 1;
+                commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::LOOP.with_volume(Volume::Linear(gain)), ScriptPlayed(sound), SfxSound, SoundCategory::of_effect(s.edid.as_deref())));
+            } else {
+                sfx.silent += 1;
+            }
+            continue;
+        }
+        let placed = at.zip(player.as_deref()).map(|(at, p)| SoundAt::new(at, Some(p)));
+        let eye = player.as_deref().map(Player::eye);
+        match one_shot_spawn(&mut commands, sfx, &data.vfs, &mut assets, &settings, sound, at, eye, placed) {
+            Some((seconds, e)) => {
+                ss.heard.push((id, Some(seconds)));
+                if let Some(e) = e {
+                    commands.entity(e).insert(ScriptPlayed(sound));
+                }
+            }
+            // No file to play: over at once.
+            None => ss.heard.push((id, Some(0.0))),
+        }
     }
 }
 
@@ -778,6 +834,22 @@ fn one_shot_at(
     eye: Option<[f32; 3]>,
     placed: Option<SoundAt>,
 ) -> Option<f32> {
+    one_shot_spawn(commands, sfx, vfs, assets, settings, sound, at, eye, placed).map(|(s, _)| s)
+}
+
+/// [`one_shot_at`], with the entity playing it (`None` when nothing is heard).
+#[allow(clippy::too_many_arguments)]
+fn one_shot_spawn(
+    commands: &mut Commands,
+    sfx: &mut Sfx,
+    vfs: &fnv_vfs::Vfs,
+    assets: &mut Assets<PcmSound>,
+    settings: &SfxSettings,
+    sound: FormId,
+    at: Option<[f32; 3]>,
+    eye: Option<[f32; 3]>,
+    placed: Option<SoundAt>,
+) -> Option<(f32, Option<Entity>)> {
     let (s, name, path, handle) = source(sfx, vfs, assets, sound)?;
     let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
     let gain = static_gain(&s) * distance.map_or(1.0, |d| distance_gain(&s, d)) * settings.volume.max(0.0);
@@ -792,7 +864,7 @@ fn one_shot_at(
     if sfx.submerged && s.has("Mute When Submerged") {
         sfx.muted_submerged += 1;
         sfx.silent += 1;
-        return Some(seconds);
+        return Some((seconds, None));
     }
     let placed = match placed {
         Some(_) if s.has("2D") => {
@@ -803,14 +875,14 @@ fn one_shot_at(
     };
     if !settings.play || gain < 0.001 {
         sfx.silent += 1;
-        return Some(seconds);
+        return Some((seconds, None));
     }
     let interface = is_interface(s.edid.as_deref());
     if !interface {
         let same = sfx.same.get(&sound).copied().unwrap_or(0);
         if !voice_free(sfx.voices, same) {
             sfx.voice_limited += 1;
-            return Some(seconds);
+            return Some((seconds, None));
         }
         sfx.voices += 1;
         sfx.same.insert(sound, same + 1);
@@ -843,7 +915,7 @@ fn one_shot_at(
     } else {
         e.insert(OneShot(sound));
     }
-    Some(seconds)
+    Some((seconds, Some(e.id())))
 }
 
 /// An interface sound by its SOUN editor ID (`UI…`: menus, VATS, the Pip-Boy), which keeps
@@ -872,6 +944,7 @@ impl Plugin for SfxPlugin {
             .add_audio_source::<PcmSound>()
             .add_message::<PlaySound>()
             .add_message::<LoopSound>()
+            .init_resource::<ScriptSounds>()
             .add_message::<SoundSource>()
             .add_systems(Startup, init)
             .add_systems(Update, (listener_submerged, play.after(crate::PlaySet::Activation), pan_sounds).chain())

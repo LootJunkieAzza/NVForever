@@ -506,6 +506,7 @@ fn objects(
     panel: Option<Res<crate::message_menu::MessagePanel>>,
     mut ui: MessageReader<crate::ui_sounds::UiSound>,
     mut out: MessageWriter<PlaySound>,
+    mut script_sounds: ResMut<crate::sfx::ScriptSounds>,
 ) {
     let ws = &mut *ws;
     let sfx = sfx.as_deref();
@@ -669,8 +670,13 @@ fn objects(
         out.write(PlaySound { sound, at: ref_pos(&sim, reference) });
     }
 
-    // Scripts.
+    // Scripts: the engine's answers for the sounds already played, StopSound's stops,
+    // and the new sounds (`fnv_game::nvse_sound`).
     if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
+        for (id, seconds) in script_sounds.heard.drain(..) {
+            rt.game.gaps.sounds.heard(id, seconds);
+        }
+        script_sounds.stops.append(&mut rt.game.gaps.sounds.stops);
         ws.held.append(&mut rt.game.sound_requests);
     }
     let in_game = *state.get() == PlayState::Playing;
@@ -692,7 +698,7 @@ fn objects(
             ws.stats.script_2d += 1;
         }
         info!("world sounds: a script plays {}{}", r.sound, r.at.map_or(String::new(), |a| format!(" at {a}")));
-        out.write(PlaySound { sound: r.sound, at });
+        script_sounds.plays.push((r.id, r.sound, at));
     }
     if !held.is_empty() && held.len() != ws.stats.script_held as usize {
         ws.stats.script_held = ws.stats.script_held.max(held.len() as u32);

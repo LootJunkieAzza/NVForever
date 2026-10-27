@@ -192,7 +192,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
     let zero = XVal::Num(0.0);
     let Some(x) = form(args, 0) else {
         return match name {
-            "getsoundtraitnumeric" | "setsoundtraitnumeric" | "getsoundsourcefile" | "setsoundsourcefile" | "issoundplaying" | "getweathertraitnumeric" | "setweathertraitnumeric" | "getweatherrgbcolor" | "setweatherrgbcolor" | "getweatherimagespacemod" | "setweatherimagespacemod" | "getimagespacetrait" | "setimagespacetrait" | "getimagespacemodtrait" | "setimagespacemodtrait" => Some(Ok(zero)),
+            "getsoundtraitnumeric" | "setsoundtraitnumeric" | "getsoundsourcefile" | "setsoundsourcefile" | "getweathertraitnumeric" | "setweathertraitnumeric" | "getweatherrgbcolor" | "setweatherrgbcolor" | "getweatherimagespacemod" | "setweatherimagespacemod" | "getimagespacetrait" | "setimagespacetrait" | "getimagespacemodtrait" | "setimagespacemodtrait" => Some(Ok(zero)),
             _ => None,
         };
     };
@@ -224,7 +224,6 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         // [observed: 0 even after PlaySound; hypothesis: the engine does not tell which
         // sounds play]
-        "issoundplaying" => zero,
         "getweathertraitnumeric" => XVal::Num(if (0..=20).contains(&t) { changed(g, WEATHER, t).unwrap_or_else(|| weather_trait(g, x, t)) } else { 0.0 }),
         // Stored at the record's step [observed: 0.5 reads 0.498039].
         "setweathertraitnumeric" => {
