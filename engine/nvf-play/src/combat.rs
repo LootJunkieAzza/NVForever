@@ -98,8 +98,8 @@
 //!   picture [design: reloading the last save is not built]. God mode ([`god_mode`]:
 //!   `--god`, the settings page's Developer switch, test aid `NVF_PLAY_TEST_GOD=1`): the
 //!   player takes no damage, so a long unattended run is not ended by a fight.
-//! - **Feedback** [design]: a hit marker at the
-//!   crosshair (red on a kill), the last target's health for a few seconds, the player's
+//! - **Feedback** [design]: no hit marker at the crosshair (owner 2026-10-27), the last
+//!   target's health for a few seconds, the player's
 //!   crippled limbs, and a line for kills with their XP. Health, condition and ammo are
 //!   on the HUD proper (`crate::hud`, [`Combat::hud_weapon`]). Developer markers, off
 //!   unless [`HitMarks`] says so: a cross at each impact and a line from the muzzle
@@ -644,9 +644,6 @@ pub fn is_dead(script: Option<&ScriptState>, form_id: u32) -> bool {
 /// What the HUD shows about hits [design].
 #[derive(Resource, Default, Debug, Clone)]
 pub struct HitFeedback {
-    /// Seconds since the last hit marker, and whether it was a kill.
-    pub marker_age: Option<f32>,
-    pub kill: bool,
     /// The last actor hit: name, health, maximum, seconds since.
     pub target: Option<(String, f32, f32, f32)>,
     /// Hits the player took since [`player_flinch`] last looked.
@@ -668,10 +665,6 @@ pub struct PlayerHit {
 
 /// Height above a destructible's position its stage explosions go off [design].
 pub(crate) const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
-
-/// Seconds the hit marker stays up [design]. (The target's health is the HUD's
-/// enemy health bar, `crate::hud`.)
-const MARKER_SECONDS: f32 = 0.18;
 
 /// How one actor's weapon wore from its own attacks (`CombatStats::npc_weapon_wear`).
 #[derive(Default, Debug, Clone, Copy)]
@@ -1345,12 +1338,12 @@ impl Plugin for CombatPlugin {
             .add_message::<ActorStrike>()
             .init_resource::<crate::dismember::Dismemberment>()
             .add_message::<crate::dismember::Dismembered>()
-            .add_systems(Startup, (init_combat, spawn_hit_hud))
+            .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
                 (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
-            .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -2989,7 +2982,6 @@ fn strike_weapon(
     forms: &CombatForms,
     sim: &mut SimState,
     stats: &mut CombatStats,
-    feedback: &mut HitFeedback,
     hud: Option<&mut HudMessage>,
     broken: &mut MessageWriter<WeaponBroken>,
     script: Option<&mut ScriptState>,
@@ -3003,8 +2995,6 @@ fn strike_weapon(
         let _ = sim.world.add_item(target, item, 1);
     }
     stats.weapon_hits += 1;
-    feedback.marker_age = Some(0.0);
-    feedback.kill = false;
     match wear_weapon(forms, sim, stats, hud, Some(broken), script, target, item, points, Some(at)) {
         Some(w) => info!("combat: hit {target}'s {} for {points:.1}: condition {:.1}% -> {:.1}%", item_name(sim, item), w.before * 100.0, w.after * 100.0),
         None => info!("combat: hit {target}'s {} ({item}): it does not wear", item_name(sim, item)),
@@ -3100,8 +3090,6 @@ pub(crate) fn apply_hit(
     if !r.immune {
         let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(target, fnv_game::combat::TORSO));
         if mine {
-            feedback.marker_age = Some(0.0);
-            feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
         messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken, weapon: info.weapon });
@@ -3367,7 +3355,7 @@ fn melee(
             let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, Some(target));
             if hit.part == Some(WEAPON_PART) {
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
-                strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
+                strike_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
                 continue;
             }
             let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
@@ -4182,7 +4170,7 @@ fn fly(
         let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, Some(target));
         if p.part == Some(WEAPON_PART) {
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
-            strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
+            strike_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
             continue;
         }
         // A piece of gore (an exploded part's bits, dismemberment.md §6) is seen hit, no more.
@@ -4391,43 +4379,6 @@ fn watch_hit_effects(script: Option<Res<ScriptState>>, mut stats: ResMut<CombatS
     if !stats.player_died && rt.game.is_dead(FormId::PLAYER_REF) {
         stats.player_died = true;
         info!("combat: the player died (no hit: an effect's drain)");
-    }
-}
-
-#[derive(Component)]
-struct HitMarker;
-
-fn spawn_hit_hud(mut commands: Commands) {
-    // The hit marker: a small square ring around the crosshair.
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Percent(50.0),
-            top: Val::Percent(50.0),
-            width: Val::Px(14.0),
-            height: Val::Px(14.0),
-            margin: UiRect { left: Val::Px(-7.0), top: Val::Px(-7.0), ..default() },
-            border: UiRect::all(Val::Px(2.0)),
-            ..default()
-        },
-        BorderColor::all(Color::NONE),
-        HitMarker,
-    ));
-}
-
-/// The hit marker [design]. The player's crippled limbs are `crate::hud_limbs`' picture.
-fn update_hit_hud(time: Res<Time>, state: Res<State<PlayState>>, mut fb: ResMut<HitFeedback>, mut marker: Query<&mut BorderColor, With<HitMarker>>) {
-    let dt = time.delta_secs();
-    let playing = *state.get() == PlayState::Playing;
-    let mut col = Color::NONE;
-    if let Some(a) = fb.marker_age.as_mut() {
-        *a += dt;
-        if *a < MARKER_SECONDS && playing {
-            col = if fb.kill { Color::srgb(1.0, 0.25, 0.2) } else { Color::srgba(1.0, 1.0, 1.0, 0.9) };
-        }
-    }
-    if let Ok(mut b) = marker.single_mut() {
-        *b = BorderColor::all(col);
     }
 }
 

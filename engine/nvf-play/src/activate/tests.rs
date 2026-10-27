@@ -165,6 +165,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<crate::lockpick::OpenLockpick>()
         .add_message::<crate::pickpocket::OpenPickpocket>()
         .add_message::<crate::pickpocket::Pickpocketed>()
+        .add_message::<crate::ui_sounds::UiSound>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
 }
@@ -220,6 +221,35 @@ fn the_key_unlocks() {
     let mut sim = sim();
     sim.world.add_item(FormId::PLAYER_REF, FormId(KEY), 1).unwrap();
     assert_eq!(describe(&sim, index(), SAFE_REF).unwrap().1, Action::Unlock);
+}
+
+#[test]
+fn an_empty_chest_is_marked_empty_until_it_holds_something() {
+    let mut app = scene(&[(CHEST_REF, 100.0)]);
+    app.update();
+    let empty = |app: &App| app.world().resource::<Target>().0.as_ref().map(|t| t.empty);
+    assert_eq!(empty(&app), Some(true));
+    app.world_mut().resource_mut::<SimState>().world.add_item(FormId(CHEST_REF), FormId(STIMPAK), 1).unwrap();
+    app.update();
+    assert_eq!(empty(&app), Some(false));
+    // A locked chest is not looked into.
+    let mut sim = sim();
+    assert!(!holds_nothing(None, &mut sim, SAFE_REF, &Action::Locked { level: 50 }));
+    assert!(sim.world.peek(FormId(SAFE_REF)).is_none(), "not materialised");
+}
+
+#[test]
+fn the_key_plays_the_unlock_sound() {
+    let mut app = scene(&[(SAFE_REF, 50.0)]);
+    app.world_mut().resource_mut::<SimState>().world.add_item(FormId::PLAYER_REF, FormId(KEY), 1).unwrap();
+    app.update();
+    press_e(&mut app);
+    let sounds = drain::<crate::ui_sounds::UiSound>(&mut app);
+    assert_eq!(sounds.iter().map(|s| (s.menu, s.event)).collect::<Vec<_>>(), vec![(crate::ui_sounds::UiMenu::Lockpick, crate::ui_sounds::UiEvent::Unlocked)]);
+    assert_eq!(drain::<OpenContainer>(&mut app).iter().map(|m| m.container).collect::<Vec<_>>(), vec![SAFE_REF]);
+    // Opened again, it is no longer locked: no sound.
+    press_e(&mut app);
+    assert!(drain::<crate::ui_sounds::UiSound>(&mut app).is_empty());
 }
 
 #[test]
