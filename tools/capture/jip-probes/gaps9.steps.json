@@ -6,37 +6,37 @@
  "steps": [
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"MeleeWeapons\") * 100))\nEnd\n",
-   "label": "av.meleeweapons",
+   "label": "melee.av.meleeweapons",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"Unarmed\") * 100))\nEnd\n",
-   "label": "av.unarmed",
+   "label": "melee.av.unarmed",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"Strength\") * 100))\nEnd\n",
-   "label": "av.strength",
+   "label": "melee.av.strength",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"Agility\") * 100))\nEnd\n",
-   "label": "av.agility",
+   "label": "melee.av.agility",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"MeleeDamage\") * 100))\nEnd\n",
-   "label": "av.meleedamage",
+   "label": "melee.av.meleedamage",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"UnarmedDamage\") * 100))\nEnd\n",
-   "label": "av.unarmeddamage",
+   "label": "melee.av.unarmeddamage",
    "field": "value"
   },
   {
    "query": "ref rPlayer\nref rObj\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (Floor ((rPlayer.GetActorValue \"CritChance\") * 100))\nEnd\n",
-   "label": "av.critchance",
+   "label": "melee.av.critchance",
    "field": "value"
   },
   {

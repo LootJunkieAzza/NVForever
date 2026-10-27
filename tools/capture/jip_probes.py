@@ -3190,7 +3190,7 @@ def _g9w(w):
 
 _SKILLS = (("MeleeWeapons", ("knife", "machete", "sledge")), ("Unarmed", ("fists", "knuckles")))
 GAPS9_PROBES = (
-    [_g9v(f"av.{av.lower()}", f'Floor ((rPlayer.GetActorValue "{av}") * 100)')
+    [_g9v(f"melee.av.{av.lower()}", f'Floor ((rPlayer.GetActorValue "{av}") * 100)')
      for av in ("MeleeWeapons", "Unarmed", "Strength", "Agility", "MeleeDamage", "UnarmedDamage", "CritChance")]
     + [r for w in _G9_WEAPONS for r in _g9w(w)]
     # CritChance +10.
