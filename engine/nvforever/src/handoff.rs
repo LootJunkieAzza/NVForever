@@ -24,7 +24,8 @@
 //! The new run gets this run's arguments but none of its test aids (`NVF_PLAY_TEST_*`:
 //! a console line that loads would load again in every new run), except test aid
 //! `NVF_PLAY_TEST_HANDOFF_EXIT=1`: the new run ends as soon as it has taken over, so a
-//! smoke run does not leave it running.
+//! smoke run does not leave it running; and the aids that only measure
+//! (`nvf_play::MEASURING_AIDS`), so a session played by hand logs its hitches after a load.
 //!
 //! Log: `load: handing over to a new run with --load <path>` (`with --menu`), `handoff:
 //! window shown after <s> s` (`, before the world was in` past the time limit), `load: the
@@ -165,7 +166,7 @@ fn placement(window: &Window, entity: Entity) -> Placement {
 /// drawing behind it; none in unattended runs, which would wait on it.
 fn tell_player(why: &str) {
     // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
-    if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_"))) {
+    if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
         return;
     }
     // rfd is a Windows-only dependency; elsewhere the log line carries the reason.
@@ -229,7 +230,7 @@ pub fn leave(
                     let mut cmd = std::process::Command::new(&exe);
                     cmd.args(&args);
                     for (k, _) in std::env::vars_os() {
-                        if k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_") && k != EXIT_AID) {
+                        if k.to_str().is_some_and(|k| nvf_play::drives_run(k) && k != EXIT_AID) {
                             cmd.env_remove(&k);
                         }
                     }
