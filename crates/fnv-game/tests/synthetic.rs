@@ -148,6 +148,7 @@ const ACT_SCRIPT: u32 = 0x902;
 const ACTIVATOR: u32 = 0x903;
 const TRIG_SCRIPT: u32 = 0x904;
 const TRIGGER: u32 = 0x905;
+const MARKER: u32 = 0x906;
 const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
@@ -163,6 +164,7 @@ const ACT_REF: u32 = 0x300;
 const TRIG_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
+const PATROL_REF: u32 = 0x330;
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -386,13 +388,27 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto].concat()));
+    // A patrol point with a patrol script (after XPPA) that sets TestGlobal to 8, on an
+    // unscripted marker base.
+    let marker = record(b"ACTI", 0, MARKER, &[sub(b"EDID", z("TestMarker"))]);
+    let patrol_ref = record(
+        b"REFR",
+        0,
+        PATROL_REF,
+        &[
+            &[sub(b"EDID", z("TestPatrolPointREF")), sub(b"NAME", MARKER.to_le_bytes().to_vec()), sub(b"XPPA", vec![])][..],
+            &unit(0, &set(var(b'G', 1), ex(&[a("8")])), &[], &[GLOBAL]),
+            &[sub(b"DATA", vec![0; 24])],
+        ]
+        .concat(),
+    );
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
-        top(b"ACTI", &[acti, trig].concat()),
+        top(b"ACTI", &[acti, trig, marker].concat()),
         top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"PACK", &pack),
         top(b"QUST", &qust),
@@ -1041,6 +1057,28 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     quiet.extra.entry(npc).or_default().script_package = Some(FormId(PACK_EVENTS));
     assert_eq!(quiet.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&quiet), 5.0);
+}
+
+#[test]
+fn the_runner_reaches_a_patrol_point_and_runs_its_script() {
+    let f = fixture();
+    assert!(f.data.patrol_scripts.contains_key(&FormId(PATROL_REF)));
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "patrol_point", "actor": "TestNpcREF", "point": "TestPatrolPointREF"},
+            {"op": "get_global", "name": "TestGlobal", "label": "after"},
+            {"op": "patrol_point", "actor": "TestNpcREF", "point": "TestActivatorREF"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    assert!(steps[0].get("error").is_none(), "{}", out["steps"]);
+    // A reference with no patrol script and no topic is refused.
+    assert!(steps[2].get("error").is_some(), "{}", out["steps"]);
+    let obs = out["observations"].as_array().unwrap();
+    assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 8.0);
 }
 
 #[test]

@@ -287,6 +287,10 @@ pub enum Action {
     Package { actor: String, package: String, event: String },
     /// A `SayTo` line finished (SayToDone blocks of the speaker).
     SayToDone { actor: String, #[serde(default)] topic: Option<String> },
+    /// An actor walking a patrol reaches one of its points: the point's patrol script
+    /// runs on the actor and its topic is said (`Game::patrol_point_reached`, as the AI
+    /// layer calls it).
+    PatrolPoint { actor: String, point: String },
     /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
     /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
     /// (OnTriggerLeave).
@@ -1276,6 +1280,14 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 None => None,
             };
             g.ref_event(a, event::SAY_TO_DONE, t, None);
+        }
+        Action::PatrolPoint { actor, point } => {
+            let (a, p) = (resolve(g, actor)?, resolve(g, point)?);
+            let has_topic = g.world.placed.get(p).and_then(|r| r.patrol_topic).is_some();
+            if !g.data.patrol_scripts.contains_key(&p) && !has_topic {
+                return Err(format!("{} has no patrol script or topic", g.data.name(p)));
+            }
+            g.patrol_point_reached(a, p);
         }
         Action::TriggerEnter { trigger, actor, event: ev } => {
             let t = resolve(g, trigger)?;

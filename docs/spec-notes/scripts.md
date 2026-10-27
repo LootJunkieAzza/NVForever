@@ -1134,6 +1134,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
 | `say_to_done {actor, topic?}` | a SayTo or Say line finishing (SayToDone blocks) |
+| `patrol_point {actor, point}` | an actor on a patrol reaching a point: the point's patrol script runs on the actor and its topic is said (`Game::patrol_point_reached`, as fnv-ai's carry calls it); refused when the point has neither [hypothesis: the order script, then topic, is fnv-ai's] |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
 | `press_button {button}` | the player picking a message box button: the button is set, one frame runs with the box open (MenuMode 1001 blocks read it, as in the play loop), then the box closes |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
