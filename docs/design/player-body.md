@@ -142,8 +142,10 @@ owner, 2026-10-27]:
   surface within 40 units eases it down, fully at 22; a living actor within 72 units
   that would not attack the player (`fnv_game::rest::hostile_to_player`, by its hit
   volumes) lowers it fully. A hostile actor never does.
-- Ready Item (R) tapped twice within 0.25 s lowers or raises it by hand
-  (`nvf_play::control`); a single tap reloads 0.25 s later than before for that.
+- Lower Weapon (H, NVForever's own control, rebindable) lowers or raises it by hand
+  (`nvf_play::control`). It was Ready Item tapped twice until 2026-10-27; the owner
+  moved it to its own key because waiting 0.25 s for a second tap held every reload
+  back, which matters when R is spammed in a fight.
 - Aiming, the trigger and an attack bring it up at once and keep it up 0.6 s; a reload
   keeps it up for the reload clip's length. Aiming, the trigger and putting the weapon
   away also end a lowering by hand. Shots still leave from the view; firing is never
