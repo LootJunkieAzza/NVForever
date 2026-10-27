@@ -507,13 +507,17 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
 
 /// Run `f` with the simulation's world inside the game (and put it back after).
 /// Run `f` with scripts' ray casts going through the physics (`fnv_game::ray`).
+/// Neither the player's own capsule nor the terrain is hit [observed: engine2, a cast
+/// from 500 above the player meets the floor at the feet; engine3, casts from 100 to
+/// 1000 above the ground 200 away read past it with every flag; hypothesis: terrain
+/// is left out].
 fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
+    let filter = fnv_phys::world::Filter { exclude: phys.player.as_ref().map(|c| vec![c.key()]).unwrap_or_default(), no_terrain: true, ..Default::default() };
     let world = std::cell::RefCell::new(&mut phys.world);
     let caster = |a: [f32; 3], b: [f32; 3]| {
         let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-        // A start inside a body (the player's own capsule) is no hit [hypothesis].
-        world.borrow_mut().queries().ray_all(a, d, len, &fnv_phys::world::Filter::default()).into_iter().map(|h| h.distance).find(|&t| t > 0.5)
+        world.borrow_mut().queries().ray(a, d, len, &filter).map(|h| h.distance)
     };
     fnv_game::ray::with_caster(&caster, f)
 }
