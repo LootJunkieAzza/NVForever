@@ -1,5 +1,6 @@
 {
   "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm", "HonestHearts.esm"],
   "title": "Headless Honest Hearts chain (HonestHearts.esm): Happy Trails Expedition's departure and intro slides, Arrival at Zion, the four Supply Train errands, The Grand Staircase and its three errands, Gathering Storms, Daniel's path (Flight from Zion with Prisoners of War, Sanctity of the Dead, Retake the Bridge), the end slides and Departing Paradise; docs/handoff/mq-walkthrough-2026-10-27.md",
   "given": [
     {"kind": "menu", "menu": 1001, "open": false},
