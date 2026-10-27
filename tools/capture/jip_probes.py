@@ -3059,6 +3059,95 @@ GAPS7_PROBES = (
        _g7v("pcmovedcell", "GetPCMovedCell")]
 )
 
+# Fifty-first set: the next JIP setters of the counts that have a getter to read them back
+# (worldspace climate and flags, climate textures, armour audio templates and model paths,
+# destruction health, container respawns, package flags, interaction), and a few getters.
+# WastelandNV (WRLD) 0DA726 from fnvtool esm inventory [observed]. Everything is put back
+# except the leather armour's world model path and the climate's sun glare texture, which
+# are session only (a string_var cannot be passed back, gaps1). SetDestructionDataHealth,
+# SetContainerRespawns and SetPackageFlag returned 0 here, not the new or old value;
+# SetArmorAudioTemplate with no form left the old template in place [observed].
+FX.update(wasteland="DA726")
+
+
+def _g8(pid, body, text=False):
+    return (pid, "ref rPlayer\nref rDoc\nref rObj\nref rOther\nfloat fRes\narray_var aA\nBegin Function { }\n"
+            + _form("rPlayer", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _g8v(pid, expr, text=False):
+    return _g8(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _g8w(pid, key, expr, text=False):
+    return _g8(pid, _form("rObj", key) + f"SetFunctionValue ({expr})", text)
+
+
+def _restore_ref(setter, aux):
+    """Put back a form saved in aux variable `aux` with `setter rObj <form>`, or none."""
+    return (f'let rOther := rPlayer.AuxVarGetRef "{aux}"\nif rOther\n{setter} rOther\nelse\n{setter}\nendif\n'
+            f'rPlayer.AuxVarErase "{aux}"\n')
+
+
+GAPS8_PROBES = (
+    # Worldspace climate, set and put back.
+    [_g8w("wrldclimate.wasteland", FX["wasteland"], "GetFormIDString (GetWorldspaceClimate rObj)", True),
+     _g8("wrldclimate.set", _form("rObj", FX["wasteland"]) + _form("rOther", FX["stripclimate"])
+         + 'let rDoc := GetWorldspaceClimate rObj\nrPlayer.AuxVarSetRef "*nvfWC" rDoc\nSetWorldspaceClimate rObj rOther\n'
+         "SetFunctionValue (GetFormIDString (GetWorldspaceClimate rObj))", True),
+     _g8("wrldclimate.restore", _form("rObj", FX["wasteland"]) + _restore_ref("SetWorldspaceClimate rObj", "*nvfWC")
+         + "SetFunctionValue (GetFormIDString (GetWorldspaceClimate rObj))", True),
+     _g8v("refreshclimate", "RefreshCurrentClimate"),
+     _g8v("climate.current.after", "GetFormIDString (GetCurrentClimate)", True)]
+    # Worldspace flags.
+    + [_g8w(f"wrldflag.wasteland.{i}", FX["wasteland"], f"GetWorldspaceFlag rObj {i}") for i in range(8)]
+    + [_g8w("wrldflag.set", FX["wasteland"], "SetWorldspaceFlag rObj 1 (1 - (GetWorldspaceFlag rObj 1))"),
+       _g8w("wrldflag.set.read", FX["wasteland"], "GetWorldspaceFlag rObj 1"),
+       _g8w("wrldflag.restore", FX["wasteland"], "SetWorldspaceFlag rObj 1 (1 - (GetWorldspaceFlag rObj 1))"),
+       _g8w("wrldflag.restore.read", FX["wasteland"], "GetWorldspaceFlag rObj 1")]
+    # Climate textures.
+    + [_g8w("climate.sunglare", FX["stripclimate"], "GetClimateSunGlareTexture rObj", True),
+       _g8w("climate.nightsky", FX["stripclimate"], "GetClimateNightSkyModel rObj", True),
+       _g8("climate.sunglare.set", _form("rObj", FX["stripclimate"])
+           + 'SetClimateSunGlareTexture rObj "NVF\\Glare.dds"\nSetFunctionValue (GetClimateSunGlareTexture rObj)', True)]
+    # Armour: audio templates and model paths.
+    + [_g8w(f"armoraudio.{k}", fid, "GetFormIDString (GetArmorAudioTemplate rObj)", True)
+       for k, fid in (("leather", NF["leather"]), ("hazmat", FX["hazmat"]))]
+    + [_g8("armoraudio.set", _form("rObj", NF["leather"]) + _form("rOther", FX["hazmat"])
+           + 'let rDoc := GetArmorAudioTemplate rObj\nrPlayer.AuxVarSetRef "*nvfAT" rDoc\n'
+           "let rOther := GetArmorAudioTemplate rOther\nSetArmorAudioTemplate rObj rOther\n"
+           "SetFunctionValue (GetFormIDString (GetArmorAudioTemplate rObj))", True),
+       _g8("armoraudio.restore", _form("rObj", NF["leather"]) + _restore_ref("SetArmorAudioTemplate rObj", "*nvfAT")
+           + "SetFunctionValue (GetFormIDString (GetArmorAudioTemplate rObj))", True)]
+    + [_g8w(f"bipedpath.leather.{i}", NF["leather"], f"GetBipedModelPath {i} rObj", True) for i in range(4)]
+    + [_g8("bipedpath.set", _form("rObj", NF["leather"])
+           + 'SetBipedModelPathAlt rObj 2 "NVF\\Ground%g.nif" 7\nSetFunctionValue (GetBipedModelPath 2 rObj)', True)]
+    # Destruction health, container respawns, package flags.
+    + [_g8("destruction.set", _form("rObj", FX["ebox"]) + 'let fRes := GetDestructionDataHealth rObj\nrPlayer.AuxVarSetFlt "*nvfDH" fRes\n'
+           "SetFunctionValue (SetDestructionDataHealth rObj 75)"),
+       _g8w("destruction.set.read", FX["ebox"], "GetDestructionDataHealth rObj"),
+       _g8("destruction.restore", _form("rObj", FX["ebox"]) + 'SetDestructionDataHealth rObj (rPlayer.AuxVarGetFlt "*nvfDH")\n'
+           'rPlayer.AuxVarErase "*nvfDH"\nSetFunctionValue (GetDestructionDataHealth rObj)'),
+       _g8w("respawns.set", FX["nuka"], "SetContainerRespawns 1 rObj"),
+       _g8w("respawns.set.read", FX["nuka"], "GetContainerRespawns rObj"),
+       _g8w("respawns.restore", FX["nuka"], "SetContainerRespawns 0 rObj"),
+       _g8w("respawns.restore.read", FX["nuka"], "GetContainerRespawns rObj"),
+       _g8w("packageflag.set", FX["docsandbox"], "SetPackageFlag rObj 10 1"),
+       _g8w("packageflag.set.read", FX["docsandbox"], "GetPackageFlag rObj 10"),
+       _g8w("packageflag.restore", FX["docsandbox"], "SetPackageFlag rObj 10 0"),
+       _g8w("packageflag.restore.read", FX["docsandbox"], "GetPackageFlag rObj 10")]
+    # Interaction on a reference, put back.
+    + [_g8v("interaction.doc", "rDoc.GetInteractionDisabled"),
+       _g8("interaction.set", "rDoc.SetInteractionDisabled 1\nSetFunctionValue (rDoc.GetInteractionDisabled)"),
+       _g8("interaction.restore", "rDoc.SetInteractionDisabled 0\nSetFunctionValue (rDoc.GetInteractionDisabled)"),
+       _g8w("interaction.base", NF["doc"], "GetInteractionDisabled rObj")]
+    # Getters.
+    + [_g8v("mine.doc", "rDoc.GetMineArmed"),
+       _g8v("modtype.player.2", "rPlayer.EquippedWeaponHasModType 2"),
+       _g8v("ammorounds.player", "rPlayer.GetCurrentAmmoRounds"),
+       _g8v("reticlerange.int", "Floor (GetReticleRange)")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -3092,11 +3181,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "gaps4": GAPS4_PROBES,
         "gaps5": GAPS5_PROBES,
         "gaps6": GAPS6_PROBES,
-        "gaps7": GAPS7_PROBES}
+        "gaps7": GAPS7_PROBES,
+        "gaps8": GAPS8_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8"}
 
 
 def script(body):
