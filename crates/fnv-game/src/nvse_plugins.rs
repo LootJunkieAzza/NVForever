@@ -367,6 +367,59 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // ACBS flags, the low 16 bits; the setter for the session [observed: data2,
+        // Sunny 17, Boone 144, Doc and the player 0; Sunny + 8 reads 25 and back].
+        "getactorbaseflagslow" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+            XVal::Num((flags & 0xFFFF) as f64)
+        }
+        "setactorbaseflagslow" => {
+            if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
+                let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+                let new = (flags & !0xFFFF) | (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF);
+                g.field_overrides.insert((b, "ACBS/flags".into()), XVal::Num(new as f64));
+            }
+            zero
+        }
+        // NPC_ NAM6, 0 standing for 1; SetNPCHeight returns the old height [observed:
+        // data2, five NPCs 1.000 (their NAM6 0), 1.25 set and back].
+        "getnpcheight" | "setnpcheight" => {
+            let set = name == "setnpcheight";
+            let b = form(args, usize::from(set)).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let h = crate::nvse::record_value(g, b, "NAM6", "").and_then(|v| v.num().ok()).filter(|&h| h > 0.0).unwrap_or(1.0);
+            if set {
+                g.field_overrides.insert((b, "NAM6/".into()), XVal::Num(num(args, 0, 1.0)));
+            }
+            XVal::Num(h)
+        }
+        // `slot`: [item, health, mod flags] of what is worn there, no array for none
+        // [observed: data2, the 10mm pistol in slot 5 [0000434F, 79.92, 0]; slot 9 empty].
+        "getequippeddata" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let item = match crate::nvse::call(g, _ctx, "getequippedobject", Some(a), args) {
+                Some(Ok(XVal::Ref(i))) if i != 0 => FormId(i),
+                _ => return Some(Ok(zero)),
+            };
+            let full = crate::nvse::record_value(g, item, "DATA", "health").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            let (cond, mods) = g
+                .world
+                .inventory_mut(a)
+                .ok()
+                .and_then(|inv| inv.groups().find(|(i, e, _)| *i == item && e.equipped).map(|(_, e, _)| (f64::from(e.condition_or_whole()), e.mods)))
+                .unwrap_or((1.0, 0));
+            let vals = vec![XVal::Ref(item.0), XVal::Num(full * cond), XVal::Num(f64::from(mods))];
+            list(g, vals)
+        }
+        // On an inventory reference [observed: data2, the pistol's 0].
+        "getnounequip" => zero,
+        // ACTI WNAM; none leaves it [observed: data2].
+        "setactivatorwatertype" => {
+            if let (Some(w), Some(f)) = (form(args, 0), form(args, 1)) {
+                g.field_overrides.insert((f, "WNAM/".into()), XVal::Ref(w.0));
+            }
+            zero
+        }
         // ---- ShowOff ----
         "applyeasing" => XVal::Num(ease(num(args, 0, 0.0), &text(args, 1), num(args, 2, 0.0) as i64)),
         // DNAM animation type, unarmed 0 [observed: plugins1, the unarmed player 0].
