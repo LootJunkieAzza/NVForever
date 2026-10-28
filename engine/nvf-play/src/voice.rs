@@ -465,7 +465,13 @@ fn play(
         let fitted = g.response_seconds_as(base, s.info, k);
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
-        let file = base.and_then(|b| bank.file(s.info.0, k, b.0));
+        // A line said for its fixed speaker (INFO ANAM) by another actor (its own GetIsID
+        // lets it: the Think Tank through Dr. Klein, the end slides' narrator) has its file
+        // in the fixed speaker's folder only: tried after the speaker's own, as the line's
+        // length is (`Game::response_seconds_as`) [observed: fnvtool voice line, INFO
+        // 010134BA and 001614B2; hypothesis: the game plays that file].
+        let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base);
+        let file = base.and_then(|b| bank.file(s.info.0, k, b.0)).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0)));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.
         let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };

@@ -95,6 +95,64 @@ pub enum ScriptCmd {
         /// …), in order, later ones overriding earlier ones; only read.
         #[arg(long)]
         ini: Vec<PathBuf>,
+        /// Also write what the run reached of the scripts (quest stages set, script
+        /// blocks run, dialogue lines said, result scripts run) to this file, a
+        /// fnv.script.coverage-log/1 document (docs/handoff/mq-walkthrough-2026-10-27.md §5).
+        #[arg(long)]
+        coverage: Option<PathBuf>,
+    },
+    /// Run every quest stage, dialogue line, terminal and package result script of the
+    /// load order once, headless and by itself, and group the script errors and unknown
+    /// functions met by cause (fnv.script.sweep/1; docs/handoff/mq-walkthrough-2026-10-27.md
+    /// §7). Prints the totals and the commonest causes of each kind.
+    Sweep {
+        #[command(flatten)]
+        a: ScriptArgs,
+        /// How many causes of each kind the output lists (the rest in `--detail`).
+        #[arg(long, default_value_t = 12)]
+        top: usize,
+        /// Write every cause with up to five of its scripts here.
+        #[arg(long)]
+        detail: Option<PathBuf>,
+        /// Write the scripts run as a coverage log (fnv.script.coverage-log/1) here, for
+        /// `script cover --logs`.
+        #[arg(long)]
+        log: Option<PathBuf>,
+    },
+    /// Run each action chain twice, as it is and with a save and load (fnv-save) before
+    /// its middle action, and compare the quests at the end and the observations
+    /// (fnv.script.roundtrip/1; docs/handoff/mq-walkthrough-2026-10-27.md §6).
+    Roundtrip {
+        #[command(flatten)]
+        a: ScriptArgs,
+        /// Action files (fnv.script.actions/1) or folders of `*.actions.json` to run.
+        #[arg(long, num_args = 1..)]
+        actions: Vec<PathBuf>,
+    },
+    /// Run action chains with coverage recorded, merge their coverage with any saved
+    /// coverage logs, and compare it with the load order's quests, scripts and dialogue
+    /// lines (fnv.script.coverage/1; docs/handoff/mq-walkthrough-2026-10-27.md §5). Prints
+    /// the totals, each chain's step errors and the untouched quests ranked main quest,
+    /// factions, add-ons, the rest; the per-quest, per-script and per-actor detail goes to
+    /// `--detail`.
+    Cover {
+        #[command(flatten)]
+        a: ScriptArgs,
+        /// Action files (fnv.script.actions/1) or folders of `*.actions.json` to run.
+        #[arg(long, num_args = 1..)]
+        actions: Vec<PathBuf>,
+        /// Saved coverage logs (fnv.script.coverage-log/1) to merge in.
+        #[arg(long, num_args = 1..)]
+        logs: Vec<PathBuf>,
+        /// Write the full report (every quest, script and actor) here.
+        #[arg(long)]
+        detail: Option<PathBuf>,
+        /// Write each chain's coverage log into this folder (`<chain>.coverage.json`).
+        #[arg(long)]
+        log_dir: Option<PathBuf>,
+        /// How many untouched quests the summary lists.
+        #[arg(long, default_value_t = 40)]
+        untouched: usize,
     },
 }
 
@@ -164,7 +222,14 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(uses(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Run { a, actions, no_voice_lengths, ini } => run_actions(&a, &actions, !no_voice_lengths, &ini),
+        ScriptCmd::Run { a, actions, no_voice_lengths, ini, coverage } => {
+            run_actions(&a, &actions, !no_voice_lengths, &ini, coverage.as_deref())
+        }
+        ScriptCmd::Roundtrip { a, actions } => roundtrip(&a, &actions),
+        ScriptCmd::Sweep { a, top, detail, log } => sweep(&a, top, detail.as_deref(), log.as_deref()),
+        ScriptCmd::Cover { a, actions, logs, detail, log_dir, untouched } => {
+            cover(&a, &actions, &logs, detail.as_deref(), log_dir.as_deref(), untouched)
+        }
     }
 }
 
@@ -924,10 +989,14 @@ fn stubs(l: &Loaded) -> Value {
 pub const VOICE_LENGTHS_ENV: &str = "FNVTOOL_VOICE_LENGTHS";
 
 /// `script run`: build the Layer 4 world and the Layer 5 data, run the actions.
-fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool, ini: &[PathBuf]) -> anyhow::Result<Value> {
-    let text = std::fs::read_to_string(actions).with_context(|| actions.display().to_string())?;
-    let input: fnv_game::runner::Input =
-        serde_json::from_str(&text).with_context(|| format!("{}: not a fnv.script.actions/1 document", actions.display()))?;
+fn run_actions(
+    a: &ScriptArgs,
+    actions: &std::path::Path,
+    voice_lengths: bool,
+    ini: &[PathBuf],
+    coverage: Option<&std::path::Path>,
+) -> anyhow::Result<Value> {
+    let input = read_actions(actions)?;
     let tp = table_path(a);
     let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
@@ -942,7 +1011,259 @@ fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool, i
         data.ini_texts.push(std::fs::read_to_string(p).with_context(|| p.display().to_string())?);
     }
     let voice = voice_lengths_hook(a, &lo, voice_lengths);
-    fnv_game::runner::run_with_voice(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)
+    let Some(path) = coverage else {
+        return fnv_game::runner::run_with_voice(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg);
+    };
+    let (trace, c) = fnv_game::runner::run_with_coverage(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)?;
+    let title = actions.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    std::fs::write(path, serde_json::to_string(&c.log(&data, &title))?).with_context(|| path.display().to_string())?;
+    Ok(trace)
+}
+
+fn read_actions(path: &std::path::Path) -> anyhow::Result<fnv_game::runner::Input> {
+    let text = std::fs::read_to_string(path).with_context(|| path.display().to_string())?;
+    serde_json::from_str(&text).with_context(|| format!("{}: not a fnv.script.actions/1 document", path.display()))
+}
+
+/// The action files named, folders read for their `*.actions.json` (sorted).
+fn action_files(paths: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for p in paths {
+        if p.is_dir() {
+            let mut v: Vec<PathBuf> = std::fs::read_dir(p)
+                .with_context(|| p.display().to_string())?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|f| f.file_name().is_some_and(|n| n.to_string_lossy().ends_with(".actions.json")))
+                .collect();
+            v.sort();
+            files.extend(v);
+        } else {
+            files.push(p.clone());
+        }
+    }
+    Ok(files)
+}
+
+/// An action chain with its file name.
+type NamedChain = (String, fnv_game::runner::Input);
+
+/// `script cover`: every chain run over the load order it names (`plugins`, else the
+/// first plugin given; the data built once per load order), the coverage merged with
+/// the saved logs and compared with the whole load order given, the summary printed.
+fn cover(
+    a: &ScriptArgs,
+    actions: &[PathBuf],
+    logs: &[PathBuf],
+    detail: Option<&std::path::Path>,
+    log_dir: Option<&std::path::Path>,
+    untouched: usize,
+) -> anyhow::Result<Value> {
+    let files = action_files(actions)?;
+    if let Some(d) = log_dir {
+        std::fs::create_dir_all(d).with_context(|| d.display().to_string())?;
+    }
+    let mut all = Vec::new();
+    let mut chains = Vec::new();
+    each_chain(a, &files, |c, name, input| {
+        match fnv_game::runner::run_with_coverage(c.data, c.forms, c.refs, input, c.voice.clone()) {
+            Ok((trace, cov)) => {
+                let log = cov.log(c.data, name);
+                if let Some(d) = log_dir {
+                    let p = d.join(format!("{}.coverage.json", name.trim_end_matches(".actions.json")));
+                    std::fs::write(&p, serde_json::to_string(&log)?).with_context(|| p.display().to_string())?;
+                }
+                let given = trace["given_errors"].as_array().map_or(0, Vec::len);
+                chains.push(serde_json::json!({"chain": name, "plugins": c.plugins, "step_errors": step_errors(&trace), "given_errors": given}));
+                all.push(log);
+            }
+            Err(e) => chains.push(serde_json::json!({"chain": name, "plugins": c.plugins, "error": e})),
+        }
+        Ok(())
+    })?;
+    let tp = table_path(a);
+    let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
+    let schema = Schema::load_dir(&a.schema)?;
+    for p in logs {
+        let text = std::fs::read_to_string(p).with_context(|| p.display().to_string())?;
+        all.push(serde_json::from_str(&text).with_context(|| p.display().to_string())?);
+    }
+    // The report compares with the whole load order given.
+    let table = FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+    let plugins = open_load_order(&a.lo)?;
+    let lo = LoadOrder::new(&plugins)?;
+    let refs = fnv_sim::RefTable::build(&lo, &schema);
+    let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    let mut r = fnv_game::coverage::report(&data, &all, untouched).map_err(anyhow::Error::msg)?;
+    if let Some(d) = detail {
+        std::fs::write(d, serde_json::to_string_pretty(&r)?).with_context(|| d.display().to_string())?;
+    }
+    if let Some(o) = r.as_object_mut() {
+        o.remove("detail");
+        o.insert("chains".into(), Value::Array(chains));
+    }
+    Ok(r)
+}
+
+/// One load order's data, for the chains written for it ([`each_chain`]).
+struct ChainData<'a> {
+    plugins: &'a [String],
+    data: &'a fnv_game::GameData,
+    forms: &'a fnv_sim::FormStore,
+    refs: &'a fnv_sim::RefTable,
+    voice: Option<fnv_game::runner::Voice>,
+}
+
+/// Run `f` on every chain in `files`, over the load order the chain names (`plugins`,
+/// else the first plugin of `a`'s), the data built once per load order, in the order
+/// the load orders are first named.
+fn each_chain(
+    a: &ScriptArgs,
+    files: &[PathBuf],
+    mut f: impl FnMut(&ChainData<'_>, &str, &fnv_game::runner::Input) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let tp = table_path(a);
+    let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
+    let schema = Schema::load_dir(&a.schema)?;
+    let mut groups: Vec<(Vec<String>, Vec<NamedChain>)> = Vec::new();
+    for file in files {
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let input = read_actions(file)?;
+        let wanted = if input.plugins.is_empty() { a.lo.plugins[..1].to_vec() } else { input.plugins.clone() };
+        match groups.iter_mut().find(|(p, _)| *p == wanted) {
+            Some((_, v)) => v.push((name, input)),
+            None => groups.push((wanted, vec![(name, input)])),
+        }
+    }
+    for (wanted, inputs) in &groups {
+        let args = ScriptArgs {
+            lo: crate::LoadOrderArgs { data_dir: a.lo.data_dir.clone(), plugins: wanted.clone() },
+            schema: a.schema.clone(),
+            functions: a.functions.clone(),
+        };
+        let table = FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+        let plugins = open_load_order(&args.lo)?;
+        let lo = LoadOrder::new(&plugins)?;
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+        let c = ChainData { plugins: wanted, data: &data, forms: &forms, refs: &refs, voice: voice_lengths_hook(&args, &lo, true) };
+        for (name, input) in inputs {
+            f(&c, name, input)?;
+        }
+    }
+    Ok(())
+}
+
+/// `script sweep`: [`fnv_game::sweep::sweep`] over the whole load order.
+fn sweep(a: &ScriptArgs, top: usize, detail: Option<&std::path::Path>, log: Option<&std::path::Path>) -> anyhow::Result<Value> {
+    let tp = table_path(a);
+    let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
+    let table = FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+    let plugins = open_load_order(&a.lo)?;
+    let lo = LoadOrder::new(&plugins)?;
+    let schema = Schema::load_dir(&a.schema)?;
+    let forms = fnv_sim::FormStore::build(&lo, &schema);
+    let refs = fnv_sim::RefTable::build(&lo, &schema);
+    let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    let (mut r, cov) = fnv_game::sweep::sweep(&data, &forms, &refs, 5);
+    if let Some(p) = log {
+        std::fs::write(p, serde_json::to_string(&cov.log(&data, "result-script sweep"))?).with_context(|| p.display().to_string())?;
+    }
+    if let Some(p) = detail {
+        std::fs::write(p, serde_json::to_string_pretty(&r)?).with_context(|| p.display().to_string())?;
+    }
+    if let Some(causes) = r["causes"].as_object_mut() {
+        for v in causes.values_mut() {
+            if let Some(list) = v.as_array_mut() {
+                list.truncate(top);
+                for c in list.iter_mut() {
+                    if let Some(e) = c["e.g."].as_array_mut() {
+                        e.truncate(2);
+                    }
+                }
+            }
+        }
+    }
+    Ok(r)
+}
+
+/// Steps of a trace that failed.
+fn step_errors(trace: &Value) -> usize {
+    trace["steps"].as_array().map_or(0, |v| v.iter().filter(|s| s.get("error").is_some()).count())
+}
+
+const ROUNDTRIP_LABEL: &str = "roundtrip: saved and loaded";
+
+/// `script roundtrip`: every chain run twice over its load order, once as it is and once
+/// with a save and load (the runner's `save_load`) before its middle action; the runs'
+/// quests at the end (running, completed, stages done, variables) and observations
+/// (without their step numbers) compared. A chain whose runs differ lists the first
+/// differences.
+fn roundtrip(a: &ScriptArgs, actions: &[PathBuf]) -> anyhow::Result<Value> {
+    let files = action_files(actions)?;
+    let mut chains = Vec::new();
+    let mut differing = 0;
+    each_chain(a, &files, |c, name, input| {
+        let plain = fnv_game::runner::run_with_voice(c.data, c.forms, c.refs, input, c.voice.clone()).map_err(anyhow::Error::msg)?;
+        let mut with = input.clone();
+        let at = with.actions.len() / 2;
+        with.actions.insert(at, serde_json::from_value(serde_json::json!({"op": "save_load", "label": ROUNDTRIP_LABEL}))?);
+        let loaded = fnv_game::runner::run_with_voice(c.data, c.forms, c.refs, &with, c.voice.clone()).map_err(anyhow::Error::msg)?;
+        let strip = |t: &Value| -> Vec<Value> {
+            t["observations"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|o| o["label"] != ROUNDTRIP_LABEL)
+                .map(|o| {
+                    let mut o = o.clone();
+                    if let Some(m) = o.as_object_mut() {
+                        m.remove("step");
+                    }
+                    o
+                })
+                .collect()
+        };
+        let mut diffs = Vec::new();
+        json_diff("final.quests", &plain["final"]["quests"], &loaded["final"]["quests"], &mut diffs);
+        json_diff("observations", &Value::Array(strip(&plain)), &Value::Array(strip(&loaded)), &mut diffs);
+        let errors = (step_errors(&plain), step_errors(&loaded));
+        if !diffs.is_empty() || errors.0 != errors.1 {
+            differing += 1;
+        }
+        let bytes = loaded["observations"].as_array().and_then(|v| v.iter().find(|o| o["label"] == ROUNDTRIP_LABEL)).map(|o| o["bytes"].clone());
+        let n = diffs.len();
+        diffs.truncate(10);
+        chains.push(serde_json::json!({
+            "chain": name, "saved_before_action": at, "save_bytes": bytes,
+            "step_errors": [errors.0, errors.1], "differences": n, "first": diffs,
+        }));
+        Ok(())
+    })?;
+    Ok(serde_json::json!({"format": "fnv.script.roundtrip/1", "chains": chains.len(), "differing": differing, "runs": chains}))
+}
+
+/// Paths where `a` and `b` differ (objects by key, arrays of one length by place,
+/// anything else by value).
+fn json_diff(path: &str, a: &Value, b: &Value, out: &mut Vec<String>) {
+    match (a, b) {
+        (Value::Object(x), Value::Object(y)) => {
+            let keys: std::collections::BTreeSet<&String> = x.keys().chain(y.keys()).collect();
+            for k in keys {
+                json_diff(&format!("{path}.{k}"), x.get(k).unwrap_or(&Value::Null), y.get(k).unwrap_or(&Value::Null), out);
+            }
+        }
+        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+            for (i, (p, q)) in x.iter().zip(y).enumerate() {
+                json_diff(&format!("{path}[{i}]"), p, q, out);
+            }
+        }
+        _ if a != b => out.push(format!("{path}: {a} / {b}")),
+        _ => {}
+    }
 }
 
 /// The line-length hook of a headless run: the voice files in the archives next to the
