@@ -51,6 +51,8 @@ Plus folders as `--overlay` when a task touches loading.
    - First an observer capture that dumps the original's `HUDMainMenu` traits while
      playing (DumpTileInfoAll or GetUIFloat per trait), so the names and their values
      are observed, not guessed.
+   - [design] Generate that private trait job with [hud_traits.py](../../tools/capture/README.md#hud-trait-jobs-hud_traitspy)
+     from a `fnvtool ui tree` export; T4 still needs the capture and agreement check.
    - Done when the capture's values and ours agree on the same scene.
 4. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
    - `nvf-play/src/tiles/`: layout as a pure function (tested headless: places,
