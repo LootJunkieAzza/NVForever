@@ -57,6 +57,7 @@
     {"op": "advance_seconds", "seconds": 1},
     {"op": "get_av", "name": "Dehydration", "label": "dehydration after two waters"},
     {"op": "call", "line": "player.IsSpellTarget 0015FA1C", "label": "milestone: the dehydration stage's effect gone after the water"},
+    {"op": "advance_seconds", "seconds": 6},
     {"op": "note", "text": "A Khan's shot stands in as 60 points of damage; a Stimpak in Hardcore heals over time (its Hardcore effect: 5 a second for 6 s, scaled by Medicine), not at once."},
     {"op": "damage_av", "av": "Health", "value": 60},
     {"op": "get_av", "name": "Health", "label": "health after the damage"},
