@@ -196,8 +196,8 @@ completed, stages done, variables) and every observation; smoke `walkthrough-rou
 expects no chain to differ.
 
 Result [observed, 2026-10-27]: of 19 chains, every one ends the same after a save and load
-at its midpoint (saves of 70-370 KB). With 28 chains, one differs: `fail-boulder-force`
-saves while the player is hunted after the Khans' fight; awareness (detection states,
+at its midpoint (saves of 70-370 KB). With 41 chains, two differ, `fail-boulder-force` and
+`come-fly-with-me`: both save while the player is hunted (after a fight); awareness (detection states,
 who hunts whom) is not part of a save by design (save-load.md: the engine measures again),
 and a headless run has no detection to measure it, so after the load the player is out of
 combat and CGTutorial's script resets its `VATSTimer` (0, not 16). Soft, and a lead for
@@ -229,8 +229,8 @@ Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
   (Nipton's and the Kings' trade lines remove as many as the player carries: 0 alone),
   EquipItem of an item the actor does not carry yet.
 - **AddPerk on an actor other than the player** (26 scripts, companion perks among them):
-  refused, "perks of actors other than the player are not modelled"; the companions
-  walkthrough (batch 3, item 2) takes it.
+  was refused; fixed by the companions walkthrough (perks kept per actor), which brought
+  the totals to 386 failed calls in 54 causes and 114 line scripts with a problem.
 - **`GetStage Q N == 1` with an extra argument** (3 lines, e.g. INFO 0x001588E5): a script
   error stops the begin script before its SetStage; item 12 of §2, observer check 32.
 

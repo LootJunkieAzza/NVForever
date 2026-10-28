@@ -11,7 +11,7 @@
 
 [summary.scripts.info]
 run = 8639
-with_problems = 140
+with_problems = 114
 
 [summary.scripts.package]
 run = 558
@@ -26,8 +26,8 @@ run = 384
 with_problems = 50
 
 [summary.problems.call_failed]
-causes = 55
-scripts = 412
+causes = 54
+scripts = 386
 
 [summary.problems.script_error]
 causes = 1
