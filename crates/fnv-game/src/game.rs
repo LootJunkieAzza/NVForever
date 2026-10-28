@@ -385,6 +385,10 @@ pub struct RefExtra {
     pub dispelled: Vec<FormId>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub worn_dispelled: Vec<FormId>,
+    /// Perks given to this actor itself (`<actor>.AddPerk perk`), with their ranks
+    /// ([`Game::held_perks`]); the player's own are `Player::perks`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub perks: BTreeMap<FormId, u8>,
     /// SetBroadcastState of a radio station (talking activator).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub broadcast: Option<bool>,

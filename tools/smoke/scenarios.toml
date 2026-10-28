@@ -11060,3 +11060,138 @@ expect = [
   { json = "observations.?label=final: VMS01 100.completed", equals = true, label = "come-fly-with-me, final: VMS01 100: completed = true" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the early side-quest walkthrough report"
+
+[[scenario]]
+name = "mq-companion-boone"
+kind = "tool"
+source = "addon-companions report (2026-10-28): the headless companion walkthrough crates/fnv-game/walkthrough/companion-boone.actions.json, One for My Baby (VMS53) and Boone's hiring: the beret, the bill of sale, Jeannie May led to the dinosaur, Boone's shot (VFreeformNovac nSnipersRevengeStage 20, 30), VMS53 completed, Boone hired (VNPCFollowers) with Spotter and Companion Suite on Boone"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/companion-boone.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-boone.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: One for My Baby started (stage 10).var.nSnipersRevengeStage", equals = 10.0, label = "companion-boone, milestone: One for My Baby started (stage 10): var.nSnipersRevengeStage = 10.0" },
+  { json = "observations.?label=milestone: Boone took his shot (stage 20).var.nSnipersRevengeStage", equals = 20.0, label = "companion-boone, milestone: Boone took his shot (stage 20): var.nSnipersRevengeStage = 20.0" },
+  { json = "observations.?label=milestone: One for My Baby completed.completed", equals = true, label = "companion-boone, milestone: One for My Baby completed: completed = true" },
+  { json = "observations.?label=milestone: One for My Baby completed.objective.40.completed", equals = true, label = "companion-boone, milestone: One for My Baby completed: objective.40.completed = true" },
+  { json = "observations.?label=milestone: Boone hired.var.bBooneHired", equals = 1.0, label = "companion-boone, milestone: Boone hired: var.bBooneHired = 1.0" },
+  { json = "observations.?label=milestone: Boone hired.var.bHumanoidInParty", equals = 1.0, label = "companion-boone, milestone: Boone hired: var.bHumanoidInParty = 1.0" },
+  { json = "observations.?label=final: Spotter perk.value", equals = 1.0, label = "companion-boone, final: Spotter perk: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the companions report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-companion-cass"
+kind = "tool"
+source = "addon-companions report (2026-10-28): the headless companion walkthrough crates/fnv-game/walkthrough/companion-cass.actions.json, Heartache by the Number (VCassCompanion), the NCR evidence path: Cass hired at the Mojave Outpost, the three caravan sites, the two letters, Jackson, Calm Heart (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/companion-cass.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-cass.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Cass hired.var.bCassHired", equals = 1.0, label = "companion-cass, milestone: Cass hired: var.bCassHired = 1.0" },
+  { json = "observations.?label=milestone: Cass hired.var.bHumanoidInParty", equals = 1.0, label = "companion-cass, milestone: Cass hired: var.bHumanoidInParty = 1.0" },
+  { json = "observations.?label=milestone: Heartache by the Number started (stage 10).stage", equals = 10, label = "companion-cass, milestone: Heartache by the Number started (stage 10): stage = 10" },
+  { json = "observations.?label=milestone: Heartache by the Number started (stage 10).var.iCaravanQuestStages", equals = 1.0, label = "companion-cass, milestone: Heartache by the Number started (stage 10): var.iCaravanQuestStages = 1.0" },
+  { json = "observations.?label=milestone: VCassCompanion 50 (find evidence).stage", equals = 50, label = "companion-cass, milestone: VCassCompanion 50 (find evidence): stage = 50" },
+  { json = "observations.?label=milestone: VCassCompanion 50 (find evidence).var.iCaravanQuestStages", equals = 11.0, label = "companion-cass, milestone: VCassCompanion 50 (find evidence): var.iCaravanQuestStages = 11.0" },
+  { json = "observations.?label=milestone: VCassCompanion 60.stage", equals = 60, label = "companion-cass, milestone: VCassCompanion 60: stage = 60" },
+  { json = "observations.?label=milestone: VCassCompanion 60.objective.60.displayed", equals = true, label = "companion-cass, milestone: VCassCompanion 60: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: Heartache by the Number completed (stage 100).completed", equals = true, label = "companion-cass, milestone: Heartache by the Number completed (stage 100): completed = true" },
+  { json = "observations.?label=milestone: Heartache by the Number completed (stage 100).stage", equals = 100, label = "companion-cass, milestone: Heartache by the Number completed (stage 100): stage = 100" },
+  { json = "observations.?label=final: Calm Heart given to the player's teammates.value", equals = 1.0, label = "companion-cass, final: Calm Heart given to the player's teammates: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the companions report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-companion-raul"
+kind = "tool"
+source = "addon-companions report (2026-10-28): the headless companion walkthrough crates/fnv-game/walkthrough/companion-raul.actions.json, Old School Ghoul (VDialogueRaul), the gunslinger path: Raul hired at Black Mountain, his talks after Ranger Andy, Corporal Sterling and Loyal, three stories, Old Vaquero (RaulUpgrade 2)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/companion-raul.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-raul.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Raul hired.var.RaulHired", equals = 1.0, label = "companion-raul, milestone: Raul hired: var.RaulHired = 1.0" },
+  { json = "observations.?label=milestone: Raul hired.var.bHumanoidInParty", equals = 1.0, label = "companion-raul, milestone: Raul hired: var.bHumanoidInParty = 1.0" },
+  { json = "observations.?label=milestone: first story heard.var.RaulOpenness", equals = 1.0, label = "companion-raul, milestone: first story heard: var.RaulOpenness = 1.0" },
+  { json = "observations.?label=milestone: first story heard.var.GunslingerTrack", equals = 1.0, label = "companion-raul, milestone: first story heard: var.GunslingerTrack = 1.0" },
+  { json = "observations.?label=milestone: second story heard.var.RaulOpenness", equals = 2.0, label = "companion-raul, milestone: second story heard: var.RaulOpenness = 2.0" },
+  { json = "observations.?label=milestone: second story heard.var.GunslingerTrack", equals = 2.0, label = "companion-raul, milestone: second story heard: var.GunslingerTrack = 2.0" },
+  { json = "observations.?label=milestone: Old School Ghoul done (RaulUpgrade 2).var.RaulOpenness", equals = 3.0, label = "companion-raul, milestone: Old School Ghoul done (RaulUpgrade 2): var.RaulOpenness = 3.0" },
+  { json = "observations.?label=milestone: Old School Ghoul done (RaulUpgrade 2).var.GunslingerTrack", equals = 3.0, label = "companion-raul, milestone: Old School Ghoul done (RaulUpgrade 2): var.GunslingerTrack = 3.0" },
+  { json = "observations.?label=final: Old Vaquero given to the player's teammates.value", equals = 1.0, label = "companion-raul, final: Old Vaquero given to the player's teammates: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the companions report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-companion-arcade"
+kind = "tool"
+source = "addon-companions report (2026-10-28): the headless companion walkthrough crates/fnv-game/walkthrough/companion-arcade.actions.json, For Auld Lang Syne (VMS54), Remnants for the NCR: Arcade hired, the five Remnants gathered (20), the bunker (30), Moreno talked round, power armor training (50), stage 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/companion-arcade.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-arcade.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Arcade hired.var.ArcadeHired", equals = 1.0, label = "companion-arcade, milestone: Arcade hired: var.ArcadeHired = 1.0" },
+  { json = "observations.?label=milestone: Arcade hired.var.bHumanoidInParty", equals = 1.0, label = "companion-arcade, milestone: Arcade hired: var.bHumanoidInParty = 1.0" },
+  { json = "observations.?label=milestone: For Auld Lang Syne started (stage 10).stage", equals = 10, label = "companion-arcade, milestone: For Auld Lang Syne started (stage 10): stage = 10" },
+  { json = "observations.?label=milestone: For Auld Lang Syne started (stage 10).objective.11.displayed", equals = true, label = "companion-arcade, milestone: For Auld Lang Syne started (stage 10): objective.11.displayed = true" },
+  { json = "observations.?label=milestone: Remnants gathered (stage 20).stage", equals = 20, label = "companion-arcade, milestone: Remnants gathered (stage 20): stage = 20" },
+  { json = "observations.?label=milestone: Remnants gathered (stage 20).var.nRemnantsGathered", equals = 5.0, label = "companion-arcade, milestone: Remnants gathered (stage 20): var.nRemnantsGathered = 5.0" },
+  { json = "observations.?label=milestone: Remnants at the bunker (stage 30).stage", equals = 30, label = "companion-arcade, milestone: Remnants at the bunker (stage 30): stage = 30" },
+  { json = "observations.?label=milestone: Remnants at the bunker (stage 30).var.bRemnantsAtBunker", equals = 1.0, label = "companion-arcade, milestone: Remnants at the bunker (stage 30): var.bRemnantsAtBunker = 1.0" },
+  { json = "observations.?label=milestone: Moreno convinced.var.bMorenoConvinced", equals = 1.0, label = "companion-arcade, milestone: Moreno convinced: var.bMorenoConvinced = 1.0" },
+  { json = "observations.?label=milestone: Moreno convinced.objective.35.completed", equals = true, label = "companion-arcade, milestone: Moreno convinced: objective.35.completed = true" },
+  { json = "observations.?label=milestone: power armor training (stage 50).stage", equals = 50, label = "companion-arcade, milestone: power armor training (stage 50): stage = 50" },
+  { json = "observations.?label=milestone: power armor training (stage 50).objective.50.displayed", equals = true, label = "companion-arcade, milestone: power armor training (stage 50): objective.50.displayed = true" },
+  { json = "observations.?label=final: For Auld Lang Syne completed (stage 100).completed", equals = true, label = "companion-arcade, final: For Auld Lang Syne completed (stage 100): completed = true" },
+  { json = "observations.?label=final: For Auld Lang Syne completed (stage 100).stage", equals = 100, label = "companion-arcade, final: For Auld Lang Syne completed (stage 100): stage = 100" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the companions report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-companion-ede"
+kind = "tool"
+source = "addon-companions report (2026-10-28): the headless companion walkthrough crates/fnv-game/walkthrough/companion-ede.actions.json, ED-E My Love (vDialogueEDE), the Followers path: ED-E repaired and hired, two logs (10, 20), the radio calls, April Martimer's upgrade, ED-E back, CompleteQuest"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/companion-ede.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-ede.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: ED-E hired.var.bEDEHired", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bEDEHired = 1.0" },
+  { json = "observations.?label=milestone: ED-E hired.var.bCritterInParty", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bCritterInParty = 1.0" },
+  { json = "observations.?label=milestone: vDialogueEDE 10 (first log due).stage", equals = 10, label = "companion-ede, milestone: vDialogueEDE 10 (first log due): stage = 10" },
+  { json = "observations.?label=milestone: vDialogueEDE 10 (first log due).var.fLastLogDay", equals = 6.0, label = "companion-ede, milestone: vDialogueEDE 10 (first log due): var.fLastLogDay = 6.0" },
+  { json = "observations.?label=milestone: vDialogueEDE 20 (second log due).stage", equals = 20, label = "companion-ede, milestone: vDialogueEDE 20 (second log due): stage = 20" },
+  { json = "observations.?label=milestone: radio call heard.objective.5.completed", equals = true, label = "companion-ede, milestone: radio call heard: objective.5.completed = true" },
+  { json = "observations.?label=milestone: radio call heard.objective.10.displayed", equals = true, label = "companion-ede, milestone: radio call heard: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: April's call heard.objective.7.displayed", equals = true, label = "companion-ede, milestone: April's call heard: objective.7.displayed = true" },
+  { json = "observations.?label=milestone: ED-E with the Followers.var.iFolUpgrade", equals = 2.0, label = "companion-ede, milestone: ED-E with the Followers: var.iFolUpgrade = 2.0" },
+  { json = "observations.?label=milestone: ED-E with the Followers.var.iEDEOut", equals = 2.0, label = "companion-ede, milestone: ED-E with the Followers: var.iEDEOut = 2.0" },
+  { json = "observations.?label=milestone: upgraded ED-E back.var.iEDEOut", equals = 4.0, label = "companion-ede, milestone: upgraded ED-E back: var.iEDEOut = 4.0" },
+  { json = "observations.?label=milestone: upgraded ED-E back.objective.35.completed", equals = true, label = "companion-ede, milestone: upgraded ED-E back: objective.35.completed = true" },
+  { json = "observations.?label=final: ED-E My Love completed.completed", equals = true, label = "companion-ede, final: ED-E My Love completed: completed = true" },
+  { json = "observations.?label=final: ED-E My Love completed.var.iEDEOut", equals = 5.0, label = "companion-ede, final: ED-E My Love completed: var.iEDEOut = 5.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the companions report (handoff doc section to be added by the coordinator)"
+
+[[scenario]]
+name = "mq-companion-veronica"
+kind = "tool"
+source = "addon-companions report (2026-10-28): the headless companion walkthrough crates/fnv-game/walkthrough/companion-veronica.actions.json, I Could Make You Care (VMS49), Veronica stays: hired at the 188, the Elder's two refusals, Elijah's notes, the pulse gun, the paladins outside Hidden Valley, CompleteQuest and Bonds of Steel"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/companion-veronica.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-veronica.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Veronica hired.var.bVeronicaHired", equals = 1.0, label = "companion-veronica, milestone: Veronica hired: var.bVeronicaHired = 1.0" },
+  { json = "observations.?label=milestone: Veronica hired.var.bHumanoidInParty", equals = 1.0, label = "companion-veronica, milestone: Veronica hired: var.bHumanoidInParty = 1.0" },
+  { json = "observations.?label=milestone: I Could Make You Care started (objective 10).objective.10.displayed", equals = true, label = "companion-veronica, milestone: I Could Make You Care started (objective 10): objective.10.displayed = true" },
+  { json = "observations.?label=milestone: the Elder refuses (objective 10 done).var.nConvoState", equals = 13.0, label = "companion-veronica, milestone: the Elder refuses (objective 10 done): var.nConvoState = 13.0" },
+  { json = "observations.?label=milestone: the Elder refuses (objective 10 done).objective.10.completed", equals = true, label = "companion-veronica, milestone: the Elder refuses (objective 10 done): objective.10.completed = true" },
+  { json = "observations.?label=milestone: Elijah's notes (objective 25).var.nGreetingPending", equals = 3.0, label = "companion-veronica, milestone: Elijah's notes (objective 25): var.nGreetingPending = 3.0" },
+  { json = "observations.?label=milestone: Elijah's notes (objective 25).objective.25.completed", equals = true, label = "companion-veronica, milestone: Elijah's notes (objective 25): objective.25.completed = true" },
+  { json = "observations.?label=milestone: pulse gun recovered (objective 140).objective.130.completed", equals = true, label = "companion-veronica, milestone: pulse gun recovered (objective 140): objective.130.completed = true" },
+  { json = "observations.?label=milestone: pulse gun recovered (objective 140).objective.140.displayed", equals = true, label = "companion-veronica, milestone: pulse gun recovered (objective 140): objective.140.displayed = true" },
+  { json = "observations.?label=milestone: the Elder refuses again (objective 20 done).var.nConvoState", equals = 9.0, label = "companion-veronica, milestone: the Elder refuses again (objective 20 done): var.nConvoState = 9.0" },
+  { json = "observations.?label=milestone: the Elder refuses again (objective 20 done).objective.20.completed", equals = true, label = "companion-veronica, milestone: the Elder refuses again (objective 20 done): objective.20.completed = true" },
+  { json = "observations.?label=milestone: Veronica stays (nFinalState 1).var.nFinalState", equals = 1.0, label = "companion-veronica, milestone: Veronica stays (nFinalState 1): var.nFinalState = 1.0" },
+  { json = "observations.?label=milestone: I Could Make You Care completed.completed", equals = true, label = "companion-veronica, milestone: I Could Make You Care completed: completed = true" },
+  { json = "observations.?label=final: Bonds of Steel given to the player's teammates.value", equals = 1.0, label = "companion-veronica, final: Bonds of Steel given to the player's teammates: value = 1.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the companions report (handoff doc section to be added by the coordinator)"
