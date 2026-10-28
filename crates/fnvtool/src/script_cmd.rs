@@ -1034,7 +1034,8 @@ fn cover(
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
     let schema = Schema::load_dir(&a.schema)?;
     // The chains by the load order each is written for (in the order first named).
-    let mut groups: Vec<(Vec<String>, Vec<(String, fnv_game::runner::Input)>)> = Vec::new();
+    type Chains = Vec<(String, fnv_game::runner::Input)>;
+    let mut groups: Vec<(Vec<String>, Chains)> = Vec::new();
     for f in &files {
         let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let input = read_actions(f)?;
