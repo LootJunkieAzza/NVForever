@@ -50,6 +50,11 @@ Report bugs and differences from the original with the
 [issue forms](https://github.com/LootJunkieAzza/NVForever/issues/new/choose). Crash
 reports are written to `Documents\My Games\NVForever\logs`. Never attach game files.
 
+## Contributing
+
+Pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the clean-room
+rules there decide what can be merged.
+
 ## Support
 
 NVForever is free. If you'd like to support it: [ko-fi.com/lootjunkieazza](https://ko-fi.com/lootjunkieazza).
