@@ -12,46 +12,46 @@
 
 [summary.quests]
 total = 228
-touched = 103
-completed = 71
+touched = 107
+completed = 75
 
 [summary.stages]
 total = 1405
-reached = 342
+reached = 365
 
 [summary.scripts]
 total = 3488
-touched = 785
+touched = 828
 
 [summary.blocks]
 total = 5690
-run = 1066
+run = 1125
 
 [summary.lines]
 total = 28896
-said = 827
+said = 914
 
 [summary.actors]
 with_lines = 704
-touched = 67
+touched = 79
 
 [summary.untouched_quests]
 main = 4
-faction = 27
+faction = 24
 add-on = 24
-other = 70
+other = 69
 
 [summary.results.info]
 total = 8639
-run = 610
+run = 654
 
 [summary.results.package]
 total = 558
-run = 10
+run = 12
 
 [summary.results.stage]
 total = 1040
-run = 318
+run = 341
 
 [summary.results.terminal]
 total = 384
