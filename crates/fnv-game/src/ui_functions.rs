@@ -5,10 +5,10 @@
 //! and Ex forms.
 //!
 //! [`call`] takes a function by name, as the script extender's `Host::ext_call` gives
-//! it (`crate::nvse::call` on claude/ext-compiler hands these names here). Arguments
-//! are taken as the VM gives them; a format string (SetUIStringEx, InjectUIComponent)
-//! is expected already formatted by the VM [hypothesis about the VM's side: to agree
-//! with the extender coordinator].
+//! it (`crate::nvse::call` hands the names no other family takes here). Arguments are taken as the VM
+//! gives them; the VM formats a format string and its values (SetUIStringEx,
+//! SetUIStringAlt, InjectUIComponent, AddTileFromTemplate) before the call, so the text
+//! arrives here in their place.
 //!
 //! The deprecated forms (SetUIFloat, GetUIFloat, SetUIString, SetUIStringEx) behave as
 //! their Alt forms for now: the wiki calls them "bugged for templated children tiles"

@@ -8,9 +8,9 @@ Mods then change and add UI the way they do in the original, and the extender's 
 functions act on something real.
 
 The file format is in [menu-xml](../spec-notes/menu-xml.md); the ranked work is in
-[ui-tile-tree-tasks](../handoff/ui-tile-tree-tasks.md). Built so far: task T1, the
-reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui`,
-`fnv_game::ui_functions`, `fnvtool ui`).
+[ui-tile-tree-tasks](../handoff/ui-tile-tree-tasks.md). Built so far: tasks T1 and T2,
+the reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui`,
+`fnv_game::ui_functions`, `fnvtool ui`), reached from scripts through the extender.
 
 ## 1. Why, and what it has to carry
 

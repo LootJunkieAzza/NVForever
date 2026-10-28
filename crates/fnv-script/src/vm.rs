@@ -2626,6 +2626,19 @@ impl Vm<'_, '_> {
         if let Some(v) = self.quat_function(&lname, c)? {
             return Ok(v);
         }
+        // [documented: the catalogue's parameters (schemas/script/functions.json, from the
+        // pages SetUIStringEx, SetUIStringAlt, InjectUIComponent, AddTileFromTemplate)]:
+        // the first string (AddTileFromTemplate's path) or the one after the path is a
+        // format string with its values, formatted here; the game gets the text in their
+        // place (fnv_game::ui_functions).
+        let format_at = match lname.as_str() {
+            "addtilefromtemplate" => Some(0),
+            "setuistringex" | "setuistringalt" | "injectuicomponent" => Some(1),
+            _ => None,
+        };
+        if let Some(at) = format_at {
+            return self.formatted_host_call(&lname, c, at)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name}")));
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
@@ -2821,6 +2834,28 @@ impl Vm<'_, '_> {
                 Ok(XVal::Num(0.0))
             }
             _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+        }
+    }
+
+    /// As [`Self::host_function`], with the format string at argument `at` and its values
+    /// handed over as one formatted string.
+    fn formatted_host_call(&mut self, lname: &str, c: &XCall, at: usize) -> Result<Option<XVal>, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for e in c.args.iter().take(at) {
+            args.push(self.xeval(e)?);
+        }
+        let (t, k) = self.format_arg(c, at)?;
+        args.push(XVal::Str(t));
+        for e in c.args.iter().skip(k) {
+            args.push(self.xeval(e)?);
+        }
+        match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map(Some).map_err(VmError::Host),
+            None => Ok(None),
         }
     }
 

@@ -41,7 +41,7 @@ fn files() -> MemSource {
             r#"<menu name="HUDMenu"> <rect name="Bars"> <width> 300 </width>
                <image name="Fill"> <width> <copy src="parent()" trait="width"/> <mul src="io()" trait="_Health"/> </width> </image>
                <template name="pip"> <image name="Pip"> <alpha> 255 </alpha> </image> </template>
-               </rect> <_Health> 1 </_Health> </menu>"#,
+               </rect> <text name="Label"> <string> HP </string> </text> <_Health> 1 </_Health> </menu>"#,
         )
         .with("menus\\prefabs\\mod\\gauge.xml", "<text name=\"ModText\"> <string> hello </string> </text>")
 }
@@ -106,4 +106,34 @@ fn injection_and_loading() {
     // Headless: no files, so InjectUIXML fails.
     g.ui_files = None;
     assert_eq!(n(run(&mut g, "InjectUIXML", &[s("HUDMenu"), s("data\\menus\\prefabs\\mod\\gauge.xml")])), 0.0);
+}
+
+/// A query script compiled from source and run by the VM, as a mod's script runs: the
+/// value it sets with SetFunctionValue.
+fn query(g: &mut Game, body: &str) -> XVal {
+    g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default()).expect("the query runs")
+}
+
+#[test]
+fn compiled_scripts_reach_the_tree() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Set and read back by path through the VM and the extender's name lookup.
+    let v = query(&mut g, "SetUIFloat \"HUDMenu/Bars/width\" 120
+SetFunctionValue (GetUIFloat \"HUDMenu/Bars/width\")");
+    assert_eq!(n(v), 120.0);
+    assert_eq!(n(query(&mut g, "SetFunctionValue (GetUIFloatAlt \"HUDMenu/Bars/Nope\")")), NOT_FOUND);
+    // The format string's values are filled in before the tree gets the text.
+    let v = query(&mut g, "SetUIStringEx \"HUDMenu/Label/string\" \"HP %g\" 50
+SetFunctionValue (GetUIString \"HUDMenu/Label/string\")");
+    assert_eq!(v, s("HP 50"));
+    assert_eq!(n(query(&mut g, "SetFunctionValue (AddTileFromTemplate \"HUDMenu/Bars|pip|Pip%g\" 3)")), 1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/Bars/Pip3/alpha")])), 255.0);
+    // `%q` is a quote [documented: InjectUIComponent's example; String Formatting].
+    let v = query(&mut g, "SetFunctionValue (InjectUIComponent \"HUDMenu\" \"<rect name=%qAdded%g%q> <x> %g </x> </rect>\" 2 9)");
+    assert_eq!(n(v), 1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/Added2/x")])), 9.0);
 }

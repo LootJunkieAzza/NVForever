@@ -171,6 +171,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_debug::call(g, name, args) {
         return Some(r);
     }
+    // The menus' tile tree (docs/design/ui-tile-tree.md §5.1); before the `set…`
+    // setters below, which would read SetUIFloat as a record field's setter.
+    if let Some(r) = crate::ui_functions::call(g, name, args) {
+        return Some(r);
+    }
     // The item a getter reads: its argument, else the calling reference's base form.
     let item = |g: &Game, k: usize| -> Option<FormId> {
         as_form(args.get(k)).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f))
