@@ -15,8 +15,8 @@ DEFAULT_TILES = ("HitPoints", "ActionPoints", "SneakMeter", "ReticleCenter",
                  "EnemyHealth", "Messages", "Subtitles", "Info", "QuestReminder")
 DEFAULT_TRAITS = ("x", "y", "width", "height", "alpha", "visible", "depth")
 READERS = ("GetUIFloat", "GetUIFloatAlt")
-# [documented: GECK wiki, GetUIFloatInherited, page text from the owner 2026-10-28 (xNVSE
-# 6.4.8, ExcludeMenuRoot 6.4.9; not in the 2024 snapshot)] Relative values for x, y and
+# [documented: GECK wiki snapshot 2026-10-28, GetUIFloatInherited rev 41244 (xNVSE
+# 6.4.8, ExcludeMenuRoot 6.4.9)] Relative values for x, y and
 # depth only, through every parent with an active locus; with ExcludeMenuRoot 1, relative
 # to the menu's own root. nvf_capture needs xNVSE 6.4.9, which has both.
 INHERITED_TRAITS = ("x", "y", "depth")
@@ -192,7 +192,7 @@ def make_job(doc, *, name="hud_traits", start="Load a settled save with the HUD 
               "shots": {"samples": f"0, {shot_gap}, ...", "max": shots},
               "input": "[documented: crates/fnvtool/src/ui_cmd.rs] Evaluated scalars; expression metadata is not exported."}
     if inherited:
-        fields["inherited"] = ("[documented: GECK wiki, GetUIFloatInherited, page text from the owner 2026-10-28] "
+        fields["inherited"] = ("[documented: GECK wiki snapshot 2026-10-28, GetUIFloatInherited rev 41244] "
                                 "x, y and depth from the top-level root and, with ExcludeMenuRoot 1, from the menu's root "
                                 "(reader GetUIFloatInherited:menu); xNVSE 6.4.8, the flag 6.4.9.")
     obs = {"label": "hud_traits", "every": every, "max_samples": max_samples,

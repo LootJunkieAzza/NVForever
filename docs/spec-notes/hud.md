@@ -436,3 +436,36 @@ menu's (`dialogue_menu.rs`).
 - Log: `hud needs: <word> <hidden|faded|normal|red|flashing> (<why>)` when a word's look
   changes, the why being `stage <n> of <count>, <stage effect>`, `no stage`, `Hardcore
   off` or `<n> limbs crippled`.
+
+## 14. Read from the running original through xNVSE (2026-10-28)
+
+[observed: `tools/capture/hud_traits.py` job, run 1793221057 on the owner's test install
+(game 1.4.0.525, xNVSE 6.4.9, no JIP or SUP), save outside Doc Mitchell's house, health
+200/200, AP 80, 20 samples; screenshots 1280 x 720 although `FalloutPrefs.ini` asks for
+1920 x 1080 windowed (16:9 either way). Results private, in `C:\fnv-private`.] Places are
+in interface units, the view 960 high and so 1706.7 wide at 16:9.
+
+- **The reads work.** A known trait reads its value and a missing one -999 with GetUIFloat
+  and GetUIFloatAlt; GetUIFloatInherited gives the wiki page's own example exactly (-50,
+  and 0 with `ExcludeMenuRoot`).
+- **The corner pieces.** `HitPoints` stands at x 40, y 803: with its height 127 its bottom
+  is 30 above the view's, as §4 guessed. `ActionPoints` stands at x 1320, y 803: its right
+  edge (1706) is the view's, not 40 in from it as §4 guessed. [hypothesis: placed from
+  the right edge; one aspect only, so not yet told apart from a rule on the width.]
+- **What the code makes under them** (`*:N` children; which is which is
+  [hypothesis] by size and place): under `HitPoints` four tiles, one 296 x 20 at x 20,
+  y 41 (the bar) and one 512 x 256 at the piece's corner (the bracket picture); under
+  `ActionPoints` seven, among them 296 x 20 at x 30, y 41 (the bar) and 60 x 20 at x 90,
+  y 83 (the condition bar's ground, the file's size).
+- **Against the current HUD** (§4), on the view: the HP bar starts 1 unit further left
+  (60 against 61), the AP bar 2 units further right (1350.7 against 1348.7), the
+  condition ground 7 units further left (1410.7 against 1417.7). The first two are within
+  the screenshot measurements; the third is not.
+- `ReticleCenter`'s child (64 x 64) is centred on the view (852.5 against 853.3);
+  `SneakMeter` and `Subtitles` children stand at the view's middle (853).
+- What the code changed against the file alone, among 31 traits: the prompt box
+  (`Info/justify_center_hotrect`) sized to its text (176 x 52), `SneakMeter/sneak_nif`
+  14 x 36 (the file says 128 x 128), `CNDArrows` 20 high (16), the Hardcore words'
+  `alpha` 0 (not in Hardcore mode), and the lines' thickness 1.78 at this view.
+- Open: other aspects (4:3, 16:10) and a resize, to tell the anchoring rules apart; the
+  children's traits other than places (strings, filenames: they need GetUIString, JIP).

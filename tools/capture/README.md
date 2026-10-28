@@ -683,8 +683,8 @@ characters and percent substitutions in input names are rejected.
 [documented: GECK wiki snapshot 2024-09-23, GetUIFloat, GetUIFloatAlt, String Formatting]
 Missing traits return -999; `*` matches a child, `:N` selects its index, `%q` quotes.
 [documented: same snapshot, GetScreenTrait] The screen-size query found is SUP only;
-no baseline xNVSE screen-size query is included. [documented: GECK wiki, GetUIFloatInherited, page text from the owner 2026-10-28;
-not in the 2024 snapshot] GetUIFloatInherited (xNVSE 6.4.8; `ExcludeMenuRoot` 6.4.9)
+no baseline xNVSE screen-size query is included. [documented: GECK wiki snapshot 2026-10-28,
+GetUIFloatInherited rev 41244] GetUIFloatInherited (xNVSE 6.4.8; `ExcludeMenuRoot` 6.4.9)
 reads `x`, `y` and `depth` through every parent with an active `locus`; the job reads
 those three both from the top-level root and from the menu's root, and checks the
 page's own example (`RadiationMeter/radiation_text/depth`: -50, then 0) when the tree has
