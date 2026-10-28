@@ -10583,6 +10583,8 @@ manual = "on a failure, the chain's notes say what each step stands for; docs/ha
 [[scenario]]
 name = "walkthrough-coverage"
 kind = "tool"
+# It runs every chain: minutes on a busy machine.
+timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §5: every walkthrough chain in crates/fnv-game/walkthrough run with coverage recorded (fnvtool script cover), compared with the ten masters' quests, scripts and dialogue lines"
 areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/coverage.rs", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnvtool/src/script_cmd.rs", "tools/smoke/expected/walkthrough-coverage.toml"]
@@ -10733,6 +10735,8 @@ manual = "on a failure, the chain's notes say what each step stands for; stand-i
 [[scenario]]
 name = "walkthrough-roundtrip"
 kind = "tool"
+# It runs every chain twice: minutes on a busy machine.
+timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §6: every walkthrough chain run twice (fnvtool script roundtrip), once as it is and once with a save and load through fnv-save before its middle action; the quests at the end and the observations must be the same"
 areas = ["quests", "scripts", "save"]
 paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-save/", "crates/fnv-sim/src/world.rs", "crates/fnvtool/src/script_cmd.rs"]
@@ -10745,6 +10749,8 @@ manual = "a chain that differs lists its first differences (final.quests.<quest>
 [[scenario]]
 name = "script-sweep"
 kind = "tool"
+# It runs 10,621 scripts: minutes on a busy machine.
+timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §7: every quest stage, dialogue line, terminal and package result script of the ten masters run once, headless and by itself (fnvtool script sweep); the script errors and failed calls met, grouped by cause"
 areas = ["scripts", "quests", "dialogue"]
 paths = ["crates/fnv-game/src/sweep.rs", "crates/fnv-game/src/functions/", "crates/fnv-script/src/vm.rs", "crates/fnvtool/src/script_cmd.rs", "tools/smoke/expected/script-sweep.toml"]
