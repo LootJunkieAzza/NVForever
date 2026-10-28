@@ -10,6 +10,7 @@ breaks them can't be merged, however good it is.
 - **Report bugs and differences from the original** with the
   [issue forms](https://github.com/LootJunkieAzza/NVForever/issues/new/choose). Never
   attach game files. Crash logs from `Documents\My Games\NVForever\logs` are fine.
+  Report security problems privately instead: see [SECURITY.md](SECURITY.md).
 - **Fix something or build something.** [docs/status.md](docs/status.md) says what is
   built and [docs/outstanding.md](docs/outstanding.md) says what is left. Small fixes can
   go straight to a pull request. For anything bigger (a new system, a new dependency, a
