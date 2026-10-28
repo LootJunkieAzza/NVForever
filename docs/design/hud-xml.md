@@ -63,7 +63,7 @@ What that means in practice:
   (from FOSE), GetUIFloatAlt, GetUIFloatInherited and SetUIFloatAlt are xNVSE's own,
   GetUIString and InjectUIXML are JIP LN's, and DumpTileInfo, DumpTileInfoToArray and
   GetUIElementType are SUP's [documented: `schemas/script/functions.json`, `origin`;
-  `menu-xml.md` §8 calls DumpTileInfo JIP's, which is wrong]. Geometry therefore needs
+  the GECK wiki pages]. Geometry therefore needs
   xNVSE alone. JIP and SUP are added only for what xNVSE cannot read (strings, a whole
   subtree), and as the JIP audit asks, a run with them is checked against a run without
   them before their results are trusted
@@ -185,7 +185,7 @@ never writes into the game folder) is unaffected.
 - `docs/spec-notes/hud.md`: per piece, what the code makes and writes, and where it
   stands; the `[hypothesis]` places of §4 become `[observed]` or stay listed in §7.
 - `docs/spec-notes/menu-xml.md`: what the drawing traits do (§3.1), the update rules
-  (§6), the answers to §8; the DumpTileInfo correction.
+  (§6), the answers to §8.
 - `docs/handoff/observer-checks.md`: item 26 marked done or narrowed.
 - Raw captures stay private. A finding cites its job and run in the private folder.
 
