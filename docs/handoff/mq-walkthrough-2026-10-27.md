@@ -27,6 +27,10 @@ item 6) is a separate task.
 | ncr (`mq-ncr`) | Things That Go Boom, Kings' Gambit (only Crocker's Gambit lines set VMQ05 10), For the Republic Part 2 (House unplugged), You'll Know It When It Happens (sniper killed), Moore's box, Eureka! (Lanius talked down) | VMS23 100, VMS29 105, VMQ03a 100, VMQ05 100, vHDBattleController 30 |
 | legion (`mq-legion`) | Render Unto Caesar (Cottonwood Cove, the Fort, the vault), Et Tumor Brute? (surgery), Arizona Killer, Veni Vidi Vici | VMQ02, VMS35, VMQ03b 100; VHDLegionBattle 100 (starts VEnding) |
 | ending (`mq-ending`) | Eureka! 30 sets the NCR ending; VEnding moves the player to the slide room; the narrator's SayTo chain runs every slide | FadeToCreditsTimer faded out, ExitGame called |
+| ending-legion (`mq-ending-legion`) | VHDLegionBattle 100 sets story state 62; the same slide chain (12 slides) | FadeToCreditsTimer faded out, ExitGame called |
+| ending-house (`mq-ending-house`) | VHDHouseBattle 100 sets 63 (9 slides) | FadeToCreditsTimer faded out, ExitGame called |
+| ending-independent (`mq-ending-independent`) | VHDIndependentBattle 100 sets 64, Securitron vault not opened (65 when it was; not run) (11 slides) | FadeToCreditsTimer faded out, ExitGame called |
+| reputation-axes (`mq-reputation-axes`) | Crocker's messenger and Vulpes's Strip greeting, which call SetReputation with axis 2 (item 10) | NCR and Legion infamy 0; VMS23's flags set after the axis-2 call |
 
 Notes [observed]:
 - **The Lucky 38 elevator** is an actor with one reference per floor. Activation adds a
@@ -101,9 +105,18 @@ Notes [observed]:
 
 **Possibly hard, unverified** (not on the canonical paths; observer checks 30-32):
 
-10. SetReputation with axis 2 (Crocker's messenger, Vulpes's greeting), and conditions with
-    GetReputationThreshold axis 3 (VDialogueBenny) and GetReputation axis 2 (VMS36), are
-    refused by the engine; the wiki documents only 0/1 and 0-2.
+10. Reputation axes other than 0/1. FalloutNV.esm calls SetReputation with axis 2
+    (Crocker's messenger, Vulpes's and Alerio's Strip greetings), AddReputation with axis 2
+    (Boulder City Showdown stage 100, one ending) and 3 (Severus's three tag trades), and
+    conditions use GetReputation axis 2 (VMS36, Crocker's topics 013/014) and
+    GetReputationThreshold axis 3 (Benny's two greetings) [observed: decompiled scripts,
+    INFO conditions]. **Not a stall**: a refused call reads 0 and the script goes on (the
+    engine traces `call_failed` and returns 0; only a call on an empty reference stops a
+    script), and `reputation-axes` shows the messenger's flags set after the axis-2 call.
+    The engine now treats other axes as doing nothing and reading 0 without a call error
+    (reputation.rs `axis`) [hypothesis; observer check 30]. One open effect: Benny's
+    greeting for a player liked on the Strip needs axis 3 >= 3, so with 0 it is never
+    chosen; what the original reads for axis 3 decides it.
 11. Say Once per actor: the Yes Man mainframe repeats the Tops Yes Man's first-meeting
     greeting (0x001164F1, shared by GetIsID OR) once (dialogue.md question 13).
 12. `GetStage Q N == 1` compiled with an extra argument leaves two values on the stack.
@@ -130,10 +143,174 @@ Notes [observed]:
 - Soft stalls 4-9: small runner ops; each would remove a stand-in.
 - Observer checks 28-32 (docs/handoff/observer-checks.md): the two end-slide fixes are
   hypotheses until the original confirms them.
-- The other endings' slides: only the NCR ending's slide chain was run (`ending`). The
-  Legion chain shows VEnding starting; the House and independent battles' last stages
-  (VHDHouseBattle 100, VHDIndependentBattle 100 in `dam-panel`) start it the same way.
+- The other endings' slides: all four endings now run every slide to ExitGame (2026-10-27,
+  second batch); no new stall. The independent ending with the Securitron vault opened
+  (story state 65) was not run.
 - No add-on quest was walked (DM, HH, OWB, LR).
 - Smoke `sunny-wells` fails on main (325cdaf1): Cheyenne runs after Sunny instead of walking. It was rerun alone with this branch's two play changes switched off and still failed, so it is marked `known_failing`; not explained yet.
 - Game runs: these chains say the quest flow holds. They do not show that the AI walks
   there, the fights end or the Dam's ~300 actors run at speed (audit §7 item 6).
+
+## 5. Coverage: what the chains reach, what is untouched
+
+`fnvtool script cover <Data> <the ten masters> --schema schemas/fnv --actions
+crates/fnv-game/walkthrough [--detail report.json] [--log-dir logs/] [--logs more.json ...]`
+runs every chain over the load order it names (`plugins` in the actions file, else
+FalloutNV.esm alone: the add-ons' start-up message boxes would hold the base-game chains
+that keep menus), records what each reached, merges that with any saved logs (`script run
+--coverage <file>` writes one per run; the result-script sweep will write one) and
+compares it with the ten masters. The smoke scenario `walkthrough-coverage` checks the
+printed summary against `tools/smoke/expected/walkthrough-coverage.toml`: a branch that
+adds a chain or reaches further writes the new numbers there; a drop fails the run.
+
+Reading the summary:
+- `quests`: quests with stages (`total`), those with at least one stage reached
+  (`touched`), those where a stage that completes the quest (QSDT flag Complete Quest) was
+  reached (`completed`). `stages`: stages reached of all stages.
+- `scripts` / `blocks`: SCPT scripts with blocks, those with a block run, and blocks run of
+  all blocks (unit and block, so a script's GameMode and OnActivate count apart).
+- `lines` / `actors`: dialogue lines (INFO) started; actors with lines (a line's own
+  GetIsID actor, else its fixed speaker) and those with any line said.
+- `results`: result scripts with statements, by kind (quest stage, INFO, terminal,
+  package), and those run.
+- `untouched_quests`: quests with no stage reached, by rank: `main` (FalloutNV.esm's VMQ,
+  VHD, VEnding, VCG0* quests), `faction` (another base-game quest whose stage scripts
+  change a reputation [hypothesis: a working rule for ranking, not a category in the data]),
+  `add-on` (any other plugin's), `other`. The `untouched` list names them in that order.
+- `chains`: each chain's step and given errors (they should all be 0).
+
+Picking the next chain: take the first quests of the `untouched` list (the main quest, then
+factions, then add-ons); `--detail` gives per quest the stages reached and its completing
+stages, per script the blocks run, per actor the lines said, so a quest half walked shows
+which stages are left. Totals at the end of the second batch: §1's table.
+
+## 6. Save and load mid-chain
+
+The runner's `save_load` op writes the game's snapshot (`Game::snapshot`, the state the
+engine's saves hold) into a save file's bytes through `fnv_save`, reads it back and
+restores the game from it (`Game::restore`, `World::restore`) in the same frame, with the
+random numbers where they were. `fnvtool script roundtrip <Data> <masters> --schema
+schemas/fnv --actions crates/fnv-game/walkthrough` runs every chain twice, as it is and
+with a `save_load` before its middle action, and compares the quests at the end (running,
+completed, stages done, variables) and every observation; smoke `walkthrough-roundtrip`
+expects no chain to differ.
+
+Result [observed, 2026-10-27]: of 19 chains, every one ends the same after a save and load
+at its midpoint (saves of 70-370 KB). With 41 chains, two differ, `fail-boulder-force` and
+`come-fly-with-me`: both save while the player is hunted (after a fight); awareness (detection states,
+who hunts whom) is not part of a save by design (save-load.md: the engine measures again),
+and a headless run has no detection to measure it, so after the load the player is out of
+combat and CGTutorial's script resets its `VATSTimer` (0, not 16). Soft, and a lead for
+play: in the engine the quest script may run in the first frame after a load before
+detection does, read IsInCombat 0 and show the VATS tutorial message again when combat
+comes back [hypothesis, not run]. The smoke check carries it as known failing. The first run differed in two of intro's stopwatch
+readings by one frame: the op let a frame pass, which a save and load does not; it now
+takes none.
+
+## 7. The result-script sweep
+
+`fnvtool script sweep <Data> <masters> --schema schemas/fnv [--detail sweep.json] [--log
+sweep-coverage.json]` (crates/fnv-game/src/sweep.rs) runs every result script with
+statements once, each in a game of its own started as the runner starts one, on the
+reference it would run on where the data names one (a placed reference of a line's actor,
+of the terminal, of the first placed actor whose package list holds the package; a stage
+script on its quest). It groups the call failures, script errors and unknown functions met
+by cause, the numbers in the error taken out. Smoke `script-sweep` checks the totals
+against `tools/smoke/expected/script-sweep.toml`. `--log` writes the scripts run as a
+coverage log, which `script cover --logs` merges (it is not part of the walkthrough
+totals: it runs everything once, out of context).
+
+Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
+384 terminal and 558 package scripts run; 292 met a problem, under
+56 causes. No function is unknown (no `unhandled` cause). By what they are:
+- **Context the sweep cannot give** (most): "no calling reference" (a terminal used only as
+  a sub menu, a package only AddScriptPackage gives), "called on an empty reference" (a
+  reference variable an earlier scene sets), RemoveItem/AddItem "count must be positive"
+  (Nipton's and the Kings' trade lines remove as many as the player carries: 0 alone),
+  EquipItem of an item the actor does not carry yet.
+- **AddPerk on an actor other than the player** (26 scripts, companion perks among them):
+  was refused; fixed by the companions walkthrough (perks kept per actor), which brought
+  the totals to 386 failed calls in 54 causes and 114 line scripts with a problem.
+- **`GetStage Q N == 1` with an extra argument** (3 lines, e.g. INFO 0x001588E5): a script
+  error stops the begin script before its SetStage; item 12 of §2, observer check 32.
+
+The commonest call failures:
+
+  | scripts | cause | e.g. |
+  |---|---|---|
+  | 47 | GetLinkedRef: no calling reference | TERM FalloutNV.esm:064B6E item 0 |
+  | 34 | SetActorValue: no calling reference | PACK FalloutNV.esm:02800E begin |
+  | 32 | RemoveItem: count must be positive, got # | INFO FalloutNV.esm:0F3E50 end |
+  | 26 | AddPerk: perks of actors other than the player are not modelled | INFO FalloutNV.esm:0B16C8 begin |
+  | 21 | AddItem: count must be positive, got # | INFO FalloutNV.esm:0F3E50 end |
+  | 20 | Disable: no calling reference | PACK FalloutNV.esm:07E1D1 end |
+  | 17 | GetInFaction: no calling reference | INFO FalloutNV.esm:145C6B end |
+  | 13 | Disable: called on an empty reference | PACK FalloutNV.esm:1231B6 end |
+  | 13 | RemoveItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
+  | 12 | AddItemHealthPercent: no calling reference | PACK FalloutNV.esm:0273AE begin |
+  | 12 | EquipItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
+  | 11 | SetDestroyed: called on an empty reference | TERM DeadMoney.esm:006CAF item 0 |
+
+## 8. Second and third batches (2026-10-27/28)
+
+Every chain below runs with no step or given error (`script cover`: 32 chains, all 0/0),
+each with its `mq-*` smoke scenario. Add-on chains name their load order (`plugins`).
+
+| chain(s) | path | reached |
+|---|---|---|
+| ending-legion, ending-house, ending-independent | the other three endings' slides | ExitGame (12, 9, 11 slides) |
+| reputation-axes | Crocker's messenger, Vulpes's greeting (axis 2) | infamy cleared, VMS23's flags set |
+| volare, how-little-we-know, beyond-the-beef, brotherhood, khans | the tribe outcomes Yes Man and House count (VMS18 is Beyond the Beef; G.I. Blues, VMS19, is not stood in by any chain) | VMS15 110, VMS21 50, VMS18 obj. 80, VMS55 100, VMS45 50 and the VStoryEvent globals |
+| honest-hearts | Daniel's path, Prisoners of War's door OnOpen | NVDLC02MQ07 100 |
+| dead-money, dead-money-heist | Elijah left in the vault; Dog and Christine live | NVDLC01MQ03 100, the ending sequence |
+| old-world-blues | the Think Tank talked down | NVDLC03MQ05 100 |
+| lonesome-road | Ulysses talked down, no launch (launch at both: NVDLC04MQ04 100, probed) | NVDLC04MQ03b 100 |
+| fail-benny-fled, fail-house-killed, fail-legion-betrayed, fail-boulder-force, fail-fort-storage | branches and fail paths | every fail leaves a way on (the Yes Man failsafe, VMQ05, VMQ01) |
+| ghost-town-gunfight, run-goodsprings-run, my-kind-of-town, come-fly-with-me | early side quests (VMS16b is Joe Cobb's side) | VMS16 100 / VMS16b 100, nVPrimmDeputyConv 110, VMS01 100 |
+
+**Hard, fixed** (a player would stall in play too):
+1. A voice holotape ran no result script: Dead Money's Dog command tape is its quest's only
+   way to NVDLC01MQ01a 40 [hypothesis that the original runs them]. `Game::holotape_script`,
+   runner `play_note`, and nvf-play holotape.rs runs the begin script as the tape starts and
+   the end script as it plays out.
+2. A line said for its fixed speaker by another actor (Old World Blues' Think Tank through
+   Dr. Klein, end slides by the narrator) had no voice file in the speaker's folder: timing
+   (fnv-game voice.rs) and playback (nvf-play voice.rs) fall back to the fixed speaker's file
+   [observed: the files exist only there; hypothesis: the game plays them].
+
+**Soft, fixed** (the headless runner only): `patrol_point`, `fire`, `hit`, `play_note`,
+`save_load` ops; `player_activate` opens the conversation when the activation's default is
+to talk (the play loop does); a container opened by the player runs OnOpen/OnClose (§2 item
+8); `get_quest` reads `failed`.
+
+**Open, ranked:**
+1. Possibly hard: two Dead Money narrator lines name Elijah as fixed speaker with no GetIsID
+   condition (INFO 0x01013C60, 0x01011DE9), so `can_say_as` refuses them and their slides are
+   skipped [observed]; what the original does is an observer question.
+2. Possibly hard: a script making a talking activator activate the player (REPCONN's
+   intercom, SCPT 0x000CD04E) gives a "talk" outcome no one opens, in the runner and in play
+   (nvf-play `talk_after` takes the player's own activations only) [observed]; about 30-60
+   lines in `Game`, plus an observer check.
+3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
+   (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
+   says those lines they are lost.
+4. Soft: AddScriptPackage is a stub, so scripted packages never run (ED-E in Lonesome Road);
+   dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
+   stood in; MoveTo travel leaves Dead Money's collar radios counting the player in range
+   (their check runs only while their cell is loaded); no pickpocket, loot or sit op.
+5. Soft: save and load drops awareness (by design, §6), so a headless run loaded mid-fight
+   reads IsInCombat 0; in play the VATS tutorial message may show again.
+6. Data notes [observed]: SetStage on stages a quest does not define does nothing (Dead
+   Money); NVDLC02MQ02 is never started (its errands take its place); the Pine Creek tunnel
+   trigger script and Jason's farewell trigger have no placed reference; `scripted:X#n`
+   counts from 1 (#0 and #1 name the first reference).
+
+**Tools** (§5-§7, and docs/design/stress-tests.md §3, §3b): `script cover` (coverage),
+`script roundtrip` (save and load mid-chain), `script sweep` (every result script once),
+stress `cells` now reports missing files and script errors per cell, and stress `markers`
+fast-travels to every map marker (tried on four: three travelled, one refused for a hostile
+nearby; the World Map now reads its markers on an ask from the test aid).
+
+Not done in this batch: the companion quests and the Gun Runners' Arsenal / Hardcore chains
+(helpers stopped by the usage limit, resumed), the three scenes as real game runs (a helper
+is on it), and a full markers or cells sweep (hours of game time).

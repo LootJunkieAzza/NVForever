@@ -716,6 +716,12 @@ pub fn get_is_creature_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 /// changed by SetEssential). The reference flag cannot clear the base's [documented:
 /// catalogue notes of SetActorRefEssential].
 pub fn essential(g: &Game, r: FormId) -> bool {
+    // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
+    // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in Hardcore
+    // dies, flag or not.
+    if g.hardcore() && g.is_teammate(r) {
+        return false;
+    }
     let base = base_of(g, r);
     let base_flag = base
         .and_then(|b| g.forms.essential.get(&b).copied())

@@ -271,6 +271,9 @@ pub struct Applied {
     pub duration: f64,
     /// The same item's effect was active: this use lengthened it.
     pub extended: bool,
+    /// Its conditions failed: it is listed inactive and changes nothing until they pass
+    /// (`Game::apply_magic_item_with`).
+    pub inactive: bool,
 }
 
 /// What using an ingestible did ([`Game::ingest`]).
@@ -365,7 +368,9 @@ impl Game<'_> {
         let health = perk(self, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0);
         let mods = Mods { potency, duration, rads, health, limb, ..Mods::default() };
         self.emit(EventKind::Ingested { actor, item, potency });
-        let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
+        // Effects whose conditions fail (a Stimpak's Hardcore effects outside Hardcore) are
+        // listed inactive and changed nothing: not part of what the use did.
+        let applied: Vec<Applied> = self.apply_magic_item_with(actor, item, Some(actor), false, &mods).into_iter().filter(|a| !a.inactive).collect();
         if actor == FormId::PLAYER_REF {
             for (code, n) in crate::misc_stats::ingest_counts(&def, &applied) {
                 self.count_stat(code, n);

@@ -21,6 +21,13 @@ START = re.compile(r"stress cell: (\d+)/(\d+) start (.*)$")
 LOADED = re.compile(r"stress cell: (\d+)/(\d+) loaded in ([\d.]+) s (.*)$")
 SKIPPED = re.compile(r"stress cell: (\d+)/(\d+) skipped: (.*)$")
 PROGRESS = re.compile(r"stress cell")
+# What went wrong in a cell, from the engine's own warnings (nvf-assets guard.rs `failed`,
+# nvf-play script.rs): a model or texture file missing or broken, a script stopped.
+PROBLEMS = {
+    "model": re.compile(r"model not loaded: (.*)$"),
+    "texture": re.compile(r"texture not loaded: (.*)$"),
+    "script": re.compile(r"script error in (.*)$"),
+}
 
 
 @dataclass(frozen=True)
@@ -100,6 +107,31 @@ def read_batch(lines: list[str]) -> dict:
     return {"loaded": loaded, "skipped": skipped, "last_started": last}
 
 
+def read_problems(lines: list[str]) -> dict[int, dict[str, list[str]]]:
+    """The missing or broken files and script errors logged while each cell (1-based
+    index) was the one visited: from its start line to the next cell's."""
+    out: dict[int, dict[str, list[str]]] = {}
+    at = None
+    for ln in lines:
+        if m := START.search(ln):
+            at = int(m.group(1))
+            continue
+        if at is None:
+            continue
+        for kind, rx in PROBLEMS.items():
+            if m := rx.search(ln):
+                out.setdefault(at, {}).setdefault(kind, []).append(m.group(1).strip())
+                break
+    return out
+
+
+def problem_key(kind: str, text: str) -> str:
+    """What problems are grouped by: a file's path (before its error), a script's unit."""
+    if kind in ("model", "texture"):
+        return text.split(": ", 1)[0]
+    return text.split(": ", 1)[0] + ": " + re.sub(r"\d+", "#", text.split(": ", 1)[1]) if ": " in text else text
+
+
 def enumerate_cells(ctx: lib.Ctx) -> list[Cell]:
     def tool(*args) -> dict:
         cmd = [str(ctx.fnvtool), "world", *args[:1], str(ctx.data), *ctx.masters, "--schema", "schemas/fnv", *args[1:]]
@@ -166,9 +198,13 @@ def run(ctx: lib.Ctx, cells: list[Cell], batch: int, dwell: float, hang: float, 
         ctx.say(f"cells: {name}: {len(part)} cells ({part[0].name()} ...)")
         r = lib.run(ctx, launch)
         seen = read_batch(r.lines)
+        problems = read_problems(r.lines)
         for i, c in enumerate(part, 1):
             if i in seen["loaded"]:
-                rows.append({"cell": c.name(), "status": "ok", "seconds": seen["loaded"][i], "batch": name})
+                row = {"cell": c.name(), "status": "ok", "seconds": seen["loaded"][i], "batch": name}
+                if i in problems:
+                    row["problems"] = problems[i]
+                rows.append(row)
             elif i in seen["skipped"]:
                 rows.append({"cell": c.name(), "status": "skipped", "why": seen["skipped"][i], "batch": name})
         stop = seen["last_started"]
@@ -236,8 +272,27 @@ def summarize(rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: 
         "slowest": sorted(ok, key=lambda r: -r["seconds"])[:20],
         "mean_load_seconds": round(sum(r["seconds"] for r in ok) / len(ok), 3) if ok else None,
         "crash_groups": lib.group_crashes(crashes),
+        "problems": problem_summary(rows),
         "cells": rows,
     }
+
+
+def problem_summary(rows: list[dict]) -> dict:
+    """Per kind (model, texture, script): the cells with any, and the problems grouped
+    (a file, a script and its error) with how many cells met each and a few of them."""
+    out = {}
+    for kind in PROBLEMS:
+        groups: dict[str, list[str]] = {}
+        cells_with = 0
+        for r in rows:
+            got = r.get("problems", {}).get(kind, [])
+            cells_with += bool(got)
+            for k in sorted({problem_key(kind, t) for t in got}):
+                groups.setdefault(k, []).append(r["cell"])
+        top = sorted(groups.items(), key=lambda g: (-len(g[1]), g[0]))
+        out[kind] = {"cells": cells_with, "distinct": len(groups),
+                     "top": [{"what": k, "cells": len(v), "e.g.": v[:3]} for k, v in top[:20]]}
+    return out
 
 
 def report(res: dict) -> list[str]:
@@ -256,6 +311,14 @@ def report(res: dict) -> list[str]:
             out += [f"{i}. **{g['message'] or '(no message)'}** at `{g['location']}`: {len(g['where'])} cell(s)",
                     *(f"   - `{f}`" for f in g["frames"]),
                     "   - cells: " + ", ".join(g["where"][:20]) + (" ..." if len(g["where"]) > 20 else ""), ""]
+    pr = res.get("problems") or {}
+    if any(v["cells"] for v in pr.values()):
+        out += ["## Missing files and script errors", "",
+                ", ".join(f"{k}: {v['distinct']} in {v['cells']} cells" for k, v in pr.items()), ""]
+        for k, v in pr.items():
+            for g in v["top"][:10]:
+                out.append(f"- {k} `{g['what']}`: {g['cells']} cell(s), e.g. {', '.join(g['e.g.'])}")
+        out.append("")
     out += ["## Slowest loads", "", "| cell | seconds |", "|---|---|"]
     out += [f"| {r['cell']} | {r['seconds']:.2f} |" for r in res["slowest"]]
     bad = [r for r in res["cells"] if r["status"] in ("crashed", "hung", "failed")]

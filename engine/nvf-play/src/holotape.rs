@@ -51,6 +51,9 @@ pub struct Holotape {
     held: bool,
     /// Responses started so far.
     pub started: u64,
+    /// The result scripts of Voice notes' lines due (note, 0 begin / 1 end), run by
+    /// [`run_scripts`] with the world at hand.
+    scripts: Vec<(FormId, usize)>,
 }
 
 /// Marks a holotape's audio entity.
@@ -139,6 +142,7 @@ fn play(
                 st.total = st.queue.iter().map(|q| q.1).sum();
                 st.playing = Some(*note);
                 st.ends_at = now;
+                st.scripts.push((*note, 0));
                 info!("holotape: {} plays {} said by {}, {} responses", g.data.name(*note), g.data.name(info), g.data.name(speaker), n);
             }
             None => info!("holotape: {} has nothing to play", g.data.name(*note)),
@@ -168,6 +172,7 @@ fn play(
     st.entity = None;
     let Some((path, seconds)) = st.queue.pop() else {
         st.stop(&mut commands);
+        st.scripts.push((note, 1));
         info!("holotape: {} is over", g.data.name(note));
         return;
     };
@@ -187,10 +192,27 @@ fn play(
     info!("holotape: playing {path} ({seconds:.2} s) response {k}/{}{silent}", st.count);
 }
 
+/// A Voice note's line runs its begin script as the tape starts and its end script as it
+/// plays out (`Game::holotape_script`, docs/spec-notes/holotapes.md: Dead Money's Dog
+/// command tape is its quest's only way on) [hypothesis: a tape stopped before its end
+/// runs no end script].
+fn run_scripts(mut tape_state: ResMut<Holotape>, mut script: ResMut<ScriptState>, mut sim: ResMut<crate::sim::SimState>) {
+    if tape_state.scripts.is_empty() {
+        return;
+    }
+    let Some(rt) = script.rt.as_mut() else { return };
+    for (note, which) in std::mem::take(&mut tape_state.scripts) {
+        let info = crate::script::with_world(rt, &mut sim, |rt| rt.game.holotape_script(note, which));
+        if let Some(info) = info {
+            info!("holotape: {} ran the {} script of {}", rt.game.data.name(note), ["begin", "end"][which], rt.game.data.name(info));
+        }
+    }
+}
+
 pub struct HolotapePlugin;
 
 impl Plugin for HolotapePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Holotape>().add_systems(Update, play.in_set(PlaySet::Ui));
+        app.init_resource::<Holotape>().add_systems(Update, (play, run_scripts).chain().in_set(PlaySet::Ui));
     }
 }

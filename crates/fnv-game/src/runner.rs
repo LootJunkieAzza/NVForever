@@ -67,6 +67,11 @@ pub struct Input {
     /// References whose final state is reported.
     #[serde(default)]
     pub report: Vec<String>,
+    /// The load order the chain is written for (`fnvtool script cover` runs it over
+    /// these plugins; empty: the first plugin of the load order it is given).
+    /// `script run` uses the plugins on its command line and ignores this.
+    #[serde(default)]
+    pub plugins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -277,7 +282,8 @@ pub enum Action {
     AdvanceSeconds { seconds: f64 },
     /// An actor (the player by default) activates by hand: OnActivate instead of the
     /// default action.
-    PlayerActivate { target: String, #[serde(default)] actor: Option<String> },
+    /// With `label`, observation `info` when the activation opened a conversation.
+    PlayerActivate { target: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
     /// A dialogue line (INFO) is said: its result scripts run on the speaker.
     SayInfo { info: String, #[serde(default)] speaker: Option<String>, #[serde(default)] force: bool },
     /// The first of several lines whose conditions pass is said (the speaker picks the
@@ -287,6 +293,13 @@ pub enum Action {
     Package { actor: String, package: String, event: String },
     /// A `SayTo` line finished (SayToDone blocks of the speaker).
     SayToDone { actor: String, #[serde(default)] topic: Option<String> },
+    /// An actor walking a patrol reaches one of its points: the point's patrol script
+    /// runs on the actor and its topic is said (`Game::patrol_point_reached`, as the AI
+    /// layer calls it).
+    PatrolPoint { actor: String, point: String },
+    /// An actor (the player by default) fires a weapon it carries: the weapon's OnFire
+    /// blocks run (`Game::weapon_fired`, as the play loop calls it).
+    Fire { weapon: String, #[serde(default)] actor: Option<String> },
     /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
     /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
     /// (OnTriggerLeave).
@@ -321,10 +334,18 @@ pub enum Action {
         #[serde(default)]
         killer: Option<String>,
     },
+    /// A shot or blow landing on a reference that is not an actor (stand-in for an
+    /// attacker's weapon reaching it, the player's by default): its OnHit and OnHitWith
+    /// blocks run (`Game::hit_object`); observation `ran`: whether a block ran.
+    Hit { target: String, #[serde(default)] attacker: Option<String>, #[serde(default)] weapon: Option<String>, #[serde(default)] label: Option<String> },
     /// An actor (the player by default) consumes an ingestible it carries (the engine's
     /// use of an aid item): one is removed and its effects start, effect scripts
     /// included (`Game::consume`); observation `effects`: the effects started.
     Consume { item: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
+    /// The player plays a holotape (a NOTE) from the Pip-Boy: its line's begin script,
+    /// then its end script (`Game::holotape_script`; the voice's length is not waited
+    /// for); observation `info`: the line, null for a note that plays none.
+    PlayNote { note: String, #[serde(default)] label: Option<String> },
     /// A comment in the input (why the next stand-in is there); no effect, no frames.
     Note { text: String },
     /// A console line run as the console runs it (`functions::console::call_words`):
@@ -389,6 +410,34 @@ pub enum Action {
         #[serde(default)]
         label: Option<String>,
     },
+    /// The player saving and loading that save at once: the game's snapshot written into
+    /// a save file's bytes (`fnv_save`, as the engine's saves), read back and restored
+    /// in place of the running game (docs/design/save-load.md). The random numbers keep
+    /// their position, so a chain goes on as it would have; the trace, the coverage and
+    /// the session's event handlers carry over. Observation `bytes` (the save's size).
+    SaveLoad {
+        #[serde(default)]
+        label: Option<String>,
+    },
+}
+
+/// [`Action::SaveLoad`]: the save's size in bytes.
+fn save_and_load(g: &mut Game) -> Result<usize, String> {
+    let snap = g.snapshot();
+    let body = serde_json::to_vec(&snap).map_err(|e| e.to_string())?;
+    let bytes = fnv_save::encode(&fnv_save::SaveHeader::new(fnv_save::SaveKind::Quick), &[], &body);
+    let file = fnv_save::decode(std::path::Path::new("runner save"), &bytes, true).map_err(|e| e.to_string())?;
+    let back: crate::game::GameSnapshot = serde_json::from_slice(&file.body).map_err(|e| e.to_string())?;
+    let world = World::restore(g.world.forms, g.world.placed, &back.sim)?;
+    let mut n = Game::restore(g.data, world, g.cfg, &back)?;
+    n.put_session(g.take_session());
+    n.voice = g.voice.take();
+    n.coverage = g.coverage.take();
+    n.events = std::mem::take(&mut g.events);
+    n.unhandled = std::mem::take(&mut g.unhandled);
+    n.stubbed = std::mem::take(&mut g.stubbed);
+    *g = n;
+    Ok(bytes.len())
 }
 
 /// Frames that pass after an action (layer5-captures.md §4.1).
@@ -405,11 +454,14 @@ fn frames_after(a: &Action) -> u64 {
         Action::SetRefVar { .. } => 11,
         Action::ActivateRead { .. } => 31,
         Action::Kill { .. } | Action::EvaluatePackage { .. } => 61,
+        Action::Hit { .. } => 11,
         Action::AddItemRead { .. } | Action::IsCurrentPackage { .. } => 1,
         Action::GetRef { fields: Some(_), .. } => 0,
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
         Action::SampleRefVar { .. } | Action::SampleItems { .. } | Action::MenuGap { .. } => 0,
         Action::Note { .. } => 0,
+        // Saving and loading take no game time: the chain goes on in the same frame.
+        Action::SaveLoad { .. } => 0,
         // As the probes' game jobs: a query has no pause after it, an action 10 frames.
         Action::Call { label: Some(_), .. } | Action::CallUntil { .. } | Action::Query { .. } => 0,
         Action::Call { label: None, .. } => 10,
@@ -536,6 +588,26 @@ fn opened_since(g: &Game, since: usize) -> bool {
         .any(|e| matches!(&e.kind, EventKind::Activated { outcome: Some(v), .. } if v["result"] == "opened_container"))
 }
 
+/// The containers the player's activations since event `since` opened (their menus).
+fn containers_opened_since(g: &Game, since: usize) -> Vec<FormId> {
+    g.events[since..]
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "opened_container" => serde_json::from_value(v["container"].clone()).ok(),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The first of the player's activations since event `since` whose outcome is to talk
+/// (`fnv_sim::world::Outcome::Talk`): the actor or talking activator talked to.
+fn talk_since(g: &Game, since: usize) -> Option<FormId> {
+    g.events[since..].iter().find_map(|e| match &e.kind {
+        EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "talk" => serde_json::from_value(v["actor"].clone()).ok(),
+        _ => None,
+    })
+}
+
 /// The menu code of the container menu [observed: `MenuMode 1008` was true while a
 /// container menu opened by Activate was up, layer5-captures.md §8.3].
 pub const CONTAINER_MENU: u16 = 1008;
@@ -580,6 +652,10 @@ fn field(g: &Game, q: FormId, f: &str) -> Result<Json, String> {
     Ok(match f {
         "running" => json!(s.running),
         "completed" => json!(s.completed || s.failed),
+        // The quest's failed flag alone (a stage with the Fail Quest flag ran), which
+        // `completed` (GetQuestCompleted) folds in; the walkthroughs' fail paths read it.
+        // No script function reads it [observed: QSDT flag 2 "Fail Quest", FalloutNV.esm].
+        "failed" => json!(s.failed),
         "stage" => json!(s.stage()),
         _ => {
             if let Some(n) = f.strip_prefix("done.") {
@@ -1217,13 +1293,37 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("value".into(), json!(g.world.global(id).map_err(|e| e.to_string())? as f64));
             lab = l.clone();
         }
-        Action::PlayerActivate { target, actor } => {
+        Action::PlayerActivate { target, actor, label: l } => {
+            lab = l.clone();
             let actor = match actor {
                 Some(a) => resolve(g, a)?,
                 None => FormId::PLAYER_REF,
             };
             let t = resolve(g, target)?;
+            let from = g.events.len();
             g.activate(actor, t, ActMode::Hand)?;
+            // The player's activation whose default action is to talk (an actor, or a
+            // talking activator whose OnActivate ends with `Activate`) opens the
+            // conversation, as the play loop's does (nvf-play `talk_after`); an actor
+            // with nothing to say opens none. Observation `info`: the greeting said.
+            if actor == FormId::PLAYER_REF && g.dialogue.is_none() {
+                if let Some(who) = talk_since(g, from) {
+                    if let Ok(info) = g.start_dialogue(who, None) {
+                        obs.insert("info".into(), json!(info.to_string()));
+                    }
+                }
+            }
+            // A container the player's activation opened: its menu opens and closes with
+            // nothing taken (`remove_all_items` stands in for taking), so its OnOpen and
+            // then OnClose run at the start of the next frame, as the play loop queues
+            // them from the container menu (nvf-play `engine_menu_opened` / `_closed`)
+            // [hypothesis: the menu's moments, game.rs `event::ON_OPEN`]. The Fort's
+            // player storage turns the Legion hostile this way (VMQ02 110).
+            for c in containers_opened_since(g, from) {
+                g.queue_ref_event(c, crate::game::event::ON_OPEN, Some(FormId::PLAYER_REF));
+                g.queue_ref_event(c, crate::game::event::ON_CLOSE, Some(FormId::PLAYER_REF));
+                obs.insert("opened".into(), json!(c.to_string()));
+            }
         }
         Action::SayInfo { info, speaker, force } => {
             let i = resolve(g, info)?;
@@ -1276,6 +1376,23 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 None => None,
             };
             g.ref_event(a, event::SAY_TO_DONE, t, None);
+        }
+        Action::PatrolPoint { actor, point } => {
+            let (a, p) = (resolve(g, actor)?, resolve(g, point)?);
+            let has_topic = g.world.placed.get(p).and_then(|r| r.patrol_topic).is_some();
+            if !g.data.patrol_scripts.contains_key(&p) && !has_topic {
+                return Err(format!("{} has no patrol script or topic", g.data.name(p)));
+            }
+            g.patrol_point_reached(a, p);
+        }
+        Action::Fire { weapon, actor } => {
+            let (a, w) = (actor_or_player(g, actor)?, resolve(g, weapon)?);
+            if g.world.item_count(a, w).unwrap_or(0) <= 0 {
+                return Err(format!("{} carries no {}", g.data.name(a), g.data.name(w)));
+            }
+            if !g.weapon_fired(a, w) {
+                return Err(format!("{} has no OnFire block", g.data.name(w)));
+            }
         }
         Action::TriggerEnter { trigger, actor, event: ev } => {
             let t = resolve(g, trigger)?;
@@ -1432,6 +1549,20 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("destroyed".into(), json!(x.destroyed));
             lab = l.clone();
         }
+        Action::Hit { target, attacker, weapon, label: l } => {
+            let t = resolve(g, target)?;
+            let attacker = match attacker {
+                Some(x) => resolve(g, x)?,
+                None => FormId::PLAYER_REF,
+            };
+            let weapon = match weapon {
+                Some(w) => Some(resolve(g, w)?),
+                None => None,
+            };
+            let info = crate::combat::HitInfo { attacker: Some(attacker), weapon, location: -1, critical: false, limb: None };
+            obs.insert("ran".into(), json!(g.hit_object(t, info)));
+            lab = l.clone();
+        }
         Action::Kill { target, actor, killer } => {
             let a = resolve(g, target.as_ref().or(actor.as_ref()).ok_or("kill needs 'target'")?)?;
             let args = match killer {
@@ -1585,6 +1716,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("{cell:?} is not a cell"));
             }
             let pos = coc_destination(g, c)?;
+            let from = g.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
             {
                 let p = g.world.get(FormId::PLAYER_REF).map_err(|e| e.to_string())?;
                 p.cell = Some(c);
@@ -1592,6 +1724,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             g.emit(EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(c), pos });
             g.player_entered(Some(c));
+            // "Changing cells will teleport the teammate to the player" [documented: GECK
+            // wiki SetPlayerTeammate notes], as MoveTo and doors do (`Game::bring_teammates`).
+            g.bring_teammates(from);
         }
         Action::SampleJumps { reads, frames, min_step, label: l } => {
             // Every read once per frame, after the frame's scripts ran.
@@ -1667,6 +1802,11 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             obs.insert("back".into(), json!(c.back));
             lab = l.clone();
         }
+        Action::SaveLoad { label: l } => {
+            let bytes = save_and_load(g)?;
+            obs.insert("bytes".into(), json!(bytes));
+            lab = l.clone();
+        }
         Action::Consume { item, actor, label: l } => {
             let who = match actor {
                 Some(a) => resolve(g, a)?,
@@ -1675,6 +1815,13 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             let it = resolve(g, item)?;
             let ids = g.consume(who, it)?;
             obs.insert("effects".into(), json!(ids.len()));
+            lab = l.clone();
+        }
+        Action::PlayNote { note, label: l } => {
+            let n = resolve(g, note)?;
+            let info = g.holotape_script(n, 0);
+            g.holotape_script(n, 1);
+            obs.insert("info".into(), info.map_or(Json::Null, |i| json!(i.to_string())));
             lab = l.clone();
         }
     }
@@ -1728,7 +1875,19 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
 /// [`run`], with dialogue responses as long as their voice files where `voice` knows
 /// them (`crate::voice`, docs/spec-notes/voice.md §8).
 pub fn run_with_voice(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, voice: Option<Voice>) -> Result<Json, String> {
-    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice)
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice, false).map(|(t, _)| t)
+}
+
+/// [`run_with_voice`], recording what the run reached of the scripts
+/// (`crate::coverage`): the trace and the coverage.
+pub fn run_with_coverage(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    voice: Option<Voice>,
+) -> Result<(Json, crate::coverage::Coverage), String> {
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice, true).map(|(t, c)| (t, c.unwrap_or_default()))
 }
 
 /// The line-length hook a run is given ([`crate::game::Game::voice`]).
@@ -1770,7 +1929,7 @@ pub fn run_dialogue_with_voice(
     text: bool,
     voice: Option<Voice>,
 ) -> Result<Json, String> {
-    let full = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice)?;
+    let (full, _) = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice, false)?;
     let form = |v: &Json| v.as_str().and_then(|s| s.parse::<FormId>().ok());
     let edid = |v: &Json| form(v).and_then(|f| data.edid_of.get(&f).cloned());
     let mut events = Vec::new();
@@ -1830,7 +1989,15 @@ pub fn run_dialogue_with_voice(
     }))
 }
 
-fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, format: &str, voice: Option<Voice>) -> Result<Json, String> {
+fn run_as(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    format: &str,
+    voice: Option<Voice>,
+    cover: bool,
+) -> Result<(Json, Option<crate::coverage::Coverage>), String> {
     if input.format != format {
         return Err(format!("unsupported actions format {:?} (expected {format})", input.format));
     }
@@ -1857,6 +2024,9 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
     };
     let mut g = Game::new(data, world, cfg);
     g.voice = voice;
+    if cover {
+        g.coverage = Some(Default::default());
+    }
     if input.new_game {
         g.new_game();
         new_game_start(&mut g);
@@ -1973,7 +2143,7 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
         g.unhandled.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
     let stubbed: Map<String, Json> =
         g.stubbed.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
-    Ok(json!({
+    let trace = json!({
         "format": TRACE_FORMAT,
         "seed": input.seed,
         "frame_seconds": input.frame_seconds,
@@ -1991,7 +2161,8 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
             "unhandled": unhandled,
             "stubbed": stubbed,
         },
-    }))
+    });
+    Ok((trace, g.coverage.take()))
 }
 
 fn action_label(a: &Action) -> Option<String> {
@@ -2014,6 +2185,8 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAv { label, .. }
         | Action::SampleAvDamage { label, .. }
         | Action::Talk { label, .. }
+        | Action::PlayerActivate { label, .. }
+        | Action::Hit { label, .. }
         | Action::Choose { label, .. }
         | Action::WaitTalk { label, .. }
         | Action::SampleJumps { label, .. }
