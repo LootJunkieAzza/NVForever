@@ -118,7 +118,7 @@ compared with independent readers and in-game captures) and the smoke runner
 | Smoke runner | Done | `python tools/smoke run` picks the scenarios the changed files call for, shares launches, takes the game locks, one line per scenario; known-failing marks with reasons | `tools/smoke/scenarios.toml` |
 | Crash reports | Done | A panic writes `Documents\My Games\NVForever\logs\crash-*.txt` with a backtrace; release builds carry line tables for file:line (`engine/Cargo.toml`) | `engine/nvforever/src/crash.rs` |
 | CI | Done | Linux job on pushes to main and on every pull request (#89, #272); a guard against game data in pull requests; PR template with a clean-room checklist; issue forms (bug, crash, differs from the original, build/tool, feature, #273) | `.github/workflows/ci.yml`, `game-data-guard.yml` |
-| Releases | Done, first version | Tag-triggered workflow builds Windows and Linux archives with launchers (`nvforever.cmd`/`.sh`) and the schemas; v0.1.0 pre-release 2026-10-13 (#270), then v0.2.0 (#418), v0.3.0 (#449) and v0.4.0 (#573) | `.github/workflows/release.yml`, `tools/release/` |
+| Releases | Done, first version | Tag-triggered workflow builds Windows and Linux archives with launchers (`nvforever.cmd`/`.sh`) and the schemas; v0.1.0 pre-release 2026-10-13 (#270), then v0.2.0 (#418), v0.3.0 (#449), v0.4.0 (#573) and v0.5.0 (2026-10-28) | `.github/workflows/release.yml`, `tools/release/` |
 
 ## 9. Open items needing the owner
 
