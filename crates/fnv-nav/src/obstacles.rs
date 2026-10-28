@@ -5,11 +5,18 @@
 //!
 //! The navmesh is made in the editor around what stands in the cell, so an object that
 //! is always there already has its hole. What the cut adds is for objects that come and
-//! go: NVForever cuts only for references that can be enabled or disabled (Initially
-//! Disabled, or with an enable parent), and only while they are enabled [hypothesis: the
-//! cut matters for those; FalloutNV.esm places 59,925 obstacle references, mostly rocks
-//! and cliffs whose bounds are far larger than their shape, and 149 that can come and go:
-//! sandbags, guard rails, force fields, box cars, observed 2026-10-24]. The cut takes the
+//! go: NVForever learns the references that can be enabled or disabled (Initially
+//! Disabled, or with an enable parent) [hypothesis: the cut matters for those;
+//! FalloutNV.esm places 59,925 obstacle references, mostly rocks and cliffs whose bounds
+//! are far larger than their shape, and 149 that can come and go: sandbags, guard rails,
+//! force fields, box cars, observed 2026-10-24], and cuts for one only while it is
+//! enabled and was placed Initially Disabled: one placed enabled stood there when the
+//! navmesh was made, so the navmesh already goes round it (or through it, where its
+//! bounds are larger than its shape) [hypothesis; observed 2026-10-28: the sandbag
+//! 0x00168F64 at Hoover Dam, placed enabled under the enable parent
+//! VMQ03aGrahamRadioREF, has navmesh triangles under its bounds that join Colonel
+//! Moore's patrol points 0x001377C5 and 0x001377C6 on her way to Kimball's podium; cut,
+//! they split the deck and she never reached it]. The cut takes the
 //! triangles under the reference's bounds (OBND, placed and scaled), seen from above,
 //! whose heights meet the bounds from 64 units under the base to [`TOP_CLEAR`] under the
 //! top [engine choice: a triangle near the top is on the object, not under it]
@@ -64,6 +71,16 @@ impl Obstacle {
 pub struct ObstacleCut {
     pub tris: Vec<u32>,
     pub enabled: bool,
+    /// Placed enabled (not Initially Disabled): the navmesh was made with it standing,
+    /// so it never cuts (module notes).
+    pub placed_enabled: bool,
+}
+
+impl ObstacleCut {
+    /// Whether it cuts its triangles now: enabled, and absent when the navmesh was made.
+    pub fn cuts_now(&self) -> bool {
+        self.enabled && !self.placed_enabled
+    }
 }
 
 /// Every obstacle reference of the load order that can be enabled or disabled (module
@@ -142,7 +159,7 @@ impl NavGraph {
             let tris: Vec<u32> = self.triangles_near(o.space, o.position[0], o.position[1], reach).into_iter().filter(|&t| o.cuts(self.corners(t))).collect();
             if !tris.is_empty() {
                 let on = enabled(&o);
-                self.obstacles.insert(o.reference, ObstacleCut { tris, enabled: on });
+                self.obstacles.insert(o.reference, ObstacleCut { tris, enabled: on, placed_enabled: o.initially_enabled });
             }
         }
         self.recut();
@@ -173,18 +190,18 @@ impl NavGraph {
         changed
     }
 
-    /// The triangles cut now by enabled obstacles.
+    /// The triangles cut now by enabled obstacles ([`ObstacleCut::cuts_now`]).
     pub fn cut_triangles(&self) -> usize {
         self.cut.iter().filter(|&&c| c > 0).count()
     }
 
-    /// Count the enabled obstacles over each triangle and, when that changed, work out
-    /// the areas again.
+    /// Count the cutting obstacles over each triangle ([`ObstacleCut::cuts_now`]) and,
+    /// when that changed, work out the areas again.
     fn recut(&mut self) {
         let before = std::mem::take(&mut self.cut);
-        if self.obstacles.values().any(|o| o.enabled) {
+        if self.obstacles.values().any(ObstacleCut::cuts_now) {
             self.cut.resize(self.tris.len(), 0);
-            for o in self.obstacles.values().filter(|o| o.enabled) {
+            for o in self.obstacles.values().filter(|o| o.cuts_now()) {
                 for &t in &o.tris {
                     if let Some(c) = self.cut.get_mut(t as usize) {
                         *c = c.saturating_add(1);
