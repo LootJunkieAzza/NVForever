@@ -299,7 +299,8 @@ menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 
 
 What the original can settle (copied to docs/handoff/observer-checks.md):
 
-1. **The numbers of `&true;` and `&false;`.** `GetUIFloat` on a trait the file sets to
+1. **The numbers of `&true;` and `&false;`.** Answered 2026-10-28: 1 and 0, and
+   `&does_not_stack;` 6008 [observed: hud.md §14]. `GetUIFloat` on a trait the file sets to
    `&true;` and nothing changes (e.g. `HUDMainMenu/locus`), and on one set to `&false;`
    (`HUDMainMenu/_CrosshairVisible` before any aiming). Also `&center;`, `&right;` (a
    `justify`) and `&scale;` while there.

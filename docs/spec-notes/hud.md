@@ -158,7 +158,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   The ends are cut off sharp.
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
   long and 20 high [documented: the size] at a quarter of the bar's strength
-  [hypothesis: as `meter.xml`'s ground]. The bar ends 10 before the divider (x 137–197),
+  [hypothesis: as `meter.xml`'s ground]. The bar ends 17 before the divider (x 130–190)
+  [observed: §14, read through xNVSE and on its screenshot; 10 before stood 7 too far
+  right],
   "CND" ending 11 before it, and its bottom stands 2 above the line "CND" stands on
   (y 106), about as high as the letters [observed: on the `Target healthbar` screenshot
   the bar starts about 8 pixels after the "D"; owner's playtest 2026-10-16, after x
@@ -436,3 +438,93 @@ menu's (`dialogue_menu.rs`).
 - Log: `hud needs: <word> <hidden|faded|normal|red|flashing> (<why>)` when a word's look
   changes, the why being `stage <n> of <count>, <stage effect>`, `no stage`, `Hardcore
   off` or `<n> limbs crippled`.
+
+## 14. Read from the running original through xNVSE (2026-10-28)
+
+[observed: `tools/capture/hud_traits.py` job, run 1793221057 on the owner's test install
+(game 1.4.0.525, xNVSE 6.4.9, no JIP or SUP), save outside Doc Mitchell's house, health
+200/200, AP 80, 20 samples, 1920 x 1080 windowed (the plugin scales its screenshots to
+1280 wide [documented: nvf_capture README]); then the same with a 9mm pistol equipped by
+script at 1920 x 1080, 1024 x 768 and 1280 x 800 (`FalloutPrefs.ini` `iSize` changed for
+the run and put back). Results private, in `C:\fnv-private`.] Places are
+in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 1536 at
+16:10, 1706.7 at 16:9.
+
+- **The reads work.** A known trait reads its value and a missing one -999 with GetUIFloat
+  and GetUIFloatAlt; GetUIFloatInherited gives the wiki page's own example exactly (-50,
+  and 0 with `ExcludeMenuRoot`).
+- **The corner pieces.** `HitPoints` stands at x 40, y 803 at all three sizes: with its
+  height 127 its bottom is 30 above the view's, as §4 guessed. `ActionPoints` stands at
+  y 803 with its right edge on the view's (x 894 at 4:3, 1150 at 16:10, 1320 at 16:9: the
+  view's width less 386, in whole units), not 40 in from it as §4 guessed. The brackets'
+  pictures stand inside their pieces, so on the screen the current HUD's right corner
+  still lands where the original's does (below).
+- **The middle.** `ReticleCenter`'s child (64 x 64) is centred less half a unit (607.5 at
+  4:3, 735.5 at 16:10, 820.5 at 16:9); `SneakMeter`'s child stands at the middle (640,
+  768, 853); `EnemyHealth` is centred (its 500-wide child at the middle less 182).
+- **What the code makes under them** (`*:N` children; which is which is
+  [hypothesis] by size and place): under `HitPoints` four tiles, one 296 x 20 at x 20,
+  y 41 (the bar) and one 512 x 256 at the piece's corner (the bracket picture); under
+  `ActionPoints` seven, among them 296 x 20 at x 30, y 41 (the bar) and 60 x 20 at x 90,
+  y 83 (the condition bar's ground, the file's size).
+- **Against the current HUD** (§4), on the view: the HP bar starts 1 unit further left
+  (60 against 61), the AP bar 2 units further right (1350.7 against 1348.7), the
+  condition ground 7 units further left (1410.7 against 1417.7). The first two are within
+  the screenshot measurements; the third is not, and is fixed: a second run with a 9mm
+  pistol equipped by script shows the ground (60 x 20, `visible` 1, behind) and its fill
+  (59 wide, in front) at x 90 of `ActionPoints`, and on its screenshot the bar spans
+  1058-1102 pixels and "CND" ends at about 1053, the divider at 1114-1116: the bar ends
+  17 units before the divider, not 10 (§4).
+- What the code changed against the file alone, among 31 traits: the prompt box
+  (`Info/justify_center_hotrect`) sized to its text (176 x 52), `SneakMeter/sneak_nif`
+  14 x 36 (the file says 128 x 128), `CNDArrows` 20 high (16), the Hardcore words'
+  `alpha` 0 (not in Hardcore mode), and the lines' thickness 1.78 at this view.
+- **Every piece's place.** [observed: a third run reading `x`, `y`, `width`, `height`,
+  `visible` on every tile, set in the file or not, with the pistol, at 4:3, 16:10 and
+  16:9.] The code sets each piece's `x` and `y` (the file has none); `y` is the same at
+  every size; `x` follows one of three rules, W being the view's width (1280, 1536,
+  1706.7) and the result in whole units where W is not whole (1320 at 16:9):
+
+  | Piece | Size | x | y |
+  |---|---|---|---|
+  | `HitPoints` | 369 x 127 | 40 | 803 |
+  | `ActionPoints` | 386 x 127 | W - 386 | 803 |
+  | `HardcoreMode` | 386 x 20 | 190 | 803 |
+  | `SneakMeter` | 356 x 34 | W/2 | 30 |
+  | `ReticleCenter` | 63 x 75 | W/2 - 34.5 | 439.5 |
+  | `EnemyHealth` | 350 x 52 | W/2 - 175 | 843 |
+  | `QuestReminder` | 400 x 200 | 45 | 200 |
+  | `Messages` | 460 x 90 | 25 | 55 |
+  | `Subtitles` | 800 x 110 | W/2 - 400 | 660 |
+  | `Info` | 320 x 80 | W/2 - 160 | 820 |
+  | `Hokeys` | 300 x 300 | W - 371 | 483 |
+  | `Region_Location` | 100 x 100 | 45 | 728 |
+  | `XPMeter` | none | W - 420 | 650 |
+  | `RadiationMeter` | 367 x 60 | W - 417 | 30 |
+  | `BreathMeter` | 64 x 64 | W/2 | 110 |
+  | `Explosive_positioning_rect` | none | W/2 | 480 |
+  | `crippled_limb_indicator` | none | W - 230 | 130 |
+  | `DDTIcon` | 32 x 32 | 414 | 852 |
+  | `DDTIconEnemy`, `DDTIconEnemyAP` | 32 x 32 | W/2 - 207 | 846 |
+  | `AmmoTypeLabel` | 13 x 42 | W - 236 | 883 |
+  | `CNDArrows` | 16 x 20 | W - 253 | 886 |
+
+  `DDTIconAP` has no place (not shown in this scene). The sizes are the file's where it
+  gives one; the code changed `CNDArrows`' height (16 in the file).
+- **`visible` holds more than 0 and 1.** The pieces' `visible` read 1, 2, 4, … 65536, a
+  different power of two for most (`ActionPoints` 1, `HitPoints` 2, `RadiationMeter` 4,
+  `QuestReminder` 16, `Region_Location` 32, `ReticleCenter` 64, `SneakMeter` 128,
+  `Messages` 256, `Info` 512, `Subtitles` 1024, `Hokeys` 2048, `XPMeter` 4096,
+  `BreathMeter` 8192, `Explosive_positioning_rect` 16384, `crippled_limb_indicator`
+  32768, `HardcoreMode` 65536); `EnemyHealth`, `AmmoTypeLabel` and `CNDArrows` 1, the
+  four armour-piercing icons 0. What the number means beyond "not 0" is not known
+  [hypothesis: one bit per piece, as a mask the code tests].
+- **Constants' numbers.** `&true;` reads 1 and `&false;` 0 (`HUDMainMenu/locus`,
+  `_CrosshairVisible`), `&hudmainmenu;` 1004 (as the wiki's menu class IDs),
+  `&does_not_stack;` 6008 (menu-xml.md §8 item 1).
+- The root's `visible` (`&false;` in the file) reads 1 while playing; `_CrosshairVisible`
+  and `_SneakVisible` read 0, `_SneakLevel`, `_RadiationLevel`, `_TargetType` and
+  `_ActionType` 0, `_SpreadPercentage` 1 standing still with a pistol.
+- Open: a resize while playing; the children's traits other than places (strings,
+  filenames: they need GetUIString, JIP); the root's values while aiming, sneaking, in
+  radiation and with an enemy targeted.
