@@ -1088,6 +1088,33 @@ fn the_runner_reaches_a_patrol_point_and_runs_its_script() {
     assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 8.0);
 }
 
+/// `go_to_cell` (the console's coc) is a cell change: the teammate comes along
+/// ("Changing cells will teleport the teammate to the player" [documented: GECK wiki
+/// SetPlayerTeammate notes]).
+#[test]
+fn the_runners_go_to_cell_brings_the_teammate() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": "TestNpcREF.SetPlayerTeammate 1"},
+            {"op": "get_ref", "of": "TestNpcREF", "label": "before"},
+            {"op": "go_to_cell", "cell": "TestCell"},
+            {"op": "get_ref", "of": "TestNpcREF", "label": "after"},
+            {"op": "get_ref", "of": "player", "label": "player"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{}", out["steps"]);
+    let obs = out["observations"].as_array().unwrap();
+    let pos = |l: &str| -> Vec<f64> { obs.iter().find(|o| o["label"] == l).unwrap()["pos"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect() };
+    let dist = |a: &[f64], b: &[f64]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+    assert!(dist(&pos("after"), &pos("player")) < 200.0, "{obs:?}");
+    assert_ne!(pos("before"), pos("after"), "{obs:?}");
+}
+
 #[test]
 fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
     let f = fixture();
