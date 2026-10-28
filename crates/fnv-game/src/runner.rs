@@ -1716,6 +1716,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("{cell:?} is not a cell"));
             }
             let pos = coc_destination(g, c)?;
+            let from = g.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
             {
                 let p = g.world.get(FormId::PLAYER_REF).map_err(|e| e.to_string())?;
                 p.cell = Some(c);
@@ -1723,6 +1724,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             g.emit(EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(c), pos });
             g.player_entered(Some(c));
+            // "Changing cells will teleport the teammate to the player" [documented: GECK
+            // wiki SetPlayerTeammate notes], as MoveTo and doors do (`Game::bring_teammates`).
+            g.bring_teammates(from);
         }
         Action::SampleJumps { reads, frames, min_step, label: l } => {
             // Every read once per frame, after the frame's scripts ran.

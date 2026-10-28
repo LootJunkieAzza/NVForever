@@ -12,6 +12,8 @@
 //! - **Head.** The head bone is turned on top of the frame's animation (after
 //!   `locomotion::drive` has posed the skeleton), towards the player's eye, eased in over
 //!   [`HEAD_IN_SECONDS`] and out over [`HEAD_OUT_SECONDS`] when the conversation ends.
+//!   Only the animation's slow average head direction is aimed at the eye
+//!   ([`KEEP_SECONDS`]): the talk clips' nods and glances stay on the turned head.
 //!   Which bone and how far come from the game's data where it has them: the body part
 //!   with the "IK Data - Headtracking" flag in the actor's body part data names the bone
 //!   (its IK start node, `Bip01 Head`) and the largest angle (its Tracking Max Angle, 60
@@ -100,6 +102,15 @@ pub const BODY_TURN_MAX_SECONDS: f32 = 1.4;
 /// skeleton's units [design; the eyes are about 9 forward and 7 up, `player_body.rs`].
 pub const FACE_FORWARD: f32 = 5.0;
 pub const FACE_UP: f32 = 6.0;
+/// The animation's head movement kept under the turn: the turn aims the head's slow
+/// average direction at the player, the average following the animation over this many
+/// seconds, so a talk clip's nods and glances (0.3 to 1 s) still show [design; the
+/// original's Sunny Smiles nods and sways on her body while she faces the player,
+/// lipsync.md §5.1].
+pub const KEEP_SECONDS: f32 = 0.8;
+/// At most this much of the animation's own head movement is kept, each way, radians
+/// [design].
+pub const KEEP_LIMIT: f32 = 20.0 * PI / 180.0;
 
 /// The body part flag that allows head tracking, and the head bone's name when the data
 /// names none.
@@ -140,6 +151,26 @@ pub fn sided(yaw: f32, before: Option<f32>) -> f32 {
 /// either side and [`HEAD_PITCH_LIMIT`] up and down.
 pub fn limited(want: (f32, f32), yaw_limit: f32) -> (f32, f32) {
     (want.0.clamp(-yaw_limit, yaw_limit), want.1.clamp(-HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT))
+}
+
+/// The animation's head direction averaged over [`KEEP_SECONDS`]: `rest` (last frame's
+/// average, none at the start) moved towards `cur` (this frame's) for `dt` seconds.
+pub fn follow_rest(rest: Option<(f32, f32)>, cur: (f32, f32), dt: f32) -> (f32, f32) {
+    match rest {
+        Some(r) => {
+            let k = 1.0 - (-dt.max(0.0) / KEEP_SECONDS).exp();
+            (wrap(r.0 + wrap(cur.0 - r.0) * k), r.1 + (cur.1 - r.1) * k)
+        }
+        None => cur,
+    }
+}
+
+/// Where the head is aimed: `target` (on the player, limited) moved by the animation's
+/// head movement away from its average `rest` ([`KEEP_LIMIT`] at most), so that movement
+/// stays under the turn.
+pub fn keep_motion(target: (f32, f32), cur: (f32, f32), rest: (f32, f32)) -> (f32, f32) {
+    let keep = |d: f32| d.clamp(-KEEP_LIMIT, KEEP_LIMIT);
+    (target.0 + keep(wrap(cur.0 - rest.0)), target.1 + keep(cur.1 - rest.1))
 }
 
 /// The rotations (in the actor's space) of the chain's bones for a head whose forward is
@@ -243,6 +274,8 @@ struct Look {
     wanted_yaw: Option<f32>,
     /// The yaw and pitch the head had last frame (the actor's space).
     shown: (f32, f32),
+    /// The animation's head direction averaged over [`KEEP_SECONDS`] ([`follow_rest`]).
+    rest: Option<(f32, f32)>,
     /// Per bone of the chain: the local rotation the animation gave it and the one written
     /// over it last frame. A bone still holding what was written was not posed again
     /// since (its clips have no track for it, or the actor is not animated): its
@@ -254,7 +287,7 @@ struct Look {
 impl Look {
     fn new(entity: Entity, name: String, head: Option<HeadRig>, weight: f32, body: Option<BodyTurn>) -> Look {
         let written = vec![None; head.as_ref().map_or(0, |h| h.chain.len())];
-        Look { entity, name, head, active: true, weight, wanted_yaw: None, shown: (0.0, 0.0), written, body }
+        Look { entity, name, head, active: true, weight, wanted_yaw: None, shown: (0.0, 0.0), rest: None, written, body }
     }
 }
 
@@ -603,6 +636,11 @@ pub(crate) fn turn_speaker(
         let yaw = sided(want.0, look.wanted_yaw);
         look.wanted_yaw = Some(yaw);
         let target = limited((yaw, want.1), head.yaw_limit);
+        // The animation's own nods and glances stay under the turn (a frozen picture has
+        // none to keep).
+        let rest = if instant { cur } else { follow_rest(look.rest, cur, dt) };
+        look.rest = Some(rest);
+        let target = keep_motion(target, cur, rest);
         let share = smooth(look.weight);
         let shares: Vec<f32> = head.chain.iter().map(|c| c.1).collect();
         let turns = chain_turns(cur, target, share, &shares);
@@ -678,6 +716,28 @@ mod tests {
         // But a player who is merely to the other side is followed there.
         assert!(near(sided(-1.0, Some(1.0)), -1.0));
         assert!(near(sided(4.0, None), wrap(4.0)));
+    }
+
+    #[test]
+    fn a_quick_nod_stays_under_the_turn_and_a_held_pose_does_not() {
+        let target = (0.3, -0.1);
+        let mut rest = follow_rest(None, (0.0, 0.0), 1.0 / 60.0);
+        // 0.2 s of a nod 0.1 down: most of it still shows on the turned head.
+        for _ in 0..12 {
+            rest = follow_rest(Some(rest), (0.0, -0.1), 1.0 / 60.0);
+        }
+        let aim = keep_motion(target, (0.0, -0.1), rest);
+        assert!(aim.1 < target.1 - 0.07 && (aim.0 - target.0).abs() < 1e-6, "{aim:?}");
+        // Held for 5 s, the pose is the average again: the head is back on the target.
+        for _ in 0..300 {
+            rest = follow_rest(Some(rest), (0.0, -0.1), 1.0 / 60.0);
+        }
+        let aim = keep_motion(target, (0.0, -0.1), rest);
+        assert!((aim.1 - target.1).abs() < 0.001, "{aim:?}");
+        // A large swing is kept only up to the limit.
+        assert_eq!(keep_motion(target, (1.0, 0.0), (0.0, 0.0)).0, target.0 + KEEP_LIMIT);
+        // Across the back the yaw difference wraps.
+        assert!((follow_rest(Some((3.1, 0.0)), (-3.1, 0.0), 10.0).0.abs() - 3.1).abs() < 0.01);
     }
 
     #[test]

@@ -408,6 +408,15 @@ original's values, unless a line carries another tag. What is known of the origi
     [design; whether the original turns anything but the IK start node is not known].
   - The turn has no roll: it is a turn to the side and a tilt up or down in the actor's
     own space.
+  - **The animation's head movement stays under the turn** (2026-10-27): the turn aims
+    the animation's *average* head direction at the player, the average following the
+    animation over 0.8 s (`KEEP_SECONDS`), so the talk and listen clips' nods and
+    glances (0.3 to 1 s) still show on the turned head, at most 20° of them each way
+    [design]. Before, the head was aimed exactly at the eye every frame, which cancelled
+    every nod the clips carry: measured against the owner's video of the original's
+    Sunny Smiles conversation (face tracked frame by frame, in eye distances), our head
+    moved up and down at a third of the original's speed (90th percentile 0.08 against
+    0.25 eye distances a second) [observed 2026-10-27].
   - A player behind the actor (more than 135° from its front) keeps the side the head
     first turned to, so the head does not flip from one shoulder to the other [design].
   - What hangs from the head bone or is skinned to it follows: the face and its lip
