@@ -112,9 +112,12 @@ Entities without a minus are constants: 94 different names in the vanilla files
 - each menu's class (`&HUDMainMenu;`, `&BarterMenu;`, … in `<class>`);
 - `&does_not_stack;` `&no_click_past;` `&nosound;`.
 
-**Their numbers are not known.** NVForever keeps each as a named constant
-(`Value::Sym`): two compare equal when their names do, so `<eq> &center; </eq>` works
-without a number. Only where a number is needed is one guessed [hypothesis]:
+NVForever keeps each as a named constant (`Value::Sym`): two compare equal when
+their names do, so `<eq> &center; </eq>` works without a number. The 40 menu class
+constants also read as numbers [documented: GECK wiki, Hardcoded UI Shortcuts,
+revision 39903 (2026-04-02; the same rows as revision 30746), only the "Menu class ID"
+rows]. These are MenuMode's
+codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]:
 
 - `&true;` 1 and `&false;` 0: the meter prefab picks its picture as `_filename_` + its
   `_SolidMeter`, with `_filename_1` the solid one and a comment saying a true

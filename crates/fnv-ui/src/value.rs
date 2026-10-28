@@ -8,8 +8,8 @@ pub enum Value {
     Num(f64),
     Str(String),
     /// A constant of the menu files written as an entity (`&center;`, `&xbox;`), kept by
-    /// its name in lower case. The game's numbers for them are not known (menu-xml.md
-    /// §2.3); two of them compare equal when their names do.
+    /// its name in lower case. Only some have known numbers (menu-xml.md §2.3);
+    /// two of them compare equal when their names do.
     Sym(String),
 }
 
@@ -19,11 +19,68 @@ impl Default for Value {
     }
 }
 
-/// The numbers of the few constants whose number matters to the files' arithmetic
+/// Menu class IDs only [documented: GECK wiki, Hardcoded UI Shortcuts, revision 39903
+/// (2026-04-02; the same rows as revision 30746), "Menu class ID" rows; GetActiveMenuMode: the same codes as MenuMode].
+pub const MENU_CLASSES: &[(&str, u16)] = &[
+    ("MessageMenu", 1001),
+    ("InventoryMenu", 1002),
+    ("StatsMenu", 1003),
+    ("HUDMainMenu", 1004),
+    ("LoadingMenu", 1007),
+    ("ContainerMenu", 1008),
+    ("DialogMenu", 1009),
+    ("SleepWaitMenu", 1012),
+    ("StartMenu", 1013),
+    ("LockPickMenu", 1014),
+    ("QuantityMenu", 1016),
+    ("AudioMenu", 1017),
+    ("VideoMenu", 1018),
+    ("GameplayMenu", 1020),
+    ("MapMenu", 1023),
+    ("BookMenu", 1026),
+    ("LevelUpMenu", 1027),
+    ("RepairMenu", 1035),
+    ("RaceSexMenu", 1036),
+    ("CreditsMenu", 1047),
+    ("CharGenMenu", 1048),
+    ("TextEditMenu", 1051),
+    ("BarterMenu", 1053),
+    ("SurgeryMenu", 1054),
+    ("HackingMenu", 1055),
+    ("VATSMenu", 1056),
+    ("ComputersMenu", 1057),
+    ("RepairServicesMenu", 1058),
+    ("TutorialMenu", 1059),
+    ("SPECIALBookMenu", 1060),
+    ("ItemModMenu", 1061),
+    ("LoveTesterMenu", 1074),
+    ("CompanionWheelMenu", 1075),
+    ("TraitSelectMenu", 1076),
+    ("RecipeMenu", 1077),
+    ("SlotMachineMenu", 1080),
+    ("BlackJackMenu", 1081),
+    ("RouletteMenu", 1082),
+    ("CaravanMenu", 1083),
+    ("TraitMenu", 1084),
+];
+
+pub fn menu_class_name(code: u16) -> Option<&'static str> {
+    MENU_CLASSES.iter().find(|(_, n)| *n == code).map(|(name, _)| *name)
+}
+
+pub fn menu_class_number(name: &str) -> Option<u16> {
+    MENU_CLASSES.iter().find(|(s, _)| s.eq_ignore_ascii_case(name)).map(|(_, n)| *n)
+}
+
+/// Menu class IDs use MENU_CLASSES' documented numbers. Arithmetic flags keep their
+/// existing numbers
 /// [hypothesis: `&true;` 1 and `&false;` 0, from the meter prefab picking its picture by
 /// `_filename_` + `_SolidMeter`; the platform flags 0 on a PC, since the files guard
 /// console-only lengths with them. Observer check: menu-xml.md §8].
 pub fn sym_number(name: &str) -> Option<f64> {
+    if let Some(code) = menu_class_number(name) {
+        return Some(f64::from(code));
+    }
     Some(match name {
         "true" => 1.0,
         "false" | "xbox" | "console" | "xenon" => 0.0,
@@ -109,6 +166,19 @@ impl PartialEq for Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_class_numbers_only() {
+        for &(name, code) in MENU_CLASSES {
+            let sym = Value::Sym(name.to_ascii_lowercase());
+            assert_eq!(sym.num(), f64::from(code));
+            assert!(sym.same(&Value::Num(f64::from(code))));
+            assert_eq!(menu_class_name(code), Some(name));
+        }
+        for name in ["center", "nosound", "pipboymenu", "does_not_stack", "unknown"] {
+            assert_eq!(sym_number(name), None);
+        }
+    }
 
     #[test]
     fn literals_and_readings() {

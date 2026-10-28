@@ -10,6 +10,8 @@ use nvf_assets::GameData;
 pub(crate) struct MenuFiles<'w, 's> {
     data: Option<Res<'w, GameData>>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    paused: Option<Res<'w, crate::pause::Paused>>,
+    main_menu: Option<Res<'w, crate::main_menu::MainMenu>>,
 }
 
 impl MenuFiles<'_, '_> {
@@ -18,14 +20,28 @@ impl MenuFiles<'_, '_> {
         let files = UiFiles::new(data.vfs.clone(), world);
         let paths = files.menu_paths();
         let report = ui_loading::load(game, Box::new(files), paths);
-        if let Ok(window) = self.windows.single() {
-            screen(game, window);
-            game.ui_tree.update();
-        }
+        self.write(game);
+        game.ui_tree.update();
         for (file, messages) in &report.warnings {
             warn!("ui: {file}: {}", messages.join("; "));
         }
         info!("ui: {} menus loaded ({} tiles), {} warnings", report.menus, report.tiles, report.warning_count());
+    }
+
+    pub(crate) fn write(&self, game: &mut fnv_game::Game<'_>) {
+        if game.ui_files.is_none() {
+            return;
+        }
+        if let Ok(window) = self.windows.single() {
+            screen(game, window);
+        }
+        let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
+        for line in report.changes {
+            info!("ui: {line}");
+        }
+        for line in report.warnings {
+            warn!("ui: {line}");
+        }
     }
 }
 
@@ -37,14 +53,9 @@ fn screen(game: &mut fnv_game::Game<'_>, window: &Window) {
     game.ui_tree.set_trait(id, "height", Value::Num(f64::from(window.height())));
 }
 
-fn write_screen(mut script: ResMut<ScriptState>, windows: Query<&Window, With<PrimaryWindow>>) {
+fn write(mut script: ResMut<ScriptState>, files: MenuFiles) {
     let Some(rt) = script.rt.as_mut() else { return };
-    if rt.game.ui_files.is_none() {
-        return;
-    }
-    if let Ok(window) = windows.single() {
-        screen(&mut rt.game, window);
-    }
+    files.write(&mut rt.game);
 }
 
 fn update(mut script: ResMut<ScriptState>) {
@@ -61,7 +72,6 @@ impl Plugin for TilesPlugin {
     fn build(&self, app: &mut App) {
         // Writes run after physics, before activation's scripts and PlaySet::Scripts;
         // evaluation runs after PlaySet::Scripts, before the menus draw [design: ui-tile-tree.md §4.1].
-        app.add_systems(Update, write_screen.after(PlaySet::Physics).before(PlaySet::Activation))
-            .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui));
+        app.add_systems(Update, write.after(PlaySet::Physics).before(PlaySet::Activation)).add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui));
     }
 }

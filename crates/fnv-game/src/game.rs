@@ -1048,6 +1048,8 @@ pub struct Game<'a> {
     pub ui_tree: fnv_ui::Ui,
     /// Menu names to files, rebuilt with the tree [design: ui-tile-tree.md §3.2, §9].
     pub ui_menus: fnv_ui::MenuIndex,
+    /// Menu lifetime's once-only warnings, reset with the tree [design].
+    pub ui_lifetime: crate::ui_loading::MenuLifetime,
     /// Where InjectUIXML and the menus' includes read files: the engine's archives and
     /// loose files. `None` headless: InjectUIXML then fails, InjectUIComponent works
     /// without includes.
@@ -1674,6 +1676,7 @@ impl<'a> Game<'a> {
             toggles: Default::default(),
             ui_tree: fnv_ui::Ui::new(),
             ui_menus: fnv_ui::MenuIndex::default(),
+            ui_lifetime: crate::ui_loading::MenuLifetime::default(),
             ui_files: None,
             ui_taps: Vec::new(),
             difficulty: Default::default(),

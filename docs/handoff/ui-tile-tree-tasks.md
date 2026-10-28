@@ -43,13 +43,22 @@ Plus folders as `--overlay` when a task touches loading.
   - Tests: `crates/fnv-game/tests/ui_loading.rs`, `fnv_ui::index`; smoke
     `ui-tree-in-game` (a console line reads the HUD's `depth`, sets it, reads it back).
 
+- **T3b. The other menus' lifetime.** Done 2026-10-29 (claude/ui-menus-lifetime).
+  - `MenuIndex` maps the menu's own `<class>` constant to its file; 40 menu class IDs
+    from Hardcoded UI Shortcuts, revision 39903, also give `Value::Sym` its number.
+  - `fnv_game::ui_loading::sync` builds open menus and drops closed ones, retaining the
+    six persistent menus; missing classes/files warn once. Reopening starts fresh,
+    including injected tiles [documented: InjectUIComponent notes].
+  - `nvf-play/src/tiles.rs` writes before scripts; activation and menu keys are checked
+    again before the script tick. `Paused.0` and `MainMenu.open` keep StartMenu behind
+    our own pause/main menus (owner-review item 34). Drawing stays as it is;
+    `ui_taps` stay queued for T8 [design].
+  - Tests: `fnv_ui::index`, `fnv_ui::value`, `crates/fnv-game/tests/ui_loading.rs`;
+    smoke `ui-menu-lifetime` reads an open message menu's depth and checks build/drop.
+
 ## Next, in order
 
-1. **T3b. The other menus' lifetime** (`nvf-play/src/tiles.rs`):
-   - build and drop the other menus as NVForever's menus open and close (MenuMode
-     codes), StartMenu with the pause and main menus;
-   - `ui_taps` stay queued for task T8 (input on tiles) [design].
-2. **T4. The HUD's code-side traits.** Write into `HUDMainMenu` what the original's code
+1. **T4. The HUD's code-side traits.** Write into `HUDMainMenu` what the original's code
    sets: health, action points, compass, crosshair (`_CrosshairVisible`,
    `_SpreadPercentage`), sneak (`_SneakVisible`, `_SneakLevel`), `_RadiationLevel`,
    `_ActionType`, the `user` slots, the visible flags of the pieces.
@@ -57,7 +66,7 @@ Plus folders as `--overlay` when a task touches loading.
      playing (DumpTileInfoAll or GetUIFloat per trait), so the names and their values
      are observed, not guessed.
    - Done when the capture's values and ours agree on the same scene.
-3. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
+2. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
    - `nvf-play/src/tiles/`: layout as a pure function (tested headless: places,
      sizes, depth order from the traits), then Bevy nodes for rect, image (filename +
      texatlas), text (fnv-font, justify, wrap), alpha, visible, colour, clips;
@@ -67,44 +76,44 @@ Plus folders as `--overlay` when a task touches loading.
      one that uses InjectUIXML).
 
    Shots in smoke.
-4. **T6. UIO include lists.** Read `uio\public\*.txt` and `uio\supported.txt`
+3. **T6. UIO include lists.** Read `uio\public\*.txt` and `uio\supported.txt`
    (menu-xml.md §7 item 3) and include their files at their targets when the menu or
    prefab loads; conditions `true`, `?plugin`, `#file`, `!`, `&&`. Test with JAM, MCM
    Extender and UI Improvements from `F:\Modlists\VNV\mods` as overlays in
    `fnvtool ui`.
-5. **T7. MCM, headless first** (owner decision in owner-review.md first):
+4. **T7. MCM, headless first** (owner decision in owner-review.md first):
    - StartMenu built from the files while the pause or main menu is open, with MCM's
      includes;
    - MCM's own functions (SetMCMString, SetMCMFloat, … origin MCM,
      modlist-scan-2026-10-26.md) as tree writes;
    - a test that runs one MCM mod's menu script in `MenuMode 1013` against the tree and
      checks the traits it sets.
-6. **T8. Input on tiles.**
+5. **T8. Input on tiles.**
    - Pointer hit-tests over hotrects (`target`, `id`, `depth`): `mouseover` and
      `clicked` traits written each frame, `ref` links followed, `_PCButton_*` keys,
      `xbutton*` from a controller;
    - GetActiveUIComponentName, GetActiveUIComponentFullName, GetActiveUIComponentID,
      ClickMenuButton, ClickMenuTile;
    - the menu click and mouseover events (extender events, design §5.2).
-7. **T9. The rest of the tile functions** (design §5.2): SetUIFloatGradual and its
+6. **T9. The rest of the tile functions** (design §5.2): SetUIFloatGradual and its
    readers (gradients stepped on real time), SetUIFloatMultiple, GetUIFloatInherited,
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
    SortUIListBox, GetStringUIDimensions (fnv-font metrics), the CacheUI family, the
    HudBar family, the DumpTileInfo family. Each with a headless test.
-8. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files:
+7. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files:
    NVForever's English text for each from the owner's screenshots or an observer dump
    (`GetGameSetting`/`con_GetGameSetting` in the original), the load order's GMST first.
-9. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
+8. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.
-10. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
+9. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
-11. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
-12. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
+10. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
+11. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
     deprecated forms' bug, `name:N` counting. One capture job; fold the answers into
     the spec and the reader.
-13. **T15 onward: one menu per task**, in the order of design §6.2 item 4. Each is
+12. **T15 onward: one menu per task**, in the order of design §6.2 item 4. Each is
     switch, drawing, the model writing `io()` traits and template rows, screenshot
     comparison, removing the hand-copied numbers:
     - message box, quantity, sleep/wait, tutorial;

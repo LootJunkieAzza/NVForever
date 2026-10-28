@@ -44,12 +44,169 @@ fn files() -> MemSource {
             &format!("menus/added/{i}.xml"),
             &format!(
                 r#"<menu name="{name}">
-            <depth><copy src="globals()" trait="_Probe"/></depth><include src="{include}"/>
+            <class>&{name};</class><depth><copy src="globals()" trait="_Probe"/></depth><include src="{include}"/>
             </menu>"#
             ),
         );
     }
     src
+}
+
+// These menus and their trait values are written for the tests [design]. Class codes
+// come from fnv_ui::value::MENU_CLASSES [documented: Hardcoded UI Shortcuts, revision 39903].
+fn lifetime_files() -> MemSource {
+    files()
+        .with(
+            "menus/added/trade.xml",
+            r#"<menu name="Trade"><class>&BarterMenu;</class><depth>42</depth><rect name="Row"><depth><copy src="parent()" trait="depth"/></depth></rect></menu>"#,
+        )
+        .with("menus/added/box.xml", r#"<menu name="MessageMenu"><class>&MessageMenu;</class><depth>7</depth></menu>"#)
+        .with("menus/added/start.xml", r#"<menu name="StartMenu"><class>&StartMenu;</class><depth>8</depth></menu>"#)
+        .with("menus/added/dialog.xml", r#"<menu name="DialogMenu"><class>&DialogMenu;</class></menu>"#)
+}
+
+fn load_lifetime(g: &mut Game<'_>) {
+    let src = lifetime_files();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(g, Box::new(src), paths);
+}
+
+#[test]
+fn open_close_and_inject_again() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    load_lifetime(&mut g);
+    assert!(g.ui_tree.menu("Trade").is_none());
+    g.menu = Some(menus::BARTER);
+    let report = ui_loading::sync(&mut g, false, false);
+    assert_eq!(report.changes, ["built BarterMenu (menus\\added\\trade.xml, 2 tiles)"]);
+    assert!(report.warnings.is_empty());
+    let root = g.ui_tree.menu("Trade").unwrap();
+    assert_eq!(g.ui_tree.tile(root).get("depth"), Some(&Value::Num(42.0)));
+    let row = g.ui_tree.find_tile("Trade/Row").unwrap();
+    assert_eq!(g.ui_tree.tile(row).get("depth"), Some(&Value::Num(42.0)));
+    assert!(ui_loading::sync(&mut g, false, false).changes.is_empty());
+    g.ui_tree.inject_text(g.ui_files.as_deref().unwrap(), "Trade", r#"<rect name="Injected"><depth>9</depth></rect>"#);
+    let injected = g.ui_tree.find_tile("Trade/Injected").unwrap();
+    g.ui_tree.set_trait(root, "depth", Value::Num(99.0));
+    g.menu = None;
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["dropped BarterMenu"]);
+    assert!(!g.ui_tree.tile(root).live);
+    assert!(!g.ui_tree.tile(injected).live);
+    assert!(g.ui_tree.menu("Trade").is_none());
+    for name in ALWAYS_LOADED {
+        assert!(g.ui_tree.menu(name).is_some());
+    }
+    g.menu = Some(menus::BARTER);
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes.len(), 1);
+    let rebuilt = g.ui_tree.menu("Trade").unwrap();
+    assert_ne!(rebuilt, root);
+    assert_eq!(g.ui_tree.tile(rebuilt).get("depth"), Some(&Value::Num(42.0)));
+    assert!(g.ui_tree.find_tile("Trade/Injected").is_none());
+    // Persistent menus keep their injected content on close [design: §3.3].
+    let hud = g.ui_tree.menu("HUDMainMenu").unwrap();
+    g.ui_tree.inject_text(g.ui_files.as_deref().unwrap(), "InventoryMenu", r#"<rect name="Kept"/>"#);
+    let kept = g.ui_tree.find_tile("InventoryMenu/Kept").unwrap();
+    g.menu = Some(menus::INVENTORY);
+    ui_loading::sync(&mut g, false, false);
+    g.menu = None;
+    ui_loading::sync(&mut g, false, false);
+    assert_eq!(g.ui_tree.menu("HUDMainMenu"), Some(hud));
+    assert!(g.ui_tree.menu("InventoryMenu").is_some());
+    assert_eq!(g.ui_tree.find_tile("InventoryMenu/Kept"), Some(kept));
+}
+
+#[test]
+fn start_menu_with_pause_or_main_menu() {
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    load_lifetime(&mut g);
+    assert!(ui_loading::sync(&mut g, false, false).changes.is_empty());
+    assert_eq!(ui_loading::sync(&mut g, true, false).changes, ["built StartMenu (menus\\added\\start.xml, 1 tiles)"]);
+    let root = g.ui_tree.menu("StartMenu").unwrap();
+    assert!(ui_loading::sync(&mut g, true, true).changes.is_empty());
+    assert!(ui_loading::sync(&mut g, false, true).changes.is_empty());
+    assert_eq!(g.ui_tree.menu("StartMenu"), Some(root));
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["dropped StartMenu"]);
+    assert_eq!(ui_loading::sync(&mut g, false, true).changes, ["built StartMenu (menus\\added\\start.xml, 1 tiles)"]);
+    assert_ne!(g.ui_tree.menu("StartMenu"), Some(root));
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["dropped StartMenu"]);
+}
+
+#[test]
+fn underlying_menu_and_dialogue_stay_open() {
+    use fnv_game::{dialogue::Conversation, game::menus};
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    load_lifetime(&mut g);
+    g.menu = Some(menus::MESSAGE);
+    g.menu_under = Some(menus::BARTER);
+    g.dialogue = Some(Conversation { actor: fnv_sim::FormId::PLAYER_REF, through: None, line: None, choices: Vec::new(), lines: 0 });
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes.len(), 3);
+    g.menu = None;
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["dropped MessageMenu"]);
+    assert!(g.ui_tree.menu("Trade").is_some());
+    assert!(g.ui_tree.menu("DialogMenu").is_some());
+    g.menu_under = None;
+    g.dialogue = None;
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes.len(), 2);
+}
+
+#[test]
+fn missing_class_warns_once_and_side_codes_are_ignored() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    // A matching filename and menu name alone do not match a class [design].
+    let src = lifetime_files().with("menus/quantity_menu.xml", r#"<menu name="QuantityMenu"/>"#);
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    let quantity = fnv_ui::value::menu_class_number("QuantityMenu").unwrap();
+    g.menu = Some(quantity);
+    assert_eq!(ui_loading::sync(&mut g, false, false).warnings, ["QuantityMenu: no file with matching menu class"]);
+    assert!(ui_loading::sync(&mut g, false, false).warnings.is_empty());
+    g.menu = None;
+    ui_loading::sync(&mut g, false, false);
+    g.menu = Some(quantity);
+    assert!(ui_loading::sync(&mut g, false, false).warnings.is_empty());
+    assert!(g.ui_tree.menu("QuantityMenu").is_none());
+    g.menu = Some(menus::LOCKPICK);
+    assert_eq!(ui_loading::sync(&mut g, false, false).warnings.len(), 1);
+    assert!(ui_loading::sync(&mut g, false, false).warnings.is_empty());
+    for code in [menus::PIPBOY, menus::LOADING, menus::VATS] {
+        g.menu = Some(code);
+        let report = ui_loading::sync(&mut g, false, false);
+        assert!(report.changes.is_empty());
+        assert!(report.warnings.is_empty());
+    }
+    g.menu = None;
+    g.loading = true;
+    assert!(ui_loading::sync(&mut g, false, false).changes.is_empty());
+    load_lifetime(&mut g);
+    g.menu = Some(quantity);
+    assert_eq!(ui_loading::sync(&mut g, false, false).warnings.len(), 1);
+}
+
+#[test]
+fn reopened_menu_does_not_repeat_mends() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    let src =
+        lifetime_files().with("menus/added/trade.xml", r#"<menu name="Trade"><class>&BarterMenu;</class><include src="PROBE.XML"/><depth><copy>1</copy><bogus/></depth></menu>"#);
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    g.menu = Some(menus::BARTER);
+    let first = ui_loading::sync(&mut g, false, false);
+    assert_eq!(first.warnings.len(), 1);
+    assert!(first.warnings[0].contains("<bogus> is no operator"));
+    g.menu = None;
+    ui_loading::sync(&mut g, false, false);
+    g.menu = Some(menus::BARTER);
+    let second = ui_loading::sync(&mut g, false, false);
+    assert_eq!(second.changes.len(), 1);
+    assert!(second.warnings.is_empty());
 }
 
 #[test]

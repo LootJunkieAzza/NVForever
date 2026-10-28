@@ -10022,6 +10022,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "ui-menu-lifetime"
+source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/value.rs",
+  "crates/fnv-game/src/game.rs", "crates/fnv-game/src/ui_loading.rs",
+  "crates/fnv-game/tests/ui_loading.rs",
+  "engine/nvf-play/src/tiles.rs", "engine/nvf-play/src/script.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf lifetime|Ok\";24.2:PrintC \"nvf message width %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\");26:PrintC \"nvf message closed %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 29
+expect = [
+  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the message menu builds from its indexed file" },
+  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"', label = "GetUIFloat reads a trait of the open menu's root" },
+  { re = 'script: print "nvf message width -999(?:\.0+)?"', count = 0, label = "the open menu's trait exists" },
+  { re = 'ui: dropped MessageMenu', label = "closing the message drops its tiles" },
+  { re = 'script: print "nvf message closed -999"', label = "the closed menu is absent" },
+]
+order = [[
+  { re = 'console: MessageBoxEx "nvf lifetime\|Ok" >> ran' },
+  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)' },
+  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"' },
+  "ui: dropped MessageMenu",
+  { re = 'script: print "nvf message closed -999"' },
+]]
+
+[[scenario]]
 name = "script-input-keys"
 source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
 areas = ["console", "scripts", "input"]

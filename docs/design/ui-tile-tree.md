@@ -71,6 +71,10 @@ none of the 145 names (menu-xml.md §2.4; task T10).
 `menus\**\*.xml` once at start by the `<menu name>` each holds (49 vanilla files), so a
 mod's renamed or added menu file is found the same way.
 
+The index also maps the menu's own `<class>` constant to its file. MenuMode codes
+reach files through the documented menu class IDs [documented: Hardcoded UI
+Shortcuts, revision 39903, "Menu class ID" rows; GetActiveMenuMode].
+
 - `menus\prefabs\` is never indexed: its files are only included.
 - Loading a menu that is already loaded replaces it.
 
@@ -286,8 +290,8 @@ at the same view size). That is the work of each migration task, not guessed up 
   planned: the files need undeclared entities kept, fragments, mismatched end tags and
   broken tags mended in particular ways, which is most of a reader anyway (~400 lines).
 - **Constants kept by name** (`Value::Sym`) instead of guessed numbers, so
-  comparisons work whatever the original's numbers are; only `&true;`/`&false;` and the
-  platform flags get a number.
+  comparisons work whatever the original's numbers are; the documented menu class IDs,
+  `&true;`/`&false;` and the platform flags get a number (menu-xml.md §2.3).
 - **No dependency graph yet**: change counts give the right answers, and the cost is
   small for the menus open at one time.
 - **The tree is not saved.** Menus are built again after a load, as the original

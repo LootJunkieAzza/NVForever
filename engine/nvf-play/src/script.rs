@@ -1637,6 +1637,11 @@ pub(crate) fn run_scripts(
             }
         }
     }
+    // Activation, menu keys or a new runtime may have opened a menu since tiles' first
+    // write. Build it before this tick's MenuMode blocks [design: ui-tile-tree.md §4.1].
+    if let Some(rt) = st.rt.as_mut() {
+        tiles.write(&mut rt.game);
+    }
     // Scripts wait until the player stands in the world (its cell is known), and do not
     // run under the pause menu (`crate::pause`): no MenuMode code of the original's pause
     // menu is known, so script time simply stops there [decision]. Nor do they run under
