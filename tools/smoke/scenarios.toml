@@ -8579,7 +8579,7 @@ expect = [
   "player controls: all held, the player is knocked down",
   { re = 'console: GetKnockedState on player >> 0\.00\b', label = "GetKnockedState reads 0 for the pushed player" },
   { re = 'player knockdown: the player gets up face (up|down) [\d.]+ s after the fall \(GetUpFace(Up|Down)\)', label = "the get-up idle of the side the body lies on" },
-  { re = 'player knockdown: laid over the ragdoll: turned -?\d+°, moved (?P<n>\d+) units', range = [0, 200], label = "the clip is laid over where the ragdoll lay", known_failing = "fails on main f7aa1dc1 too (2026-10-23, list 7 W8): no 'laid over the ragdoll' line, the player gets up and is up as before; cause not traced" },
+  { re = 'player knockdown: laid over the ragdoll: turned -?\d+°, moved (?P<n>\d+) units', range = [0, 200], label = "the clip is laid over where the ragdoll lay" },
   { re = 'player knockdown: the player is up (?P<n>[\d.]+) s after the fall; the controls and the first-person view are theirs again', range = [3.0, 12.0], label = "up again, back in first person" },
   { re = 'player knockdown: over without getting up', count = 0, label = "the knockdown ends by getting up" },
   { re = 'death camera: the player died', count = 0, label = "the player does not die" },
