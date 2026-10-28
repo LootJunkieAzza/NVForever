@@ -104,6 +104,7 @@ pub mod start_menu;
 pub mod sim;
 pub mod space;
 pub mod terminal;
+pub mod tiles;
 pub mod tutorial_menu;
 pub mod credits;
 mod test_aid;
@@ -312,6 +313,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(perk_marks::PerkMarksPlugin)
+            .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)

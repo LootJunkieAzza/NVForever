@@ -1046,6 +1046,8 @@ pub struct Game<'a> {
     /// and draws the menus, the UI script functions (`crate::ui_functions`) read and
     /// change it. Not saved: menus are built again after a load.
     pub ui_tree: fnv_ui::Ui,
+    /// Menu names to files, rebuilt with the tree [design: ui-tile-tree.md §3.2, §9].
+    pub ui_menus: fnv_ui::MenuIndex,
     /// Where InjectUIXML and the menus' includes read files: the engine's archives and
     /// loose files. `None` headless: InjectUIXML then fails, InjectUIComponent works
     /// without includes.
@@ -1671,6 +1673,7 @@ impl<'a> Game<'a> {
             restarted_seen: BTreeSet::new(),
             toggles: Default::default(),
             ui_tree: fnv_ui::Ui::new(),
+            ui_menus: fnv_ui::MenuIndex::default(),
             ui_files: None,
             ui_taps: Vec::new(),
             difficulty: Default::default(),

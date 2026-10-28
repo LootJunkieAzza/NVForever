@@ -28,23 +28,27 @@ Plus folders as `--overlay` when a task touches loading.
   - Not built list (xnvse-remaining.md §3) down by nine.
   - Test: `crates/fnv-game/tests/ui_functions.rs`, `compiled_scripts_reach_the_tree`
     (scripts compiled from source, run by the VM).
+- **T3a. The tree in the running game: start-up and updates.** Done 2026-10-28
+  (claude/ui-tree-in-game).
+  - `fnv_game::ui_loading`: a file source over the VFS, with the load order's GMST
+    strings copied in for `&-sName;`; the menu files indexed by `<menu name>`
+    (`fnv_ui::MenuIndex`, prefabs left out); `globals.xml` and the six always-loaded
+    menus built at start and again after a save is loaded (the tree is not saved, §9).
+  - `nvf-play/src/tiles.rs`: `screen()`'s width and height from the window before the
+    scripts run, `Ui::update()` after them (design §4.1). The window's size is what
+    `fnvtool ui` uses [hypothesis: menu-xml.md §4.2, `screen()`]; `cropx`, `cropy` and
+    `resolutionconverter` are not set until their units are known.
+  - A file's mends are logged once; a missing menu is a warning; one summary line
+    (`ui: 6 menus loaded …`).
+  - Tests: `crates/fnv-game/tests/ui_loading.rs`, `fnv_ui::index`; smoke
+    `ui-tree-in-game` (a console line reads the HUD's `depth`, sets it, reads it back).
 
 ## Next, in order
 
-1. **T3. The tree in the running game** (`nvf-play`, new `tiles.rs`):
-   - at start: index `menus\**\*.xml` by `<menu name>`, load `globals.xml` and the six
-     always-loaded menus (HUDMainMenu, InventoryMenu, MapMenu, RepairMenu, StatsMenu,
-     ItemModMenu);
-   - set `Game::ui_files` to a VFS source whose `game_string` reads the load order's
-     GMSTs;
-   - each frame: `screen()`'s size (interface units), `Ui::update()`, take `ui_taps`
-     into the open menu's keys;
+1. **T3b. The other menus' lifetime** (`nvf-play/src/tiles.rs`):
    - build and drop the other menus as NVForever's menus open and close (MenuMode
      codes), StartMenu with the pause and main menus;
-   - log the mends once per file.
-
-   Smoke: a scenario whose test script does SetUIFloat/GetUIFloat on
-   `HUDMainMenu/...` and logs the answer.
+   - `ui_taps` stay queued for task T8 (input on tiles) [design].
 2. **T4. The HUD's code-side traits.** Write into `HUDMainMenu` what the original's code
    sets: health, action points, compass, crosshair (`_CrosshairVisible`,
    `_SpreadPercentage`), sneak (`_SneakVisible`, `_SneakLevel`), `_RadiationLevel`,

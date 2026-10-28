@@ -520,6 +520,7 @@ dependencies = [
  "fnv-sim",
  "fnv-ui",
  "fnv-util",
+ "fnv-vfs",
  "rand_chacha",
  "rand_core",
  "rayon",

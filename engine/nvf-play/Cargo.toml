@@ -17,6 +17,7 @@ fnv-phys.workspace = true
 fnv-collide.workspace = true
 fnv-script.workspace = true
 fnv-game.workspace = true
+fnv-ui.workspace = true
 fnv-save.workspace = true
 infinitier_bik_decoder = { workspace = true, optional = true }
 fnv-install.workspace = true

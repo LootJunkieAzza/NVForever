@@ -10000,6 +10000,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "ui-tree-in-game"
+source = "[design] ui-tile-tree.md §3, §4.1, §6.2 step 1 (T3a): the running game's VFS loads the six persistent menus; scripts read and write an existing HUD trait"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/lib.rs",
+  "crates/fnv-game/Cargo.toml", "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/game.rs",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-game/tests/ui_loading.rs",
+  "engine/Cargo.toml", "engine/nvf-play/Cargo.toml", "engine/nvf-play/src/lib.rs",
+  "engine/nvf-play/src/script.rs", "engine/nvf-play/src/tiles.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud depth %g\", (GetUIFloat \"HUDMainMenu/depth\");11:SetUIFloat \"HUDMainMenu/depth\" 37;11.5:PrintC \"nvf hud set %g\", (GetUIFloat \"HUDMainMenu/depth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'ui: 6 menus loaded \(\d+ tiles\), \d+ warnings', label = "the six menus load from the VFS" },
+  { re = 'script: print "nvf hud depth -?\d+(?:\.\d+)?"', label = "GetUIFloat prints the HUD file's depth" },
+  { re = 'script: print "nvf hud depth -999(?:\.0+)?"', count = 0, label = "the HUD depth exists" },
+  { re = 'console: SetUIFloat "HUDMainMenu/depth" 37 >> ran', label = "the console compiles and runs SetUIFloat" },
+  { re = 'script: print "nvf hud set 37"', label = "GetUIFloat reads the written depth on a later frame" },
+]
+
+[[scenario]]
 name = "script-input-keys"
 source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
 areas = ["console", "scripts", "input"]
