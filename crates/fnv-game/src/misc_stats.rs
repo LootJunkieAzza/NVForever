@@ -243,7 +243,7 @@ mod tests {
 
     fn applied(code: u16, kind: ChangeKind, amount: f64, duration: f64) -> Applied {
         let change = ValueChange { code, kind, amount, parts: false, limb: None, applied: 0.0, permanent_pool: false, suspended: false };
-        Applied { id: 0, effect: FormId(0), change: Some(change), duration, extended: false }
+        Applied { id: 0, effect: FormId(0), change: Some(change), duration, extended: false, inactive: false }
     }
 
     fn item(equip_type: i64, flags: u8) -> IngestibleDef {

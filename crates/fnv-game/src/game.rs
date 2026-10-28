@@ -3818,7 +3818,7 @@ impl<'a> Game<'a> {
                     }
                     let (id, duration, change) = (x.id, x.duration, x.change);
                     self.emit(EventKind::EffectExtended { id, target, source, duration });
-                    started.push(crate::aid::Applied { id, effect: e.effect, change, duration, extended: true });
+                    started.push(crate::aid::Applied { id, effect: e.effect, change, duration, extended: true, inactive: false });
                     continue;
                 }
             }
@@ -3858,12 +3858,12 @@ impl<'a> Game<'a> {
             });
             self.emit(EventKind::EffectStarted { id, target, source, effect: e.effect });
             if !pass {
-                started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false });
+                started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false, inactive: true });
                 continue;
             }
             self.start_change(id);
             let change = self.effects.iter().find(|x| x.id == id).and_then(|x| x.change);
-            started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false });
+            started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false, inactive: false });
             self.effect_archetype_start(id);
             self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
             if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
