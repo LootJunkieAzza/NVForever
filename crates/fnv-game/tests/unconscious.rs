@@ -182,6 +182,36 @@ fn kill_actor_knocks_an_essential_actor_out() {
     assert!(g.is_dead(BOXER_REF));
 }
 
+/// "Essential flagged teammates are not essential in Hardcore (New Vegas)" [documented:
+/// GECK wiki SetPlayerTeammate notes].
+#[test]
+fn an_essential_teammate_dies_in_hardcore_and_stays_teammate_free() {
+    const SET_PLAYER_TEAMMATE: u16 = 0x11C5;
+    let f = fixture();
+    // Outside Hardcore the essential teammate is knocked out.
+    let mut g = game(&f);
+    ask(&mut g, HERO_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    assert!(g.is_teammate(HERO_REF));
+    ask(&mut g, HERO_REF, KILL_ACTOR, &[]);
+    assert!(!g.is_dead(HERO_REF));
+    assert_eq!(g.knockout(HERO_REF).map(|k| k.cause), Some(Cause::Essential));
+    // In Hardcore it dies, and its teammate state goes with it.
+    let mut g = game(&f);
+    g.set_hardcore(true);
+    ask(&mut g, HERO_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    ask(&mut g, HERO_REF, KILL_ACTOR, &[]);
+    assert!(g.is_dead(HERO_REF));
+    assert!(g.knockout(HERO_REF).is_none());
+    assert!(!g.is_teammate(HERO_REF));
+    wait(&mut g, ESSENTIAL_DOWN + GETUP_MAX + 1.0);
+    assert!(g.is_dead(HERO_REF), "a dead Hardcore companion does not get up");
+    // An essential actor that is not a teammate keeps its protection in Hardcore.
+    let mut g = game(&f);
+    g.set_hardcore(true);
+    ask(&mut g, HERO_REF, KILL_ACTOR, &[]);
+    assert!(!g.is_dead(HERO_REF));
+}
+
 #[test]
 fn an_actor_out_of_fatigue_is_knocked_out_for_a_set_time() {
     let f = fixture();
