@@ -250,3 +250,67 @@ The commonest call failures:
   | 12 | AddItemHealthPercent: no calling reference | PACK FalloutNV.esm:0273AE begin |
   | 12 | EquipItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
   | 11 | SetDestroyed: called on an empty reference | TERM DeadMoney.esm:006CAF item 0 |
+
+## 8. Second and third batches (2026-10-27/28)
+
+Every chain below runs with no step or given error (`script cover`: 32 chains, all 0/0),
+each with its `mq-*` smoke scenario. Add-on chains name their load order (`plugins`).
+
+| chain(s) | path | reached |
+|---|---|---|
+| ending-legion, ending-house, ending-independent | the other three endings' slides | ExitGame (12, 9, 11 slides) |
+| reputation-axes | Crocker's messenger, Vulpes's greeting (axis 2) | infamy cleared, VMS23's flags set |
+| volare, how-little-we-know, beyond-the-beef, brotherhood, khans | the tribe outcomes Yes Man and House count (VMS18 is Beyond the Beef; G.I. Blues, VMS19, is not stood in by any chain) | VMS15 110, VMS21 50, VMS18 obj. 80, VMS55 100, VMS45 50 and the VStoryEvent globals |
+| honest-hearts | Daniel's path, Prisoners of War's door OnOpen | NVDLC02MQ07 100 |
+| dead-money, dead-money-heist | Elijah left in the vault; Dog and Christine live | NVDLC01MQ03 100, the ending sequence |
+| old-world-blues | the Think Tank talked down | NVDLC03MQ05 100 |
+| lonesome-road | Ulysses talked down, no launch (launch at both: NVDLC04MQ04 100, probed) | NVDLC04MQ03b 100 |
+| fail-benny-fled, fail-house-killed, fail-legion-betrayed, fail-boulder-force, fail-fort-storage | branches and fail paths | every fail leaves a way on (the Yes Man failsafe, VMQ05, VMQ01) |
+| ghost-town-gunfight, run-goodsprings-run, my-kind-of-town, come-fly-with-me | early side quests (VMS16b is Joe Cobb's side) | VMS16 100 / VMS16b 100, nVPrimmDeputyConv 110, VMS01 100 |
+
+**Hard, fixed** (a player would stall in play too):
+1. A voice holotape ran no result script: Dead Money's Dog command tape is its quest's only
+   way to NVDLC01MQ01a 40 [hypothesis that the original runs them]. `Game::holotape_script`,
+   runner `play_note`, and nvf-play holotape.rs runs the begin script as the tape starts and
+   the end script as it plays out.
+2. A line said for its fixed speaker by another actor (Old World Blues' Think Tank through
+   Dr. Klein, end slides by the narrator) had no voice file in the speaker's folder: timing
+   (fnv-game voice.rs) and playback (nvf-play voice.rs) fall back to the fixed speaker's file
+   [observed: the files exist only there; hypothesis: the game plays them].
+
+**Soft, fixed** (the headless runner only): `patrol_point`, `fire`, `hit`, `play_note`,
+`save_load` ops; `player_activate` opens the conversation when the activation's default is
+to talk (the play loop does); a container opened by the player runs OnOpen/OnClose (§2 item
+8); `get_quest` reads `failed`.
+
+**Open, ranked:**
+1. Possibly hard: two Dead Money narrator lines name Elijah as fixed speaker with no GetIsID
+   condition (INFO 0x01013C60, 0x01011DE9), so `can_say_as` refuses them and their slides are
+   skipped [observed]; what the original does is an observer question.
+2. Possibly hard: a script making a talking activator activate the player (REPCONN's
+   intercom, SCPT 0x000CD04E) gives a "talk" outcome no one opens, in the runner and in play
+   (nvf-play `talk_after` takes the player's own activations only) [observed]; about 30-60
+   lines in `Game`, plus an observer check.
+3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
+   (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
+   says those lines they are lost.
+4. Soft: AddScriptPackage is a stub, so scripted packages never run (ED-E in Lonesome Road);
+   dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
+   stood in; MoveTo travel leaves Dead Money's collar radios counting the player in range
+   (their check runs only while their cell is loaded); no pickpocket, loot or sit op.
+5. Soft: save and load drops awareness (by design, §6), so a headless run loaded mid-fight
+   reads IsInCombat 0; in play the VATS tutorial message may show again.
+6. Data notes [observed]: SetStage on stages a quest does not define does nothing (Dead
+   Money); NVDLC02MQ02 is never started (its errands take its place); the Pine Creek tunnel
+   trigger script and Jason's farewell trigger have no placed reference; `scripted:X#n`
+   counts from 1 (#0 and #1 name the first reference).
+
+**Tools** (§5-§7, and docs/design/stress-tests.md §3, §3b): `script cover` (coverage),
+`script roundtrip` (save and load mid-chain), `script sweep` (every result script once),
+stress `cells` now reports missing files and script errors per cell, and stress `markers`
+fast-travels to every map marker (tried on four: three travelled, one refused for a hostile
+nearby; the World Map now reads its markers on an ask from the test aid).
+
+Not done in this batch: the companion quests and the Gun Runners' Arsenal / Hardcore chains
+(helpers stopped by the usage limit, resumed), the three scenes as real game runs (a helper
+is on it), and a full markers or cells sweep (hours of game time).
