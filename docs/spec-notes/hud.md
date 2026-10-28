@@ -525,6 +525,23 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
 - The root's `visible` (`&false;` in the file) reads 1 while playing; `_CrosshairVisible`
   and `_SneakVisible` read 0, `_SneakLevel`, `_RadiationLevel`, `_TargetType` and
   `_ActionType` 0, `_SpreadPercentage` 1 standing still with a pistol.
+- [design] T4a (`fnv_game::ui_hud`, `nvf-play/src/tiles.rs`) writes these places and
+  the drawn pieces' visibility before scripts, beside the current HUD drawing. Pieces
+  not drawn yet keep the file's visibility. The root shows in play, outside menus,
+  dialogue, loading and pause/main menus; hidden visibility is 0 [hypothesis: only shown
+  states were observed]. The engine mirrors `hud::gather`/`draw`/`texts`, `reticle::draw`,
+  the needs, limb, breath, radiation and XP drawing, and the message queues; subtitles
+  share the drawing's selection. Discovery notices map to `Region_Location`, other
+  quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
+- [hypothesis] T4a truncates W and W/2 before subtracting offsets: at 16:9,
+  `1706.67 - 386` truncates to 1320 (nearest would give 1321); the truncated middle
+  853 keeps the reticle's half-unit offset and reproduces its child's x 820.5.
+  This fits the three captured sizes; the original's arithmetic at other sizes is open.
 - Open: a resize while playing; the children's traits other than places (strings,
   filenames: they need GetUIString, JIP); the root's values while aiming, sneaking, in
   radiation and with an enemy targeted.
+  Whether the original overwrites script-set places/visibility each frame is not
+  observed; nor what the pieces' `visible` read while the original's console is open
+  (NVForever's console is a `PlayState::Menu`, so its HUD and these values are hidden). T4a writes them every frame, so SetUIFloat holds until the next frame's
+  write [hypothesis: menu-xml.md §6 / ui-tile-tree.md §4.2]; traits left to XML keep
+  their existing expression-change behaviour.

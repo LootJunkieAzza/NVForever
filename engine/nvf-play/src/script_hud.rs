@@ -223,6 +223,15 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         }
         _ => None,
     };
+    (panel, front, subtitles(hud, g, sim, player))
+}
+
+/// The adapter reads the drawing's subtitle selection before scripts [design].
+pub(crate) fn hud_subtitles_shown(hud: &ScriptHud, game: &fnv_game::Game<'_>, sim: &SimState, player: Option<&crate::player::Player>) -> bool {
+    !subtitles(hud, game, sim, player).on_screen.is_empty()
+}
+
+fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Option<&crate::player::Player>) -> Subtitles {
     let mut subs = Vec::new();
     let mut on_screen = Vec::new();
     // In a conversation with the player only the dialogue menu's own line is on screen.
@@ -258,7 +267,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.
     subs.extend(crate::dialogue::subtitle(g, sim));
-    (panel, front, Subtitles { logged: subs.join("\n"), on_screen, wheel })
+    Subtitles { logged: subs.join("\n"), on_screen, wheel }
 }
 
 /// The subtitles: all of them for the log ("Speaker: text"), those drawn here for the

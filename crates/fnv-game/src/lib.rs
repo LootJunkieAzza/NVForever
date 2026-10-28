@@ -131,6 +131,7 @@ pub mod swing_traps;
 pub mod traps;
 pub mod ui_functions;
 pub mod ui_loading;
+pub mod ui_hud;
 pub mod unconscious;
 pub mod use_weapon;
 pub mod vats;

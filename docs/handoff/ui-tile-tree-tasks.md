@@ -56,17 +56,36 @@ Plus folders as `--overlay` when a task touches loading.
   - Tests: `fnv_ui::index`, `fnv_ui::value`, `crates/fnv-game/tests/ui_loading.rs`;
     smoke `ui-menu-lifetime` reads an open message menu's depth and checks build/drop.
 
+- **T4a. HUD places and visibility.** Done 2026-10-29 (claude/hud-code-traits).
+  - `fnv_game::ui_hud` writes every observed piece's x/y, `CNDArrows` height and
+    shown visibility values from hud.md §14; `screen()` supplies the aspect ratio.
+    W and W/2 truncate before offsets [hypothesis: 1320 for AP at 16:9, keeping the
+    reticle's half-unit offset]. Hidden pieces read 0 [hypothesis]. Undrawn pieces
+    keep the file's visibility; the current HUD keeps drawing [design].
+  - `nvf-play/src/tiles.rs` mirrors the current HUD's showing rules and writes after
+    lifetime sync, before scripts [design: §4.1]. Subtitle selection is shared with
+    `script_hud`. Script-set places/visibility last until the next frame's write
+    [hypothesis; original overwrite frequency remains open, hud.md §14].
+  - Tests: `crates/fnv-game/tests/ui_hud.rs` (synthetic XML, all three captured aspect
+    ratios, visibility, script writes, no loaded HUD); smoke `ui-hud-code-traits`
+    (console GetUIFloat at an explicit 1280 x 800).
+  - T4 remains: the root's `_CrosshairVisible`, `_SneakVisible`, `_SneakLevel`,
+    `_RadiationLevel`, `_TargetType`, `_ActionType`, `_SpreadPercentage` and user
+    slots in other states; the code-made children under the corner pieces (bars,
+    compass, condition and ammo); strings. Capture the missing states/strings and
+    check them against ours (hud.md §14 "Open").
+
 ## Next, in order
 
 1. **T4. The HUD's code-side traits.** Write into `HUDMainMenu` what the original's code
    sets: health, action points, compass, crosshair (`_CrosshairVisible`,
    `_SpreadPercentage`), sneak (`_SneakVisible`, `_SneakLevel`), `_RadiationLevel`,
    `_ActionType`, the `user` slots, the visible flags of the pieces.
-   - First an observer capture that dumps the original's `HUDMainMenu` traits while
-     playing (DumpTileInfoAll or GetUIFloat per trait), so the names and their values
-     are observed, not guessed.
+   - Places and visibility are T4a above; the first captures are in hud.md §14.
+     Capture the root's other states, children's traits and strings next, so the
+     names and values are observed, not guessed.
    - [design] Generate that private trait job with [hud_traits.py](../../tools/capture/README.md#hud-trait-jobs-hud_traitspy)
-     from a `fnvtool ui tree` export; T4 still needs the capture and agreement check.
+     from a `fnvtool ui tree` export; the rest of T4 still needs captures and agreement.
    - Done when the capture's values and ours agree on the same scene.
 2. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
    - `nvf-play/src/tiles/`: layout as a pure function (tested headless: places,
