@@ -80,10 +80,10 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
   (NVDLC01DogCommandNote, line 0x0100DFC7) is the only way its quest has to reach
   NVDLC01MQ01a 40 and to hand Dog to God, so the original runs the line's scripts; on
   whom is not known: the DM tape lines name every reference they touch]. The runner's
-  `play_note` runs both at once (scripts.md §8). Not yet called by `nvf-play`
-  (`holotape.rs` plays the voice only): a hard stall there until it calls
-  `holotape_script(note, 0)` on the pick and `(note, 1)` when the queue runs out
-  (found by the Dead Money walkthrough, crates/fnv-game/walkthrough/dead-money.actions.json).
+  `play_note` runs both at once (scripts.md §8). In play, `nvf-play` holotape.rs runs
+  the begin script as the tape starts and the end script when its last response has
+  played; a tape stopped before its end runs none [hypothesis] (found by the Dead Money
+  walkthrough, crates/fnv-game/walkthrough/dead-money.actions.json).
 - **A Sound note** plays its SOUN once at the listener (`crate::sfx::PlaySound`) and
   cannot be stopped [hypothesis; no master note uses it].
 - Not built: the subtitles of a holotape's responses (whether the original shows them is
