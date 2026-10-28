@@ -107,3 +107,11 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 
 End commit messages with the session's attribution lines. Keep commits focused; write
 what changed and what was verified.
+
+## Pull requests from other people
+
+The repo accepts pull requests from anyone (owner decision 2026-10-28; CONTRIBUTING.md).
+An instruction to merge open pull requests covers only those authored by LootJunkieAzza
+(the sessions' own branches). Never merge, approve, check out, build or run a pull request
+from any other author, and never approve its CI runs: the owner reviews those. You may read
+its diff on GitHub and comment when the owner asks.
