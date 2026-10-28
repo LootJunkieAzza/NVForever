@@ -10486,6 +10486,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "doc-chair-player-seated"
+source = "owner report 2026-10-27: sat on the couch while Doc Mitchell was still by the Vigor Tester, Doc got stuck on his way to his chair (VCG01DocMitchellTravelToExamSpot, VCG01 stage 80) and was moved on by the stuck rule"
+note = "stage 80 sends Doc to his chair (DocMitchellChairREF); he is put at his Vigor Tester marker (VCG01DocMarkerFaceTesterREF) and the player sits on the couch (00103E55) before he gets there. Before the fix the stuck rule moved him on 7 times along the 784 units: the physics step left the walked actors still while furniture held the player (nvf-play player.rs step_npcs_alone)"
+areas = ["ai", "furniture", "nav"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:setstage 00104C1C 80;8.1:00104C0F.moveto 00104C0E;8.3:close", NVF_PLAY_TEST_FACE = "9:00103E55", NVF_PLAY_TEST_LOOK = "9.5:283:-35", NVF_PLAY_TEST_ACTIVATE = "10" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { text = "furniture: the player is on 00103E55", label = "the player sits on the couch" },
+  { text = "furniture: 00104C0F is on 001055B8", label = "Doc Mitchell gets onto his chair" },
+  { text = "dialogue: conversation with DocMitchellREF started", label = "and starts the word test with the player on the couch (GSDocMitchellCouchTrigger's script)" },
+]
+forbid = [
+  { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
+name = "goodbye-greeting-stops-walker"
+source = "owner 2026-10-27 (the Goodsprings settler's water line 0010B3D6 said walking away): an actor saying its Goodbye greeting at the player stops and faces the player, its package going on after (docs/design/dialogue-play.md §1, Game::greets_player)"
+areas = ["dialogue", "residents"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-ai/src/social.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/speech_look.rs"]
+note = "GoodspringsSettler04Ref walks her evening trips at 21.9 (the residents scenario); the player talks to her four times, her greeting being a Goodbye line (dialogue-play.md §1)"
+env = { NVF_PLAY_TEST_TALK = "20:GoodspringsSettler04Ref=;40:GoodspringsSettler04Ref=;60:GoodspringsSettler04Ref=;80:GoodspringsSettler04Ref=" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "GoodspringsSettler04Ref", "--hour", "21.9", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'dialogue: \S+ says its greeting \S+ at the player \(a Goodbye line: no conversation\)', label = "the settler says her Goodbye greeting at the player" },
+  { re = 'actor 00104F08 held \(staggering, seated or talking\): its character stops \(was walking at [1-9]', label = "talked to on her way, she stops" },
+  { re = 'speech look: line \S+ over: GoodspringsSettler04Ref has the player [+-][0-5]° off its front', label = "she faces the player by the end of the line" },
+  { re = 'ai summary.*GoodspringsSettler04Ref: GSSettler04SleepPackage22x8, (on its way|there)', label = "her package goes on after the lines" },
+  { re = 'ai summary.*\b0 unreachable', label = "no walk left unreachable" },
+]
+
+[[scenario]]
 name = "mq-ending-legion"
 kind = "tool"
 source = "docs/handoff/mq-walkthrough-2026-10-27.md: the headless walkthrough crates/fnv-game/walkthrough/ending-legion.actions.json, the end slides from VHDLegionBattle 100 (the Legion ending, story state 62): VEnding starts, the narrator's SayTo chain runs every slide to VEndingConclusion, FadeToCreditsTimer fades out and calls ExitGame"
@@ -10953,3 +10988,75 @@ expect = [
   { json = "observations.?label=final: the end slides over, the player back at the bunker (NVDLC01BunkerTransitionTimer faded out).var.bfadeoutdone", equals = 1.0, label = "final: the end slides over, the player back at the bunker (NVDLC01BunkerTransitionTimer faded out): var.bfadeoutdone = 1.0" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the Dead Money walkthrough report (addon-dm-report.md)"
+
+[[scenario]]
+name = "mq-ghost-town-gunfight"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/ghost-town-gunfight.actions.json: Ghost Town Gunfight (VMS16), the town's side, from Joe Cobb's row with Trudy to the sixth Powder Ganger's death (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ghost-town-gunfight.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ghost-town-gunfight.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS16 5.stage", equals = 5, label = "ghost-town-gunfight, milestone: VMS16 5: stage = 5" },
+  { json = "observations.?label=milestone: VMS16 10.stage", equals = 10, label = "ghost-town-gunfight, milestone: VMS16 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS16 50.stage", equals = 50, label = "ghost-town-gunfight, milestone: VMS16 50: stage = 50" },
+  { json = "observations.?label=milestone: VMS16 65.stage", equals = 65, label = "ghost-town-gunfight, milestone: VMS16 65: stage = 65" },
+  { json = "observations.?label=milestone: VMS16 70.stage", equals = 70, label = "ghost-town-gunfight, milestone: VMS16 70: stage = 70" },
+  { json = "observations.?label=final: VMS16 100.done.100", equals = true, label = "ghost-town-gunfight, final: VMS16 100: done.100 = true" },
+  { json = "observations.?label=final: VMS16 100.var.nGangerDeathCount", equals = 6.0, label = "ghost-town-gunfight, final: VMS16 100: var.nGangerDeathCount = 6.0" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the early side-quest walkthrough report"
+
+[[scenario]]
+name = "mq-run-goodsprings-run"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/run-goodsprings-run.actions.json: Joe Cobb's side of Ghost Town Gunfight, VMS16 failed (110) by his deal, Run Goodsprings Run (VMS16b) from 10 to Goodsprings taken (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/run-goodsprings-run.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/run-goodsprings-run.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS16 5.stage", equals = 5, label = "run-goodsprings-run, milestone: VMS16 5: stage = 5" },
+  { json = "observations.?label=milestone: VMS16b 10.stage", equals = 10, label = "run-goodsprings-run, milestone: VMS16b 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS16 failed (110), Joe Cobb helped.done.110", equals = true, label = "run-goodsprings-run, milestone: VMS16 failed (110): done.110 = true" },
+  { json = "observations.?label=milestone: VMS16b 30.stage", equals = 30, label = "run-goodsprings-run, milestone: VMS16b 30: stage = 30" },
+  { json = "observations.?label=milestone: VMS16b 70.stage", equals = 70, label = "run-goodsprings-run, milestone: VMS16b 70: stage = 70" },
+  { json = "observations.?label=final: VMS16b 100.done.100", equals = true, label = "run-goodsprings-run, final: VMS16b 100: done.100 = true" },
+  { json = "observations.?label=final: VMS16b 100.completed", equals = true, label = "run-goodsprings-run, final: VMS16b 100: completed = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the early side-quest walkthrough report"
+
+[[scenario]]
+name = "mq-my-kind-of-town"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/my-kind-of-town.actions.json: My Kind of Town (nVPrimmDeputyConv), Nash, Beagle freed, Hayes and Major Knight: the NCR's sheriff (stage 110)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/my-kind-of-town.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/my-kind-of-town.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: nVPrimmDeputyConv 20.stage", equals = 20, label = "my-kind-of-town, milestone: nVPrimmDeputyConv 20: stage = 20" },
+  { json = "observations.?label=milestone: nVPrimmDeputyConv 25.stage", equals = 25, label = "my-kind-of-town, milestone: nVPrimmDeputyConv 25: stage = 25" },
+  { json = "observations.?label=milestone: nVPrimmDeputyConv 26.stage", equals = 26, label = "my-kind-of-town, milestone: nVPrimmDeputyConv 26: stage = 26" },
+  { json = "observations.?label=milestone: Knight promises troops (objective 37).objective.37.displayed", equals = true, label = "my-kind-of-town, milestone: Knight promises troops: objective.37.displayed = true" },
+  { json = "observations.?label=final: nVPrimmDeputyConv 110.done.110", equals = true, label = "my-kind-of-town, final: nVPrimmDeputyConv 110: done.110 = true" },
+  { json = "observations.?label=final: nVPrimmDeputyConv 110.completed", equals = true, label = "my-kind-of-town, final: nVPrimmDeputyConv 110: completed = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the early side-quest walkthrough report"
+
+[[scenario]]
+name = "mq-come-fly-with-me"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/come-fly-with-me.actions.json: Come Fly With Me (VMS01), Manny's tip to the REPCONN ghouls' rockets launched (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/come-fly-with-me.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/come-fly-with-me.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS01 10.stage", equals = 10, label = "come-fly-with-me, milestone: VMS01 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS01 15.stage", equals = 15, label = "come-fly-with-me, milestone: VMS01 15: stage = 15" },
+  { json = "observations.?label=milestone: VMS01 20.stage", equals = 20, label = "come-fly-with-me, milestone: VMS01 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS01 30.stage", equals = 30, label = "come-fly-with-me, milestone: VMS01 30: stage = 30" },
+  { json = "observations.?label=milestone: VMS01 40.stage", equals = 40, label = "come-fly-with-me, milestone: VMS01 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS01 50.stage", equals = 50, label = "come-fly-with-me, milestone: VMS01 50: stage = 50" },
+  { json = "observations.?label=final: VMS01 100.done.100", equals = true, label = "come-fly-with-me, final: VMS01 100: done.100 = true" },
+  { json = "observations.?label=final: VMS01 100.completed", equals = true, label = "come-fly-with-me, final: VMS01 100: completed = true" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the early side-quest walkthrough report"
