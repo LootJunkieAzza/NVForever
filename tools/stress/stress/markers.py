@@ -125,13 +125,16 @@ def run(ctx: lib.Ctx, markers: list[Marker], batch: int, every: float, hang: flo
         n += 1
         part = todo[:batch]
         name = f"batch-{n:03d}"
-        launch = lib.Launch(name, start_args + ["--play", "--no-voice", "--no-messages"], aids(part, every),
+        launch = lib.Launch(name, start_args, aids(part, every),
                             run_seconds=8 + len(part) * every + 30, progress=PROGRESS, hang_seconds=hang)
         ctx.say(f"markers: {name}: {len(part)} markers ({part[0].name()} ...)")
         r = lib.run(ctx, launch)
         seen = read_batch(r.lines, part)
         last = max(seen) if seen else None
-        done = len(part) if r.status == "ok" or last is None else last
+        if r.status != "ok" and last is None:
+            ctx.say(f"markers: {name} ended before its first marker ({r.status}, exit {r.exit}); stopping")
+            break
+        done = len(part) if r.status == "ok" else last
         for i in range(done):
             s = seen.get(i, {})
             row = {"marker": part[i].name(), "status": status(s), "batch": name}
@@ -144,9 +147,6 @@ def run(ctx: lib.Ctx, markers: list[Marker], batch: int, every: float, hang: flo
             for cr in r.crashes or [lib.Crash(f"no panic report ({r.status}, exit {r.exit})", "", [], "")]:
                 crashes.append((part[last].name(), cr))
             todo = todo[last + 1:]
-        elif r.status != "ok":
-            ctx.say(f"markers: {name} ended before its first marker ({r.status}, exit {r.exit}); stopping")
-            break
         else:
             todo = todo[len(part):]
         if on_batch:
