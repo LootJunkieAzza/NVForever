@@ -55,6 +55,7 @@ class Ctx:
     say: object = print
     locks: Locks | None = None
     masters: list[str] = field(default_factory=list)
+    ini: Path | None = None  # an NVForever.ini copied into each launch's home (the player's settings)
 
 
 def run_folder(repo: Path, test: str, name: str | None = None) -> Path:
@@ -252,6 +253,9 @@ def run(ctx: Ctx, launch: Launch) -> Result:
     its run log and crash reports apart; its console output goes to `<out>/<name>.log`."""
     home = ctx.out / f"{launch.name}.home"
     home.mkdir(parents=True, exist_ok=True)
+    if ctx.ini:
+        # The run plays with these settings (graphics, controls) instead of the defaults.
+        (home / "NVForever.ini").write_bytes(Path(ctx.ini).read_bytes())
     log = ctx.out / f"{launch.name}.log"
     cmd = [str(ctx.exe), "--data", str(ctx.data), *BASE_ARGS, *launch.args, "--run-seconds", f"{launch.run_seconds:g}"]
     aids = {**BASE_AIDS, **launch.aids, "NVFOREVER_HOME": str(home)}

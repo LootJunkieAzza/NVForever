@@ -243,6 +243,51 @@ uGridsToLoad=5).
   The rebuilds now stop at 4 ms a frame (`REBUILD_BUDGET_MS`, at least one a frame); the
   old meshes stay drawn until theirs come round.
 
+## 3.1 Slower at night, and the longer the session (2026-10-28, 7c96203d)
+
+The owner's report: heavy stutter about 22 minutes into a session, gone after a restart,
+wherever it happened (the Powder Ganger camp, Novac). Both onsets came right after the
+weather rolled to `NVWastelandClearNight` [observed: the owner's run logs, `weather roll`
+at 17:28:58, stutter from 17:30:33]; loading the save made there ran at a flat 60 fps
+[observed]. The frames went from 16.7 ms to 27-40 ms (vsync halving) with 250-800 ms
+stalls, with the processor and the GPU both half idle [observed: thread CPU and
+nvidia-smi during the stutter; 6 of 12 GB of video memory].
+
+Measured on two-lap tours with the owner's settings (`tools/stress run tour --laps 2
+--ini <NVForever.ini> --aid NVF_PLAY_TEST_PROFILE=5`, a profile build; lap 2 is the
+evening and night, the tours start at noon) [observed, target/stress/tour/*, private]:
+
+- `material::write_material_bind_group_buffers` follows the game hour: about 0.5 ms a
+  frame at noon, 3-5 ms from 19:00 to midnight, with run-to-run spread. Bevy sends a whole
+  bindless slab again when any material in it changes [documented: bevy_pbr 0.19.1
+  `material_bind_groups.rs`, `RetainedRawBufferVec::write`], and materials changed every
+  frame (animated glow, `material_anim::animate_rig_materials`; colours driven by the
+  hour, `emittance.rs`) each dirty a slab of up to 2,048 resources shared with static
+  ones. The render graph and extraction grow with them.
+- **Done** (branch claude/novac-stutter): `NifSurface` slabs hold at most 512 resources
+  (`#[bindless(limit(512))]`): render graph 30-40 % cheaper at every hour, material writes
+  about halved, 1 % low 56 → 50 ms, no material-write stall; 154 multi-drawn sets against
+  108 (more slabs, fewer resources bound per draw).
+- Not the cause: the place (a fresh load there is smooth), the asset caches' keep (a 60 s,
+  512-entry keep held 40 % fewer meshes and images and lap 2 still slowed), video memory
+  (it levels off at 5.4-6 GB walking; it climbed to 7-9 GB only with the soak's events).
+- Left to do, patches kept outside the repository (`F:/nvf-wt/perf-hitch-patches-2026-10-28`):
+  - `emittance.rs` never lets its driven material copies go (`EmittanceState::driven`
+    only grows; each copy holds its material and textures for the session) and writes
+    them all at every game minute and fade step whether the colour changed or not. Pruning
+    them and writing only changes is right in itself, but a two-lap tour with it had 27
+    frames of 100-470 ms material writes (none without it): freeing copies churns the
+    slabs. Needs a way to free them that does not.
+  - Per-frame work over every actor the AI ever took in (`Core::list` and `Ai::agents`
+    only grow): `Game::sync_loaded_actor_effects` syncs every actor that ever ran a
+    package (`package_actors`), against its own comment (loaded actors only);
+    `Ai::keep_apart` tests every pair of agents (a grid gives the same pairs); far
+    residents run the whole draw-and-place step. Each fix measured alone on a dusk lap
+    showed no harm, but together on two-lap tours they came with 45-154 frames of material
+    write stalls; not understood yet.
+  - Why material writes stall for 100-500 ms at all (slab growth and reallocation is the
+    likeliest) and the 400-430 ms `window::prepare_windows` waits.
+
 ## 4. Combat and interiors (2026-10-23, 5022d345)
 
 Measured the same way (xperf CPU sampling; `tools/stress run battle`, standing in five

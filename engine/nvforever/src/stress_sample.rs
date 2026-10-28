@@ -44,8 +44,52 @@ impl Plugin for StressSamplePlugin {
     fn build(&self, app: &mut App) {
         let Some(every) = Self::interval() else { return };
         info!("test aid NVF_PLAY_TEST_SAMPLE: a stress sample every {every} s");
-        app.insert_resource(Samples { every, ..default() }).add_systems(Last, (sample, report).chain());
+        app.insert_resource(Samples { every, ..default() }).add_systems(Last, ((sample, report).chain(), census));
     }
+}
+
+/// Seconds between entity censuses ([`census`]).
+const CENSUS_SECS: f32 = 30.0;
+
+/// Kinds listed in a census line.
+const CENSUS_LISTED: usize = 14;
+
+/// Every [`CENSUS_SECS`] of real time, `stress census: <n> entities; <count> <kind>; …`: the
+/// entities by kind, the most first, so an entity count that grows can be told by what
+/// grows [observed 2026-10-27: a two-lap soak ended its second lap with 9,900 entities
+/// against 1,907, at the same place 9,886 against 1,754]. An entity's kind is the names of
+/// the game's own components on it (`nvforever`, `nvf_*`, `fnv_*`), else of Bevy's, the
+/// first four, with `(root)` when it has no parent.
+fn census(world: &World, mut last: Local<f32>) {
+    let now = world.resource::<Time<Real>>().elapsed_secs();
+    if now - *last < CENSUS_SECS {
+        return;
+    }
+    *last = now;
+    let components = world.components();
+    let parent = world.component_id::<ChildOf>();
+    let mut kinds: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut total = 0usize;
+    for a in world.archetypes().iter() {
+        let n = a.len() as usize;
+        if n == 0 {
+            continue;
+        }
+        total += n;
+        let names: Vec<String> = a.components().iter().filter_map(|id| components.get_name(*id)).map(|n| n.to_string()).collect();
+        let ours: Vec<&String> = names.iter().filter(|n| n.starts_with("nvforever") || n.starts_with("nvf_") || n.starts_with("fnv_")).collect();
+        let pick: Vec<&String> = if ours.is_empty() { names.iter().collect() } else { ours };
+        let mut short: Vec<String> = pick.iter().map(|n| crate::profile::short_name(n)).collect();
+        short.sort();
+        short.truncate(4);
+        let rooted = parent.is_some_and(|p| a.contains(p));
+        let key = format!("{}{}", short.join("+"), if rooted { "" } else { " (root)" });
+        *kinds.entry(key).or_default() += n;
+    }
+    let mut list: Vec<(String, usize)> = kinds.into_iter().collect();
+    list.sort_by_key(|k| std::cmp::Reverse(k.1));
+    let shown: Vec<String> = list.iter().take(CENSUS_LISTED).map(|(k, n)| format!("{n} {k}")).collect();
+    info!("stress census: {total} entities; {}", shown.join("; "));
 }
 
 /// A frame slower than this (milliseconds) after start-up is logged as a hitch.
