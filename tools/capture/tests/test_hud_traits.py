@@ -44,9 +44,12 @@ class HudTraits(unittest.TestCase):
                                                "HUDMainMenu/FictionalPanel/FictionalLabel"])
         obs = observe(ht.make_job(doc, tiles=()))
         rows = obs["fields"]["tiles"]
-        self.assertEqual([r["file_probes"] for r in rows], [2, 4, 0])
+        self.assertEqual([r["file_probes"] for r in rows], [4, 4, 0])
         self.assertEqual(rows[0]["traits"], list(doc["tree"]["traits"]))
         self.assertEqual(rows[1]["numeric_traits"], ["_InventedFraction", "_InventedNegative"])
+        self.assertEqual(rows[0]["numeric_traits"], ["_InventedZero", "_InventedSymbol"])
+        coded = observe(ht.make_job(doc, tiles=(), code_traits=("x", "visible")))["fields"]["tiles"]
+        self.assertEqual([r["numeric_traits"][-2:] for r in coded][2], ["x", "visible"])
         for g in obs["groups"]:
             self.assertEqual(g["count"], ht.number_script("1"))
             self.assertEqual(g["probe"][0], ht.number_script("1"))
@@ -61,8 +64,8 @@ class HudTraits(unittest.TestCase):
                                       "_InventedString": {"value": "text", "expr": None}})
         obs = observe(ht.make_job(doc, tiles=()))
         row = obs["fields"]["tiles"][0]
-        self.assertEqual(row["numeric_traits"], ["_InventedZero", "_InventedExpr", "_InventedWrapped"])
-        self.assertEqual(row["file_probes"], 6)
+        self.assertEqual(row["numeric_traits"], ["_InventedZero", "_InventedSymbol", "_InventedExpr", "_InventedWrapped"])
+        self.assertEqual(row["file_probes"], 8)
         self.assertNotIn("PRIVATE_EXPRESSION", json.dumps(obs))
         self.assertFalse(ht.is_numeric(float("nan")))
         self.assertFalse(ht.is_numeric(False))
@@ -77,7 +80,7 @@ class HudTraits(unittest.TestCase):
             expanded = group["probe"][1].replace("%{i}", str(i))
             self.assertIn(f"/*:{i}/_InventedX", expanded)
         self.assertNotIn("GetUIFloatInherited", "".join(scripts(obs)))
-        self.assertEqual(obs["fields"]["counts"]["trait_reads"], 6 + 8)
+        self.assertEqual(obs["fields"]["counts"]["trait_reads"], 8 + 8)
         self.assertEqual(obs["fields"]["tiles"][1]["child_probes"], 8)
         defaults = observe(ht.make_job(fixture()))
         self.assertEqual(sum(t["child_probes"] for t in defaults["fields"]["tiles"]), 9 * 12 * (7 + 3 * 2))
@@ -94,9 +97,9 @@ class HudTraits(unittest.TestCase):
         self.assertNotIn(f'GetUIFloatInherited "{panel}/_InventedFraction"', text)
         self.assertIn(ht.read_script("GetUIFloatInherited", f"{panel}/*:%{{i}}/y"), text)
         self.assertNotIn(f'GetUIFloatInherited "{panel}/*:%{{i}}/_InventedX"', text)
-        # The menu's 2 reads; the panel's 2 + 2 plus x and Depth at 4 each; children:
+        # The menu's 4 reads (its symbol too); the panel's 2 + 2 plus x and Depth at 4 each; children:
         # 2 x (y with 3 readers, _InventedX with 1).
-        self.assertEqual(obs["fields"]["counts"]["trait_reads"], 2 + 4 + 8 + 2 * 4)
+        self.assertEqual(obs["fields"]["counts"]["trait_reads"], 4 + 4 + 8 + 2 * 4)
         self.assertIn("ExcludeMenuRoot", obs["fields"]["inherited"])
         off = observe(ht.make_job(doc, tiles=(), inherited=False))
         self.assertNotIn("GetUIFloatInherited", "".join(scripts(off)))
@@ -188,7 +191,7 @@ class HudTraits(unittest.TestCase):
                 self.assertEqual(ht.main([str(tree), "--out", str(out), "--list"]), 0)
             self.assertFalse(out.exists())
             plan = json.loads(stdout.getvalue())
-            self.assertEqual(plan["counts"]["trait_reads"], 6 + 9 * 12 * (7 + 3 * 2))
+            self.assertEqual(plan["counts"]["trait_reads"], 24 + 24 + 20 + 9 * 12 * (7 + 3 * 2))
             tree.write_text(json.dumps(fixture()), encoding="utf-16")
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(ht.main([str(tree), "--out", str(out), "--start", "InventedSave"]), 0)
@@ -199,7 +202,7 @@ class HudTraits(unittest.TestCase):
             self.assertEqual(cr.manual_steps(loaded), [])
             # [design] The loader checks format and basename; the numeric script
             # and observe shape checks above cover what it does not validate.
-            self.assertEqual(loaded, ht.make_job(fixture(), name="invented_hud", start="InventedSave"))
+            self.assertEqual(loaded, ht.make_job(fixture(), name="invented_hud", start="InventedSave", code_traits=ht.CODE_TRAITS))
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(ht.main([str(tree), "--out", str(Path(tmp) / "bad.json")]), 1)
 

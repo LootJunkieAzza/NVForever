@@ -148,8 +148,12 @@ const AP_LABEL_END: f32 = 355.0;
 /// above the line "CND" stands on; "CND" ends this far before the bar [observed: on the
 /// `Target healthbar` screenshot the bar starts about 8 pixels after the "D" and is about
 /// as high as the letters; owner's playtest 2026-10-16, after 15 / 0 / 6 left 2 pixels
-/// between "D" and the bar and the bar lower than the letters].
-const CND_BEFORE_DIVIDER: f32 = 10.0;
+/// between "D" and the bar and the bar lower than the letters]. The bar ends 17 before
+/// the divider [observed: hud_weapon capture 2026-10-28, hud.md §14: the 60 x 20 ground's
+/// GetUIFloatInherited x 1410 with the divider at 1487, and on its screenshot the bar at
+/// 1058-1102 of 1280 pixels; 10, from the screenshot of 2026-10-16, stood 7 too far right,
+/// the label with it].
+const CND_BEFORE_DIVIDER: f32 = 17.0;
 const CND_RAISE: f32 = 2.0;
 const CND_LABEL_GAP: f32 = 11.0;
 /// The ammo type's abbreviation starts here, just right of the divider, whatever the

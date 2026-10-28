@@ -14,6 +14,9 @@ import sys
 DEFAULT_TILES = ("HitPoints", "ActionPoints", "SneakMeter", "ReticleCenter",
                  "EnemyHealth", "Messages", "Subtitles", "Info", "QuestReminder")
 DEFAULT_TRAITS = ("x", "y", "width", "height", "alpha", "visible", "depth")
+# [design] Read on every tile of the file too, set there or not: the code sets places and
+# visibility the file leaves out (hud.md §2, "set in code").
+CODE_TRAITS = DEFAULT_TRAITS
 READERS = ("GetUIFloat", "GetUIFloatAlt")
 # [documented: GECK wiki snapshot 2026-10-28, GetUIFloatInherited rev 41244 (xNVSE
 # 6.4.8, ExcludeMenuRoot 6.4.9)] Relative values for x, y and
@@ -71,6 +74,10 @@ def is_numeric(trait):
         if trait.get("expr") is not None:
             return True
         trait = trait.get("value")
+    if isinstance(trait, str):
+        # [documented: menu-xml.md §2.3, §3] A named constant (`&false;`) is a number in
+        # the original, whatever the file writes; fnvtool keeps it by name.
+        return trait.startswith("&") and trait.endswith(";") and len(trait) > 2
     return type(trait) in (int, float) and math.isfinite(trait)
 
 
@@ -110,7 +117,7 @@ def list_tiles(doc):
 
 def make_job(doc, *, name="hud_traits", start="Load a settled save with the HUD visible.",
              tiles=DEFAULT_TILES, children=12, traits=DEFAULT_TRAITS, inherited=True,
-             every=30, max_samples=120, settle_frames=300, shots=3, shot_gap=30):
+             every=30, max_samples=120, settle_frames=300, shots=3, shot_gap=30, code_traits=()):
     for key, value, minimum in (("children", children, 0), ("every", every, 1),
                                 ("max_samples", max_samples, 1), ("settle_frames", settle_frames, 1),
                                 ("shots", shots, 0), ("shot_gap", shot_gap, 1)):
@@ -137,6 +144,7 @@ def make_job(doc, *, name="hud_traits", start="Load a settled save with the HUD 
 
     for path, values in live:
         selected = [t for t, v in values.items() if is_numeric(v)]
+        selected += [t for t in code_traits if t.casefold() not in {s.casefold() for s in selected}]
         queries = [(reader, f"{path}/{trait}") for trait in selected for reader in readers_for(trait, READERS, inherited)]
         add_groups("file", path, queries, 1)
         tile_plan.append({"path": path, "traits": list(values), "numeric_traits": selected,
@@ -216,6 +224,8 @@ def main(argv=None):
     parser.add_argument("--tiles", nargs="+", default=DEFAULT_TILES, help="tiles whose runtime children are probed (relative to HUDMainMenu)")
     parser.add_argument("--children", type=int, default=12, help="child indices 0..K-1 (default: 12; 0 disables)")
     parser.add_argument("--traits", nargs="+", default=DEFAULT_TRAITS, help="runtime child traits (default: x y width height alpha visible depth)")
+    parser.add_argument("--code-traits", nargs="*", default=list(CODE_TRAITS),
+                        help="also read these on every file tile, set in the file or not (default: x y width height alpha visible depth; none to switch off)")
     parser.add_argument("--no-inherited", dest="inherited", action="store_false", help="leave out GetUIFloatInherited's x, y and depth reads (xNVSE 6.4.8+; ExcludeMenuRoot 6.4.9+)")
     parser.add_argument("--every", type=int, default=30, help="loops between samples (default: 30)")
     parser.add_argument("--max-samples", type=int, default=120, help="sample count (default: 120)")
@@ -233,7 +243,7 @@ def main(argv=None):
                 raise InputError("output basename must be NAME.steps.json")
             name = args.out.name[:-len(".steps.json")]
         job = make_job(doc, name=name, **{key: getattr(args, key) for key in
-                       ("start", "tiles", "children", "traits", "inherited", "every", "max_samples", "settle_frames", "shots", "shot_gap")})
+                       ("start", "tiles", "children", "traits", "inherited", "every", "max_samples", "settle_frames", "shots", "shot_gap", "code_traits")})
         fields = job["steps"][-1]["observe"]["fields"]
         if args.list:
             print(json.dumps({k: fields[k] for k in ("tiles", "counts", "comment", "clock", "screen", "input")}, indent=2))
