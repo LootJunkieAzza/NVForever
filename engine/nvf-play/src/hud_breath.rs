@@ -17,10 +17,15 @@
 //!   the breath is whole again [hypothesis].
 //! - **Where**: the menu file gives no place (the game's code sets it); centred high on the
 //!   screen, where the owner placed it ([`CENTRE_Y`]).
+//! - **With `[UI] TileMenus=HUDMainMenu`** the tile HUD draws `BreathMeter` from its tile
+//!   with this module's reading and pieces (`crate::tiles::model`, hud.md §14.12) and this
+//!   meter is hidden.
 
 use crate::drowning::PlayerBreath;
 use crate::hud::{HudSet, HudView};
 use crate::interface::{amber, bc_supported, texture, u};
+// The root is hidden while the HUD is drawn from tiles (`crate::tiles::vanilla::hide_hand_built`).
+use crate::tiles::vanilla::BreathRoot as MeterRoot;
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -104,8 +109,15 @@ pub fn shown(b: &PlayerBreath) -> bool {
 }
 
 impl MeterModel {
-    /// Read the model.
+    /// Read the meter's model with its sequence [`SEQUENCE`].
     pub fn read(bytes: &[u8], schema: &fnv_nif::Schema) -> Result<MeterModel, String> {
+        MeterModel::read_sequence(bytes, schema, Some(SEQUENCE))
+    }
+
+    /// Read a model of flat pieces, the vis keys of the sequence `sequence` names (an error
+    /// when the model has no such sequence; none without a name). The tile HUD reads a
+    /// `nif` tile's model so (`crate::tiles::model`).
+    pub fn read_sequence(bytes: &[u8], schema: &fnv_nif::Schema, sequence: Option<&str>) -> Result<MeterModel, String> {
         use fnv_nif::scene::{mesh_data, scene_objects, Decoded};
         let f = fnv_nif::NifFile::parse(bytes, Some(schema)).map_err(|e| e.to_string())?;
         let dec = Decoded::new(&f, bytes, schema);
@@ -148,19 +160,64 @@ impl MeterModel {
         if pieces.is_empty() {
             return Err("no flat pieces".into());
         }
-        let seq = fnv_nif::anim::sequences(&f, &dec).into_iter().find(|s| s.name.as_deref() == Some(SEQUENCE)).ok_or_else(|| format!("no sequence {SEQUENCE}"))?;
-        let keys = seq.tracks.iter().filter_map(|t| Some((t.node_name.clone()?, t.bools.as_ref()?.keys.clone()))).collect();
+        let (keys, length) = match sequence {
+            Some(name) => {
+                let seq = fnv_nif::anim::sequences(&f, &dec).into_iter().find(|s| s.name.as_deref() == Some(name)).ok_or_else(|| format!("no sequence {name}"))?;
+                let keys = seq.tracks.iter().filter_map(|t| Some((t.node_name.clone()?, t.bools.as_ref()?.keys.clone()))).collect();
+                (keys, seq.stop_time - seq.start_time)
+            }
+            None => (Vec::new(), 0.0),
+        };
         let mut bounds = Rect::EMPTY;
         for p in &pieces {
             let half = Vec2::new(p.size.x * p.angle.cos().abs() + p.size.y * p.angle.sin().abs(), p.size.x * p.angle.sin().abs() + p.size.y * p.angle.cos().abs()) / 2.0;
             bounds = bounds.union(Rect::from_center_half_size(p.centre, half));
         }
-        Ok(MeterModel { pieces, keys, length: seq.stop_time - seq.start_time, bounds })
+        Ok(MeterModel { pieces, keys, length, bounds })
     }
 
     /// Whether `node` is lit at the sequence's time `t` (a node without keys always is).
     pub fn lit(&self, node: &str, t: f32) -> bool {
         self.keys.iter().find(|(n, _)| n == node).is_none_or(|(_, k)| shown_at(k, t))
+    }
+}
+
+/// A piece's centre and size in a box, box units with y down: the model's point `origin`
+/// (model units) at `at`, `zoom` box units a model unit, the model's z up the box's y down.
+pub fn place_in(piece: &Piece, origin: Vec2, at: Vec2, zoom: f32) -> (Vec2, Vec2) {
+    (Vec2::new(piece.centre.x - origin.x, origin.y - piece.centre.y) * zoom + at, piece.size * zoom)
+}
+
+/// Spawn the model's pieces under `p`: each a picture of its texture's part turned to its
+/// angle, `place` giving its centre and size in the box ([`place_in`]), drawn in `colour`,
+/// shown as `shown` says and carrying `mark`. `texture` reads a texture by its game path
+/// (with its size in texels); a piece whose texture is not read is left out. Shared by the
+/// hand-built meter and the tile HUD's `nif` tiles (`crate::tiles::model`).
+pub(crate) fn spawn_pieces<M: Component>(
+    p: &mut ChildSpawnerCommands,
+    model: &MeterModel,
+    place: impl Fn(&Piece) -> (Vec2, Vec2),
+    colour: Color,
+    texture: &mut dyn FnMut(&str) -> Option<(Handle<Image>, Vec2)>,
+    mark: impl Fn(&Piece) -> M,
+    shown: impl Fn(&Piece) -> bool,
+) {
+    for piece in &model.pieces {
+        let Some((image, texels)) = texture(&piece.texture) else { continue };
+        let (centre, size) = place(piece);
+        let node = Node {
+            position_type: PositionType::Absolute,
+            left: u(centre.x - size.x / 2.0),
+            top: u(centre.y - size.y / 2.0),
+            width: u(size.x),
+            height: u(size.y),
+            ..default()
+        };
+        let rect = Rect::from_corners(piece.uv.min * texels, piece.uv.max * texels);
+        let image = ImageNode { rect: Some(rect), color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) };
+        let vis = if shown(piece) { Visibility::Inherited } else { Visibility::Hidden };
+        // The screen's y runs down, so the model's anticlockwise turn is clockwise here.
+        p.spawn((mark(piece), node, image, vis, UiTransform::from_rotation(Rot2::radians(-piece.angle)), Pickable::IGNORE));
     }
 }
 
@@ -172,8 +229,6 @@ impl Plugin for HudBreathPlugin {
     }
 }
 
-#[derive(Component)]
-struct MeterRoot;
 #[derive(Component)]
 struct MeterPiece(String);
 
@@ -228,32 +283,18 @@ fn draw(
             ..default()
         };
         let mut textures: Vec<(String, Option<(Handle<Image>, Vec2)>)> = Vec::new();
-        commands.spawn((MeterRoot, root_node, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
-            for piece in &model.pieces {
-                let t = match textures.iter().find(|(n, _)| *n == piece.texture) {
-                    Some((_, t)) => t.clone(),
-                    None => {
-                        let t = texture(&piece.texture, data, &mut images, bc);
-                        textures.push((piece.texture.clone(), t.clone()));
-                        t
-                    }
-                };
-                let Some((image, texels)) = t else { continue };
-                let size = piece.size * zoom;
-                let centre = Vec2::new(piece.centre.x - mid.x, mid.y - piece.centre.y) * zoom + Vec2::splat(BOX / 2.0);
-                let node = Node {
-                    position_type: PositionType::Absolute,
-                    left: u(centre.x - size.x / 2.0),
-                    top: u(centre.y - size.y / 2.0),
-                    width: u(size.x),
-                    height: u(size.y),
-                    ..default()
-                };
-                let rect = Rect::from_corners(piece.uv.min * texels, piece.uv.max * texels);
-                let image = ImageNode { rect: Some(rect), color: amber(255.0), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) };
-                // The screen's y runs down, so the model's anticlockwise turn is clockwise here.
-                p.spawn((MeterPiece(piece.node.clone()), node, image, UiTransform::from_rotation(Rot2::radians(-piece.angle)), Pickable::IGNORE));
+        let mut read_texture = |path: &str| match textures.iter().find(|(n, _)| n == path) {
+            Some((_, t)) => t.clone(),
+            None => {
+                let t = texture(path, data, &mut images, bc);
+                textures.push((path.to_string(), t.clone()));
+                t
             }
+        };
+        // Tagged so the tile HUD hides it while it draws `BreathMeter` itself.
+        commands.spawn((MeterRoot, root_node, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
+            let place = |piece: &Piece| place_in(piece, mid, Vec2::splat(BOX / 2.0), zoom);
+            spawn_pieces(p, &model, place, amber(255.0), &mut read_texture, |piece| MeterPiece(piece.node.clone()), |_| true);
         });
         info!("hud: breath meter read: {} pieces, sequence {:.3} s", model.pieces.len(), model.length);
         *read = Some(Read::Model(model));

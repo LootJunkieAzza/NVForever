@@ -2,6 +2,7 @@
 
 pub mod draw;
 pub mod layout;
+pub mod model;
 pub mod notices;
 pub mod vanilla;
 
@@ -343,6 +344,10 @@ fn write(
                 }
                 *last = line;
             }
+            // The breath meter: shown under the hand-built meter's rule, at the breath used
+            // (`vanilla::write_breath`, hud.md §14.12).
+            let used = hud.breath.as_ref().map_or(0.0, |b| 1.0 - f64::from(b.share()));
+            vanilla::write_breath(&mut rt.game.ui_tree, shown.breath, used);
         }
     }
 }
@@ -370,7 +375,7 @@ impl Plugin for TilesPlugin {
         app.init_resource::<draw::TileFonts>()
             .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
-            .add_systems(Update, (draw::draw, draw::scroll).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }

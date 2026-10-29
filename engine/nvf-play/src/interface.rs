@@ -369,6 +369,13 @@ impl Pictures {
         self.texture(own_texture(path), data?, images, bc).map(|(image, size)| (image, None, size))
     }
 
+    /// A texture by the full game path a model names it by (`textures\…`), read once and
+    /// kept, with its size in texels: the tile HUD's `nif` tiles' pieces
+    /// (`crate::tiles::model`).
+    pub fn file(&mut self, path: &str, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
+        self.texture(path.trim().to_ascii_lowercase(), data, images, bc)
+    }
+
     /// The game path of the texture a picture was read from: its atlas's when
     /// [`Pictures::picture_sized`] found it a `piece` (`texatlas` as given there), else
     /// its own file's ([`Pictures::own_sized`], or the atlas's fallback).

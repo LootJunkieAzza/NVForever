@@ -28,7 +28,8 @@
 //!   window size (T12d) [design].
 
 use super::layout::{self, Alignment, Kind, Rect as TileRect};
-use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
+use super::model;
+use super::vanilla::{drawn_line, kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
 use crate::compass_strip::{StripNode, StripTexels, StripWindow};
 use crate::hud::{strip_left, HudView, STRIP};
 use crate::interface::{self, at, bc_supported, face, plain_font, set_marked, u, Face, Pictures, SizedPicture, FONT_FILES};
@@ -212,6 +213,10 @@ pub enum Look {
     Picture { name: String, source: Source, fit: Fit },
     /// At the font's own size, whatever the tile's `zoom` ([`layout::Text::zoom`]).
     Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment },
+    /// A `nif` tile's model, playing its `animation` (`super::model`), with the whole menu
+    /// drawn only. Where it stands in its sequence is read by `super::model::animate`, so
+    /// the piece stays the same as it plays.
+    Model { filename: String, animation: Option<String> },
 }
 
 /// Where a picture's texture stands in its box, in interface units from the box's top
@@ -428,8 +433,11 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
             Kind::Text(text) if !text.string.is_empty() => {
                 Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
             }
-            // Empty rects only place their children; nif, radial and window tiles
-            // are not drawn in v1 [design].
+            // A model with the whole menu drawn (T12 leftovers, `super::model`); the mods'
+            // nif tiles with the switch off are not drawn, as in T5 [design].
+            Kind::Nif(nif) if whole && !nif.filename.trim().is_empty() => Look::Model { filename: nif.filename.trim().to_string(), animation: nif.animation.clone() },
+            // Empty rects only place their children; radial and window tiles are not drawn
+            // [design].
             _ => continue,
         };
         if item.clip.is_some_and(|c| c.width <= 0.0 || c.height <= 0.0) {
@@ -505,6 +513,8 @@ pub(crate) struct Drawn {
     repeats: Repeats,
     /// The compass strip's first window is told (`crate::compass_strip`).
     strip_told: bool,
+    /// The `nif` tiles' models read so far (`super::model`).
+    models: model::Models,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -547,7 +557,7 @@ struct Ctx<'a> {
     heading: f32,
 }
 
-fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>) -> Option<Entity> {
+fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
@@ -607,6 +617,7 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                     .id(),
             })
         }
+        Look::Model { .. } => Some(model::spawn(p, node, piece.tile, model?, colour)),
         Look::Text { string, font, wrap, alignment } => {
             let face = ctx.fonts.faces.get(font)?;
             let id = p
@@ -679,7 +690,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
             if whole {
                 if !drawn.told {
                     let (file, code) = origins(ui, menu);
-                    info!("tiles: {HUD_MENU} drawn from tiles ({file} file tiles, {code} code tiles); hand-built HUD hidden but for {}", KEPT_PIECES.join(", "));
+                    info!("{}", drawn_line(file, code, &KEPT_PIECES));
                     drawn.told = true;
                 }
                 let kept = kept_pieces(ui);
@@ -739,6 +750,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
         }
         match change(was, piece) {
             Change::Same => {}
+            // A model's parts take no Ink: spawned again in its new colour.
+            Change::InPlace if was.colour != piece.colour && matches!(piece.look, Look::Model { .. }) => spawn.push(i),
             Change::Spawn => spawn.push(i),
             Change::InPlace => {
                 if was.rect != piece.rect || was.clip != piece.clip {
@@ -829,16 +842,24 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 }
                 _ => None,
             };
-            made.push((i, picture, baked, strip));
+            // A `nif` tile's model and its pieces' textures (`super::model`).
+            let model = match (&piece.look, data, menu) {
+                (Look::Model { filename, animation }, Some(data), Some((ui, _))) => drawn.models.get(filename, animation.as_deref(), data).map(|m| {
+                    let textures = m.pieces.iter().map(|p| (p.texture.clone(), pictures.file(&p.texture, data, &mut kit.images, bc))).collect();
+                    model::Prepared { fraction: model::fraction(ui, piece.tile), textures, model: m }
+                }),
+                _ => None,
+            };
+            made.push((i, picture, baked, strip, model));
         }
         let ctx = Ctx { fonts: &kit.fonts, scale, heading };
-        for (i, picture, baked, strip) in made {
+        for (i, picture, baked, strip, model) in made {
             let piece = &pieces[i];
             let key = keys[i];
             match drawn.slots.get_mut(&key) {
                 Some(slot) => {
                     let mut nodes = (None, None);
-                    commands.entity(slot.node).despawn_related::<Children>().with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip));
+                    commands.entity(slot.node).despawn_related::<Children>().with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model));
                     (slot.wrapper, slot.outer) = nodes;
                 }
                 None => {
@@ -846,7 +867,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     let mut slot = None;
                     commands.entity(root).with_children(|r| {
                         let mut nodes = (None, None);
-                        let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip)).id();
+                        let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model)).id();
                         slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1 });
                     });
                     drawn.slots.extend(slot.map(|s| (key, s)));
@@ -859,16 +880,16 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
 
 /// A piece in its slot, in a clip wrapper when it has a clip: the wrapper and the piece's
 /// own outer node.
-fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>) -> (Option<Entity>, Option<Entity>) {
+fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> (Option<Entity>, Option<Entity>) {
     match piece.clip {
         Some(c) => {
             let mut wrapper = at(f(c.left), f(c.top), f(c.width), f(c.height));
             wrapper.overflow = Overflow::clip();
             let mut outer = None;
-            let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip)).id();
+            let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip, model)).id();
             (Some(id), outer)
         }
-        None => (None, spawn_piece(s, piece, ctx, picture, baked, strip)),
+        None => (None, spawn_piece(s, piece, ctx, picture, baked, strip, model)),
     }
 }
 
