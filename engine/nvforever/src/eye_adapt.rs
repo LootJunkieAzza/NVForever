@@ -31,7 +31,7 @@ use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::binding_types::{texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer_sized};
 use bevy::render::render_resource::{
-    BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId,
+    BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, Buffer, BufferInitDescriptor, BufferUsages, CachedRenderPipelineId,
     ColorTargetState, ColorWrites, Extent3d, FragmentState, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
     RenderPipelineDescriptor, ShaderStages, TextureDimension, TextureFormat, TextureUsages,
 };
@@ -239,6 +239,10 @@ struct MaskPipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
     base: RenderPipelineDescriptor,
     ids: HashMap<bool, CachedRenderPipelineId>,
+    /// The parameters' uniform buffer and the values in it: made again only when they
+    /// change. A new buffer every frame was GPU memory made and freed every frame, one of
+    /// the per-frame allocations behind the night stalls (#897).
+    params: Option<([f32; 4], Buffer)>,
 }
 
 fn init_mask_pipelines(mut commands: Commands, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
@@ -259,7 +263,7 @@ fn init_mask_pipelines(mut commands: Commands, assets: Res<AssetServer>, fullscr
         }),
         ..default()
     };
-    commands.insert_resource(MaskPipelines { layouts: [layout(false), layout(true)], base, ids: HashMap::default() });
+    commands.insert_resource(MaskPipelines { layouts: [layout(false), layout(true)], base, ids: HashMap::default(), params: None });
 }
 
 /// Draw the metering mask: per mask pixel the share of the world (not the sky dome) in
@@ -295,8 +299,12 @@ fn mask_pass(
     // Bevy's infinite reverse-depth projection keeps the near plane here.
     let near = extracted.clip_from_view.w_axis.z;
     let params = [crate::sky::SKY_DEPTH_FROM, near, SKY_WEIGHT, 0.0];
-    let bytes: Vec<u8> = params.iter().flat_map(|v| v.to_le_bytes()).collect();
-    let buffer = device.create_buffer_with_data(&BufferInitDescriptor { label: Some("eye_mask_params"), contents: &bytes, usage: BufferUsages::UNIFORM });
+    if pipelines.params.as_ref().is_none_or(|(p, _)| *p != params) {
+        let bytes: Vec<u8> = params.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let buffer = device.create_buffer_with_data(&BufferInitDescriptor { label: Some("eye_mask_params"), contents: &bytes, usage: BufferUsages::UNIFORM });
+        pipelines.params = Some((params, buffer));
+    }
+    let Some((_, buffer)) = pipelines.params.as_ref() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[multi as usize]);
     let bg = device.create_bind_group("eye_mask", &layout, &BindGroupEntries::sequential((depth, buffer.as_entire_binding())));
     let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {

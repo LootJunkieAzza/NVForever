@@ -1410,18 +1410,36 @@ pub fn update_clouds(
             *vis = Visibility::Hidden;
             continue;
         };
-        let Some(mut mat) = materials.get_mut(&m.0) else { continue };
-        if cl.shows != Some(w.form_id) {
-            mat.base.base_color_texture =
-                w.cloud_textures[cl.layer].as_deref().and_then(|p| textures.get(p, true, &data, &mut images, None));
-            cl.shows = Some(w.form_id);
-        }
-        *vis = if mat.base.base_color_texture.is_some() && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+        let new_texture = cl.shows != Some(w.form_id);
         let c = sky.cloud_tint(w.cloud_color(&sky.climate, cl.layer, sky.hour));
-        mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], alpha));
+        let color = LinearRgba::new(c[0], c[1], c[2], alpha);
         // Each set scrolls at its own weather's ONAM speeds, so a fade blends the two
         // weathers' layers each moving at its own rate (fnv_world::sky::Weather::cloud_scroll).
-        mat.base.uv_transform = Affine2::from_translation(Vec2::new(w.cloud_offset(cl.layer, secs), 0.0));
+        let offset = w.cloud_offset(cl.layer, secs);
+        // The material is written only when it shows differently: a new texture, a colour
+        // moved by more than a thousandth, or a scroll of more than 1/2048 of the texture
+        // (under a texel; the scroll is a few thousandths of a repeat a second). Written
+        // every frame, each cloud layer's material was made again on the GPU every frame,
+        // GPU memory made and freed behind the night stalls (#897).
+        let Some(was) = materials.get(&m.0) else { continue };
+        let old = was.base.base_color.to_linear();
+        let moved = (was.base.uv_transform.translation.x - offset).rem_euclid(1.0);
+        let unchanged = !new_texture
+            && [old.red - color.red, old.green - color.green, old.blue - color.blue, old.alpha - color.alpha].iter().all(|d| d.abs() <= 1e-3)
+            && moved.min(1.0 - moved) <= 1.0 / 2048.0;
+        let mut textured = was.base.base_color_texture.is_some();
+        if !unchanged {
+            let Some(mut mat) = materials.get_mut(&m.0) else { continue };
+            if new_texture {
+                mat.base.base_color_texture =
+                    w.cloud_textures[cl.layer].as_deref().and_then(|p| textures.get(p, true, &data, &mut images, None));
+                cl.shows = Some(w.form_id);
+            }
+            mat.base.base_color = Color::LinearRgba(color);
+            mat.base.uv_transform = Affine2::from_translation(Vec2::new(offset, 0.0));
+            textured = mat.base.base_color_texture.is_some();
+        }
+        *vis = if textured && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
         if cl.set == 0 && cl.layer == 0 && *logged != Some(w.form_id) {
             *logged = Some(w.form_id);
             let rates = [0, 1, 2, 3].map(|i| format!("{:.5}", w.cloud_scroll(i)));
@@ -1584,6 +1602,7 @@ pub fn update_sky(
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<CloudLayer>)>,
     mut materials: ResMut<Assets<SkyMaterial>>,
     mut flashed: Local<bool>,
+    mut dome_shown: Local<Option<[f32; 10]>>,
     screen: Option<Res<crate::imagespace::ScreenModifiers>>,
 ) {
     let mut cam = cam;
@@ -1656,18 +1675,33 @@ pub fn update_sky(
     let mut light = sky.light();
     let flash = Vec3::from_array(sky.flash);
     light.glow += flash.extend(0.0);
+    // Written only when the light moved noticeably: each write remakes the material's
+    // uniform buffer on the GPU, and writing every frame (the sun creeps a little each
+    // frame) made and freed GPU memory every frame, part of the night stalls (#897). A
+    // thousandth is far below what shows; a lightning flash passes it at once.
     let ids: Vec<_> = materials.ids().collect();
     for id in ids {
+        let Some(m) = materials.get(id) else { continue };
+        let old = m.extension.light;
+        let new = SkyLight { params: light.params.with_y(old.params.y).with_z(old.params.z).with_w(old.params.w), ..light };
+        let same = |a: Vec4, b: Vec4| a.abs_diff_eq(b, 1e-3);
+        if same(old.params, new.params) && same(old.glow, new.glow) && same(old.sun_dir, new.sun_dir) && same(old.sun, new.sun) && same(old.glare, new.glare) {
+            continue;
+        }
         if let Some(mut m) = materials.get_mut(id) {
-            let p = m.extension.light.params;
-            m.extension.light = SkyLight { params: light.params.with_y(p.y).with_z(p.z).with_w(p.w), ..light };
+            m.extension.light = new;
         }
     }
     let upper = sky.color(ColorType::SkyUpper);
     let lower = sky.color(ColorType::SkyLower);
     let horizon = sky.color(ColorType::Horizon);
     let twilight = sky.twilight();
-    if let Ok((m, weights, _)) = dome.single() {
+    // The dome is coloured again only when its colours moved noticeably (as the sky
+    // materials above): a changed mesh is sent to the GPU again, every frame before (#897).
+    let shown = [upper[0], upper[1], upper[2], lower[0], lower[1], lower[2], horizon[0], horizon[1], horizon[2], twilight];
+    let dome_moved = dome_shown.is_none_or(|was| was.iter().zip(shown).any(|(a, b)| (a - b).abs() > 1e-3));
+    if let (true, Ok((m, weights, _))) = (dome_moved, dome.single()) {
+        *dome_shown = Some(shown);
         if let Some(mut mesh) = meshes.get_mut(&m.0) {
             let cols: Vec<[f32; 4]> = weights
                 .0
