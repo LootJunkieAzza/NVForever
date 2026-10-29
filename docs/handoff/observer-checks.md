@@ -415,3 +415,9 @@ The numbers above stay put so links to them hold; each item here gives its own p
     x (1 - Rad Resistance) to five digits (d 693.67, Rad Resistance 8, 2026-10-29). To
     check: GetRadiationLevel at two or three more distances (the job's script SetPos did
     not move the player; use console `player.setpos` steps), and once with Rad-X.
+34. **The corner bars' ticks' brightness.** The original's health and action points ticks
+    read about 0.7 of the bracket line's colour at their full rows (`hud_corners2.007`,
+    hud.md §14.9); the tile HUD writes `brightness` 175 to `HitPoints/meter` and
+    `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
+    GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
+    (the paths §14.3 read the widths by) while the bars show.

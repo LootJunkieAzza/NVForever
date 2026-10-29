@@ -433,6 +433,32 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         `texts_of_two_fonts_at_one_y_share_a_line`; `zoom_and_tile_…` and
         `with_the_switch_on_…` updated; `tiles::vanilla` corner test checks the label's
         place and the fill's zoom. Only `cargo check -p nvf-play --tests` was run.
+    - **T12d done** 2026-10-29 (`claude/t12d-smooth`): three differences the owner saw
+      playing, fixed in both drawings (hud.md §14.9, menu-xml.md §3.1.3).
+      - Compass marks stepped: places looked at ten times a second and kept in whole
+        units, and the tile HUD respawned every node when one moved. Now
+        `compass::place` works them out every frame, unrounded, before the tile writes
+        (actors follow their moving bodies), and both drawings move the nodes in place
+        (`tiles::draw::moved_only`, the hand-built marks while their kinds stay)
+        [design].
+      - Ticks flat: the picture's rows and alpha were already drawn; the original's
+        ticks are about 0.7 of the line's colour [observed: `hud_corners2.007`], drawn
+        now at brightness 175 (`hud::METER_BRIGHTNESS`, `write_corners`) [hypothesis:
+        brightness.xml's meter entry; observer-checks.md item 34]. The sRGB-against-
+        linear blending difference is left [hypothesis].
+      - Ticks uneven: every bar is one image of the repeated picture, stretched and
+        sampled linearly (`crate::repeat`), in the hand-built HUD (health, action
+        points, enemy) and for every tiled picture of the tile HUD [design]. The XP
+        meter has no tiled picture. The menus' quantity and pause meters
+        (`menu/look.rs`, `pause.rs`) still draw a node per tick.
+      - Tests: `hud::ticks_stand_evenly_at_any_window_size`,
+        `hud::the_lit_ranges_follow_the_bars`,
+        `tiles::draw::a_tiled_meter_is_one_image_and_its_ticks_stand_evenly`,
+        `tiles::draw::only_moved_pieces_are_moved_in_place`,
+        `compass::the_marks_move_smoothly_with_the_heading_and_the_bodies`,
+        `repeat::{a_piece_repeats_from_its_top_left, a_box_holds_whole_texels}`; the
+        `tiles::vanilla` corner test checks the brightness. Only `cargo check -p nvf-play
+        --tests` was run.
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
