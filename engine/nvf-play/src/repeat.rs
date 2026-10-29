@@ -67,13 +67,17 @@ pub fn texels_for(size: (f64, f64), repeat: (f64, f64), texels: (f64, f64)) -> O
     Some(((w as u32, h as u32), (w * per.0, h * per.1)))
 }
 
+/// A baked image's key: the texture's game path, the piece's texel rect and the output
+/// size in texels.
+type BakeKey = (String, [u32; 4], u32, u32);
+
 /// The pictures decoded and the images baked so far.
 #[derive(Default)]
 pub struct Repeats {
     /// A texture's level 0 as RGBA8 and its width, by game path; `None` for one that
     /// could not be read or decoded.
     decoded: HashMap<String, Option<(Vec<u8>, usize)>>,
-    baked: HashMap<(String, [u32; 4], u32, u32), Option<Handle<Image>>>,
+    baked: HashMap<BakeKey, Option<Handle<Image>>>,
 }
 
 impl Repeats {
