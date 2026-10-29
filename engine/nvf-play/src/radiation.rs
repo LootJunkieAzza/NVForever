@@ -30,6 +30,7 @@
 //!   band changes, and at exit `radiation summary: …`.
 
 use crate::hud::HudView;
+use crate::tiles::vanilla::DrawnByTiles;
 use crate::interface::{at, bc_supported, face, plain_font, set_text, texture, u, Face, Set};
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
@@ -380,7 +381,7 @@ fn draw(
 
 fn spawn(commands: &mut Commands, kit: &Kit) {
     let piece = Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(TOP), width: u(PIECE.x), height: u(PIECE.y), ..default() };
-    commands.spawn((MeterRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
+    commands.spawn((MeterRoot, piece, Visibility::Hidden, Pickable::IGNORE, DrawnByTiles)).with_children(|p| {
         if let Some(image) = &kit.bracket {
             p.spawn((at(BRACKET_AT, 0.0, BRACKET.x, BRACKET.y), ImageNode { color: crime_colour(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
         }

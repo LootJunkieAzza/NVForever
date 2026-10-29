@@ -24,6 +24,7 @@ use crate::player::Player;
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
+use crate::tiles::vanilla::DrawnByTiles;
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
@@ -383,6 +384,16 @@ impl Places {
     }
 }
 
+/// Where this HUD sets its corner labels, for the tile tree's code-made copies while the HUD
+/// is drawn from tiles (`crate::tiles::vanilla::write_corners`; the captures give none of
+/// their places, hud.md §14.6) [design]: "HP"'s start, the ends of "AP", "CND" and the
+/// ammo counter, each with the line it stands on, from its corner piece's top left (the
+/// right piece's as drawn here, [`MARGIN_X`] in from the view's edge).
+pub(crate) fn label_places(font: &Font) -> [(f32, f32); 4] {
+    let p = Places::new(font);
+    [(p.hp_label, UPPER_BASE), (AP_LABEL_END, UPPER_BASE), (p.cnd_x - CND_LABEL_GAP, LOWER_BASE), (p.ammo_right, LOWER_BASE)]
+}
+
 // ---- reading the game ------------------------------------------------------------------
 
 /// Read what the HUD shows. Health and action points come from the script runtime's
@@ -603,7 +614,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
     commands.spawn((HudRoot, screen, Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
-        root.spawn(piece).with_children(|p| {
+        root.spawn((piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, color);
@@ -633,7 +644,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         });
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
-        root.spawn(piece).with_children(|p| {
+        root.spawn((piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.right_bracket, &[RIGHT_UPRIGHT, DIVIDER], color);
             spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, color);
             label(p, AP, places.ap_label, UPPER_BASE);
@@ -690,7 +701,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         });
         // The sneak word, top middle.
         let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };
-        root.spawn((SneakText, piece));
+        root.spawn((SneakText, piece, DrawnByTiles));
     });
 }
 

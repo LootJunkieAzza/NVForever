@@ -35,6 +35,7 @@ use crate::activate::{Target, Targeted};
 use crate::control::ControlLocks;
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, Face, Picture, Pictures, Set};
 use crate::sim::SimState;
+use crate::tiles::vanilla::DrawnByTiles;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -394,23 +395,23 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
             Some((image, rect)) => {
                 for side in [-1.0, 1.0] {
                     let x = if side < 0.0 { -half } else { 0.0 };
-                    r.spawn((Cross { filled: false, side }, at(x, -half, half, RETICLE), picture_node((image.clone(), Some(half_rect(rect, side))), color), Visibility::Hidden));
+                    r.spawn((Cross { filled: false, side }, at(x, -half, half, RETICLE), picture_node((image.clone(), Some(half_rect(rect, side))), color), Visibility::Hidden, DrawnByTiles));
                 }
             }
             None => {
                 for side in [-1.0, 1.0] {
-                    r.spawn((Cross { filled: false, side }, at(if side < 0.0 { -5.0 } else { 2.0 }, -1.5, 3.0, 3.0), BackgroundColor(color), Visibility::Hidden));
+                    r.spawn((Cross { filled: false, side }, at(if side < 0.0 { -5.0 } else { 2.0 }, -1.5, 3.0, 3.0), BackgroundColor(color), Visibility::Hidden, DrawnByTiles));
                 }
             }
         }
         match kit.filled.clone() {
-            Some(p) => r.spawn((Cross { filled: true, side: 0.0 }, at(-half, -half, RETICLE, RETICLE), picture_node(p, color), Visibility::Hidden)),
-            None => r.spawn((Cross { filled: true, side: 0.0 }, at(-3.0, -3.0, 6.0, 6.0), BackgroundColor(color), Visibility::Hidden)),
+            Some(p) => r.spawn((Cross { filled: true, side: 0.0 }, at(-half, -half, RETICLE, RETICLE), picture_node(p, color), Visibility::Hidden, DrawnByTiles)),
+            None => r.spawn((Cross { filled: true, side: 0.0 }, at(-3.0, -3.0, 6.0, 6.0), BackgroundColor(color), Visibility::Hidden, DrawnByTiles)),
         };
         if let Some(bars) = &kit.bars {
             for ((_, dir), p) in BARS.iter().zip(bars) {
                 let rect = bar_rect(*dir, CROSS_REST);
-                r.spawn((Bar { dir: *dir }, at(rect.min.x, rect.min.y, rect.width(), rect.height()), picture_node(p.clone(), color), Visibility::Hidden));
+                r.spawn((Bar { dir: *dir }, at(rect.min.x, rect.min.y, rect.width(), rect.height()), picture_node(p.clone(), color), Visibility::Hidden, DrawnByTiles));
             }
         }
         r.spawn((Texts, Node { position_type: PositionType::Absolute, ..default() }));
