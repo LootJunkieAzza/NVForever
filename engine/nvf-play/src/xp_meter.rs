@@ -414,6 +414,7 @@ fn third_line(level_up: bool) -> (f32, f32) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
     view: Res<HudView>,
