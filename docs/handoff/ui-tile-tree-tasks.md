@@ -141,6 +141,68 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     mod at the same view size); a HUD mod from a Viva New Vegas `mods` folder in game
     (JAM's meters after T6).
 
+- **T6. UIO include lists.** Done 2026-10-29 (`claude/t6-uio`).
+  - [design] `fnv_ui::uio` parses supported.txt and public/*.txt, both colon styles,
+    menu/prefab/tile targets, and condition ASTs (`true`, `?plugin`, `#file`, `!`,
+    `&&`, `||`). Malformed input records list/line warnings; normalized duplicates
+    occur once, supported.txt first and public lists alphabetically. `Source::list`
+    defaults empty and is implemented by MemSource, UiFiles and fnvtool's overlay
+    source. `Ui::configure_uio` evaluates once; `Ui::uio` reports per-entry decisions
+    and repeated application counts.
+  - [design] Menu additions append after ordinary includes; prefab patches run before
+    template expansion. Every included file keeps its own File origin and loose
+    status. Explicit additions from loose files pass `mod_tile_drawn` even without
+    archived names or with a vanilla-name collision; ordinary uses of the same file
+    remain separate. The game uses its active load order at startup and menu reopen;
+    fnvtool discovers .esm/.esp files in Data/overlays, or accepts `--plugin`.
+  - [observed: the data-file excerpts in menu-xml.md §7 item 3] `||`, single-colon
+    tile targets, semicolon comments, mixed folder case, and plugin names containing
+    a single `&` all occur in the lists. [hypothesis] Append position, first match
+    for duplicate tile names, mixed boolean precedence, and the prefab base for `#`
+    still need original-engine checks. Unknown words such as `darnui` evaluate false
+    and log; negation still applies. The existing `#UII\PerkBrowser.xml` file supports
+    that base; optional `#..\ySI\ySI.xml` is absent from this install.
+  - [observed: `target/t6-uio/*-menus.json`, `mod-tree.json`, `mod-tiles.json`, generated
+    by the rebuilt release fnvtool over read-only `E:\Games\fo-testenv\Fallout New Vegas\Data`]
+    The four requested overlays are UIO - User Interface Organizer, Just Assorted
+    Mods, MCM Extender and UI Improvements under `E:\Games\Viva New Vegas\mods`.
+    Counts below are unique entries, not repeated prefab applications; there were
+    no malformed entries or duplicates and five warnings for unknown `darnui` atoms.
+
+    | Inputs / command | Menus | Read | Applied | Skipped: false / file / target |
+    |---|---:|---:|---:|---|
+    | Vanilla, menus | 49 | 0 | 0 | 0 / 0 / 0 |
+    | Four overlays, menus | 49 | 148 | 14 | 27 / 10 / 97 = 134 |
+    | Four overlays, HUD tree or mod-tiles | — | 148 | 10 | 27 / 10 / 101 = 138 |
+    | Four plus The Mod Configuration Menu, menus | 49 | 148 | 111 | 26 / 10 / 1 = 37 |
+    | MCM + Clean Vanilla Hud + Vanilla UI Plus, menus | 49 | 0 | 0 | 0 / 0 / 0 |
+
+    [observed: `target/t6-uio/with-mcm-menus.json`] Without MCM's base files, its
+    prefab targets are absent; with them, the sole remaining missing target is
+    `CharGenMenu::TM_DescriptionBox` from UII.txt. [documented: task brief] The upstream
+    owner's other mods location is `F:\Modlists\VNV\mods`; [observed: these runs]
+    only spooknik's `E:\Games\Viva New Vegas\mods` was inspected here.
+  - [observed: `target/t6-uio/mod-tree.json`, `mod-tiles.json`] HUDMainMenu now contains
+    JAM's JBT, JDC, JHI, JHM, JLM, JVO and JWH roots, including
+    `HUDMainMenu/JBT/JBTRect/JBTMeter`. Eligible tile counts are 8, 21, 1, 1, 28, 4
+    and 80 respectively: **143 total**; vanilla is **0**. This is renderer eligibility,
+    not a claim that invisible tiles appear. The reader still reports mends in JHM's
+    XML; JHI/JHM each have only their root in this tree, so visual parity remains
+    unverified. [observed: `jam-plugin-check.json`, `jam-plugin-disabled.json`] A
+    synthetic entry gated by `?JustAssortedMods.esp` applies with the actual JAM
+    overlay's plugin and is false with `--plugin FalloutNV.esm` alone.
+  - [observed: `target/t6-tests-final.log`, `t6-clippy.log`, `t6-build-final.log`]
+    `cargo test --workspace --release`: **1,641 passed**, zero failed/ignored;
+    fnv-ui 35 (seven new UIO tests), game ui_loading 9 (one new), and one new fnvtool
+    overlay/plugin test. Workspace/all-targets release clippy with `-D warnings` and
+    the release fnvtool build pass. [observed: `python tools/smoke verify`, 2026-10-29]
+    **638 scenarios**, valid. [design] New tool scenario `ui-uio-includes` uses only
+    synthetic fixtures plus vanilla Data. [observed: `target/t6-uio/synthetic-smoke.json`]
+    Its exact fnvtool command applies one entry and draws one tile. No game or smoke
+    runner was launched; engine/ was unchanged, so no engine check was required.
+    [design] Main session: run `ui-menus`, `ui-mod-tiles-vanilla`, `ui-uio-includes`
+    through smoke, and check JAM visually in game (including the XML mends above).
+
 ## Next, in order
 
 1. **T5 parts A and B** (done with T5 above; kept for their notes).
@@ -174,12 +236,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
        and how the strip itself scrolls (no trait; §14.4; our drawing's scale and
        centre are measured, §14.5).
 
-2. **T6. UIO include lists.** Read `uio\public\*.txt` and `uio\supported.txt`
-   (menu-xml.md §7 item 3) and include their files at their targets when the menu or
-   prefab loads; conditions `true`, `?plugin`, `#file`, `!`, `&&`. Test with JAM, MCM
-   Extender and UI Improvements from a Viva New Vegas `mods` folder (upstream owner:
-   `F:\Modlists\VNV\mods`; spooknik: `E:\Games\Viva New Vegas\mods`) as overlays in
-   `fnvtool ui`.
+2. **T6. UIO include lists.** [design] Done; implementation, checks and both mods-folder
+   locations are recorded above.
 3. **T7. MCM, headless first** (owner decision in owner-review.md first):
    - StartMenu built from the files while the pause or main menu is open, with MCM's
      includes;

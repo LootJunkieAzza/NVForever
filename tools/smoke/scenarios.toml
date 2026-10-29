@@ -10099,6 +10099,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "ui-uio-includes"
+kind = "tool"
+source = "[design] menu-xml.md §7 item 3 (T6): synthetic UIO data over vanilla, plugin and VFS file conditions, loose additions drawn without a menu replacement"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnv-game/src/ui_loading.rs", "crates/fnvtool/src/ui_cmd.rs", "tools/smoke/fixtures/uio/"]
+commands = [["ui", "mod-tiles", "--data", "{data}", "--overlay", "{repo}/tools/smoke/fixtures/uio", "--plugin", "NVFSmoke.esp", "--menu", "menus/main/hud_main_menu.xml"]]
+expect = [
+  { json = "uio.applied", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "synthetic UIO entry applied" },
+  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "only the loose UIO probe draws" },
+]
+
+[[scenario]]
 name = "ui-menu-lifetime"
 source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
 areas = ["ui", "scripts", "console"]
