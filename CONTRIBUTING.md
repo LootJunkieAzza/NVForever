@@ -61,6 +61,22 @@ rules ([parity-lab/AGENT.md](parity-lab/AGENT.md)) apply to people too:
 - Never special-case inputs, such as hard-coded FormIDs or expected values.
 - Never read holdouts, pass `--reveal` or run `fnvlab baseline`.
 
+## Before you start: check nobody else has it
+
+Several people and the project's own AI sessions work on NVForever at once. To avoid two
+people building the same thing:
+
+- **Search the open [pull requests](https://github.com/LootJunkieAzza/NVForever/pulls)
+  (drafts included) and [issues](https://github.com/LootJunkieAzza/NVForever/issues)**
+  for your topic. A draft pull request means the work is under way. An issue labelled
+  `in progress` has been claimed.
+- **Claim it.** Comment on the issue that you are taking it (or open one first, if there
+  is none). The maintainer labels it `in progress`. Issues labelled `help wanted` or
+  `good first issue` are free to take.
+- **Open your pull request early, as a draft**, once you have a first commit, and mark it
+  ready for review when it is done. If you stop, say so on the issue so someone else can
+  pick it up.
+
 ## Making a change
 
 1. **Fork** the repository and create a branch from `main`.

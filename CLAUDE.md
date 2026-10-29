@@ -103,6 +103,18 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   (expectation syntax: `tools/smoke/smoke/expect.py`). Never loosen an expectation to make
   a run pass; mark it `known_failing` with the reason instead.
 
+## Claiming work (outside contributors work here too)
+
+- **Before starting, look for the same work**: open pull requests (drafts too) and open
+  issues on the topic (`gh pr list --search <words>`, `gh issue list --search <words>`).
+  If someone else has it, don't start a second copy: build on theirs or pick other work.
+- **Open a draft pull request as soon as the branch has its first commit**, not when it is
+  finished: `gh pr create --draft`, a title saying what it changes, `Fixes #n` for an
+  issue it settles. Mark it ready (`gh pr ready`) when the push checks pass. A pushed
+  branch with no pull request is invisible to contributors.
+- If an issue covers the work, comment on it that a pull request is under way (link it).
+  Leaving work unfinished: say so in the draft's description, or close it.
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write
