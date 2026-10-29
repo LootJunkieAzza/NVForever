@@ -763,7 +763,9 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
 - [design] `crates/fnv-game/src/ui_hud/copies.rs` creates the copies after the HUD menu
   loads, including save-load rebuilds, through one helper awaiting the parallel `Code`
   tile origin. Missing templates/parents are skipped. Frames write before scripts
-  (ui-tile-tree.md §4.1); text widths and enemy children remain deferred.
+  (ui-tile-tree.md §4.1); enemy children remain deferred. The file text tiles' widths
+  (`sneak_nif`, `button_text`, `radiation_text_value`) are measured with the game's
+  fonts and written before scripts (T5 part C, menu-xml.md §3.1.2).
 - [documented: `menus/prefabs/hudtemplates.xml`] Template identifiers use
   `template_justify_left_text`, `template_justify_right_text`,
   `template_justify_center_text`, `template_meter`, `template_meter_background`,

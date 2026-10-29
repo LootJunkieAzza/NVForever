@@ -203,6 +203,58 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [design] `locus`, `id`, `target`, input traits, menu fades and stacking traits have
   no extra layout effect yet. No undocumented meaning is assigned to them.
 
+### 3.1.2 Drawing interpretation (T5 part C)
+
+`nvf-play/src/tiles/draw.rs` draws the tiles mods added to `HUDMainMenu` over
+NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mean:
+
+- [documented: hud.md §14] Places are interface units, 960 to the view's height at
+  every size (`screen()` is 960 × width/height wide); [design] one unit is
+  height/960 window pixels (`interface::u`), as the current HUD.
+- [design] Which tiles: §7's `mod_added_tiles` roots, and inside them each tile
+  `mod_tile_drawn` accepts: Injected and Template always, Code never, File tiles only
+  against the archived file's name paths. In the game no File tile draws in v1:
+  `fnv_vfs::Vfs` keeps one location per path, so the archived copy under a loose file
+  cannot be read [documented: crates/fnv-vfs/src/lib.rs, `Vfs::open`]. `fnvtool ui
+  mod-tiles` makes the comparison where overlays and archives are separate (2026-10-29,
+  over the test install [observed]: vanilla 0 tiles, Clean Vanilla Hud's loose HUD 0,
+  Vanilla UI Plus 5, its `VUI+` outline tiles in the prompt box).
+- [design] A `rect` draws a filled box only when it sets `red`, `green` or `blue`
+  itself; otherwise it only places its children. `nif`, `radial` and `window` tiles,
+  and empty pictures and strings, draw nothing in v1.
+- [design] An `image` is its `filename` stretched over its box: the piece of
+  `interfaceshared.tai` of that file name when the atlas has it, else the file under
+  `textures\` (`interface::Pictures`). Another `.tai` named by `texatlas`, and `zoom`,
+  `tile`, `cropx`, `cropy`, are not applied in v1.
+- [hypothesis] `font`: 1 to 9 is the INI's `sFontFile_N` [documented:
+  Fallout_default.ini]; none, 0 or another number is font 1. The sneak word's tile has no
+  `font`, and the original's widths for it (hud.md §14.1: 106 "[HIDDEN]", 136, 14) are
+  font 1's glyph advances summed for "[HIDDEN]", "[DETECTED]" and one space [observed:
+  the font files, 2026-10-29].
+- [observed: the font files against hud.md §14.1] A text's width is the sum of its
+  glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
+  and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
+  `button_text` has 0 and measured one line). [hypothesis] A text's height is its lines
+  times the font's line height; each line stands `interface::line_base` below its top,
+  one line height apart, and is set left, centred or right inside the box by `justify`.
+- [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
+  when it sets any; else the nearest tile above's `systemcolor`; else its own (255 each).
+  `&hudmain;` is the HUD's colour (`interface::hud_rgb`, the settings'), `&pipboy;` the
+  Pip-Boy's, `&nosystemcolor;` and `&uselocalcolor;` the tile's own, other names and
+  non-zero numbers the HUD's; `&hudalt;` is 255 67 42 [observed: Fallout_default.ini
+  `iSystemColorHUDAlt*`, radiation.md §6]. `brightness` (clamped to 0–255) scales the
+  colour, `alpha` (§3.1.1's product) is its opacity.
+- [hypothesis] Stacking: the pieces draw in order of their summed `depth`, ties in
+  layout order; all over NVForever's HUD and its messages, under the dialogue menu and
+  the Pip-Boy [design: `GlobalZIndex` 60]. `clips` crops through a clipping node at the
+  clip rectangle.
+- [observed: hud.md §14.1, the font files] The code writes three HUD text tiles' `width`
+  as their text's measured width, before scripts: `SneakMeter/sneak_nif`,
+  `Info/justify_center_hotrect/button_text` (its hotrect's width follows by the
+  prefab's own expression, the child's width plus `_horbuf` [documented: text_box.xml])
+  and `RadiationMeter/radiation_text_value` (`fnv_game::ui_hud::write_text_widths`),
+  only with the game's fonts. A tile without a `string` keeps its width [design].
+
 ## 4. Operators
 
 Inside a trait, operators work the value out from the first to the last, each on the
