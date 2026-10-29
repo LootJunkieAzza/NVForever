@@ -124,6 +124,8 @@ pixels (the font's glyphs start a little after their pen position).
 - [design: owner 2026-10-25] The spread is a switch of the settings page's Gameplay group,
   "Dynamic crosshair" (`dynamic-crosshair` in `NVForever.ini`), on by default; off, the
   arrows stay together whatever is drawn.
+- [observed: hud.md §14.4, 2026-10-29] The original's arrows stay together standing,
+  walking and after three quick shots with the 9mm pistol: off is the original's look.
 - [documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"] The crosshair
   is red, the crime colour, over an actor hostile to the player: the crosshair's ray to
   [`AIM_RANGE`] meets a living actor fighting the player or ready to attack it

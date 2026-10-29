@@ -57,6 +57,9 @@ pub const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
 /// The solid bar's ground (weapon condition): length and height [documented: the file
 /// puts it at x 90 of a frame the code sets; where it stands is measured, below].
 const CND_BAR: Vec2 = Vec2::new(60.0, 20.0);
+/// The condition fill's full width, starting at the ground's x [observed: hud.md §14,
+/// §14.3].
+const CND_FILL_WIDTH: f32 = 59.0;
 /// The condition's arrows, `CNDArrows`: a 16 x 16 picture, placed by the code
 /// [documented: hud_main_menu.xml]; black arrows at the picture's top and bottom edges
 /// pointing in, their middle 3.5 texels from its left [observed: the texture].
@@ -269,23 +272,30 @@ pub(crate) fn sneak_now(g: &fnv_game::Game) -> Sneak {
 
 // ---- layout --------------------------------------------------------------------------
 
-/// How many of a bar's `count` ticks are lit at `value` (0 to 1): a tick for any part of
-/// its share [hypothesis], none at 0 or below.
+/// How many of a bar's `count` ticks are lit at `value` (0 to 1): rounded down for the
+/// health and action points bars [observed: hud.md §14.3]. None at 0 or below, or for
+/// non-finite values [design: bounded shares].
 pub fn lit(value: f32, count: usize) -> usize {
     if value.is_finite() {
-        ((value.clamp(0.0, 1.0) * count as f32).ceil() as usize).min(count)
+        ((value.clamp(0.0, 1.0) * count as f32).floor() as usize).min(count)
     } else {
         0
     }
 }
 
-/// The ticks lit of a bar that empties from both ends towards its middle (the enemy's,
-/// owner's playtest list 5, item 32): from and to (exclusive), counted from the left. An
-/// odd tick left over goes from the right end first.
+/// The ticks lit of a bar that empties from both ends towards its middle (the enemy's
+/// [observed: owner's playtest list 5, item 32]): from and to (exclusive), counted from
+/// the left. An odd tick left over goes from the right end first [design: centred ticks].
+/// The count rounds down [hypothesis: as the other bars].
 pub fn lit_middle(value: f32, count: usize) -> (usize, usize) {
     let n = lit(value, count);
     let from = (count - n) / 2;
     (from, from + n)
+}
+
+/// The condition fill's width in whole interface units [observed: hud.md §14.3].
+fn condition_width(value: f32) -> f32 {
+    (value.clamp(0.0, 1.0) * CND_FILL_WIDTH).round()
 }
 
 /// A tick's step and width in whole pixels for a view `height` pixels high, so that every
@@ -417,6 +427,12 @@ fn gather(
             let temporary = |g: &fnv_game::Game, code| fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, code);
             let max = rt.game.max_health(FormId::PLAYER_REF) + temporary(&rt.game, fnv_game::actor_values::HEALTH);
             let health = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
+            let health_share = if max > 0.0 { (health / max) as f32 } else { 0.0 };
+            // Log tick changes even under the console [design: smoke hud-bars-partial].
+            let n = lit(health_share, PIPS);
+            if n != lit(view.health, PIPS) {
+                info!("hud: bars health {n} of 37 ({health:.0} of {max:.0})");
+            }
             // Base, permanent and temporary modifiers, damage: the bar is what is left of
             // the first three.
             let ap = match fnv_game::functions::actor_value_parts(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS) {
@@ -425,15 +441,21 @@ fn gather(
                     // VATS mode's marks hold their AP: the bar shows what is left after
                     // them (docs/design/vats-mode.md §8) [design].
                     let reserved = vats.as_ref().map_or(0.0, |v| v.reserved() as f64);
-                    if whole > 0.0 {
+                    let share = if whole > 0.0 {
                         ((whole - damage - reserved) / whole).max(0.0)
                     } else {
                         1.0
+                    };
+                    let n = lit(share as f32, PIPS);
+                    if n != lit(view.action_points, PIPS) {
+                        let current = (whole - damage - reserved).max(0.0);
+                        info!("hud: bars action points {n} of 37 ({current:.0} of {whole:.0})");
                     }
+                    share
                 }
                 _ => 1.0,
             };
-            (if max > 0.0 { (health / max) as f32 } else { 0.0 }, ap as f32)
+            (health_share, ap as f32)
         });
     } else {
         now.sneak = sneaking.then_some(Sneak::Hidden);
@@ -615,7 +637,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
             p.spawn((ConditionRow, at(0.0, 0.0, DIVIDER, AP_PANEL.y), Visibility::Inherited)).with_children(|row| {
                 label(row, CND, places.cnd_label, LOWER_BASE);
                 row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color.with_alpha(GROUND))));
-                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color)));
+                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_FILL_WIDTH, CND_BAR.y), BackgroundColor(color)));
                 // The jamming threshold's two arrows, over the bar (§4).
                 match &art.arrows {
                     Some(image) => {
@@ -706,7 +728,7 @@ fn draw(
     for mut v in &mut enemy {
         v.set_if_neq(show(target.0.is_some()));
     }
-    let width = u(view.weapon.condition.unwrap_or(0.0).clamp(0.0, 1.0) * CND_BAR.x);
+    let width = u(condition_width(view.weapon.condition.unwrap_or(0.0)));
     for mut node in &mut bar {
         if node.width != width {
             node.width = width;
@@ -881,23 +903,45 @@ mod tests {
     }
 
     #[test]
-    fn a_bar_lights_a_tick_for_any_part_of_its_share() {
+    fn a_bar_rounds_its_lit_ticks_down() {
         assert_eq!(lit(1.0, PIPS), 37);
-        assert_eq!(lit(0.5, PIPS), 19);
-        assert_eq!(lit(0.01, PIPS), 1);
+        assert_eq!(lit(0.5, PIPS), 18);
+        assert_eq!(lit(0.01, PIPS), 0);
         assert_eq!(lit(0.0, PIPS), 0);
-        // Out of range, or not a number: an empty or a full bar, never more.
+        // Out of range or non-finite: bounded ticks [design: lit].
         assert_eq!(lit(-0.2, PIPS), 0);
         assert_eq!(lit(1.7, PIPS), 37);
         assert_eq!(lit(f32::NAN, PIPS), 0);
+        assert_eq!(lit(f32::INFINITY, PIPS), 0);
+        assert_eq!(lit(f32::NEG_INFINITY, PIPS), 0);
+        assert_eq!(lit(1.0, 0), 0);
+    }
+
+    #[test]
+    fn the_corners_match_the_observed_tick_counts() {
+        // [observed: hud.md §14.3] Health, then action points.
+        for (current, max, ticks) in [
+            (200.0, 200.0, 37), (100.0, 200.0, 18), (20.0, 200.0, 3),
+            (43.68, 80.0, 20), (52.15, 80.0, 24), (69.7, 80.0, 32), (80.0, 80.0, 37),
+        ] {
+            assert_eq!(lit(current / max, PIPS), ticks, "{current} of {max}");
+        }
+    }
+
+    #[test]
+    fn the_condition_fill_matches_the_observed_widths() {
+        // [observed: hud.md §14.3] Whole units inside the 60-wide ground.
+        for (condition, width) in [(0.999, 59.0), (0.5, 30.0), (0.4987, 29.0), (0.1, 6.0)] {
+            assert_eq!(condition_width(condition), width, "{condition}");
+        }
     }
 
     #[test]
     fn the_enemy_bar_empties_from_both_ends() {
         assert_eq!(lit_middle(1.0, 31), (0, 31));
         assert_eq!(lit_middle(0.0, 31), (15, 15));
-        // Half: 16 lit, 15 gone, 7 from the left and 8 from the right.
-        assert_eq!(lit_middle(0.5, 31), (7, 23));
+        // Half: 15 lit, 16 gone, 8 from each end [hypothesis: as the other bars].
+        assert_eq!(lit_middle(0.5, 31), (8, 23));
         for i in 0..=100 {
             let (from, to) = lit_middle(i as f32 / 100.0, 31);
             assert!(to <= 31 && (31 - to) - from <= 1, "{i}: {from}..{to}");

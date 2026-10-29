@@ -100,7 +100,7 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     // radiation, as BreathMeter, XPMeter and the limb indicator when not shown. Only
     // aiming changed one: ReticleCenter 0, EnemyHealth 8 [observed: hud.md §14.1].
     // The corners, AmmoTypeLabel and CNDArrows were seen shown only [hypothesis: the
-    // same]. With the root hidden they read 0 [hypothesis: unobserved]. Pieces we do
+    // same]. With the root hidden they read 0 [observed: hud.md §14.3]. Pieces we do
     // not draw keep the file's visible [design].
     let reticle = if shown.reticle && !shown.aiming { 64.0 } else { 0.0 };
     let enemy = if shown.aiming { 8.0 } else { 1.0 };

@@ -84,6 +84,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     The file tiles' strings are T4b below (hud.md §14.2).
 
 - **T4b. HUD file tiles' strings.** Done 2026-10-29 (claude/hud-code-traits).
+  - 2026-10-29: HUD corner ticks round down, condition fills `round(59 x condition)`, bar changes log; hidden pieces' `visible` 0 now observed (hud.md §14.3).
   - [design] `ui_hud::Texts` carries plain strings from the drawing's shared helpers
     and constants; the adapter writes them before scripts (ui-tile-tree.md §4.1).
     Paths and values follow hud.md §14.2 [observed]. Sneak and prompt strings retain

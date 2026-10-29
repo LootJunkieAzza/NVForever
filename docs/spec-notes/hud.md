@@ -149,11 +149,11 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   all ticks are as wide as each other at any view size [design: the owner's "clean
   straight lines, not some bigger than others"; at 720 lines a 6-of-8 tick is 4.5
   pixels and rounded unevenly before].
-- A bar lights a tick for any part of its share (`ceil(value × 37)`) [hypothesis]. The
-  health bar empties from the right, the action points bar from the left (towards its
-  label).
+- A bar lights `floor(value × 37)` ticks [observed: §14.3]. The health bar empties from
+  the right, the action points bar from the left (towards its label).
 - The compass window is where the file puts it. The heading is in its middle: the
-  strip is shifted by heading / 360 x 1024. The window's middle (x 192) is not where
+  strip is shifted by heading / 360 x 1024 [hypothesis: not measured against the
+  original; §14.4]. The window's middle (x 192) is not where
   the bracket's triangle is (x 165); which of the two the original uses is open.
   The ends are cut off sharp.
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
@@ -528,7 +528,7 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   the pieces' visibility before scripts, beside the current HUD drawing. Pieces not
   drawn yet keep the file's visibility. The root shows in play, outside menus,
   dialogue, loading and pause/main menus; with it hidden the pieces' `visible` is 0
-  [hypothesis: unobserved]. Each piece keeps its value whether it shows or not, and
+  [observed: §14.3, a menu open]. Each piece keeps its value whether it shows or not, and
   what shows is written on the children observed in §14.1. The engine mirrors
   `hud::gather`/`draw`/`texts`, `reticle::draw`, the needs, limb, breath, radiation and
   XP drawing, and the message queues, for those children and the ones still to capture;
@@ -681,6 +681,51 @@ SetAngle Z.]
   never under the crosshair (the observe step's drive script, turning the player with
   GetHeadingAngle, did not turn it); aiming gave only §14.1's ReticleCenter 0 and
   EnemyHealth 8. A console SetPos inside the shack did not move the player either.
-- [design] NVForever lights `ceil(share x 37)` ticks (`hud.rs` `lit`, "a tick for any
-  part of its share" [hypothesis]) and fills the condition bar to `condition x 60`; both
-  differ from the above by one tick or one unit.
+- [design] NVForever lights `floor(share x 37)` ticks (`hud.rs` `lit`) and fills the
+  condition bar to `round(59 x condition)` from the 60-wide ground's x, matching the
+  above [observed]. The enemy bar shares `lit` [hypothesis: as the other bars].
+
+### 14.4 The compass and the crosshair by name (2026-10-29)
+
+[observed: the private `hud_named` and `hud_marks` jobs (runs 1793265044, 1793265121),
+xNVSE + JIP 57.3, headings 0, 45, 90, 180 and 270 set with SetAngle Z outdoors, a walk
+with the pistol drawn and three quick shots. Names from `hudtemplates.xml` and
+`compassicon.xml` [documented: the files].]
+
+- **Named paths reach where `*:N` alone does not.** `HitPoints/compass_window` reads by
+  name (x 20, y 65, 345 x 64, zoom 100, depth 1, the same as `HitPoints/*:0`), and through
+  it `compass_window/*:k/*:m` reaches the marks; `HitPoints/*:0/*:0` read -999 (§14.3).
+- **The marks.** Under `compass_window/*:0` (y 10) ten actor ticks
+  (`glow_hud_tick_mark.dds`, y -10); under `*:1` and `*:2` (y 30) the player's marker
+  (`glow_hud_compass_pc_marker.dds`), the objective marker and the places. Each mark's
+  `x` equals its `_Heading` exactly, as `compassicon.xml` copies it; `_Distance` read 1
+  for the ticks. A tick was visible at x 30.1 (heading 70), 112.4 (45), 234.6 (0); at 90
+  another slot showed at 230.3. Which actor each slot shows and the heading-to-x mapping
+  are open: one actor's x per degree of turn would be 3.3 then 2.7, so either the slots
+  change actors or the mapping is not linear [hypothesis]. A finer sweep with an actor's
+  bearing (GetHeadingAngle) settles it.
+- **The strip does not scroll through any trait.** At every heading the strip's `x`,
+  `y`, `width`, `height`, `alpha`, `visible`, `depth` and `zoom` stayed the same;
+  `cropx`, `cropy`, `tile` and `repeathorizontal` (image traits the vanilla files use;
+  Cropx: "crops the image in the x direction … applied after the zoom trait"
+  [documented: GECK wiki Cropx]) read -999 on it; `filewidth`/`fileheight` 1024 (the
+  texture's size). No documented xNVSE or JIP function lists a tile's traits or its
+  children's names (DumpTileInfo is SUP's) [documented: the function catalogue, the wiki;
+  a read-only review with Codex, 2026-10-29]. [hypothesis] The code moves the picture's
+  texture area itself; ITR's SetUITexOffset page describes compass scrolling that way
+  ("scrolling tiled UI textures, such as a compass strip, without changing the tile's
+  screen position or crop window") [documented: GECK wiki SetUITexOffset, a separate
+  plugin, not evidence about vanilla].
+- **Measuring the strip instead**: screenshots of a fine heading sweep outdoors (indoors
+  the compass follows the cell's NorthMarker [documented: GECK wiki GetAngle]), the
+  heading read back with GetAngle Z, the letters' place against the window's edges and
+  the bracket's triangle; that gives the scale, the centre and the wrap the current
+  `heading / 360 x 1024` only assumes.
+- **The crosshair copy** is `ReticleCenter/reticle_center` (x 2, y 9, 64 x 64, depth 1,
+  `glow_crosshair.dds`; `user0`/`user1` read 0 as numbers, the file's two pictures as
+  strings). Nothing read changed while walking or after three quick shots, and on the
+  screenshots the two arrows stood as far apart standing, walking and firing: **the
+  original's crosshair does not spread** with the 9mm pistol [observed]. NVForever's
+  spreading crosshair is the owner's design, on by default, with the original's look
+  when "Dynamic crosshair" is off (reticle.md §6).
+
