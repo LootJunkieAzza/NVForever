@@ -342,14 +342,20 @@ stands unchanged: every picture stretched, the shared atlas only.
   lacks is looked up in the shared index, then as its own file.
 - [design] `clips` as §3.1.2, a clipping node; the HUD's own clip tiles (`compass_icon`)
   clip their children only.
-- [hypothesis] Positive text zoom scales glyphs and their laid-out box by zoom/100,
-  keeping x/y as the justification anchor. Hardcore words read zoom 75 [observed:
-  private job hud_hardcore2 hc0-hc11]; the glyph/anchor interpretation needs screenshots.
-  Missing/nonpositive text zoom uses 100 percent [design].
+- [hypothesis, T12e] A text's `zoom` scales neither its glyphs nor its laid-out box: the
+  Hardcore words read zoom 75 [observed: private job hud_hardcore2 hc0-hc11] and their
+  tiles' widths are font 7's at 100 (45 for "H20", as `HitPoints`' "HP" 30) [observed:
+  the capture, the font file], and on the original's screen they are as tall as "HP"
+  (17 pixels at 720 lines) [observed: hud_compare needs_limbs, hud.md §13]. T12b scaled
+  both by zoom/100 [hypothesis, corrected T12e]. The trait is kept as read
+  (`layout::Text::zoom`).
 - [design] The compass strip is the one picture moved by code with no trait (hud.md
   §14.4): `HUDMainMenu/HitPoints/compass_window`'s picture is drawn twice side by side
   and moved by the heading as the hand-built HUD moves its own (1024 units a turn, the
-  heading at x 148 of the window [observed: hud.md §14.5]).
+  marks' heading at x 148 of the window [observed: hud.md §14.5], the strip's N at 154 at
+  heading 0 [observed: hud.md §14.10, T12e]), cut into upright parts whose last ones fade
+  it out from x 273 to 341 of the window, as the original's (`hud::strip_parts`)
+  [observed: hud.md §14.10; design: the parts].
 - [design] `nif` tiles (the HUD's one, the breath meter) are still not drawn; the
   hand-built breath meter stays.
 
