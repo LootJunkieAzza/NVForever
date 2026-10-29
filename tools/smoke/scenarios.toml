@@ -6016,13 +6016,14 @@ name = "hud-compass-north"
 source = "[observed: hud.md §14.5] the original's compass puts the heading at x 148 of the 345-wide window (a bearing-0 tick's x 139 plus its bar at texel 9; N under the bracket's triangle), not the window's middle; 1024 strip units to the turn"
 note = "facing due north outdoors in Goodsprings: N stands under the bracket's downward triangle"
 areas = ["hud"]
-paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/hud.rs"]
+paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/repeat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:hud_compass_north.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
 run_seconds = 16
 expect = [
   { re = 'compass: heading at x 148(\.0)? of 345', label = "the heading stands at the bracket's triangle, not the window's middle" },
   { re = 'compass: heading at x 148(\.0)? of 345, the strip.s N at 154(\.0)?, fading from 273(\.0)?', label = "T12e: the strip's N 6 units right of the marks' heading point, as the original's at heading 0, and the strip fading out from x 273 of the window (hud.md §4)" },
+  { re = 'compass: the strip baked into one window image of 345 x \d+ texels, faded from 273(\.0)? to 341(\.0)?', label = "the window's strip is one image, its fade in the texels' alpha, no slices (crate::compass_strip, hud.md §4)" },
 ]
 manual = "hud_compass_north.png: N just right of the downward triangle of the compass's bracket line (its middle about 4 pixels right of the tip at 1280 x 720, as the original's), the strip fading out over its last 70 units on the right (the original's from x 250 to 300 pixels), the step-shaped end caps and thick bars between the letters of the atlas pieces"
 
@@ -10133,12 +10134,13 @@ name = "tiles-hud-compass-north"
 source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-compass-north with [UI] TileMenus=HUDMainMenu: the compass window's strip drawn from its tile and moved by the heading (no trait moves it, hud.md §14.4; 1024 units a turn, the heading at x 148 of the window, §14.5)"
 note = "as hud-compass-north: facing due north outdoors in Goodsprings, N under the bracket's downward triangle"
 areas = ["ui", "hud"]
-paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/interface.rs"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/compass_strip.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:tiles_hud_compass_north.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
 run_seconds = 16
 expect = [
   { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the tile-drawn strip is one baked image with its fade, as the hand-built HUD's (crate::compass_strip)" },
 ]
 manual = "tiles_hud_compass_north.png: N just right of the downward triangle of the tile-drawn compass bracket (about 4 pixels at 1280 x 720, as the original's), the strip fading out at its right end with no hard end tick; compare with hud_compass_north.png"
 

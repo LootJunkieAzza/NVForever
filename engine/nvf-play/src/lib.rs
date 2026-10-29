@@ -22,6 +22,7 @@ pub mod chargen;
 pub mod creator;
 pub mod combat;
 pub mod compass;
+pub mod compass_strip;
 pub mod console;
 pub mod container_anim;
 pub mod control;

@@ -470,7 +470,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       x -36 (`vanilla::RIGHT_BRACKET_X`; at -40 its divider, upright and cap stood 3
       pixels left) [observed]; LMB alt red at three limbs [observed]; condition fill
       175 and ground an opaque 100 [observed, T12c]; the strip's N at 154 and its right
-      end fading (`hud::strip_parts`) [observed]. Both: off-band quest targets held at
+      end fading (`crate::compass_strip`) [observed]. Both: off-band quest targets held at
       the compass's end (`compass::pinned`) [observed; hypothesis: the side]. Hand-built
       (the default): the need words at the font's size; the AP ticks' clear strip after
       each tick and the health bar at x 20 (the "meets the upright" line was an

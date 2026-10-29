@@ -27,7 +27,8 @@
 
 use super::layout::{self, Alignment, Kind, Rect as TileRect};
 use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
-use crate::hud::{strip_left, strip_parts, HudView, STRIP};
+use crate::compass_strip::{StripNode, StripTexels, StripWindow};
+use crate::hud::{strip_left, HudView, STRIP};
 use crate::interface::{self, at, bc_supported, face, plain_font, set_line, u, Face, Pictures, SizedPicture, FONT_FILES};
 use crate::repeat::{self, Repeats};
 use crate::script::ScriptState;
@@ -169,8 +170,8 @@ pub enum Fit {
     /// The compass strip: twice side by side, moved across its window by the heading
     /// (nothing in the tree moves it, hud.md §14.4) at 1024 units a turn with its N at
     /// x 154 of the window at heading 0, and fading out at the window's right end
-    /// [observed: hud.md §14.5, T12e; design: `hud::strip_left`, `hud::strip_parts`, the
-    /// hand-built HUD's own].
+    /// [observed: hud.md §14.5, T12e; design: `hud::strip_left`, `crate::compass_strip`,
+    /// the hand-built HUD's own].
     Strip,
 }
 
@@ -441,12 +442,11 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
 #[derive(Component)]
 struct TileRoot;
 
-/// The compass strip of a [`Fit::Strip`] picture in one of its window's parts, `left`
-/// units into the window (`hud::strip_parts`), moved by [`scroll`].
+/// The compass strip of a [`Fit::Strip`] picture: its window baked into one image, or the
+/// doubled strip moved by the heading without its texels (`crate::compass_strip`),
+/// following the heading by [`scroll`].
 #[derive(Component)]
-pub(crate) struct TileStrip {
-    left: f32,
-}
+pub(crate) struct TileStrip(StripNode);
 
 #[derive(Default)]
 pub(crate) struct Drawn {
@@ -462,6 +462,8 @@ pub(crate) struct Drawn {
     /// [`moved_only`]).
     nodes: Vec<(Option<Entity>, Option<Entity>)>,
     repeats: Repeats,
+    /// The compass strip's first window is told (`crate::compass_strip`).
+    strip_told: bool,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -493,7 +495,7 @@ struct Ctx<'a> {
     heading: f32,
 }
 
-fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>) -> Option<Entity> {
+fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
@@ -531,21 +533,22 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Pickable::IGNORE));
                     })
                     .id(),
-                // The window in upright parts, the last ones fading as the original's
-                // (`hud::strip_parts`, T12e), each cutting its copy of the doubled strip.
+                // One image of the window's strip, its right end faded as the original's
+                // (`crate::compass_strip`, T12e); without the strip's texels the doubled
+                // strip moved by the heading, unfaded.
                 Placed::Strip => p
-                    .spawn((node, Pickable::IGNORE))
-                    .with_children(|c| {
-                        for (left, width, alpha) in strip_parts() {
-                            let mut part = at(left, 0.0, width, f(r.height));
-                            part.overflow = Overflow::clip();
-                            let faded = ImageNode { color: colour.with_alpha(ca * alpha), rect, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) };
-                            c.spawn((part, Pickable::IGNORE)).with_children(|w| {
-                                w.spawn((TileStrip { left }, at(strip_left(ctx.heading) - left, 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
-                                    for i in 0..2 {
-                                        s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), faded.clone(), Pickable::IGNORE));
-                                    }
-                                });
+                    .spawn((cut, Pickable::IGNORE))
+                    .with_children(|c| match strip {
+                        Some(window) => {
+                            let size = window.size();
+                            let image = ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(window.image()) };
+                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Pickable::IGNORE));
+                        }
+                        None => {
+                            c.spawn((TileStrip(StripNode::Moving), at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
+                                for i in 0..2 {
+                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Pickable::IGNORE));
+                                }
                             });
                         }
                     })
@@ -692,7 +695,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                             _ => None,
                         };
                         let path = pictures.texture_path(name, atlas, rect.is_some(), data);
-                        let cut = rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()].map(|v| v.round().max(0.0) as u32));
+                        let cut = rect.map(repeat::piece_texels);
                         drawn.repeats.baked(&path, cut, out, data, &mut kit.images).map(|image| (image, f(node.0), f(node.1)))
                     }),
                     _ => None,
@@ -701,19 +704,42 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
             _ => None,
         });
     }
-    let ctx = Ctx { fonts: &kit.fonts, scale, heading: view.hud.as_ref().map_or(0.0, |h| h.heading) };
+    let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
+    // The compass strip's window, baked into one image (`crate::compass_strip`).
+    let mut strips: Vec<Option<StripWindow>> = Vec::with_capacity(pieces.len());
+    for (piece, picture) in pieces.iter().zip(&looked) {
+        strips.push(match (&piece.look, picture, data) {
+            (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
+                let atlas = match source {
+                    Source::Index(a) => Some(a.as_str()),
+                    _ => None,
+                };
+                let window = StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images));
+                if !drawn.strip_told {
+                    match &window {
+                        Some(w) => info!("tiles: the compass strip baked into one window image of {} x {} texels", w.texels().0, w.texels().1),
+                        None => info!("tiles: the compass strip drawn unfaded (its texels not read)"),
+                    }
+                    drawn.strip_told = true;
+                }
+                window
+            }
+            _ => None,
+        });
+    }
+    let ctx = Ctx { fonts: &kit.fonts, scale, heading };
     let mut spawned = Vec::with_capacity(pieces.len());
     commands.entity(root).despawn_related::<Children>().with_children(|r| {
-        for ((piece, picture), baked) in pieces.iter().zip(looked).zip(baked) {
+        for (((piece, picture), baked), strip) in pieces.iter().zip(looked).zip(baked).zip(strips) {
             spawned.push(match piece.clip {
                 Some(c) => {
                     let mut wrapper = at(f(c.left), f(c.top), f(c.width), f(c.height));
                     wrapper.overflow = Overflow::clip();
                     let mut outer = None;
-                    let id = r.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, &ctx, picture, baked)).id();
+                    let id = r.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, &ctx, picture, baked, strip)).id();
                     (Some(id), outer)
                 }
-                None => (None, spawn_piece(r, piece, &ctx, picture, baked)),
+                None => (None, spawn_piece(r, piece, &ctx, picture, baked, strip)),
             });
         }
     });
@@ -722,15 +748,12 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     drawn.scale = scale;
 }
 
-/// Move the tile-drawn compass strip to the heading [design: as the hand-built HUD's
-/// `hud::draw` moves its own, `hud::strip_left`; hud.md §14.4-§14.5].
-pub(crate) fn scroll(hud: Option<Res<HudView>>, mut strips: Query<(&TileStrip, &mut Node)>) {
+/// Show the tile-drawn compass strip at the heading [design: as the hand-built HUD's
+/// `hud::draw` shows its own, `crate::compass_strip`; hud.md §14.4-§14.5].
+pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>>, mut strips: Query<(&mut TileStrip, &mut Node)>) {
     let Some(hud) = hud else { return };
-    for (part, mut node) in &mut strips {
-        let left = interface::u(strip_left(hud.heading) - part.left);
-        if node.left != left {
-            node.left = left;
-        }
+    for (mut strip, node) in &mut strips {
+        strip.0.follow(hud.heading, node, &mut images);
     }
 }
 

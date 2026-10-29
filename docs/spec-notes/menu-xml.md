@@ -353,9 +353,10 @@ stands unchanged: every picture stretched, the shared atlas only.
   §14.4): `HUDMainMenu/HitPoints/compass_window`'s picture is drawn twice side by side
   and moved by the heading as the hand-built HUD moves its own (1024 units a turn, the
   marks' heading at x 148 of the window [observed: hud.md §14.5], the strip's N at 154 at
-  heading 0 [observed: hud.md §14.10, T12e]), cut into upright parts whose last ones fade
-  it out from x 273 to 341 of the window, as the original's (`hud::strip_parts`)
-  [observed: hud.md §14.10; design: the parts].
+  heading 0 [observed: hud.md §14.10, T12e]), faded out from x 273 to 341 of the window
+  as the original's [observed: hud.md §14.10]: the window's part of the strip baked into
+  one image with each texel column's alpha on the ramp, as the hand-built HUD's
+  (`crate::compass_strip`) [design: one image, no seams between parts].
 - [design] `nif` tiles (the HUD's one, the breath meter) are still not drawn; the
   hand-built breath meter stays.
 
