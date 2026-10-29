@@ -446,13 +446,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         now at brightness 175 (`hud::METER_BRIGHTNESS`, `write_corners`) [hypothesis:
         brightness.xml's meter entry; observer-checks.md item 34]. The sRGB-against-
         linear blending difference is left [hypothesis].
-      - Ticks uneven: every bar is one image of the repeated picture, stretched and
-        sampled linearly (`crate::repeat`), in the hand-built HUD (health, action
-        points, enemy) and for every tiled picture of the tile HUD [design]. The XP
-        meter has no tiled picture. The menus' quantity and pause meters
-        (`menu/look.rs`, `pause.rs`) still draw a node per tick.
-      - Tests: `hud::ticks_stand_evenly_at_any_window_size`,
-        `hud::the_lit_ranges_follow_the_bars`,
+      - Ticks uneven: in the tile-drawn HUD every tiled picture (corner bars, enemy
+        bar, condition fill and ground) is one image of the repeated picture, stretched
+        and sampled linearly (`crate::repeat`): even, soft ticks as the original's
+        [design]. The hand-built HUD (the default) keeps the maintainer's crisp
+        whole-pixel ticks (`tick_pixels`/`tick_lefts`, a node per tick; hud.md §4, the
+        owner's choices) [design]. The XP meter has no tiled picture. The menus'
+        quantity and pause meters (`menu/look.rs`, `pause.rs`) still draw a node per
+        tick.
+      - Tests: `hud::ticks_stand_on_whole_pixels` (kept),
         `tiles::draw::a_tiled_meter_is_one_image_and_its_ticks_stand_evenly`,
         `tiles::draw::only_moved_pieces_are_moved_in_place`,
         `compass::the_marks_move_smoothly_with_the_heading_and_the_bodies`,

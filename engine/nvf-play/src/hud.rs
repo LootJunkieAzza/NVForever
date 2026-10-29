@@ -14,9 +14,8 @@
 //! - Without the game's textures the bars are plain blocks and the brackets plain lines.
 //! - The enemy health bar (bottom middle, `crate::hud_target` says whose) and the sneak
 //!   word (top middle, while sneaking) are parts of the same HUD (§8, §9).
-//! - A bar's ticks are one image of the tick picture repeated ([`crate::repeat`]),
-//!   stretched over the bar and seen through a window as wide as the lit ticks, so they
-//!   stand evenly at any view size (T12d, hud.md §14.9) [design].
+//! - A bar's pips are set on whole pixels, all as wide as each other, whatever the
+//!   view's size (§4).
 
 use crate::combat::{Combat, HudWeapon};
 use crate::control::ControlLocks;
@@ -30,6 +29,7 @@ use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, text
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use fnv_sim::FormId;
 use fnv_font::Font;
 use fnv_game::actor_values::ACTION_POINTS;
@@ -50,13 +50,11 @@ const TICK: Vec2 = Vec2::new(8.0, 20.0);
 /// The tick picture's block: 6 texels wide, then 2 clear [observed: `hud_tick_mark.dds`,
 /// its opacity rising from top to bottom].
 const TICK_BLOCK: f32 = 6.0;
-/// The health and action points ticks' brightness [hypothesis: `brightness.xml`'s
-/// "meter and compass in HUD" 175, as the enemy bar's meter reads (hud.md §14.8); the
+/// The health and action points ticks' brightness [hypothesis: brightness.xml's "meter
+/// and compass in HUD" 175, as the enemy bar's meter reads (hud.md §14.8); the
 /// original's ticks are about 0.7 of its lines' colour at their full rows, hud.md
-/// §14.9].
+/// §14.9]. The tile HUD writes it too (`tiles::vanilla::write_corners`).
 pub(crate) const METER_BRIGHTNESS: f32 = 175.0;
-/// The tick picture, 8 x 32 texels [observed: the texture, hud.md §3].
-const TICK_PICTURE: &str = "textures\\interface\\hud\\hud_tick_mark.dds";
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
 pub const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
@@ -312,42 +310,29 @@ fn condition_width(value: f32) -> f32 {
     (value.clamp(0.0, 1.0) * CND_FILL_WIDTH).round()
 }
 
-/// How far a row's strip of ticks stands right of the row's start: its ticks fill from
-/// the bar's outer end, so a full row runs the whole room but the clear strip after the
-/// last tick (health), before the first (action points), or half of it either side (the
-/// enemy's, in the middle) (§4).
-fn strip_shift(bar: Bar, period: f32) -> f32 {
-    let clear = period * (TICK.x - TICK_BLOCK) / TICK.x;
-    match bar {
-        Bar::Health => 0.0,
-        Bar::ActionPoints => clear,
-        Bar::Enemy => clear / 2.0,
-    }
+/// A tick's step and width in whole pixels for a view `height` pixels high, so that every
+/// tick is as wide as the next.
+pub fn tick_pixels(height: f32) -> (f32, f32) {
+    let s = height / 960.0;
+    let step = (TICK.x * s).round().max(2.0);
+    (step, (TICK_BLOCK * s).round().clamp(1.0, step - 1.0))
 }
 
-/// The window through which a row's lit ticks `from..to` (of `count` over `width` units)
-/// show: its left and width, and the strip's left in it, in units from the row's start.
-/// Its edges stand a texel into the clear gaps before tick `from` and after tick `to - 1`,
-/// so a pixel's rounding of the window never cuts a tick [design].
-fn lit_window(bar: Bar, width: f32, count: usize, from: usize, to: usize) -> (f32, f32, f32) {
-    if count == 0 || to <= from {
-        return (0.0, 0.0, 0.0);
+/// Where a row's `count` ticks start, in whole pixels from the row's start, and their
+/// width: the first tick at 0 and the last ending `length` pixels on, the ticks all
+/// `width` wide (less only where they would touch), the gaps between them differing by a
+/// pixel at most. A whole-pixel step of `round(8 x scale)` left the row up to a step and
+/// more short of its bracket wherever 8 x scale is not whole (owner's playtest
+/// 2026-10-16: "a gap at the end of each").
+pub fn tick_lefts(length: f32, width: f32, count: usize) -> (Vec<f32>, f32) {
+    if count < 2 {
+        return (vec![0.0; count], width);
     }
-    let period = width / count as f32;
-    let shift = strip_shift(bar, period);
-    let edge = |i: usize| shift + i as f32 * period - period / TICK.x;
-    let left = if from == 0 { 0.0 } else { edge(from) };
-    let right = edge(to).max(left);
-    (left, right - left, shift - left)
-}
-
-/// The lit ticks of a bar, from and to (exclusive), counted from its left.
-fn lit_range(bar: Bar, view: &HudView, enemy: f32) -> (usize, usize) {
-    match bar {
-        Bar::Health => (0, lit(view.health, PIPS)),
-        Bar::ActionPoints => (PIPS - lit(view.action_points, PIPS), PIPS),
-        Bar::Enemy => lit_middle(enemy, ENEMY_PIPS),
-    }
+    let gaps = (count - 1) as f32;
+    // A gap of a pixel at least: (length - width) / gaps >= width + 1.
+    let width = width.min(((length - gaps) / count as f32).floor()).max(1.0);
+    let pitch = (length - width) / gaps;
+    ((0..count).map(|i| (i as f32 * pitch).round()).collect(), width)
 }
 
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
@@ -535,23 +520,16 @@ struct Art {
     enemy_bracket: Option<Handle<Image>>,
     strip: Option<Handle<Image>>,
     arrows: Option<Handle<Image>>,
-    /// The tick picture repeated: the corner bars' [`PIPS`] and the enemy's [`ENEMY_PIPS`]
-    /// ticks, its top [`TICK`] rows ([`crate::repeat`]).
-    ticks: Option<Handle<Image>>,
-    enemy_ticks: Option<Handle<Image>>,
 }
 
 fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Art {
-    let mut repeats = crate::repeat::Repeats::default();
-    let mut bake = |count: usize, images: &mut Assets<Image>| data.and_then(|d| repeats.baked(TICK_PICTURE, None, ((count as f32 * TICK.x) as u32, TICK.y as u32), d, images));
-    let (ticks, enemy_ticks) = (bake(PIPS, images), bake(ENEMY_PIPS, images));
     let mut read = |path: &str| data.and_then(|d| texture(path, d, images, bc)).map(|t| t.0);
     let hud = |name: &str| format!("{HUD_TEXTURES}{name}.dds");
     let (left_bracket, right_bracket) = (read(&hud("glow_hud_left_seperatorglow")), read(&hud("glow_hud_right_seperatorglow")));
     let enemy_bracket = read(&hud("glow_enemy_health_seperator"));
     let strip = read(&hud("glow_hud_comp_direction_strip"));
     let arrows = read(CND_ARROWS);
-    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, arrows, ticks, enemy_ticks }
+    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, arrows }
 }
 
 #[derive(Component)]
@@ -568,20 +546,22 @@ enum Bar {
 #[derive(Component)]
 struct ConditionBar;
 
-/// The window over a bar's row of ticks as wide as its lit ticks ([`lit_window`]):
-/// which bar, and the row's width (interface units) and tick count.
+/// A bar's row of ticks: which bar, its colour, and how the ticks stand in it.
 #[derive(Component, Clone, Copy)]
-struct PipWindow {
+struct PipRow {
     bar: Bar,
-    /// The row's start in its piece.
-    x: f32,
+    color: Color,
+    /// The row's width (interface units) and its tick count.
     width: f32,
     count: usize,
 }
 
-/// The strip of a bar's ticks in its window: the repeated picture, or plain blocks.
+/// A tick of a bar, `index` from the bar's left end.
 #[derive(Component)]
-struct PipStrip;
+struct Pip {
+    bar: Bar,
+    index: usize,
+}
 
 /// The doubled compass strip in its window.
 #[derive(Component)]
@@ -611,31 +591,10 @@ struct EnemyStats;
 #[derive(Component)]
 struct SneakText;
 
-/// A bar's row of `count` ticks at `x`, `y` (`width` long): one image of the repeated
-/// picture (`ticks`), stretched over the row, in a window [`pips`] sets to the lit ticks;
-/// without the picture, plain blocks [design: T12d, every tick `width / count` from the
-/// next at any size].
-#[allow(clippy::too_many_arguments)]
-fn spawn_row(p: &mut ChildSpawnerCommands, bar: Bar, x: f32, y: f32, width: f32, count: usize, color: Color, ticks: &Option<Handle<Image>>) {
-    let (left, open, strip) = lit_window(bar, width, count, 0, count);
-    let mut window = at(x + left, y, open, TICK.y);
-    window.overflow = Overflow::clip();
-    p.spawn((PipWindow { bar, x, width, count }, window)).with_children(|w| {
-        let node = at(strip, 0.0, width, TICK.y);
-        match ticks {
-            Some(image) => {
-                w.spawn((PipStrip, node, ImageNode { color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
-            }
-            None => {
-                w.spawn((PipStrip, node)).with_children(|s| {
-                    let period = width / count as f32;
-                    for i in 0..count {
-                        s.spawn((at(i as f32 * period, 0.0, period * TICK_BLOCK / TICK.x, TICK.y), BackgroundColor(color)));
-                    }
-                });
-            }
-        }
-    });
+/// A bar's row of ticks at `x`, `y` (`width` long); the ticks are set in it on whole
+/// pixels by [`pips`].
+fn spawn_row(p: &mut ChildSpawnerCommands, bar: Bar, x: f32, y: f32, width: f32, count: usize, color: Color) {
+    p.spawn((PipRow { bar, color, width, count }, at(x, y, width, TICK.y)));
 }
 
 /// A bracket: the game's picture, or plain lines where its lines are.
@@ -667,7 +626,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         root.spawn((piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
-            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS), &art.ticks);
+            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             info!("compass: heading at x {x} of {w}", x = COMPASS_HEADING, w = COMPASS.x);
             let mut window = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             window.overflow = Overflow::clip();
@@ -696,7 +655,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
         root.spawn((piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.right_bracket, &[RIGHT_UPRIGHT, DIVIDER], color);
-            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS), &art.ticks);
+            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             label(p, AP, places.ap_label, UPPER_BASE);
             p.spawn((ConditionRow, at(0.0, 0.0, DIVIDER, AP_PANEL.y), Visibility::Inherited)).with_children(|row| {
                 label(row, CND, places.cnd_label, LOWER_BASE);
@@ -745,7 +704,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
                 }
             }
             let (from, to) = (bx + ENEMY_MARKS.0, bx + ENEMY_MARKS.1);
-            spawn_row(p, Bar::Enemy, from, by + ENEMY_LINE_Y - ENEMY_METER_GAP - TICK.y, to - from, ENEMY_PIPS, red, &art.enemy_ticks);
+            spawn_row(p, Bar::Enemy, from, by + ENEMY_LINE_Y - ENEMY_METER_GAP - TICK.y, to - from, ENEMY_PIPS, red);
             p.spawn((EnemyName, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
             p.spawn((EnemyStats, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
         });
@@ -806,35 +765,77 @@ fn draw(
     }
 }
 
-/// Open each bar's window over its lit ticks ([`lit_window`]), the strip held in place.
-#[allow(clippy::type_complexity)]
+/// Set the bars' ticks on whole pixels when the view's size changes, and light those the
+/// values call for.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn pips(
+    mut commands: Commands,
     view: Res<HudView>,
     target: Res<HudTarget>,
-    mut windows: Query<(&PipWindow, &mut Node, &Children), Without<PipStrip>>,
-    mut strips: Query<&mut Node, (With<PipStrip>, Without<PipWindow>)>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    rows: Query<(Entity, &PipRow)>,
+    mut ticks: Query<(&Pip, &mut Visibility)>,
+    mut set_for: Local<Option<(f32, f32)>>,
+    mut tick: Local<Option<Option<Handle<Image>>>>,
 ) {
     if !view.shown {
         return;
     }
-    let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
-    for (w, mut node, children) in &mut windows {
-        let (from, to) = lit_range(w.bar, &view, enemy);
-        let (left, open, strip) = lit_window(w.bar, w.width, w.count, from, to);
-        let (left, open, strip) = (u(w.x + left), u(open), u(strip));
-        if node.left != left {
-            node.left = left;
-        }
-        if node.width != open {
-            node.width = open;
-        }
-        for &c in children {
-            if let Ok(mut s) = strips.get_mut(c) {
-                if s.left != strip {
-                    s.left = strip;
-                }
+    let Ok(window) = windows.single() else { return };
+    let key = (window.physical_height() as f32, window.scale_factor());
+    if rows.is_empty() {
+        return;
+    }
+    if *set_for != Some(key) {
+        let image = tick
+            .get_or_insert_with(|| data.as_deref().and_then(|d| texture(&format!("{HUD_TEXTURES}hud_tick_mark.dds"), d, &mut images, bc_supported(formats.as_deref()))).map(|t| t.0))
+            .clone();
+        let (height, sf) = key;
+        let (step, width) = tick_pixels(height);
+        let px = |v: f32| Val::Px(v / sf);
+        for (e, row) in &rows {
+            let room = row.width * height / 960.0;
+            // A full row runs the whole room but the clear strip after its last tick
+            // (§4: at 1080 lines the first tick at the upright, the last 2 pixels short of
+            // the mark); the ticks fill from the bar's outer end: from the left for
+            // health, from the right for action points; the enemy's stand in the middle.
+            let clear = (step - width).max(1.0);
+            let (lefts, width) = tick_lefts((room - clear).round(), width, row.count);
+            let first = match row.bar {
+                Bar::Health => 0.0,
+                Bar::ActionPoints => clear,
+                Bar::Enemy => clear / 2.0,
             }
+            .round();
+            commands.entity(e).despawn_related::<Children>().with_children(|r| {
+                for (index, left) in lefts.iter().enumerate() {
+                    let node = Node { position_type: PositionType::Absolute, left: px(first + left), top: Val::Px(0.0), width: px(width), height: Val::Percent(100.0), ..default() };
+                    let pip = Pip { bar: row.bar, index };
+                    match &image {
+                        // The picture's block: its top part, as high as a tick.
+                        Some(image) => r.spawn((pip, node, ImageNode { rect: Some(Rect::new(0.0, 0.0, TICK_BLOCK, TICK.y)), color: row.color, ..ImageNode::new(image.clone()) })),
+                        None => r.spawn((pip, node, BackgroundColor(row.color))),
+                    };
+                }
+            });
         }
+        *set_for = Some(key);
+        return;
+    }
+    let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
+    for (pip, mut v) in &mut ticks {
+        let on = match pip.bar {
+            Bar::Health => pip.index < lit(view.health, PIPS),
+            Bar::ActionPoints => PIPS - 1 - pip.index < lit(view.action_points, PIPS),
+            Bar::Enemy => {
+                let (from, to) = lit_middle(enemy, ENEMY_PIPS);
+                (from..to).contains(&pip.index)
+            }
+        };
+        v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
     }
 }
 
@@ -1022,54 +1023,31 @@ mod tests {
         }
     }
 
-    /// T12d: a bar's ticks are one stretched image, so at every window size each tick
-    /// stands `8 x scale` pixels from the next (within half a pixel of the true period, as
-    /// the GPU samples it), and the lit window's edges fall in the clear gaps.
     #[test]
-    fn ticks_stand_evenly_at_any_window_size() {
-        for (w, h) in [(1280.0f32, 800.0f32), (1920.0, 1080.0), (1280.0, 720.0)] {
-            let scale = h / 960.0;
-            for (bar, width, count) in [(Bar::Health, METER_WIDTH, PIPS), (Bar::ActionPoints, METER_WIDTH, PIPS), (Bar::Enemy, ENEMY_MARKS.1 - ENEMY_MARKS.0, ENEMY_PIPS)] {
-                let period = width / count as f32;
-                // The strip's left in the window plus the window's left: the row's start
-                // plus the shift, whatever is lit.
-                for (from, to) in [(0, count), (0, 3), (count - 5, count), (4, 9)] {
-                    let (left, open, strip) = lit_window(bar, width, count, from, to);
-                    assert!((left + strip - strip_shift(bar, period)).abs() < 1e-4, "{bar:?} {from}..{to}");
-                    // The window's edges a texel into the clear gaps (texels 6 and 7 of
-                    // a period), so whole-pixel rounding (half a pixel) cuts no tick.
-                    for edge in [left, left + open] {
-                        let texel = (edge - strip_shift(bar, period)) / period * TICK.x;
-                        let inside = texel.rem_euclid(TICK.x);
-                        assert!((from == 0 && edge == left) || (inside - 7.0).abs() < 1e-3, "{bar:?} {from}..{to}: edge at texel {inside}");
-                    }
-                }
-                // The ticks' left edges in pixels, as one image stretched over the row:
-                // every period the true one.
-                let row_px = 40.0 * scale;
-                let edges: Vec<f32> = (0..count).map(|i| row_px + (strip_shift(bar, period) + i as f32 * period) * scale).collect();
-                for pair in edges.windows(2) {
-                    assert!((pair[1] - pair[0] - period * scale).abs() < 0.5, "{w}x{h} {bar:?}: {pair:?}");
-                }
-            }
-            // Half a pixel is less than the texel either side of the window's edge.
-            assert!(0.5 / scale < METER_WIDTH / PIPS as f32 / TICK.x, "{w}x{h}");
-            // At 1280 x 800 the true period is 6.67 pixels, not alternately 6 and 7.
-            if h == 800.0 {
-                assert!((METER_WIDTH / PIPS as f32 * scale - 6.667).abs() < 1e-3);
-            }
+    fn ticks_stand_on_whole_pixels() {
+        // The screenshots' sizes: 6 of 8 at 720 lines, 9 at 1080.
+        assert_eq!(tick_pixels(720.0), (6.0, 5.0));
+        assert_eq!(tick_pixels(1080.0), (9.0, 7.0));
+        assert_eq!(tick_pixels(1440.0), (12.0, 9.0));
+        // Never a tick without a gap, even tiny.
+        let (step, width) = tick_pixels(100.0);
+        assert!(width >= 1.0 && width < step);
+        // A full bar spans its room at any size: equal ticks, gaps a pixel apart at most.
+        for lines in [600, 720, 768, 800, 900, 1009, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
+            let h = lines as f32;
+            let (step, width) = tick_pixels(h);
+            let length = (METER_WIDTH * h / 960.0 - (step - width)).round();
+            let (lefts, w) = tick_lefts(length, width, PIPS);
+            assert_eq!(lefts[0], 0.0, "{lines} lines");
+            assert_eq!(lefts[PIPS - 1] + w, length, "{lines} lines");
+            let gaps: Vec<f32> = lefts.windows(2).map(|p| p[1] - p[0] - w).collect();
+            let (lo, hi) = gaps.iter().fold((f32::MAX, 0.0f32), |(a, b), &g| (a.min(g), b.max(g)));
+            assert!(lo >= 1.0 && hi - lo <= 1.0, "{lines} lines: gaps {lo}..{hi}");
+            assert_eq!(w, width, "{lines} lines: ticks kept their width");
         }
-        // Nothing lit: a shut window.
-        assert_eq!(lit_window(Bar::Health, METER_WIDTH, PIPS, 0, 0), (0.0, 0.0, 0.0));
-    }
-
-    /// T12d: the bars light from their outer ends, the enemy's from the middle.
-    #[test]
-    fn the_lit_ranges_follow_the_bars() {
-        let view = HudView { shown: true, health: 0.5, action_points: 0.25, ..default() };
-        assert_eq!(lit_range(Bar::Health, &view, 0.0), (0, 18));
-        assert_eq!(lit_range(Bar::ActionPoints, &view, 0.0), (PIPS - 9, PIPS));
-        assert_eq!(lit_range(Bar::Enemy, &view, 0.5), lit_middle(0.5, ENEMY_PIPS));
+        // At 1080 lines the step is the even 9 of the original's screenshot.
+        let (lefts, w) = tick_lefts(331.0, 7.0, PIPS);
+        assert!(w == 7.0 && lefts.windows(2).all(|p| p[1] - p[0] == 9.0));
     }
 
     #[test]
@@ -1138,8 +1116,7 @@ mod tests {
         // The enemy's ticks fit between its bracket's marks.
         // Keep the owner's 31 ticks; the row packs them into the scaled marks [design].
         let room = ENEMY_MARKS.1 - ENEMY_MARKS.0;
-        let period = room / ENEMY_PIPS as f32;
-        let last_end = strip_shift(Bar::Enemy, period) + (ENEMY_PIPS - 1) as f32 * period + period * TICK_BLOCK / TICK.x;
-        assert!(last_end < room && room - last_end < 1.5, "{last_end} of {room}");
+        let (lefts, width) = tick_lefts(room, TICK_BLOCK, ENEMY_PIPS);
+        assert!((lefts[ENEMY_PIPS - 1] + width - room).abs() < 0.6);
     }
 }

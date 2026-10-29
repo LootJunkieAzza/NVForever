@@ -139,13 +139,16 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   after x 24–320 / 70–366 ran the last ticks into the mark and the upright; measured
   again 2026-10-16: left tick edges at x 69, 78 … 384 on both, right at 1520 … 1844 on
   the original against 1518 … 1842 with 67–363].
-- A full bar spans its room at any view size: the first tick at the bar's start, the
-  last ending the tick's clear strip (2 of its 8 units) short of its end on the left, the
-  first that far in on the right [design: owner's playtest 2026-10-16, "a gap at the end
-  of each"]. Since T12d the ticks are one image of the picture repeated, stretched over
-  the bar, every tick `8 x scale` pixels from the next (§14.9); until then each tick was
-  set on whole pixels, the gaps differing by a pixel (6 and 7 pixels by turns at
-  1280 x 800).
+- The ticks are all as wide (whole pixels), and a full bar spans its room at any view
+  size: the first tick at the bar's start, the last ending the tick's clear strip
+  (`round(8 × scale) − round(6 × scale)`) short of its end on the left, the first that
+  far in on the right; the ticks between stand on whole pixels evenly spread, so the
+  gaps differ by a pixel at most [design: a whole-pixel step `round(8 × scale)` left a
+  full bar up to 25 pixels short of the mark or the upright at sizes where 8 × scale is
+  not whole, 1280 × 800 or a maximised window; owner's playtest 2026-10-16, "a gap at
+  the end of each"]. At 720, 1080 and 1440 lines the gaps are all equal, as before.
+  The hand-built HUD keeps this; the tile-drawn HUD draws the original's even, soft
+  ticks instead (§14.9) [design, T12d].
 - "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 23,
   "AP" ending at x 355, on the line y 33 (their capitals 23 high) [observed: measured
   again on the same screenshot 2026-10-16; 33 and 362 before stood 11 and 8 pixels
@@ -154,11 +157,11 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
   the texture, §3], so the ticks look darker than the lines over the world; drawn at
-  brightness 175 [hypothesis, §14.9]. The bar is the picture repeated into one image at
-  its texels' resolution and stretched with linear filtering: the ticks stand evenly,
-  their edges slightly soft where `6 x scale` is not whole, as the original's look
-  [design, §14.9; it replaces T4's whole-pixel ticks (the owner's "clean straight lines,
-  not some bigger than others"), whose spacing could not be even at 1280 x 800].
+  brightness 175 since T12d [hypothesis, §14.9]. Each tick is set on whole pixels — the
+  step `round(8 × scale)`, the width `round(6 × scale)` — so all ticks are as wide as
+  each other at any view size [design: the owner's "clean straight lines, not some
+  bigger than others"; at 720 lines a 6-of-8 tick is 4.5 pixels and rounded unevenly
+  before]. The tile-drawn HUD draws its bars as one stretched image instead (§14.9).
 - A bar lights `floor(value × 37)` ticks [observed: §14.3]. The health bar empties from
   the right, the action points bar from the left (towards its label).
 - The compass window is where the file puts it. The heading is in its middle: the
@@ -1082,18 +1085,19 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
 - [observed: the owner, T12d] The ticks stood unevenly: at 1280 x 800 a unit is 0.833
   pixels and a tick period 6.67, and each tick set on whole pixels (the hand-built
   `tick_lefts`) or each repeat of Bevy's `NodeImageMode::Tiled` (the tile HUD) took 6 or
-  7 pixels by turns. [design] Both drawings now draw a bar as one image: the picture's
+  7 pixels by turns. [design] The hand-built HUD (the default) keeps the maintainer's
+  crisp whole-pixel ticks (§4: the owner's "clean straight lines, not some bigger than
+  others" and "a gap at the end of each"), the gaps differing by a pixel at most. The
+  tile-drawn HUD, which follows the original, draws a bar as one image: the picture's
   texels repeated into one RGBA image the box's size in texels (`crate::repeat`, decoded
   by `fnv_dds`, kept per picture and size), stretched over the box and sampled linearly,
-  so every tick stands `8 x scale` pixels from the next at any size (tests
-  `hud::ticks_stand_evenly_at_any_window_size` and
-  `tiles::draw::a_tiled_meter_is_one_image_and_its_ticks_stand_evenly`, at 1280 x 800,
-  1920 x 1080 and 1280 x 720). The hand-built bars show their lit ticks through a window
-  whose edges stand a texel into the clear gaps, so a pixel's rounding cuts no tick; the
-  enemy bar shares the code. Every tiled picture of the tile HUD goes through it (the
-  corner bars, the enemy bar, the condition fill and its ground); the XP meter has no
-  tiled picture (its ticks are drawn in `glow_XP_bar_over.dds`). A box over 4M texels
-  keeps Bevy's tiling.
+  so every tick stands `8 x scale` pixels from the next at any size, its edges slightly
+  soft (test `tiles::draw::a_tiled_meter_is_one_image_and_its_ticks_stand_evenly`, at
+  1280 x 800, 1920 x 1080 and 1280 x 720) [hypothesis: the original's even, soft ticks
+  are one repeated texture filtered across the bar]. Every tiled picture of the tile HUD
+  goes through it (the corner bars, the enemy bar, the condition fill and its ground);
+  the XP meter has no tiled picture (its ticks are drawn in `glow_XP_bar_over.dds`). A
+  box over 4M texels keeps Bevy's tiling.
 - [observed: the owner, T12d] The compass marks stepped while turning and as actors
   walked, where the original's glide. Causes: the places were looked at ten times a
   second (`compass::gather`'s poll) and kept in whole units (`CompassView`), and the tile
