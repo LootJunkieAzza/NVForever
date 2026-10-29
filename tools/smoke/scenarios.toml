@@ -10133,7 +10133,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
 run_seconds = 24
 expect = [
   { re = 'tiles: \[UI\] TileMenus=HUDMainMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): HUDMainMenu drawn from tiles', label = "the switch is read from the test aid" },
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws, its code-made copies with it" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter\s*$', label = "the whole HUD tree draws, its code-made copies with it" },
   { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health: the tree's bar is 18 ticks wide, as the hand-built one's" },
 ]
 manual = "tiles_hud_bars_partial.png: the HUD's corners drawn from tiles: the health bar lit for 18 of its 37 ticks, HP above it, the brackets, the compass strip; AP, CND, the ammo counter at the right; compare with hud_bars_partial.png"
@@ -10148,7 +10148,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
 run_seconds = 16
 expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter\s*$', label = "the whole HUD tree draws" },
   { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the tile-drawn strip is one baked image with its fade, as the hand-built HUD's (crate::compass_strip)" },
 ]
 manual = "tiles_hud_compass_north.png: N just right of the downward triangle of the tile-drawn compass bracket (about 4 pixels at 1280 x 720, as the original's), the strip fading out at its right end with no hard end tick; compare with hud_compass_north.png"
@@ -10177,7 +10177,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
 run_seconds = 16
 expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter\s*$', label = "the whole HUD tree draws" },
   { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree keeps the observed 16:10 places with the switch on" },
 ]
 manual = "tiles_ui_hud_code_traits.png: the HUD drawn from tiles at 1280 x 800: the corners at the bottom, the crosshair in the middle, nothing doubled"
@@ -10192,10 +10192,63 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter\s*$', label = "the whole HUD tree draws" },
   { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "in radiation (the marker's level falling off with distance, issue #894), so the meter's tiles show" },
 ]
 manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
+
+[[scenario]]
+name = "tiles-hud-notices"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): corner-messages and quest-messages with [UI] TileMenus=HUDMainMenu: the hand-built queues' lines drawn from Messages' code-made copies (*:0 bracket, *:1 text at x 130 y 5 depth 2, *:2 icon [observed]) and QuestReminder's (the banner and the objectives with their boxes at the hand-built places), the hand-built areas hidden"
+note = "the corner messages at 1 s as corner-messages, the quest lines as quest-messages; the console's read at 15 s comes after both shots"
+areas = ["ui", "hud", "corner-messages", "quest-messages"]
+paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg,3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5", NVF_PLAY_TEST_CONSOLE = "15:PrintC \"tiles notices %g %g %g %g\", (GetUIFloat \"HUDMainMenu/Messages/*:1/x\"), (GetUIFloat \"HUDMainMenu/Messages/*:1/depth\"), (GetUIFloat \"HUDMainMenu/Messages/*:0/width\"), (GetUIFloat \"HUDMainMenu/Subtitles/*:0/x\");15.4:close", NVF_PLAY_TEST_SHOTS = "5:tiles_hud_notices_banner.png,12.5:tiles_hud_notices_objectives.png" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 20
+order = [[
+  'tiles: Messages text "You are still dressed as a member of the NCR."',
+  'tiles: Messages text "You are now Well Rested!"',
+]]
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter\s*$', label = "the messages, quest notices and subtitles are no longer kept hand-built" },
+  "corner message: \"You are now Well Rested!\" for 10 s, icon default",
+  "tiles: QuestReminder banner Quest added: BACK IN THE SADDLE",
+  "tiles: QuestReminder 1 objectives: Talk to Sunny Smiles in the Prospector Saloon.",
+  "tiles: QuestReminder 2 objectives: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.",
+  { re = 'script: print "tiles notices 130 2 470 400"', label = "the copies at the original's observed paths: the text *:1 at x 130 depth 2, the bracket *:0 470 wide, the subtitle text at x 400" },
+]
+manual = "tiles_hud_notices_banner.png: \"Quest added\" over BACK IN THE SADDLE at the left, \"You are now Well Rested!\" beside its icon and bracket at the top left, drawn once (no hand-built copy under them); tiles_hud_notices_objectives.png: the two objectives with a filled and an open square, the message still at the top left; compare with quest-messages' and corner-messages' frames"
+
+[[scenario]]
+name = "tiles-hud-discovered"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'You have discovered' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets nothing"
+note = "as reputation-box's start, without its reputation steps"
+areas = ["ui", "hud", "quest-messages"]
+paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_SHOTS = "6:tiles_hud_discovered.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
+run_seconds = 10
+expect = [
+  { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found (the hand-built queue)" },
+  { re = 'tiles: QuestReminder banner You have discovered: GOODSPRINGS', label = "the tile HUD draws the same line" },
+]
+manual = "tiles_hud_discovered.png: \"You have discovered\" over GOODSPRINGS at the left, as on reputation-box's frame at 6 s, once"
+
+[[scenario]]
+name = "tiles-hud-subtitles"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): a line Sunny says to Cheyenne in the saloon with [UI] TileMenus=HUDMainMenu: the subtitle drawn from Subtitles' code-made text (*:0, centre-justified at x 400 [observed]) under the piece's y, the hand-built subtitles hidden"
+note = "Sunny's line as speech-look's first; the shot one second into it"
+areas = ["ui", "hud", "dialogue"]
+paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script_hud.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:say_to:SunnyRef:0x0010588E:GREETING", NVF_PLAY_TEST_SHOTS = "15:tiles_hud_subtitles.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  { re = 'subtitle: Sunny Smiles: \S', label = "Sunny's line is said and selected for the screen" },
+  { re = 'tiles: Subtitles text "\S.*"', label = "the tile HUD's subtitle text holds it" },
+]
+manual = "tiles_hud_subtitles.png: Sunny's line once, centred near the bottom (Subtitles at y 660 before any prompt, 610 or 572 after one), in the HUD's colour"
 
 [[scenario]]
 name = "ui-menu-lifetime"
@@ -11800,7 +11853,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 22
 expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "only the five unresolved pieces stay hand-built" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter\s*$', label = "only the breath meter stays hand-built (T12: the messages, quest notices and subtitles from tiles)" },
   { re = 'script: print "tiles hc 124 1 255 1 255 2 218 162"', label = "captured stage alphas and colours, LMB last child and RAD fixed position" },
   { re = 'script: print "tiles off 0 0 0 255 162"', label = "only radiation remains and stays in its own place outside Hardcore" },
 ]

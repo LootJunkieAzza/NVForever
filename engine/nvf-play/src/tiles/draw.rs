@@ -121,6 +121,17 @@ impl FontKit<'_> {
         self.face(7.0).map_or(0.0, |face| measure(&face.font, text, None).0 as f32)
     }
 
+    /// Font 7's lines for a text at a wrap width, and its line height (the HUD's texts,
+    /// `super::notices`), as [`measure`] sets them.
+    pub(crate) fn hud_lines(&mut self) -> impl Fn(&str, Option<f64>) -> (usize, f64) + '_ {
+        self.load(7.0);
+        let font = self.face(7.0).map(|f| &f.font);
+        move |text: &str, wrap: Option<f64>| match font {
+            Some(f) => (f.lines(text, wrap.filter(|w| *w > 0.0).map(|w| w as f32)).len(), f64::from(f.size)),
+            None => (1, 0.0),
+        }
+    }
+
     /// Write the HUD text tiles' measured widths into the tree
     /// ([`fnv_game::ui_hud::write_text_widths`]); only with the game's own fonts, a stand-in
     /// font would write made-up widths [design].
@@ -995,7 +1006,7 @@ mod tests {
         // Hardcore words, hud.md §13); right-justified, its x is the box's right end.
         assert_eq!(drawn[1].rect, TileRect { left: -30.0, top: 0.0, width: 30.0, height: 20.0 });
         assert!(matches!(drawn[1].look, Look::Text { .. }));
-        for name in ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator"] {
+        for name in ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator", "Messages", "QuestReminder", "Region_Location", "Subtitles"] {
             assert!(!KEPT_PIECES.contains(&name));
         }
     }

@@ -80,9 +80,12 @@ pub(crate) fn setup(app: &mut App) {
     });
 }
 
-/// [design] Remaining hand-built pieces: their copies are unfilled, or (BreathMeter)
-/// require nif rendering. Settled T12b pieces now draw from tiles (hud.md §14.8).
-pub const KEPT_PIECES: [&str; 5] = ["BreathMeter", "Messages", "QuestReminder", "Region_Location", "Subtitles"];
+/// [design] Remaining hand-built pieces: the breath meter needs nif rendering. Settled T12b
+/// pieces draw from tiles (hud.md §14.8); the messages, quest notices and subtitles since
+/// their copies are written (`super::notices`, hud.md §14.11). `Region_Location` is no
+/// longer kept: nothing is made under it (what the original shows there is not known) and
+/// its file rect draws nothing.
+pub const KEPT_PIECES: [&str; 1] = ["BreathMeter"];
 
 /// [design] Shared visibility markers moved here from the hand-built modules so the
 /// tile switch can hide their roots without changing their drawing/timing logic.
@@ -96,6 +99,15 @@ pub(crate) struct LimbRoot;
 pub(crate) struct MeterRoot;
 #[derive(Component)]
 pub(crate) struct PromptTexts;
+/// The hand-built corner messages', quest lines' and subtitles' areas
+/// (`corner_messages.rs`, `quest_messages.rs`, `script_hud.rs`); their queues and clocks
+/// still run, only their nodes are hidden [design].
+#[derive(Component)]
+pub(crate) struct MessagesArea;
+#[derive(Component)]
+pub(crate) struct QuestArea;
+#[derive(Component)]
+pub(crate) struct SubtitlesArea;
 
 /// The compass window, whose picture is the strip the heading moves [observed: hud.md
 /// §14.4, the name read; §14.5].
@@ -108,7 +120,9 @@ pub fn kept_pieces(ui: &Ui) -> Vec<TileId> {
 
 /// A hand-built HUD node whose piece the tiles draw while the HUD is a tile menu: the
 /// health and action points corners (with the compass, the condition row and the ammo),
-/// the sneak word, the crosshair, the radiation meter.
+/// the sneak word, the crosshair, the radiation meter. The other pieces' roots carry their
+/// own markers ([`EnemyPiece`], [`WordsRoot`], [`LimbRoot`], [`MeterRoot`],
+/// [`PromptTexts`], [`MessagesArea`], [`QuestArea`], [`SubtitlesArea`]).
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct DrawnByTiles;
 
@@ -116,7 +130,11 @@ pub(crate) struct DrawnByTiles;
 /// the game's menu files the hand-built HUD stays): after every drawing system has set its
 /// visibility, before it is passed down [design: no drawer changes].
 #[allow(clippy::type_complexity)]
-pub(crate) fn hide_hand_built(menus: Res<TileMenus>, script: Res<crate::script::ScriptState>, mut nodes: Query<&mut Visibility, Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>)>>) {
+pub(crate) fn hide_hand_built(
+    menus: Res<TileMenus>,
+    script: Res<crate::script::ScriptState>,
+    mut nodes: Query<&mut Visibility, Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>, With<MessagesArea>, With<QuestArea>, With<SubtitlesArea>)>>,
+) {
     let loaded = script.rt.as_ref().is_some_and(|rt| rt.game.ui_files.is_some() && rt.game.ui_tree.menu(super::draw::HUD_MENU).is_some());
     if !menus.hud || !loaded {
         return;
