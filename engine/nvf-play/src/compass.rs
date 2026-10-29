@@ -123,6 +123,18 @@ pub fn on_compass(x: f32) -> bool {
     x.abs() <= COMPASS_VISIBLE
 }
 
+/// Where a quest target's mark stands for a target `x` right of the heading point: there
+/// inside the visible band, else at the band's end on its side [observed: hud_compare
+/// hud-bars-partial, hud-ammo-label, perk-meltdown-anatomy and xp-meter at 1280 x 720, the
+/// original's objective marker held under the line's left end, its middle at x 53.5-54
+/// pixels (the band's end, its `_Heading` 0 with the icon's 40-unit box), where the
+/// in-band one stands at its bearing (needs_limbs, at SE); hypothesis: the right end for a
+/// target to the right, all four were at the left]. Until T12e a target off the band had
+/// no mark [hypothesis: the band of actor ticks and places, hud.md §14.5].
+pub fn pinned(x: f32) -> f32 {
+    x.clamp(-COMPASS_VISIBLE, COMPASS_VISIBLE)
+}
+
 /// The marks drawn: kind and place across in compass units right of the heading point,
 /// unrounded (T12d), worked out every frame by [`place`].
 #[derive(Resource, Default, Debug, PartialEq, Clone)]
@@ -143,14 +155,18 @@ pub struct CompassNear(pub Vec<Near>);
 
 /// The marks of `near` on the compass for a player at `here` facing `heading`
 /// (degrees), each actor at its body's feet in `bodies` when it has one, sorted by kind
-/// then place [design].
+/// then place [design]. A quest target outside the visible band stays on the compass,
+/// pinned at the band's end on its side ([`pinned`]).
 pub fn marks(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32)> {
     let mut out: Vec<(Mark, f32)> = near
         .iter()
         .filter_map(|n| {
             let at = n.body.and_then(bodies).unwrap_or(n.at);
             let x = offset(heading, here, at);
-            on_compass(x).then_some((n.mark, x))
+            match n.mark {
+                Mark::Quest => Some((n.mark, pinned(x))),
+                _ => on_compass(x).then_some((n.mark, x)),
+            }
         })
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
@@ -343,7 +359,8 @@ fn gather(
         }
     }
     if *logged_quest != Some((placed, shown)) {
-        info!("compass: {placed} quest target(s) placed, {shown} on the compass");
+        // The others are held at the compass's ends ([`pinned`]).
+        info!("compass: {placed} quest target(s) placed, {shown} on the compass, {} held at an end", placed - shown);
         *logged_quest = Some((placed, shown));
     }
     let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(m)).count();
@@ -523,19 +540,40 @@ mod tests {
         // Turning a tenth of a degree moves the marks 1024 / 3600 units, not 0 or 1.
         let a = marks(&near, 0.0, [0.0, 0.0], &none);
         let b = marks(&near, 0.1, [0.0, 0.0], &none);
-        assert_eq!(a.iter().map(|m| m.0).collect::<Vec<_>>(), [Mark::Actor, Mark::Place]);
-        for (a, b) in a.iter().zip(&b) {
+        assert_eq!(a.iter().map(|m| m.0).collect::<Vec<_>>(), [Mark::Actor, Mark::Place, Mark::Quest]);
+        // (The quest target straight behind is held at an end, the left at 180 degrees off
+        // and the right just under: not compared.)
+        for (a, b) in a.iter().zip(&b).take(2) {
             assert!((a.1 - b.1 - 1024.0 / 3600.0).abs() < 1e-3, "{a:?} {b:?}");
         }
         // The actor's body has walked east: its mark with it, the place's stays.
         let walked = |id: u32| (id == 7).then_some([10.0, 100.0]);
         let c = marks(&near, 0.0, [0.0, 0.0], &walked);
         assert!((c[0].1 - offset(0.0, [0.0, 0.0], [10.0, 100.0])).abs() < 1e-4 && c[0].1 > 1.0);
+        // An actor behind the player has none.
+        let behind = [Near { mark: Mark::Actor, at: [0.0, -100.0], body: None }];
+        assert!(marks(&behind, 0.0, [0.0, 0.0], &none).is_empty());
         assert_eq!(c[1].1, a[1].1);
-        // Behind the player: none, as before.
-        assert!(!c.iter().any(|m| m.0 == Mark::Quest));
+        // The quest target behind the player is held at the band's left end (T12e).
+        assert!(c.iter().any(|m| *m == (Mark::Quest, -COMPASS_VISIBLE)));
         // A mark's node keeps the fraction.
         assert_eq!(mark_left(Mark::Place, 0.25, false), COMPASS_HEADING + 0.25 - 2.0);
+    }
+
+    /// T12e: a quest target off the band is held at the end on its side; inside, at its
+    /// bearing.
+    #[test]
+    fn a_quest_target_off_the_compass_is_held_at_its_end() {
+        let none = |_: u32| None;
+        let at = |to: [f32; 2]| marks(&[Near { mark: Mark::Quest, at: to, body: None }], 0.0, [0.0, 0.0], &none);
+        // Due east (256 right) and due west: held at the right and the left end.
+        assert_eq!(at([100.0, 0.0]), [(Mark::Quest, COMPASS_VISIBLE)]);
+        assert_eq!(at([-100.0, 0.0]), [(Mark::Quest, -COMPASS_VISIBLE)]);
+        // 30 degrees right: at its bearing.
+        let thirty = [30f32.to_radians().sin(), 30f32.to_radians().cos()];
+        assert!((at(thirty)[0].1 - 30.0 * 1024.0 / 360.0).abs() < 1e-2);
+        assert_eq!(pinned(-140.0), -139.0);
+        assert_eq!(pinned(12.5), 12.5);
     }
 
     #[test]
