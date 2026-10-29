@@ -600,3 +600,43 @@ site's shack (`coc SLNuclearTestShackINT`).
   four radiation tiles (`Shown::sneak`, `Shown::radiation`); the reticle 0 and the enemy
   bar 8 while `AimZoom::aimed`. The prompt's and the sneak word's sizes, the pointer's
   place and the subtitles' move wait for the text measurement (T5) and the strings.
+
+### 14.2 The strings, through JIP (2026-10-29)
+
+[observed: the private `hud_jip` job, run 1793261986: §14.1's states job again on the same
+install with JIP LN NVSE 57.3 added (GetPluginVersion "JIP NVSE Plugin"), reading
+`string`, `filename` and `texatlas` with GetUIString on every file tile and on the 12
+code-made children of the nine pieces (501 reads a sample).]
+
+- **JIP changed none of xNVSE's reads.** Every state's 2,864 numeric reads matched
+  §14.1's xNVSE-only run, except values that follow the moment: one message's text width
+  (289 against 281), the sneak word's width (the word then shown) and the radiation
+  pointer (42.9 against 42.0, the rads taken by then). By the JIP audit's rule
+  (observer-jip-audit-2026-10-25.md) the strings below can be used.
+- **What the code writes where the file leaves it empty** (the file's `string` traits
+  are `&-s…;` game settings, empty in `fnvtool ui` until T10): `HitPoints/*:1` "HP",
+  `ActionPoints/*:4` "AP", `*:2` "CND", `*:3` the ammo counter ("13/60"),
+  `XPMeter/XPLabel` "XP", `XPLevelUp` "LEVEL UP", `RadiationMeter/radiation_text`
+  "RAD/SEC" (already before any radiation) and `radiation_text_value` "+0", then "+9" at
+  9 rads a second; the Hardcore words `HardcoreMode/Dehydration` "H20" (a zero, not an
+  O), `Hunger` "FOD", `Sleep` "SLP", `Rads` "RAD", `LMBs` "LMB"; `Subtitles/*:0` " ".
+- **The pictures the code sets** (`filename`, with `texatlas`
+  `Interface\InterfaceShared.tai` on the glow pictures): the corners' separators, tick
+  marks and the compass strip (`HitPoints/*:0`
+  `Interface\HUD\glow_hud_comp_direction_strip.dds`), the AP bar
+  (`ActionPoints/*:1` `Interface\VATS\vats_bar.dds`), the crosshair
+  (`ReticleCenter/*:0` `Interface\HUD\glow_crosshair.dds`, **`glow_crosshair_filled.dds`
+  while something that can be activated is under it**), the message icon
+  (`Messages/*:2`, the Vault Boy's mood picture).
+- **The prompt** (§14.1's settler): `PCShortcutLabel` "E)", the hotrect and its
+  `button_text` "Talk" (the file's "Button Text" until then), `Info/*:8` "Talk",
+  `Info/*:7` the name "Goodsprings Settler", `*:1`-`*:4` "VAL", "--", "WG", "--" (value
+  and weight; dashes for an actor), and waiting in `*:5` and `*:6` "[EMPTY]" and
+  "Locked". The texts stay in the tree after the prompt goes (the shack, nothing under
+  the crosshair, still read "Goodsprings Settler").
+- **The sneak word**: `SneakMeter/sneak_nif` (and its `*:0`) "[HIDDEN]" while sneaking
+  unseen; it keeps the word after standing, with alpha 0 (§14.1).
+- `Messages/*:1` holds the corner message's text (the capture's own "NVF capture:
+  running …").
+- [design] NVForever drew "H2O" for the dehydration word (`hud_needs.rs`, the setting
+  `sStatsH20Abbrev` being set by no master); the tile's text is "H20".

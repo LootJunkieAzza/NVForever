@@ -411,6 +411,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
 33. **How a radiation marker's level falls off inside its radius.** In the nuclear test
     site's shack (`coc SLNuclearTestShackINT`, marker `00154611`, XRAD 15, XRDS 2000) the
     original read GetRadiationLevel 9.014 and showed +9 RAD/SEC; NVForever gives the whole
-    15 (smoke `environment-radiation`, radiation.md §2). To check: GetRadiationLevel and the
-    player's distance to each of the shack's markers at three or four spots, and at the
-    marker itself.
+    15 (smoke `environment-radiation`, radiation.md §2). One spot fits 15 x (1 - d / 2000)
+    x (1 - Rad Resistance) to five digits (d 693.67, Rad Resistance 8, 2026-10-29). To
+    check: GetRadiationLevel at two or three more distances (the job's script SetPos did
+    not move the player; use console `player.setpos` steps), and once with Rad-X.

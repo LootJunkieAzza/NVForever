@@ -54,6 +54,14 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   in the radius, or another marker or the player's place lowers it. Where the 9 comes
   from (distance to the marker, the shack's other markers) is open; NVForever's 15
   there (smoke `environment-radiation`) is to be checked against it.
+  - [observed: hud.md §14.2's run] The shack has no other marker; the player stood at
+    (4318.96, -27.96, -135.33), 693.67 units (3-D) from the marker, with Rad Resistance
+    (actor value 20, `RadResist`) 8; GetRadiationLevel read 9.013681.
+    15 x (1 - 693.67 / 2000) x (1 - 0.08) = 9.01368 [hypothesis: a straight fall-off by
+    3-D distance across the radius, and the level read and shown already cut by Rad
+    Resistance; the flat distance would give 9.025]. One spot only: the job's SetPos
+    moves to two more did not move the player. To settle it, more spots
+    (observer-checks.md item 33).
 - A disabled marker (an enable parent, `Disable`) gives nothing [hypothesis].
 - The markers are kept by the space they stand in (the worldspace for exterior cells, else
   the interior); every marker of the player's space is measured each frame (119 in all,
