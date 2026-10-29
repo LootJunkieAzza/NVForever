@@ -27,6 +27,8 @@ def common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--fnvtool", type=Path, default=None, help="fnvtool (default NVF_FNVTOOL or <repo>/target/release)")
     p.add_argument("--name", default=None, help="the run's folder name under target/stress/<test>/ (default: the time)")
     p.add_argument("--no-locks", action="store_true", help="do not take the game locks (a machine of your own)")
+    p.add_argument("--ini", type=Path, default=None,
+                   help="an NVForever.ini to play with (e.g. the player's, for their graphics settings); default: the engine's defaults")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -80,6 +82,7 @@ def parser() -> argparse.ArgumentParser:
                    help="only waypoints START to END (1-based) of the ring, to go over one stretch again "
                         "(the waypoint numbers are the tour log's `at waypoint i/n`)")
     t.add_argument("--hang", type=float, default=180.0)
+    t.add_argument("--hour", type=float, default=12.0, help="the game hour the tour starts at (19: dusk, for what changes at night)")
     t.add_argument("--aid", action="append", default=[], metavar="NAME=VALUE",
                    help="a further test aid for the game, e.g. NVF_PLAY_TEST_NO_READ_AHEAD=1 to compare a run without "
                         "the actor read-ahead (repeatable)")
@@ -129,7 +132,9 @@ def context(a, test: str) -> lib.Ctx:
         raise SystemExit(f"no run {resume} to resume under target/stress/{test}/")
     out = lib.run_folder(repo, test, resume or a.name)
     locks = None if a.no_locks else lib.Locks(lib.default_lock_paths(repo))
-    return lib.Ctx(repo, Path(exe), data, Path(tool), out, print, locks, lib.masters(repo))
+    if a.ini and not a.ini.is_file():
+        raise SystemExit(f"no settings file at {a.ini}")
+    return lib.Ctx(repo, Path(exe), data, Path(tool), out, print, locks, lib.masters(repo), a.ini)
 
 
 def main(argv=None) -> int:
@@ -190,7 +195,7 @@ def main(argv=None) -> int:
         steps = (perimeter / a.step if perimeter else npts * 20) + npts
         est = a.laps * steps * (a.dwell + 3.0) + 300
         # Start outdoors in the tour's worldspace; the first step goes to the first waypoint.
-        start = ["--cell", "Goodsprings", "--hour", "12"]
+        start = ["--cell", "Goodsprings", "--hour", f"{a.hour:g}"]
         print(f"tour: {npts} waypoints, about {steps:.0f} steps a lap, {a.laps} laps; run limit {est:.0f} s")
         aids = dict(kv.split("=", 1) for kv in a.aid)
         res = tour.run(ctx, route, a.laps, a.every, a.hang, start, est, aids)

@@ -61,6 +61,13 @@ pub fn interval() -> Option<f32> {
 /// Time per span key in the current window: (seconds, entries).
 static TOTALS: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
 
+/// The render world's pipeline cache, as of its last frame: pipelines made, and those
+/// still waiting to compile ([`pipeline_counts`]); a hitch line gives both, so a stall can
+/// be told apart from one that waited on pipelines compiling (2026-10-28: material writes
+/// and the window's frame took 100-500 ms on long tours with nothing else in them).
+static PIPELINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PIPELINES_WAITING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Time per span key since the last frame's report: (seconds, entries).
 static FRAME: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
 
@@ -154,8 +161,11 @@ impl Plugin for ProfilePlugin {
     fn build(&self, app: &mut App) {
         let Some(every) = interval() else { return };
         info!("test aid NVF_PLAY_TEST_PROFILE: a span profile every {every} s");
+        // GPU time per render pass (timestamp queries, Vulkan and DX12): `profile gpu:`.
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
         app.insert_resource(ProfileWindow { every, ..default() }).add_systems(Last, report);
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render.add_systems(bevy::render::Render, pipeline_counts.in_set(bevy::render::RenderSystems::Render));
             render.add_systems(bevy::render::Render, (move |mut last: Local<Option<Instant>>, shadow: Res<ViewBinnedRenderPhases<bevy::pbr::Shadow>>, opaque: Res<ViewBinnedRenderPhases<Opaque3d>>, mask: Res<ViewBinnedRenderPhases<AlphaMask3d>>, prepass: Res<ViewBinnedRenderPhases<Opaque3dPrepass>>, mask_prepass: Res<ViewBinnedRenderPhases<AlphaMask3dPrepass>>| {
                 // The render world has no clock of its own: real time.
                 let now = Instant::now();
@@ -176,6 +186,13 @@ impl Plugin for ProfilePlugin {
             .in_set(bevy::render::RenderSystems::Render));
         }
     }
+}
+
+/// Keep the pipeline counts for the main world's hitch lines.
+fn pipeline_counts(cache: Res<bevy::render::render_resource::PipelineCache>) {
+    use std::sync::atomic::Ordering::Relaxed;
+    PIPELINES.store(cache.pipelines().count() as u64, Relaxed);
+    PIPELINES_WAITING.store(cache.waiting_pipelines().count() as u64, Relaxed);
 }
 
 /// `<phase> <v> views, <m> multi-drawn sets, <b> batched bins, <u> unbatched bins`, summed
@@ -200,7 +217,7 @@ struct ProfileWindow {
     frame_secs: f32,
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn report(
     time: Res<Time<Real>>,
     mut w: ResMut<ProfileWindow>,
@@ -209,14 +226,23 @@ fn report(
     materials: Res<Assets<nvf_assets::NifMaterial>>,
     mut last: Local<Option<Instant>>,
     loading: Option<Res<nvf_play::loading::Loading>>,
+    mut pipelines_before: Local<u64>,
+    diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
 ) {
+    let pipelines = PIPELINES.load(std::sync::atomic::Ordering::Relaxed);
+    let new_pipelines = pipelines.saturating_sub(*pipelines_before);
+    *pipelines_before = pipelines;
     // A slow frame's own spans: those ended since the last report, whatever the thread.
     let now = Instant::now();
     let frame = FRAME.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
     if let Some(at) = last.replace(now) {
         let ms = now.duration_since(at).as_secs_f64() * 1000.0;
         if ms >= HITCH_MS {
-            let line = hitch_line(ms, &frame);
+            let line = format!(
+                "{}; pipelines {pipelines} ({new_pipelines} new since the frame before, {} waiting)",
+                hitch_line(ms, &frame),
+                PIPELINES_WAITING.load(std::sync::atomic::Ordering::Relaxed)
+            );
             if loading.as_deref().is_some_and(nvf_play::loading::Loading::unseen_frames) {
                 // Not seen: kept apart from the hitches (`profile hitch (behind a loading screen):`).
                 info!("{}", line.replacen("profile hitch:", "profile hitch (behind a loading screen):", 1));
@@ -257,6 +283,18 @@ fn report(
         mats.len(),
         materials.len()
     );
+    // The render passes' GPU time (Bevy's render diagnostics, averaged over their last
+    // samples), the costliest first: which pass grows when the frame waits on the GPU.
+    let mut gpu: Vec<(String, f64)> = diagnostics
+        .iter()
+        .filter(|d| d.path().as_str().ends_with("/elapsed_gpu"))
+        .filter_map(|d| Some((d.path().as_str().trim_start_matches("render/").trim_end_matches("/elapsed_gpu").to_string(), d.average()?)))
+        .collect();
+    gpu.sort_by(|a, b| b.1.total_cmp(&a.1));
+    if !gpu.is_empty() {
+        let listed: Vec<String> = gpu.iter().take(16).map(|(k, ms)| format!("{k} {ms:.2}")).collect();
+        info!("profile gpu: ms a frame: {}", listed.join(", "));
+    }
     *w = ProfileWindow { every: w.every, cpu_at: cpu, ..default() };
 }
 
