@@ -297,6 +297,34 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         fits, a texatlas lookup with a fake index). Smoke `tiles-hud-bars-partial`,
         `tiles-hud-compass-north`, `tiles-ui-hud-code-traits`,
         `tiles-environment-radiation` (shots `tiles_*.png`).
+    - **T12b part B done** 2026-10-29 (`claude/t12b-handbuilt`) [design]: hand-built
+      radiation scale, fixed need-word places/zoom, faded alpha 124/255, separate word
+      and limb alpha flashes, enemy hostility colour and 500-wide bracket (scaled
+      marks), XP 2/2/2 s phases with a separate LEVEL UP notice, and limb fades within
+      five seconds. [observed: private jobs hud_radiation2, r_in_000-r_in_990;
+      hud_hardcore2, hc0-hc11; hud_enemy3, n2_away, g2_gecko_half;
+      hud_xp_limbs2, x9_level_up_long; hud_xp_limbs, l1_leg, l2_head]
+      - [design: maintainer's choice; needs an issue] Kept M1 enemy 31-tick/current
+        rounding rule ([owner, playtest list 5 item 32], hud.md §8); M2 LMB looks
+        ([design: owner 2026-10-23/24], §13); M3 only newest limb flashing
+        ([design: owner 2026-10-17], §12); M4 5 s LEVEL_UP_DELAY and filled-bar sound
+        ([owner 2026-10-24], experience.md §6); M5 `[Empty]` ([owner 2026-10-27],
+        reticle.rs). Draft issues and capture contradictions are in those sections.
+      - [hypothesis: open] B9 whose health shows: unchanged pending player's-shot and
+        longer hostile-aim captures (hud.md §8). Limb timing is one run only; word
+        flash period unresolved. Concurrent XP gains remain open (experience.md §6).
+      - [design] Main-session smoke: `hud-needs-words`, `hud-crippled-limbs`,
+        `environment-radiation`, `xp-meter`, `hud-sneak-target`, `perk-meltdown-anatomy`.
+        [documented: tools/smoke/scenarios.toml, paths] Other selected scenarios:
+        `opening-no-hud`, `pipboy-general-locations`, `hud-ammo-label`,
+        `hud-compass-north`, `hud-bars-partial`, `hardcore-setting`, `compass-reticle`,
+        `explosion-radiation`, `tiles-environment-radiation`. [design] Game/smoke runs
+        deliberately left to the main session; worker checks below.
+      - [observed: T12b part B worker checks, 2026-10-29] With
+        `CARGO_TARGET_DIR=E:/Games/NVForever/engine/target`,
+        `cd engine && cargo test --release -p nvf-play`: 604 passed, 0 failed;
+        0 doctests. `cargo clippy --release --all-targets -- -D warnings`: passed,
+        no warnings. `python tools/smoke verify`: all 642 scenarios valid.
     - **Left for T12b, the comparison**: the `tiles_*.png` shots against the original's
       at the same sizes (hud.md §14's captures) and against the hand-built HUD's, every
       hypothesis above; then the kept pieces one group at a time (hud-xml.md step 5):
