@@ -316,6 +316,8 @@ fn copy_files(omit: &[&str]) -> MemSource {
         ("template_meter_background", "image", "MeterBackground", "<width>60</width><height>20</height>"),
         ("template_left_bracket", "image", "left_bracket", ""),
         ("template_right_bracket", "image", "right_bracket", ""),
+        ("template_info_seperator", "image", "info_seperator", "<filename>divider.dds</filename>"),
+        ("template_enemy_health_bracket", "image", "enemy_health_bracket", "<filename>enemy.dds</filename>"),
         (
             "template_reticle_center",
             "image",
@@ -336,7 +338,7 @@ fn copy_files(omit: &[&str]) -> MemSource {
     xml.push_str(
         r#"<rect name="HitPoints"/><rect name="ActionPoints"/><rect name="ReticleCenter"/>
         <rect name="Info"><rect name="justify_center_hotrect"/></rect>
-        <rect name="Subtitles"/><rect name="RadiationMeter"><image name="radiation_pointer"/></rect></menu>"#,
+        <rect name="EnemyHealth"/><rect name="Subtitles"/><rect name="RadiationMeter"><image name="radiation_pointer"><x>15</x></image></rect></menu>"#,
     );
     MemSource::default().with("menus/hud.xml", &xml)
 }
@@ -367,18 +369,13 @@ fn assert_copy_paths(ui: &Ui) {
             ][..],
         ),
         ("ReticleCenter", &["reticle_center"][..]),
+        ("EnemyHealth", &["justify_center_text", "meter", "enemy_health_bracket"][..]),
         (
             "Info",
             &[
-                "justify_center_hotrect",
-                "justify_left_text:0",
-                "justify_left_text:1",
-                "justify_left_text:2",
-                "justify_left_text:3",
-                "justify_left_text:4",
-                "justify_left_text:5",
-                "justify_center_text:0",
-                "justify_center_text:1",
+                "info_seperator", "justify_left_text:0", "justify_right_text:0",
+                "justify_left_text:1", "justify_right_text:1", "justify_center_text:0",
+                "justify_center_text:1", "justify_center_text:2", "justify_center_hotrect",
             ][..],
         ),
         ("HitPoints/compass_window", &["compass_npc_icon_group", "compass_icon_group:0", "compass_icon_group:1"][..]),
@@ -466,6 +463,8 @@ fn prompt(height: f64) -> ui_hud::Prompt {
         value: "--".into(),
         empty: false,
         locked: false,
+        lock_text: "Locked".into(),
+        item: false,
         height,
     }
 }
@@ -497,14 +496,16 @@ fn prompt_and_reticle_copies_change_and_keep_absent_strings() {
     ui.update();
     assert_eq!(ui.get_string("HUDMainMenu/Info/*:7/string").as_deref(), Some("Goodsprings Settler"));
     assert_eq!(ui.get_string("HUDMainMenu/Info/*:8/string").as_deref(), Some("Talk"));
-    assert_eq!(ui.get_float("HUDMainMenu/Info/*:7/alpha"), Some(0.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:7/visible"), Some(0.0));
     assert_eq!(ui.get_string("HUDMainMenu/ReticleCenter/reticle_center/filename").as_deref(), Some("plain.dds"));
 }
 
 #[test]
-fn subtitles_follow_both_captured_prompt_heights_and_restore_without_prompt() {
+fn subtitles_follow_both_captured_prompt_heights_and_hold_without_prompt() {
     let mut ui = copy_tree(&[]);
     let mut input = texts();
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(660.0));
     for (height, y) in [(42.0, 610.0), (80.0, 572.0)] {
         input.frame.prompt = Some(prompt(height));
         ui_hud::write(&mut ui, all_shown(), &input);
@@ -512,18 +513,21 @@ fn subtitles_follow_both_captured_prompt_heights_and_restore_without_prompt() {
         assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(y));
     }
     ui_hud::write(&mut ui, Shown { info: false, ..all_shown() }, &input);
-    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(660.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(572.0));
     ui_hud::write(&mut ui, all_shown(), &texts());
-    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(660.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(572.0));
 }
 
 #[test]
-fn pointer_replays_recorded_x_values_with_provisional_scale() {
+fn radiation_pointer_follows_the_paired_capture_range_only_while_shown() {
     let mut ui = copy_tree(&[]);
     let mut input = texts();
-    // Outputs [observed: hud.md §14.1–§14.2]; input totals are synthetic [design],
-    // testing the unit-slope hypothesis, NOT claimed captured rad/x pairs [hypothesis: §14.6].
-    for (rads, x) in [(0.0, 15.0), (21.0, 36.0), (27.0, 42.0), (27.9, 42.9), (1000.0, 42.9), (-1.0, 15.0), (f64::NAN, 15.0)] {
+    // [observed: private job hud_radiation2 r_in_000-r_in_990; hypothesis:
+    // rule between sampled points, within 0.7 units; >1000 clamp unobserved].
+    input.frame.radiation = 300.0;
+    ui_hud::write(&mut ui, Shown { radiation: false, ..all_shown() }, &input);
+    assert_eq!(ui.get_float("HUDMainMenu/RadiationMeter/radiation_pointer/x"), Some(15.0));
+    for (rads, x) in [(0.0, 15.0), (70.0, 36.0), (90.0, 42.0), (93.0, 42.9), (998.0, 314.4), (1000.0, 315.0), (1500.0, 315.0), (-1.0, 15.0), (f64::NAN, 15.0)] {
         input.frame.radiation = rads;
         ui_hud::write(&mut ui, all_shown(), &input);
         ui.update();
@@ -568,7 +572,7 @@ fn compass_marks_write_heading_distance_visibility_and_reuse_slots() {
     for (path, x, distance, visible) in [
         ("compass_npc_icon_group/*:0", 139.0, 1.0, 1.0),
         ("compass_npc_icon_group/*:1", 30.1, 1.0, 1.0),
-        ("compass_icon_group:0/*:1", 148.0, 12.0, 1.0),
+        ("compass_icon_group:0/*:0", 148.0, 12.0, 1.0),
         ("compass_icon_group:1/*:0", 272.7, 13.0, 1.0),
         ("compass_icon_group:1/*:1", 279.0, 14.0, 0.0),
     ] {
@@ -581,7 +585,15 @@ fn compass_marks_write_heading_distance_visibility_and_reuse_slots() {
     let npc = ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_npc_icon_group").unwrap();
     assert_eq!(ui.tile(npc).children.len(), 10);
     assert_eq!(ui.tile(npc).get("y"), Some(&Value::Num(10.0)));
-    let quest = ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:1").unwrap();
+    let tick = |i| format!("HUDMainMenu/HitPoints/compass_window/compass_npc_icon_group/*:{i}/systemcolor");
+    assert_eq!(ui.get_float(&tick(0)), Some(1.0));
+    assert_eq!(ui.get_float(&tick(1)), Some(2.0));
+    input.frame.marks[0].kind = MarkKind::Hostile;
+    input.frame.marks[1].kind = MarkKind::Actor;
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_float(&tick(0)), Some(2.0));
+    assert_eq!(ui.get_float(&tick(1)), Some(1.0));
+    let quest = ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:0").unwrap();
     input.frame.marks.clear();
     ui_hud::write(&mut ui, all_shown(), &input);
     assert_eq!(ui.tile(quest).get("visible"), Some(&Value::Num(0.0)));
@@ -591,7 +603,7 @@ fn compass_marks_write_heading_distance_visibility_and_reuse_slots() {
         distance: 1.0,
     });
     ui_hud::write(&mut ui, all_shown(), &input);
-    assert_eq!(ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:1"), Some(quest));
+    assert_eq!(ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:0"), Some(quest));
     assert_eq!(ui.tile(quest).get("visible"), Some(&Value::Num(1.0)));
 }
 
@@ -708,4 +720,186 @@ fn text_widths_follow_the_observed_measures_and_the_hotrect_its_child() {
     ui_hud::write(&mut ui, shown, &t);
     ui_hud::write_text_widths(&mut ui, &observed_width);
     assert_eq!(width(&ui, "SneakMeter/sneak_nif"), 136.0);
+}
+
+#[test]
+fn prompt_item_empty_and_lock_copies_match_the_captured_paths() {
+    let mut ui = copy_tree(&[]);
+    let mut input = texts();
+    let mut p = prompt(42.0);
+    p.item = true;
+    p.name = "9mm Pistol".into();
+    p.weight = "1.5".into();
+    p.value = "100".into();
+    input.frame.prompt = Some(p.clone());
+    ui_hud::write(&mut ui, all_shown(), &input);
+    for (index, x, y) in [(1, 165.0, 60.0), (2, 290.0, 60.0), (3, 10.0, 60.0), (4, 135.0, 60.0), (5, 160.0, 65.0), (6, 160.0, 65.0), (7, 160.0, 2.0)] {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{index}/x")), Some(x));
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{index}/y")), Some(y));
+    }
+    for i in 0..=4 {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{i}/visible")), Some(1.0));
+    }
+    assert_eq!(ui.get_string("HUDMainMenu/Info/*:2/string").as_deref(), Some("100"));
+    assert_eq!(ui.get_string("HUDMainMenu/Info/*:4/string").as_deref(), Some("1.5"));
+    p.item = false;
+    p.empty = true;
+    p.value = "--".into();
+    p.weight = "--".into();
+    input.frame.prompt = Some(p.clone());
+    ui_hud::write(&mut ui, all_shown(), &input);
+    for i in 0..=4 {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{i}/visible")), Some(0.0));
+    }
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:5/alpha"), Some(255.0));
+    p.locked = true;
+    p.lock_text = "[Locked - Average]".into();
+    input.frame.prompt = Some(p);
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:5/visible"), Some(0.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:6/alpha"), Some(255.0));
+    assert_eq!(ui.get_string("HUDMainMenu/Info/*:6/string").as_deref(), Some("[Locked - Average]"));
+    input.frame.prompt = None;
+    ui_hud::write(&mut ui, all_shown(), &input);
+    for i in 0..=8 {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{i}/visible")), Some(0.0));
+    }
+    assert_eq!(ui.get_string("HUDMainMenu/Info/*:6/string").as_deref(), Some("[Locked - Average]"));
+}
+
+#[test]
+fn enemy_ticks_colour_and_full_health_suppression() {
+    let mut ui = copy_tree(&[]);
+    let mut input = texts();
+    for (health, width) in [(7.01 / 45.0, 32.0), (8.01 / 45.0, 32.0), (0.5, 112.0), (1.0, 240.0)] {
+        for hostile in [false, true] {
+            input.frame.enemy = Some(ui_hud::Enemy { name: "Actor".into(), health, hostile });
+            ui_hud::write(&mut ui, all_shown(), &input);
+            assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:1/width"), Some(width));
+            assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:1/x"), Some(171.0 - width / 2.0));
+            assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/systemcolor"), Some(if hostile { 2.0 } else { 1.0 }));
+            for i in 0..3 {
+                assert_eq!(ui.get_float(&format!("HUDMainMenu/EnemyHealth/*:{i}/visible")), Some(f64::from(health < 1.0)));
+            }
+        }
+    }
+    assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:2/width"), Some(500.0));
+    assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:2/brightness"), Some(175.0));
+    assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/*:1/height"), Some(20.0));
+    input.frame.aim_hostile = true;
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/reticle_center/systemcolor"), Some(2.0));
+    assert_eq!(ui.get_string("HUDMainMenu/ReticleCenter/reticle_center/filename").as_deref(), Some("plain.dds"));
+    ui_hud::write(&mut ui, Shown { aiming: true, ..all_shown() }, &input);
+    assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/reticle_center/systemcolor"), Some(1.0));
+}
+
+fn animated_tree() -> Ui {
+    let mut ui = fixture();
+    let src = MemSource::default();
+    for name in ["XPBracket", "XPPointer", "XPAmount", "XPLastLevel", "XPNextLevel"] {
+        ui.inject_text(&src, "HUDMainMenu/XPMeter", &format!(r#"<image name="{name}"/>"#));
+    }
+    let pictures: String = ["Head", "Face", "Torso", "Left_Arm", "Right_Arm", "Left_Leg", "Right_Leg"].iter().map(|n| format!(r#"<image name="{n}"/>"#)).collect();
+    ui.inject_text(&src, "HUDMainMenu/crippled_limb_indicator", &pictures);
+    ui
+}
+
+#[test]
+fn need_words_keep_places_and_use_stage_alpha_and_colour_in_both_modes() {
+    let mut ui = fixture();
+    let mut input = texts();
+    input.frame.hardcore = true;
+    for (stage, alpha, colour) in [(0, 0.0, 1.0), (1, 124.0, 1.0), (2, 255.0, 1.0), (3, 255.0, 2.0), (4, 255.0, 2.0)] {
+        input.frame.need_stages = [stage; 4];
+        ui_hud::write(&mut ui, all_shown(), &input);
+        for name in ["Dehydration", "Hunger", "Sleep", "Rads"] {
+            assert_eq!(ui.get_float(&format!("HUDMainMenu/HardcoreMode/{name}/alpha")), Some(alpha));
+            assert_eq!(ui.get_float(&format!("HUDMainMenu/HardcoreMode/{name}/systemcolor")), Some(colour));
+        }
+    }
+    input.frame.animation.seconds = 0.3;
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_float("HUDMainMenu/HardcoreMode/Rads/alpha"), Some(128.0));
+    input.frame.need_stages = [2; 4];
+    for hardcore in [false, true] {
+        input.frame.hardcore = hardcore;
+        for (limbs, alpha) in [(0, 0.0), (1, 124.0), (2, 255.0)] {
+            input.frame.crippled = std::array::from_fn(|i| i < limbs);
+            ui_hud::write(&mut ui, all_shown(), &input);
+            assert_eq!(ui.get_float("HUDMainMenu/HardcoreMode/LMBs/alpha"), Some(alpha));
+            assert_eq!(ui.get_float("HUDMainMenu/HardcoreMode/Dehydration/alpha"), Some(if hardcore { 255.0 } else { 0.0 }));
+            for (name, x) in [("Dehydration", 0.0), ("Hunger", 55.0), ("Sleep", 109.0), ("Rads", 162.0), ("LMBs", 218.0)] {
+                assert_eq!(ui.get_float(&format!("HUDMainMenu/HardcoreMode/{name}/x")), Some(x));
+                assert_eq!(ui.get_float(&format!("HUDMainMenu/HardcoreMode/{name}/zoom")), Some(75.0));
+            }
+        }
+    }
+}
+
+#[test]
+fn xp_timeline_fades_glides_keeps_the_first_gain_and_shows_level_up_separately() {
+    use fnv_game::experience::Standing;
+    let mut animation = ui_hud::Animation::default();
+    let mut standing = Standing { xp: 10.0, level: 1, max: 30, this: 0.0, next: 200.0 };
+    let mut ui = animated_tree();
+    let mut input = texts();
+    let healthy = [false; 6];
+    animation.step(0.0, true, standing, healthy);
+    standing.xp = 35.0;
+    animation.step(0.0, true, standing, healthy);
+    standing.xp = 40.0;
+    input.frame.animation = animation.step(0.6, true, standing, healthy);
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_string("HUDMainMenu/XPMeter/XPAmount/string").as_deref(), Some("+25"));
+    assert_eq!(ui.get_float("HUDMainMenu/XPMeter/XPBracket/alpha"), Some(76.5));
+    let paused = animation.step(10.0, false, standing, healthy);
+    assert_eq!(paused.xp.as_ref().unwrap().age, 0.6);
+    standing.xp = 200.0;
+    for (dt, alpha, pointer, level_on) in [(1.4, 255.0, 65.75, false), (1.0, 255.0, 167.875, false), (1.0, 255.0, 270.0, false), (1.0, 127.5, 270.0, false), (1.0, 0.0, 270.0, false), (1.8, 0.0, 270.0, true)] {
+        input.frame.animation = animation.step(dt, true, standing, healthy);
+        ui_hud::write(&mut ui, all_shown(), &input);
+        assert!((ui.get_float("HUDMainMenu/XPMeter/XPBracket/alpha").unwrap() - alpha).abs() < 1e-6);
+        assert!((ui.get_float("HUDMainMenu/XPMeter/XPPointer/x").unwrap() - pointer).abs() < 1e-5);
+        assert_eq!(ui.get_float("HUDMainMenu/XPMeter/XPLevelUp/visible"), Some(f64::from(level_on)));
+        if level_on {
+            assert_eq!(ui.get_float("HUDMainMenu/XPMeter/XPLevelUp/alpha"), Some(255.0));
+        }
+    }
+    input.frame.animation = animation.step(2.0, true, standing, healthy);
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert!(input.frame.animation.xp.is_none());
+    assert_eq!(ui.get_float("HUDMainMenu/XPMeter/XPLevelUp/visible"), Some(0.0));
+}
+
+#[test]
+fn limb_timeline_restarts_all_broken_limbs_and_healing_starts_nothing() {
+    use fnv_game::experience::Standing;
+    let mut animation = ui_hud::Animation::default();
+    let standing = Standing { xp: 10.0, level: 1, max: 30, this: 0.0, next: 200.0 };
+    let mut ui = animated_tree();
+    let mut input = texts();
+    let mut limbs = [false; 6];
+    animation.step(0.0, true, standing, limbs);
+    limbs[4] = true;
+    animation.step(0.0, true, standing, limbs);
+    for (dt, whole_alpha) in [(0.425, 127.5), (0.425, 255.0), (3.3, 255.0), (0.425, 127.5), (0.425, 0.0)] {
+        input.frame.animation = animation.step(dt, true, standing, limbs);
+        ui_hud::write(&mut ui, all_shown(), &input);
+        assert!((ui.get_float("HUDMainMenu/crippled_limb_indicator/Head/alpha").unwrap() - whole_alpha).abs() < 1e-6);
+        assert_eq!(ui.get_float("HUDMainMenu/crippled_limb_indicator/Left_Leg/systemcolor"), Some(2.0));
+        assert_eq!(ui.get_float("HUDMainMenu/crippled_limb_indicator/Left_Leg/x"), Some(24.75));
+    }
+    assert_eq!(ui.get_float("HUDMainMenu/crippled_limb_indicator/Left_Leg/alpha"), Some(-16.0));
+    limbs[0] = true;
+    animation.step(0.0, true, standing, limbs);
+    input.frame.animation = animation.step(0.17, true, standing, limbs);
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.get_float("HUDMainMenu/crippled_limb_indicator/Head/alpha"), ui.get_float("HUDMainMenu/crippled_limb_indicator/Left_Leg/alpha"));
+    limbs = [false; 6];
+    input.frame.animation = animation.step(0.0, true, standing, limbs);
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert!(input.frame.animation.limb_age.is_none());
+    assert_eq!(ui.get_string("HUDMainMenu/crippled_limb_indicator/Head/filename").as_deref(), Some("Interface\\Stats\\head_broken.dds"));
+    assert!(ui.get_float("HUDMainMenu/crippled_limb_indicator/Head/alpha").unwrap() < 0.0);
 }

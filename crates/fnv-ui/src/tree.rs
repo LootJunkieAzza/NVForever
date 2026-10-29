@@ -464,7 +464,9 @@ impl Ui {
 
     /// The tile a path names: `Menu/Tile/…/Tile`, with `/` or `\`, names in any case, `*`
     /// for any child and `name:N` (or `*:N`) for the N-th (from 0) of the children that
-    /// match [documented: GetUIFloat notes].
+    /// match, counting from the last child [observed: private jobs hud_hardcore hc0,
+    /// hud_xp_limbs all, hud_prompt2 p0-p8; menu-xml.md §5]. Unindexed lookup keeps
+    /// file order [hypothesis: menu-xml.md §5].
     pub fn find_tile(&self, path: &str) -> Option<TileId> {
         let segs = split(path);
         let (first, rest) = segs.split_first()?;
@@ -495,7 +497,7 @@ impl Ui {
         let all = self.tile(at).children.iter().copied();
         let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
         match index {
-            Some(k) => named.get(k).copied().into_iter().collect(),
+            Some(k) => named.iter().rev().nth(k).copied().into_iter().collect(),
             None => named,
         }
     }

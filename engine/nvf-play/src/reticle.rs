@@ -35,7 +35,7 @@ use crate::activate::{Target, Targeted};
 use crate::control::ControlLocks;
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, Face, Picture, Pictures, Set};
 use crate::sim::SimState;
-use crate::tiles::vanilla::DrawnByTiles;
+use crate::tiles::vanilla::{DrawnByTiles, PromptTexts as Texts};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -370,10 +370,6 @@ fn half_rect(rect: Option<Rect>, side: f32) -> Rect {
         Rect::new(mid, r.min.y, r.max.x, r.max.y)
     }
 }
-
-/// The prompt's texts and divider, set again when what they say changes.
-#[derive(Component)]
-struct Texts;
 
 fn picture_node((image, rect): Picture, color: Color) -> ImageNode {
     ImageNode { rect, color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }

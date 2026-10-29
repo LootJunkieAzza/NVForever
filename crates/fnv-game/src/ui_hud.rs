@@ -3,7 +3,9 @@
 use fnv_ui::{Ui, Value};
 
 mod copies;
-pub use copies::{build, CompassMark, MarkKind, Frame, Prompt};
+mod timelines;
+pub use copies::{build, CompassMark, Enemy, MarkKind, Frame, Prompt};
+pub use timelines::{Animation, AnimationFrame, XpFrame};
 
 /// What the engine's HUD currently shows; no drawing or engine types here [design].
 /// The pieces' `visible` does not follow these; the children it is observed on do
@@ -76,7 +78,6 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
             ("EnemyHealth", middle - 175.0, 843.0),
             ("QuestReminder", 45.0, 200.0),
             ("Messages", 25.0, 55.0),
-            ("Subtitles", middle - 400.0, 660.0),
             ("Info", middle - 160.0, 820.0),
             ("Hokeys", right - 371.0, 483.0),
             ("Region_Location", 45.0, 728.0),
@@ -95,6 +96,9 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
                 ui.set_trait(tile, "x", Value::Num(x));
                 ui.set_trait(tile, "y", Value::Num(y));
             }
+        }
+        if let Some(tile) = ui.find_tile("HUDMainMenu/Subtitles") {
+            ui.set_trait(tile, "x", Value::Num(middle - 400.0));
         }
     }
     if let Some(tile) = ui.find_tile("HUDMainMenu/CNDArrows") {
@@ -179,14 +183,26 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
 /// 50 wide, then 49 ("+0", "+9", §14.2)].
 pub const MEASURED_TEXTS: [&str; 3] = ["SneakMeter/sneak_nif", "Info/justify_center_hotrect/button_text", "RadiationMeter/radiation_text_value"];
 
-/// Write [`MEASURED_TEXTS`]' widths: `measure` takes the tile's `font` trait (0 when it has
-/// none) and its `string`, and gives the text's width in interface units. A tile without a
-/// `string` trait keeps its width [design: the sneak word's tile has none until the first
-/// sneak; the original's 14 before then is one space in font 1, hypothesis]. Called after
-/// [`write`], before scripts [design: ui-tile-tree.md §4.1].
+/// [design] File texts with captured measurements plus the code-made prompt/enemy
+/// texts and XP readouts (hud.md §14.8). Only engine-owned copies are added here.
+pub fn measured_texts(ui: &Ui) -> Vec<fnv_ui::TileId> {
+    let mut tiles: Vec<_> = MEASURED_TEXTS.iter().filter_map(|p| ui.find_tile(&format!("HUDMainMenu/{p}"))).collect();
+    for piece in ["Info", "EnemyHealth", "XPMeter"] {
+        if let Some(root) = ui.find_tile(&format!("HUDMainMenu/{piece}")) {
+            tiles.extend(ui.tile(root).children.iter().copied().filter(|id| {
+                let tile = ui.tile(*id);
+                tile.kind == "text" && (piece == "XPMeter" || tile.get("_NVFHudTemplate").is_some())
+            }));
+        }
+    }
+    tiles
+}
+
+/// [design] Write measured text widths after [`write`], before scripts. `measure`
+/// takes font number (0 when absent) and string, returning interface units. A missing
+/// string keeps its old width [observed: hud.md §14.1, before the first sneak].
 pub fn write_text_widths(ui: &mut Ui, measure: &dyn Fn(f64, &str) -> f64) {
-    for path in MEASURED_TEXTS {
-        let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) else { continue };
+    for tile in measured_texts(ui) {
         let t = ui.tile(tile);
         let Some(string) = t.get("string").map(Value::text) else { continue };
         let font = t.get("font").map_or(0.0, Value::num);

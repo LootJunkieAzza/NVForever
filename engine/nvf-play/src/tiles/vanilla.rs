@@ -80,16 +80,22 @@ pub(crate) fn setup(app: &mut App) {
     });
 }
 
-/// The HUD's pieces NVForever keeps drawing by hand while the HUD is drawn from tiles,
-/// because the engine does not fill their tiles yet [design: hud.md §14.7]: the enemy's
-/// health (its children are not built, hud.md §14.6), the prompt (its code-made texts
-/// have no captured places and its divider is not built), the Hardcore words (no places,
-/// the piece's alpha not written), the XP meter and the limbs (their children's
-/// visibility and alpha not written), the breath meter (a `nif` tile, not drawn), the
-/// corner and quest messages and the subtitles (their texts not built). The file's and the
-/// code's tiles under them are not drawn; a mod's still are.
-pub const KEPT_PIECES: [&str; 10] =
-    ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator", "BreathMeter", "Messages", "QuestReminder", "Region_Location", "Subtitles"];
+/// [design] Remaining hand-built pieces: their copies are unfilled, or (BreathMeter)
+/// require nif rendering. Settled T12b pieces now draw from tiles (hud.md §14.8).
+pub const KEPT_PIECES: [&str; 5] = ["BreathMeter", "Messages", "QuestReminder", "Region_Location", "Subtitles"];
+
+/// [design] Shared visibility markers moved here from the hand-built modules so the
+/// tile switch can hide their roots without changing their drawing/timing logic.
+#[derive(Component)]
+pub(crate) struct EnemyPiece;
+#[derive(Component)]
+pub(crate) struct WordsRoot;
+#[derive(Component)]
+pub(crate) struct LimbRoot;
+#[derive(Component)]
+pub(crate) struct MeterRoot;
+#[derive(Component)]
+pub(crate) struct PromptTexts;
 
 /// The compass window, whose picture is the strip the heading moves [observed: hud.md
 /// §14.4, the name read; §14.5].
@@ -109,7 +115,8 @@ pub(crate) struct DrawnByTiles;
 /// Hide [`DrawnByTiles`] nodes while the HUD is a tile menu and the tree has it (without
 /// the game's menu files the hand-built HUD stays): after every drawing system has set its
 /// visibility, before it is passed down [design: no drawer changes].
-pub(crate) fn hide_hand_built(menus: Res<TileMenus>, script: Res<crate::script::ScriptState>, mut nodes: Query<&mut Visibility, With<DrawnByTiles>>) {
+#[allow(clippy::type_complexity)]
+pub(crate) fn hide_hand_built(menus: Res<TileMenus>, script: Res<crate::script::ScriptState>, mut nodes: Query<&mut Visibility, Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>)>>) {
     let loaded = script.rt.as_ref().is_some_and(|rt| rt.game.ui_files.is_some() && rt.game.ui_tree.menu(super::draw::HUD_MENU).is_some());
     if !menus.hud || !loaded {
         return;

@@ -24,6 +24,7 @@ use crate::interface::{amber, bc_supported, face, line_base, plain_font, set_tex
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
+use crate::tiles::vanilla::WordsRoot;
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -180,8 +181,6 @@ struct Letter(usize);
 /// A word, shown or hidden.
 #[derive(Component)]
 struct Word(usize);
-#[derive(Component)]
-struct WordsRoot;
 
 fn setting_str(sim: &SimState, name: &str) -> Option<String> {
     match sim.forms.settings.get(&name.to_ascii_lowercase()) {
