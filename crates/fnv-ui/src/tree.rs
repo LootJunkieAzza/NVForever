@@ -24,6 +24,11 @@ const MAX_PASSES: usize = 32;
 /// Where the menu files come from: the game's archives and loose files under `Data`
 /// (the engine passes its VFS), or files in memory for tests.
 pub trait Source {
+    /// [design] Files recursively below a Data-relative directory, as full Data-relative
+    /// paths; comparisons ignore case and slash style. Sources may omit discovery.
+    fn list(&self, _dir: &str) -> Vec<String> {
+        Vec::new()
+    }
     /// A file by its path under `Data`, e.g. `menus\prefabs\meter.xml`; any case, `\`
     /// or `/`.
     fn read(&self, path: &str) -> Option<Vec<u8>>;
@@ -61,6 +66,12 @@ impl MemSource {
 }
 
 impl Source for MemSource {
+    fn list(&self, dir: &str) -> Vec<String> {
+        let prefix = format!("{}\\", norm(dir).trim_end_matches('\\'));
+        let mut paths: Vec<_> = self.files.keys().filter(|p| p.starts_with(&prefix)).cloned().collect();
+        paths.sort();
+        paths
+    }
     fn is_loose(&self, path: &str) -> bool {
         self.loose_files.contains(&norm(path))
     }
@@ -155,6 +166,9 @@ impl Tile {
 /// The menus' tile tree.
 #[derive(Default)]
 pub struct Ui {
+    /// [design] Evaluated list entries and cumulative outcomes for this tree's lifetime.
+    pub uio: crate::uio::Report,
+    uio_tiles: HashSet<TileId>,
     tiles: Vec<Tile>,
     /// The loaded menus (and `globals()`, `screen()`, `strings()`), in load order.
     roots: Vec<TileId>,
@@ -233,9 +247,18 @@ impl Ui {
 
     // ---- loading --------------------------------------------------------------------
 
+    /// [design] Discover and evaluate UIO once before loading menus; the caller supplies
+    /// active plugins. Rebuilt menus reuse these entries (menu-xml.md §7 item 3).
+    pub fn configure_uio(&mut self, src: &dyn Source, plugin: impl Fn(&str) -> bool) {
+        self.uio = crate::uio::Report::read(src, &plugin);
+        self.uio_tiles.clear();
+    }
+
     /// Reads `menus\globals.xml` into `globals()`.
     pub fn load_globals(&mut self, src: &dyn Source) -> bool {
-        let Some(doc) = self.read_doc(src, "menus\\globals.xml") else { return false };
+        let Some(doc) = self.read_doc(src, "menus\\globals.xml") else {
+            return false;
+        };
         let g = self.globals();
         let origin = Origin::file(src, "menus\\globals.xml");
         self.tile_mut(g).origin = origin.clone();
@@ -272,14 +295,63 @@ impl Ui {
         let id = self.new_tile("menu", &name, None, origin.clone());
         self.roots.push(id);
         self.fill(src, id, &menu.children, 0, &origin);
+        let entries: Vec<_> = self
+            .uio
+            .decisions
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.enabled && matches!(&d.entry.target, crate::uio::Target::Menu(n) if n.eq_ignore_ascii_case(&name)))
+            .map(|(i, d)| (i, d.entry.clone()))
+            .collect();
+        for (i, entry) in entries {
+            let target = match entry.tile {
+                Some(ref name) => self.descendant_named(id, name),
+                None => Some(id),
+            };
+            if let Some(target) = target {
+                // [hypothesis] Append after existing content: preserves file order and
+                // lets list traits override earlier traits; UIO's position is unmeasured.
+                let node = uio_include(&entry.include);
+                self.fill(src, target, &[node], 0, &origin);
+                self.uio.decisions[i].applied += 1;
+                self.uio.decisions[i].reason = "applied".into();
+            }
+        }
         Ok(id)
+    }
+
+    fn descendant_named(&self, root: TileId, name: &str) -> Option<TileId> {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            if self.tile(id).name.eq_ignore_ascii_case(name) {
+                return Some(id);
+            }
+            stack.extend(self.tile(id).children.iter().rev().copied());
+        }
+        None
     }
 
     fn read_doc(&mut self, src: &dyn Source, path: &str) -> Option<xml::Doc> {
         let bytes = src.read(path)?;
-        let doc = xml::parse(&xml::decode(&bytes));
+        let mut doc = xml::parse(&xml::decode(&bytes));
         for w in &doc.warnings {
             self.warnings.push(format!("{path}: {w}"));
+        }
+        // [design] Patch prefab syntax before fill/expansion, including named tiles in
+        // template bodies that have no TileId until a template is instantiated.
+        for decision in &mut self.uio.decisions {
+            if !decision.enabled || !matches!(&decision.entry.target, crate::uio::Target::Prefab(p) if *p == norm(path)) {
+                continue;
+            }
+            let target = match &decision.entry.tile {
+                Some(name) => named_nodes(&mut doc.nodes, name),
+                None => Some(&mut doc.nodes),
+            };
+            if let Some(nodes) = target {
+                nodes.push(uio_include(&decision.entry.include));
+                decision.applied += 1;
+                decision.reason = "applied".into();
+            }
         }
         Some(doc)
     }
@@ -308,7 +380,15 @@ impl Ui {
                     other => other.clone(),
                 };
                 match self.read_doc(src, &path) {
-                    Some(doc) => self.fill(src, tile, &doc.nodes, depth + 1, &included_origin),
+                    Some(doc) => {
+                        let start = self.tiles.len();
+                        self.fill(src, tile, &doc.nodes, depth + 1, &included_origin);
+                        // [design] Track this inclusion's tiles, rather than all uses of
+                        // its filename: the same prefab may also occur in vanilla content.
+                        if e.attr("nvf_uio") == Some("true") && src.is_loose(&path) {
+                            self.uio_tiles.extend((start..self.tiles.len()).map(|i| TileId(i as u32)));
+                        }
+                    }
                     None => self.warnings.push(format!("include {file}: not found")),
                 }
             } else {
@@ -597,7 +677,7 @@ impl Ui {
             if !tile.live {
                 continue;
             }
-            if tile.origin.mod_added() {
+            if tile.origin.mod_added() || self.uio_tiles.contains(&id) {
                 out.push(id);
             } else {
                 stack.extend(tile.children.iter().rev().copied());
@@ -637,12 +717,16 @@ impl Ui {
     /// `Template` one; a `File` tile (a loose replacement's, or an archived prefab's it
     /// includes) only when `vanilla` holds the archived file's names
     /// ([`Ui::file_name_paths`]) and not this tile's name path. Without the vanilla names no
-    /// `File` tile is drawn, so a replaced HUD file never draws a second HUD.
+    /// `File` tile is drawn, except a loose UIO include and its file descendants [design].
     pub fn mod_tile_drawn(&self, id: TileId, vanilla: Option<&HashSet<String>>) -> bool {
         match &self.tile(id).origin {
             Origin::Code => false,
             Origin::Injected | Origin::Template => true,
-            Origin::File { .. } => vanilla.is_some_and(|names| !names.contains(&self.path_of(id).to_ascii_lowercase())),
+            Origin::File { .. } => {
+                // [design] A loose UIO file is an explicit addition, even when no
+                // archived comparison exists or a vanilla tile has the same name.
+                self.uio_tiles.contains(&id) || vanilla.is_some_and(|names| !names.contains(&self.path_of(id).to_ascii_lowercase()))
+            }
         }
     }
 
@@ -784,6 +868,28 @@ impl Ui {
 
 fn is_tile(e: &Element) -> bool {
     TILE_KINDS.iter().any(|k| e.is(k))
+}
+
+fn uio_include(file: &str) -> Node {
+    Node::Element(Element {
+        name: "include".into(),
+        attrs: vec![("src".into(), file.into()), ("nvf_uio".into(), "true".into())],
+        ..Element::default()
+    })
+}
+
+fn named_nodes<'a>(nodes: &'a mut [Node], name: &str) -> Option<&'a mut Vec<Node>> {
+    for node in nodes {
+        if let Node::Element(e) = node {
+            if is_tile(e) && e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                return Some(&mut e.children);
+            }
+            if let Some(found) = named_nodes(&mut e.children, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 /// An include's file: under `menus\prefabs\` [observed: every vanilla include names a

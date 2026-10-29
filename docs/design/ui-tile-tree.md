@@ -94,6 +94,12 @@ Shortcuts, revision 39903, "Menu class ID" rows; GetActiveMenuMode].
   `uio\supported.txt` whose target is that menu (or a prefab file it includes) and whose
   condition holds are included at the target tile. The same entries are applied when a
   prefab named `@Prefabs\…` is included.
+  [design] `Source::list(dir)` discovers the lists; `Ui::configure_uio(src, plugin)`
+  parses and evaluates them before menu loading. `Ui::uio` keeps per-entry outcomes,
+  warnings and application counts. Prefab patches happen before template expansion;
+  menu patches happen after ordinary includes. Insertion order, condition assumptions
+  and short data-file excerpts are in menu-xml.md §7 item 3. Explicit loose additions
+  retain File origins and are eligible for drawing even without archived HUD names.
 - **Lifetime**, as the original [documented: InjectUIXML notes]:
   - `HUDMainMenu`, `InventoryMenu`, `MapMenu`, `RepairMenu`, `StatsMenu` and
     `ItemModMenu` are loaded once and stay;
