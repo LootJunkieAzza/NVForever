@@ -275,6 +275,13 @@ owner to add to its pull request or issue (owner, 2026-10-29).
      `tests::game_strings_resolve_from_the_load_order_then_the_built_in_table`;
      `fnv-game` `ui_loading` (`startup_and_rebuild`, `missing_menu_and_globals_warn`,
      `vfs_source_owns_strings_and_reads_files`).
+   - **Readings** 2026-10-29: the private observer job `t10_gmst` ran in the original
+     (`GetStringGameSetting`; out file and summary in `C:\fnv-private\`, not in the
+     repo) [observed]: an unknown name reads an empty string; lookup ignores case (both
+     spellings of `sOK` and `sQuit` give the same text); 141 of the 143 names have text
+     (140 built in, `sMorphine` from its record); `sModffects` and `sReputationSwap` are
+     empty there too. NVForever matches: unknown names read empty, lookups (including
+     `MemSource`'s) ignore case.
    - **T10b open**: the labels for the names the plugins leave undefined, written by
      NVForever under the rule above, in `BUILT_IN`; until then those names read empty.
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,

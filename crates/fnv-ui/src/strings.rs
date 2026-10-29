@@ -8,18 +8,21 @@
 //! 2. [`BUILT_IN`]: the original's own default text for a setting no plugin defines
 //!    [observed: 144 of the 145 names of the vanilla menu files have no GMST record in
 //!    FalloutNV.esm or the nine official add-ons, 2026-10-29]. It is filled only from
-//!    observer readings of the original (`GetStringGameSetting`, menu-xml.md §2.4), and is
-//!    empty until they exist.
+//!    observer readings of the original (`GetStringGameSetting`, menu-xml.md §2.4); the
+//!    readings exist privately and whether they ship is the maintainer's decision (T10b),
+//!    so it is empty.
 //!
-//! A name in neither has no text: the reader puts in nothing (menu-xml.md §2.4).
-//! Names are compared without case [hypothesis: the vanilla files spell `sOK` and `sOk`,
-//! `sQuit` and `squit`; Editor IDs are found without case elsewhere in the engine].
+//! A name in neither has no text: the reader puts in nothing, as the original reads an
+//! unknown name as an empty string. Names are compared without case: both spellings the
+//! vanilla files use (`sOK`/`sOk`, `sQuit`/`squit`) gave the same text [observed: private
+//! capture `t10_gmst`, `GetStringGameSetting`, 2026-10-29; menu-xml.md §2.4].
 
 use crate::xml::Node;
 use std::collections::{BTreeSet, HashMap};
 
 /// The original's default text for the settings no plugin defines, by setting name. Empty
-/// until the observer readings of menu-xml.md §2.4 exist; never filled from guesses.
+/// until the maintainer decides to ship the observer readings (menu-xml.md §2.4, T10b);
+/// never filled from guesses.
 pub const BUILT_IN: &[(&str, &str)] = &[];
 
 /// Where a name's text came from.
@@ -109,7 +112,8 @@ mod tests {
 
     #[test]
     fn the_shipped_table_is_empty_until_readings_exist() {
-        // menu-xml.md §2.4: the built-in text comes only from observer readings.
+        // menu-xml.md §2.4: the built-in text comes only from observer readings, and
+        // shipping them is the maintainer's decision (T10b).
         assert!(BUILT_IN.is_empty());
         assert_eq!(GameStrings::from_settings([("sNvfA", "a")]).lookup("sNvfA"), Some(("a", Origin::LoadOrder)));
     }

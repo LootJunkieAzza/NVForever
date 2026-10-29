@@ -82,8 +82,9 @@ impl Source for MemSource {
         self.files.get(&norm(path)).cloned()
     }
 
+    /// Without case, as the original [observed: menu-xml.md §2.4].
     fn game_string(&self, name: &str) -> Option<String> {
-        self.strings.get(name).cloned()
+        self.strings.get(name).or_else(|| self.strings.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v)).cloned()
     }
 }
 

@@ -64,8 +64,10 @@ Replaced menu files therefore work without any code: the VFS already prefers the
 file. Game strings (`&-sName;`) come from `Source::game_string`. The engine answers from
 `fnv_ui::GameStrings`: the load order's GMSTs (last plugin wins), then the built-in table
 `fnv_ui::strings::BUILT_IN`, since the masters hold only one of the 145 names
-(`sMorphine`). The table stays empty until the original's texts are read (observer job
-`t10_gmst`); a name with no text reads empty (menu-xml.md §2.4; task T10).
+(`sMorphine`). The original's texts were read privately (observer job `t10_gmst`); the table stays
+empty until the maintainer decides whether they ship (T10b). A name with no text reads
+empty, as an unknown name does in the original, and names ignore case (menu-xml.md §2.4;
+task T10).
 
 ### 3.2 Which menu file
 

@@ -402,3 +402,16 @@ fn game_strings_resolve_from_the_load_order_then_the_built_in_table() {
     let read: Vec<_> = ui.game_strings_read.iter().map(|(n, &found)| (n.as_str(), found)).collect();
     assert_eq!(read, [("snvfbutton", true), ("snvfmissing", false), ("snvftitle", true)]);
 }
+
+#[test]
+fn mem_source_game_strings_ignore_case_and_unknown_names_read_empty() {
+    // [observed: menu-xml.md §2.4] lookup ignores case; an unknown name is empty text.
+    let mut src = MemSource::default().with("menus/c.xml", r#"<menu name="C"><text name="A"><string>&-SNVFCASE;</string></text><text name="B"><string>&-sNvfUnknown;</string></text></menu>"#);
+    src.strings.insert("sNvfCase".into(), "case text".into());
+    assert_eq!(src.game_string("snvfcase").as_deref(), Some("case text"));
+    assert_eq!(src.game_string("sNvfUnknown"), None);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/c.xml").unwrap();
+    assert_eq!(ui.get_string("C/A/string").as_deref(), Some("case text"));
+    assert_eq!(ui.get_string("C/B/string").as_deref(), Some(""));
+}

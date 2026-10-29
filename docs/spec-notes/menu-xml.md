@@ -139,9 +139,13 @@ Only one has a record in the vanilla load order: `sMorphine`, a GMST of FalloutN
 The other 144 have none in FalloutNV.esm or the nine official add-on masters (DeadMoney,
 HonestHearts, OldWorldBlues, LonesomeRoad, GunRunnersArsenal, Caravan, Classic,
 Mercenary and Tribal packs) [observed: `fnvtool esm inventory`, GMST Editor IDs (649 in
-all) against the names, 2026-10-29]. Their text is the original's built-in default,
-which a plugin's GMST can override [hypothesis: as `iLockLevelMax…`, read with
-`GetGameSetting` though no master defines them, script-function-audit.md].
+all) against the names, 2026-10-29]. Their text is the original's built-in default
+[observed: private capture `t10_gmst`, `GetStringGameSetting`, 2026-10-29, the 10 official masters and fo_proof.esp loaded, 146 reads, no
+errors]: of the 142 names without a record (without case), 140 read a text in the
+original and two, `sModffects` and `sReputationSwap`, read empty. With `sMorphine`'s
+record, 141 of the 143 names have text there. That a plugin's GMST overrides the
+built-in text is [hypothesis: as `iLockLevelMax…`, read with `GetGameSetting` though no
+master defines them, script-function-audit.md].
 
 How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
 [design]:
@@ -150,17 +154,22 @@ How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, tas
    one value per setting, or a run-time change made before the files are read);
 2. `fnv_ui::strings::BUILT_IN`, the built-in defaults. It is **empty**: it is filled
    only from readings of the original, never from guesses or from the ESM;
-3. a name in neither reads empty, and the reader puts the text in when the file is read
-   (a later `SetStringSetting` does not change a tile already built) [design].
+3. a name in neither reads empty, as in the original: a name no game defines
+   (`sNvfT10NoSuchSetting`) read an empty string [observed: private capture `t10_gmst`, `GetStringGameSetting`, 2026-10-29]. The reader
+   puts the text in when the file is read (a later `SetStringSetting` does not change a
+   tile already built) [design].
 
-Names are compared without case [hypothesis; the readings below settle it]. The tree
+Names are compared without case [observed: private capture `t10_gmst`, `GetStringGameSetting`, 2026-10-29: both spellings of `sOK`/`sOk`
+and of `sQuit`/`squit` gave the same text]. The tree
 records each name it read and whether it had text (`Ui::game_strings_read`); the engine
 logs `ui: game strings: N read, M without text` at start for the menus it keeps loaded.
 
-**Unread** [hypothesis: built-in, text not known]: the 144 names with no record, until
-the observer job `t10_gmst` (private; one `GetStringGameSetting "sName"` text query per
-name [documented: GECK wiki GetStringGameSetting, origin NVSE], with an unknown name,
-`sMorphine` and both spellings of `sOK`/`sQuit` as controls) has been run:
+**Read privately, not in the repo**: the 144 spellings with no record. The observer job
+`t10_gmst` (one `GetStringGameSetting "sName"` text query per name [documented: GECK
+wiki GetStringGameSetting, origin NVSE], with an unknown name, `sMorphine` and both
+spellings of `sOK`/`sQuit` as controls) read them on 2026-10-29; the texts stay in the
+private capture until the maintainer decides whether NVForever ships them (T10b). Until
+then they read empty in NVForever:
 
 `sAccept`, `sAcceptText`, `sAddText`, `sAllCardsText`, `sAntePotText`, `sAutoAttempt`,
 `sAutoMatchText`, `sBack`, `sCWheelTitle`, `sCancel`, `sCaravanBiggestAnteText`,
