@@ -15,12 +15,12 @@
 //!   (`fnv_game::needs`; radiation in every mode) and are hidden with no stage held; the
 //!   limb word follows how many limbs are crippled and is hidden with none.
 //! - The need words show in Hardcore only; the radiation and limb words in every mode
-//!   [design], taking the first places outside Hardcore.
+//!   [observed: private job hud_hardcore2, hc9-hc10], keeping their places in every mode.
 //! - [`need_look`] and [`limb_look`] are pure, tested without the game.
 
 use crate::combat::PlayerLimbs;
-use crate::hud::{HudSet, HudView, FONT, HP, HP_LABEL_X, HP_PANEL, MARGIN_X, MARGIN_Y, UPPER_BASE};
-use crate::interface::{amber, bc_supported, face, plain_font, set_text, u, Face, Set};
+use crate::hud::{HudSet, HudView, FONT};
+use crate::interface::{amber, bc_supported, face, line_base, plain_font, set_text, u, Face, Set};
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
@@ -31,12 +31,20 @@ use fnv_game::aid::{DEHYDRATION, HUNGER, RAD_LEVEL, SLEEP_DEPRIVATION};
 use fnv_sim::settings::Setting;
 use nvf_assets::GameData;
 
-/// The faded look: the HUD's amber at this opacity [design: owner 2026-10-23, "faded
-/// (dim)"; the original's opacity is not measured].
-const FADED: f32 = 0.3;
-/// Room between "HP" and the first word, in spaces of the font [hypothesis: owner
-/// 2026-10-23, the words start "a little right of the HP label"; not measured].
-const AFTER_HP: f32 = 2.0;
+/// Faded (owner's dim look), now measured [observed: private job hud_hardcore2, hc2,
+/// hc6; hud_radiation2, r_in_200, r_in_300]. Previously 0.3 [design].
+const FADED: f32 = 124.0 / 255.0;
+/// Fixed piece and word places and zoom [observed: private job hud_hardcore2,
+/// hc0-hc11]. Previously font spaces after HP and compacted outside Hardcore [hypothesis].
+const WORD_X: [f32; 5] = [0.0, 55.0, 109.0, 162.0, 218.0];
+const ZOOM: f32 = 0.75;
+/// Word alpha bounds [observed: private job hud_hardcore2, hc5]. Period unresolved;
+/// retain the former 0.6 s cosine [hypothesis], independently of the limb sawtooth.
+fn flash(elapsed: f32) -> Color {
+    let phase = (elapsed / 0.6 * std::f32::consts::TAU).cos() * 0.5 + 0.5;
+    let low = 128.0 / 255.0;
+    crime_colour().with_alpha(low + (1.0 - low) * phase)
+}
 
 /// The settings [documented: hud_main_menu.xml, HardcoreMode] and the words used
 /// without them [observed: hud.md §14.2; H20 ends in a zero].
@@ -175,10 +183,6 @@ struct Word(usize);
 #[derive(Component)]
 struct WordsRoot;
 
-/// The words' places from the piece's left: one after "HP" and a space between words;
-/// outside Hardcore the radiation and limb words take the first two places.
-struct Places([f32; N], [f32; 2]);
-
 fn setting_str(sim: &SimState, name: &str) -> Option<String> {
     match sim.forms.settings.get(&name.to_ascii_lowercase()) {
         Some(Setting::Str(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
@@ -201,12 +205,12 @@ fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
-    mut places: Local<Option<Places>>,
+    mut spawned: Local<bool>,
     mut root: Query<&mut Visibility, (With<WordsRoot>, Without<Word>)>,
-    mut word_nodes: Query<(&Word, &mut Visibility, &mut Node), Without<WordsRoot>>,
+    mut word_nodes: Query<(&Word, &mut Visibility), Without<WordsRoot>>,
     mut letters: Query<(&Letter, Option<&mut ImageNode>, Option<&mut TextColor>)>,
 ) {
-    if places.is_none() {
+    if !*spawned {
         // The first frame the HUD is wanted: set the words out.
         if !view.shown {
             return;
@@ -214,27 +218,21 @@ fn draw(
         let face_: Face = face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref()));
         let font = &face_.font;
         let texts = texts(&sim);
-        let space = font.width(" ");
-        let mut x = HP_LABEL_X + font.width(HP) + AFTER_HP * space;
-        let first = x;
-        let mut at_x = [0.0; N];
-        for (i, t) in texts.iter().enumerate() {
-            at_x[i] = x;
-            x += font.width(t) + space;
-        }
-        let outside = [first, first + font.width(&texts[RAD]) + space];
-        let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
+        let piece = Node { position_type: PositionType::Absolute, left: u(190.0), top: u(803.0), width: u(386.0), height: u(20.0), ..default() };
         commands.spawn((WordsRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
             for (i, t) in texts.iter().enumerate() {
-                let node = Node { position_type: PositionType::Absolute, left: u(at_x[i]), top: u(0.0), ..default() };
-                p.spawn((Word(i), node, Visibility::Hidden)).with_children(|w| {
+                let node = Node { position_type: PositionType::Absolute, left: u(WORD_X[i]), top: u(0.0), width: u(0.0), height: u(0.0), ..default() };
+                p.spawn((Word(i), node, UiTransform { scale: Vec2::splat(ZOOM), ..default() }, Visibility::Hidden)).with_children(|w| {
                     if let Some(line) = font.lines(t, None).into_iter().next() {
-                        set_text(w, &face_, &Set { line, x: 0.0, base: UPPER_BASE }, Vec2::ZERO, amber(255.0), Letter(i));
+                        // Right justification is in the file [documented: hud_main_menu.xml];
+                        // x as the right end, and the font's ink top at y 0 [hypothesis].
+                        let x = -line.width;
+                        set_text(w, &face_, &Set { line, x, base: line_base(&face_) }, Vec2::ZERO, amber(255.0), Letter(i));
                     }
                 });
             }
         });
-        *places = Some(Places(at_x, outside));
+        *spawned = true;
         return;
     }
     let show = |on: bool| if on { Visibility::Inherited } else { Visibility::Hidden };
@@ -244,19 +242,10 @@ fn draw(
     if !view.shown {
         return;
     }
-    let Some(Places(at_x, outside)) = places.as_ref() else { return };
-    for (w, mut vis, mut node) in &mut word_nodes {
+    for (w, mut vis) in &mut word_nodes {
         vis.set_if_neq(show(words.looks[w.0] != Look::Hidden));
-        let left = u(match w.0 {
-            RAD if !words.hardcore => outside[0],
-            LMB if !words.hardcore => outside[1],
-            i => at_x[i],
-        });
-        if node.left != left {
-            node.left = left;
-        }
     }
-    let flash = crate::hud_limbs::flash(time.elapsed_secs());
+    let flash = flash(time.elapsed_secs());
     for (l, image, text) in &mut letters {
         let color = match words.looks[l.0] {
             Look::Hidden | Look::Normal => amber(255.0),
@@ -280,6 +269,16 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flashing_words_keep_the_red_and_the_measured_alpha_floor() {
+        let red = crime_colour().to_srgba();
+        for (t, alpha) in [(0.0, 1.0), (0.3, 128.0 / 255.0), (0.6, 1.0)] {
+            let c = flash(t).to_srgba();
+            assert_eq!((c.red, c.green, c.blue), (red.red, red.green, red.blue));
+            assert!((c.alpha - alpha).abs() < 1e-5);
+        }
+    }
 
     #[test]
     fn the_masters_five_stages_take_the_four_looks() {

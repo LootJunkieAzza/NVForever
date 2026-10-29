@@ -194,11 +194,11 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   original's HUD showing "+9 RAD/SEC" in the test site's shack, hud.md §14.1;
   `sStatsRADAbbrev` is set by no master; hypothesis: the value, which the original
   shows lower there, §2]. The word was "RADS" until 2026-10-29.
-  - **The pointer** [hypothesis]: its tip, just under the notches (6 under the picture's
-    top at y 25), points at the player's rads: the left end's notch is 0, the right end's
-    1000, so the long notches are 200, 400, 600 and 800, the radiation sickness steps
-    (death at 1000). Over 1000 it stays at the end. The file's x 15 is taken as a start
-    the code moves.
+  - **The pointer** [observed: private job hud_radiation2, r_in_000-r_in_990]: its x is
+    `15 + 0.3 × rads`, linear over 2-998 rads; its tip is 23 right of x, 6 under the
+    picture's top at y 25 [observed: texture]. The long notches are not 200-rad steps.
+    [hypothesis] Clamp rads to 0-1000, holding x 315 above 1000 (not captured).
+    History: the notch-fit `34.1 + 0.3312 × rads` was a hypothesis, replaced 2026-10-29.
   - **The place** [owner, 2026-10-23: "in the top right corner of the screen symmetrical
     to the popup notification on the left side"]: the mirror of the corner messages'
     bracket (corner-messages.md §2), whose line across stands 47 under the view's top

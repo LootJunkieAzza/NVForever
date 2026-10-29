@@ -51,6 +51,10 @@ pub struct TargetHealth {
     pub form_id: u32,
     pub name: String,
     pub health: f32,
+    /// Colour follows the shown actor [observed: private job hud_enemy3, n2_away,
+    /// g2_gecko_half]. Use the existing candidate's hostility without changing
+    /// `shown` (including its hit-non-hostile path) [design].
+    pub hostile: bool,
     /// With Living Anatomy: its health and DT.
     pub anatomy: Option<(f32, f32)>,
 }
@@ -146,7 +150,7 @@ fn aim(
             }
             let max = g.max_health(r);
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
-            Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }, health as f32))
+            Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }, health as f32, hostile))
         });
         let anatomy = found.is_some() && rt.game.player_has_entry(fnv_game::perks::SEE_ENEMY_HEALTH);
         (found, foe, anatomy)
@@ -156,9 +160,9 @@ fn aim(
         (Some((id, ..)), Some(c)) if anatomy => Some(crate::combat::target_armor(c, script.as_deref_mut(), &mut sim, FormId(id)).0),
         _ => None,
     };
-    let now = found.map(|(form_id, health, hp)| {
+    let now = found.map(|(form_id, health, hp, hostile)| {
         let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
-        TargetHealth { form_id, name, health, anatomy: dt.map(|dt| (hp, dt)) }
+        TargetHealth { form_id, name, health, hostile, anatomy: dt.map(|dt| (hp, dt)) }
     });
     let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32, t.anatomy_line()));
     if key(&target.0) != key(&now) {
@@ -179,7 +183,7 @@ mod tests {
 
     #[test]
     fn living_anatomy_reads_as_the_original() {
-        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, anatomy };
+        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, hostile: true, anatomy };
         assert_eq!(t(Some((250.0, 15.0))).anatomy_line().as_deref(), Some("HP:250 DT:15.00"));
         assert_eq!(t(Some((-3.0, 0.5))).anatomy_line().as_deref(), Some("HP:0 DT:0.50"));
         assert_eq!(t(None).anatomy_line(), None);

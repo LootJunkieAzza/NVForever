@@ -16,9 +16,8 @@
 //!   are taken: the rads a second (`radiation_text_value`, font 8, right-justified at x
 //!   237) and "RAD/SEC" (`radiation_text`, font 7, from x 245), in the HUD's alternative
 //!   colour (`&hudalt;`), and the pointer (`radiation_pointer`) under the bracket's notches
-//!   at the player's rads, 0 at the left end to 1000 at the right [documented: the menu
-//!   file; observed: the word, docs/spec-notes/hud.md §14.1; hypothesis: the value, the
-//!   pointer's scale]. The meter stands at the
+//!   at x = 15 + 0.3 × rads [observed: private job hud_radiation2, r_in_000-r_in_990;
+//!   documented: the menu file; hypothesis: the value]. The meter stands at the
 //!   top right, the mirror of the corner messages' bracket at the top left [owner,
 //!   2026-10-23].
 //! - **Explosion zones**: `crate::combat` leaves them when an explosion with radiation
@@ -100,9 +99,8 @@ pub(crate) fn value_text(rate: f64) -> String {
 /// from 173 to 473, the ends slanted, the long ones at 233, 293, 353 and 413 [observed: the
 /// texture]. In the piece's units: the line's middle 13.6 under the top, the upright's
 /// middle at x 414.8, the end notches at x 57.1 and 388.3.
-const NOTCHES: (f32, f32) = (57.1, 388.3);
-/// The rads at the right end: five parts of 200 between the long notches, the sickness
-/// stages' steps (200 to 800, death at 1000) [hypothesis].
+/// Upper bound [hypothesis: hold the measured linear scale at 1000; captures stop at
+/// 998.4 rads, private job hud_radiation2, r_in_990]. The notches are not 200-rad steps.
 pub const FULL_RADS: f64 = 1000.0;
 /// The pointer picture (64 x 32, drawn 46 x 24) has its triangle's tip at row 8, its middle
 /// at column 32: 6 under the picture's top (just under the notches), 23 from its left
@@ -115,10 +113,10 @@ const POINTER_MIDDLE: f32 = 23.0;
 /// 57 from the edge).
 const TOP: f32 = 33.5;
 const RIGHT: f32 = 105.1;
-/// Where the pointer picture stands for the player's rads.
+/// Where the pointer picture stands [observed: private job hud_radiation2,
+/// r_in_000-r_in_990, linear over 2-998 rads]. Previously 34.1 + 0.3312 × rads [hypothesis].
 pub fn pointer_x(rads: f64) -> f32 {
-    let f = (rads / FULL_RADS).clamp(0.0, 1.0) as f32;
-    NOTCHES.0 + (NOTCHES.1 - NOTCHES.0) * f - POINTER_MIDDLE
+    15.0 + 0.3 * rads.clamp(0.0, FULL_RADS) as f32
 }
 
 /// The texts stand lower and further right than the file's x and y [owner, 2026-10-23:
@@ -442,14 +440,15 @@ mod tests {
     }
 
     #[test]
-    fn the_pointer_runs_from_the_first_notch_to_the_last() {
-        let tip = |rads| pointer_x(rads) + POINTER_MIDDLE;
-        assert!((tip(0.0) - NOTCHES.0).abs() < 1e-3);
-        assert!((tip(1000.0) - NOTCHES.1).abs() < 1e-3);
+    fn the_pointer_matches_the_measured_rad_scale() {
+        // [observed: private job hud_radiation2, r_in_000-r_in_990]; up to 0.7 units
+        // below the rule because the pointer lags the actor-value read by 0-2 rads.
+        for (rads, x) in [(2.25, 15.3), (958.0, 302.1), (998.4, 314.1)] {
+            assert!((pointer_x(rads) - x).abs() <= 0.7);
+        }
+        assert_eq!(pointer_x(0.0), 15.0);
+        assert_eq!(pointer_x(1000.0), 315.0);
         assert_eq!(pointer_x(-5.0), pointer_x(0.0));
         assert_eq!(pointer_x(1500.0), pointer_x(1000.0));
-        // 200 rads: the first long notch (column 233 of the picture, 567/512 to the unit,
-        // the picture 135 left of the piece).
-        assert!((tip(200.0) - (233.0 * 567.0 / 512.0 - 135.0)).abs() < 0.5);
     }
 }
