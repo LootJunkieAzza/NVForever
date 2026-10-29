@@ -110,6 +110,12 @@ owner to add to its pull request or issue (owner, 2026-10-29).
 ## Next, in order
 
 1. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
+   - [design] **Part A done:** tile origins, file paths and loose-file provenance;
+     `mod_added_tiles` and code-owned template copies; pure layout in `tiles/layout.rs`
+     (no Bevy drawing). [observed] Tests: three fnv-ui provenance/root-selection tests
+     and seven headless layout tests for places, depth, alpha, visibility, clipping,
+     defaults, kind inputs, measured text, justification and unloading. Assumptions
+     are listed in menu-xml.md §3.1.1; drawing and HUD integration remain for later parts.
    - `nvf-play/src/tiles/`: layout as a pure function (tested headless: places,
      sizes, depth order from the traits), then Bevy nodes for rect, image (filename +
      texatlas), text (fnv-font, justify, wrap), alpha, visible, colour, clips;

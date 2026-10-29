@@ -18,7 +18,7 @@ pub mod tree;
 pub mod value;
 pub mod xml;
 
-pub use tree::{MemSource, Source, Tile, TileId, Trait, Ui};
+pub use tree::{MemSource, Origin, Source, Tile, TileId, Trait, Ui};
 pub use index::MenuIndex;
 pub use value::Value;
 

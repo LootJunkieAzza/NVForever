@@ -6,7 +6,7 @@
 use crate::expr::{self, Arg, Op, OpKind, Src};
 use crate::value::Value;
 use crate::xml::{self, Element, Node};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -27,6 +27,10 @@ pub trait Source {
     /// A file by its path under `Data`, e.g. `menus\prefabs\meter.xml`; any case, `\`
     /// or `/`.
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+    /// [design] Whether the winning file is loose; sources without provenance return false.
+    fn is_loose(&self, _path: &str) -> bool {
+        false
+    }
     /// A game setting's string, for `&-sName;` (the GMST `sName`).
     fn game_string(&self, _name: &str) -> Option<String> {
         None
@@ -38,6 +42,8 @@ pub trait Source {
 pub struct MemSource {
     pub files: HashMap<String, Vec<u8>>,
     pub strings: HashMap<String, String>,
+    /// [design] Loose-file provenance for synthetic sources, using normalized paths.
+    pub loose_files: HashSet<String>,
 }
 
 impl MemSource {
@@ -45,9 +51,20 @@ impl MemSource {
         self.files.insert(norm(path), text.as_bytes().to_vec());
         self
     }
+
+    /// [design] Add a synthetic loose file.
+    pub fn with_loose(mut self, path: &str, text: &str) -> MemSource {
+        self.loose_files.insert(norm(path));
+        self.files.insert(norm(path), text.as_bytes().to_vec());
+        self
+    }
 }
 
 impl Source for MemSource {
+    fn is_loose(&self, path: &str) -> bool {
+        self.loose_files.contains(&norm(path))
+    }
+
     fn read(&self, path: &str) -> Option<Vec<u8>> {
         self.files.get(&norm(path)).cloned()
     }
@@ -63,6 +80,29 @@ fn norm(path: &str) -> String {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TileId(pub u32);
+
+/// [design] Creator of a tile; descendants retain that creator across includes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// [design] Path passed to Source, and its loose-file status when loaded.
+    File {
+        path: String,
+        loose: bool,
+    },
+    Injected,
+    Template,
+    Code,
+}
+
+impl Origin {
+    fn file(src: &dyn Source, path: &str) -> Self {
+        Self::File { path: path.to_string(), loose: src.is_loose(path) }
+    }
+
+    fn mod_added(&self) -> bool {
+        matches!(self, Self::Injected | Self::Template | Self::File { loose: true, .. })
+    }
+}
 
 /// One trait of a tile.
 #[derive(Clone, Debug)]
@@ -88,6 +128,8 @@ pub struct Template {
 
 #[derive(Clone, Debug)]
 pub struct Tile {
+    /// [design] Provenance of this tile, independent of later trait writes.
+    pub origin: Origin,
     /// The tag in lower case: one of [`TILE_KINDS`].
     pub kind: String,
     pub name: String,
@@ -131,9 +173,9 @@ impl Ui {
     /// [`Ui::load_globals`]) an empty `globals()`.
     pub fn new() -> Ui {
         let mut ui = Ui::default();
-        let screen = ui.new_tile("rect", "screen()", None);
-        let strings = ui.new_tile("rect", "strings()", None);
-        let globals = ui.new_tile("rect", "globals()", None);
+        let screen = ui.new_tile("rect", "screen()", None, Origin::Code);
+        let strings = ui.new_tile("rect", "strings()", None, Origin::Code);
+        let globals = ui.new_tile("rect", "globals()", None, Origin::Code);
         ui.roots.extend([screen, strings, globals]);
         ui.screen = Some(screen);
         ui.strings = Some(strings);
@@ -171,9 +213,10 @@ impl Ui {
         self.menus().find(|&r| self.tile(r).name.eq_ignore_ascii_case(name))
     }
 
-    fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>) -> TileId {
+    fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
         let id = TileId(self.tiles.len() as u32);
         self.tiles.push(Tile {
+            origin,
             kind: kind.to_ascii_lowercase(),
             name: name.to_string(),
             parent,
@@ -194,13 +237,15 @@ impl Ui {
     pub fn load_globals(&mut self, src: &dyn Source) -> bool {
         let Some(doc) = self.read_doc(src, "menus\\globals.xml") else { return false };
         let g = self.globals();
+        let origin = Origin::file(src, "menus\\globals.xml");
+        self.tile_mut(g).origin = origin.clone();
         // The file is one `<rect name="Strings">` [observed]; its content is globals()'.
         for n in &doc.nodes {
             if let Node::Element(e) = n {
                 if is_tile(e) {
-                    self.fill(src, g, &e.children, 0);
+                    self.fill(src, g, &e.children, 0, &origin);
                 } else {
-                    self.fill(src, g, std::slice::from_ref(n), 0);
+                    self.fill(src, g, std::slice::from_ref(n), 0, &origin);
                 }
             }
         }
@@ -223,9 +268,10 @@ impl Ui {
         if let Some(old) = self.menu(&name) {
             self.unload_tile(old);
         }
-        let id = self.new_tile("menu", &name, None);
+        let origin = Origin::file(src, path);
+        let id = self.new_tile("menu", &name, None, origin.clone());
         self.roots.push(id);
-        self.fill(src, id, &menu.children, 0);
+        self.fill(src, id, &menu.children, 0, &origin);
         Ok(id)
     }
 
@@ -240,12 +286,12 @@ impl Ui {
 
     /// Puts content into a tile: child tiles, templates, traits, and the content of
     /// included files where they are included.
-    fn fill(&mut self, src: &dyn Source, tile: TileId, nodes: &[Node], depth: usize) {
+    fn fill(&mut self, src: &dyn Source, tile: TileId, nodes: &[Node], depth: usize, origin: &Origin) {
         for n in nodes {
             let Node::Element(e) = n else { continue };
             if is_tile(e) {
-                let child = self.new_tile(&e.name, e.attr("name").unwrap_or(""), Some(tile));
-                self.fill(src, child, &e.children, depth);
+                let child = self.new_tile(&e.name, e.attr("name").unwrap_or(""), Some(tile), origin.clone());
+                self.fill(src, child, &e.children, depth, origin);
             } else if e.is("template") {
                 let name = e.attr("name").unwrap_or("").to_string();
                 let body = self.expand_includes(src, &e.children, depth);
@@ -256,8 +302,13 @@ impl Ui {
                     self.warnings.push(format!("include {file}: nested too deep; left out"));
                     continue;
                 }
-                match self.read_doc(src, &prefab_path(file)) {
-                    Some(doc) => self.fill(src, tile, &doc.nodes, depth + 1),
+                let path = prefab_path(file);
+                let included_origin = match origin {
+                    Origin::File { .. } => Origin::file(src, &path),
+                    other => other.clone(),
+                };
+                match self.read_doc(src, &path) {
+                    Some(doc) => self.fill(src, tile, &doc.nodes, depth + 1, &included_origin),
                     None => self.warnings.push(format!("include {file}: not found")),
                 }
             } else {
@@ -484,7 +535,7 @@ impl Ui {
         for w in &doc.warnings {
             self.warnings.push(format!("injected into {at}: {w}"));
         }
-        self.fill(src, tile, &doc.nodes, 0);
+        self.fill(src, tile, &doc.nodes, 0, &Origin::Injected);
         true
     }
 
@@ -505,6 +556,16 @@ impl Ui {
     /// (`AddTileFromTemplate`): the template is looked for on that tile and then on the
     /// tiles above it [hypothesis], the new tile named `name` when given. Returns it.
     pub fn add_from_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.add_template(src, at, template, name, Origin::Template)
+    }
+
+    /// [design] Make engine-owned template copies, including every top-level tile and
+    /// descendant in the template body. These copies are excluded from mod tile roots.
+    pub fn add_code_tile_from_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.add_template(src, at, template, name, Origin::Code)
+    }
+
+    fn add_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>, origin: Origin) -> Option<TileId> {
         let parent = self.find_tile(at)?;
         let mut look = Some(parent);
         let body = loop {
@@ -515,12 +576,34 @@ impl Ui {
             look = self.tile(t).parent;
         };
         let before = self.tile(parent).children.len();
-        self.fill(src, parent, &body, 0);
+        self.fill(src, parent, &body, 0, &origin);
         let made = *self.tile(parent).children.get(before)?;
         if let Some(n) = name {
             self.tile_mut(made).name = n.to_string();
         }
         Some(made)
+    }
+
+    /// [design] Top-most live mod-added roots in file order, including the menu itself
+    /// when loaded loose. Loose provenance is captured at load; code tiles are not roots.
+    pub fn mod_added_tiles(&self, menu: TileId) -> Vec<TileId> {
+        if !self.tile(menu).live || self.tile(menu).kind != "menu" {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut stack = vec![menu];
+        while let Some(id) = stack.pop() {
+            let tile = self.tile(id);
+            if !tile.live {
+                continue;
+            }
+            if tile.origin.mod_added() {
+                out.push(id);
+            } else {
+                stack.extend(tile.children.iter().rev().copied());
+            }
+        }
+        out
     }
 
     // ---- working traits out -----------------------------------------------------------

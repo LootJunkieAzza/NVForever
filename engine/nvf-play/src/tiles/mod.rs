@@ -1,5 +1,7 @@
 //! The tile tree beside the drawn menus [design: ui-tile-tree.md §6.2 step 1].
 
+pub mod layout;
+
 use crate::{script::ScriptState, PlaySet, PlayState};
 use bevy::{ecs::system::SystemParam, prelude::*, window::PrimaryWindow};
 use fnv_game::ui_loading::{self, UiFiles};

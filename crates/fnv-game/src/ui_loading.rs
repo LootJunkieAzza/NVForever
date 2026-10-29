@@ -128,6 +128,10 @@ impl UiFiles {
 }
 
 impl Source for UiFiles {
+    fn is_loose(&self, path: &str) -> bool {
+        self.vfs.source_of(path) == Some("loose")
+    }
+
     fn read(&self, path: &str) -> Option<Vec<u8>> {
         self.vfs.read(path)?.ok()
     }

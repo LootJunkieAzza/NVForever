@@ -162,6 +162,47 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 `stackingtype` `menufade` `explorefade`. Input: `xbuttona` …, `xdefault`, `xup` `xdown`
 `xleft` `xright`, `_PCButton_*`, `wheelable`, `draggable`.
 
+### 3.1.1 Layout interpretation (T5 part A)
+
+- [design] `nvf-play/src/tiles/layout.rs` produces screen-unit rectangles without
+  loading assets or drawing. A subtree root retains the contributions of all its
+  ancestors. Hidden items remain in the result with `visible = false`.
+- [hypothesis] `x` and `y` add to the parent's top-left; missing values are zero.
+  `width` and `height` are the box's size, with zero for missing non-text dimensions.
+  No conversion between window pixels and the original's interface units is inferred.
+- [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
+  children; siblings sort by increasing depth, preserving file order for ties. Neither
+  this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+- [hypothesis] `alpha` is 0–255, defaults to 255, and multiplies through ancestors as
+  fractions of 255. [design] Clamp each local alpha to that range and retain fractional
+  results without rounding.
+- [hypothesis] A false `visible` hides the entire subtree; missing means true. A true
+  child cannot override a hidden parent.
+- [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
+  clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
+- [design] `menu` and `hotrect` contribute layout to children but emit no drawing item;
+  hotrect input is T8. `rect`, `image`, `text`, `nif`, `radial` and `window` retain
+  distinct kinds; producing a layout item does not implement model or radial drawing.
+- [design] Image `filename` is passed through (empty if absent); `texatlas` is retained
+  as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
+  [hypothesis] Missing `zoom` means 100 percent. [design] Explicit `zoom`, `tile`,
+  `cropx` and `cropy` are passed as numbers without changing the box; absent tile/crop
+  inputs remain absent. Their effects on texture sampling await the renderer.
+- [design] Text `string` (empty if absent), numeric `font` (zero if absent) and optional
+  `wrapwidth` go to a caller's measuring callback. Only absent width/height are replaced
+  by the measured dimensions; explicit zero dimensions stay zero.
+- [hypothesis] Named `justify` constants `&left;`, `&center;`, `&right;` anchor the text
+  box's left, centre or right edge at x, leaving y at the top. [design] Numeric `justify`
+  is retained for the renderer; its unknown mapping is not invented. Missing, unknown
+  or numeric justification uses a left anchor. Named constants also retain their
+  alignment separately from their numeric view (§2.3).
+- [hypothesis] Local `red`, `green`, `blue` and `brightness` default to 255.
+  [design] RGB clamps to 0–255; brightness passes unchanged. Colour does not multiply
+  through ancestors. Numeric `systemcolor` is retained for the renderer to map; unknown
+  named constants retain their names as well, and absence stays absent.
+- [design] `locus`, `id`, `target`, input traits, menu fades and stacking traits have
+  no extra layout effect yet. No undocumented meaning is assigned to them.
+
 ## 4. Operators
 
 Inside a trait, operators work the value out from the first to the last, each on the
@@ -294,6 +335,27 @@ menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 
    and must be injected again each time; `HUDMainMenu`, `InventoryMenu`, `MapMenu`,
    `RepairMenu`, `StatsMenu` and `ItemModMenu` stay loaded [documented].
 5. **Trait functions**: SetUIFloat, SetUIString and friends on paths (§5).
+
+- [design] `Tile::origin` distinguishes `File { path, loose }`, `Injected`, `Template`
+  and `Code`. Menu loading and ordinary includes record the exact path passed to
+  `Source::read`, with each included file's own provenance. Injection and template
+  creation stamp every tile they create, including included descendants, with their
+  creator's origin; later trait writes do not change it. Pseudo-tiles start as Code;
+  loading globals records its file origin.
+- [documented: crates/fnv-vfs/src/lib.rs, Vfs::source_of] The VFS exposes whether the
+  winning source is loose. [design] `Source::is_loose(&self, path: &str) -> bool`
+  defaults to false; `UiFiles` implements it using that VFS query. The result is stored
+  at load time, so the source need not remain available to classify tiles later.
+- [design] `Ui::mod_added_tiles(&self, menu: TileId) -> Vec<TileId>` lists top-most
+  live Injected, Template or loose File tiles in tree order, including the menu itself
+  when loose. Descendants of a returned root are not listed separately; unloaded tiles
+  and other menus are excluded. Loose-file replacement selects the whole replaced
+  subtree; it is not a comparison against the vanilla file's contents.
+- [design] `Ui::add_code_tile_from_template(&mut self, src: &dyn Source, at: &str,
+  template: &str, name: Option<&str>) -> Option<TileId>` makes all copies from the body
+  Code, including multiple top-level tiles, and returns the first as `add_from_template`
+  does. Code tiles are not mod roots; injections underneath them can be. A future
+  renderer drawing selected subtrees must still exclude Code items inside those roots.
 
 ## 8. Observer checks
 
