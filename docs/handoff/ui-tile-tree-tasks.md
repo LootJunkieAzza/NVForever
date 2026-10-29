@@ -101,6 +101,14 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     `pr-pictures/claude-hud-code-traits/`.
   - Settled as they are: the strip's scale (1024 a turn); the original's crosshair does
     not spread (Dynamic crosshair off is its look, reticle.md §6).
+  - **Open on the branch, first thing next session:** smoke `reputation-box` fails since
+    the compass shows marks within 139 units (about 49 degrees) of the heading: its
+    "found town's marker on the compass" line (`compass: … map markers (N found)`) no
+    longer appears. [hypothesis] The Goodsprings marker (0x000CDF51 at -70992, 2560) is
+    outside that band from the scenario's start, which sets no heading; the old window
+    (172.5 + 38 units, about 74 degrees) caught it. Check the marker's bearing from the
+    start; if so, give the scenario a `--pos`/`--heading` that faces the town, keeping its
+    expectation as it is (not loosened, not marked known_failing on a guess).
 
 ## Next, in order
 
