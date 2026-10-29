@@ -606,6 +606,46 @@ impl Ui {
         out
     }
 
+    /// [design] The name paths ([`Ui::path_of`], lower case) of every live tile under
+    /// `root`, itself included: what a menu file's tiles are called when one source builds
+    /// them, to tell a loose replacement's own tiles from the archived file's
+    /// (menu-xml.md §7).
+    pub fn name_paths(&self, root: TileId) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let tile = self.tile(id);
+            if tile.live {
+                out.insert(self.path_of(id).to_ascii_lowercase());
+                stack.extend(tile.children.iter().copied());
+            }
+        }
+        out
+    }
+
+    /// [design] [`Ui::name_paths`] of the menu file at `path` as `src` builds it alone, in
+    /// a tree of its own (`None` when the file cannot be read): the vanilla names a loose
+    /// replacement is compared against.
+    pub fn file_name_paths(src: &dyn Source, path: &str) -> Option<HashSet<String>> {
+        let mut ui = Ui::new();
+        let root = ui.load_menu(src, path).ok()?;
+        Some(ui.name_paths(root))
+    }
+
+    /// [design] Whether a tile inside a root of [`Ui::mod_added_tiles`] is the mod's own,
+    /// to draw over NVForever's HUD: never a `Code` tile; always an `Injected` or
+    /// `Template` one; a `File` tile (a loose replacement's, or an archived prefab's it
+    /// includes) only when `vanilla` holds the archived file's names
+    /// ([`Ui::file_name_paths`]) and not this tile's name path. Without the vanilla names no
+    /// `File` tile is drawn, so a replaced HUD file never draws a second HUD.
+    pub fn mod_tile_drawn(&self, id: TileId, vanilla: Option<&HashSet<String>>) -> bool {
+        match &self.tile(id).origin {
+            Origin::Code => false,
+            Origin::Injected | Origin::Template => true,
+            Origin::File { .. } => vanilla.is_some_and(|names| !names.contains(&self.path_of(id).to_ascii_lowercase())),
+        }
+    }
+
     // ---- working traits out -----------------------------------------------------------
 
     /// Works out every trait with an expression whose sources changed since it was last

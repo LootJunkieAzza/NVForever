@@ -305,3 +305,33 @@ fn a_loose_menu_is_one_mod_root_and_other_menus_are_excluded() {
     assert_eq!(ui.mod_added_tiles(other), [ui.find_tile("N/Other").unwrap()]);
     assert!(!MemSource::default().is_loose("absent.xml"));
 }
+
+#[test]
+fn a_loose_replacement_draws_only_what_the_archived_file_lacks() {
+    // [design] The loose file keeps the archived tiles (and includes an archived prefab)
+    // and adds one of its own; an injection and a code copy sit inside it.
+    let archived = MemSource::default()
+        .with("menus/m.xml", r#"<menu name="M"><rect name="Piece"><include src="p.xml"/></rect></menu>"#)
+        .with("menus/prefabs/p.xml", r#"<text name="Label"/>"#);
+    let loose = MemSource::default()
+        .with_loose("menus/m.xml", r#"<menu name="M"><rect name="Piece"><include src="p.xml"/><image name="ModBar"/></rect><rect name="ModPanel"><include src="p.xml"/></rect></menu>"#)
+        .with("menus/prefabs/p.xml", r#"<text name="Label"/>"#);
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&loose, "menus/m.xml").unwrap();
+    assert!(ui.inject_text(&loose, "M/Piece", r#"<rect name="Injected"/>"#));
+    assert!(ui.inject_text(&loose, "M", r#"<template name="row"><rect name="Row"/></template>"#));
+    let code = ui.add_code_tile_from_template(&loose, "M", "row", Some("CodeRow")).unwrap();
+    assert_eq!(ui.mod_added_tiles(root), [root]);
+    let vanilla = Ui::file_name_paths(&archived, "menus/m.xml").unwrap();
+    assert_eq!(vanilla.len(), 3);
+    let drawn = |names: Option<&std::collections::HashSet<String>>| -> Vec<String> {
+        let mut out: Vec<String> = ui.name_paths(root).into_iter().filter(|p| ui.mod_tile_drawn(ui.find_tile(p).unwrap(), names)).collect();
+        out.sort();
+        out
+    };
+    assert_eq!(drawn(Some(&vanilla)), ["m/modpanel", "m/modpanel/label", "m/piece/injected", "m/piece/modbar"]);
+    // Without the archived file's names only the injection is drawn.
+    assert_eq!(drawn(None), ["m/piece/injected"]);
+    assert!(!ui.mod_tile_drawn(code, Some(&vanilla)));
+    assert!(Ui::file_name_paths(&MemSource::default(), "menus/m.xml").is_none());
+}

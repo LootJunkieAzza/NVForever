@@ -4,7 +4,7 @@
 //! files' text.
 
 use clap::Subcommand;
-use fnv_ui::{Source, TileId, Ui, Value as UiValue};
+use fnv_ui::{Origin, Source, TileId, Ui, Value as UiValue};
 use fnv_vfs::Vfs;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -27,6 +27,17 @@ pub enum UiCmd {
         /// Only the subtree a path names, e.g. `HUDMainMenu/HitPoints`.
         #[arg(long)]
         at: Option<String>,
+    },
+    /// The tiles mods added to one menu that NVForever's tile renderer would draw over its
+    /// own HUD (`Ui::mod_added_tiles`, `Ui::mod_tile_drawn`): injected and template tiles,
+    /// and a loose replacement's tiles that the archived file does not have
+    /// (fnv.ui.mod_tiles/1).
+    ModTiles {
+        #[command(flatten)]
+        src: UiSourceArgs,
+        /// The menu file, e.g. `menus\main\hud_main_menu.xml`.
+        #[arg(long)]
+        menu: String,
     },
 }
 
@@ -73,11 +84,29 @@ fn find_ci(dir: &Path, rel: &str) -> Option<PathBuf> {
 }
 
 impl Source for Files {
+    /// [design] An overlay's file, or a loose file of Data, as the game's `UiFiles`.
+    fn is_loose(&self, path: &str) -> bool {
+        self.loose(path).is_some() || self.vfs.source_of(path) == Some("loose")
+    }
+
     fn read(&self, path: &str) -> Option<Vec<u8>> {
         if let Some(p) = self.loose(path) {
             return std::fs::read(p).ok();
         }
         self.vfs.read(path)?.ok()
+    }
+}
+
+/// The archives alone: what a loose file replaced [design]. A path whose only copy the
+/// VFS holds is loose in Data reads nothing (the VFS keeps no archived copy beneath it).
+struct Archived<'a>(&'a Vfs);
+
+impl Source for Archived<'_> {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        if self.0.source_of(path) == Some("loose") {
+            return None;
+        }
+        self.0.read(path)?.ok()
     }
 }
 
@@ -186,6 +215,45 @@ pub fn run(cmd: UiCmd) -> anyhow::Result<Value> {
                 None => id,
             };
             Ok(json!({ "schema": "fnv.ui.tree/1", "path": ui.path_of(root), "warnings": ui.warnings, "tree": tree_json(&ui, root) }))
+        }
+        UiCmd::ModTiles { src, menu } => {
+            let (files, mut ui) = open(&src)?;
+            let id = ui.load_menu(&files, &menu).map_err(anyhow::Error::msg)?;
+            ui.update();
+            let roots = ui.mod_added_tiles(id);
+            // The archived file's names, only when a root is a loose file's [design].
+            let loose = roots.iter().any(|&r| matches!(ui.tile(r).origin, Origin::File { .. }));
+            let vanilla = loose.then(|| Ui::file_name_paths(&Archived(&files.vfs), &menu)).flatten();
+            let mut total = 0;
+            let rows: Vec<Value> = roots
+                .iter()
+                .map(|&r| {
+                    let mut drawn = Vec::new();
+                    let mut stack = vec![r];
+                    while let Some(t) = stack.pop() {
+                        let tile = ui.tile(t);
+                        if !tile.live {
+                            continue;
+                        }
+                        if ui.mod_tile_drawn(t, vanilla.as_ref()) {
+                            drawn.push(ui.path_of(t));
+                        }
+                        stack.extend(tile.children.iter().rev().copied());
+                    }
+                    total += drawn.len();
+                    let origin = match &ui.tile(r).origin {
+                        Origin::File { path, loose } => json!({ "file": path, "loose": loose }),
+                        Origin::Injected => json!("injected"),
+                        Origin::Template => json!("template"),
+                        Origin::Code => json!("code"),
+                    };
+                    json!({ "root": ui.path_of(r), "origin": origin, "drawn": drawn.len(), "tiles": drawn })
+                })
+                .collect();
+            Ok(json!({
+                "schema": "fnv.ui.mod_tiles/1", "menu": ui.tile(id).name, "loose_roots": loose,
+                "vanilla_compared": vanilla.is_some(), "drawn": total, "roots": rows,
+            }))
         }
     }
 }
