@@ -157,11 +157,21 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
   bottom 182 over the view's bottom [observed: the full-screen screenshot, §5].
 - The pointer's tip on the ticks' tops (row 46, the ticks from 47), not among them
   [owner, 2026-10-20].
-- Shown when the experience rises, whatever gave it; the pointer moves from where the
-  player was to where they are in 0.6 s (eased); gains while it is up add to the amount
-  and keep it up; it fades in and out in a quarter of a second [documented: the HUD's
-  fade] and goes 3 s after the last gain [hypothesis]. When the gain reaches the next
-  level the pointer goes to the last tick and "LEVEL UP" replaces "+n XP" [hypothesis].
+- [observed: private jobs hud_xp_limbs, x1_reward10, x1b_later; hud_xp_limbs2,
+  x9_level_up_long] On a gain the meter fades in about 2 s, holds about 2 s while the
+  pointer glides, fades out about 2 s (about 6.4 s across the captured sequence).
+  The pointer starts moving once alpha is full. [hypothesis] Fit with linear glide
+  over 2 s; keep the confirmed pointer range 55-270. History: fade 0.25 s, hold 3 s,
+  immediate eased slide 0.6 s [hypothesis], replaced 2026-10-29.
+- [observed: private job hud_xp_limbs2, x9_level_up_long] After a level-reaching gain,
+  LEVEL UP appears alone after the meter has faded away, about 7.2-7.4 s after the gain;
+  it rises within 0.34 s, stays full about 1.3 s, then fades. [hypothesis] Fit with a
+  1.2 s gap after the six-second meter and symmetric 0.34 s notice fades. History:
+  LEVEL UP replaced +n XP while the meter showed [hypothesis].
+- [design] Gains while shown retain the existing accumulation/restart behaviour.
+  [observed: private job hud_xp_limbs, x2_reward25, x2b_reward5_on_top] A second +5 kept
+  the first +25 and did not restart the original's fade. [hypothesis: open] Not repeated
+  in round 2; capture again before changing the concurrent-gain rule.
 - Not at the level cap [owner]. Hidden, its time held, while the HUD is (menus,
   conversations).
 - **Sounds** [owner: a sound for each gain, one for a level up, a music-like one on the
@@ -173,6 +183,13 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
   the level-up screen; observed: the records]. With a second level earned at once, its
   sound plays (and the 5 s wait starts) when the first menu closes [design]. The short
   `UILevelUp` (`ui_levelup.wav`, 0.9 s) is not played.
+- [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] Keep
+  `LEVEL_UP_DELAY = 5 s` after the sound, and the sound at the filled pointer (now about
+  4 s into the meter), independently of the later visual notice. [observed: private
+  job hud_xp_limbs2, x9_level_up_long] The original's menu opened at 9.35 s, about 2 s
+  after LEVEL UP appeared; the sound's moment was not read. Draft issue: decide whether
+  to replace the owner's sound-to-menu delay after capturing the original's sound.
+  [design] The retained menu rule can interrupt the end of the fitted notice fade.
 - Without the game's pictures the bracket and pointer are plain blocks.
 - Log: `xp: level cap <n> (<k> story add-ons)`; `xp meter: +<n> XP (<xp> in all): level
   <l>, <p> % to <l+1>[, next level earned]`; `xp meter: sound <SOUN>`; `xp meter: LEVEL UP
@@ -202,9 +219,14 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
   Vegas skill checks is [hypothesis: no, as their scripts carry RewardXP].
 - The mine's Explosives check and the chance to set it off are not built (disarming always
   succeeds), and the projectile's Can be Disabled flag is not read.
-- **The meter's timing** is not measured; nothing in the data gives it (§9).
+- [observed: private job hud_xp_limbs2, x9_level_up_long] The meter's timing is now
+  measured (§6); exact interpolation and concurrent gains remain open [hypothesis].
 
-## 9. What would settle the meter's numbers (request to the owner)
+## 9. What would settle the meter's numbers (historical request to the owner)
+
+[observed: private job hud_xp_limbs2, x9_level_up_long] The 2026-10-29 capture settles
+the single-gain timing in §6; the historical hypotheses and suggested checks below
+remain for provenance, not the current drawing rule [design].
 
 The place is settled by the full-screen screenshot (§5). The rest of this section was
 written before it. `engine/nvf-play/src/xp_meter.rs` used five numbers that no file gives [hypothesis]:

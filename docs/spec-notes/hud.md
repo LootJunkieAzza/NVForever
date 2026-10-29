@@ -30,6 +30,12 @@ enemy bar shows), `crates/fnv-font` (`fonts.md`).
   same size (`HPAPMisaligned`), the four sneak words at 1280 x 720 (`Sneak detection`),
   and NVForever in a conversation with Trudy while Joe Cobb talks to her (`DialogueUI`).
   The measurements of §4, §8 and §9 are taken on them.
+- [observed: private jobs hud_hardcore2, hc0-hc11; hud_radiation2,
+  r_in_000-r_in_990; hud_enemy2, e5_back; hud_enemy3, n2_away, g2_gecko_half;
+  hud_xp_limbs, l1_leg, l2_head; hud_xp_limbs2, x9_level_up_long; hud_prompt2,
+  p4_container_empty, p5_container_empty_opened] T12b's 2026-10-29 trait/time reads,
+  described in the private `hud-capture/t12b-findings.md`. These jobs' screenshots
+  failed; the corrections below use numeric/string reads, not new picture measurements.
 
 ## 2. What the files say
 
@@ -236,7 +242,13 @@ the compass the eight directions' letters in Bevy's font.
   condition bar).
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
 - The compass's faded ends.
-- The XP meter is built: experience.md (`xp_meter.rs`).
+- [observed: private job hud_xp_limbs2, x9_level_up_long] XP meter: about 2 s fade in,
+  2 s hold/glide (pointer starts at full alpha), 2 s fade out; LEVEL UP alone afterwards,
+  up within 0.34 s, held about 1.3 s. [hypothesis] `xp_meter.rs` fits the notice at
+  7.2 s, with a 1.2 s gap and symmetric 0.34 s fades (experience.md §6). History:
+  0.25 s fade, 3 s hold, immediate eased 0.6 s slide and LEVEL UP replacing +n XP.
+  [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] The filled-bar
+  sound and 5 s sound-to-menu wait stay; the original's sound moment is not captured.
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
 - The breath meter is built: drowning.md §3 (`hud_breath.rs`).
 - The messages at the top left with their icons, subtitles,
@@ -245,6 +257,10 @@ the compass the eight directions' letters in Bevy's font.
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `script_hud.rs`) are
   unchanged.
+- [design: owner 2026-10-27, reticle.rs; maintainer's choice T12b B/M5; needs an issue]
+  Keep `[Empty]`. [observed: private job hud_prompt2, p4_container_empty,
+  p5_container_empty_opened] The original uses `[EMPTY]` before and after opening an
+  empty container. Draft issue: decide whether the owner's casing should match the capture.
 - The HUD's fading in and out, its opacity setting, and the glow the game adds over it
   (`[InterfaceFX]` `fBlurIntensityHUD`).
 - What the condition bar looks like for a weapon being repaired or broken.
@@ -254,7 +270,10 @@ the compass the eight directions' letters in Bevy's font.
 ## 8. The enemy's health
 
 [documented: hud_main_menu.xml, hudtemplates.xml] `EnemyHealth` is a piece 350 x 52;
-its bracket `glow_enemy_health_seperator.dds` (512 x 64) stands at (-7, 3) in it.
+its bracket `glow_enemy_health_seperator.dds` (500 x 64) stands at (-7, 3) in it
+[observed: private jobs hud_enemy2, e5_back; hud_enemy3, g2_gecko_half]. The former
+512-wide drawing confused texture size with template width [design: history]; the
+hand-built marks' texture columns 56 and 307 now scale by 500/512 [design].
 [observed: the texture] A long line (solid in rows 21–23 under a glow, from x 36 to
 327) with a corner mark rising at each end; their inner edges at x 56 and 307.
 
@@ -263,11 +282,23 @@ long line is level with the upper of the corner pieces' two solid lines; the tic
 same tick picture as the player's bars) stand right on it, with no gap (the player's
 bars stand 4 units over theirs), between the corner marks, about 32 of them (31 here, as
 many as fit); the actor's name is centred under the line in font 7, standing on y 53 of
-the piece. All of it is in the HUD's alternative colour, red: about (248, 68, 45) on the
-screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
+the piece. On that hostile screenshot it is red: about (248, 68, 45),
+`iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
+
+[observed: private job hud_enemy3, n2_away, g2_gecko_half] The whole piece's colour
+follows the actor shown: systemcolor 1 (HUD main) for a non-hostile, 2 (alternative)
+for a hostile. [design] The hand-built bracket, ticks, name, Living Anatomy line and
+fallback blocks follow that flag, including a hostility change without a name change.
+History: §8 previously generalised the hostile screenshot to always red [hypothesis].
 
 [owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
 the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.
+
+[design: maintainer's choice, T12b B/M1; needs an issue] Keep the 31 ticks and current
+`lit_middle` rounding (code floors, above owner text says ceil). [observed: private jobs
+hud_enemy2, e5_back; hud_enemy3, n2_away, g2_gecko_half] The original has at most 30,
+always even; `2 × floor(share × 15)` fits the captured shares. Draft issue: decide
+whether to replace the owner's 31-tick rule with the measured even-tick rule.
 
 Whose health [hypothesis; the original's rule is not documented]: the living actor under
 the crosshair (a ray along the crosshair's line through the collision world, up to 8192
@@ -276,6 +307,15 @@ units, to the first actor hit volume or capsule) when it is hostile to the playe
 5 seconds; and for 5 seconds after the player hits an actor, aimed at or not. Logged as
 `hud: enemy health <name> 0x<ref> <percent> %` and `hud: enemy health off`. The
 developer's stand-in (a line of `|` characters over the crosshair, `combat.rs`) is gone.
+
+[observed: private job hud_enemy3, n0_neutral_dwell, n1-n1c, h1_hostile_combat,
+g2_gecko_half; hud_enemy2, e4-e6] Full-health actors showed no bar (including a hostile
+in combat aimed at for 0.94 s); a hurt hostile showed without aim or a player's shot;
+a hurt non-hostile on target showed none for 5.6 s. [hypothesis: open, low confidence]
+Health below base may be necessary, but no rule fits every state. Capture the player's
+own shot and a longer hostile aim before changing `hud_target::shown`, including a
+health-below-base guard. [design: T12b B9] Visibility is unchanged; the new flag only
+selects colour.
 
 ## 9. The sneak word
 
@@ -380,8 +420,18 @@ menu's (`dialogue_menu.rs`).
   limbs solid. A second crippling while it shows starts the 5 s again and only the new
   limb flashes. Healing shows nothing. The time stands while the HUD is off (menus,
   scripts holding the player).
-- [design] The flash: the HUD's red (the enemy bar's) pulsing between full and 0.35 of
-  it every 0.6 s.
+- [observed: private job hud_xp_limbs, l1_leg, l2_head; one run] Whole pictures fade
+  0.85 s in, stay full 3.3 s, fade 0.85 s out within the owner's 5 s; the face shares
+  this envelope [design]. History: instant show/hide [design].
+- [observed: private job hud_xp_limbs, l1_leg, l2_head; one run] Broken pictures flash
+  in alpha 0-255 for about 4.3 s, then negative alpha. [hypothesis] A rising sawtooth
+  of about 0.54 s fits the samples. [design] Clamp negative alpha to hidden and apply
+  the measured flash to the owner's newest limb only. History: brightness cosine,
+  low 0.35, period 0.6 s [design].
+- [design: owner 2026-10-17; maintainer's choice T12b B/M3; needs an issue] Keep only
+  the newest limb flashing and earlier broken limbs amber. [observed: private job
+  hud_xp_limbs, l2_head; one run] Earlier broken limbs flashed red in step with the
+  newest. Draft issue: decide whether all crippled limbs should flash together.
 - [observed: the pictures] The faces grow worse from `face_00` (the smile) through 01
   (worried), 02 (grimace), 03 (crying) to 04 (eyes crossed out); `face_10` has the tongue
   out. The screenshot shows `face_02` at about 15 % health (6 of 37 ticks).
@@ -407,12 +457,19 @@ menu's (`dialogue_menu.rs`).
   setting if one sets it, else `H20`, `FOD`, `SLP`, `RAD`, `LMB` [observed: §14.2].
   `RAD` stands in the file's order, between SLP and LMB [owner 2026-10-23: RAD with the other indicators,
   whether or not the original drew it].
-- [observed: the owner's screenshot, not measured] The words stand on the "HP" label's
-  line above the health bar, starting a little right of "HP". Here: on `UPPER_BASE`, the
-  first word two spaces of the font after "HP", one space between words [hypothesis].
-- **Looks** [design: owner 2026-10-23]: faded (the HUD's amber at 0.3 opacity), normal
-  amber, red (the enemy bar's red), flashing red (the crippled-limb picture's pulse,
-  §12). A word with nothing to say is not drawn [design: owner 2026-10-24].
+- [observed: private job hud_hardcore2, hc0-hc11] The piece stays at view (190, 803),
+  with words at x 0, 55, 109, 162, 218 and y 0, zoom 75 in every mode, including
+  hidden words. Each x is the preceding x + its width + 10. [documented:
+  hud_main_menu.xml, HardcoreMode] Right-justified. [hypothesis] The hand-built drawing
+  treats x as the right end, and uses the font's ink top at y 0. History: two font
+  spaces after HP, one between, on UPPER_BASE [hypothesis].
+- **Looks** [design: owner 2026-10-23]: faded (dim), normal amber, red, flashing red.
+  [observed: private job hud_hardcore2, hc2, hc6; hud_radiation2, r_in_200, r_in_300]
+  Faded alpha is 124/255. [observed: private job hud_hardcore2, hc5] Flashing words
+  keep the alternative red and vary alpha from 128/255 to 1. [hypothesis] The word
+  period remains unresolved: retain the 0.6 s cosine separately from the limb flash.
+  History: faded 0.3; flashing shared §12's brightness pulse [design].
+  A word with nothing to say is not drawn [design: owner 2026-10-24].
 - **A need's look** follows the stage the game holds for it (aid-items.md §11: the
   DEHY/HUNG/SLPD records' thresholds 200 … 1000, Minor, Advanced, Critical, Deadly,
   Fatal) [design: owner 2026-10-23, "none/lowest faded, then normal, red, flashing for the
@@ -428,12 +485,16 @@ menu's (`dialogue_menu.rs`).
   [design: owner 2026-10-23; owner 2026-10-24: hidden with none]: 0 hidden, 1 normal,
   2 red, 3 or more flashing. The brain (31) is not counted [design: not a limb; the
   picture of §12 has no piece for it].
+- [design: owner 2026-10-23/24; maintainer's choice T12b B/M2; needs an issue] Keep the
+  limb word's looks above. [observed: private jobs hud_hardcore2, hc9-hc10;
+  hud_xp_limbs, l1_leg, l2_head] One limb has alpha 124, systemcolor 1; two alpha 255
+  (two-limb colour and 3+ not read). Draft issue: decide whether LMB should use the
+  observed faded/normal looks for one/two crippled limbs.
 - **When they show**: H20, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
   [design: radiation sickness is not a Hardcore rule]. LMB in every mode
-  [design: crippled limbs matter in every mode and the §12 picture goes after 5 s; the
-  original's file puts `LMBs` in the Hardcore rect, so the original may show it only in
-  Hardcore — to be checked in a capture]. Outside Hardcore RAD and LMB take H20's and
-  FOD's places.
+  [observed: private job hud_hardcore2, hc9-hc10]. RAD and LMB keep their x 162 and
+  218 outside Hardcore [observed: private job hud_hardcore2, hc0-hc11]. History:
+  compacting them into H20/FOD's places was NVForever's choice [design, no owner request].
 - Log: `hud needs: <word> <hidden|faded|normal|red|flashing> (<why>)` when a word's look
   changes, the why being `stage <n> of <count>, <stage effect>`, `no stage`, `Hardcore
   off` or `<n> limbs crippled`.
@@ -683,7 +744,8 @@ SetAngle Z.]
   EnemyHealth 8. A console SetPos inside the shack did not move the player either.
 - [design] NVForever lights `floor(share x 37)` ticks (`hud.rs` `lit`) and fills the
   condition bar to `round(59 x condition)` from the 60-wide ground's x, matching the
-  above [observed]. The enemy bar shares `lit` [hypothesis: as the other bars].
+  above [observed]. The enemy bar still shares `lit` [design: maintainer's choice,
+  owner playtest list 5 item 32; §8 records the captured contradiction and draft issue].
 
 ### 14.4 The compass and the crosshair by name (2026-10-29)
 
@@ -796,12 +858,13 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   `CompassView` stores kind/offset only; the quest template defaults to 1
   (documented: `hudtemplates.xml`)]. The NVForever-owned `_NVFHudTemplate` trait distinguishes
   pools even when a mod omits a template [design].
-- [hypothesis] §14.1 records pointer x 15, 36, 42 and 42.9, but no paired accumulated
-  radiation totals. Use the minimal provisional unit slope `x = 15 + accumulated rads`,
-  clamped to the captured x range [design: no extrapolation]. This is **not a measured
-  scale**. Tests choose synthetic totals to replay those x values, not claimed observed
-  rad/x pairs. To settle it, set several known accumulated-rad totals (including 0)
-  and read pointer x at each, with further totals between them to test linearity.
+- [observed: private job hud_radiation2, r_in_000-r_in_990] Radiation pointer
+  `x = 15 + 0.3 × rads`, linear to 998; no saturation within that range, updates within
+  0.16 s. Hidden, x stayed 15 at 0 and 300 rads (r_out_0, r_out_300). [hypothesis]
+  Hold at 315 above 1000 (not captured). [design: T12b part B] The hand-built pointer
+  now uses this scale; radiation.md §6 preserves its previous notch-fit history.
+  History: the tree's provisional unit slope clamped to 42.9 was unmeasured [hypothesis];
+  the tile implementation is the separate T12b part A job.
 - [hypothesis] Subtitles use `660 - (prompt height + 8)` while the prompt shows,
   reproducing 610 at height 42 and 572 at height 80 (§14.3 [observed]); other heights
   follow the same rule. Restore 660 without a prompt; §14.1 did not observe the return.

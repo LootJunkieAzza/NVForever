@@ -83,7 +83,9 @@ const ARROWS_BLEED: f32 = 1.0;
 /// hudtemplates.xml].
 const ENEMY: Vec2 = Vec2::new(350.0, 52.0);
 const ENEMY_BRACKET_AT: Vec2 = Vec2::new(-7.0, 3.0);
-const ENEMY_BRACKET: Vec2 = Vec2::new(512.0, 64.0);
+/// [documented: hudtemplates.xml, template_enemy_health_bracket; observed: private
+/// jobs hud_enemy2, e5_back; hud_enemy3, g2_gecko_half]. Previously 512 wide [design].
+const ENEMY_BRACKET: Vec2 = Vec2::new(500.0, 64.0);
 /// The sneak piece, `SneakMeter`: width and height [documented: hud_main_menu.xml].
 const SNEAK: Vec2 = Vec2::new(356.0, 34.0);
 
@@ -111,7 +113,9 @@ const ENEMY_LINE_Y: f32 = 23.0;
 /// `METER_GAP` over it as the player's bars do [observed: `Target healthbar` screenshot;
 /// at `METER_GAP` a 3-pixel strip showed at 1080 lines, owner's playtest 2026-10-16].
 const ENEMY_METER_GAP: f32 = 2.0;
-const ENEMY_MARKS: (f32, f32) = (56.0, 307.0);
+/// Texture columns scaled to the measured 500-wide bracket [design; observed: private
+/// job hud_enemy3, g2_gecko_half]. Previously unscaled (56, 307).
+const ENEMY_MARKS: (f32, f32) = (56.0 * 500.0 / 512.0, 307.0 * 500.0 / 512.0);
 
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
 
@@ -497,7 +501,7 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin))
-            .add_systems(Update, (gather, draw, pips, texts).chain().in_set(HudSet).in_set(PlaySet::Ui));
+            .add_systems(Update, (gather, draw, pips, texts, enemy_colours).chain().in_set(HudSet).in_set(PlaySet::Ui));
     }
 }
 
@@ -907,9 +911,61 @@ fn texts(
     }
 }
 
+/// Every part follows the shown actor's hostility, including existing letters/ticks
+/// when only hostility changes [observed: private job hud_enemy3, n2_away (main),
+/// g2_gecko_half (alt)]. Previously always red [design]. Traverse after spawning so
+/// new and resized rows, names, anatomy and fallback blocks share the colour [design].
+#[allow(clippy::type_complexity)]
+fn enemy_colours(
+    target: Res<HudTarget>,
+    enemy: Query<Entity, With<EnemyPiece>>,
+    children: Query<&Children>,
+    mut ink: Query<(Option<&mut ImageNode>, Option<&mut TextColor>, Option<&mut BackgroundColor>)>,
+) {
+    let colour = if target.0.as_ref().is_some_and(|t| t.hostile) { crime_colour() } else { amber(255.0) };
+    for root in &enemy {
+        for entity in children.iter_descendants(root) {
+            if let Ok((image, text, fill)) = ink.get_mut(entity) {
+                if let Some(mut image) = image {
+                    if image.color != colour {
+                        image.color = colour;
+                    }
+                }
+                if let Some(mut text) = text {
+                    text.set_if_neq(TextColor(colour));
+                }
+                if let Some(mut fill) = fill {
+                    fill.set_if_neq(BackgroundColor(colour));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {
+        use crate::hud_target::TargetHealth;
+        let mut app = App::new();
+        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)) })))
+            .add_systems(Update, enemy_colours);
+        let bracket = app.world_mut().spawn(ImageNode::default()).id();
+        let tick = app.world_mut().spawn(BackgroundColor(Color::WHITE)).id();
+        let name = app.world_mut().spawn(TextColor(Color::WHITE)).id();
+        let group = app.world_mut().spawn_empty().add_children(&[tick, name]).id();
+        app.world_mut().spawn(EnemyPiece).add_children(&[bracket, group]);
+        for hostile in [false, true, false] {
+            app.world_mut().resource_mut::<HudTarget>().0.as_mut().unwrap().hostile = hostile;
+            app.update();
+            let colour = if hostile { crime_colour() } else { amber(255.0) };
+            assert_eq!(app.world().get::<ImageNode>(bracket).unwrap().color, colour);
+            assert_eq!(app.world().get::<BackgroundColor>(tick).unwrap().0, colour);
+            assert_eq!(app.world().get::<TextColor>(name).unwrap().0, colour);
+        }
+    }
 
     /// Letters 15 apart, as the HUD's font sets them.
     fn font() -> Font {
@@ -1053,6 +1109,9 @@ mod tests {
         // The arrows' middle at three quarters of the bar.
         assert!((p.arrows_x + ARROWS_MIDDLE * (CND_BAR.y + 2.0 * ARROWS_BLEED) - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
         // The enemy's ticks fit between its bracket's marks.
-        assert!(ENEMY_PIPS as f32 * TICK.x - (TICK.x - TICK_BLOCK) <= ENEMY_MARKS.1 - ENEMY_MARKS.0);
+        // Keep the owner's 31 ticks; the row packs them into the scaled marks [design].
+        let room = ENEMY_MARKS.1 - ENEMY_MARKS.0;
+        let (lefts, width) = tick_lefts(room, TICK_BLOCK, ENEMY_PIPS);
+        assert!((lefts[ENEMY_PIPS - 1] + width - room).abs() < 0.6);
     }
 }

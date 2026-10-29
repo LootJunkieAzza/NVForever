@@ -82,13 +82,23 @@ const LABEL_BASE: f32 = 103.0;
 const MARGIN_X: f32 = 52.0;
 const BOTTOM: f32 = 182.0;
 
-// ---- set here [hypothesis: nothing documents the meter's timing] -----------------------
+// ---- timing [observed: private job hud_xp_limbs2, x9_level_up_long] ---------------------
 
-/// Fading in and out: the HUD menu's quarter of a second [documented: hud_main_menu.xml].
-const FADE: f32 = 0.25;
-/// How long the meter stays after the last gain, and how long the pointer takes to move.
-const HOLD: f32 = 3.0;
-const SLIDE: f32 = 0.6;
+/// Meter: about 2 s in, 2 s full (pointer moving), 2 s out. Previously the general
+/// HUD fade 0.25 s, hold 3 s, immediate eased slide 0.6 s [hypothesis].
+const FADE: f32 = 2.0;
+const HOLD: f32 = 2.0;
+const SLIDE: f32 = 2.0;
+const METER_SECONDS: f32 = FADE + HOLD + FADE;
+/// LEVEL UP alone starts about 7.2 s after the gain, after the meter is gone
+/// [observed: private job hud_xp_limbs2, x9_level_up_long]; 1.2 s gap fitted to that
+/// sampling [hypothesis]. Previously replaced the amount during the meter [hypothesis].
+const LEVEL_UP_START: f32 = METER_SECONDS + 1.2;
+/// Up within 0.34 s, full about 1.3 s, then down [observed: private job
+/// hud_xp_limbs2, x9_level_up_long]; symmetric 0.34 s down [hypothesis].
+const LEVEL_UP_FADE: f32 = 0.34;
+const LEVEL_UP_HOLD: f32 = 1.3;
+const LEVEL_UP_SECONDS: f32 = 2.0 * LEVEL_UP_FADE + LEVEL_UP_HOLD;
 /// From the level-up sound to the level-up menu, counted while the HUD is up [owner,
 /// 2026-10-24: "play this sound then wait 5 seconds before showing the level up screen"].
 pub const LEVEL_UP_DELAY: f32 = 5.0;
@@ -105,7 +115,7 @@ pub struct Show {
     /// The pointer moves from `from` to `to` (0 to 1 between the two levels).
     pub from: f32,
     pub to: f32,
-    /// The next level is earned: "LEVEL UP" once the pointer is at the end.
+    /// The next level is earned: "LEVEL UP" after the meter fades away.
     pub level_up: bool,
     /// Seconds since it came up, and since the last gain.
     pub age: f32,
@@ -173,7 +183,8 @@ impl Meter {
         let Some(s) = &mut self.show else { return false };
         s.age += dt;
         s.since_gain += dt;
-        if s.since_gain >= SLIDE.max(FADE) + HOLD + FADE {
+        let end = if s.level_up { LEVEL_UP_START + LEVEL_UP_SECONDS } else { METER_SECONDS };
+        if s.since_gain >= end {
             self.show = None;
             return false;
         }
@@ -187,9 +198,9 @@ impl Meter {
     /// The pointer's place now, 0 to 1.
     pub fn pointer(&self) -> f32 {
         self.show.as_ref().map_or(0.0, |s| {
-            let t = (s.since_gain / SLIDE).clamp(0.0, 1.0);
-            // Eased out: fast at first, settling on its place.
-            let t = 1.0 - (1.0 - t) * (1.0 - t);
+            // Glide only at full alpha [observed: private job hud_xp_limbs2,
+            // x9_level_up_long]; linear fit to pointer samples [hypothesis].
+            let t = ((s.since_gain - FADE) / SLIDE).clamp(0.0, 1.0);
             s.from + (s.to - s.from) * t
         })
     }
@@ -197,15 +208,26 @@ impl Meter {
     /// How strong the meter is drawn, 0 to 1: fading in, full, fading out.
     pub fn strength(&self) -> f32 {
         self.show.as_ref().map_or(0.0, |s| {
-            let left = SLIDE.max(FADE) + HOLD + FADE - s.since_gain;
-            (s.age / FADE).min(left / FADE).clamp(0.0, 1.0)
+            if self.level_up_word() {
+                let age = s.since_gain - LEVEL_UP_START;
+                (age / LEVEL_UP_FADE).min((LEVEL_UP_SECONDS - age) / LEVEL_UP_FADE).clamp(0.0, 1.0)
+            } else {
+                let left = METER_SECONDS - s.since_gain;
+                (s.age / FADE).min(left / FADE).clamp(0.0, 1.0)
+            }
         })
     }
 
-    /// "LEVEL UP" stands in place of the amount: the next level is earned and the pointer
-    /// has reached it.
+    /// LEVEL UP alone after the meter [observed: private job hud_xp_limbs2,
+    /// x9_level_up_long].
     pub fn level_up_word(&self) -> bool {
-        self.show.as_ref().is_some_and(|s| s.level_up && s.since_gain >= SLIDE)
+        self.show.as_ref().is_some_and(|s| s.level_up && s.since_gain >= LEVEL_UP_START)
+    }
+
+    /// Keep the owner's sound trigger at the filled pointer, separately from the later
+    /// visual notice [owner 2026-10-24, LEVEL_UP_SOUND; design: separate phases].
+    fn level_up_filled(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| s.level_up && s.since_gain >= FADE + SLIDE)
     }
 
     /// The meter is gone (the level-up menu waits for this).
@@ -290,7 +312,7 @@ fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId
     }
 }
 
-/// For an earned level: the level-up sound once the bar shows "LEVEL UP" (or at once when
+/// For an earned level: the level-up sound once the pointer fills (or at once when
 /// no bar is up, as for the second of two levels earned together), then the level-up menu
 /// [`LEVEL_UP_DELAY`] seconds later once the player can take it: in the world, out of
 /// every menu, and nobody fighting or searching for them ([`experience::hunters`], the
@@ -321,7 +343,7 @@ fn level_up(
         return;
     }
     let Some(since) = since_sound.as_mut() else {
-        if meter.level_up_word() || meter.idle() {
+        if meter.level_up_filled() || meter.idle() {
             play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND);
             *since_sound = Some(0.0);
         }
@@ -355,6 +377,10 @@ fn level_up(
 struct MeterRoot;
 #[derive(Component)]
 struct Pointer;
+/// The bracket and pointer disappear before the separate LEVEL UP notice [observed:
+/// private job hud_xp_limbs2, x9_level_up_long].
+#[derive(Component)]
+struct MeterVisual;
 #[derive(Component)]
 struct Texts;
 /// Drawn at the meter's strength: pictures and letters, and the plain blocks that stand
@@ -383,7 +409,8 @@ fn draw(
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut kit: Local<Option<Kit>>,
     mut shown_texts: Local<Option<(String, String, String)>>,
-    mut root: Query<&mut Visibility, With<MeterRoot>>,
+    mut root: Query<&mut Visibility, (With<MeterRoot>, Without<MeterVisual>)>,
+    mut visuals: Query<&mut Visibility, (With<MeterVisual>, Without<MeterRoot>)>,
     texts: Query<Entity, With<Texts>>,
     mut pointer: Query<&mut Node, With<Pointer>>,
     mut pictures: Query<&mut ImageNode, With<Faded>>,
@@ -418,17 +445,20 @@ fn draw(
         return;
     }
     let Some(kit) = kit.as_ref() else { return };
+    for mut v in &mut visuals {
+        v.set_if_neq(if meter.level_up_word() { Visibility::Hidden } else { Visibility::Inherited });
+    }
     let colour = amber(255.0).with_alpha(meter.strength());
     let now = meter.texts();
     if *shown_texts != now {
         if let (Ok(e), Some((last, next, third))) = (texts.single(), &now) {
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
                 let line = |f: &Font, t: &str| f.lines(t, None).into_iter().next();
-                if let Some(l) = line(&kit.level.font, last) {
+                if let Some(l) = line(&kit.level.font, last).filter(|_| third != LEVEL_UP_WORD) {
                     let x = LAST_LEVEL_END - l.width;
                     set_text(p, &kit.level, &Set { line: l, x, base: LEVEL_BASE }, Vec2::ZERO, colour, Faded);
                 }
-                if let Some(l) = line(&kit.level.font, next) {
+                if let Some(l) = line(&kit.level.font, next).filter(|_| third != LEVEL_UP_WORD) {
                     set_text(p, &kit.level, &Set { line: l, x: NEXT_LEVEL_X, base: LEVEL_BASE }, Vec2::ZERO, colour, Faded);
                 }
                 if third == LEVEL_UP_WORD {
@@ -484,26 +514,26 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
     commands.spawn((MeterRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
         match &kit.bracket {
             Some(image) => {
-                p.spawn((at(0.0, 0.0, BRACKET.x, BRACKET.y), ImageNode { color: colour, ..ImageNode::new(image.clone()) }, Faded));
+                p.spawn((MeterVisual, at(0.0, 0.0, BRACKET.x, BRACKET.y), ImageNode { color: colour, ..ImageNode::new(image.clone()) }, Faded));
             }
             None => {
                 // Without the picture: the line, the ticks and the upright as plain blocks.
-                p.spawn((at(7.0, LINE_MIDDLE - 2.0, 360.0, 4.0), BackgroundColor(colour), FadedFill));
+                p.spawn((MeterVisual, at(7.0, LINE_MIDDLE - 2.0, 360.0, 4.0), BackgroundColor(colour), FadedFill));
                 for i in 0..9 {
-                    p.spawn((at(85.0 + 27.0 * i as f32, 48.0, 4.0, 16.0), BackgroundColor(colour), FadedFill));
+                    p.spawn((MeterVisual, at(85.0 + 27.0 * i as f32, 48.0, 4.0, 16.0), BackgroundColor(colour), FadedFill));
                 }
-                p.spawn((at(364.0, 7.0, 4.0, 122.0), BackgroundColor(colour), FadedFill));
+                p.spawn((MeterVisual, at(364.0, 7.0, 4.0, 122.0), BackgroundColor(colour), FadedFill));
             }
         }
         let mut place = at(pointer_x(0.0), POINTER_Y, POINTER, POINTER);
         match &kit.pointer {
             Some(image) => {
-                p.spawn((Pointer, place, ImageNode { color: colour, ..ImageNode::new(image.clone()) }, Faded));
+                p.spawn((Pointer, MeterVisual, place, ImageNode { color: colour, ..ImageNode::new(image.clone()) }, Faded));
             }
             None => {
                 // A small block where the triangle would be.
                 place.width = u(POINTER);
-                p.spawn((Pointer, place)).with_children(|b| {
+                p.spawn((Pointer, MeterVisual, place)).with_children(|b| {
                     b.spawn((at(24.0, 29.0, 16.0, 10.0), BackgroundColor(colour), FadedFill));
                 });
             }
@@ -515,6 +545,32 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_level_notice_draws_alone_including_without_game_textures() {
+        let mut m = Meter::default();
+        m.observe(&at(1, 10.0));
+        m.observe(&at(1, 200.0));
+        m.step(3.0);
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .insert_resource(HudView { shown: true, ..default() })
+            .insert_resource(m)
+            .add_systems(Update, draw);
+        app.update(); // Spawn the fallback drawing.
+        app.update();
+        let texts = |world: &mut World| world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect::<Vec<_>>();
+        let before = texts(app.world_mut());
+        assert!(before.contains(&"+190".into()) && before.contains(&"1".into()) && before.contains(&"2".into()));
+        app.world_mut().resource_mut::<Meter>().step(4.6);
+        app.update();
+        // [documented: interface.rs, set_marked; fnv-font, Font::lines] The fallback
+        // Text contains only placed glyphs (spaces are advances). Check its glyphs;
+        // the model's literal "LEVEL UP" is checked separately below.
+        assert_eq!(texts(app.world_mut()), ["LEVELUP"]);
+        let mut visuals = app.world_mut().query_filtered::<&Visibility, With<MeterVisual>>();
+        assert!(visuals.iter(app.world()).all(|v| *v == Visibility::Hidden));
+    }
 
     /// A player at `level` with `xp`, between the default totals (200 for level 2, 550
     /// for 3, 1050 for 4), under a cap of 30.
@@ -551,10 +607,15 @@ mod tests {
         // The pointer starts where the player was and settles where the player is.
         assert_eq!(m.pointer(), s.from);
         assert!(!run(&mut m, 1.0));
-        assert!((m.pointer() - s.to).abs() < 1e-6);
+        assert!((m.pointer() - s.from).abs() < 1e-6);
+        assert!((m.strength() - 0.5).abs() < 1e-5);
+        run(&mut m, 2.0);
+        assert!((m.pointer() - (s.from + s.to) / 2.0).abs() < 1e-5);
         assert_eq!(m.strength(), 1.0);
-        // Gone some seconds after.
-        run(&mut m, 4.0);
+        run(&mut m, 1.1);
+        assert!((m.pointer() - s.to).abs() < 1e-6);
+        assert!(m.strength() < 1.0);
+        run(&mut m, 2.0);
         assert!(m.idle() && m.strength() == 0.0);
     }
 
@@ -571,16 +632,25 @@ mod tests {
     }
 
     #[test]
-    fn reaching_the_next_level_says_level_up_once_the_pointer_is_there() {
+    fn reaching_the_next_level_shows_a_separate_notice_after_the_meter() {
         let mut m = Meter::default();
         m.observe(&at(1, 150.0));
         assert_eq!(m.observe(&at(1, 210.0)), Some(Seen::Gained { amount: 60.0, level_up: true }));
         assert_eq!(m.show.as_ref().unwrap().to, 1.0);
         assert_eq!(m.texts().unwrap().2, "+60");
-        assert!(run(&mut m, 1.0));
+        assert!(!run(&mut m, 4.1));
+        assert!(m.level_up_filled());
+        assert_eq!(m.texts().unwrap().2, "+60");
+        assert!(!run(&mut m, 2.1));
+        assert_eq!(m.strength(), 0.0);
+        assert!(!m.idle());
+        assert!(run(&mut m, 1.4));
         assert_eq!(m.texts().unwrap().2, "LEVEL UP");
+        assert_eq!(m.strength(), 1.0);
         // The word's moment comes once.
         assert!(!run(&mut m, 1.0));
+        run(&mut m, 1.0);
+        assert!(m.idle());
     }
 
     #[test]
