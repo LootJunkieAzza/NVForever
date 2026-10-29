@@ -241,7 +241,8 @@ traits:
   code already reads);
 - `text`: `string`, `font` (fnv-font), `justify`, `wrapwidth`;
 - colour: `systemcolor`, `red`/`green`/`blue`, `brightness`;
-- `nif`: a model drawn into the menu, later.
+- `nif`: a model drawn into the menu; since the T12 leftovers a model of flat textured
+  squares (the breath meter) is drawn as pictures (hud.md §14.12), other models later.
 
 The layout is a pure function from the tree to rectangles (tested headless). What each
 drawing trait means exactly is checked against the original menu by menu (screenshots

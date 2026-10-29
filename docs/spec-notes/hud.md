@@ -301,7 +301,8 @@ the compass the eight directions' letters in Bevy's font.
   [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] The filled-bar
   sound and 5 s sound-to-menu wait stay; the original's sound moment is not captured.
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
-- The breath meter is built: drowning.md §3 (`hud_breath.rs`).
+- The breath meter is built: drowning.md §3 (`hud_breath.rs`); from its `nif` tile with
+  `[UI] TileMenus=HUDMainMenu` (§14.12).
 - The messages at the top left with their icons, subtitles,
   the armour-piercing icons. The ammo type's label is built (§4). The crippled-limb
   picture is built (§12), and Hardcore mode's words (§13).
@@ -978,7 +979,7 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 | `hud_needs.rs` words | `HardcoreMode` | tiles (§14.8), fixed word places |
 | `xp_meter.rs` | `XPMeter` | tiles (§14.8), independent visual clock |
 | `hud_limbs.rs` | `crippled_limb_indicator` | tiles (§14.8) |
-| `hud_breath.rs` | `BreathMeter` | hand-built: a `nif` tile (`Interface\HUD\AirTimer01.NIF`), not drawn |
+| `hud_breath.rs` | `BreathMeter` | tiles (§14.12): its `nif` tile drawn with the hand-built meter's model reader; the showing rule and the breath stay the hand-built HUD's |
 | `corner_messages.rs` | `Messages` | tiles (§14.11): the bracket, text and icon copies; the queue stays hand-built |
 | `quest_messages.rs` | `QuestReminder` (`Region_Location` gets nothing) | tiles (§14.11): banner and objective copies; the queue and sounds stay hand-built |
 | `script_hud.rs` subtitles | `Subtitles` | tiles (§14.11): its text copy; the selection stays hand-built |
@@ -1269,7 +1270,7 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   subtitle selection of `script_hud.rs`, and the hand-built showing rules (hidden and
   held behind a message box, in dialogue, while an idle holds the camera). The hand-built
   areas are hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`), their queues
-  still run; only `BreathMeter` stays in `KEPT_PIECES`.
+  still run; only `BreathMeter` stayed in `KEPT_PIECES` (until §14.12).
 - **Messages** [design, places observed]: the icon, text and bracket are made in that
   order, so `*:0`-`*:2` are as read; the text at its read x 130, y 5, depth 2. Alpha:
   icon and text 255 × the queue's strength, the bracket 0.65 of that (the hand-built
@@ -1316,3 +1317,55 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   the_log_names_what_each_area_shows}`. Smoke `tiles-hud-notices`, `tiles-hud-discovered`,
   `tiles-hud-subtitles`; the five other `tiles-*` scenarios expect only `BreathMeter`
   kept.
+
+### 14.12 The breath meter from its `nif` tile (T12 leftovers, 2026-10-29)
+
+- **The tile** [documented: `hud_main_menu.xml`, read with `fnvtool ui tree --at
+  HUDMainMenu/BreathMeter`]: `<nif name="BreathMeter">`, `filename`
+  `Interface\HUD\AirTimer01.NIF`, `animation` `Forward`, `visible` `&false;`, `alpha` 0,
+  64 x 64, `systemcolor` `&hudmain;`, no children and no place. [observed: §14] Its place
+  W/2, 110 and `visible` 8192 while playing (T4 writes both). No trait of the file says
+  how far into `Forward` the model stands or when it shows: the code drives both
+  [hypothesis]; neither was read in the original under water.
+- **What the hand-built meter does** (`hud_breath.rs`, drowning.md §3): it reads the
+  model itself (no 3D rendering): each textured square of the model's x–z plane is a
+  picture turned to its angle, the model's bounds fitted in its own 64 box centred at
+  W/2 and 104 down; `Forward`'s vis keys switch `Tick01`…`Tick16` off at the share of the
+  breath used [observed: the keys; hypothesis: the share].
+- [design] **The tile renderer draws `nif` tiles** with the whole menu drawn
+  (`engine/nvf-play/src/tiles/model.rs`): the tile's `filename` under `meshes\`
+  (`model::model_path`) read once by the same reader (`MeterModel::read_sequence`, with
+  the tile's `animation`), its pieces spawned by the hand-built meter's own code
+  (`hud_breath::spawn_pieces`), in the tile's colour and alpha. It is not the design
+  note's "drawn to a texture" (hud-xml.md §5): a model with no flat pieces draws nothing
+  and says so once. The mods' `nif` tiles with the switch off are still not drawn (T5).
+- [hypothesis] **Where**: the model's origin at the tile's `x`, `y`, one model unit an
+  interface unit, its z up the screen: the meter centred across at W/2 with its centre
+  about 110 down (the 16 ticks reach about 30 units round the origin, filling the 64 x
+  64 the file gives). The read x W/2, a left edge for every other piece, would put a box
+  drawn from the tile's top left right of the middle, where the original's meter is not
+  [the owner: "center high", drowning.md §3]. The hand-built meter (the default) keeps
+  the owner's place, centred 104 down, and its bounds-fitted size (about 7% larger).
+- [design] **When and how far** (`vanilla::write_breath`, only while the switch is on):
+  `BreathMeter`'s `alpha` 255 while the hand-built meter would show (`hud_breath::shown`:
+  the head under water, or the breath not yet whole, and the corners shown), 0 otherwise
+  [hypothesis: as the sneak word's and the radiation meter's children, §14.1]; and
+  `_NVFSequenceFraction`, NVForever's own trait, the share of the breath used (0 to 1),
+  which `model::animate` turns into `Forward`'s time each frame and shows the pieces by,
+  without spawning them again. The hand-built meter's root is hidden
+  (`vanilla::BreathRoot`), its model still read. `KEPT_PIECES` is empty; the start line
+  says `hand-built HUD hidden`.
+- **Needs a capture**: `BreathMeter`'s `alpha`, `visible`, `x`, `y` and any new trait
+  read under water (GetUIFloat every half second through a dive, as §14.1), and a
+  screenshot of the meter at 1280 x 720 with about half the breath used: its centre and
+  size against the tile's place, which tick goes first and whether the ticks go one by
+  one or fade.
+- Tests: `tiles::model::{a_nif_tile_names_its_model_under_meshes_and_its_sequence,
+  the_breath_meter_draws_from_its_tile_only_while_written_shown_with_the_switch_on,
+  the_model_stands_on_the_tiles_place_a_unit_a_unit,
+  the_ticks_go_out_as_the_fraction_written_grows}`,
+  `tiles::vanilla::{the_breath_meter_shows_by_alpha_and_stands_in_its_sequence_by_the_breath_used,
+  the_start_line_names_the_kept_pieces_only_when_there_are_any}`, the `hud_breath` tests.
+  Smoke `tiles-hud-breath` (new, shot `tiles_hud_breath.png`); the six other `tiles-*`
+  scenarios that quote the start line now expect `hand-built HUD hidden` with nothing
+  after it.

@@ -279,8 +279,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       ammo), sneak word, crosshair and radiation meter (`DrawnByTiles`, one PostUpdate
       system). Kept hand-built, their file/code tiles not drawn (`KEPT_PIECES`): the
       enemy bar, prompt, Hardcore words, XP meter, limbs, breath meter (the one `nif`
-      tile), corner and quest messages, subtitles (the texts since the T12 leftovers
-      below). The mapping: hud.md §14.7. Off,
+      tile), corner and quest messages, subtitles (the texts and the breath meter since
+      the T12 leftovers below; none is kept now). The mapping: hud.md §14.7. Off,
       T5's mod-only drawing is unchanged.
       - Renderer [menu-xml.md §3.1.3]: `zoom` (a number: texels × zoom/100 from the box's
         top left, cut to the box [documented: GECK wiki Zoom; hypothesis: one texel a
@@ -517,6 +517,28 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         scenarios now expect `hidden but for BreathMeter`. **Needs a capture:** the
         copies' traits while each kind of line shows (alpha over time, `wrapwidth`,
         template, parents under `QuestReminder`, any `Region_Location` child).
+    - **T12 leftovers: the breath meter, done** 2026-10-29 (`claude/tile-hud-breath`):
+      `BreathMeter`, the HUD's one `nif` tile, drawn from its tile (hud.md §14.12;
+      `engine/nvf-play/src/tiles/model.rs`); `KEPT_PIECES` is empty and the start line
+      ends `hand-built HUD hidden`.
+      - The tile [documented: the menu file]: `Interface\HUD\AirTimer01.NIF`, `animation`
+        `Forward`, 64 x 64, `&hudmain;`, alpha 0, no place (T4 writes W/2, 110 [observed]).
+      - The renderer draws `nif` tiles (whole menu only) by the hand-built meter's reader
+        and spawner (`hud_breath::{MeterModel::read_sequence, spawn_pieces}`): a model's
+        flat textured squares as turned pictures, not a model rendered to a texture (no
+        3D path; a model without flat pieces draws nothing). The model's origin at the
+        tile's x, y, a model unit a unit [hypothesis: the meter centred at W/2, as the
+        original's]; the hand-built meter keeps the owner's place 104 down.
+      - Rules kept hand-built [design]: when it shows (`hud_breath::shown`) and the share
+        of the breath used, written only while the switch is on (`vanilla::write_breath`:
+        `alpha` 255/0 [hypothesis], `_NVFSequenceFraction`, NVForever's own trait), the
+        pieces set each frame by `model::animate` without new nodes; the hand-built root
+        hidden (`vanilla::BreathRoot`).
+      - Tests: `tiles::model` (4), `tiles::vanilla` (2 new). Smoke `tiles-hud-breath`
+        (new, shot `tiles_hud_breath.png`); the six `tiles-*` scenarios that quote the
+        start line expect `hand-built HUD hidden`. **Needs a capture:** `BreathMeter`'s
+        traits through a dive and a screenshot of the original's meter (centre, size,
+        which tick goes first).
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
