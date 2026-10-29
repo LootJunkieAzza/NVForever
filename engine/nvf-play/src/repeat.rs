@@ -67,6 +67,12 @@ pub fn texels_for(size: (f64, f64), repeat: (f64, f64), texels: (f64, f64)) -> O
     Some(((w as u32, h as u32), (w * per.0, h * per.1)))
 }
 
+/// A picture's part of its texture (`interface::Picture`'s rect, in texels) as the whole
+/// texels `Repeats` cuts: left, top, width, height.
+pub fn piece_texels(rect: Rect) -> [u32; 4] {
+    [rect.min.x, rect.min.y, rect.width(), rect.height()].map(|v| v.round().max(0.0) as u32)
+}
+
 /// A baked image's key: the texture's game path, the piece's texel rect and the output
 /// size in texels.
 type BakeKey = (String, [u32; 4], u32, u32);
@@ -81,6 +87,13 @@ pub struct Repeats {
 }
 
 impl Repeats {
+    /// Texture `path`'s level 0 as RGBA8 and its width in texels, decoded once and kept
+    /// (`crate::compass_strip` reads the strip's texels so).
+    pub fn texels(&mut self, path: &str, data: &GameData) -> Option<(&[u8], usize)> {
+        let decoded = self.decoded.entry(path.to_string()).or_insert_with(|| decode(path, data));
+        decoded.as_ref().map(|(rgba, width)| (rgba.as_slice(), *width))
+    }
+
     /// The image of `piece` (texel rect; the whole texture for `None`) of texture `path`
     /// repeated to `out` texels, baked once and kept.
     pub fn baked(&mut self, path: &str, piece: Option<[u32; 4]>, out: (u32, u32), data: &GameData, images: &mut Assets<Image>) -> Option<Handle<Image>> {

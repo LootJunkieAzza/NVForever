@@ -18,9 +18,11 @@
 //!   view's size (§4).
 
 use crate::combat::{Combat, HudWeapon};
+use crate::compass_strip::{StripNode, StripTexels, StripWindow};
 use crate::control::ControlLocks;
 use crate::hud_target::HudTarget;
 use crate::player::Player;
+use crate::repeat::Repeats;
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
@@ -368,28 +370,11 @@ pub fn tick_lefts(length: f32, width: f32, count: usize) -> (Vec<f32>, f32) {
 /// full at about 250 and gone at about 300.5 pixels, the window from 45 to 303.75; its
 /// left end and the marks over it (the quest marker at SE, needs_limbs) are not faded;
 /// hypothesis: linear]. Nothing in the menu files says how: `hud_compass_alphamap.dds` is
-/// a white band of 20 texels and black [observed: the texture]. Until T12e the strip ran
-/// at full strength to the window's end [design].
+/// a white band of 20 texels and black [observed: the texture]. Both drawings bake the
+/// window's strip into one image, each texel column's alpha on this ramp
+/// (`crate::compass_strip`) [design]. Until T12e the strip ran at full strength to the
+/// window's end [design].
 pub const STRIP_FADE: (f32, f32) = (273.0, 341.0);
-/// The fade's steps across, in units [design: 2 units, 1.5 pixels at 720 lines].
-const FADE_STEP: f32 = 2.0;
-
-/// The compass window's upright parts, each `(left, width, alpha)` in window units: the
-/// full part, then the fading steps of [`STRIP_FADE`], each at the alpha of its middle;
-/// nothing past the fade's end. Both drawings cut the strip this way (the tile HUD's
-/// `tiles::draw` too) [design: a part a copy of the strip, Bevy's nodes have no alpha
-/// mask].
-pub fn strip_parts() -> Vec<(f32, f32, f32)> {
-    let (from, to) = STRIP_FADE;
-    let steps = ((to - from) / FADE_STEP).ceil() as usize;
-    let mut out = vec![(0.0, from, 1.0)];
-    for i in 0..steps {
-        let left = from + i as f32 * FADE_STEP;
-        let width = FADE_STEP.min(to - left);
-        out.push((left, width, 1.0 - (left + width / 2.0 - from) / (to - from)));
-    }
-    out
-}
 
 /// A bar's ticks in a row `room` pixels long, `step` and `width` from [`tick_pixels`]:
 /// where the first stands, every tick's left from it, and their width. A full row runs
@@ -596,6 +581,9 @@ struct Art {
     right_bracket: Option<Picture>,
     enemy_bracket: Option<Handle<Image>>,
     strip: Option<Picture>,
+    /// The strip's texels for its baked window (`crate::compass_strip`), taken when the
+    /// HUD is spawned.
+    strip_texels: Option<StripTexels>,
     arrows: Option<Handle<Image>>,
 }
 
@@ -613,12 +601,17 @@ fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Ar
     let mut pictures = Pictures::load(data);
     let mut piece = |name: &str| pictures.picture(&format!("interface\\hud\\{name}.dds"), data, images, bc);
     let (left_bracket, right_bracket) = (piece("glow_hud_left_seperatorglow"), piece("glow_hud_right_seperatorglow"));
+    let strip_name = "interface\\hud\\glow_hud_comp_direction_strip.dds";
     let strip = piece("glow_hud_comp_direction_strip");
+    let strip_texels = match (&strip, data) {
+        (Some((_, rect)), Some(data)) => StripTexels::read(&mut pictures, strip_name, None, *rect, &mut Repeats::default(), data),
+        _ => None,
+    };
     let mut read = |path: &str| data.and_then(|d| texture(path, d, images, bc)).map(|t| t.0);
     let hud = |name: &str| format!("{HUD_TEXTURES}{name}.dds");
     let enemy_bracket = read(&hud("glow_enemy_health_seperator"));
     let arrows = read(CND_ARROWS);
-    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, arrows }
+    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, strip_texels, arrows }
 }
 
 /// A picture over a node's box: its atlas piece's part of the texture, stretched.
@@ -657,12 +650,10 @@ struct Pip {
     index: usize,
 }
 
-/// The doubled compass strip in one of its window's parts, `left` units into the window
-/// (`strip_parts`).
+/// The compass window's strip: one baked image, or the doubled strip moved by the
+/// heading without its texels (`crate::compass_strip`).
 #[derive(Component)]
-struct Strip {
-    left: f32,
-}
+struct Strip(StripNode);
 
 /// The marks over the compass (`crate::compass` fills it): the window's place and size,
 /// clipped at its sides only, as the marks reach above and below the strip.
@@ -710,7 +701,9 @@ fn spawn_bracket(p: &mut ChildSpawnerCommands, image: &Option<Picture>, x: f32, 
     }
 }
 
-fn spawn_hud(commands: &mut Commands, art: &Art) {
+fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>, heading: f32) {
+    let window = art.strip_texels.take().and_then(|t| StripWindow::new(t, COMPASS.x, heading, images));
+    let art = &*art;
     let places = Places::new(&art.font.font);
     let color = amber(255.0);
     let font = &art.font.font;
@@ -726,29 +719,36 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             info!("compass: heading at x {x} of {w}, the strip's N at {n}, fading from {f}", x = COMPASS_HEADING, w = COMPASS.x, n = STRIP_HEADING, f = STRIP_FADE.0);
-            p.spawn(at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y)).with_children(|w| {
-                // The window in upright parts, the last ones fading (`strip_parts`), each
-                // cutting its own copy of the doubled strip.
-                for (left, width, alpha) in strip_parts() {
-                    let mut part = at(left, 0.0, width, COMPASS.y);
-                    part.overflow = Overflow::clip();
-                    let color = color.with_alpha(alpha);
-                    w.spawn(part).with_children(|c| {
-                        c.spawn((Strip { left }, at(-left, 0.0, 2.0 * STRIP.x, STRIP.y))).with_children(|s| {
-                            if let Some(image) = &art.strip {
-                                for i in 0..2 {
-                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture_node(image, color)));
-                                }
-                            } else {
-                                // The eight directions' letters, 45 degrees apart.
-                                for i in 0..16 {
-                                    let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][i % 8];
-                                    let line = font.lines(name, None).remove(0);
-                                    let x = i as f32 * STRIP.x / 8.0 - line.width / 2.0;
-                                    set_line(s, &art.font, &line, x, 44.0, color);
-                                }
+            let mut window_node = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
+            window_node.overflow = Overflow::clip();
+            p.spawn(window_node).with_children(|w| match window {
+                // One image of the window's strip, its right end faded
+                // (`crate::compass_strip`).
+                Some(window) => {
+                    let (tw, th) = window.texels();
+                    info!("compass: the strip baked into one window image of {tw} x {th} texels, faded from {f} to {t}", f = STRIP_FADE.0, t = STRIP_FADE.1);
+                    let size = window.size();
+                    let image = ImageNode { color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(window.image()) };
+                    w.spawn((Strip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image));
+                }
+                // Without the strip's texels: the doubled strip moved by the heading,
+                // unfaded.
+                None => {
+                    info!("compass: the strip drawn unfaded (its texels not read)");
+                    w.spawn((Strip(StripNode::Moving), at(strip_left(heading), 0.0, 2.0 * STRIP.x, STRIP.y))).with_children(|s| {
+                        if let Some(image) = &art.strip {
+                            for i in 0..2 {
+                                s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture_node(image, color)));
                             }
-                        });
+                        } else {
+                            // The eight directions' letters, 45 degrees apart.
+                            for i in 0..16 {
+                                let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][i % 8];
+                                let line = font.lines(name, None).remove(0);
+                                let x = i as f32 * STRIP.x / 8.0 - line.width / 2.0;
+                                set_line(s, &art.font, &line, x, 44.0, color);
+                            }
+                        }
                     });
                 }
             });
@@ -832,13 +832,13 @@ fn draw(
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
     mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
-    mut strip: Query<(&Strip, &mut Node), Without<ConditionBar>>,
+    mut strip: Query<(&mut Strip, &mut Node), Without<ConditionBar>>,
 ) {
     if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
         if view.shown {
-            let loaded = load_art(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
-            spawn_hud(&mut commands, &loaded);
+            let mut loaded = load_art(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
+            spawn_hud(&mut commands, &mut loaded, &mut images, view.heading);
             *art = Some(loaded);
         }
         return;
@@ -862,11 +862,8 @@ fn draw(
             node.width = width;
         }
     }
-    for (part, mut node) in &mut strip {
-        let left = u(strip_left(view.heading) - part.left);
-        if node.left != left {
-            node.left = left;
-        }
+    for (mut strip, node) in &mut strip {
+        strip.0.follow(view.heading, node, &mut images);
     }
 }
 
@@ -1202,26 +1199,6 @@ mod tests {
         }
         // Turning right moves the strip left.
         assert!(strip_left(100.0) < strip_left(90.0));
-    }
-
-    /// T12e: the strip's window in parts that cover it to the fade's end without gaps or
-    /// overlaps, full on the left, fading to nothing at the right.
-    #[test]
-    fn the_compass_strip_fades_out_at_its_right_end() {
-        let parts = strip_parts();
-        assert_eq!(parts[0], (0.0, STRIP_FADE.0, 1.0));
-        for p in parts.windows(2) {
-            assert!((p[0].0 + p[0].1 - p[1].0).abs() < 1e-4, "{p:?}");
-            assert!(p[1].2 < p[0].2 && p[1].2 > 0.0, "{p:?}");
-        }
-        let last = parts.last().unwrap();
-        assert!((last.0 + last.1 - STRIP_FADE.1).abs() < 1e-4 && STRIP_FADE.1 < COMPASS.x);
-        // Half way through the fade, half the strength; the original's 0.38 at x 280
-        // pixels is window x 313.
-        let at = |x: f32| parts.iter().find(|p| x >= p.0 && x < p.0 + p.1).map(|p| p.2);
-        assert!((at(307.0).unwrap() - 0.5).abs() < 0.02);
-        assert!((at(313.0).unwrap() - 0.41).abs() < 0.05);
-        assert_eq!(at(343.0), None);
     }
 
     #[test]

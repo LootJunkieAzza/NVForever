@@ -188,8 +188,18 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   [observed: §14.10; design until T12e: the strip at 148 too, its N 4.5 pixels left of
   the original's at 720 lines].
   The left end is cut off sharp; the right end fades out from x 273 of the window to
-  nothing at 341, linearly (`hud::STRIP_FADE`, `hud::strip_parts`), the marks over it
-  not faded [observed: §14.10; hypothesis: linear]. Until T12e both ends were sharp.
+  nothing at 341, linearly (`hud::STRIP_FADE`), the marks over it not faded [observed:
+  §14.10; hypothesis: linear]. Until T12e both ends were sharp. Both drawings bake the
+  window's strip into one image the window's width in texels (345 x the strip's height):
+  the strip's texels from the one at the window's left end (`hud::strip_left` in texels,
+  wrapping at its 1024 units), each column's alpha times the ramp, drawn stretched with
+  linear sampling and baked again in place only when the heading moves the strip a texel
+  (`crate::compass_strip`) [design]. Without the strip's texels, the doubled strip moved
+  by the heading, unfaded. The first T12e drawing cut the window into 2-unit clipped
+  slices, each with its own copy of the strip; a slice (1.5 pixels at 720 lines) and its
+  copy rounded to whole pixels apart, so neighbouring slices showed the strip a pixel
+  apart: "NE" striped like "ME", the ticks broken in steps [observed: the user's
+  screenshot of the fade].
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
   long and 20 high [documented: the size], the bar at brightness 175 over an opaque
   ground at 100 [observed: §14.7, the original's 175/255 and 100/255 of the HUD's colour;
@@ -1189,7 +1199,7 @@ the hand-built HUD (the default) keeps:
 | The AP bar's last tick against the upright (§4) | fixed: the clear strip after every tick; the health bar at x 20 | fixed: the right bracket at x -36 |
 | LMB with three limbs (§13) | kept: the owner's flashing look | fixed: alt red, 255 |
 | Quest marker under the compass (§11) | no quest in the scenes; off-band targets now held at the end | the same, through `CompassView` |
-| The strip's right end fades (§4) | fixed: `strip_parts` | fixed: the same parts |
+| The strip's right end fades (§4) | fixed: one baked window image (`compass_strip`) | fixed: the same image |
 | Condition bar 175, ground 100 (§4) | fixed | fixed |
 | LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | needs a capture (below) |
 | Compass pattern, end caps, health underline (§3) | fixed: the atlas pieces | already the pieces |
@@ -1217,8 +1227,10 @@ the hand-built HUD (the default) keeps:
   line, where the original shows them on one: read `radiation_text`'s and
   `radiation_text_value`'s `y` (and `height`) in radiation before changing `TEXT_BASE`.
 - Tests: `hud::{the_last_action_point_tick_stands_clear_of_the_upright,
-  the_compass_strip_fades_out_at_its_right_end, the_compass_keeps_the_heading_at_the_triangle,
-  the_pieces_stand_inside_their_brackets}`, `hud_needs::the_words_are_drawn_unscaled_and_end_at_their_x`,
+  the_compass_keeps_the_heading_at_the_triangle, the_pieces_stand_inside_their_brackets}`,
+  `compass_strip::{the_window_fades_out_at_its_right_end,
+  the_offset_is_the_strip_left_in_texels, the_window_wraps_at_the_strips_end,
+  the_window_is_baked_again_only_when_the_strip_moves_a_texel}`, `hud_needs::the_words_are_drawn_unscaled_and_end_at_their_x`,
   `compass::a_quest_target_off_the_compass_is_held_at_its_end`,
   `xp_meter::level_up_stands_above_the_amounts_line`,
   `radiation::the_bracket_stands_unstretched_where_it_stood`,
