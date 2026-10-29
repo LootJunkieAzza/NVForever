@@ -166,6 +166,9 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         };
         match ui.load_menu(files.as_ref(), path) {
             Ok(root) => {
+                if *name == "HUDMainMenu" {
+                    crate::ui_hud::build(&mut ui);
+                }
                 report.menus += 1;
                 let mut stack = vec![root];
                 while let Some(id) = stack.pop() {

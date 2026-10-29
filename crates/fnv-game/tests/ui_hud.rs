@@ -3,6 +3,8 @@
 use fnv_game::ui_hud::{self, Shown, Texts};
 use fnv_ui::{MemSource, Ui, Value};
 
+mod common;
+
 // Columns are 4:3, 16:10 and 16:9. The half-unit reticle offset follows the
 // truncated middle [hypothesis: hud.md §14, its child's 607.5/735.5/820.5].
 const PLACES: &[(&str, [f64; 3], f64)] = &[
@@ -93,6 +95,7 @@ fn texts() -> Texts {
         sneak: None,
         prompt_key: None,
         prompt_verb: None,
+        frame: Default::default(),
     }
 }
 
@@ -293,4 +296,340 @@ fn missing_file_tiles_are_skipped() {
     assert_eq!(ui.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("RAD/SEC"));
     assert!(ui.find_tile("HUDMainMenu/RadiationMeter/radiation_text_value").is_none());
     assert!(ui.find_tile("HUDMainMenu/Info/justify_center_hotrect").is_none());
+}
+
+// Hand-written synthetic templates with sentinel values [design]. Identifiers and
+// default tile names [documented: menus/prefabs/hudtemplates.xml; hud.md §14.6].
+fn copy_files(omit: &[&str]) -> MemSource {
+    let mut xml = String::from(r#"<menu name="HUDMainMenu"><class>&hudmainmenu;</class>"#);
+    for (template, kind, name, body) in [
+        (
+            "template_compass_window",
+            "image",
+            "compass_window",
+            "<width>345</width><height>64</height><x>20</x><y>65</y>",
+        ),
+        ("template_justify_left_text", "text", "justify_left_text", "<visible>0</visible><alpha>0</alpha>"),
+        ("template_justify_right_text", "text", "justify_right_text", ""),
+        ("template_justify_center_text", "text", "justify_center_text", ""),
+        ("template_meter", "image", "meter", "<height>20</height>"),
+        ("template_meter_background", "image", "MeterBackground", "<width>60</width><height>20</height>"),
+        ("template_left_bracket", "image", "left_bracket", ""),
+        ("template_right_bracket", "image", "right_bracket", ""),
+        (
+            "template_reticle_center",
+            "image",
+            "reticle_center",
+            "<user0>plain.dds</user0><user1>filled.dds</user1><width>64</width><height>64</height><x>2</x><y>9</y>",
+        ),
+        ("template_compass_npc_icon_group", "rect", "compass_npc_icon_group", "<y>17</y>"),
+        ("template_compass_icon_group", "rect", "compass_icon_group", "<y>17</y>"),
+        ("compass_npc_icon", "image", "compass_npc_icon", "<y>-10</y><x><copy src=\"me()\" trait=\"_Heading\"/></x>"),
+        ("template_compass_icon_player", "image", "compass_icon", ""),
+        ("template_compass_icon_quest", "image", "compass_icon", ""),
+        ("template_compass_icon_marker", "image", "compass_icon", ""),
+    ] {
+        if !omit.contains(&template) {
+            xml.push_str(&format!(r#"<template name="{template}"><{kind} name="{name}"><depth>17</depth>{body}</{kind}></template>"#));
+        }
+    }
+    xml.push_str(
+        r#"<rect name="HitPoints"/><rect name="ActionPoints"/><rect name="ReticleCenter"/>
+        <rect name="Info"><rect name="justify_center_hotrect"/></rect>
+        <rect name="Subtitles"/><rect name="RadiationMeter"><image name="radiation_pointer"/></rect></menu>"#,
+    );
+    MemSource::default().with("menus/hud.xml", &xml)
+}
+
+fn copy_tree(omit: &[&str]) -> Ui {
+    let files = copy_files(omit);
+    let mut ui = Ui::new();
+    ui.load_menu(&files, "menus/hud.xml").unwrap();
+    ui_hud::build(&mut ui);
+    ui.update();
+    ui
+}
+
+// Ordering [observed: hud.md §14–§14.4]; uncaptured names [hypothesis: hud.md §14.6].
+fn assert_copy_paths(ui: &Ui) {
+    for (parent, names) in [
+        ("HitPoints", &["compass_window", "justify_left_text", "meter", "left_bracket"][..]),
+        (
+            "ActionPoints",
+            &[
+                "MeterBackground",
+                "meter:0",
+                "justify_right_text:0",
+                "justify_right_text:1",
+                "justify_right_text:2",
+                "meter:1",
+                "right_bracket",
+            ][..],
+        ),
+        ("ReticleCenter", &["reticle_center"][..]),
+        (
+            "Info",
+            &[
+                "justify_center_hotrect",
+                "justify_left_text:0",
+                "justify_left_text:1",
+                "justify_left_text:2",
+                "justify_left_text:3",
+                "justify_left_text:4",
+                "justify_left_text:5",
+                "justify_center_text:0",
+                "justify_center_text:1",
+            ][..],
+        ),
+        ("HitPoints/compass_window", &["compass_npc_icon_group", "compass_icon_group:0", "compass_icon_group:1"][..]),
+    ] {
+        for (i, name) in names.iter().enumerate() {
+            let named = ui.find_tile(&format!("HUDMainMenu/{parent}/{name}"));
+            assert!(named.is_some(), "{parent}/{name}");
+            assert_eq!(named, ui.find_tile(&format!("HUDMainMenu/{parent}/*:{i}")));
+        }
+    }
+    assert!(ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/compass_icon").is_some());
+    for (path, expected) in [("HitPoints/compass_window/compass_npc_icon_group/y", 10.0), ("HitPoints/compass_window/compass_icon_group:0/y", 30.0), ("ReticleCenter/reticle_center/depth", 1.0)] {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/{path}")), Some(expected));
+    }
+    for i in 0..10 {
+        assert_eq!(
+            ui.find_tile(&format!("HUDMainMenu/HitPoints/compass_window/compass_npc_icon_group/compass_npc_icon:{i}")),
+            ui.find_tile(&format!("HUDMainMenu/HitPoints/*:0/*:0/*:{i}"))
+        );
+    }
+}
+
+#[test]
+fn copies_exist_by_name_and_index_on_load_and_rebuild() {
+    use fnv_esm::{LoadOrder, Plugin, Schema};
+    use fnv_game::{ui_loading, Game, GameConfig, GameData};
+    use fnv_script::FunctionTable;
+    use fnv_sim::{FormStore, RefTable, SimConfig, World};
+    let plugins = vec![Plugin::parse(&common::tes4(), "Empty.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let functions = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, FunctionTable::load(&path).unwrap(), &functions, &refs);
+    let mut game = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+    for _ in 0..2 {
+        let files = copy_files(&[]);
+        ui_loading::load(&mut game, Box::new(files), ["menus/hud.xml".into()]);
+        assert_copy_paths(&game.ui_tree);
+        assert_eq!(game.ui_tree.get_string("HUDMainMenu/HitPoints/*:1/string").as_deref(), Some("HP"));
+        assert!(game.ui_tree.find_tile("HUDMainMenu/HitPoints/Injected").is_none());
+        game.ui_tree.inject_text(&MemSource::default(), "HUDMainMenu/HitPoints", r#"<rect name="Injected"/>"#);
+        game.ui_tree.set_string("HUDMainMenu/HitPoints/*:1/string", "changed");
+    }
+}
+
+#[test]
+fn bar_copies_follow_captured_tick_and_condition_widths() {
+    let mut ui = copy_tree(&[]);
+    let mut input = texts();
+    // Health/AP and condition pairs [observed: hud.md §14.3].
+    for (health, hp_width) in [(1.0, 296.0), (0.5, 144.0), (0.1, 24.0)] {
+        input.frame.health = health;
+        for (ap, width) in [(43.68 / 80.0, 160.0), (52.15 / 80.0, 192.0), (69.7 / 80.0, 256.0), (1.0, 296.0)] {
+            input.frame.action_points = ap;
+            ui_hud::write(&mut ui, all_shown(), &input);
+            ui.update();
+            assert_eq!(ui.get_float("HUDMainMenu/HitPoints/*:2/width"), Some(hp_width));
+            assert_eq!(ui.get_float("HUDMainMenu/HitPoints/meter/x"), Some(20.0));
+            assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/*:5/width"), Some(width));
+            assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/*:5/x"), Some(326.0 - width));
+        }
+    }
+    for (condition, width) in [(0.999, 59.0), (0.5, 30.0), (0.4987, 29.0), (0.1, 6.0)] {
+        input.frame.condition = Some(condition);
+        input.frame.ammo = "12/60".into();
+        ui_hud::write(&mut ui, all_shown(), &input);
+        ui.update();
+        assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/*:1/width"), Some(width));
+        assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/*:1/x"), Some(90.0));
+        assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/*:1/y"), Some(83.0));
+        assert_eq!(ui.get_string("HUDMainMenu/ActionPoints/*:3/string").as_deref(), Some("12/60"));
+    }
+    assert_eq!(ui.get_string("HUDMainMenu/ActionPoints/*:2/string").as_deref(), Some("CND"));
+    assert_eq!(ui.get_string("HUDMainMenu/ActionPoints/*:4/string").as_deref(), Some("AP"));
+    assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/*:0/width"), Some(60.0));
+}
+
+fn prompt(height: f64) -> ui_hud::Prompt {
+    ui_hud::Prompt {
+        name: "Goodsprings Settler".into(),
+        weight: "--".into(),
+        value: "--".into(),
+        empty: false,
+        locked: false,
+        height,
+    }
+}
+
+#[test]
+fn prompt_and_reticle_copies_change_and_keep_absent_strings() {
+    let mut ui = copy_tree(&[]);
+    let mut input = Texts {
+        prompt_verb: Some("Talk".into()),
+        ..texts()
+    };
+    input.frame.prompt = Some(prompt(42.0));
+    ui_hud::write(&mut ui, all_shown(), &input);
+    ui.update();
+    for (i, value) in ["VAL", "--", "WG", "--", "[EMPTY]", "Locked", "Goodsprings Settler", "Talk"].iter().enumerate() {
+        assert_eq!(ui.get_string(&format!("HUDMainMenu/Info/*:{}/string", i + 1)).as_deref(), Some(*value));
+    }
+    for i in [5, 6] {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{i}/visible")), Some(1.0));
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/Info/*:{i}/alpha")), Some(0.0));
+    }
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:7/height"), Some(42.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:7/y"), Some(2.0));
+    assert_eq!(ui.get_string("HUDMainMenu/ReticleCenter/reticle_center/filename").as_deref(), Some("filled.dds"));
+    assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/reticle_center/user0"), Some(0.0));
+    assert_eq!(ui.get_string("HUDMainMenu/ReticleCenter/reticle_center/user1").as_deref(), Some("filled.dds"));
+    assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/*:0/depth"), Some(1.0));
+    ui_hud::write(&mut ui, Shown { info: false, ..all_shown() }, &texts());
+    ui.update();
+    assert_eq!(ui.get_string("HUDMainMenu/Info/*:7/string").as_deref(), Some("Goodsprings Settler"));
+    assert_eq!(ui.get_string("HUDMainMenu/Info/*:8/string").as_deref(), Some("Talk"));
+    assert_eq!(ui.get_float("HUDMainMenu/Info/*:7/alpha"), Some(0.0));
+    assert_eq!(ui.get_string("HUDMainMenu/ReticleCenter/reticle_center/filename").as_deref(), Some("plain.dds"));
+}
+
+#[test]
+fn subtitles_follow_both_captured_prompt_heights_and_restore_without_prompt() {
+    let mut ui = copy_tree(&[]);
+    let mut input = texts();
+    for (height, y) in [(42.0, 610.0), (80.0, 572.0)] {
+        input.frame.prompt = Some(prompt(height));
+        ui_hud::write(&mut ui, all_shown(), &input);
+        ui.update();
+        assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(y));
+    }
+    ui_hud::write(&mut ui, Shown { info: false, ..all_shown() }, &input);
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(660.0));
+    ui_hud::write(&mut ui, all_shown(), &texts());
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(660.0));
+}
+
+#[test]
+fn pointer_replays_recorded_x_values_with_provisional_scale() {
+    let mut ui = copy_tree(&[]);
+    let mut input = texts();
+    // Outputs [observed: hud.md §14.1–§14.2]; input totals are synthetic [design],
+    // testing the unit-slope hypothesis, NOT claimed captured rad/x pairs [hypothesis: §14.6].
+    for (rads, x) in [(0.0, 15.0), (21.0, 36.0), (27.0, 42.0), (27.9, 42.9), (1000.0, 42.9), (-1.0, 15.0), (f64::NAN, 15.0)] {
+        input.frame.radiation = rads;
+        ui_hud::write(&mut ui, all_shown(), &input);
+        ui.update();
+        assert_eq!(ui.get_float("HUDMainMenu/RadiationMeter/radiation_pointer/x"), Some(x));
+    }
+}
+
+#[test]
+fn compass_marks_write_heading_distance_visibility_and_reuse_slots() {
+    use ui_hud::{CompassMark, MarkKind};
+    let mut ui = copy_tree(&[]);
+    let mut input = texts();
+    input.frame.marks = vec![
+        CompassMark {
+            kind: MarkKind::Actor,
+            heading: 139.0,
+            distance: 99.0,
+        },
+        CompassMark {
+            kind: MarkKind::Hostile,
+            heading: 30.1,
+            distance: 99.0,
+        },
+        CompassMark {
+            kind: MarkKind::Quest,
+            heading: 148.0,
+            distance: 12.0,
+        },
+        CompassMark {
+            kind: MarkKind::Place,
+            heading: 272.7,
+            distance: 13.0,
+        },
+        CompassMark {
+            kind: MarkKind::Found,
+            heading: 279.0,
+            distance: 14.0,
+        },
+    ];
+    ui_hud::write(&mut ui, all_shown(), &input);
+    ui.update();
+    for (path, x, distance, visible) in [
+        ("compass_npc_icon_group/*:0", 139.0, 1.0, 1.0),
+        ("compass_npc_icon_group/*:1", 30.1, 1.0, 1.0),
+        ("compass_icon_group:0/*:1", 148.0, 12.0, 1.0),
+        ("compass_icon_group:1/*:0", 272.7, 13.0, 1.0),
+        ("compass_icon_group:1/*:1", 279.0, 14.0, 0.0),
+    ] {
+        let path = format!("HUDMainMenu/HitPoints/compass_window/{path}");
+        assert_eq!(ui.get_float(&format!("{path}/_Heading")), Some(x));
+        assert_eq!(ui.get_float(&format!("{path}/x")), Some(x));
+        assert_eq!(ui.get_float(&format!("{path}/_Distance")), Some(distance));
+        assert_eq!(ui.get_float(&format!("{path}/visible")), Some(visible));
+    }
+    let npc = ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_npc_icon_group").unwrap();
+    assert_eq!(ui.tile(npc).children.len(), 10);
+    assert_eq!(ui.tile(npc).get("y"), Some(&Value::Num(10.0)));
+    let quest = ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:1").unwrap();
+    input.frame.marks.clear();
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.tile(quest).get("visible"), Some(&Value::Num(0.0)));
+    input.frame.marks.push(CompassMark {
+        kind: MarkKind::Quest,
+        heading: 139.0,
+        distance: 1.0,
+    });
+    ui_hud::write(&mut ui, all_shown(), &input);
+    assert_eq!(ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:1"), Some(quest));
+    assert_eq!(ui.tile(quest).get("visible"), Some(&Value::Num(1.0)));
+}
+
+#[test]
+fn missing_templates_and_parents_skip_quietly_without_cross_writes() {
+    ui_hud::build(&mut Ui::new());
+    let mut ui = fixture();
+    ui_hud::build(&mut ui);
+    assert!(ui.warnings.is_empty());
+    assert!(ui.find_tile("HUDMainMenu/HitPoints/compass_window").is_none());
+    // A mod's own same-named tile is not a code copy [design].
+    ui.inject_text(&MemSource::default(), "HUDMainMenu/HitPoints", r#"<image name="meter"><width>17</width></image>"#);
+    ui_hud::write(&mut ui, all_shown(), &texts());
+    assert_eq!(ui.get_float("HUDMainMenu/HitPoints/meter/width"), Some(17.0));
+    for missing in [
+        "template_meter",
+        "template_justify_left_text",
+        "template_compass_npc_icon_group",
+        "template_compass_icon_player",
+        "template_compass_icon_quest",
+    ] {
+        let mut ui = copy_tree(&[missing]);
+        let mut input = texts();
+        input.frame.marks.push(ui_hud::CompassMark {
+            kind: ui_hud::MarkKind::Quest,
+            heading: 139.0,
+            distance: 1.0,
+        });
+        ui_hud::write(&mut ui, all_shown(), &input);
+        ui.update();
+        assert!(ui.warnings.is_empty(), "{missing}");
+        assert_eq!(ui.get_string("HUDMainMenu/ActionPoints/justify_right_text:0/string").as_deref(), Some("CND"));
+        if missing == "template_meter" {
+            assert!(ui.find_tile("HUDMainMenu/ActionPoints/meter").is_none());
+            assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/MeterBackground/width"), Some(60.0));
+        }
+        if missing == "template_compass_icon_player" {
+            assert_eq!(ui.get_float("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/*:0/visible"), Some(1.0));
+        }
+    }
 }

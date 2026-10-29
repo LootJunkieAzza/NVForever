@@ -597,8 +597,8 @@ site's shack (`coc SLNuclearTestShackINT`).
   slots of the children) are open.
 - [design] T4a writes the pieces' values as above and the alpha of `sneak_nif` and the
   four radiation tiles (`Shown::sneak`, `Shown::radiation`); the reticle 0 and the enemy
-  bar 8 while `AimZoom::aimed`. The prompt's and the sneak word's sizes, the pointer's
-  place and the subtitles' move wait for the text measurement (T5) and the strings.
+  bar 8 while `AimZoom::aimed`. The prompt's and the sneak word's text widths wait
+  for measurement; the provisional pointer and subtitle rules are now in §14.6.
 
 ### 14.2 The strings, through JIP (2026-10-29)
 
@@ -640,7 +640,7 @@ code-made children of the nine pieces (501 reads a sample).]
 - [design] T4b uses the observed "H20" for the dehydration fallback (`hud_needs.rs`,
   `sStatsH20Abbrev`), shared with the tile tree. The file tiles' strings above are
   written before scripts; absent sneak and prompt strings keep their last value.
-  The code-made children remain for T4.
+  The code-made children are now built in the headless tree (§14.6).
 
 ### 14.3 The corners' bars, the ammo counter, the compass (2026-10-29)
 
@@ -757,3 +757,56 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   the strip and the marks (`compass.rs`), keeping 1024 units per turn; a mark shows
   while its offset from the heading point is within 139 units either way [observed: actor
   ticks and one place mark in the sweep; hypothesis: the same band for quest marks].
+
+### 14.6 Headless copies and provisional rules (T5)
+
+- [design] `crates/fnv-game/src/ui_hud/copies.rs` creates the copies after the HUD menu
+  loads, including save-load rebuilds, through one helper awaiting the parallel `Code`
+  tile origin. Missing templates/parents are skipped. Frames write before scripts
+  (ui-tile-tree.md §4.1); text widths and enemy children remain deferred.
+- [documented: `menus/prefabs/hudtemplates.xml`] Template identifiers use
+  `template_justify_left_text`, `template_justify_right_text`,
+  `template_justify_center_text`, `template_meter`, `template_meter_background`,
+  `template_left_bracket`, `template_right_bracket`, `template_compass_window`,
+  `template_compass_npc_icon_group`, `compass_npc_icon`, `template_compass_icon_group`,
+  `template_compass_icon_player`, `template_compass_icon_quest`,
+  `template_compass_icon_marker`, `template_reticle_center`. Their tile names are the
+  identifiers without `template_`, except `MeterBackground` and the three icon variants
+  all named `compass_icon`. The reticle's `user0`/`user1` are picture paths; retaining
+  these strings also gives the numeric 0 observed in §14.4.
+- [hypothesis] Except for `compass_window` and `reticle_center` (§14.4), the captures
+  record indices but do not confirm copy names. Retain the template names. Under
+  `HitPoints`, use compass, left text, meter, left bracket in indices 0–3 (§14).
+  Under `ActionPoints`, use background, condition meter, three right texts (CND,
+  ammo, AP), AP meter, right bracket in indices 0–6 (§14–§14.3). The condition
+  copy uses `template_meter` with the captured VATS picture (§14.2).
+- [hypothesis] Under `Info`, use six left texts (VAL, value, WG, weight, empty, locked)
+  and two centre texts (name, verb), after the file's hotrect: indices 1–8 (§14.2).
+  Show HP's left-text copy with visible 1/alpha 255; show prompt texts while prompted,
+  with empty/locked alpha controlled by the corresponding target state. Only the
+  actor's empty/locked alpha 0 was captured (§14.1); other targets need captures.
+- [hypothesis] Compass group 0 holds actor ticks, group 1 player/quest icons, group 2
+  places. §14.4 settles the first group and the other two groups' y, but not the split
+  between the latter. Start with ten hidden actor slots and one hidden player icon;
+  reuse slots and hide surplus ones, growing pools as needed [design]. `_Heading`
+  uses the drawing's existing offset plus 139 (§14.5 [observed]); actor `_Distance`
+  stays 1 (§14.4 [observed]). Other distances default to 1 [hypothesis: the drawing's
+  `CompassView` stores kind/offset only; the quest template defaults to 1
+  (documented: `hudtemplates.xml`)]. The NVForever-owned `_NVFHudTemplate` trait distinguishes
+  pools even when a mod omits a template [design].
+- [hypothesis] §14.1 records pointer x 15, 36, 42 and 42.9, but no paired accumulated
+  radiation totals. Use the minimal provisional unit slope `x = 15 + accumulated rads`,
+  clamped to the captured x range [design: no extrapolation]. This is **not a measured
+  scale**. Tests choose synthetic totals to replay those x values, not claimed observed
+  rad/x pairs. To settle it, set several known accumulated-rad totals (including 0)
+  and read pointer x at each, with further totals between them to test linearity.
+- [hypothesis] Subtitles use `660 - (prompt height + 8)` while the prompt shows,
+  reproducing 610 at height 42 and 572 at height 80 (§14.3 [observed]); other heights
+  follow the same rule. Restore 660 without a prompt; §14.1 did not observe the return.
+  Capture prompt appearance/removal while subtitles remain on-screen to settle it.
+  The adapter uses 42 for one explicit name line, 80 for more [hypothesis]; automatic
+  wrapping and further lines await font layout [design].
+- [design] `engine/nvf-play/src/tiles.rs` supplies the latest `HudView` shares and
+  `CompassView` marks, current weapon/ammo, accumulated radiation actor value and
+  existing activation prompt. Drawing systems are unchanged; snapshots gathered
+  after scripts become available to the next frame's before-script writes.

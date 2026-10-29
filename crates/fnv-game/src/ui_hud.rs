@@ -2,6 +2,9 @@
 
 use fnv_ui::{Ui, Value};
 
+mod copies;
+pub use copies::{build, CompassMark, MarkKind, Frame, Prompt};
+
 /// What the engine's HUD currently shows; no drawing or engine types here [design].
 /// The pieces' `visible` does not follow these; the children it is observed on do
 /// (`write`), the rest wait for their captures [observed: hud.md §14.1].
@@ -42,6 +45,8 @@ pub struct Texts {
     pub sneak: Option<String>,
     pub prompt_key: Option<String>,
     pub prompt_verb: Option<String>,
+    /// Code-made tiles' changing inputs; defaults need no engine types [design].
+    pub frame: Frame,
 }
 
 /// Called after menu lifetime sync, before scripts [design: ui-tile-tree.md §4.1].
@@ -140,7 +145,6 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
             ui.set_trait(tile, "alpha", Value::Num(if on { 255.0 } else { 0.0 }));
         }
     }
-    // File tiles only; the code-made children wait for their creation [design: T4b].
     // Every path and string below [observed: hud.md §14.2]. Radiation and XP words
     // and the needs are written even when hidden; absent sneak/prompt texts keep
     // their last value, as observed after standing or losing the target.
@@ -165,4 +169,5 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
             }
         }
     }
+    copies::write(ui, shown, texts);
 }
