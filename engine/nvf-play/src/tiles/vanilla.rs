@@ -182,6 +182,11 @@ pub const CONDITION_FILL_ZOOM: f64 = 100.0 * 20.0 / 11.0;
 ///   abbreviation over the condition bar; observed: the original's abbreviation stands
 ///   right of the divider, hud.rs `AMMO_LABEL_X`];
 /// - the condition fill's `zoom` ([`CONDITION_FILL_ZOOM`]);
+/// - the health and action points bars' `brightness`, the hand-built bars'
+///   (`hud::METER_BRIGHTNESS`, 175) [hypothesis: `brightness.xml`'s "meter and compass in
+///   HUD", the enemy bar's meter's read 175; the original's ticks are about 0.7 of its
+///   lines' colour on `hud_corners2`, hud.md §14.9; their own `brightness` was not read]
+///   (T12d);
 /// - the condition row (the ground, "CND", `CNDArrows`) shown by alpha only with a
 ///   weapon's condition, as the hand-built HUD hides its row [design].
 pub fn write_corners(ui: &mut Ui, c: &Corner) {
@@ -201,6 +206,9 @@ pub fn write_corners(ui: &mut Ui, c: &Corner) {
     set(ui, "AmmoTypeLabel", "x", Value::Num(x));
     set(ui, "AmmoTypeLabel", "y", Value::Num(y));
     set(ui, "ActionPoints/meter:0", "zoom", Value::Num(CONDITION_FILL_ZOOM));
+    for path in ["HitPoints/meter", "ActionPoints/meter:1"] {
+        set(ui, path, "brightness", Value::Num(f64::from(crate::hud::METER_BRIGHTNESS)));
+    }
     let on = |alpha: f64| Value::Num(if c.condition { alpha } else { 0.0 });
     set(ui, "ActionPoints/MeterBackground", "alpha", on(GROUND_ALPHA));
     set(ui, "ActionPoints/justify_right_text:0", "alpha", on(255.0));
@@ -252,6 +260,7 @@ mod tests {
         ui.load_menu(&src, "hud.xml").unwrap();
         for (at, template) in [
             ("HUDMainMenu/HitPoints", "template_justify_left_text"),
+            ("HUDMainMenu/HitPoints", "template_meter"),
             ("HUDMainMenu/ActionPoints", "template_meter_background"),
             ("HUDMainMenu/ActionPoints", "template_meter"),
             ("HUDMainMenu/ActionPoints", "template_justify_right_text"),
@@ -268,6 +277,8 @@ mod tests {
         // condition fill's picture zoomed to fill its box.
         assert_eq!((f(&ui, "AmmoTypeLabel/x"), f(&ui, "AmmoTypeLabel/y")), (1370.0, 885.0));
         assert_eq!(f(&ui, "ActionPoints/meter/zoom"), CONDITION_FILL_ZOOM);
+        // The health bar's ticks at the meters' brightness (T12d).
+        assert_eq!(f(&ui, "HitPoints/meter/brightness"), 175.0);
         assert_eq!((f(&ui, "HitPoints/justify_left_text/x"), f(&ui, "HitPoints/justify_left_text/y")), (23.0, 10.0));
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:0/x"), 79.0);
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:1/x"), 317.0);

@@ -33,10 +33,16 @@
 //!   shows no distance: its icon file sets `_Distance` and nothing reads it [documented:
 //!   `menus/prefabs/compassicon.xml`].
 //! - The ranges are guesses: no game setting for them is in the masters [hypothesis].
+//! - Who and what is near is looked at ten times a second ([`gather`], [`CompassNear`]);
+//!   where each mark stands on the compass is worked out every frame from the camera's
+//!   heading, the player's place and the actors' moving bodies ([`place`]), unrounded,
+//!   so the marks move as smoothly as the strip (T12d) [design: at ten places a second,
+//!   and in whole units, they stepped while the player turned or the actors walked,
+//!   where the original's glide, the owner's play of 2026-10-29].
 
 use crate::hud::{CompassMarks, COMPASS_HEADING, STRIP};
 use fnv_game::quest_targets::{DoorGraph, Place as QuestPlace};
-use crate::interface::{amber, at, bc_supported, texture};
+use crate::interface::{amber, at, bc_supported, texture, u};
 use crate::phys::PhysState;
 use crate::pipboy::data::DataState;
 use crate::player::Player;
@@ -117,16 +123,49 @@ pub fn on_compass(x: f32) -> bool {
     x.abs() <= COMPASS_VISIBLE
 }
 
-/// The marks drawn: kind and place across (whole units, so the drawing changes only when
-/// a mark moves visibly).
+/// The marks drawn: kind and place across in compass units right of the heading point,
+/// unrounded (T12d), worked out every frame by [`place`].
 #[derive(Resource, Default, Debug, PartialEq, Clone)]
-pub struct CompassView(pub Vec<(Mark, i32)>);
+pub struct CompassView(pub Vec<(Mark, f32)>);
+
+/// A mark the last look found ([`gather`]): its kind, where it stood (game x, y) and the
+/// actor whose moving body ([`PhysState::npcs`]) it follows between looks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Near {
+    pub mark: Mark,
+    pub at: [f32; 2],
+    pub body: Option<u32>,
+}
+
+/// The marks in range at the last look, whatever their bearing.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct CompassNear(pub Vec<Near>);
+
+/// The marks of `near` on the compass for a player at `here` facing `heading`
+/// (degrees), each actor at its body's feet in `bodies` when it has one, sorted by kind
+/// then place [design].
+pub fn marks(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32)> {
+    let mut out: Vec<(Mark, f32)> = near
+        .iter()
+        .filter_map(|n| {
+            let at = n.body.and_then(bodies).unwrap_or(n.at);
+            let x = offset(heading, here, at);
+            on_compass(x).then_some((n.mark, x))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    out
+}
 
 pub struct CompassPlugin;
 
 impl Plugin for CompassPlugin {
     fn build(&self, app: &mut App) {
+        // The marks are placed after the player and the camera move and before the tile
+        // HUD's writes (`crate::tiles`), so both drawings put them with this frame's strip.
         app.init_resource::<CompassView>()
+            .init_resource::<CompassNear>()
+            .add_systems(Update, place.after(PlaySet::Physics).before(PlaySet::Activation))
             .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
             .add_systems(Update, crate::pipboy::data::refresh_quest_targets.in_set(PlaySet::Ui));
         crate::save::add_save_hook(app, SAVE_HOOK);
@@ -218,7 +257,7 @@ fn gather(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut poll: Local<f32>,
-    mut view: ResMut<CompassView>,
+    mut near: ResMut<CompassNear>,
     mut logged: Local<[usize; 5]>,
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
@@ -235,7 +274,9 @@ fn gather(
     let feet = player.feet;
     let here = [feet[0], feet[1]];
     let bodies: std::collections::HashMap<u32, [f32; 3]> = phys.npcs.iter().map(|(&id, b)| (id, b.ch.feet)).collect();
-    let mut marks: Vec<(Mark, i32)> = Vec::new();
+    // Every mark in range, and the kinds of those in the compass's window now (the log).
+    let mut found_near: Vec<Near> = Vec::new();
+    let mut marks: Vec<Mark> = Vec::new();
     let mut perception = 5.0;
     // Actors in range and in the window left off because they sneak.
     let mut sneakers = 0;
@@ -250,21 +291,24 @@ fn gather(
                 if d > range || g.is_dead(r) || !g.present(r) {
                     continue;
                 }
-                let x = offset(heading, here, [at[0], at[1]]);
-                if !on_compass(x) {
-                    continue;
-                }
+                let shown = on_compass(offset(heading, here, [at[0], at[1]]));
                 if !g.compass_shows(r) {
-                    sneakers += 1;
+                    sneakers += usize::from(shown);
                     continue;
                 }
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
                 let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
-                out.push((if hostile { Mark::Hostile } else { Mark::Actor }, x.round() as i32));
+                let mark = if hostile { Mark::Hostile } else { Mark::Actor };
+                out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
             }
             out
         });
-        marks.extend(found);
+        for (n, shown) in found {
+            if shown {
+                marks.push(n.mark);
+            }
+            found_near.push(n);
+        }
     }
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         if loc.interior.is_none() {
@@ -273,10 +317,11 @@ fn gather(
                 if !sim.present(form) || (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > range {
                     continue;
                 }
-                let x = offset(heading, here, [pos[0], pos[1]]);
-                if on_compass(x) {
-                    marks.push((if found { Mark::Found } else { Mark::Place }, x.round() as i32));
+                let mark = if found { Mark::Found } else { Mark::Place };
+                if on_compass(offset(heading, here, [pos[0], pos[1]])) {
+                    marks.push(mark);
                 }
+                found_near.push(Near { mark, at: [pos[0], pos[1]], body: None });
             }
         }
     }
@@ -286,35 +331,58 @@ fn gather(
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         for c in st.marked_targets() {
             let graph = graph.get_or_insert_with(|| DoorGraph::build(sim.refs));
-            let Some(pos) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
+            let Some((pos, itself)) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
             placed += 1;
-            let x = offset(heading, here, [pos[0], pos[1]]);
-            if on_compass(x) {
-                marks.push((Mark::Quest, x.round() as i32));
+            if on_compass(offset(heading, here, [pos[0], pos[1]])) {
+                marks.push(Mark::Quest);
                 shown += 1;
             }
+            // A target that walks is followed by its body; a door stays.
+            let body = (itself && bodies.contains_key(&c.target.0)).then_some(c.target.0);
+            found_near.push(Near { mark: Mark::Quest, at: [pos[0], pos[1]], body });
         }
     }
     if *logged_quest != Some((placed, shown)) {
         info!("compass: {placed} quest target(s) placed, {shown} on the compass");
         *logged_quest = Some((placed, shown));
     }
-    marks.sort();
-    let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(&m.0)).count();
+    let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(m)).count();
     let counts = [count(&[Mark::Actor, Mark::Hostile]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found]), sneakers];
     if counts != *logged {
         let [actors, hostile, markers, found, sneakers] = counts;
         info!("compass: {actors} actors ({hostile} hostile), {markers} map markers ({found} found) on the compass, Perception {perception}, {sneakers} sneaking left off");
         *logged = counts;
     }
-    view.set_if_neq(CompassView(marks));
+    near.0 = found_near;
+}
+
+/// Where the marks stand this frame (see the module notes): from the last look's
+/// marks, the camera's heading (shared with the strip [observed: hud.md §14.5]) and the
+/// player's and the actors' places now.
+pub(crate) fn place(
+    state: Res<State<PlayState>>,
+    player: Option<Res<Player>>,
+    control: Option<Res<crate::control::PlayerControl>>,
+    phys: Option<Res<PhysState>>,
+    near: Res<CompassNear>,
+    mut view: ResMut<CompassView>,
+) {
+    if *state.get() != PlayState::Playing {
+        return;
+    }
+    let Some(player) = player else { return };
+    let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
+    let here = [player.feet[0], player.feet[1]];
+    let body = |id: u32| phys.as_deref().and_then(|p| p.npcs.get(&id)).map(|b| [b.ch.feet[0], b.ch.feet[1]]);
+    view.set_if_neq(CompassView(marks(&near.0, heading, here, &body)));
 }
 
 /// Where the compass marks quest target `target` for a player at `loc` (see the module
 /// notes): the target itself in the player's cell or worldspace, else the door of the
 /// player's place that starts the way to it (`fnv_game::quest_targets::DoorGraph`);
-/// `None` when no way through doors is known.
-fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<[f32; 3]> {
+/// `None` when no way through doors is known. True with the target itself, false with a
+/// door.
+fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<([f32; 3], bool)> {
     let refs = sim.refs;
     let (cell, pos) = match sim.world.peek(target) {
         Some(s) => (s.cell?, s.pos),
@@ -329,10 +397,10 @@ fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: Form
     };
     let there = QuestPlace::of_cell(refs, cell);
     if here == there {
-        return Some(pos);
+        return Some((pos, true));
     }
     let door = graph.first_door(&sim.world, here, there, ignores_locks)?;
-    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos))
+    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, false))
 }
 
 struct Art {
@@ -341,6 +409,22 @@ struct Art {
     found: Option<Handle<Image>>,
     quest: Option<Handle<Image>>,
 }
+
+/// A mark's node's left edge in the compass window for a mark `x` right of the heading
+/// point: the tick's bar's middle, the triangle's middle on the bearing; without the
+/// game's pictures a 4-unit block's middle.
+fn mark_left(mark: Mark, x: f32, picture: bool) -> f32 {
+    let x = COMPASS_HEADING + x;
+    match (mark, picture) {
+        (_, false) => x - 2.0,
+        (Mark::Actor | Mark::Hostile, true) => x - TICK_MIDDLE * TICK_SIZE,
+        _ => x - LANDMARK_MIDDLE.x * LANDMARK_SIZE,
+    }
+}
+
+/// The marks' nodes as spawned: each mark's kind and node, in [`CompassView`]'s order.
+#[derive(Default)]
+struct Spawned(Vec<(Mark, Entity)>);
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -351,10 +435,13 @@ fn draw(
     formats: Option<Res<CompressedImageFormatSupport>>,
     layers: Query<Entity, With<CompassMarks>>,
     added: Query<(), Added<CompassMarks>>,
+    mut nodes: Query<&mut Node>,
     mut art: Local<Option<Art>>,
+    mut spawned: Local<Spawned>,
 ) {
     let Ok(layer) = layers.single() else { return };
-    if !view.is_changed() && added.get(layer).is_err() {
+    let fresh = added.get(layer).is_ok();
+    if !view.is_changed() && !fresh {
         return;
     }
     let art = art.get_or_insert_with(|| {
@@ -362,34 +449,45 @@ fn draw(
         let mut read = |p: &str| data.as_deref().and_then(|d| texture(p, d, &mut images, bc)).map(|t| t.0);
         Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST) }
     });
+    let image_of = |mark: Mark| match mark {
+        Mark::Actor | Mark::Hostile => &art.tick,
+        Mark::Found => &art.found,
+        Mark::Quest => &art.quest,
+        Mark::Place => &art.landmark,
+    };
+    // The same kinds in the same order: the nodes move, every frame while the player
+    // turns, without being spawned again (T12d) [design].
+    if !fresh && spawned.0.len() == view.0.len() && spawned.0.iter().zip(&view.0).all(|(a, b)| a.0 == b.0) {
+        for (&(mark, entity), &(_, x)) in spawned.0.iter().zip(&view.0) {
+            if let Ok(mut node) = nodes.get_mut(entity) {
+                node.left = u(mark_left(mark, x, image_of(mark).is_some()));
+            }
+        }
+        return;
+    }
+    let mut out = Vec::with_capacity(view.0.len());
     commands.entity(layer).despawn_related::<Children>().with_children(|p| {
         for &(mark, x) in &view.0 {
-            let x = COMPASS_HEADING + x as f32;
-            let (image, node, colour) = match mark {
+            let image = image_of(mark);
+            let left = mark_left(mark, x, image.is_some());
+            let (node, colour) = match mark {
                 Mark::Actor | Mark::Hostile => {
                     let colour = if mark == Mark::Hostile { crime_colour() } else { amber(255.0) };
-                    (&art.tick, at(x - TICK_MIDDLE * TICK_SIZE, TICK_TOP, TICK_SIZE, TICK_SIZE), colour)
+                    (at(left, TICK_TOP, TICK_SIZE, TICK_SIZE), colour)
                 }
-                Mark::Place | Mark::Found | Mark::Quest => {
-                    // The quest marker in the map marker's box (the same 40 × 50 at y 5
-                    // in the HUD file) [hypothesis: its picture is laid out as the
-                    // landmark's].
-                    let image = match mark {
-                        Mark::Found => &art.found,
-                        Mark::Quest => &art.quest,
-                        _ => &art.landmark,
-                    };
-                    let corner = Vec2::new(x, LANDMARK_Y) - LANDMARK_MIDDLE * LANDMARK_SIZE;
-                    (image, at(corner.x, corner.y, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0))
-                }
+                // The quest marker in the map marker's box (the same 40 x 50 at y 5 in the
+                // HUD file) [hypothesis: its picture is laid out as the landmark's].
+                Mark::Place | Mark::Found | Mark::Quest => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
             };
-            match image {
-                Some(image) => p.spawn((node, ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })),
+            let id = match image {
+                Some(image) => p.spawn((node, ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })).id(),
                 // Without the game's pictures: a small block.
-                None => p.spawn((at(x - 2.0, if matches!(mark, Mark::Actor | Mark::Hostile) { 10.0 } else { 40.0 }, 4.0, 12.0), BackgroundColor(colour))),
+                None => p.spawn((at(left, if matches!(mark, Mark::Actor | Mark::Hostile) { 10.0 } else { 40.0 }, 4.0, 12.0), BackgroundColor(colour))).id(),
             };
+            out.push((mark, id));
         }
     });
+    spawned.0 = out;
 }
 
 #[cfg(test)]
@@ -410,6 +508,34 @@ mod tests {
         // Behind the player: off the compass.
         assert!(!on_compass(offset(0.0, [0.0, 0.0], [0.0, -100.0])));
         assert!(on_compass(offset(0.0, [0.0, 0.0], [30.0, 100.0])));
+    }
+
+    /// T12d: the marks keep their place to a fraction of a unit, move with the heading
+    /// every frame, and an actor's mark follows its body between looks.
+    #[test]
+    fn the_marks_move_smoothly_with_the_heading_and_the_bodies() {
+        let near = [
+            Near { mark: Mark::Actor, at: [0.0, 100.0], body: Some(7) },
+            Near { mark: Mark::Place, at: [0.0, 100.0], body: None },
+            Near { mark: Mark::Quest, at: [0.0, -100.0], body: None },
+        ];
+        let none = |_: u32| None;
+        // Turning a tenth of a degree moves the marks 1024 / 3600 units, not 0 or 1.
+        let a = marks(&near, 0.0, [0.0, 0.0], &none);
+        let b = marks(&near, 0.1, [0.0, 0.0], &none);
+        assert_eq!(a.iter().map(|m| m.0).collect::<Vec<_>>(), [Mark::Actor, Mark::Place]);
+        for (a, b) in a.iter().zip(&b) {
+            assert!((a.1 - b.1 - 1024.0 / 3600.0).abs() < 1e-3, "{a:?} {b:?}");
+        }
+        // The actor's body has walked east: its mark with it, the place's stays.
+        let walked = |id: u32| (id == 7).then_some([10.0, 100.0]);
+        let c = marks(&near, 0.0, [0.0, 0.0], &walked);
+        assert!((c[0].1 - offset(0.0, [0.0, 0.0], [10.0, 100.0])).abs() < 1e-4 && c[0].1 > 1.0);
+        assert_eq!(c[1].1, a[1].1);
+        // Behind the player: none, as before.
+        assert!(!c.iter().any(|m| m.0 == Mark::Quest));
+        // A mark's node keeps the fraction.
+        assert_eq!(mark_left(Mark::Place, 0.25, false), COMPASS_HEADING + 0.25 - 2.0);
     }
 
     #[test]

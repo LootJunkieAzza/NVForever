@@ -299,7 +299,7 @@ impl Plugin for TilesPlugin {
         // hidden after every drawing system, before visibility is passed down [design].
         vanilla::setup(app);
         app.init_resource::<draw::TileFonts>()
-            .add_systems(Update, write.after(PlaySet::Physics).before(PlaySet::Activation))
+            .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, (draw::draw, draw::scroll).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));

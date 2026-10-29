@@ -110,8 +110,12 @@ partially disabled: Action Points, Health, Crosshair".
   line from x 15, the corner mark on top near its left end (x 58–70); and a second,
   shorter upright going down from the long line at x 207: the divider between
   condition and ammo.
-- **Tick** (`hud_tick_mark.dds`, 8 x 32): one upright block 6 wide and 22 high at the
-  top left.
+- **Tick** (`hud_tick_mark.dds`, 8 x 32, DXT3, white): one upright block 6 wide and 22
+  high at the top left; texels 6-7 and rows 22-31 are clear. Its alpha rises down the
+  block in 4-bit steps: 34 in rows 0-1, then 51, 68 … 187 (rows 2-10, 17 a row), 204 in
+  rows 11-12, 221, 238 in rows 14-16 and 255 in rows 17-21 (decoded 2026-10-29, §14.9).
+  A 20-high box at a texel a unit shows rows 0-19: the fade over the top 17 rows, then 3
+  full rows.
 - **Compass strip** (1024 x 64, the drawing in rows 15–48): a horizontal line with
   small ticks and the letters N, NE, E, SE, S, SW, W, NW from left to right, 128
   apart, the N split over the two ends: 1024 texels are one full turn.
@@ -143,6 +147,8 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   full bar up to 25 pixels short of the mark or the upright at sizes where 8 × scale is
   not whole, 1280 × 800 or a maximised window; owner's playtest 2026-10-16, "a gap at
   the end of each"]. At 720, 1080 and 1440 lines the gaps are all equal, as before.
+  The hand-built HUD keeps this; the tile-drawn HUD draws the original's even, soft
+  ticks instead (§14.9) [design, T12d].
 - "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 23,
   "AP" ending at x 355, on the line y 33 (their capitals 23 high) [observed: measured
   again on the same screenshot 2026-10-16; 33 and 362 before stood 11 and 8 pixels
@@ -150,11 +156,12 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   are written as on the screenshots [hypothesis: the game takes them from its settings].
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
-  the texture], so the ticks look darker than the lines over the world. Each tick is
-  set on whole pixels — the step `round(8 × scale)`, the width `round(6 × scale)` — so
-  all ticks are as wide as each other at any view size [design: the owner's "clean
-  straight lines, not some bigger than others"; at 720 lines a 6-of-8 tick is 4.5
-  pixels and rounded unevenly before].
+  the texture, §3], so the ticks look darker than the lines over the world; drawn at
+  brightness 175 since T12d [hypothesis, §14.9]. Each tick is set on whole pixels — the
+  step `round(8 × scale)`, the width `round(6 × scale)` — so all ticks are as wide as
+  each other at any view size [design: the owner's "clean straight lines, not some
+  bigger than others"; at 720 lines a 6-of-8 tick is 4.5 pixels and rounded unevenly
+  before]. The tile-drawn HUD draws its bars as one stretched image instead (§14.9).
 - A bar lights `floor(value × 37)` ticks [observed: §14.3]. The health bar empties from
   the right, the action points bar from the left (towards its label).
 - The compass window is where the file puts it. The heading is in its middle: the
@@ -396,6 +403,11 @@ menu's (`dialogue_menu.rs`).
   `_Distance` "set by code, distance to this object in game" and no trait reads it, so the
   original's compass shows none [documented: `menus/prefabs/compassicon.xml`, Fallout -
   Misc.bsa].
+- [design, T12d] Who and what is near is looked at ten times a second; where each mark
+  stands is worked out every frame from the camera's heading, the player's place and the
+  actors' moving bodies, unrounded (`compass::place`), before the tile HUD's writes, so
+  both drawings move the marks with this frame's strip. Until T12d the places were whole
+  units and only ten a second: the marks stepped while turning (§14.9).
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
   Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
   `compass: <n> quest target(s) placed, <m> on the compass` when those change.
@@ -1042,3 +1054,56 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   copies and XP readout widths are measured with the game fonts. Text zoom scales
   glyphs about the top left [hypothesis: anchor unobserved]; image zoom remains
   menu-xml.md §3.1.3's interpretation.
+
+### 14.9 T12d: the ticks' picture, the bars as one image, smooth compass marks (2026-10-29)
+
+- [observed: `hud_tick_mark.dds` from `Fallout - Textures2.bsa`, decoded] 8 x 32 DXT3,
+  white; the block is texels 0-5 of rows 0-21, its alpha 34 at the top rising to 255 at
+  row 17 (§3); texels 6-7 and rows 22-31 clear. Both drawings already read the right
+  rows (the box's top 20, a texel a unit) and drew the alpha: the cause of the "flat"
+  look is not the picture's region.
+- [observed: private shot `hud_corners2.007` c0_full, 1280 x 720, 0.75 pixels a unit]
+  The original's health and action points ticks stand every 6 pixels (8 units), the
+  block 4-5 pixels with a 1-2 pixel gap, their top rows fading into the world. At their
+  full rows they read (189, 132, 47) and (184, 129, 47) where the bracket's line reads
+  (255, 188, 68): about 0.7 of the line's colour in every channel, the colour of
+  brightness 175 (175, 129, 47) rather than of an alpha of 0.7 over the ground under
+  them (about (199, 147, 55)). NVForever's ticks read 255 there and their fading rows
+  stay bright (the T12c shots at 1280 x 800): "flat".
+- [hypothesis] The corner bars' ticks are drawn at brightness 175: `brightness.xml`'s
+  "meter and compass in HUD" [documented: `menus\prefabs\brightness.xml`,
+  `_brightness_4` 175], the enemy bar's meter's read brightness (§14.8), and T12c's
+  condition fill at 175/255 of the colour. Their own `brightness` trait was not read
+  (an observer check). [design] The hand-built bars draw `amber(175)`
+  (`hud::METER_BRIGHTNESS`); the tile HUD's `vanilla::write_corners` writes `brightness`
+  175 to `HitPoints/meter` and `ActionPoints/meter:1`. The hand-built enemy bar keeps the
+  full brightness `hud::enemy_colours` gives it.
+- [hypothesis] The original blends in the screen's sRGB values and NVForever (Bevy) in
+  linear light, which shows a part-transparent amber brighter over a dark ground; at
+  brightness 175 the shot's fading rows and NVForever's differ by about 5 levels of 255.
+  Not changed.
+- [observed: the owner, T12d] The ticks stood unevenly: at 1280 x 800 a unit is 0.833
+  pixels and a tick period 6.67, and each tick set on whole pixels (the hand-built
+  `tick_lefts`) or each repeat of Bevy's `NodeImageMode::Tiled` (the tile HUD) took 6 or
+  7 pixels by turns. [design] The hand-built HUD (the default) keeps the maintainer's
+  crisp whole-pixel ticks (§4: the owner's "clean straight lines, not some bigger than
+  others" and "a gap at the end of each"), the gaps differing by a pixel at most. The
+  tile-drawn HUD, which follows the original, draws a bar as one image: the picture's
+  texels repeated into one RGBA image the box's size in texels (`crate::repeat`, decoded
+  by `fnv_dds`, kept per picture and size), stretched over the box and sampled linearly,
+  so every tick stands `8 x scale` pixels from the next at any size, its edges slightly
+  soft (test `tiles::draw::a_tiled_meter_is_one_image_and_its_ticks_stand_evenly`, at
+  1280 x 800, 1920 x 1080 and 1280 x 720) [hypothesis: the original's even, soft ticks
+  are one repeated texture filtered across the bar]. Every tiled picture of the tile HUD
+  goes through it (the corner bars, the enemy bar, the condition fill and its ground);
+  the XP meter has no tiled picture (its ticks are drawn in `glow_XP_bar_over.dds`). A
+  box over 4M texels keeps Bevy's tiling.
+- [observed: the owner, T12d] The compass marks stepped while turning and as actors
+  walked, where the original's glide. Causes: the places were looked at ten times a
+  second (`compass::gather`'s poll) and kept in whole units (`CompassView`), and the tile
+  HUD spawned all its nodes again whenever a place changed. [design] The places are
+  worked out every frame, unrounded, through `CompassView`, the tile tree's `_Heading`
+  and `x`, and the tiles' boxes (§11); the tile renderer moves the nodes of pieces that
+  only moved (`tiles::draw::moved_only`), and the hand-built marks' nodes move in place
+  while their kinds stay. Nodes still land on whole pixels (Bevy's layout rounding), as
+  the strip's does.

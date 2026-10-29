@@ -308,6 +308,19 @@ stands unchanged: every picture stretched, the shared atlas only.
   `template_meter`]. Zoom as a multiplier of the picture's size [documented: GECK wiki
   Zoom]; no vanilla tiled picture has a zoom; T12c's condition fill is given one
   (`vanilla::CONDITION_FILL_ZOOM`, hud.md §14.7) [design].
+  [design, T12d] The repeats are drawn as one image: the picture's texels (its atlas
+  piece's or its own file's, decoded on the CPU) repeated into an RGBA image the box's
+  size in whole texels, stretched over the box (cut to it) and sampled linearly
+  (`nvf-play/src/repeat.rs`), so a repeat stands `width x scale` pixels from the next at
+  any window size; a repeat per quad (Bevy's `NodeImageMode::Tiled`, T12a-T12c) put each
+  on whole pixels, the bars' 8-unit ticks 6 and 7 pixels apart by turns at 1280 x 800
+  [observed: the owner, T12d; hypothesis: the original's even, slightly soft ticks are
+  one repeated texture filtered across the bar, hud.md §14.9]. A box over 4M texels, or
+  a picture whose texels cannot be read, keeps Bevy's tiles.
+- [design, T12d] The renderer spawns its nodes again only when a piece changes more than
+  its place: when the pieces differ only in their boxes' and clips' places
+  (`draw::moved_only`; the compass marks every frame while the player turns) it moves
+  the nodes it spawned.
 - [observed, T12c] An image without `texatlas` reads its own file, not the shared atlas
   (`draw::Source::Own`): the radiation bracket, whose file comments its `texatlas` line
   out (radiation.md §6), shows its own file's slanted ends and single line on the

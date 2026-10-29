@@ -50,6 +50,11 @@ const TICK: Vec2 = Vec2::new(8.0, 20.0);
 /// The tick picture's block: 6 texels wide, then 2 clear [observed: `hud_tick_mark.dds`,
 /// its opacity rising from top to bottom].
 const TICK_BLOCK: f32 = 6.0;
+/// The health and action points ticks' brightness [hypothesis: brightness.xml's "meter
+/// and compass in HUD" 175, as the enemy bar's meter reads (hud.md §14.8); the
+/// original's ticks are about 0.7 of its lines' colour at their full rows, hud.md
+/// §14.9]. The tile HUD writes it too (`tiles::vanilla::write_corners`).
+pub(crate) const METER_BRIGHTNESS: f32 = 175.0;
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
 pub const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
@@ -621,7 +626,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         root.spawn((piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
-            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, color);
+            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             info!("compass: heading at x {x} of {w}", x = COMPASS_HEADING, w = COMPASS.x);
             let mut window = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             window.overflow = Overflow::clip();
@@ -650,7 +655,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
         root.spawn((piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.right_bracket, &[RIGHT_UPRIGHT, DIVIDER], color);
-            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, color);
+            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             label(p, AP, places.ap_label, UPPER_BASE);
             p.spawn((ConditionRow, at(0.0, 0.0, DIVIDER, AP_PANEL.y), Visibility::Inherited)).with_children(|row| {
                 label(row, CND, places.cnd_label, LOWER_BASE);

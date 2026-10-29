@@ -18,12 +18,18 @@
 //!   strip ([`Fit`], [`Source`]; menu-xml.md §3.1.3).
 //! - The pieces are worked out every frame (a pure function of the tree, [`pieces`]);
 //!   the Bevy nodes are rebuilt only when they differ from the last frame's [design: the
-//!   tree's change count moves on every write, so it cannot tell].
+//!   tree's change count moves on every write, so it cannot tell]. When only places
+//!   changed (the compass marks while the player turns, [`moved_only`]) the nodes are
+//!   moved in place instead (T12d) [design].
+//! - A `tile` picture is one image of its repeats baked at its texels' resolution and
+//!   stretched over its box ([`crate::repeat`]), so the bars' ticks stand evenly at any
+//!   window size (T12d) [design].
 
 use super::layout::{self, Alignment, Kind, Rect as TileRect};
 use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
 use crate::hud::{strip_left, HudView, STRIP};
-use crate::interface::{self, at, bc_supported, face, plain_font, set_line, Face, Pictures, SizedPicture, FONT_FILES};
+use crate::interface::{self, at, bc_supported, face, plain_font, set_line, u, Face, Pictures, SizedPicture, FONT_FILES};
+use crate::repeat::{self, Repeats};
 use crate::script::ScriptState;
 use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
@@ -447,6 +453,27 @@ pub(crate) struct Drawn {
     /// The whole menu's start line is written (T12a).
     told: bool,
     pictures: Option<Pictures>,
+    /// Each piece's clip wrapper and its own outer node, as spawned (moved in place when
+    /// [`moved_only`]).
+    nodes: Vec<(Option<Entity>, Option<Entity>)>,
+    repeats: Repeats,
+}
+
+/// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
+/// width and height in interface units (the box's, or a fraction of a texel more, cut to
+/// the box).
+type Baked = (Handle<Image>, f32, f32);
+
+/// Whether `new` is `old` with some pieces moved only: the same tiles, looks, colours and
+/// depths, their boxes and clips the same sizes. Their nodes are then moved in place, not
+/// spawned again [design: the compass marks move every frame while the player turns or
+/// the actors walk, T12d].
+pub fn moved_only(old: &[Piece], new: &[Piece]) -> bool {
+    let size = |r: &TileRect| (r.width, r.height);
+    old.len() == new.len()
+        && old.iter().zip(new).all(|(a, b)| {
+            a.tile == b.tile && a.look == b.look && a.colour == b.colour && a.depth == b.depth && size(&a.rect) == size(&b.rect) && a.clip.map(|c| size(&c)) == b.clip.map(|c| size(&c))
+        })
 }
 
 fn f(v: f64) -> f32 {
@@ -461,57 +488,70 @@ struct Ctx<'a> {
     heading: f32,
 }
 
-fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>) {
+fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
     let colour = Color::srgba(cr, cg, cb, ca);
     let node = at(f(r.left - dx), f(r.top - dy), f(r.width), f(r.height));
     match &piece.look {
-        Look::Box => {
-            p.spawn((node, BackgroundColor(colour), Pickable::IGNORE));
-        }
+        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Pickable::IGNORE)).id()),
         Look::Picture { fit, .. } => {
-            let Some((image, rect, size)) = picture else { return };
+            let (image, rect, size) = picture?;
             let picture = |image_mode| ImageNode { color: colour, rect, image_mode, ..ImageNode::new(image.clone()) };
             let mut cut = node.clone();
             cut.overflow = Overflow::clip();
-            match placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))) {
-                Placed::Fill => {
-                    p.spawn((node, picture(NodeImageMode::Stretch), Pickable::IGNORE));
-                }
-                Placed::Repeat { width, .. } => {
-                    // One texel `width / size.x` units, `ctx.scale` logical pixels a unit.
-                    let per_texel = if size.x > 0.0 { f(width) / size.x } else { 1.0 };
-                    let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale * per_texel };
-                    p.spawn((node, picture(mode), Pickable::IGNORE));
-                }
-                Placed::At { width, height } => {
-                    p.spawn((cut, Pickable::IGNORE)).with_children(|c| {
+            Some(match placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))) {
+                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Pickable::IGNORE)).id(),
+                Placed::Repeat { width, .. } => match baked {
+                    // One image of the repeats, stretched [design: `crate::repeat`].
+                    Some((strip, w, h)) => p
+                        .spawn((cut, Pickable::IGNORE))
+                        .with_children(|c| {
+                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Pickable::IGNORE));
+                        })
+                        .id(),
+                    // Without the picture's texels or for a box too large to bake: Bevy's
+                    // tiles, one texel `width / size.x` units, `ctx.scale` logical pixels a
+                    // unit.
+                    None => {
+                        let per_texel = if size.x > 0.0 { f(width) / size.x } else { 1.0 };
+                        let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale * per_texel };
+                        p.spawn((node, picture(mode), Pickable::IGNORE)).id()
+                    }
+                },
+                Placed::At { width, height } => p
+                    .spawn((cut, Pickable::IGNORE))
+                    .with_children(|c| {
                         c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Pickable::IGNORE));
-                    });
-                }
-                Placed::Strip => {
-                    p.spawn((cut, Pickable::IGNORE)).with_children(|c| {
+                    })
+                    .id(),
+                Placed::Strip => p
+                    .spawn((cut, Pickable::IGNORE))
+                    .with_children(|c| {
                         c.spawn((TileStrip, at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
                             for i in 0..2 {
                                 s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Pickable::IGNORE));
                             }
                         });
-                    });
-                }
-            }
+                    })
+                    .id(),
+            })
         }
         Look::Text { string, font, wrap, alignment, zoom } => {
-            let Some(face) = ctx.fonts.faces.get(font) else { return };
-            p.spawn((node, Pickable::IGNORE)).with_children(|outer| {
-              // [design] A zero-size wrapper scales glyphs about the text's top left.
-              outer.spawn((at(0.0, 0.0, 0.0, 0.0), UiTransform { scale: Vec2::splat(*zoom as f32), ..default() }, Pickable::IGNORE)).with_children(|t| {
-                for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width / zoom) {
-                    set_line(t, face, &line, x, base, colour);
-                }
-              });
-            });
+            let face = ctx.fonts.faces.get(font)?;
+            let id = p
+                .spawn((node, Pickable::IGNORE))
+                .with_children(|outer| {
+                    // [design] A zero-size wrapper scales glyphs about the text's top left.
+                    outer.spawn((at(0.0, 0.0, 0.0, 0.0), UiTransform { scale: Vec2::splat(*zoom as f32), ..default() }, Pickable::IGNORE)).with_children(|t| {
+                        for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width / zoom) {
+                            set_line(t, face, &line, x, base, colour);
+                        }
+                    });
+                })
+                .id();
+            Some(id)
         }
     }
 }
@@ -542,7 +582,8 @@ pub(crate) struct View<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 
-pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>) {
+pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Query<&mut Node>) {
+    let drawn = &mut *drawn;
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
@@ -587,6 +628,28 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     if pieces == drawn.pieces && scale == drawn.scale {
         return;
     }
+    if scale == drawn.scale && moved_only(&drawn.pieces, &pieces) {
+        for ((old, new), (wrapper, outer)) in drawn.pieces.iter().zip(&pieces).zip(&drawn.nodes) {
+            if old.rect == new.rect && old.clip == new.clip {
+                continue;
+            }
+            if let (Some(e), Some(c)) = (wrapper, new.clip) {
+                if let Ok(mut node) = nodes.get_mut(*e) {
+                    node.left = u(f(c.left));
+                    node.top = u(f(c.top));
+                }
+            }
+            let (dx, dy) = new.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
+            if let Some(e) = outer {
+                if let Ok(mut node) = nodes.get_mut(*e) {
+                    node.left = u(f(new.rect.left - dx));
+                    node.top = u(f(new.rect.top - dy));
+                }
+            }
+        }
+        drawn.pieces = pieces;
+        return;
+    }
     let root = *drawn.root.get_or_insert_with(|| {
         let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
         commands.spawn((TileRoot, full, GlobalZIndex(TILES_Z), Pickable::IGNORE)).id()
@@ -605,19 +668,45 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
             _ => None,
         });
     }
+    // The `tile` pictures' repeats, baked into one image each.
+    let mut baked: Vec<Option<Baked>> = Vec::with_capacity(pieces.len());
+    for (piece, picture) in pieces.iter().zip(&looked) {
+        baked.push(match (&piece.look, picture, data) {
+            (Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) => {
+                let texels = (f64::from(size.x), f64::from(size.y));
+                match placed(*fit, rect.is_some(), texels) {
+                    Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels).and_then(|(out, node)| {
+                        let atlas = match source {
+                            Source::Index(a) => Some(a.as_str()),
+                            _ => None,
+                        };
+                        let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                        let cut = rect.map(|r| [r.min.x, r.min.y, r.width(), r.height()].map(|v| v.round().max(0.0) as u32));
+                        drawn.repeats.baked(&path, cut, out, data, &mut kit.images).map(|image| (image, f(node.0), f(node.1)))
+                    }),
+                    _ => None,
+                }
+            }
+            _ => None,
+        });
+    }
     let ctx = Ctx { fonts: &kit.fonts, scale, heading: view.hud.as_ref().map_or(0.0, |h| h.heading) };
+    let mut spawned = Vec::with_capacity(pieces.len());
     commands.entity(root).despawn_related::<Children>().with_children(|r| {
-        for (piece, picture) in pieces.iter().zip(looked) {
-            match piece.clip {
+        for ((piece, picture), baked) in pieces.iter().zip(looked).zip(baked) {
+            spawned.push(match piece.clip {
                 Some(c) => {
                     let mut wrapper = at(f(c.left), f(c.top), f(c.width), f(c.height));
                     wrapper.overflow = Overflow::clip();
-                    r.spawn((wrapper, Pickable::IGNORE)).with_children(|w| spawn_piece(w, piece, &ctx, picture));
+                    let mut outer = None;
+                    let id = r.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, &ctx, picture, baked)).id();
+                    (Some(id), outer)
                 }
-                None => spawn_piece(r, piece, &ctx, picture),
-            }
+                None => (None, spawn_piece(r, piece, &ctx, picture, baked)),
+            });
         }
     });
+    drawn.nodes = spawned;
     drawn.pieces = pieces;
     drawn.scale = scale;
 }
@@ -904,6 +993,53 @@ mod tests {
         assert_eq!((a[0].1, b[0].1), (0.0, 40.0));
         let two = text_lines(&small, "ab cd", Some(40.0), Alignment::Center, 40.0);
         assert_eq!(two.iter().map(|(_, x, base)| (*x, *base)).collect::<Vec<_>>(), [(5.0, TEXT_BASE), (5.0, TEXT_BASE + 36.0)]);
+    }
+
+    /// T12d: a `tile` picture is one image of its repeats at its texels' resolution,
+    /// stretched over its box, so the bars' ticks stand a true period apart at any window
+    /// size (each within half a pixel), not 6 and 7 pixels by turns at 1280 x 800.
+    #[test]
+    fn a_tiled_meter_is_one_image_and_its_ticks_stand_evenly() {
+        let (ui, _, menu) = vanilla_hud();
+        let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let meter = drawn.iter().find(|p| ui.path_of(p.tile) == "HUDMainMenu/HitPoints/meter").unwrap();
+        let Look::Picture { fit, .. } = &meter.look else { panic!("a picture") };
+        let Placed::Repeat { width, height } = placed(*fit, false, (8.0, 32.0)) else { panic!("repeated") };
+        let ((tw, th), (nw, nh)) = repeat::texels_for((meter.rect.width, meter.rect.height), (width, height), (8.0, 32.0)).unwrap();
+        // The template's 144 x 20 box: 18 repeats of 8 texels, the picture's top 20 rows.
+        assert_eq!(((tw, th), (nw, nh)), ((144, 20), (144.0, 20.0)));
+        for (w, h) in [(1280.0, 800.0), (1920.0, 1080.0), (1280.0, 720.0)] {
+            let scale = h / 960.0;
+            let period = 8.0 * scale;
+            // A tick's left edge: texel 8k of the image, its node from the box's left.
+            let edges: Vec<f64> = (0..tw / 8).map(|k| (meter.rect.left + f64::from(k * 8) * nw / f64::from(tw)) * scale).collect();
+            for pair in edges.windows(2) {
+                assert!((pair[1] - pair[0] - period).abs() < 0.5, "{w}x{h}: {pair:?}");
+            }
+        }
+    }
+
+    /// T12d: pieces that only moved (the compass marks while turning) are moved in place;
+    /// a change of size, look or colour spawns the nodes again.
+    #[test]
+    fn only_moved_pieces_are_moved_in_place() {
+        let (ui, _, menu) = vanilla_hud();
+        let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
+        let (old, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let mut new = old.clone();
+        new[0].rect.left += 0.25;
+        if let Some(c) = new[1].clip.as_mut() {
+            c.top += 3.0;
+        }
+        assert!(moved_only(&old, &new));
+        let mut wider = old.clone();
+        wider[1].rect.width += 8.0;
+        assert!(!moved_only(&old, &wider));
+        let mut dimmer = old.clone();
+        dimmer[2].colour[3] = 0.5;
+        assert!(!moved_only(&old, &dimmer));
+        assert!(!moved_only(&old, &old[1..]));
     }
 
     #[test]
