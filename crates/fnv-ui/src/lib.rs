@@ -15,6 +15,7 @@
 pub mod expr;
 pub mod index;
 pub mod tree;
+pub mod uio;
 pub mod value;
 pub mod xml;
 

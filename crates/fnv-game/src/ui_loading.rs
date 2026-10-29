@@ -65,6 +65,7 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
         }
     }
     let warning_start = game.ui_tree.warnings.len();
+    let uio_before: Vec<_> = game.ui_tree.uio.decisions.iter().map(|d| d.applied).collect();
     for code in open {
         if game.ui_tree.menus().any(|root| class_code(&game.ui_tree, root) == Some(code)) || game.ui_lifetime.unavailable.contains(&code) {
             continue;
@@ -99,6 +100,11 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
             report.warnings.push(warning.clone());
         }
     }
+    for (i, d) in game.ui_tree.uio.decisions.iter().enumerate() {
+        if d.applied > uio_before[i] {
+            report.changes.push(format!("UIO {}:{}: {} applied ({} applications)", d.entry.list, d.entry.line, d.entry.include, d.applied));
+        }
+    }
     report
 }
 
@@ -128,6 +134,10 @@ impl UiFiles {
 }
 
 impl Source for UiFiles {
+    fn list(&self, dir: &str) -> Vec<String> {
+        let prefix = format!("{}\\", fnv_vfs::normalize(dir).trim_end_matches('\\'));
+        self.vfs.paths(|p| p.starts_with(&prefix))
+    }
     fn is_loose(&self, path: &str) -> bool {
         self.vfs.source_of(path) == Some("loose")
     }
@@ -157,6 +167,7 @@ impl LoadReport {
 
 pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: impl IntoIterator<Item = String>) -> LoadReport {
     let mut ui = Ui::new();
+    ui.configure_uio(files.as_ref(), |name| game.data.load_order.iter().any(|p| p.eq_ignore_ascii_case(name)));
     if !ui.load_globals(files.as_ref()) {
         ui.warnings.push("menus\\globals.xml: not found".into());
     }
@@ -184,6 +195,7 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         }
     }
     ui.update();
+    ui.warnings.extend(ui.uio.lines());
     for warning in &ui.warnings {
         let (file, message) = warning.split_once(": ").unwrap_or(("tree", warning));
         let file = if file.to_ascii_lowercase().ends_with(".xml") { file.replace('/', "\\").to_ascii_lowercase() } else { file.into() };

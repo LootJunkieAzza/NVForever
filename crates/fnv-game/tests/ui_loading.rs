@@ -72,6 +72,33 @@ fn load_lifetime(g: &mut Game<'_>) {
 }
 
 #[test]
+fn uio_uses_active_plugins_and_survives_menu_lifetime() {
+    // [design] Synthetic lists exercise the real load/sync route, without installed mods.
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    let src = lifetime_files()
+        .with(
+            "uio/public/fixture.txt",
+            "added.xml::HUDMainMenu\n?EMPTY.ESM && #added.xml\nadded.xml::StartMenu\n?Empty.esm\nadded.xml::InventoryMenu\n?Disabled.esp",
+        )
+        .with_loose("menus/prefabs/added.xml", "<rect name=\"Added\"/>");
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    let report = ui_loading::load(&mut g, Box::new(src), paths);
+    let hud = g.ui_tree.find_tile("HUDMainMenu/Added").unwrap();
+    assert!(g.ui_tree.mod_tile_drawn(hud, None));
+    assert!(g.ui_tree.find_tile("InventoryMenu/Added").is_none());
+    assert!(report.warnings.values().flatten().any(|w| w.contains("condition false")));
+    let report = ui_loading::sync(&mut g, true, false);
+    assert!(g.ui_tree.find_tile("StartMenu/Added").is_some());
+    assert!(report.changes.iter().any(|w| w.contains("UIO") && w.contains("applied")));
+    ui_loading::sync(&mut g, false, false);
+    assert!(g.ui_tree.find_tile("StartMenu/Added").is_none());
+    ui_loading::sync(&mut g, true, false);
+    assert!(g.ui_tree.find_tile("StartMenu/Added").is_some());
+    assert_eq!(g.ui_tree.uio.decisions[1].applied, 2);
+}
+
+#[test]
 fn open_close_and_inject_again() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -193,8 +220,10 @@ fn reopened_menu_does_not_repeat_mends() {
     use fnv_game::game::menus;
     let f = fixture();
     let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
-    let src =
-        lifetime_files().with("menus/added/trade.xml", r#"<menu name="Trade"><class>&BarterMenu;</class><include src="PROBE.XML"/><depth><copy>1</copy><bogus/></depth></menu>"#);
+    let src = lifetime_files().with(
+        "menus/added/trade.xml",
+        r#"<menu name="Trade"><class>&BarterMenu;</class><include src="PROBE.XML"/><depth><copy>1</copy><bogus/></depth></menu>"#,
+    );
     let paths = src.files.keys().cloned().collect::<Vec<_>>();
     ui_loading::load(&mut g, Box::new(src), paths);
     g.menu = Some(menus::BARTER);
@@ -260,6 +289,7 @@ fn vfs_source_owns_strings_and_reads_files() {
     let src = UiFiles::new(vfs.clone(), &world);
     is_static_source(&src);
     assert_eq!(src.menu_paths(), ["menus\\renamed.xml"]);
+    assert_eq!(src.list("MENUS"), ["menus\\renamed.xml"]);
     assert_eq!(src.read("MENUS/RENAMED.XML").unwrap(), xml.as_bytes());
     assert!(src.is_loose("MENUS/RENAMED.XML"));
     assert!(!src.is_loose("menus/missing.xml"));

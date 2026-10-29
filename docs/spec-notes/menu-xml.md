@@ -4,8 +4,8 @@ How the game's menu files are written and how NVForever reads them into the tile
 (`crates/fnv-ui`, [design](../design/ui-tile-tree.md)). Written from the files in the
 owner's install (read with `fnvtool ui`, never copied into the repo), from mods' files in
 the owner's Mod Organizer folders, and from the GECK wiki export's UI function pages.
-No file text is reproduced here; names of tags and traits are given so the engine can
-find them.
+[design] Only short UIO data-list excerpts are quoted below; no menu XML or complete
+mod file is shipped.
 
 Tools: `fnvtool ui menus --data <Data> [--overlay <mod folder>]…` builds every menu and
 lists counts and every spot the reader mended (`fnv.ui.menus/1`); `fnvtool ui tree
@@ -367,20 +367,81 @@ menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 
 2. **An include the replaced file adds**: MCM's `start_menu.xml` includes
    `includes_StartMenu.xml`, which includes `MCM\MCM.xml`, so other mods can add to the
    same `includes_` file.
-3. **UIO (User Interface Organizer)**, an xNVSE plugin that adds includes at load time
-   from text files, with no menu file replaced. From its data files only (not its
-   code):
-   - `uio\public\*.txt`, one per mod; `uio\supported.txt` for mods UIO knows;
-   - each entry is two lines: `<file under menus\prefabs>::<target>`, then a condition;
-   - the target is a menu name (`HUDMainMenu`), or `@Prefabs\<file>.xml` for a prefab
-     file, either with `::<tile name>` to put the include in that tile;
-   - the condition is `true`; `?Plugin.esp` (that plugin loaded); `#path` (that file
-     there); `!` before one to negate it; `&&` between them; or a bare word like
-     `darnui`, apparently another UIO mod's name;
-   - `supported.txt` writes one `:` between file and menu.
+3. **UIO include lists.** [observed: the data files below, read 2026-10-29 from
+   `E:\Games\Viva New Vegas\mods`; no DLL or source read] The lists pair an include
+   line with a condition. Folder case varies (`UIO\Public`, `uio\public`, `Menus`).
+   Short literal pairs from those files:
 
-   JAM, MCM Extender, UI Improvements, Pip-Boy UI Tweaks and Sleep Wait Hardcore Needs
-   use it.
+   ```text
+   ; UIO - User Interface Organizer/uio/supported.txt
+   wmm\wmm.xml:inventorymenu:glow_branch
+   ?The Weapon Mod Menu.esp
+   mcm\mcm.xml:startmenu
+   ?The Mod Configuration Menu.esp	||	?Project Nevada - Core.esm
+   jetpack\b3jetpack_hud.xml:hudmainmenu
+   ?Jetpack.esp	&&	!darnui
+   ; Just Assorted Mods/uio/public/JHM.txt
+   JHM\JHM.xml::HUDMainMenu
+   true
+   ; MCM Extender/UIO/Public/MCMExtender.txt
+   MCMExtender\ListRect\text.xml::@Prefabs\MCM\ListRect.xml::text
+   true
+   ; UI Improvements/uio/public/UII.txt
+   UII\CharGenBox.xml::CharGenMenu::TM_DescriptionBox
+   true
+   ; Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt
+   Stentorious\PipBoyUITweaks\_ySI\ButtonIcon.xml::@Prefabs\UII\PerkBrowser.xml::PerkBrowser
+   #UII\PerkBrowser.xml && #..\ySI\ySI.xml
+   ```
+
+   [observed: those lists] Both `:` and `::` separate include, target and optional
+   tile name. Targets are menu names in mixed case or `@Prefabs\...` paths. `;`
+   lines and blank lines separate groups. Conditions contain `true`, `?plugin`,
+   `#path`, `!`, `&&`, and also `||` (the MCM alternative in supported.txt).
+   [observed: Just Assorted Mods/Menus/Prefabs/JHM/JHM.xml;
+   MCM Extender/Menus/Prefabs/MCMExtender/ListRect/text.xml;
+   UI Improvements/menus/prefabs/UII/CharGenBox.xml] Include names resolve below
+   `menus\prefabs`. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
+   Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt] The `#UII\PerkBrowser.xml`
+   operand names an existing file there. The advrecon/primaryneedshud/filmgrain
+   operands of supported.txt have no matching files in the inspected mod folders.
+   [hypothesis] `#` uses that same prefab base, with `..` resolved before the VFS
+   lookup; `#..\ySI\ySI.xml` is consistent with a sibling directory under menus,
+   but that optional file is absent here.
+
+   [observed: MCMExtender.txt and supported.txt; directory listing of the installed
+   mods' uio/public files] `darnui` is used both positive and negated; no
+   `uio\public\darnui.txt` was found. [hypothesis] Its meaning remains unknown;
+   NVForever treats the atom as false and logs it even in a short-circuited branch
+   (`!darnui` therefore evaluates true). No filename-based alias is assumed.
+
+   [design] `fnv_ui::uio::{Lists, Condition, Report}` parses forgivingly, records
+   malformed lines with list/line locations, and evaluates against a `Source` plus
+   an active-plugin predicate. `Source::list(dir)` defaults empty; `MemSource`, the
+   game's `UiFiles` and fnvtool's overlay source discover files recursively with
+   case/slash-insensitive paths. supported.txt goes first, then immediate
+   public/*.txt alphabetically. Identical normalized include/target/tile/condition
+   entries occur once. Negation binds before AND before OR [hypothesis: precedence
+   for mixed expressions is not established by these lists].
+
+   [design] `Ui::configure_uio` runs before loading menus. Menu entries apply after
+   the file's ordinary includes; prefab entries modify the fragment before expansion,
+   including template bodies. Named targets use the first matching tile in file order
+   [hypothesis: duplicate-name selection is unmeasured]. An untargeted entry appends
+   to the menu root or prefab fragment; a named one appends within that tile
+   [hypothesis: UIO's insertion position is unmeasured; appending preserves existing
+   order and allows later included traits to override earlier ones]. Includes retain
+   their own `Origin::File { path, loose }`. A loose UIO addition and its file
+   descendants pass `mod_tile_drawn` without an archived name comparison, including
+   name collisions; the archived baseline is built without UIO [design].
+
+   [design] Reports distinguish unique applied entries from application counts
+   (prefabs can be read repeatedly), and skip reasons condition false, file missing,
+   target missing. Target missing also means not loaded yet in the current tree.
+   The game uses `GameData::load_order` and logs decisions at startup and new
+   applications during menu lifetime sync. `fnvtool ui menus|tree|mod-tiles` includes
+   a `uio` report; it discovers top-level .esm/.esp names in Data and overlays for
+   `?`, or uses an explicit repeatable `--plugin` set. Overlays count for `#`.
 4. **Scripts at run time**: JIP's `InjectUIXML "path" "data\menus\…xml"` and
    `InjectUIComponent "path" "<xml with %g>"` put XML into a loaded menu
    [documented: InjectUIXML, InjectUIComponent]. Most menus are loaded only while open

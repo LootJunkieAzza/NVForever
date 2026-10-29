@@ -49,6 +49,10 @@ pub struct UiSourceArgs {
     /// A mod's folder laid over Data, e.g. an MO2 mod folder (repeatable; later ones win).
     #[arg(long)]
     overlay: Vec<PathBuf>,
+    /// Active plugins for UIO ? conditions (repeatable). Without this flag, use all
+    /// .esm/.esp files at the top level of Data and the overlay folders.
+    #[arg(long)]
+    plugin: Vec<String>,
     /// The view's size for `screen()` (width x height).
     #[arg(long, default_value = "1920x1080")]
     screen: String,
@@ -58,6 +62,7 @@ pub struct UiSourceArgs {
 struct Files {
     vfs: Vfs,
     overlays: Vec<PathBuf>,
+    paths: Vec<String>,
 }
 
 impl Files {
@@ -75,15 +80,21 @@ fn find_ci(dir: &Path, rel: &str) -> Option<PathBuf> {
         at = if exact.exists() {
             exact
         } else {
-            std::fs::read_dir(&at).ok()?.flatten().map(|e| e.path()).find(|p| {
-                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(part))
-            })?
+            std::fs::read_dir(&at)
+                .ok()?
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(part)))?
         };
     }
     at.is_file().then_some(at)
 }
 
 impl Source for Files {
+    fn list(&self, dir: &str) -> Vec<String> {
+        let prefix = format!("{}\\", fnv_vfs::normalize(dir).trim_end_matches('\\'));
+        self.paths.iter().filter(|p| p.starts_with(&prefix)).cloned().collect()
+    }
     /// [design] An overlay's file, or a loose file of Data, as the game's `UiFiles`.
     fn is_loose(&self, path: &str) -> bool {
         self.loose(path).is_some() || self.vfs.source_of(path) == Some("loose")
@@ -111,9 +122,35 @@ impl Source for Archived<'_> {
 }
 
 fn open(a: &UiSourceArgs) -> anyhow::Result<(Files, Ui)> {
-    let vfs = Vfs::open_default(&a.data)?;
-    let files = Files { vfs, overlays: a.overlay.clone() };
+    // [design] UI inspection has no load-order argument; discover available plugins,
+    // with --plugin providing an explicit active set for disabled-plugin diagnostics.
+    let mut plugins = a.plugin.clone();
+    if plugins.is_empty() {
+        for dir in std::iter::once(&a.data).chain(&a.overlay) {
+            for entry in std::fs::read_dir(dir)?.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && path.extension().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("esm") || s.eq_ignore_ascii_case("esp"))
+                {
+                    plugins.push(entry.file_name().to_string_lossy().into_owned());
+                }
+            }
+        }
+        plugins.sort_by_key(|p| p.to_ascii_lowercase());
+        plugins.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        // [design] Keep the existing default masters' archive order ahead of mod plugins.
+        plugins.sort_by_key(|p| fnv_vfs::DEFAULT_PLUGINS.iter().position(|d| d.eq_ignore_ascii_case(p)).unwrap_or(usize::MAX));
+    }
+    let vfs = Vfs::open_for_plugins(&a.data, &plugins)?;
+    let mut paths = vfs.paths(|_| true);
+    for dir in &a.overlay {
+        overlay_paths(dir, dir, &mut paths)?;
+    }
+    paths.sort();
+    paths.dedup();
+    let files = Files { vfs, overlays: a.overlay.clone(), paths };
     let mut ui = Ui::new();
+    ui.configure_uio(&files, |name| plugins.iter().any(|p| p.eq_ignore_ascii_case(name)));
     ui.load_globals(&files);
     let (w, h) = a.screen.split_once(['x', 'X']).ok_or_else(|| anyhow::anyhow!("--screen: WxH"))?;
     let s = ui.screen();
@@ -124,26 +161,33 @@ fn open(a: &UiSourceArgs) -> anyhow::Result<(Files, Ui)> {
 
 /// The menu files: the archives' and the overlays' `menus\*.xml` but the prefabs.
 fn menu_files(files: &Files) -> Vec<String> {
-    let mut v = files.vfs.paths(|p| p.starts_with("menus\\") && p.ends_with(".xml") && !p.starts_with("menus\\prefabs\\"));
-    for d in &files.overlays {
-        let mut stack = vec![d.clone()];
-        while let Some(dir) = stack.pop() {
-            for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                } else if let Ok(rel) = p.strip_prefix(d) {
-                    let rel = rel.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
-                    if rel.starts_with("menus\\") && rel.ends_with(".xml") && !rel.starts_with("menus\\prefabs\\") {
-                        v.push(rel);
-                    }
-                }
-            }
+    files.list("menus").into_iter().filter(|p| p.ends_with(".xml") && !p.starts_with("menus\\prefabs\\")).collect()
+}
+
+fn overlay_paths(root: &Path, dir: &Path, paths: &mut Vec<String>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            overlay_paths(root, &path, paths)?;
+        } else if entry.file_type()?.is_file() {
+            paths.push(fnv_vfs::normalize(&path.strip_prefix(root).expect("overlay descendant").to_string_lossy()));
         }
     }
-    v.sort();
-    v.dedup();
-    v
+    Ok(())
+}
+
+fn uio_json(ui: &Ui) -> Value {
+    let r = &ui.uio;
+    let mut skipped = std::collections::BTreeMap::<&str, usize>::new();
+    for d in &r.decisions {
+        if d.applied == 0 {
+            *skipped.entry(&d.reason).or_default() += 1;
+        }
+    }
+    json!({ "read": r.decisions.len() + r.duplicates, "entries": r.decisions.len(), "duplicates": r.duplicates,
+        "applied": r.applied(), "skipped": r.decisions.len() - r.applied(), "skip_reasons": skipped,
+        "warnings": r.warnings, "decisions": r.lines() })
 }
 
 fn counts(ui: &Ui, root: TileId) -> (usize, usize, usize) {
@@ -204,7 +248,7 @@ pub fn run(cmd: UiCmd) -> anyhow::Result<Value> {
                 }
             }
             let built = menus.iter().filter(|m| m.get("menu").is_some()).count();
-            Ok(json!({ "schema": "fnv.ui.menus/1", "globals_warnings": globals_warnings, "built": built, "menus": menus }))
+            Ok(json!({ "schema": "fnv.ui.menus/1", "globals_warnings": globals_warnings, "built": built, "menus": menus, "uio": uio_json(&ui) }))
         }
         UiCmd::Tree { src, menu, at } => {
             let (files, mut ui) = open(&src)?;
@@ -214,7 +258,9 @@ pub fn run(cmd: UiCmd) -> anyhow::Result<Value> {
                 Some(p) => ui.find_tile(p).ok_or_else(|| anyhow::anyhow!("{p}: no such tile"))?,
                 None => id,
             };
-            Ok(json!({ "schema": "fnv.ui.tree/1", "path": ui.path_of(root), "warnings": ui.warnings, "tree": tree_json(&ui, root) }))
+            Ok(
+                json!({ "schema": "fnv.ui.tree/1", "path": ui.path_of(root), "warnings": ui.warnings, "tree": tree_json(&ui, root), "uio": uio_json(&ui) }),
+            )
         }
         UiCmd::ModTiles { src, menu } => {
             let (files, mut ui) = open(&src)?;
@@ -253,7 +299,61 @@ pub fn run(cmd: UiCmd) -> anyhow::Result<Value> {
             Ok(json!({
                 "schema": "fnv.ui.mod_tiles/1", "menu": ui.tile(id).name, "loose_roots": loose,
                 "vanilla_compared": vanilla.is_some(), "drawn": total, "roots": rows,
+                "uio": uio_json(&ui),
             }))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlays_supply_plugins_conditions_and_winning_lists() {
+        // [design] Synthetic files in this worktree; plugin bytes are never parsed.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/ui-tool-uio-{}", std::process::id()));
+        let data = root.join("Data");
+        let overlay = root.join("mod");
+        std::fs::create_dir_all(data.join("menus")).unwrap();
+        std::fs::create_dir_all(overlay.join("UIO/Public")).unwrap();
+        std::fs::create_dir_all(overlay.join("Menus/Prefabs")).unwrap();
+        std::fs::write(data.join("menus/hud.xml"), "<menu name=\"HUDMainMenu\"/>").unwrap();
+        std::fs::write(overlay.join("JustAssortedMods.esp"), []).unwrap();
+        std::fs::write(overlay.join("UIO/Public/test.txt"), "probe.xml::HUDMainMenu\n?JustAssortedMods.esp && #probe.xml").unwrap();
+        std::fs::write(overlay.join("Menus/Prefabs/probe.xml"), "<rect name=\"Probe\"/>").unwrap();
+        let mut args = UiSourceArgs { data, overlay: vec![overlay.clone()], plugin: Vec::new(), screen: "800x600".into() };
+        let (files, mut ui) = open(&args).unwrap();
+        assert_eq!(files.list("UiO/PuBlIc"), ["uio\\public\\test.txt"]);
+        ui.load_menu(&files, "menus/hud.xml").unwrap();
+        let added = ui.find_tile("HUDMainMenu/Probe").unwrap();
+        assert!(ui.mod_tile_drawn(added, None));
+        assert_eq!(uio_json(&ui)["applied"], 1);
+        args.plugin = vec!["FalloutNV.esm".into()];
+        let (files, mut ui) = open(&args).unwrap();
+        ui.load_menu(&files, "menus/hud.xml").unwrap();
+        assert!(ui.find_tile("HUDMainMenu/Probe").is_none());
+        assert_eq!(uio_json(&ui)["skip_reasons"]["condition false"], 1);
+        // [design] Delete only the synthetic files and their now-empty directories.
+        for path in [
+            root.join("Data/menus/hud.xml"),
+            overlay.join("JustAssortedMods.esp"),
+            overlay.join("UIO/Public/test.txt"),
+            overlay.join("Menus/Prefabs/probe.xml"),
+        ] {
+            std::fs::remove_file(path).unwrap();
+        }
+        for path in [
+            root.join("Data/menus"),
+            root.join("Data"),
+            overlay.join("UIO/Public"),
+            overlay.join("UIO"),
+            overlay.join("Menus/Prefabs"),
+            overlay.join("Menus"),
+            overlay,
+            root,
+        ] {
+            std::fs::remove_dir(path).unwrap();
         }
     }
 }
