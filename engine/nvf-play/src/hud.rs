@@ -391,11 +391,13 @@ impl Places {
 /// Where this HUD sets its corner labels, for the tile tree's code-made copies while the HUD
 /// is drawn from tiles (`crate::tiles::vanilla::write_corners`; the captures give none of
 /// their places, hud.md §14.6) [design]: "HP"'s start, the ends of "AP", "CND" and the
-/// ammo counter, each with the line it stands on, from its corner piece's top left (the
-/// right piece's as drawn here, [`MARGIN_X`] in from the view's edge).
-pub(crate) fn label_places(font: &Font) -> [(f32, f32); 4] {
+/// ammo counter, and the ammo abbreviation's start (`AmmoTypeLabel`, whose place the
+/// captures read only with no abbreviation shown), each with the line it stands on, from
+/// its corner piece's top left (the right piece's as drawn here, [`MARGIN_X`] in from the
+/// view's edge).
+pub(crate) fn label_places(font: &Font) -> [(f32, f32); 5] {
     let p = Places::new(font);
-    [(p.hp_label, UPPER_BASE), (AP_LABEL_END, UPPER_BASE), (p.cnd_x - CND_LABEL_GAP, LOWER_BASE), (p.ammo_right, LOWER_BASE)]
+    [(p.hp_label, UPPER_BASE), (AP_LABEL_END, UPPER_BASE), (p.cnd_x - CND_LABEL_GAP, LOWER_BASE), (p.ammo_right, LOWER_BASE), (AMMO_LABEL_X, LOWER_BASE)]
 }
 
 // ---- reading the game ------------------------------------------------------------------

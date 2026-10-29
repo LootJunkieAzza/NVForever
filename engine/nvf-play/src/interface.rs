@@ -361,6 +361,12 @@ impl Pictures {
         }
         self.texture(own_texture(path), data, images, bc).map(|(image, size)| (image, None, size))
     }
+
+    /// A picture read from its own file only, with its size in texels: no atlas looked in
+    /// (a whole menu's image without `texatlas`, `crate::tiles::draw::Source::Own`).
+    pub fn own_sized(&mut self, path: &str, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<SizedPicture> {
+        self.texture(own_texture(path), data?, images, bc).map(|(image, size)| (image, None, size))
+    }
 }
 
 /// A picture's own file: its path under the textures folder, in small letters.

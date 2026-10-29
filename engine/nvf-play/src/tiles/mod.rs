@@ -158,13 +158,16 @@ impl HudTiles<'_> {
         let shift = crate::hud::MARGIN_X;
         let top = |(x, base): (f32, f32), shift: f32| (f64::from(x - shift), f64::from(base - line));
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
+        let ammo_label = if shown.ammo_label { weapon.abbrev.unwrap_or_default() } else { String::new() };
+        let (start, line_top) = top(labels[4], shift);
         vanilla::Corner {
             hp: top(labels[0], 0.0),
             ap: top(labels[1], shift),
             cnd: top(labels[2], shift),
             ammo: top(labels[3], shift),
             right_bracket: -f64::from(shift),
-            ammo_label: if shown.ammo_label { weapon.abbrev.unwrap_or_default() } else { String::new() },
+            ammo_label_at: (start + f64::from(fonts.hud_width(&ammo_label)), line_top),
+            ammo_label,
             condition: shown.condition,
         }
     }
