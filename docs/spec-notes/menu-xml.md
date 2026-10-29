@@ -304,8 +304,8 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    `&true;` and nothing changes (e.g. `HUDMainMenu/locus`), and on one set to `&false;`
    (`HUDMainMenu/_CrosshairVisible` before any aiming). Also `&center;`, `&right;` (a
    `justify`) and `&scale;` while there.
-2. **How the original reads mismatched end tags.** JIP's `DumpTileInfo` (or
-   `GetUIFloat` with `:N` paths) on `QuestAddedMenu`'s two buttons and on MCM's
+2. **How the original reads mismatched end tags.** SUP's `DumpTileInfo`
+   [documented: DumpTileInfo, origin SUP] (or `GetUIFloat` with `:N` paths) on `QuestAddedMenu`'s two buttons and on MCM's
    `StartMenu/MCM` tree: which tile ends up holding what.
 3. **Whether a set trait holds.** `SetUIFloat` on a trait that has operators (a HUD
    piece's `x`), then change what it reads (a screen size change will do), and read it
