@@ -710,8 +710,8 @@ with the pistol drawn and three quick shots. Names from `hudtemplates.xml` and
   Cropx: "crops the image in the x direction … applied after the zoom trait"
   [documented: GECK wiki Cropx]) read -999 on it; `filewidth`/`fileheight` 1024 (the
   texture's size). No documented xNVSE or JIP function lists a tile's traits or its
-  children's names (DumpTileInfo is SUP's) [documented: the function catalogue, the wiki;
-  a read-only review with Codex, 2026-10-29]. [hypothesis] The code moves the picture's
+  children's names (DumpTileInfo is SUP's) [documented: the function catalogue, the wiki's
+  UI function pages, searched 2026-10-29]. [hypothesis] The code moves the picture's
   texture area itself; ITR's SetUITexOffset page describes compass scrolling that way
   ("scrolling tiled UI textures, such as a compass strip, without changing the tile's
   screen position or crop window") [documented: GECK wiki SetUITexOffset, a separate
@@ -741,7 +741,9 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
 - **The marks**: the settler's tick stood at `x = 139.0 + 2.844 x bearing` (compass_window
   units, bearing -180..180 from where the player faces), 14.2 units each 5 degrees at every
   heading; 2.844 x 360 = 1024. It showed for bearings from about -49 to +48 (x from about 0
-  to 276; outside, `visible` 0).
+  to 276; outside, `visible` 0). A place mark stayed inside the same band (tile x 3.1 to
+  272.7); the band fits a mark showing while it is within 139 units (148 - 9) of the
+  heading point.
 - **The strip** moved 85 pixels each 40 degrees on the screenshots (13 of 16 spans; the
   others spoilt by the scene behind it): 85 / 0.75 / 40 = 2.83 units a degree, 1024 to the
   turn as the marks. `heading / 360 x 1024` is right for both.
@@ -751,5 +753,7 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   (its tip about x 167 of `HitPoints`, N's middle about 172), which settles §4's open
   question: the heading is at the triangle, not the window's middle (172.5 of the window,
   192.5 of `HitPoints`).
-- [design] NVForever put the heading at the window's middle for the strip and the marks
-  (`compass.rs`, `COMPASS.x / 2`): 24.5 units, about 8.6 degrees, right of the original.
+- [design] NVForever uses `hud.rs`'s `COMPASS_HEADING`, x 148 of the window, for both
+  the strip and the marks (`compass.rs`), keeping 1024 units per turn; a mark shows
+  while its offset from the heading point is within 139 units either way [observed: actor
+  ticks and one place mark in the sweep; hypothesis: the same band for quest marks].

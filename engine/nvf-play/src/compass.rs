@@ -34,7 +34,7 @@
 //!   `menus/prefabs/compassicon.xml`].
 //! - The ranges are guesses: no game setting for them is in the masters [hypothesis].
 
-use crate::hud::{CompassMarks, COMPASS, STRIP};
+use crate::hud::{CompassMarks, COMPASS_HEADING, STRIP};
 use fnv_game::quest_targets::{DoorGraph, Place as QuestPlace};
 use crate::interface::{amber, at, bc_supported, texture};
 use crate::phys::PhysState;
@@ -70,8 +70,9 @@ const TICK: &str = "textures\\interface\\hud\\glow_hud_tick_mark.dds";
 const LANDMARK: &str = "textures\\interface\\hud\\glow_hud_compass_landmark.dds";
 const LANDMARK_FOUND: &str = "textures\\interface\\hud\\glow_hud_compass_landmark_discovered.dds";
 const QUEST: &str = "textures\\interface\\hud\\glow_hud_compass_objective_marker.dds";
-/// The tick (a 32-texel picture whose bar is 18 texels from its left edge) drawn this
-/// size, its top this far down the compass window, its bar's middle on the bearing.
+/// The tick (a 32-texel picture, its bar at texel 9 [observed: hud.md §14.5]) drawn this
+/// size, its top this far down the compass window, its bar's middle on the bearing
+/// [design: fitted to the owner's screenshots, hud.md §11].
 const TICK_SIZE: f32 = 26.0;
 const TICK_TOP: f32 = 9.0;
 const TICK_MIDDLE: f32 = 9.0 / 32.0;
@@ -94,19 +95,26 @@ pub enum Mark {
     Quest,
 }
 
-/// Compass units right of the compass's middle at which a thing at `to` stands for a
+/// Compass units right of the heading point at which a thing at `to` stands for a
 /// player at `from` facing `heading` (degrees, 0 north, 90 east): the bearing's
-/// difference, wrapped to −180…180, at the strip's 1024 units to 360 degrees (`crate::hud`).
+/// difference, wrapped to −180…180, at the strip's 1024 units to 360 degrees
+/// [observed: hud.md §14.5].
 pub fn offset(heading: f32, from: [f32; 2], to: [f32; 2]) -> f32 {
     let bearing = (to[0] - from[0]).atan2(to[1] - from[1]).to_degrees();
     let d = (bearing - heading + 540.0).rem_euclid(360.0) - 180.0;
     d * STRIP.x / 360.0
 }
 
-/// Whether a mark at `x` (from the compass's middle) is in the compass's window, with
-/// its picture's room either side.
+/// The visible distance either side of the heading point
+/// [observed: hud.md §14.5 for actor ticks and one place mark;
+/// hypothesis: the same for quest marks].
+const COMPASS_VISIBLE: f32 = 139.0;
+
+/// Whether a mark at `x` from the heading point is in the visible band
+/// [observed: hud.md §14.5 for actor ticks and one place mark;
+/// hypothesis: the same for quest marks].
 pub fn on_compass(x: f32) -> bool {
-    x.abs() <= COMPASS.x / 2.0 + LANDMARK_SIZE
+    x.abs() <= COMPASS_VISIBLE
 }
 
 /// The marks drawn: kind and place across (whole units, so the drawing changes only when
@@ -221,7 +229,8 @@ fn gather(
     }
     *poll = 0.0;
     let (Some(player), Some(phys)) = (player, phys) else { return };
-    // Marks stand at their bearing from where the camera looks (the strip's middle).
+    // Marks stand at their bearing from the camera's heading point, shared with the
+    // strip [observed: hud.md §14.5].
     let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
     let feet = player.feet;
     let here = [feet[0], feet[1]];
@@ -353,10 +362,9 @@ fn draw(
         let mut read = |p: &str| data.as_deref().and_then(|d| texture(p, d, &mut images, bc)).map(|t| t.0);
         Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST) }
     });
-    let middle = COMPASS.x / 2.0;
     commands.entity(layer).despawn_related::<Children>().with_children(|p| {
         for &(mark, x) in &view.0 {
-            let x = middle + x as f32;
+            let x = COMPASS_HEADING + x as f32;
             let (image, node, colour) = match mark {
                 Mark::Actor | Mark::Hostile => {
                     let colour = if mark == Mark::Hostile { crime_colour() } else { amber(255.0) };
@@ -390,7 +398,8 @@ mod tests {
 
     #[test]
     fn a_mark_stands_at_its_bearing_from_the_heading() {
-        // North of a player facing north: in the middle; east: a quarter strip right.
+        // North of a player facing north: at the heading point; east: a quarter strip
+        // right [observed: hud.md §14.5].
         assert_eq!(offset(0.0, [0.0, 0.0], [0.0, 100.0]), 0.0);
         assert!((offset(0.0, [0.0, 0.0], [100.0, 0.0]) - 256.0).abs() < 1e-3);
         // Facing east, a thing to the north is a quarter strip left.
@@ -401,5 +410,26 @@ mod tests {
         // Behind the player: off the compass.
         assert!(!on_compass(offset(0.0, [0.0, 0.0], [0.0, -100.0])));
         assert!(on_compass(offset(0.0, [0.0, 0.0], [30.0, 100.0])));
+    }
+
+    #[test]
+    fn due_north_of_a_player_facing_north_stands_at_148() {
+        assert_eq!(COMPASS_HEADING + offset(0.0, [0.0, 0.0], [0.0, 100.0]), 148.0);
+    }
+
+    #[test]
+    fn a_mark_shows_in_the_visible_band() {
+        // The sweep showed the tick at ±45 degrees and hid it at ±50
+        // [observed: hud.md §14.5].
+        for bearing in [-45.0, 45.0] {
+            assert!(on_compass(offset(-bearing, [0.0, 0.0], [0.0, 100.0])));
+        }
+        for bearing in [-50.0, 50.0] {
+            assert!(!on_compass(offset(-bearing, [0.0, 0.0], [0.0, 100.0])));
+        }
+        for x in [-139.0, 139.0] {
+            assert!(on_compass(x));
+            assert!(!on_compass(x.signum() * 140.0));
+        }
     }
 }

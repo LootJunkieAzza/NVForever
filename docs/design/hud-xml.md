@@ -261,7 +261,8 @@ is needed, its captures.
 3. **The capture** (T4): §4.1 and §4.2 as a job in `tools/capture/jobs`, run on the
    owner's install; findings into `hud.md`. The adapter starts writing the observed
    values into the tree while the old HUD still draws, so mods reading the HUD see live
-   values. Places and visibility done (T4a); states, children and strings open.
+   values. Done 2026-10-29 (T4a-T4c, hud.md §14-§14.5); the code-made copies and text
+   widths moved to T5 (ui-tile-tree-tasks.md).
 4. **Layout and T5**: the layout in `fnv-ui`, the Bevy UI drawing in
    `nvf-play/src/tiles/`, drawing only the tiles mods add to `HUDMainMenu` (injected, or
    not in the vanilla file) over the current HUD. Checked with a test mod using

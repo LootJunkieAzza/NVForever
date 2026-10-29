@@ -52,6 +52,8 @@ const TICK_BLOCK: f32 = 6.0;
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
 pub const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
+/// The heading's x in compass-window units [observed: hud.md §14.5].
+pub const COMPASS_HEADING: f32 = 148.0;
 /// The whole strip, north to north: 1024 texels for 360 degrees [observed: the texture].
 pub const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
 /// The solid bar's ground (weapon condition): length and height [documented: the file
@@ -324,10 +326,10 @@ pub fn tick_lefts(length: f32, width: f32, count: usize) -> (Vec<f32>, f32) {
 }
 
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
-/// (degrees) is in the window's middle (§4).
+/// (degrees) stands at [`COMPASS_HEADING`] [observed: hud.md §14.5].
 pub fn strip_left(heading: f32) -> f32 {
-    let middle = heading.rem_euclid(360.0) / 360.0 * STRIP.x;
-    -(middle - COMPASS.x / 2.0).rem_euclid(STRIP.x)
+    let at = heading.rem_euclid(360.0) / 360.0 * STRIP.x;
+    -(at - COMPASS_HEADING).rem_euclid(STRIP.x)
 }
 
 /// The ammo counter's text: rounds in the weapon / rounds carried besides.
@@ -605,6 +607,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
             spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, color);
+            info!("compass: heading at x {x} of {w}", x = COMPASS_HEADING, w = COMPASS.x);
             let mut window = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             window.overflow = Overflow::clip();
             p.spawn(window).with_children(|w| {
@@ -986,14 +989,15 @@ mod tests {
     }
 
     #[test]
-    fn the_compass_keeps_the_heading_in_the_middle() {
-        // What is in the window's middle, in texels of one strip.
-        let middle = |heading: f32| (COMPASS.x / 2.0 - strip_left(heading)).rem_euclid(STRIP.x);
-        assert!((middle(0.0) - 0.0).abs() < 1e-3 || (middle(0.0) - 1024.0).abs() < 1e-3);
-        assert!((middle(90.0) - 256.0).abs() < 1e-3);
-        assert!((middle(225.0) - 640.0).abs() < 1e-3);
-        assert!((middle(-90.0) - 768.0).abs() < 1e-3);
-        assert!((middle(450.0) - 256.0).abs() < 1e-3);
+    fn the_compass_keeps_the_heading_at_the_triangle() {
+        // Read the strip at x 148 instead of 172.5; its scale stays 1024 per turn
+        // [observed: hud.md §14.5].
+        let at = |heading: f32| (COMPASS_HEADING - strip_left(heading)).rem_euclid(STRIP.x);
+        assert!((at(0.0) - 0.0).abs() < 1e-3 || (at(0.0) - 1024.0).abs() < 1e-3);
+        assert!((at(90.0) - 256.0).abs() < 1e-3);
+        assert!((at(225.0) - 640.0).abs() < 1e-3);
+        assert!((at(-90.0) - 768.0).abs() < 1e-3);
+        assert!((at(450.0) - 256.0).abs() < 1e-3);
         // The doubled strip always covers the window.
         for h in 0..720 {
             let left = strip_left(h as f32 * 0.5);

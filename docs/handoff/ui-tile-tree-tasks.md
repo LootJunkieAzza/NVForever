@@ -64,7 +64,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
   - `fnv_game::ui_hud` writes every observed piece's x/y, `CNDArrows` height and
     shown visibility values from hud.md §14; `screen()` supplies the aspect ratio.
     W and W/2 truncate before offsets [hypothesis: 1320 for AP at 16:9, keeping the
-    reticle's half-unit offset]. Hidden pieces read 0 [hypothesis]. Undrawn pieces
+    reticle's half-unit offset]. Hidden pieces read 0 [observed: hud.md §14.3]. Undrawn pieces
     keep the file's visibility; the current HUD keeps drawing [design].
   - `nvf-play/src/tiles.rs` mirrors the current HUD's showing rules and writes after
     lifetime sync, before scripts [design: §4.1]. Subtitle selection is shared with
@@ -77,14 +77,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     its value shown or not, except `ReticleCenter` 0 and `EnemyHealth` 8 while aiming
     (`Shown::aiming`); `sneak_nif` and the four radiation tiles show through their
     alpha. The root's `_…` traits never changed in any state, so nothing writes them.
-  - T4 remains: the prompt's, the sneak word's and the radiation value's sizes (text
-    widths, after T5's measurement), the radiation pointer's place, the subtitles' move
-    up 50 under a prompt; the code-made children under the corner pieces (bars,
-    compass, condition and ammo); an enemy targeted; code-made children's strings.
-    The file tiles' strings are T4b below (hud.md §14.2).
 
 - **T4b. HUD file tiles' strings.** Done 2026-10-29 (claude/hud-code-traits).
-  - 2026-10-29: HUD corner ticks round down, condition fills `round(59 x condition)`, bar changes log; hidden pieces' `visible` 0 now observed (hud.md §14.3).
   - [design] `ui_hud::Texts` carries plain strings from the drawing's shared helpers
     and constants; the adapter writes them before scripts (ui-tile-tree.md §4.1).
     Paths and values follow hud.md §14.2 [observed]. Sneak and prompt strings retain
@@ -94,21 +88,23 @@ owner to add to its pull request or issue (owner, 2026-10-29).
   - Tests: `crates/fnv-game/tests/ui_hud.rs`, synthetic file tiles, every string,
     retained sneak/prompt strings, +0, plugin words and missing tiles.
 
+- **T4c. The HUD's captured states, bars and compass.** Done 2026-10-29
+  (claude/hud-code-traits). T4 is done with it; what it leaves is under T5.
+  - Captures in the original (xNVSE, then JIP 57.3; private jobs and results in
+    `C:\fnv-private\hud-capture`, builders in its `tools\`): states (hud.md §14.1),
+    strings (§14.2), corners (§14.3), the compass and crosshair by name (§14.4), the
+    heading sweep (§14.5). JIP changed none of xNVSE's numeric reads.
+  - Fixed to match: the radiation word "RAD/SEC", the bars' ticks rounded down
+    (`floor(share x 37)`), the condition fill `round(59 x condition)`, the compass's
+    heading at x 148 of the window (was the middle) with marks shown within 139 units;
+    smoke `hud-bars-partial`, `hud-compass-north`. Before/after pictures in
+    `pr-pictures/claude-hud-code-traits/`.
+  - Settled as they are: the strip's scale (1024 a turn); the original's crosshair does
+    not spread (Dynamic crosshair off is its look, reticle.md §6).
+
 ## Next, in order
 
-1. **T4. The HUD's code-side traits.** Write into `HUDMainMenu` what the original's code
-   sets: health, action points, compass, the crosshair, sneak, radiation and the prompt,
-   on the pieces and their children. The root's `_CrosshairVisible`, `_SneakVisible`,
-   `_SneakLevel`, `_RadiationLevel`, `_TargetType`, `_ActionType` and
-   `_SpreadPercentage` never changed in the captured states (hud.md §14.1), so they are
-   not written unless a later capture shows the code setting them.
-   - Places and visibility are T4a above; the first captures are in hud.md §14.
-     Capture the root's other states, children's traits and strings next, so the
-     names and values are observed, not guessed.
-   - [design] Generate that private trait job with [hud_traits.py](../../tools/capture/README.md#hud-trait-jobs-hud_traitspy)
-     from a `fnvtool ui tree` export; the rest of T4 still needs captures and agreement.
-   - Done when the capture's values and ours agree on the same scene.
-2. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
+1. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
    - `nvf-play/src/tiles/`: layout as a pure function (tested headless: places,
      sizes, depth order from the traits), then Bevy nodes for rect, image (filename +
      texatlas), text (fnv-font, justify, wrap), alpha, visible, colour, clips;
@@ -118,44 +114,60 @@ owner to add to its pull request or issue (owner, 2026-10-29).
      one that uses InjectUIXML).
 
    Shots in smoke.
-3. **T6. UIO include lists.** Read `uio\public\*.txt` and `uio\supported.txt`
+   - **Carried over from T4** (hud.md §14-§14.5 have the observed values):
+     - the code-made copies the original's code makes from `hudtemplates.xml` under
+       the pieces (the corners' labels "HP", "AP", "CND" and the ammo counter, the bars'
+       fills, `compass_window` and its marks with `_Heading`/`_Distance`,
+       `reticle_center` with `user0`/`user1`, the prompt's texts): created in our tree
+       with the traits and strings observed, so mods reading them by name or `*:N` find
+       them (§14.4: names reach where `*:N` alone does not);
+     - text widths written back (the sneak word 106/136, the prompt's hotrect, the
+       radiation value), once T5 measures text with fnv-font;
+     - the radiation pointer's x as the rads add up (15 to 42.9, §14.1), and Subtitles
+       moving up by the prompt's height + 8 (§14.3, two data points);
+     - not captured: an enemy under the crosshair (the enemy bar's children; §14.3 has
+       why three tries failed: face the actor with script steps, not a drive script),
+       and how the strip itself scrolls (no trait; §14.4; our drawing's scale and
+       centre are measured, §14.5).
+
+2. **T6. UIO include lists.** Read `uio\public\*.txt` and `uio\supported.txt`
    (menu-xml.md §7 item 3) and include their files at their targets when the menu or
    prefab loads; conditions `true`, `?plugin`, `#file`, `!`, `&&`. Test with JAM, MCM
    Extender and UI Improvements from `F:\Modlists\VNV\mods` as overlays in
    `fnvtool ui`.
-4. **T7. MCM, headless first** (owner decision in owner-review.md first):
+3. **T7. MCM, headless first** (owner decision in owner-review.md first):
    - StartMenu built from the files while the pause or main menu is open, with MCM's
      includes;
    - MCM's own functions (SetMCMString, SetMCMFloat, … origin MCM,
      modlist-scan-2026-10-26.md) as tree writes;
    - a test that runs one MCM mod's menu script in `MenuMode 1013` against the tree and
      checks the traits it sets.
-5. **T8. Input on tiles.**
+4. **T8. Input on tiles.**
    - Pointer hit-tests over hotrects (`target`, `id`, `depth`): `mouseover` and
      `clicked` traits written each frame, `ref` links followed, `_PCButton_*` keys,
      `xbutton*` from a controller;
    - GetActiveUIComponentName, GetActiveUIComponentFullName, GetActiveUIComponentID,
      ClickMenuButton, ClickMenuTile;
    - the menu click and mouseover events (extender events, design §5.2).
-6. **T9. The rest of the tile functions** (design §5.2): SetUIFloatGradual and its
+5. **T9. The rest of the tile functions** (design §5.2): SetUIFloatGradual and its
    readers (gradients stepped on real time), SetUIFloatMultiple, GetUIFloatInherited,
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
    SortUIListBox, GetStringUIDimensions (fnv-font metrics), the CacheUI family, the
    HudBar family, the DumpTileInfo family. Each with a headless test.
-7. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files:
+6. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files:
    NVForever's English text for each from the owner's screenshots or an observer dump
    (`GetGameSetting`/`con_GetGameSetting` in the original), the load order's GMST first.
-8. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
+7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.
-9. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
+8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
-10. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
-11. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
+9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
+10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
     deprecated forms' bug, `name:N` counting. One capture job; fold the answers into
     the spec and the reader.
-12. **T15 onward: one menu per task**, in the order of design §6.2 item 4. Each is
+11. **T15 onward: one menu per task**, in the order of design §6.2 item 4. Each is
     switch, drawing, the model writing `io()` traits and template rows, screenshot
     comparison, removing the hand-copied numbers:
     - message box, quantity, sleep/wait, tutorial;
