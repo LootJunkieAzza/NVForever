@@ -138,6 +138,17 @@ pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
 }
 
 impl Prompt {
+    /// The drawn key, including its fallback [design: shared with the tile tree].
+    pub(crate) fn key_text(&self) -> &str {
+        if self.key.is_empty() { KEY } else { &self.key }
+    }
+
+    /// Bind the same prompt for drawing and tile writes [design].
+    pub(crate) fn bound(t: &Targeted, sim: &SimState, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
+        let key = bindings.map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
+        Prompt { key, ..Prompt::of(t, sim) }
+    }
+
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
         let (mut action, name) = outcome::prompt(&t.name, &t.action);
         // An owned item is stolen, not taken [hypothesis: the game's word; owner's
@@ -198,7 +209,7 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let line = |s: &str| font.lines(s, None).into_iter().next().unwrap_or_default();
     let set = |line: Line, x: f32, base: f32| Set { line, x, base };
     let action = line(&p.action);
-    let key = line(if p.key.is_empty() { KEY } else { &p.key });
+    let key = line(p.key_text());
     let name = line(&p.name);
     let action_x = ACTION_X - action.width / 2.0;
     let name_base = ACTION_BASE + LINE_PITCH;
@@ -538,9 +549,8 @@ fn draw(
             }
         }
     }
-    let key = bindings.as_ref().map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt { key: key.clone(), ..Prompt::of(t, &sim) });
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {

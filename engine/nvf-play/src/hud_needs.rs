@@ -1,12 +1,13 @@
 //! Hardcore's need words, the radiation word and the limb word on the HUD:
-//! `H2O FOD SLP RAD LMB` on the "HP" label's line at the bottom left
-//! (docs/spec-notes/hud.md §13).
+//! `H20 FOD SLP RAD LMB` [observed: hud.md §14.2] on the "HP" label's line at the
+//! bottom left [design: docs/spec-notes/hud.md §13].
 //!
 //! - The words are the game's (`HardcoreMode` in `hud_main_menu.xml`: texts `Dehydration`,
 //!   `Hunger`, `Sleep` and `LMBs`, font 7, the HUD's colour, set in code); their strings
 //!   are the settings `sStatsH20Abbrev`, `sStatsFODAbbrev`, `sStatsSLPAbbrev` and
-//!   `sStatsLMBAbbrev`, which no master sets, so the words of the owner's screenshot stand
-//!   in when no plugin does. The file's fifth text, `Rads` (`sStatsRADAbbrev`, set by no
+//!   `sStatsLMBAbbrev`, which no master sets, so the observed words [observed: hud.md
+//!   §14.2] stand in when no plugin does [design]. The file's fifth text, `Rads`
+//!   (`sStatsRADAbbrev`, set by no
 //!   master either), is drawn as `RAD` between SLP and LMB [owner, 2026-10-23: RAD with the
 //!   other HUD indicators, "same rules"].
 //! - Each word has one of four looks ([`Look`]): faded, the HUD's amber, red, flashing red.
@@ -37,10 +38,9 @@ const FADED: f32 = 0.3;
 /// 2026-10-23, the words start "a little right of the HP label"; not measured].
 const AFTER_HP: f32 = 2.0;
 
-/// The words: the setting each comes from and the word used without it [hypothesis: the
-/// words on the owner's screenshot of the original; the settings are named by
-/// `hud_main_menu.xml` and set by no master].
-const WORDS: [(&str, &str); 5] = [("sStatsH20Abbrev", "H2O"), ("sStatsFODAbbrev", "FOD"), ("sStatsSLPAbbrev", "SLP"), ("sStatsRADAbbrev", "RAD"), ("sStatsLMBAbbrev", "LMB")];
+/// The settings [documented: hud_main_menu.xml, HardcoreMode] and the words used
+/// without them [observed: hud.md §14.2; H20 ends in a zero].
+const WORDS: [(&str, &str); 5] = [("sStatsH20Abbrev", "H20"), ("sStatsFODAbbrev", "FOD"), ("sStatsSLPAbbrev", "SLP"), ("sStatsRADAbbrev", "RAD"), ("sStatsLMBAbbrev", "LMB")];
 /// The needs behind the first three words.
 const NEEDS: [u16; 3] = [DEHYDRATION, HUNGER, SLEEP_DEPRIVATION];
 /// The radiation and limb words' indices in [`WORDS`]; they show in every mode.
@@ -186,6 +186,11 @@ fn setting_str(sim: &SimState, name: &str) -> Option<String> {
     }
 }
 
+/// The same setting overrides and fallbacks for the drawing and tree [design].
+pub(crate) fn texts(sim: &SimState) -> [String; N] {
+    WORDS.map(|(setting, word)| setting_str(sim, setting).unwrap_or_else(|| word.to_string()))
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
@@ -208,7 +213,7 @@ fn draw(
         }
         let face_: Face = face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref()));
         let font = &face_.font;
-        let texts: Vec<String> = WORDS.iter().map(|(s, w)| setting_str(&sim, s).unwrap_or_else(|| (*w).to_string())).collect();
+        let texts = texts(&sim);
         let space = font.width(" ");
         let mut x = HP_LABEL_X + font.width(HP) + AFTER_HP * space;
         let first = x;

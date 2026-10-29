@@ -84,9 +84,16 @@ const WORD_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
 // ---- set here [hypothesis] ---------------------------------------------------------------
 
-/// The word [observed: the original's HUD in radiation, "+9 RAD/SEC", hud.md §14.1;
+/// The word [observed: the original's tile, hud.md §14.2;
 /// `sStatsRADAbbrev` is set by no master].
-const WORD: &str = "RAD/SEC";
+pub(crate) const WORD: &str = "RAD/SEC";
+
+/// Whole rads a second, at least 1 while any are taken [hypothesis: existing drawing
+/// rule]; "+0" without radiation [observed: hud.md §14.2]. Shared with the tree [design].
+pub(crate) fn value_text(rate: f64) -> String {
+    let whole = if rate > 0.0 { rate.round().max(1.0) as i64 } else { 0 };
+    format!("+{whole}")
+}
 /// The bracket picture (512 x 128, drawn 567 x 120): its line across at rows 12–16, its
 /// upright at columns 494–499, and sixteen notches hanging from the line every 20 columns
 /// from 173 to 473, the ends slanted, the long ones at 233, 293, 353 and 413 [observed: the
@@ -350,8 +357,7 @@ fn draw(
         }
     }
     let Some(kit) = kit.as_ref() else { return };
-    // Whole rads a second, at least 1 while any are taken [hypothesis].
-    let value = format!("+{}", rate.round().max(1.0) as i64);
+    let value = value_text(rate);
     if shown.as_deref() == Some(value.as_str()) {
         return;
     }
@@ -415,6 +421,14 @@ fn summary(mut exit: MessageReader<AppExit>, log: Res<RadLog>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_drawn_value_and_tree_share_whole_rads_and_zero() {
+        assert_eq!(value_text(0.0), "+0");
+        assert_eq!(value_text(0.2), "+1");
+        assert_eq!(value_text(8.6), "+9");
+        assert_eq!(value_text(9.4), "+9");
+    }
 
     #[test]
     fn the_counter_rises_through_its_three_bands() {

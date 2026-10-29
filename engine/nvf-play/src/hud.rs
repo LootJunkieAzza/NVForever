@@ -249,8 +249,8 @@ impl Sneak {
 }
 
 /// The sneak word from the game's detection states (`fnv_game::awareness`) and the
-/// latest detection values (`Game::detection`).
-fn sneak_now(g: &fnv_game::Game) -> Sneak {
+/// latest detection values (`Game::detection`) [design: shared by drawing and tree].
+pub(crate) fn sneak_now(g: &fnv_game::Game) -> Sneak {
     let me = FormId::PLAYER_REF;
     let (mut fighting, mut searching) = (false, false);
     for (id, a) in &g.awareness.actors {

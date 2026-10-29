@@ -1,6 +1,6 @@
 //! Synthetic XML and sentinel values [design]; expected HUD values [observed: hud.md §14].
 
-use fnv_game::ui_hud::{self, Shown};
+use fnv_game::ui_hud::{self, Shown, Texts};
 use fnv_ui::{MemSource, Ui, Value};
 
 // Columns are 4:3, 16:10 and 16:9. The half-unit reticle offset follows the
@@ -82,11 +82,36 @@ fn all_shown() -> Shown {
     }
 }
 
+// The strings observed in the original [observed: hud.md §14.2].
+fn texts() -> Texts {
+    Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+    }
+}
+
 fn fixture() -> Ui {
     let mut xml = String::from(r#"<menu name="HUDMainMenu"><visible>17</visible>"#);
     for (name, _, _) in PLACES {
         let children = CHILDREN.iter().filter(|(piece, _)| piece == name);
-        let children: String = children.map(|(_, child)| format!(r#"<image name="{child}"><alpha>17</alpha></image>"#)).collect();
+        let mut children: String = children.map(|(_, child)| format!(r#"<image name="{child}"><alpha>17</alpha><string>sentinel</string></image>"#)).collect();
+        let texts: &[&str] = match *name {
+            "XPMeter" => &["XPLabel", "XPLevelUp"],
+            "HardcoreMode" => &["Dehydration", "Hunger", "Sleep", "Rads", "LMBs"],
+            _ => &[],
+        };
+        for text in texts {
+            children.push_str(&format!(r#"<text name="{text}"><string>sentinel</string></text>"#));
+        }
+        if *name == "Info" {
+            children.push_str(r#"<rect name="justify_center_hotrect"><string>sentinel</string><text name="PCShortcutLabel"><string>sentinel</string></text><text name="button_text"><string>sentinel</string></text></rect>"#);
+        }
         xml.push_str(&format!(r#"<rect name="{name}"><visible>17</visible>{children}</rect>"#));
     }
     xml.push_str(r#"<rect name="DDTIconAP"><visible>17</visible></rect>"#);
@@ -111,7 +136,7 @@ fn places_at_the_three_observed_aspect_ratios_and_resize() {
     let mut ui = fixture();
     for (column, (width, height)) in [(1024.0, 768.0), (1280.0, 800.0), (1920.0, 1080.0)].into_iter().enumerate() {
         screen(&mut ui, width, height);
-        ui_hud::write(&mut ui, all_shown());
+        ui_hud::write(&mut ui, all_shown(), &texts());
         ui.update();
         for (name, xs, y) in PLACES {
             assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/x")), Some(xs[column]), "{name}, {width}x{height}");
@@ -127,7 +152,7 @@ fn visible_keeps_its_value_shown_or_not_and_untouched_file_traits() {
     let mut ui = fixture();
     // Everything shown, nothing shown (the reticle hidden too) and the root hidden.
     for shown in [all_shown(), Shown { root: true, ..Shown::default() }, Shown { root: false, ..all_shown() }] {
-        ui_hud::write(&mut ui, shown);
+        ui_hud::write(&mut ui, shown, &texts());
         ui.update();
         assert_eq!(ui.get_float("HUDMainMenu/visible"), Some(f64::from(shown.root)));
         for (name, value) in VISIBLE {
@@ -147,10 +172,10 @@ fn visible_keeps_its_value_shown_or_not_and_untouched_file_traits() {
 #[test]
 fn aiming_hides_the_reticle_and_sets_the_enemy_bar_to_8() {
     let mut ui = fixture();
-    ui_hud::write(&mut ui, Shown { aiming: true, ..all_shown() });
+    ui_hud::write(&mut ui, Shown { aiming: true, ..all_shown() }, &texts());
     assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/visible"), Some(0.0));
     assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/visible"), Some(8.0));
-    ui_hud::write(&mut ui, all_shown());
+    ui_hud::write(&mut ui, all_shown(), &texts());
     assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/visible"), Some(64.0));
     assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/visible"), Some(1.0));
 }
@@ -159,7 +184,7 @@ fn aiming_hides_the_reticle_and_sets_the_enemy_bar_to_8() {
 fn sneaking_and_radiation_show_through_the_childrens_alpha() {
     let mut ui = fixture();
     for (sneak, radiation) in [(true, false), (false, true), (false, false)] {
-        ui_hud::write(&mut ui, Shown { sneak, radiation, ..all_shown() });
+        ui_hud::write(&mut ui, Shown { sneak, radiation, ..all_shown() }, &texts());
         for (piece, child) in CHILDREN {
             let on = if *piece == "SneakMeter" { sneak } else { radiation };
             let expected = if on { 255.0 } else { 0.0 };
@@ -174,13 +199,13 @@ fn sneaking_and_radiation_show_through_the_childrens_alpha() {
 fn script_values_hold_until_the_next_write() {
     let mut ui = fixture();
     screen(&mut ui, 1280.0, 800.0);
-    ui_hud::write(&mut ui, all_shown());
+    ui_hud::write(&mut ui, all_shown(), &texts());
     assert!(ui.set_float("HUDMainMenu/ActionPoints/x", 17.0));
     assert!(ui.set_float("HUDMainMenu/HitPoints/visible", 17.0));
     ui.update();
     assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/x"), Some(17.0));
     assert_eq!(ui.get_float("HUDMainMenu/HitPoints/visible"), Some(17.0));
-    ui_hud::write(&mut ui, all_shown());
+    ui_hud::write(&mut ui, all_shown(), &texts());
     ui.update();
     assert_eq!(ui.get_float("HUDMainMenu/ActionPoints/x"), Some(1150.0));
     assert_eq!(ui.get_float("HUDMainMenu/HitPoints/visible"), Some(2.0));
@@ -192,7 +217,80 @@ fn no_hud_loaded_means_no_writes() {
     screen(&mut ui, 1280.0, 800.0);
     let snapshot = |ui: &Ui| [ui.screen(), ui.strings(), ui.globals()].into_iter().chain(ui.menus()).map(|id| format!("{:?}", ui.tile(id))).collect::<Vec<_>>();
     let before = snapshot(&ui);
-    ui_hud::write(&mut ui, all_shown());
+    ui_hud::write(&mut ui, all_shown(), &texts());
     assert_eq!(before, snapshot(&ui));
     assert!(ui.find_tile("HUDMainMenu").is_none());
+}
+
+#[test]
+fn every_observed_file_string_is_written_even_when_hidden() {
+    let mut ui = fixture();
+    let texts = Texts { radiation_value: "+9".into(), sneak: Some("[HIDDEN]".into()), prompt_key: Some("E)".into()), prompt_verb: Some("Talk".into()), ..texts() };
+    ui_hud::write(&mut ui, Shown::default(), &texts);
+    ui.update();
+    // All file paths and strings [observed: hud.md §14.2].
+    for (path, value) in [
+        ("RadiationMeter/radiation_text", "RAD/SEC"),
+        ("RadiationMeter/radiation_text_value", "+9"),
+        ("XPMeter/XPLabel", "XP"),
+        ("XPMeter/XPLevelUp", "LEVEL UP"),
+        ("HardcoreMode/Dehydration", "H20"),
+        ("HardcoreMode/Hunger", "FOD"),
+        ("HardcoreMode/Sleep", "SLP"),
+        ("HardcoreMode/Rads", "RAD"),
+        ("HardcoreMode/LMBs", "LMB"),
+        ("SneakMeter/sneak_nif", "[HIDDEN]"),
+        ("Info/justify_center_hotrect/PCShortcutLabel", "E)"),
+        ("Info/justify_center_hotrect", "Talk"),
+        ("Info/justify_center_hotrect/button_text", "Talk"),
+    ] {
+        assert_eq!(ui.get_string(&format!("HUDMainMenu/{path}/string")).as_deref(), Some(value), "{path}");
+    }
+}
+
+#[test]
+fn standing_and_losing_the_prompt_keep_the_last_strings() {
+    let mut ui = fixture();
+    let current = Texts { sneak: Some("[CAUTION]".into()), prompt_key: Some("E)".into()), prompt_verb: Some("Talk".into()), ..texts() };
+    ui_hud::write(&mut ui, all_shown(), &current);
+    ui.update();
+    ui_hud::write(&mut ui, Shown { root: true, ..Shown::default() }, &texts());
+    ui.update();
+    for (path, value) in [
+        ("SneakMeter/sneak_nif", "[CAUTION]"),
+        ("Info/justify_center_hotrect/PCShortcutLabel", "E)"),
+        ("Info/justify_center_hotrect", "Talk"),
+        ("Info/justify_center_hotrect/button_text", "Talk"),
+    ] {
+        assert_eq!(ui.get_string(&format!("HUDMainMenu/{path}/string")).as_deref(), Some(value), "{path}");
+    }
+    assert_eq!(ui.get_float("HUDMainMenu/SneakMeter/sneak_nif/alpha"), Some(0.0));
+}
+
+#[test]
+fn no_radiation_writes_plus_zero_and_needs_accept_plugin_words() {
+    let mut ui = fixture();
+    let current = Texts { radiation_value: "+9".into(), ..texts() };
+    ui_hud::write(&mut ui, all_shown(), &current);
+    // Plugin words are synthetic [design].
+    let current = Texts { needs: ["Water", "Food", "Rest", "Rads", "Limbs"].map(String::from), ..texts() };
+    ui_hud::write(&mut ui, Shown { radiation: false, ..all_shown() }, &current);
+    ui.update();
+    assert_eq!(ui.get_string("HUDMainMenu/RadiationMeter/radiation_text_value/string").as_deref(), Some("+0"));
+    for (tile, word) in ["Dehydration", "Hunger", "Sleep", "Rads", "LMBs"].into_iter().zip(current.needs) {
+        assert_eq!(ui.get_string(&format!("HUDMainMenu/HardcoreMode/{tile}/string")), Some(word));
+    }
+}
+
+#[test]
+fn missing_file_tiles_are_skipped() {
+    let source = MemSource::default().with("hud.xml", r#"<menu name="HUDMainMenu"><rect name="RadiationMeter"><text name="radiation_text"/></rect><rect name="Info"/></menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&source, "hud.xml").unwrap();
+    let current = Texts { sneak: Some("[HIDDEN]".into()), prompt_key: Some("E)".into()), prompt_verb: Some("Talk".into()), ..texts() };
+    ui_hud::write(&mut ui, all_shown(), &current);
+    ui.update();
+    assert_eq!(ui.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("RAD/SEC"));
+    assert!(ui.find_tile("HUDMainMenu/RadiationMeter/radiation_text_value").is_none());
+    assert!(ui.find_tile("HUDMainMenu/Info/justify_center_hotrect").is_none());
 }

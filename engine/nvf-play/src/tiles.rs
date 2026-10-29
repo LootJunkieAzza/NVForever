@@ -69,6 +69,7 @@ struct HudTiles<'w> {
     scope: Option<Res<'w, crate::aim_zoom::Scope>>,
     combat: Option<Res<'w, crate::combat::Combat>>,
     target: Option<Res<'w, crate::activate::Target>>,
+    bindings: Option<Res<'w, crate::bindings::Bindings>>,
     enemy: Option<Res<'w, crate::hud_target::HudTarget>>,
     limbs: Option<Res<'w, crate::hud_limbs::Indicator>>,
     player_limbs: Option<Res<'w, crate::combat::PlayerLimbs>>,
@@ -108,7 +109,8 @@ impl HudTiles<'_> {
         let quest = self.quests.as_ref().and_then(|q| q.showing());
         // Map discovery to Region_Location [hypothesis: hud.md §14; one queue here].
         let location = matches!(quest, Some(crate::script_events::QuestNotice::Discovered(_)));
-        // hud_needs::watch/draw: H2O/FOD/SLP in Hardcore, RAD and LMB in every mode.
+        // hud_needs::watch/draw: H20/FOD/SLP in Hardcore, RAD and LMB in every mode
+        // [design: hud.md §13; observed words: hud.md §14.2].
         // The rect shows if any word has a look other than Hidden [design].
         use fnv_game::aid::{DEHYDRATION, HUNGER, RAD_LEVEL, SLEEP_DEPRIVATION};
         let need = |code| game.player.need_stages.get(&code).is_some_and(|held| game.data.need_stages.get(&code).is_some_and(|stages| stages.iter().any(|s| s.stage == *held)));
@@ -139,13 +141,30 @@ impl HudTiles<'_> {
             condition: corners && weapon.condition.is_some(),
         }
     }
+
+    fn texts(&self, game: &fnv_game::Game<'_>, shown: fnv_game::ui_hud::Shown) -> fnv_game::ui_hud::Texts {
+        // Read the drawing's current values before scripts, as for Shown [design:
+        // ui-tile-tree.md §4.1]; the strings' file tiles [observed: hud.md §14.2].
+        let prompt = self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()));
+        fnv_game::ui_hud::Texts {
+            radiation_word: crate::radiation::WORD.into(),
+            radiation_value: crate::radiation::value_text(game.radiation().rate),
+            xp_label: crate::xp_meter::XP_WORD.into(),
+            xp_level_up: crate::xp_meter::LEVEL_UP_WORD.into(),
+            needs: crate::hud_needs::texts(&self.sim),
+            sneak: shown.sneak.then(|| crate::hud::sneak_now(game).word().to_string()),
+            prompt_key: prompt.as_ref().map(|p| p.key_text().to_string()),
+            prompt_verb: prompt.map(|p| p.action),
+        }
+    }
 }
 
 fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);
     let shown = hud.shown(&rt.game, &files);
-    fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown);
+    let texts = hud.texts(&rt.game, shown);
+    fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
 }
 
 fn update(mut script: ResMut<ScriptState>) {

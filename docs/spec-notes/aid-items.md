@@ -239,7 +239,7 @@ Food:      fMagicSurvivalSkillBase + fMagicSurvivalSkillMult × Survival / 100  
 - Hardcore mode's Stimpak and RadAway effects are chosen by their conditions (IsHardcore,
   HasPerk); the conditions of the masters' aid effects [observed]: IsHardcore 179,
   HasPerk 147, and a few others (§8).
-- Not done: NPCs using stimpaks in combat (the combat workstream's); the HUD's H2O, FOD
+- Not done: NPCs using stimpaks in combat (the combat workstream's); the HUD's H20, FOD
   and SLP codes and the Pip-Boy's needs (the log says the stages, §11); refusing a wait
   that would kill (§11).
 
@@ -384,7 +384,8 @@ Rules (`crates/fnv-game/src/needs.rs`):
   console or a loaded save sets Hardcore, and a new game that never set it plays by the
   switch (`nvf_play::hardcore`).
 - Only the player has needs [design].
-- The HUD's words H2O, FOD and SLP show each need's stage (hud.md §13).
+- The HUD's words H20, FOD and SLP show each need's stage (hud.md §13; words
+  [observed: hud.md §14.2]).
 - Not done: the refusal of a wait or sleep that would kill; the messages
   `sDehydrationIncrease` and the like (the log says the stage instead).
 

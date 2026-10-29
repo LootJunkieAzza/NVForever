@@ -404,9 +404,8 @@ menu's (`dialogue_menu.rs`).
   original's file already has a limb word in the Hardcore row.
 - [observed: FalloutNV.esm and the five add-on masters] None of the five settings is in a
   master; the game's own defaults are not readable here. The words drawn are a plugin's
-  setting if one sets it, else `H2O`, `FOD`, `SLP`, `RAD`, `LMB` [hypothesis: the words on
-  the owner's screenshot; `RAD` and `LMB` from the settings' names]. `RAD` stands in the
-  file's order, between SLP and LMB [owner 2026-10-23: RAD with the other indicators,
+  setting if one sets it, else `H20`, `FOD`, `SLP`, `RAD`, `LMB` [observed: §14.2].
+  `RAD` stands in the file's order, between SLP and LMB [owner 2026-10-23: RAD with the other indicators,
   whether or not the original drew it].
 - [observed: the owner's screenshot, not measured] The words stand on the "HP" label's
   line above the health bar, starting a little right of "HP". Here: on `UPPER_BASE`, the
@@ -429,11 +428,11 @@ menu's (`dialogue_menu.rs`).
   [design: owner 2026-10-23; owner 2026-10-24: hidden with none]: 0 hidden, 1 normal,
   2 red, 3 or more flashing. The brain (31) is not counted [design: not a limb; the
   picture of §12 has no piece for it].
-- **When they show**: H2O, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
+- **When they show**: H20, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
   [design: radiation sickness is not a Hardcore rule]. LMB in every mode
   [design: crippled limbs matter in every mode and the §12 picture goes after 5 s; the
   original's file puts `LMBs` in the Hardcore rect, so the original may show it only in
-  Hardcore — to be checked in a capture]. Outside Hardcore RAD and LMB take H2O's and
+  Hardcore — to be checked in a capture]. Outside Hardcore RAD and LMB take H20's and
   FOD's places.
 - Log: `hud needs: <word> <hidden|faded|normal|red|flashing> (<why>)` when a word's look
   changes, the why being `stage <n> of <count>, <stage effect>`, `no stage`, `Hardcore
@@ -638,5 +637,7 @@ code-made children of the nine pieces (501 reads a sample).]
   unseen; it keeps the word after standing, with alpha 0 (§14.1).
 - `Messages/*:1` holds the corner message's text (the capture's own "NVF capture:
   running …").
-- [design] NVForever drew "H2O" for the dehydration word (`hud_needs.rs`, the setting
-  `sStatsH20Abbrev` being set by no master); the tile's text is "H20".
+- [design] T4b uses the observed "H20" for the dehydration fallback (`hud_needs.rs`,
+  `sStatsH20Abbrev`), shared with the tile tree. The file tiles' strings above are
+  written before scripts; absent sneak and prompt strings keep their last value.
+  The code-made children remain for T4.

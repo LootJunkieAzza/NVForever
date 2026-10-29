@@ -1,4 +1,4 @@
-//! HUD places and visibility beside the current drawing [design: ui-tile-tree.md §6.2].
+//! HUD places, visibility and texts beside the current drawing [design: ui-tile-tree.md §6.2].
 
 use fnv_ui::{Ui, Value};
 
@@ -28,8 +28,24 @@ pub struct Shown {
     pub condition: bool,
 }
 
+/// Texts from the current drawing, without engine types [design: ui-tile-tree.md §6.2].
+/// Optional texts keep their last value when absent [observed: hud.md §14.2].
+#[derive(Clone, Debug)]
+pub struct Texts {
+    pub radiation_word: String,
+    pub radiation_value: String,
+    pub xp_label: String,
+    pub xp_level_up: String,
+    /// Dehydration, hunger, sleep, radiation and limbs, in file order [documented:
+    /// hud_main_menu.xml, HardcoreMode; hud.md §13].
+    pub needs: [String; 5],
+    pub sneak: Option<String>,
+    pub prompt_key: Option<String>,
+    pub prompt_verb: Option<String>,
+}
+
 /// Called after menu lifetime sync, before scripts [design: ui-tile-tree.md §4.1].
-pub fn write(ui: &mut Ui, shown: Shown) {
+pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     let Some(root) = ui.find_tile("HUDMainMenu") else { return };
     // A script's SetUIFloat lasts until the next frame's write [hypothesis:
     // menu-xml.md §6, ui-tile-tree.md §4.2; original overwrite frequency unobserved].
@@ -122,6 +138,31 @@ pub fn write(ui: &mut Ui, shown: Shown) {
     ] {
         if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) {
             ui.set_trait(tile, "alpha", Value::Num(if on { 255.0 } else { 0.0 }));
+        }
+    }
+    // File tiles only; the code-made children wait for their creation [design: T4b].
+    // Every path and string below [observed: hud.md §14.2]. Radiation and XP words
+    // and the needs are written even when hidden; absent sneak/prompt texts keep
+    // their last value, as observed after standing or losing the target.
+    for (path, value) in [
+        ("RadiationMeter/radiation_text", Some(texts.radiation_word.as_str())),
+        ("RadiationMeter/radiation_text_value", Some(texts.radiation_value.as_str())),
+        ("XPMeter/XPLabel", Some(texts.xp_label.as_str())),
+        ("XPMeter/XPLevelUp", Some(texts.xp_level_up.as_str())),
+        ("HardcoreMode/Dehydration", Some(texts.needs[0].as_str())),
+        ("HardcoreMode/Hunger", Some(texts.needs[1].as_str())),
+        ("HardcoreMode/Sleep", Some(texts.needs[2].as_str())),
+        ("HardcoreMode/Rads", Some(texts.needs[3].as_str())),
+        ("HardcoreMode/LMBs", Some(texts.needs[4].as_str())),
+        ("SneakMeter/sneak_nif", texts.sneak.as_deref()),
+        ("Info/justify_center_hotrect/PCShortcutLabel", texts.prompt_key.as_deref()),
+        ("Info/justify_center_hotrect", texts.prompt_verb.as_deref()),
+        ("Info/justify_center_hotrect/button_text", texts.prompt_verb.as_deref()),
+    ] {
+        if let Some(value) = value {
+            if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) {
+                ui.set_trait(tile, "string", Value::Str(value.to_string()));
+            }
         }
     }
 }

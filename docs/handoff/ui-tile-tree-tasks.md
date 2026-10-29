@@ -80,8 +80,18 @@ owner to add to its pull request or issue (owner, 2026-10-29).
   - T4 remains: the prompt's, the sneak word's and the radiation value's sizes (text
     widths, after T5's measurement), the radiation pointer's place, the subtitles' move
     up 50 under a prompt; the code-made children under the corner pieces (bars,
-    compass, condition and ammo); an enemy targeted; strings (JIP). Capture the
-    missing states/strings and check them against ours (hud.md §14 "Open").
+    compass, condition and ammo); an enemy targeted; code-made children's strings.
+    The file tiles' strings are T4b below (hud.md §14.2).
+
+- **T4b. HUD file tiles' strings.** Done 2026-10-29 (claude/hud-code-traits).
+  - [design] `ui_hud::Texts` carries plain strings from the drawing's shared helpers
+    and constants; the adapter writes them before scripts (ui-tile-tree.md §4.1).
+    Paths and values follow hud.md §14.2 [observed]. Sneak and prompt strings retain
+    their last value when absent; missing file tiles are skipped.
+  - The dehydration fallback is `H20` (zero) [observed: hud.md §14.2], including the
+    `hud-needs-words` and `hardcore-setting` smoke expectations.
+  - Tests: `crates/fnv-game/tests/ui_hud.rs`, synthetic file tiles, every string,
+    retained sneak/prompt strings, +0, plugin words and missing tiles.
 
 ## Next, in order
 

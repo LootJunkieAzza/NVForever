@@ -55,9 +55,9 @@ const LEVEL_FONT: &str = "textures\\fonts\\glow_monofonto_large.fnt";
 const LABEL_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 const AMOUNT_FONT: &str = "textures\\fonts\\glow_futura_caps_large.fnt";
 /// The words: `sStatsXP` and `sLevelUp`, which the masters do not set [observed: not
-/// among FalloutNV.esm's GMST; "XP" as on the owner's screenshot; hypothesis: "LEVEL UP"].
-const XP_WORD: &str = "XP";
-const LEVEL_UP_WORD: &str = "LEVEL UP";
+/// among FalloutNV.esm's GMST; the words: hud.md §14.2, XPLabel and XPLevelUp].
+pub(crate) const XP_WORD: &str = "XP";
+pub(crate) const LEVEL_UP_WORD: &str = "LEVEL UP";
 
 // ---- what the pictures and the owner's screenshot show [observed] ----------------------
 
