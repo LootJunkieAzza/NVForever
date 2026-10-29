@@ -77,9 +77,18 @@ Every run writes `target/stress/<test>/<run>/results.json` (everything) and `rep
 - **`NVF_PLAY_TEST_SAMPLE=<seconds>`.** Every that many seconds, logs one `stress sample:`
   line with what the engine holds and where the camera is:
   - frame time over the window: mean and worst;
-  - entities, drawn references, meshes, images and materials;
+  - entities, drawn references, meshes, images and materials (NifMaterials);
   - audio sinks, physics cells, physics bodies (fixed/kinematic/dynamic);
-  - actors, actors with a non-finite position, ragdolls, projectiles in flight.
+  - actors, actors with a non-finite position, ragdolls, projectiles in flight;
+  - where the backend reports it (Vulkan, DX12), the GPU allocator's allocated and
+    reserved megabytes and its memory blocks. The tour watches allocated and reserved
+    for leaks.
+
+  Beside each sample, `stress gpu labels:` lists the allocator's memory by label, largest
+  first. Game textures are labelled by their folder (`textures\clutter`, `generated lod`).
+  Every 30 s, `stress render:` gives the render world's GPU images by the same labels,
+  and the resources held in the NifMaterial bindless slabs. When a label has more
+  allocations than live images, something still holds textures the game let go of (#903).
 
   At the exit, `stress frames:` gives the whole run's frame-time mean, 1 % low and worst.
 
