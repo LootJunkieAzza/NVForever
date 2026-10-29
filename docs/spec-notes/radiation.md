@@ -18,6 +18,21 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   Settings page's "Radiation Settings" (fRadiationAccumulationRate,
   fSwimRadiationDamageMult, fWadeRadiationDamageMult). The wiki's own Radiation and
   Radiation Marker pages are not in the export.
+- GECK wiki (offline snapshot 2026-10-28, `E:\Games\geck-wiki`): Reference, the Extra tab:
+  "Radius: Radiation Marker: The distance from the Radiation Marker that starts giving
+  the player radiation"; "Radiation: The amount of Radiation given off per second by the
+  Radiation Marker, at the location of the marker." Markers: the Radiation variable sets
+  "the radiation per second gained at the marker's location", the Radius "how far out
+  radiation gain starts to occur". GetRadiationLevel: "The radiation level is directly
+  proportional to your rads/sec meter." fRadiationAccumulationRate: "a direct multiplier
+  of the radiation the player and creatures receive from non-water sources"; it "does
+  not influence the "+? Rad/Sec" UI element, since it does not change the base amount".
+- The original game [observed: Steam 1.4.0.525 with xNVSE, the capture plugin's script
+  queries, private jobs `hud_corners` and `hud_corners2`, 2026-10-29; issue #894]: after
+  `coc SLNuclearTestShackINT`, at GetPos (4318.96, −27.96, −135.08 … −135.11),
+  `player.GetRadiationLevel` read 9.013766 … 9.013797 on six reads and
+  `player.GetAV RadResist` 8; the HUD showed "+9 RAD/SEC". (The jobs' moves to two other
+  spots did not move the player: every read is at the coc spot.)
 - xEdit wbDefinitionsFNV.pas: REFR XRAD "Radiation" (f32), XRDS "Radius" (f32); WATR XNAM
   "Actor Effect".
 - GECK wiki export, Special-Effect "Explosion Dialog": "Radiation: RAD Level: Amount of
@@ -40,13 +55,25 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   to 10000 (512, 256 and 1000 most often). 69 stand in exterior cells of the Mojave, the
   rest in interiors (Vault 34, the Searchlight buildings, Techatticup Mine, the nuclear
   test site's shack, Rat Cave …).
-- **Level in the radius** [hypothesis]: inside a marker's radius (3-D distance from its
-  position) the marker's whole XRAD holds; outside it nothing. Where markers overlap the
-  strongest counts; they do not add. Reason: the masters put markers of rising level and
-  falling radius on one spot — Clark Field 3/2000 with three 720/10 spots, the crater by
-  Camp Searchlight 5/10000, 10/6000 and 18/2000 on one point, Black Mountain's crater
-  1/3500, 10/1500, 5/500 — which makes a stepped gradient only if each marker is flat and
-  they do not add. The wiki's "standing in the marker's radius" reads the same way.
+- **Level in the radius**: a marker gives its whole XRAD at its position, falling
+  linearly with the 3-D distance d from it to nothing at its radius:
+  XRAD × (1 − d ÷ XRDS); outside the radius nothing. [documented: §1 Reference, the level
+  is given "at the location of the marker" and the radius is where radiation "starts";
+  observed: §1, the shack's marker 0x00154611 (XRAD 15, XRDS 2000, at 4358.33, −718.89,
+  −88.0 [observed: FalloutNV.esm, `fnvtool esm decode`]) stands 693.65 units from the
+  original's reads; 15 × (1 − 693.65 ÷ 2000) = 9.7976, and after Rad Resistance 8 (§4)
+  9.7976 × 0.92 = 9.013783 against the read 9.013784, the three reads' small spread in
+  z following the formula to 1e-6; the 2-D distance (692.05) would give 9.0248 and
+  no falloff 13.8; hypothesis: the linear shape at other distances, since all reads are
+  at one distance, issue #894.] Until 2026-10-29 the whole XRAD held in the radius, which
+  gave 15 there.
+- **Overlapping markers** [hypothesis]: the strongest at the point counts; they do not
+  add. The masters put markers of rising level and falling radius on one spot — Clark
+  Field 3/2000 with three 720/10 spots, the crater by Camp Searchlight 5/10000, 10/6000
+  and 18/2000 on one point, Black Mountain's crater 1/3500, 10/1500, 5/500. (That this
+  made a stepped gradient was the reason for flat markers; with the falloff they make a
+  gradient whether they add or not, so the sum is as possible as the strongest; no read
+  of the original settles it.)
 - A disabled marker (an enable parent, `Disable`) gives nothing [hypothesis].
 - The markers are kept by the space they stand in (the worldspace for exterior cells, else
   the interior); every marker of the player's space is measured each frame (119 in all,
@@ -70,10 +97,11 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   play (game-mode time, as the rads are; the hours of a wait or sleep count at the
   TimeScale, an hour = 120 s at 30, so they end every zone). Its radius is the radiation
   radius (the blast's own radius if that were under 1 unit; no master needs it). A zone
-  counts like a marker: whole within its radius (3-D distance), and the strongest of all
-  markers and zones counts, not their sum. Reasons: the wiki calls the time a
-  "duration", which a fade over it reads naturally (a flat level ending at once is the
-  other reading); markers do not add (§2).
+  counts whole within its radius (3-D distance), and the strongest of all markers and
+  zones counts, not their sum. Reasons: the wiki calls the time a "duration", which a
+  fade over it reads naturally (a flat level ending at once is the other reading);
+  markers are taken not to add (§2). Whether a zone falls off with distance as a marker
+  does (§2) is not known: kept flat until a read of the original says.
 - So a Fat Man's blast gives up to 10 rads a second within 616 units for 12 s, about 60
   rads before Rad Resistance to one who stays at its centre.
 - The zone lies in the space the player is in when it goes off (explosions happen in the
@@ -115,13 +143,17 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
 ## 4. The level and the rads taken
 
 - **Level** = the place's level (the strongest marker or explosion zone, §2, §2.1) + the
-  water's (§3): rads a second before
-  resistance. GetRadiationLevel returns it for the player and 0 for anyone else
-  [documented: §1].
+  water's (§3): rads a second before resistance.
+- **GetRadiationLevel** = level × (1 − Rad Resistance ÷ 100) for the player, 0 for anyone
+  else [documented: §1, and the wiki's "directly proportional to your rads/sec meter";
+  observed: §2, the original's 9.013784 is the marker's 9.7976 there times 0.92 for its
+  Rad Resistance 8, issue #894; hypothesis: the same for water's rads, not read]. It
+  gave the level before resistance until 2026-10-29.
 - **Rads taken a second** = level × `fRadiationAccumulationRate` (1.0 [observed]) ×
-  (1 − Rad Resistance ÷ 100), Rad Resistance held to 0…85 [hypothesis: the setting's name;
-  the resistance as a percentage, as Rad-X's +50 reads; the cap as Damage Resistance's
-  85]. They raise the player's Rads actor value (54) every frame of game-mode time (not in
+  (1 − Rad Resistance ÷ 100), Rad Resistance held to 0…85 [documented: §1, the setting
+  is "a direct multiplier" of the radiation received; observed: Rad Resistance cuts
+  GetRadiationLevel as a percentage (above); hypothesis: that the rads taken are cut
+  the same way, the cap as Damage Resistance's 85]. They raise the player's Rads actor value (54) every frame of game-mode time (not in
   menus or conversations).
 - Rad Resistance is the actor value 20 (the Endurance formula, `(END − 1) × 2`, Rad-X's
   modifier, apparel's enchantments: actor-values and aid-items). Rad-X and RadAway work
@@ -170,9 +202,11 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   20 columns from 173 to 473: slanted wedges at the two ends, long notches (to row 29) at
   233, 293, 353 and 413, short ones (to row 18) between. The pointer (64 × 32) is a
   triangle pointing up, its tip at row 8, its middle at column 32.
-- **Built**: while rads are taken the meter shows "+n" (the rads a second taken, whole,
-  at least 1) and "RADS" (`sStatsRADAbbrev` is set by no master), with the bracket and
-  the pointer [hypothesis: the texts and the word].
+- **Built**: while rads are taken the meter shows "+n" (GetRadiationLevel's value, §4,
+  rounded, at least 1) and "RADS" (`sStatsRADAbbrev` is set by no master), with the
+  bracket and the pointer [documented: §1, fRadiationAccumulationRate does not change
+  the number; observed: the original showed "+9 RAD/SEC" at its 9.0138, issue #894;
+  hypothesis: the rounding, the word (the original's reads "RAD/SEC", not matched yet)].
   - **The pointer** [hypothesis]: its tip, just under the notches (6 under the picture's
     top at y 25), points at the player's rads: the left end's notch is 0, the right end's
     1000, so the long notches are 200, 400, 600 and 800, the radiation sickness steps
@@ -198,7 +232,8 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
 ## 7. Log lines (smoke `environment-radiation`)
 
 - `radiation: level <l> rads/s (marker <ref> <l>, swimming in <water> <w>), taking <r>/s
-  (Rad Resistance <rr> %), rads <n>` when the source or the level (to a tenth) changes;
+  (Rad Resistance <rr> %), rads <n>` when the source or the level (in whole rads: it
+  falls off as the player moves) changes;
   `radiation: out of radiation, rads <n>`.
 - `radiation: the player is swimming|wading in water <name>` (with `(it causes <n> damage a
   second)` for a damaging water), `… out of the water`;
