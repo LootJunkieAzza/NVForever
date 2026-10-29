@@ -152,21 +152,25 @@ impl HudTiles<'_> {
     /// What the tile-drawn corners take beyond T4's writes (`vanilla::write_corners`): the
     /// hand-built HUD's label places as the copies' tops and edges, the right piece's moved
     /// from its `MARGIN_X` in to the tile piece's place on the view's edge [observed: hud.md
-    /// §14, `ActionPoints` at W - 386; design: `hud::label_places`].
+    /// §14, `ActionPoints` at W - 386; design: `hud::label_places`], and how far the
+    /// condition row moves for the ammo abbreviation (its width in font 7).
     fn corner(&self, shown: fnv_game::ui_hud::Shown, fonts: &mut draw::FontKit) -> vanilla::Corner {
         let (labels, line) = fonts.hud_labels();
         let shift = crate::hud::MARGIN_X;
         let top = |(x, base): (f32, f32), shift: f32| (f64::from(x - shift), f64::from(base - line));
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
-        let ammo_label = if shown.ammo_label { weapon.abbrev.unwrap_or_default() } else { String::new() };
-        let (start, line_top) = top(labels[4], shift);
+        // The row's place follows the weapon even while the corners are hidden (a menu,
+        // the console), as the pieces' places hold [design: hud.md §14.1].
+        let abbrev = weapon.abbrev.clone().filter(|_| weapon.ammo.is_some()).unwrap_or_default();
+        let condition_shift = vanilla::condition_shift(&abbrev, f64::from(fonts.hud_width(&abbrev)));
+        let ammo_label = if shown.ammo_label { abbrev } else { String::new() };
         vanilla::Corner {
             hp: top(labels[0], 0.0),
             ap: top(labels[1], shift),
             cnd: top(labels[2], shift),
             ammo: top(labels[3], shift),
-            right_bracket: -f64::from(shift),
-            ammo_label_at: (start + f64::from(fonts.hud_width(&ammo_label)), line_top),
+            right_bracket: vanilla::RIGHT_BRACKET_X,
+            condition_shift,
             ammo_label,
             condition: shown.condition,
         }

@@ -139,12 +139,44 @@ pub struct Corner {
     pub right_bracket: f64,
     /// The ammo type's abbreviation, empty without one.
     pub ammo_label: String,
-    /// Its right end and top in `ActionPoints`' units (the tile is a menu child,
-    /// right-justified): the hand-built label's start plus the abbreviation's width.
-    pub ammo_label_at: (f64, f64),
+    /// How far the condition row ("CND", the ground, the fill, `CNDArrows`) moves left for
+    /// the abbreviation ([`condition_shift`]).
+    pub condition_shift: f64,
     /// A weapon with a condition is equipped.
     pub condition: bool,
 }
+
+/// Between the condition row's right end and the ammo abbreviation's left [observed:
+/// hud_compare hud-ammo-label at 1280 x 720: with "HP" (30 units wide, as `HitPoints`'
+/// "HP" reads, hud.md §14) the original's "CND" stands at x 984 and its bar's right end
+/// at 1064-1065 pixels, against 1021 and 1102 with no abbreviation: 49-51 units left; the
+/// ground's right end, 150 of `ActionPoints` without one, is `AmmoTypeLabel`'s right end
+/// W - 236; hypothesis: the gap is fixed and the row moves by the abbreviation's width,
+/// one abbreviation measured].
+pub const LABEL_ROOM: f64 = 20.0;
+
+/// How far left the condition row moves for an ammo abbreviation `width` units wide
+/// (`AmmoTypeLabel` right-justified at its captured place, the row ending [`LABEL_ROOM`]
+/// before the abbreviation): none without one [observed: the original's row at x 90 of
+/// `ActionPoints` with no abbreviation, hud.md §14; see [`LABEL_ROOM`]].
+pub fn condition_shift(label: &str, width: f64) -> f64 {
+    if label.trim().is_empty() {
+        0.0
+    } else {
+        width + LABEL_ROOM
+    }
+}
+
+/// The right bracket's x in `ActionPoints`: the hand-built piece's 40 in from the view's
+/// edge, less the atlas piece's 4 units (`hud::RIGHT_BRACKET_X`) [observed: hud_compare at
+/// 1280 x 720, the divider, upright and step cap 3 pixels left of the original's at -40,
+/// T12a's hypothesis].
+pub const RIGHT_BRACKET_X: f64 = -(crate::hud::MARGIN_X as f64) + crate::hud::RIGHT_BRACKET_X as f64;
+
+/// The condition ground's and fill's x in `ActionPoints` with no abbreviation [observed:
+/// hud.md §14], and `CNDArrows`' x from `ActionPoints`' (W - 253 against W - 386).
+const CONDITION_X: f64 = 90.0;
+const ARROWS_X: f64 = 133.0;
 
 fn set(ui: &mut Ui, path: &str, name: &str, value: Value) {
     if let Some(tile) = ui.find_tile(&format!("{}/{path}", super::draw::HUD_MENU)) {
@@ -152,10 +184,13 @@ fn set(ui: &mut Ui, path: &str, name: &str, value: Value) {
     }
 }
 
-/// The condition ground's alpha: a quarter of the fill's [design: the hand-built HUD's
-/// ground, `hud::GROUND`, a hypothesis after `meter.xml`'s; the template's own, none,
-/// would hide the fill on a ground of the same colour].
-pub const GROUND_ALPHA: f64 = 64.0;
+/// The condition ground's and fill's brightness, the hand-built HUD's
+/// (`hud::GROUND_BRIGHTNESS`, `hud::CONDITION_BRIGHTNESS`) [observed: the original's ground
+/// an opaque 100/255 and its fill 175/255 of the HUD's colour, private shots
+/// `hud_corners2` c0, c4 (T12c)]. Until T12e the ground at alpha 64 and the fill at 255
+/// [design].
+pub const GROUND_BRIGHTNESS: f64 = crate::hud::GROUND_BRIGHTNESS as f64;
+pub const CONDITION_BRIGHTNESS: f64 = crate::hud::CONDITION_BRIGHTNESS as f64;
 
 /// The condition fill's `zoom`: its picture's drawn block (11 of `vats_bar.dds`'s 16 rows)
 /// as high as its 20-unit box [observed: the texture's opaque block is 74 x 11 texels at
@@ -176,12 +211,13 @@ pub const CONDITION_FILL_ZOOM: f64 = 100.0 * 20.0 / 11.0;
 ///   the original's does"];
 /// - `AmmoTypeLabel`'s string, the weapon's ammo abbreviation [hypothesis: by the tile's
 ///   name and place, the right piece's lower row; its string was not read, hud.md §14.2],
-///   and its place where the hand-built HUD sets the abbreviation, right of the divider
-///   on the ammo counter's line [design: the captures read its place, W - 236 and 883,
-///   only with no abbreviation shown (13 wide), which with its `&right;` puts an
-///   abbreviation over the condition bar; observed: the original's abbreviation stands
-///   right of the divider, hud.rs `AMMO_LABEL_X`];
-/// - the condition fill's `zoom` ([`CONDITION_FILL_ZOOM`]);
+///   the tile left at T4's captured place (W - 236, 883, right-justified: its right end
+///   just left of the divider), and the condition row moved left to make room for it
+///   ([`condition_shift`]) [observed: hud_compare hud-ammo-label, the original's "HP" at
+///   x 1085-1104 pixels, its right end W - 236, the divider at 1114]. T12c set it right
+///   of the divider, where the hand-built HUD sets it at the owner's request [design];
+/// - the condition fill's `zoom` ([`CONDITION_FILL_ZOOM`]) and the row's brightness
+///   ([`CONDITION_BRIGHTNESS`], [`GROUND_BRIGHTNESS`]);
 /// - the health and action points bars' `brightness`, the hand-built bars'
 ///   (`hud::METER_BRIGHTNESS`, 175) [hypothesis: `brightness.xml`'s "meter and compass in
 ///   HUD", the enemy bar's meter's read 175; the original's ticks are about 0.7 of its
@@ -201,16 +237,22 @@ pub fn write_corners(ui: &mut Ui, c: &Corner) {
     }
     set(ui, "ActionPoints/right_bracket", "x", Value::Num(c.right_bracket));
     set(ui, "AmmoTypeLabel", "string", Value::Str(c.ammo_label.clone()));
-    let piece = |ui: &Ui, name: &str| ui.get_float(&format!("{}/ActionPoints/{name}", super::draw::HUD_MENU)).unwrap_or(0.0);
-    let (x, y) = (piece(ui, "x") + c.ammo_label_at.0, piece(ui, "y") + c.ammo_label_at.1);
-    set(ui, "AmmoTypeLabel", "x", Value::Num(x));
-    set(ui, "AmmoTypeLabel", "y", Value::Num(y));
+    // The condition row, moved left for the abbreviation.
+    let shift = c.condition_shift;
+    set(ui, "ActionPoints/justify_right_text:0", "x", Value::Num(c.cnd.0 - shift));
+    for path in ["ActionPoints/MeterBackground", "ActionPoints/meter:0"] {
+        set(ui, path, "x", Value::Num(CONDITION_X - shift));
+    }
+    let piece_x = ui.get_float(&format!("{}/ActionPoints/x", super::draw::HUD_MENU)).unwrap_or(0.0);
+    set(ui, "CNDArrows", "x", Value::Num(piece_x + ARROWS_X - shift));
     set(ui, "ActionPoints/meter:0", "zoom", Value::Num(CONDITION_FILL_ZOOM));
+    set(ui, "ActionPoints/meter:0", "brightness", Value::Num(CONDITION_BRIGHTNESS));
+    set(ui, "ActionPoints/MeterBackground", "brightness", Value::Num(GROUND_BRIGHTNESS));
     for path in ["HitPoints/meter", "ActionPoints/meter:1"] {
         set(ui, path, "brightness", Value::Num(f64::from(crate::hud::METER_BRIGHTNESS)));
     }
     let on = |alpha: f64| Value::Num(if c.condition { alpha } else { 0.0 });
-    set(ui, "ActionPoints/MeterBackground", "alpha", on(GROUND_ALPHA));
+    set(ui, "ActionPoints/MeterBackground", "alpha", on(255.0));
     set(ui, "ActionPoints/justify_right_text:0", "alpha", on(255.0));
     set(ui, "CNDArrows", "alpha", on(255.0));
 }
@@ -270,22 +312,37 @@ mod tests {
         ] {
             ui.add_code_tile_from_template(&src, at, template, None).unwrap();
         }
-        let mut c = Corner { hp: (23.0, 10.0), ap: (315.0, 10.0), cnd: (79.0, 83.0), ammo: (317.0, 83.0), right_bracket: -40.0, ammo_label: "9mm".into(), ammo_label_at: (220.0, 82.0), condition: true };
+        let mut c = Corner { hp: (23.0, 10.0), ap: (315.0, 10.0), cnd: (79.0, 83.0), ammo: (317.0, 83.0), right_bracket: RIGHT_BRACKET_X, ammo_label: String::new(), condition_shift: 0.0, condition: true };
         write_corners(&mut ui, &c);
         let f = |ui: &Ui, p: &str| ui.get_float(&format!("HUDMainMenu/{p}")).unwrap();
-        // The abbreviation's right end and top from the right piece's place; the
-        // condition fill's picture zoomed to fill its box.
-        assert_eq!((f(&ui, "AmmoTypeLabel/x"), f(&ui, "AmmoTypeLabel/y")), (1370.0, 885.0));
+        // No abbreviation: the condition row at its captured places; the condition fill's
+        // picture zoomed to fill its box, the row at the original's brightness (T12e).
+        assert_eq!((f(&ui, "ActionPoints/MeterBackground/x"), f(&ui, "ActionPoints/meter/x"), f(&ui, "CNDArrows/x")), (90.0, 90.0, 1283.0));
         assert_eq!(f(&ui, "ActionPoints/meter/zoom"), CONDITION_FILL_ZOOM);
+        assert_eq!((f(&ui, "ActionPoints/meter/brightness"), f(&ui, "ActionPoints/MeterBackground/brightness")), (175.0, 100.0));
+        // T12e: "HP" (30 wide) moves the row 50 left, as the original's; the label keeps
+        // the place T4 writes (none in this tree).
+        c.ammo_label = "HP".into();
+        c.condition_shift = condition_shift(&c.ammo_label, 30.0);
+        write_corners(&mut ui, &c);
+        assert_eq!(c.condition_shift, 50.0);
+        assert_eq!((f(&ui, "ActionPoints/MeterBackground/x"), f(&ui, "ActionPoints/meter/x"), f(&ui, "CNDArrows/x")), (40.0, 40.0, 1233.0));
+        assert_eq!(f(&ui, "ActionPoints/justify_right_text:0/x"), 29.0);
+        assert!(ui.get_float("HUDMainMenu/AmmoTypeLabel/x").is_none());
+        assert_eq!(ui.get_string("HUDMainMenu/AmmoTypeLabel/string").as_deref(), Some("HP"));
+        assert_eq!(condition_shift(" ", 13.0), 0.0);
+        c.ammo_label.clear();
+        c.condition_shift = 0.0;
+        write_corners(&mut ui, &c);
         // The health bar's ticks at the meters' brightness (T12d).
         assert_eq!(f(&ui, "HitPoints/meter/brightness"), 175.0);
         assert_eq!((f(&ui, "HitPoints/justify_left_text/x"), f(&ui, "HitPoints/justify_left_text/y")), (23.0, 10.0));
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:0/x"), 79.0);
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:1/x"), 317.0);
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:2/x"), 315.0);
-        assert_eq!(f(&ui, "ActionPoints/right_bracket/x"), -40.0);
-        assert_eq!(ui.get_string("HUDMainMenu/AmmoTypeLabel/string").as_deref(), Some("9mm"));
-        assert_eq!((f(&ui, "ActionPoints/MeterBackground/alpha"), f(&ui, "CNDArrows/alpha")), (GROUND_ALPHA, 255.0));
+        assert_eq!(f(&ui, "ActionPoints/right_bracket/x"), -36.0);
+        assert_eq!(ui.get_string("HUDMainMenu/AmmoTypeLabel/string").as_deref(), Some(""));
+        assert_eq!((f(&ui, "ActionPoints/MeterBackground/alpha"), f(&ui, "CNDArrows/alpha")), (255.0, 255.0));
         c.condition = false;
         write_corners(&mut ui, &c);
         assert_eq!((f(&ui, "ActionPoints/MeterBackground/alpha"), f(&ui, "ActionPoints/justify_right_text:0/alpha"), f(&ui, "CNDArrows/alpha")), (0.0, 0.0, 0.0));
