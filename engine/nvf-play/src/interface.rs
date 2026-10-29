@@ -176,6 +176,25 @@ pub fn face(path: &str, stand_in: Font, data: Option<&GameData>, images: &mut As
     })
 }
 
+/// The INI's fonts by number, font n at `n - 1` [documented: Fallout_default.ini
+/// `sFontFile_1` … `_9`].
+pub const FONT_FILES: [&str; 9] = [
+    "textures\\fonts\\glow_monofonto_large.fnt",
+    "textures\\fonts\\monofonto_large.fnt",
+    "textures\\fonts\\glow_monofonto_medium.fnt",
+    "textures\\fonts\\monofonto_verylarge02_dialogs2.fnt",
+    "textures\\fonts\\fixedsys_comp_uniform_width.fnt",
+    "textures\\fonts\\glow_monofonto_vl_dialogs.fnt",
+    "textures\\fonts\\baked-in_monofonto_large.fnt",
+    "textures\\fonts\\glow_futura_caps_large.fnt",
+    "textures\\fonts\\nvfont_test.fnt",
+];
+
+/// Where a font's letters stand from a line's top: the tallest glyph's rise [design].
+pub fn line_base(face: &Face) -> f32 {
+    face.font.glyphs.iter().skip(0x20).take(0x5F).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.75)
+}
+
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from). Every
 /// node that carries the colour also gets `mark`.
 pub fn set_text(p: &mut ChildSpawnerCommands, face: &Face, set: &Set, origin: Vec2, color: Color, mark: impl Bundle + Clone) {

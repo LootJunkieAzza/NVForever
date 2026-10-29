@@ -10067,6 +10067,38 @@ expect = [
 ]
 
 [[scenario]]
+name = "ui-mod-tile-drawn"
+source = "[design] ui-tile-tree.md §6.1 (T5 part C): a tile a script injects into HUDMainMenu (InjectUIComponent, a box with a picture from the interface atlas and a text) is drawn over NVForever's HUD; the HUD's own file tiles and code-made copies are not"
+note = "the console injects the tile at 10 s and closes at 10.4 s (the open console is a PlayState::Menu, which hides the HUD and so the tile); the shot at 14 s"
+areas = ["ui", "hud", "console"]
+paths = [
+  "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs",
+  "engine/nvf-play/src/interface.rs", "crates/fnv-ui/src/tree.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<rect name=%qNVFSmokeTile%q><x>80</x><y>320</y><width>360</width><height>90</height><red>20</red><green>60</green><blue>120</blue><alpha>220</alpha><image name=%qNVFSmokeBar%q><x>10</x><y>62</y><width>340</width><height>16</height><filename>solid.dds</filename><red>255</red><green>182</green><blue>66</blue></image><text name=%qNVFSmokeText%q><x>12</x><y>10</y><font>7</font><string>NVF MOD TILE</string></text></rect>\";10.4:close", NVF_PLAY_TEST_SHOTS = "14:ui_mod_tile.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes" },
+]
+forbid = [
+  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws" },
+]
+manual = "ui_mod_tile.png: at the left, about a third down, a dark blue box with 'NVF MOD TILE' in white (font 7) and an amber bar along its bottom; NVForever's HUD as on main"
+
+[[scenario]]
+name = "ui-mod-tiles-vanilla"
+kind = "tool"
+source = "[design] ui-tile-tree.md §6.1 (T5 part C): the vanilla HUD file has no mod tiles, so the tile renderer draws nothing of it (Ui::mod_added_tiles, Ui::mod_tile_drawn)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/src/tree.rs", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "mod-tiles", "--data", "{data}", "--menu", "menus/main/hud_main_menu.xml"]]
+expect = [
+  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 0, label = "no tile of the vanilla HUD would draw" },
+]
+
+[[scenario]]
 name = "ui-menu-lifetime"
 source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
 areas = ["ui", "scripts", "console"]
