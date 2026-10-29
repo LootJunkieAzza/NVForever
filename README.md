@@ -44,6 +44,10 @@ More: [docs/development.md](docs/development.md) (build, test, options, tools) Â
 [docs/status.md](docs/status.md) (what's built) Â·
 [docs/outstanding.md](docs/outstanding.md) (what's left).
 
+## Community
+
+Chat, questions and playtesting: [Discord](https://discord.gg/3HsVrsXSb).
+
 ## Bugs
 
 Report bugs and differences from the original with the
