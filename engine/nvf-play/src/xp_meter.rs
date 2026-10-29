@@ -71,10 +71,15 @@ const LINE_MIDDLE: f32 = 68.0;
 /// the texture].
 const POINTER_Y: f32 = 46.0 - 39.0;
 /// The lines the texts stand on [observed: the owner's screenshot, as above]: the levels
-/// 49, "+54" 118, "XP" 103; "LEVEL UP" where the amount stands.
+/// 49, "+54" 118, "XP" 103.
 const LEVEL_BASE: f32 = 49.0;
 const AMOUNT_BASE: f32 = 118.0;
 const LABEL_BASE: f32 = 103.0;
+/// "LEVEL UP" stands 16 above the amount's line [observed: hud_compare xp_levelup_menu at
+/// 1280 x 720, the original's LEVEL UP from y 535 pixels, this HUD's from 547 on the
+/// amount's line (xp_level_up); documented: hud_main_menu.xml puts `XPLevelUp` at y 70,
+/// 20 above `XPAmount`'s 90]. Until T12e on the amount's line [design].
+const LEVEL_UP_BASE: f32 = AMOUNT_BASE - 16.0;
 
 /// The meter's place: from the view's right edge to the upright, and from the view's
 /// bottom edge to the bracket's bottom (25 units over the action points' piece, the line
@@ -400,6 +405,15 @@ struct Kit {
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// Where the amount, or "LEVEL UP" in its place, ends and the line it stands on.
+fn third_line(level_up: bool) -> (f32, f32) {
+    if level_up {
+        (LEVEL_UP_END, LEVEL_UP_BASE)
+    } else {
+        (AMOUNT_END, AMOUNT_BASE)
+    }
+}
+
 fn draw(
     mut commands: Commands,
     view: Res<HudView>,
@@ -463,13 +477,13 @@ fn draw(
                 }
                 if third == LEVEL_UP_WORD {
                     if let Some(l) = line(&kit.amount.font, third) {
-                        let x = LEVEL_UP_END - l.width;
-                        set_text(p, &kit.amount, &Set { line: l, x, base: AMOUNT_BASE }, Vec2::ZERO, colour, Faded);
+                        let (end, base) = third_line(true);
+                        set_text(p, &kit.amount, &Set { x: end - l.width, line: l, base }, Vec2::ZERO, colour, Faded);
                     }
                 } else {
                     if let Some(l) = line(&kit.amount.font, third) {
-                        let x = AMOUNT_END - l.width;
-                        set_text(p, &kit.amount, &Set { line: l, x, base: AMOUNT_BASE }, Vec2::ZERO, colour, Faded);
+                        let (end, base) = third_line(false);
+                        set_text(p, &kit.amount, &Set { x: end - l.width, line: l, base }, Vec2::ZERO, colour, Faded);
                     }
                     if let Some(l) = line(&kit.label.font, XP_WORD) {
                         let x = LABEL_END - l.width;
@@ -545,6 +559,14 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T12e: "LEVEL UP" stands 16 above the amount's line (the original's 12 pixels higher
+    /// at 720 lines), ending at its own x.
+    #[test]
+    fn level_up_stands_above_the_amounts_line() {
+        assert_eq!(third_line(false), (AMOUNT_END, AMOUNT_BASE));
+        assert_eq!(third_line(true), (LEVEL_UP_END, AMOUNT_BASE - 16.0));
+    }
 
     #[test]
     fn the_level_notice_draws_alone_including_without_game_textures() {
