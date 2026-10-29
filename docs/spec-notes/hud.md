@@ -911,7 +911,20 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 - [hypothesis] `ActionPoints/right_bracket` at x -40: where the hand-built bracket stands
   on the screen, which §14 found where the original's corner lands.
 - [hypothesis] `AmmoTypeLabel` shows the ammo's abbreviation (by its name and place; its
-  string was not read, §14.2).
+  string was not read, §14.2). [design, T12c] While on, `write_corners` also sets its
+  place where the hand-built HUD sets the abbreviation (`AMMO_LABEL_X` right of the
+  divider, on the counter's line; the tile is right-justified, so its x is that start
+  plus the text's width): §14's W - 236, 883 was read with nothing shown (13 wide), and
+  there an abbreviation stood over the condition bar.
+- [design, T12c] While on, the condition fill (`ActionPoints/meter:0`,
+  `vats_bar.dds`) gets `zoom` 100 × 20/11 (`vanilla::CONDITION_FILL_ZOOM`): the picture's
+  drawn block is 74 x 11 of its 128 x 16 texels [observed: the texture], so tiled at a
+  texel a unit it drew two bands, where the original's fill is solid over its 20 units
+  [observed: private shots `hud_corners2` c0, c4, rows 665-679 at 720 lines]. How the
+  original fills it is not traced (its `zoom`, `cropx`, `cropy` were not read).
+- [observed, T12c] The original's condition fill is 175/255 of the HUD's colour and its
+  ground an opaque 100/255 (same shots); the hand-built row draws 255 and a quarter-alpha
+  ground, the tile row 255 and alpha 64. Not changed.
 - [design] Differences still to compare: the crosshair does not spread (the original's
   look, §14.4); the warning sneak words are
   the HUD's colour; the corners show whenever the root does (the hand-built HUD also

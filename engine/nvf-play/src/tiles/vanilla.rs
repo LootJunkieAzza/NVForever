@@ -139,6 +139,9 @@ pub struct Corner {
     pub right_bracket: f64,
     /// The ammo type's abbreviation, empty without one.
     pub ammo_label: String,
+    /// Its right end and top in `ActionPoints`' units (the tile is a menu child,
+    /// right-justified): the hand-built label's start plus the abbreviation's width.
+    pub ammo_label_at: (f64, f64),
     /// A weapon with a condition is equipped.
     pub condition: bool,
 }
@@ -154,6 +157,14 @@ fn set(ui: &mut Ui, path: &str, name: &str, value: Value) {
 /// would hide the fill on a ground of the same colour].
 pub const GROUND_ALPHA: f64 = 64.0;
 
+/// The condition fill's `zoom`: its picture's drawn block (11 of `vats_bar.dds`'s 16 rows)
+/// as high as its 20-unit box [observed: the texture's opaque block is 74 x 11 texels at
+/// its top left; the original's screenshots `hud_corners2` c0 and c4 show the fill solid
+/// over all 20 units; design: tiled at a texel a unit the picture's clear rows 11-15 drew
+/// the fill as two bands (T12b), how the original fills the box from this picture is not
+/// traced (its `zoom`, `cropx`, `cropy` were not read), and the hand-built fill is solid].
+pub const CONDITION_FILL_ZOOM: f64 = 100.0 * 20.0 / 11.0;
+
 /// Write what the tile-drawn corners need beyond T4's writes, before scripts, only while
 /// the HUD is a tile menu [design: ui-tile-tree.md §4.1]:
 /// - the corner labels' copies (`HitPoints/justify_left_text`,
@@ -164,7 +175,13 @@ pub const GROUND_ALPHA: f64 = 64.0;
 ///   one does on the screen, hud.md §14 "the current HUD's right corner still lands where
 ///   the original's does"];
 /// - `AmmoTypeLabel`'s string, the weapon's ammo abbreviation [hypothesis: by the tile's
-///   name and place, the right piece's lower row; its string was not read, hud.md §14.2];
+///   name and place, the right piece's lower row; its string was not read, hud.md §14.2],
+///   and its place where the hand-built HUD sets the abbreviation, right of the divider
+///   on the ammo counter's line [design: the captures read its place, W - 236 and 883,
+///   only with no abbreviation shown (13 wide), which with its `&right;` puts an
+///   abbreviation over the condition bar; observed: the original's abbreviation stands
+///   right of the divider, hud.rs `AMMO_LABEL_X`];
+/// - the condition fill's `zoom` ([`CONDITION_FILL_ZOOM`]);
 /// - the condition row (the ground, "CND", `CNDArrows`) shown by alpha only with a
 ///   weapon's condition, as the hand-built HUD hides its row [design].
 pub fn write_corners(ui: &mut Ui, c: &Corner) {
@@ -179,6 +196,11 @@ pub fn write_corners(ui: &mut Ui, c: &Corner) {
     }
     set(ui, "ActionPoints/right_bracket", "x", Value::Num(c.right_bracket));
     set(ui, "AmmoTypeLabel", "string", Value::Str(c.ammo_label.clone()));
+    let piece = |ui: &Ui, name: &str| ui.get_float(&format!("{}/ActionPoints/{name}", super::draw::HUD_MENU)).unwrap_or(0.0);
+    let (x, y) = (piece(ui, "x") + c.ammo_label_at.0, piece(ui, "y") + c.ammo_label_at.1);
+    set(ui, "AmmoTypeLabel", "x", Value::Num(x));
+    set(ui, "AmmoTypeLabel", "y", Value::Num(y));
+    set(ui, "ActionPoints/meter:0", "zoom", Value::Num(CONDITION_FILL_ZOOM));
     let on = |alpha: f64| Value::Num(if c.condition { alpha } else { 0.0 });
     set(ui, "ActionPoints/MeterBackground", "alpha", on(GROUND_ALPHA));
     set(ui, "ActionPoints/justify_right_text:0", "alpha", on(255.0));
@@ -219,9 +241,10 @@ mod tests {
     fn the_corners_take_the_hand_built_places_and_the_condition_row_its_rule() {
         let src = MemSource::default().with(
             "hud.xml",
-            r#"<menu name="HUDMainMenu"><rect name="HitPoints"/><rect name="ActionPoints"/><image name="CNDArrows"/><text name="AmmoTypeLabel"/>
+            r#"<menu name="HUDMainMenu"><rect name="HitPoints"/><rect name="ActionPoints"><x>1150</x><y>803</y></rect><image name="CNDArrows"/><text name="AmmoTypeLabel"/>
               <template name="template_justify_left_text"><text name="justify_left_text"><x>0</x></text></template>
               <template name="template_justify_right_text"><text name="justify_right_text"><x>0</x></text></template>
+              <template name="template_meter"><image name="meter"><tile>&true;</tile></image></template>
               <template name="template_meter_background"><image name="MeterBackground"/></template>
               <template name="template_right_bracket"><image name="right_bracket"/></template></menu>"#,
         );
@@ -230,6 +253,7 @@ mod tests {
         for (at, template) in [
             ("HUDMainMenu/HitPoints", "template_justify_left_text"),
             ("HUDMainMenu/ActionPoints", "template_meter_background"),
+            ("HUDMainMenu/ActionPoints", "template_meter"),
             ("HUDMainMenu/ActionPoints", "template_justify_right_text"),
             ("HUDMainMenu/ActionPoints", "template_justify_right_text"),
             ("HUDMainMenu/ActionPoints", "template_justify_right_text"),
@@ -237,9 +261,13 @@ mod tests {
         ] {
             ui.add_code_tile_from_template(&src, at, template, None).unwrap();
         }
-        let mut c = Corner { hp: (23.0, 10.0), ap: (315.0, 10.0), cnd: (79.0, 83.0), ammo: (317.0, 83.0), right_bracket: -40.0, ammo_label: "9mm".into(), condition: true };
+        let mut c = Corner { hp: (23.0, 10.0), ap: (315.0, 10.0), cnd: (79.0, 83.0), ammo: (317.0, 83.0), right_bracket: -40.0, ammo_label: "9mm".into(), ammo_label_at: (220.0, 82.0), condition: true };
         write_corners(&mut ui, &c);
         let f = |ui: &Ui, p: &str| ui.get_float(&format!("HUDMainMenu/{p}")).unwrap();
+        // The abbreviation's right end and top from the right piece's place; the
+        // condition fill's picture zoomed to fill its box.
+        assert_eq!((f(&ui, "AmmoTypeLabel/x"), f(&ui, "AmmoTypeLabel/y")), (1370.0, 885.0));
+        assert_eq!(f(&ui, "ActionPoints/meter/zoom"), CONDITION_FILL_ZOOM);
         assert_eq!((f(&ui, "HitPoints/justify_left_text/x"), f(&ui, "HitPoints/justify_left_text/y")), (23.0, 10.0));
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:0/x"), 79.0);
         assert_eq!(f(&ui, "ActionPoints/justify_right_text:1/x"), 317.0);

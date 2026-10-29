@@ -393,6 +393,46 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       copies. Still open: enemy eligibility, near-full tick quantization, higher-level
       XP pointer/repeat gains, menu/sound coordination, flash period, a second limb
       capture, text/image zoom anchors, corners' hiding rule and warning sneak colour.
+    - **T12c done** 2026-10-29 (`claude/t12c-layout`): the tile HUD's layout bugs, against
+      the hand-built HUD and the original's own screenshots (private
+      `C:\fnv-private\capture\shots`, `hud_corners2` c0/c4, `hud_corners` rad_coc_spot,
+      `hud_jip` s4; read, not shipped). Rules in menu-xml.md §3.1.2-§3.1.3.
+      - Ammo type label (white, over the condition bar): **colour** a tile with no
+        `systemcolor` on or above it takes system colour 1, the HUD's [documented: GECK
+        wiki Color UI directives]; **place** `write_corners` sets it right of the
+        divider on the counter's line, as the hand-built HUD [design: its captured place,
+        W - 236, was read with no abbreviation shown, and `&right;` puts one over the
+        bar].
+      - Condition fill (two bands): `vats_bar.dds`'s drawn block is 74 x 11 of its
+        128 x 16 texels [observed], so tiled at a texel a unit its clear rows showed;
+        the original's fill is solid over its 20 units [observed]. A tiled picture now
+        takes a numeric `zoom` [hypothesis], and `write_corners` writes the fill's zoom
+        100 × 20/11 (`CONDITION_FILL_ZOOM`) [design: how the original fills it is not
+        traced].
+      - Radiation bracket (ends and upright missing): an image without `texatlas` reads
+        its own file, not the shared atlas, and no `zoom` stands an own file at its
+        texels' size (atlas pieces still fill their boxes) [observed: the original's
+        own-file wedges and its upright at W - 57, where 512 texels from x -135 put it;
+        hypothesis: the rule]. `RAD/SEC` above `+14`: every font's first line now stands
+        `TEXT_BASE` 24 under the text's top (was the font's tallest glyph, 33 for font 7,
+        48 for font 8) [hypothesis: radiation texts, the sneak word and the prompt's
+        lines on the original's screenshots]; the corner labels' writes use it, so they
+        stay put.
+      - **Not changed: the brackets' shapes and the compass's doubled line.** The tile
+        HUD draws the atlas pieces the files name, and the original's screenshots show
+        those (the cut corners, the stepped arrow ends, the doubled long line, the
+        strip's doubled line with thick middles) [observed]. The hand-built HUD draws the
+        pictures' own files (`hud.rs` `load_art`), which are different art: it is the
+        one that differs from the original there. Whether to move the hand-built HUD to
+        the atlas pieces is the maintainer's call.
+      - Other differences seen, not traced: the original's condition fill is 175/255 of
+        the HUD colour and its ground an opaque 100/255 (the hand-built 255 and a quarter
+        alpha, the tile 255 and alpha 64) [observed: `hud_corners2` c4, rows 665-679].
+      - Tests (`tiles::draw`): `where_a_picture_stands_in_its_box`,
+        `a_tile_with_no_system_colour_above_it_is_the_huds`,
+        `texts_of_two_fonts_at_one_y_share_a_line`; `zoom_and_tile_…` and
+        `with_the_switch_on_…` updated; `tiles::vanilla` corner test checks the label's
+        place and the fill's zoom. Only `cargo check -p nvf-play --tests` was run.
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the

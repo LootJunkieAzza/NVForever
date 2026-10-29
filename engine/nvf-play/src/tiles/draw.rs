@@ -15,7 +15,7 @@
 //!   pixels (height / 960 a unit), as the current HUD does.
 //! - With `[UI] TileMenus=HUDMainMenu` (T12a, `super::vanilla`) the whole menu draws
 //!   instead ([`Select::Whole`]), with `zoom`, `tile`, any `texatlas` and the compass
-//!   strip ([`Fit`]; menu-xml.md §3.1.3).
+//!   strip ([`Fit`], [`Source`]; menu-xml.md §3.1.3).
 //! - The pieces are worked out every frame (a pure function of the tree, [`pieces`]);
 //!   the Bevy nodes are rebuilt only when they differ from the last frame's [design: the
 //!   tree's change count moves on every write, so it cannot tell].
@@ -23,7 +23,7 @@
 use super::layout::{self, Alignment, Kind, Rect as TileRect};
 use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
 use crate::hud::{strip_left, HudView, STRIP};
-use crate::interface::{self, at, bc_supported, face, line_base, plain_font, set_line, Face, Pictures, SizedPicture, FONT_FILES};
+use crate::interface::{self, at, bc_supported, face, plain_font, set_line, Face, Pictures, SizedPicture, FONT_FILES};
 use crate::script::ScriptState;
 use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
@@ -95,14 +95,21 @@ impl FontKit<'_> {
     }
 
     /// The hand-built HUD's corner label places (`crate::hud::label_places`) in font 7, the
-    /// HUD's [documented: hudtemplates.xml's text templates], and how far its letters stand
-    /// below a line's top ([`line_base`]): what a text tile's `y` is above the line.
-    pub(crate) fn hud_labels(&mut self) -> ([(f32, f32); 4], f32) {
+    /// HUD's [documented: hudtemplates.xml's text templates], and how far a text tile's
+    /// first line stands below its top ([`TEXT_BASE`]): what a text tile's `y` is above
+    /// the line.
+    pub(crate) fn hud_labels(&mut self) -> ([(f32, f32); 5], f32) {
         self.load(7.0);
         match self.face(7.0) {
-            Some(face) => (crate::hud::label_places(&face.font), line_base(face)),
-            None => (crate::hud::label_places(&plain_font(31.0, 15.0)), 0.0),
+            Some(face) => (crate::hud::label_places(&face.font), TEXT_BASE),
+            None => (crate::hud::label_places(&plain_font(31.0, 15.0)), TEXT_BASE),
         }
+    }
+
+    /// A text's width in font 7, as the tile layout measures it ([`measure`]).
+    pub(crate) fn hud_width(&mut self, text: &str) -> f32 {
+        self.load(7.0);
+        self.face(7.0).map_or(0.0, |face| measure(&face.font, text, None).0 as f32)
     }
 
     /// Write the HUD text tiles' measured widths into the tree
@@ -130,22 +137,29 @@ impl FontKit<'_> {
 /// How an image fills its box [what the traits are taken to mean: menu-xml.md §3.1.3].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Fit {
-    /// Stretched over the box: no `zoom` [hypothesis: the brackets' 256 x 128-texel atlas
-    /// pieces fill their 512 x 256 boxes in the original, hud.md §14.3], `zoom` -1
-    /// [documented: GECK wiki Zoom, "free scaling … regardless its source size"] or a
-    /// constant such as `&scale;` [hypothesis: its pictures, the compass ticks and the
-    /// condition arrows, are the size of their boxes].
+    /// Stretched over the box: `zoom` -1 [documented: GECK wiki Zoom, "free scaling …
+    /// regardless its source size"] or a constant such as `&scale;` [hypothesis: its
+    /// pictures, the compass ticks and the condition arrows, are the size of their boxes];
+    /// every picture of the mods' tiles with the switch off (T5).
     Stretch,
+    /// No `zoom` (T12c, [`placed`]): an atlas piece stretched over its box, a picture read
+    /// from its own file at its texels' size, zoom's default 100 [documented: GECK wiki
+    /// Zoom, "The default value is 100"; hypothesis: the corner brackets' 255 x 127 atlas
+    /// pieces fill their 512 x 256 boxes and the radiation pointer's 63 x 31 its 46 x 24
+    /// box, the radiation bracket's own 512 x 128 file stands unstretched in its 567 x 120
+    /// box, on the original's screenshots, menu-xml.md §3.1.3].
+    Natural,
     /// A number: the picture at its texels' size times `zoom` / 100 (one texel one
     /// interface unit at 100), from the box's top left, cut to the box [documented: GECK
     /// wiki Zoom, a multiplier of the picture's size that "cannot exceed the specified
     /// height and width"; hypothesis: one texel a unit, as the 1024-texel compass strip
     /// turns 1024 units, hud.md §14.5, and the top-left anchor].
     Zoom(f64),
-    /// `tile` true: the picture repeated over the box at one texel a unit [hypothesis: by
-    /// the trait's name; the bars' 8-texel tick picture in boxes the code sizes in steps
-    /// of 8, hud.md §14.3].
-    Tiled,
+    /// `tile` true: the picture repeated over the box from its top left at its texels'
+    /// size times this `zoom` / 100 (100 without a numeric zoom) [hypothesis: by the
+    /// trait's name; the bars' 8-texel tick picture in boxes the code sizes in steps of 8,
+    /// hud.md §14.3; zoom as the multiplier of the picture's size, GECK wiki Zoom].
+    Tiled(f64),
     /// The compass strip: twice side by side, moved across its window by the heading
     /// (nothing in the tree moves it, hud.md §14.4) at 1024 units a turn with the heading
     /// at x 148 of the window [observed: hud.md §14.5; design: `hud::strip_left`, the
@@ -153,15 +167,91 @@ pub enum Fit {
     Strip,
 }
 
+/// Where an image's picture is read from (`interface::Pictures`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Source {
+    /// Its piece of the shared atlas when the shared index has its file name, else its
+    /// own file: every picture of the mods' tiles with the switch off, as T5 reads them.
+    Shared,
+    /// The atlas its `texatlas` names (`Pictures::locate`'s order).
+    Index(String),
+    /// No `texatlas`, with the whole menu drawn: its own file [observed: the radiation
+    /// bracket, whose `texatlas` line the file comments out (radiation.md §6), shows its
+    /// own file's slanted ends and single line on the original's screenshots, not the
+    /// shared atlas piece's square ends and doubled line; menu-xml.md §3.1.3].
+    Own,
+}
+
 /// What one drawn tile looks like.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Look {
     /// A `rect` with its own `red`, `green` or `blue`: a filled box.
     Box,
-    /// An `image`'s `filename`, from the atlas its `texatlas` names (`None`: the shared
-    /// one, as T5 reads every picture), filling its box as `fit` says.
-    Picture { name: String, atlas: Option<String>, fit: Fit },
+    /// An `image`'s `filename`, read as `source` says, filling its box as `fit` says.
+    Picture { name: String, source: Source, fit: Fit },
     Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment, zoom: f64 },
+}
+
+/// Where a picture's texture stands in its box, in interface units from the box's top
+/// left ([`placed`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Placed {
+    /// Stretched over the box.
+    Fill,
+    /// This size, cut to the box.
+    At { width: f64, height: f64 },
+    /// Repeated over the box at this size.
+    Repeat { width: f64, height: f64 },
+    /// The compass strip ([`Fit::Strip`]).
+    Strip,
+}
+
+/// How a picture of `texels` (its atlas piece's or its own file's size) stands in its
+/// box: `piece` says it was found in an atlas [what the traits are taken to mean: [`Fit`]].
+pub fn placed(fit: Fit, piece: bool, texels: (f64, f64)) -> Placed {
+    let at = |z: f64| (texels.0 * z / 100.0, texels.1 * z / 100.0);
+    match fit {
+        Fit::Stretch => Placed::Fill,
+        Fit::Natural if piece => Placed::Fill,
+        Fit::Natural => Placed::At { width: texels.0, height: texels.1 },
+        Fit::Zoom(z) => {
+            let (width, height) = at(z);
+            Placed::At { width, height }
+        }
+        Fit::Tiled(z) => {
+            let (width, height) = at(z);
+            Placed::Repeat { width, height }
+        }
+        Fit::Strip => Placed::Strip,
+    }
+}
+
+/// How far a text tile's first line stands under its top, the same for every font: the
+/// next lines one line height apart [hypothesis: on the original's screenshots texts set
+/// at one `y` stand on one line whatever their font, `radiation_text` (font 7) and
+/// `radiation_text_value` (font 8) 23.7 under their `y`, the sneak word (font 1) 22, the
+/// prompt's lines (font 7) 24.5-25.5 under the places the captures read for them against
+/// the hand-built prompt's measured lines; the fonts' tallest glyphs (`line_base`: 28, 33
+/// and 48) put them 15 units apart; menu-xml.md §3.1.2].
+pub const TEXT_BASE: f32 = 24.0;
+
+/// The lines of a text tile as they are set in its box (`width` wide before the text's
+/// zoom): each line, its x by the tile's justification [hypothesis] and its baseline
+/// ([`TEXT_BASE`]).
+pub fn text_lines(font: &Font, string: &str, wrap: Option<f64>, alignment: Alignment, width: f64) -> Vec<(fnv_font::Line, f32, f32)> {
+    let width = width as f32;
+    font.lines(string, wrap.map(|w| w as f32))
+        .into_iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let x = match alignment {
+                Alignment::Left => 0.0,
+                Alignment::Center => (width - line.width) / 2.0,
+                Alignment::Right => width - line.width,
+            };
+            (line, x, TEXT_BASE + i as f32 * font.size)
+        })
+        .collect()
 }
 
 /// One tile to draw, in interface units from the view's top left.
@@ -225,7 +315,10 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
 
 /// A tile's base colour [hypothesis: the order is NVForever's, menu-xml.md §3.1.2]: its own
 /// `systemcolor`; else its own `red`/`green`/`blue` when it sets any; else the nearest
-/// tile above's `systemcolor`; else its own (255 each by default).
+/// tile above's `systemcolor`; else system colour 1, the HUD's [documented: GECK wiki
+/// Color UI directives, "Systemcolor is by default 1 and always assign"; observed: the
+/// ammo type's label, a menu child with no `systemcolor` above it, drew white before
+/// T12c where the hand-built HUD and the original draw the HUD's texts amber].
 fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
     let tile = ui.tile(id);
     if let Some(v) = tile.get("systemcolor") {
@@ -241,16 +334,19 @@ fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
         }
         at = ui.tile(p).parent;
     }
-    own
+    system_colour(&Value::Num(1.0)).unwrap_or(own)
 }
 
 /// How an image fills its box, by its `tile` and `zoom` ([`Fit`]).
 pub fn fit(tile: &fnv_ui::Tile) -> Fit {
+    let zoom = tile.get("zoom");
     if tile.get("tile").is_some_and(Value::truthy) {
-        return Fit::Tiled;
+        let z = zoom.filter(|v| !matches!(v, Value::Sym(_))).map(Value::num).filter(|z| *z > 0.0).unwrap_or(100.0);
+        return Fit::Tiled(z);
     }
-    match tile.get("zoom") {
-        None | Some(Value::Sym(_)) => Fit::Stretch,
+    match zoom {
+        None => Fit::Natural,
+        Some(Value::Sym(_)) => Fit::Stretch,
         Some(v) if v.num() < 0.0 => Fit::Stretch,
         Some(v) => Fit::Zoom(v.num()),
     }
@@ -300,8 +396,12 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
                     _ if whole => fit(tile),
                     _ => Fit::Stretch,
                 };
-                let atlas = image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| whole && !a.is_empty());
-                Look::Picture { name: image.filename.trim().to_string(), atlas, fit }
+                let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+                    _ if !whole => Source::Shared,
+                    Some(atlas) => Source::Index(atlas),
+                    None => Source::Own,
+                };
+                Look::Picture { name: image.filename.trim().to_string(), source, fit }
             }
             Kind::Text(text) if !text.string.is_empty() => {
                 Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment, zoom: text.zoom }
@@ -376,21 +476,22 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
             let picture = |image_mode| ImageNode { color: colour, rect, image_mode, ..ImageNode::new(image.clone()) };
             let mut cut = node.clone();
             cut.overflow = Overflow::clip();
-            match *fit {
-                Fit::Stretch => {
+            match placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))) {
+                Placed::Fill => {
                     p.spawn((node, picture(NodeImageMode::Stretch), Pickable::IGNORE));
                 }
-                Fit::Tiled => {
-                    let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale };
+                Placed::Repeat { width, .. } => {
+                    // One texel `width / size.x` units, `ctx.scale` logical pixels a unit.
+                    let per_texel = if size.x > 0.0 { f(width) / size.x } else { 1.0 };
+                    let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale * per_texel };
                     p.spawn((node, picture(mode), Pickable::IGNORE));
                 }
-                Fit::Zoom(zoom) => {
-                    let z = f(zoom / 100.0);
+                Placed::At { width, height } => {
                     p.spawn((cut, Pickable::IGNORE)).with_children(|c| {
-                        c.spawn((at(0.0, 0.0, size.x * z, size.y * z), picture(NodeImageMode::Stretch), Pickable::IGNORE));
+                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Pickable::IGNORE));
                     });
                 }
-                Fit::Strip => {
+                Placed::Strip => {
                     p.spawn((cut, Pickable::IGNORE)).with_children(|c| {
                         c.spawn((TileStrip, at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
                             for i in 0..2 {
@@ -403,18 +504,11 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
         }
         Look::Text { string, font, wrap, alignment, zoom } => {
             let Some(face) = ctx.fonts.faces.get(font) else { return };
-            let base = line_base(face);
             p.spawn((node, Pickable::IGNORE)).with_children(|outer| {
               // [design] A zero-size wrapper scales glyphs about the text's top left.
               outer.spawn((at(0.0, 0.0, 0.0, 0.0), UiTransform { scale: Vec2::splat(*zoom as f32), ..default() }, Pickable::IGNORE)).with_children(|t| {
-                for (i, line) in face.font.lines(string, wrap.map(|w| w as f32)).iter().enumerate() {
-                    // Each line inside the box by the tile's justification [hypothesis].
-                    let x = match alignment {
-                        Alignment::Left => 0.0,
-                        Alignment::Center => (f(r.width / zoom) - line.width) / 2.0,
-                        Alignment::Right => f(r.width / zoom) - line.width,
-                    };
-                    set_line(t, face, line, x, base + i as f32 * face.font.size, colour);
+                for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width / zoom) {
+                    set_line(t, face, &line, x, base, colour);
                 }
               });
             });
@@ -503,7 +597,11 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     let mut looked: Vec<Option<SizedPicture>> = Vec::with_capacity(pieces.len());
     for piece in &pieces {
         looked.push(match &piece.look {
-            Look::Picture { name, atlas, .. } => pictures.picture_sized(name, atlas.as_deref(), data, &mut kit.images, bc),
+            Look::Picture { name, source, .. } => match source {
+                Source::Shared => pictures.picture_sized(name, None, data, &mut kit.images, bc),
+                Source::Index(atlas) => pictures.picture_sized(name, Some(atlas), data, &mut kit.images, bc),
+                Source::Own => pictures.own_sized(name, data, &mut kit.images, bc),
+            },
             _ => None,
         });
     }
@@ -586,7 +684,7 @@ mod tests {
         assert_eq!(drawn[0].colour, [0.0, 128.0 / 255.0, 1.0, 128.0 / 255.0]);
         // The picture takes the piece's colour (the HUD's); the text's brightness 0 is black.
         let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
-        assert_eq!(drawn[1].look, Look::Picture { name: "solid.dds".into(), atlas: None, fit: Fit::Stretch });
+        assert_eq!(drawn[1].look, Look::Picture { name: "solid.dds".into(), source: Source::Shared, fit: Fit::Stretch });
         assert_eq!(drawn[1].colour[..3], hud);
         assert_eq!(drawn[2].look, Look::Text { string: "abc".into(), font: 1, wrap: None, alignment: Alignment::Right, zoom: 1.0 });
         assert_eq!(drawn[2].rect, TileRect { left: 75.0, top: 56.0, width: 30.0, height: 20.0 });
@@ -710,12 +808,13 @@ mod tests {
             names(&ui, &drawn),
             ["HUDMainMenu/HitPoints/compass_window", "HUDMainMenu/HitPoints/meter", "HUDMainMenu/HitPoints/justify_left_text", "HUDMainMenu/RadiationMeter/radiation_bracket"]
         );
-        // The strip scrolls; the tiled meter repeats; `&scale;` and no zoom stretch; the
-        // texatlas goes to the picture lookup, trimmed.
-        assert_eq!(drawn[0].look, Look::Picture { name: "Interface\\HUD\\strip.dds".into(), atlas: Some("Interface\\InterfaceShared.tai".into()), fit: Fit::Strip });
+        // The strip scrolls; the tiled meter repeats; `&scale;` stretches, no zoom is
+        // zoom's default; the texatlas goes to the picture lookup, trimmed; no texatlas
+        // reads the picture's own file (T12c).
+        assert_eq!(drawn[0].look, Look::Picture { name: "Interface\\HUD\\strip.dds".into(), source: Source::Index("Interface\\InterfaceShared.tai".into()), fit: Fit::Strip });
         assert_eq!(drawn[0].rect, TileRect { left: 60.0, top: 868.0, width: 345.0, height: 64.0 });
-        assert_eq!(drawn[1].look, Look::Picture { name: "Interface\\HUD\\hud_tick_mark.dds".into(), atlas: None, fit: Fit::Tiled });
-        assert_eq!(drawn[3].look, Look::Picture { name: "Interface\\HUD\\bracket.dds".into(), atlas: None, fit: Fit::Stretch });
+        assert_eq!(drawn[1].look, Look::Picture { name: "Interface\\HUD\\hud_tick_mark.dds".into(), source: Source::Own, fit: Fit::Tiled(100.0) });
+        assert_eq!(drawn[3].look, Look::Picture { name: "Interface\\HUD\\bracket.dds".into(), source: Source::Own, fit: Fit::Natural });
         // Colours as the hand-built HUD's: the HUD's at full brightness and alpha, the
         // radiation meter's the alt colour.
         let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
@@ -724,7 +823,7 @@ mod tests {
         assert_eq!(drawn[3].colour, [alt.red, alt.green, alt.blue, 1.0]);
         // Without the strip named, the compass window is its zoom's.
         let (plain_strip, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
-        assert_eq!(plain_strip[0].look, Look::Picture { name: "Interface\\HUD\\strip.dds".into(), atlas: Some("Interface\\InterfaceShared.tai".into()), fit: Fit::Zoom(100.0) });
+        assert_eq!(plain_strip[0].look, Look::Picture { name: "Interface\\HUD\\strip.dds".into(), source: Source::Index("Interface\\InterfaceShared.tai".into()), fit: Fit::Zoom(100.0) });
         // A mod's tile under a kept piece still draws, and counts as a mod root.
         assert!(ui.inject_text(&src, "HUDMainMenu/Info", r#"<rect name="Outline"><red>1</red><width>4</width><height>4</height></rect>"#));
         ui.update();
@@ -743,16 +842,68 @@ mod tests {
             "z.xml",
             r#"<menu name="Z"><image name="none"/><image name="free"><zoom>-1</zoom></image><image name="scale"><zoom>&scale;</zoom></image>
               <image name="hundred"><zoom>100</zoom></image><image name="more"><zoom> 125 </zoom></image><image name="tiled"><tile>&true;</tile><zoom>50</zoom></image>
-              <image name="untiled"><tile>&false;</tile></image></menu>"#,
+              <image name="untiled"><tile>&false;</tile></image><image name="tiled_scale"><tile>&true;</tile><zoom>&scale;</zoom></image>
+              <image name="tiled_free"><tile>&true;</tile><zoom>-1</zoom></image></menu>"#,
         );
         let mut ui = Ui::new();
         ui.load_menu(&src, "z.xml").unwrap();
         ui.update();
         let fit_of = |name: &str| fit(ui.tile(ui.find_tile(&format!("Z/{name}")).unwrap()));
         assert_eq!(
-            ["none", "free", "scale", "hundred", "more", "tiled", "untiled"].map(fit_of),
-            [Fit::Stretch, Fit::Stretch, Fit::Stretch, Fit::Zoom(100.0), Fit::Zoom(125.0), Fit::Tiled, Fit::Stretch]
+            ["none", "free", "scale", "hundred", "more", "tiled", "untiled", "tiled_scale", "tiled_free"].map(fit_of),
+            [Fit::Natural, Fit::Stretch, Fit::Stretch, Fit::Zoom(100.0), Fit::Zoom(125.0), Fit::Tiled(50.0), Fit::Natural, Fit::Tiled(100.0), Fit::Tiled(100.0)]
         );
+    }
+
+    /// T12c: no zoom stretches an atlas piece over its box and stands a picture of its own
+    /// file at its texels' size; a number scales the picture, tiled or not.
+    #[test]
+    fn where_a_picture_stands_in_its_box() {
+        // The corner bracket's half-size atlas piece fills its box; the radiation
+        // bracket's own 512 x 128 file stands at its size in its 567 x 120 box.
+        assert_eq!(placed(Fit::Natural, true, (255.0, 127.0)), Placed::Fill);
+        assert_eq!(placed(Fit::Natural, false, (512.0, 128.0)), Placed::At { width: 512.0, height: 128.0 });
+        assert_eq!(placed(Fit::Stretch, false, (512.0, 128.0)), Placed::Fill);
+        assert_eq!(placed(Fit::Zoom(75.0), false, (128.0, 64.0)), Placed::At { width: 96.0, height: 48.0 });
+        assert_eq!(placed(Fit::Tiled(100.0), false, (8.0, 32.0)), Placed::Repeat { width: 8.0, height: 32.0 });
+        assert_eq!(placed(Fit::Strip, true, (1023.0, 63.0)), Placed::Strip);
+        // The condition fill's zoom stands its picture's 11 drawn rows over its 20-unit
+        // box: one repeat covers it.
+        let Placed::Repeat { width, height } = placed(Fit::Tiled(crate::tiles::vanilla::CONDITION_FILL_ZOOM), false, (128.0, 16.0)) else { panic!("tiled") };
+        assert!((11.0 * height / 16.0 - 20.0).abs() < 1e-9 && width > 60.0);
+    }
+
+    /// T12c: a tile with no `systemcolor` on it or above it takes system colour 1, the
+    /// HUD's; its own `red`/`green`/`blue` and `&nosystemcolor;` still give its own.
+    #[test]
+    fn a_tile_with_no_system_colour_above_it_is_the_huds() {
+        let src = MemSource::default().with(
+            "c.xml",
+            r#"<menu name="HUDMainMenu"><text name="AmmoTypeLabel"><string>HP</string><justify>&right;</justify></text>
+              <text name="Own"><string>x</string><red>10</red></text>
+              <text name="None"><string>x</string><systemcolor>&nosystemcolor;</systemcolor></text></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "c.xml").unwrap();
+        ui.update();
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None });
+        let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
+        assert_eq!(drawn[0].colour[..3], hud);
+        assert_eq!(drawn[1].colour[..3], [10.0 / 255.0, 1.0, 1.0]);
+        assert_eq!(drawn[2].colour[..3], [1.0, 1.0, 1.0]);
+    }
+
+    /// T12c: texts of two fonts set at one `y` stand on one line, `TEXT_BASE` under it,
+    /// the next lines a line height apart; justification sets each line in the box.
+    #[test]
+    fn texts_of_two_fonts_at_one_y_share_a_line() {
+        let (small, large) = (plain_font(36.0, 15.0), plain_font(52.0, 20.0));
+        let a = text_lines(&small, "RAD/SEC", None, Alignment::Left, 105.0);
+        let b = text_lines(&large, "+14", None, Alignment::Right, 100.0);
+        assert_eq!((a[0].2, b[0].2), (TEXT_BASE, TEXT_BASE));
+        assert_eq!((a[0].1, b[0].1), (0.0, 40.0));
+        let two = text_lines(&small, "ab cd", Some(40.0), Alignment::Center, 40.0);
+        assert_eq!(two.iter().map(|(_, x, base)| (*x, *base)).collect::<Vec<_>>(), [(5.0, TEXT_BASE), (5.0, TEXT_BASE + 36.0)]);
     }
 
     #[test]
