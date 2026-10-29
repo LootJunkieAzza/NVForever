@@ -372,14 +372,28 @@ fn write_enemy(ui: &mut Ui, shown: Shown, input: &Frame) {
     }
 }
 
+/// The limb word's alpha and system colour for `crippled` limbs: none hidden, one faded
+/// (124, the HUD's colour) [observed: private jobs hud_hardcore2 hc9-hc10, hud_xp_limbs
+/// l1], two full (255) [observed: hud_xp_limbs l2; hypothesis: the HUD's colour, not
+/// read], three or more the alternative red at full alpha [observed: hud_compare
+/// needs_limbs and needs_off at 1280 x 720, the original's LMB (255, 70, 44) in both shots
+/// with an arm and both legs crippled; hypothesis: steady, not flashing, and four or more
+/// as three]. Until T12e three or more kept the HUD's colour, drawn amber [hypothesis].
+fn limb_word(crippled: usize) -> (f64, f64) {
+    match crippled {
+        0 => (0.0, 1.0),
+        1 => (124.0, 1.0),
+        2 => (255.0, 1.0),
+        _ => (255.0, 2.0),
+    }
+}
+
 fn write_needs(ui: &mut Ui, input: &Frame) {
     // [observed: private job hud_hardcore2 hc0-hc11] Fixed places in every mode.
     for (i, (name, x)) in [("Dehydration", 0.0), ("Hunger", 55.0), ("Sleep", 109.0), ("Rads", 162.0), ("LMBs", 218.0)].into_iter().enumerate() {
         let Some(tile) = ui.find_tile(&format!("HUDMainMenu/HardcoreMode/{name}")) else { continue };
         let (alpha, colour) = if i == 4 {
-            // [observed: private jobs hud_hardcore2 hc9-hc10, hud_xp_limbs l1-l2]
-            // [hypothesis] Two or more limbs retain main colour; 3+ unmeasured.
-            (match input.crippled.iter().filter(|c| **c).count() { 0 => 0.0, 1 => 124.0, _ => 255.0 }, 1.0)
+            limb_word(input.crippled.iter().filter(|c| **c).count())
         } else if i < 3 && !input.hardcore {
             (0.0, 1.0)
         } else {
