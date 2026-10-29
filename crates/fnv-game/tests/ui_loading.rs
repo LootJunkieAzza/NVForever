@@ -261,6 +261,8 @@ fn vfs_source_owns_strings_and_reads_files() {
     is_static_source(&src);
     assert_eq!(src.menu_paths(), ["menus\\renamed.xml"]);
     assert_eq!(src.read("MENUS/RENAMED.XML").unwrap(), xml.as_bytes());
+    assert!(src.is_loose("MENUS/RENAMED.XML"));
+    assert!(!src.is_loose("menus/missing.xml"));
     assert_eq!(src.game_string("SPROBE").as_deref(), Some("plugin text"));
     world.change_setting("sProbe", Setting::Str("changed".into())).unwrap();
     assert_eq!(src.game_string("sProbe").as_deref(), Some("plugin text"));
@@ -269,7 +271,8 @@ fn vfs_source_owns_strings_and_reads_files() {
     assert_eq!(next.game_string("sProbe").as_deref(), Some("changed"));
     assert_eq!(src.game_string("sAbsent"), None);
     let mut ui = fnv_ui::Ui::new();
-    ui.load_menu(&src, "menus/renamed.xml").unwrap();
+    let root = ui.load_menu(&src, "menus/renamed.xml").unwrap();
+    assert_eq!(ui.mod_added_tiles(root), [root]);
     let label = ui.find_tile("HUDMainMenu/Label").unwrap();
     assert_eq!(ui.tile(label).get("string"), Some(&Value::Str("plugin text".into())));
     std::fs::remove_file(dir.join("Menus/renamed.xml")).unwrap();
