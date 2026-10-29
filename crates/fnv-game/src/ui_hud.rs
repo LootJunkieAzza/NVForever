@@ -171,3 +171,25 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     }
     copies::write(ui, shown, texts);
 }
+
+/// The HUD's file text tiles whose `width` the original's code sets to the drawn text's
+/// width [observed: hud.md §14.1: `sneak_nif` 106 with "[HIDDEN]", then 136; the prompt's
+/// `button_text` 156 wide with the file's "Button Text" and 54 with "Talk" (its hotrect,
+/// whose width the file works out from this child's, 176 and 74); `radiation_text_value`
+/// 50 wide, then 49 ("+0", "+9", §14.2)].
+pub const MEASURED_TEXTS: [&str; 3] = ["SneakMeter/sneak_nif", "Info/justify_center_hotrect/button_text", "RadiationMeter/radiation_text_value"];
+
+/// Write [`MEASURED_TEXTS`]' widths: `measure` takes the tile's `font` trait (0 when it has
+/// none) and its `string`, and gives the text's width in interface units. A tile without a
+/// `string` trait keeps its width [design: the sneak word's tile has none until the first
+/// sneak; the original's 14 before then is one space in font 1, hypothesis]. Called after
+/// [`write`], before scripts [design: ui-tile-tree.md §4.1].
+pub fn write_text_widths(ui: &mut Ui, measure: &dyn Fn(f64, &str) -> f64) {
+    for path in MEASURED_TEXTS {
+        let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) else { continue };
+        let t = ui.tile(tile);
+        let Some(string) = t.get("string").map(Value::text) else { continue };
+        let font = t.get("font").map_or(0.0, Value::num);
+        ui.set_trait(tile, "width", Value::Num(measure(font, &string)));
+    }
+}
