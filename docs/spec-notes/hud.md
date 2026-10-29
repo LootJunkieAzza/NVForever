@@ -677,6 +677,8 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   XP drawing, and the message queues, for those children and the ones still to capture;
   subtitles share the drawing's selection. Discovery notices map to `Region_Location`,
   other quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
+  Since §14.11 the tile HUD draws discoveries under `QuestReminder`, where the owner's
+  screenshot shows them; `Shown::location` still only tells which kind of line shows.
 - [hypothesis] T4a truncates W and W/2 before subtracting offsets: at 16:9,
   `1706.67 - 386` truncates to 1320 (nearest would give 1321); the truncated middle
   853 keeps the reticle's half-unit offset and reproduces its child's x 820.5.
@@ -977,9 +979,9 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 | `xp_meter.rs` | `XPMeter` | tiles (§14.8), independent visual clock |
 | `hud_limbs.rs` | `crippled_limb_indicator` | tiles (§14.8) |
 | `hud_breath.rs` | `BreathMeter` | hand-built: a `nif` tile (`Interface\HUD\AirTimer01.NIF`), not drawn |
-| `corner_messages.rs` | `Messages` | hand-built: its text and icon copies are not built |
-| `quest_messages.rs` | `QuestReminder`, `Region_Location` | hand-built: no texts in the tree |
-| `script_hud.rs` subtitles | `Subtitles` | hand-built: its text copy is not built |
+| `corner_messages.rs` | `Messages` | tiles (§14.11): the bracket, text and icon copies; the queue stays hand-built |
+| `quest_messages.rs` | `QuestReminder` (`Region_Location` gets nothing) | tiles (§14.11): banner and objective copies; the queue and sounds stay hand-built |
+| `script_hud.rs` subtitles | `Subtitles` | tiles (§14.11): its text copy; the selection stays hand-built |
 | `sneak_gauges.rs` (NVForever's own, off by default) | none | hand-built |
 
 - [design] The kept pieces' file and code tiles are not drawn (`KEPT_PIECES`), a mod's
@@ -1243,3 +1245,74 @@ the hand-built HUD (the default) keeps:
   zoom), `crates/fnv-game/tests/ui_hud.rs`
   `need_words_keep_places_and_use_stage_alpha_and_colour_in_both_modes` (LMB). Smoke
   `tiles-hud-ammo-label` (new), `hud-compass-north` (the strip's log line).
+
+### 14.11 The messages, quest notices and subtitles from tiles (T12 leftovers, 2026-10-29)
+
+[observed: private run hud_traits run1, `*:N` children of each piece, sample 0 (x, y,
+width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
+
+- **`Messages`** has three code-made children from the start, before any message:
+  `*:0` 470 x 192 at y -20, alpha 0, depth 1 (the template `message_bracket`'s size and
+  y); `*:1` a text at x 130, y 5, 281 x 80, alpha 0, depth 2 (the corner message's text,
+  §14.2); `*:2` 160 x 160 at x 0, y -25, alpha 0, depth 2 (`message_icon`'s). All visible
+  1. Which template the text comes from is not read [hypothesis: the left-justified
+  text's, by its x where the hand-built HUD's text starts, `corner_messages::TEXT_X`].
+- **`QuestReminder`**: its `*:0` and `*:1` were the file's `QuestAdded` and
+  `QuestStages` (no code copy under it with no notice showing). **`Region_Location`**
+  had no child. **`Subtitles`**: `*:0` a text at x 400 (the middle of the 800-wide
+  piece), 13 x 42, alpha 255, visible 0, string " ".
+- [design] With `[UI] TileMenus=HUDMainMenu`, `engine/nvf-play/src/tiles/notices.rs`
+  writes these copies before scripts, only while the switch is on (off, nothing is made:
+  the tree stays T4's). What shows, when and how strongly stays the hand-built HUD's:
+  `CornerMessages` (one at a time, the record's Display Time, 0.25 s fades),
+  `QuestMessages` (its order, times, fades, AutoDisplayObjectives hold and sounds), the
+  subtitle selection of `script_hud.rs`, and the hand-built showing rules (hidden and
+  held behind a message box, in dialogue, while an idle holds the camera). The hand-built
+  areas are hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`), their queues
+  still run; only `BreathMeter` stays in `KEPT_PIECES`.
+- **Messages** [design, places observed]: the icon, text and bracket are made in that
+  order, so `*:0`-`*:2` are as read; the text at its read x 130, y 5, depth 2. Alpha:
+  icon and text 255 × the queue's strength, the bracket 0.65 of that (the hand-built
+  HUD's `BRACKET_STRENGTH`, corner-messages.md §4); with no message all three alpha 0 and
+  the last text held [observed: alpha 0 with a text]. The icon's `filename` is the
+  record's Menu Icon, else the default Vault Boy's [documented: GECK wiki, Message].
+  The text wraps at 330 (`wrapwidth`) [hypothesis: the hand-built HUD's break,
+  corner-messages.md §4; the copy's own `wrapwidth` was not read].
+- **Quest notices** [design]: made at the first notice (none were there before one),
+  directly under `QuestReminder` [hypothesis: whether the original puts them under
+  `QuestStages` (y 40) or `QuestAdded` (y 80) is not read; the first objective's top,
+  39, is next to `QuestStages`' 40]. Places are the hand-built HUD's (quest-messages.md
+  §4, measured on the owner's screenshots) less the piece's place (45, 200) and a text's
+  `TEXT_BASE` 24: the label at (0, 23), the name in font 8 at (-1.5, 87), the first
+  objective at (0, 39), each next one under the lines before it (the font's size + 2 a
+  line), wrapped at 570. Each objective has a box copy of its kind (`template_checkbox`,
+  `template_filled_checkbox`) at x -16, 3 under its text's top, 26 x 26 (the screenshots'
+  square; the file's templates say x -20 and 16 x 16 for the open one) [observed:
+  quest-messages.md §4-§5]. Surplus copies are hidden, not removed. A discovery ("You
+  have discovered" over the name) is a banner here, where the owner's screenshot shows it
+  [observed: quest-messages.md, "Discovered"]; `Region_Location` (45, 728) gets nothing:
+  what the original shows there is not known [hypothesis: a region or location name on
+  entering one].
+- **Differences from the hand-built drawing** [design]: the quest's name fades as one
+  tile (the hand-built letters come one after another over 0.6 s); a wrapped line inside
+  one tile stands the font's size under the one before (the hand-built 2 more); the
+  subtitles stand under `Subtitles`' y (660, or raised by a prompt, §14.6), the
+  hand-built ones on a fixed base 633; the tile renderer draws nothing in a menu (the
+  root hidden), the hand-built subtitles stay.
+- **Subtitles** [design, observed place]: one centre-justified text at x 400, made at the
+  first write with " ", hidden; while lines are drawn its string is the lines (one text a
+  line), `visible` 1, wrapped at 800 [hypothesis: the hand-built HUD's width, its own
+  `wrapwidth` not read]; after them hidden with the last text [hypothesis].
+- **Needs a capture**: the copies' traits while a message, a quest notice, a discovery
+  and a subtitle show (alpha over time, `wrapwidth`, which template, the parents under
+  `QuestReminder`, whether `Region_Location` gets children on entering a named place),
+  read with GetUIFloat/GetUIString as §14.2; the original's fades and times
+  (quest-messages.md §6, corner-messages.md §7).
+- Tests: `tiles::notices::{the_message_copies_are_made_in_the_observed_order_and_fade_with_the_queue,
+  the_renderer_draws_the_message_where_the_hand_built_hud_does,
+  a_quest_banner_and_its_objectives_take_the_hand_built_places,
+  subtitles_are_one_centred_text_there_from_the_start,
+  a_rebuilt_tree_gets_its_copies_again_and_a_tree_without_the_pieces_none,
+  the_log_names_what_each_area_shows}`. Smoke `tiles-hud-notices`, `tiles-hud-discovered`,
+  `tiles-hud-subtitles`; the five other `tiles-*` scenarios expect only `BreathMeter`
+  kept.

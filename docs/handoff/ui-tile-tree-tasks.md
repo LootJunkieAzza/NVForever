@@ -279,7 +279,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       ammo), sneak word, crosshair and radiation meter (`DrawnByTiles`, one PostUpdate
       system). Kept hand-built, their file/code tiles not drawn (`KEPT_PIECES`): the
       enemy bar, prompt, Hardcore words, XP meter, limbs, breath meter (the one `nif`
-      tile), corner and quest messages, subtitles. The mapping: hud.md §14.7. Off,
+      tile), corner and quest messages, subtitles (the texts since the T12 leftovers
+      below). The mapping: hud.md §14.7. Off,
       T5's mod-only drawing is unchanged.
       - Renderer [menu-xml.md §3.1.3]: `zoom` (a number: texels × zoom/100 from the box's
         top left, cut to the box [documented: GECK wiki Zoom; hypothesis: one texel a
@@ -489,6 +490,33 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       is held at. Smoke: `tiles-hud-ammo-label` (new); `hud-compass-north` logs the
       strip's place. Only `cargo check -p nvf-play --tests` and `cargo check -p fnv-game
       --tests` were run, and `python tools/smoke verify` (644 scenarios, fine).
+    - **T12 leftovers: the texts, done** 2026-10-29 (`claude/tile-hud-texts`): the corner
+      messages, quest and discovery notices and subtitles drawn from tiles (hud.md
+      §14.11; `engine/nvf-play/src/tiles/notices.rs`). Only `BreathMeter` (a `nif` tile)
+      stays in `KEPT_PIECES`; `Region_Location` is no longer kept (nothing is made under
+      it, what the original shows there is not known [hypothesis]).
+      - Copies [observed: private run hud_traits run1, `*:N` at sample 0]: `Messages`'
+        bracket `*:0`, text `*:1` (x 130, y 5, depth 2) and icon `*:2`, made in that order
+        before any message; `Subtitles`' centred text `*:0` at x 400 with " ", hidden;
+        nothing under `QuestReminder` before a notice, so its copies are made at the first
+        one, directly under the piece [hypothesis: their parent], at the hand-built
+        HUD's places (quest-messages.md §4) less the piece's (45, 200); a discovery is a
+        banner there, where the owner's screenshot shows it [observed].
+      - Rules kept hand-built [design]: the queues, times, fades, AutoDisplayObjectives
+        hold, sounds and the subtitle selection; the tile copies take the lines on screen
+        and their strength each frame (`HudTiles::notices`), the hand-built areas are
+        hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`) and their clocks
+        run. Only while the switch is on: off, nothing is made or written.
+      - Wraps 330/570/800 and the box's x -16, 26 x 26 are the hand-built HUD's
+        [hypothesis for the wraps; observed on screenshots for the box]. Differences: the
+        quest name fades as one tile (no letter sweep), wrapped lines inside one tile at
+        the font's size, the subtitles under `Subtitles`' y (660, raised after a prompt)
+        rather than the hand-built fixed base 633 [design].
+      - Tests: `tiles::notices` (6). Smoke `tiles-hud-notices`, `tiles-hud-discovered`,
+        `tiles-hud-subtitles` (new, shots `tiles_hud_*.png`); the five other `tiles-*`
+        scenarios now expect `hidden but for BreathMeter`. **Needs a capture:** the
+        copies' traits while each kind of line shows (alpha over time, `wrapwidth`,
+        template, parents under `QuestReminder`, any `Region_Location` child).
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
