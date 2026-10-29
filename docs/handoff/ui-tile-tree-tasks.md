@@ -227,10 +227,10 @@ owner to add to its pull request or issue (owner, 2026-10-29).
        templates; `tests/ui_hud.rs` checks names/`*:N`, rebuilds, frame writes and missing templates.
      - text widths written back (the sneak word 106/136, the prompt's hotrect, the
        radiation value), once T5 measures text with fnv-font;
-     - **Done: radiation pointer x** [design]: bounded provisional scale (§14.6 [hypothesis]);
-       `tests/ui_hud.rs` replays the recorded x values with explicitly synthetic input totals.
+    - **Done: radiation pointer x** [design]: T12b replaces the provisional scale with
+       the paired capture rule in hud.md §14.8; tests cover the range and hidden hold.
      - **Done: Subtitles y** [design]: prompt height + 8 (§14.3 [hypothesis]);
-       `tests/ui_hud.rs` checks both captured heights and restoration without a prompt.
+       `tests/ui_hud.rs` checks both captured heights and retained y without a prompt (T12b).
      - not captured: an enemy under the crosshair (the enemy bar's children; §14.3 has
        why three tries failed: face the actor with script steps, not a drive script),
        and how the strip itself scrolls (no trait; §14.4; our drawing's scale and
@@ -297,16 +297,74 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         fits, a texatlas lookup with a fake index). Smoke `tiles-hud-bars-partial`,
         `tiles-hud-compass-north`, `tiles-ui-hud-code-traits`,
         `tiles-environment-radiation` (shots `tiles_*.png`).
-    - **Left for T12b, the comparison**: the `tiles_*.png` shots against the original's
-      at the same sizes (hud.md §14's captures) and against the hand-built HUD's, every
-      hypothesis above; then the kept pieces one group at a time (hud-xml.md step 5):
-      the enemy bar's children, the prompt's places and divider, the Hardcore words'
-      places, the XP and limb children's visibility, messages, subtitles; the `nif`
-      breath meter; hostile colours; the corners' hiding rule.
+    - **T12b part A done** 2026-10-29 (`claude/t12b-tiles`) [design]. Evidence and
+      private job/label references, each fitted rule's range and unresolved cases:
+      hud.md §14.8; menu-xml.md §3.1.3/§5/§8; extender-compat.md's indexing note.
+      All ten part-A items of the private `t12b-fixes.md` are implemented:
+      1. [design] Numeric systemcolor 1/2 matches hudmain/hudalt, including the
+         symbols' numeric reads; unknown colour IDs keep the provisional rule.
+      2. [design] Radiation pointer `15 + 0.3 × rads`, 0..1000, written while shown;
+         hidden x holds, no 42.9 cap. Fit/range and >1000 hypothesis in §14.8.
+      3. [design] Hardcore word alpha/colour by stage, fixed x/zoom in both modes;
+         RAD/LMB in both. Unmeasured Fatal, 3+ limbs and flash period tagged in spec.
+      4. [design] Subtitle y retained after prompt removal, reset with the tree;
+         later prompt height replacement remains a hypothesis.
+      5. [design] Hostile tick/crosshair systemcolor 2; hostile crosshair plain.
+      6. [design] Info divider and seven text copies in the observed order/places;
+         item figures, empty/locked alpha/visible, retained strings; verb only on
+         the file hotrect/button_text. Unread name retains template name.
+      7. [design] Enemy bracket/meter/name; centred even ticks, hostility colour,
+         children hidden at full health. Other target eligibility stays provisional.
+      8. [design] Tile-only XP fade/glide and separate LEVEL UP timeline; first gain
+         retained during a show. Existing sound/menu scheduling stays in the hand HUD
+         and can interrupt the longer visual sequence (hud.md §14.8).
+      9. [observed: private jobs hud_hardcore hc0, hud_xp_limbs all, hud_prompt2
+         p0-p8] Indexed paths count from the last matching child. [design] Reverse
+         creation of the corners/compass/copies preserves observed paths; update
+         fnv-ui tests, named and wildcard HUD assertions. Unindexed/draw order stays.
+         No contrary vanilla script/menu dependency established; wider audit open.
+      10. [design] Limb places/zoom, 0.85/3.3/0.85 s whole-piece fades, all broken
+          pieces flashing together, retained broken pictures after healing;
+          approximate sawtooth from one run only, documented as a hypothesis.
+      - [design] Remove HardcoreMode, Info, EnemyHealth, XPMeter and
+        crippled_limb_indicator from KEPT_PIECES. Share their visibility markers
+        through tiles/vanilla.rs: only declarations/imports change in the five
+        hand-built files. Leave sneak_gauges.rs alone. Text zoom draws scaled glyphs;
+        prompt/enemy/XP code text widths use game fonts.
+      - [design] Tests: `crates/fnv-game/tests/ui_hud.rs` capture paths/states,
+        enemy widths/colour/full health, all needs stages/both modes, retained
+        subtitles/pointer, XP timeline/repeat gain/pause, limb restart/healing;
+        fnv-ui indexed paths and numeric colours; tiles renderer numeric/inherited
+        colour, text zoom and kept selection. Required check results recorded below.
+      - [design] Smoke: existing four `tiles-*` scenarios require the exact five
+        remaining hand-built pieces; new `tiles-hud-hardcore` raises needs with the
+        existing script aid, checks exact alphas/colours and fixed places in both
+        modes, with two shots. No expectations loosened.
+      - [observed: local `target/t12b/root-tests-final.log`,
+        `root-clippy-verified.log`, `engine-tests-verified.log`,
+        `engine-clippy-verified.log`, 2026-10-29] Required release checks pass:
+        workspace tests **1,647 passed**, zero failed/ignored (HUD 24, fnv-ui 36);
+        nvf-play `tiles` **18 passed**, zero failed/ignored, 582 filtered out;
+        workspace/all-targets and engine/all-targets clippy with `-D warnings`.
+        Engine commands use `E:/Games/NVForever/engine/target`, waiting for its lock;
+        root commands use this worktree's target. [observed: `python tools/smoke
+        verify`, same date] **643 scenarios**, valid. No game, smoke run,
+        `cargo build -p nvforever` or push was performed [observed: this session's
+        command log].
+    - **Left for T12b's visual comparison** [design]: main session runs
+      `tiles-hud-bars-partial`, `tiles-hud-compass-north`, `tiles-ui-hud-code-traits`,
+      `tiles-environment-radiation`, `tiles-hud-hardcore`; compare the `tiles_*.png`
+      shots against original captures at matching sizes. No game/smoke run in part A
+      at the user's request. Still kept: breath NIF, message/quest/location/subtitle
+      copies. Still open: enemy eligibility, near-full tick quantization, higher-level
+      XP pointer/repeat gains, menu/sound coordination, flash period, a second limb
+      capture, text/image zoom anchors, corners' hiding rule and warning sneak colour.
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
-    deprecated forms' bug, `name:N` counting. One capture job; fold the answers into
+    deprecated forms' bug. `name:N`/`*:N` counting and HUD colour IDs answered by
+    T12b's captures [observed: hud.md §14.8]; deprecated GetUIFloat parity still open.
+    Fold the remaining answers into
     the spec and the reader.
 11. **T15 onward: one menu per task**, in the order of design §6.2 item 4. Each is
     switch, drawing, the model writing `io()` traits and template rows, screenshot
