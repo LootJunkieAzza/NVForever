@@ -1,6 +1,7 @@
 # UI tile tree: ranked tasks
 
-The design is [ui-tile-tree](../design/ui-tile-tree.md), the format
+The design is [ui-tile-tree](../design/ui-tile-tree.md), the HUD's part of it
+[hud-xml](../design/hud-xml.md) (sources, captures, order of work), the format
 [menu-xml](../spec-notes/menu-xml.md). Each task is sized for one session and ends in a
 PR. The HUD and MCM come first: 16 plugins in the owner's lists use SetUIFloat and its
 family (modlist-scan-2026-10-26.md). Mark a task done with its PR; move what it settled

@@ -1,8 +1,9 @@
 # The HUD from the menu XML: observed through xNVSE, drawn from tiles
 
-Date: 2026-10-28. Status: proposed, for the issue that agrees the approach before any code
-(CONTRIBUTING.md, "Ways to help": a new system needs an issue first). Nothing here is
-built, and no capture for it has been run yet.
+Date: 2026-10-28, brought up to date 2026-10-29. Status: proposed, for the issue that
+agrees the approach (CONTRIBUTING.md, "Ways to help": a new system needs an issue first);
+the issue is not filed yet. §6 steps 2 and part of 3 are built (§2, "Since then"); the
+layout, the drawing and the tile HUD (§5, §6 steps 4-6) are not.
 
 This is the HUD part of the tile tree ([ui-tile-tree](ui-tile-tree.md), tasks in
 [ui-tile-tree-tasks](../handoff/ui-tile-tree-tasks.md)). That design stays as it is: one
@@ -73,7 +74,8 @@ What that means in practice:
 
 ## 2. Where things stand
 
-[observed: the code, 2026-10-28]
+[observed: the code, 2026-10-28, before T2; what changed since is at the end of this
+section]
 
 - `crates/fnv-ui` (T1) reads the menu XML into tiles and traits, with includes,
   templates, constants, every operator the vanilla files use and the script-facing API.
@@ -99,6 +101,23 @@ What that means in practice:
 - Smoke: `ui-menus` (all 49 vanilla menus build) and fifteen HUD scenarios (`hud-*`,
   `compass-*`, `corner-messages`, `xp-meter`, `opening-no-hud`, `ui-colours`, …). They
   keep passing through the move.
+
+**Since then** [observed: the code, 2026-10-29; each task's details in
+`ui-tile-tree-tasks.md`]:
+
+- The UI functions reach the tree from scripts (T2), the tree is built in the running
+  game from the VFS with `screen()` from the window (T3a), and other menus are built and
+  dropped as they open and close (T3b). Smoke: `ui-tree-in-game`, `ui-menu-lifetime`.
+- `tools/capture/hud_traits.py` generates the §4.1 trait job from a `fnvtool ui tree`
+  export. It has run on the owner's install with xNVSE alone at 4:3, 16:10 and 16:9; the
+  findings are `hud.md` §14 (the condition bar moved 7 units left from them). The §4.2
+  reads checked out with xNVSE; `*:N` against DumpTileInfo and the JIP/SUP comparison
+  have not run.
+- `fnv_game::ui_hud` writes the observed places and visibility into `HUDMainMenu` while
+  the old HUD still draws (T4a, smoke `ui-hud-code-traits`). The root's other states, the
+  code-made children's traits and the strings are still to capture (T4).
+- Still true from the list above: no layout in `fnv-ui`, nothing drawn from tiles, and
+  the HUD's places are `hud.rs` constants.
 
 ## 3. What the HUD file settles and what it leaves to code
 
@@ -238,11 +257,11 @@ is needed, its captures.
 2. **The tree in the game** (T2, T3): a VFS source for `fnv_ui`; `HUDMainMenu` and the
    other always-loaded menus built at start and after a load; `screen()` set and kept
    current on resize; the UI functions wired into the extender. Smoke: a script's
-   `GetUIFloat "HUDMainMenu/…"` reads the file's value in the game.
+   `GetUIFloat "HUDMainMenu/…"` reads the file's value in the game. Done 2026-10-28/29.
 3. **The capture** (T4): §4.1 and §4.2 as a job in `tools/capture/jobs`, run on the
    owner's install; findings into `hud.md`. The adapter starts writing the observed
    values into the tree while the old HUD still draws, so mods reading the HUD see live
-   values.
+   values. Places and visibility done (T4a); states, children and strings open.
 4. **Layout and T5**: the layout in `fnv-ui`, the Bevy UI drawing in
    `nvf-play/src/tiles/`, drawing only the tiles mods add to `HUDMainMenu` (injected, or
    not in the vanilla file) over the current HUD. Checked with a test mod using
