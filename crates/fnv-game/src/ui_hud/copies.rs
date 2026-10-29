@@ -63,12 +63,12 @@ impl Default for Frame {
     }
 }
 
-/// All HUD code-copy creation goes here [design]. After the parallel tile-origin
-/// change merges, marking the returned tile `Code` is a one-line change here.
+/// All HUD code-copy creation goes here [design]. The copies are `Origin::Code`, so
+/// the tile renderer does not draw them as mod tiles.
 /// Includes are already expanded in loaded templates [documented:
 /// crates/fnv-ui/src/tree.rs, Ui::add_from_template / expand_includes].
 fn code_copy(ui: &mut Ui, at: &str, template: &str, name: &str) -> Option<TileId> {
-    let tile = ui.add_from_template(&MemSource::default(), at, template, Some(name))?;
+    let tile = ui.add_code_tile_from_template(&MemSource::default(), at, template, Some(name))?;
     // Keep separate pools even when templates are missing or share names [design].
     ui.set_trait(tile, "_NVFHudTemplate", Value::Str(template.into()));
     Some(tile)

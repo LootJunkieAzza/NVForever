@@ -633,3 +633,13 @@ fn missing_templates_and_parents_skip_quietly_without_cross_writes() {
         }
     }
 }
+
+#[test]
+fn copies_are_code_made_and_not_mod_tiles() {
+    // The renderer draws mod-added tiles only; the copies are the engine's [design].
+    let ui = copy_tree(&[]);
+    let hud = ui.menu("HUDMainMenu").unwrap();
+    let window = ui.find_tile("HUDMainMenu/HitPoints/compass_window").unwrap();
+    assert_eq!(ui.tile(window).origin, fnv_ui::Origin::Code);
+    assert!(ui.mod_added_tiles(hud).is_empty());
+}

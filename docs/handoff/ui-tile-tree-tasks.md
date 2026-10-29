@@ -121,8 +121,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
      texatlas), text (fnv-font, justify, wrap), alpha, visible, colour, clips;
    - draw only the tiles mods added to `HUDMainMenu` (injected, or not in the vanilla
      file) over NVForever's HUD;
-   - test with a HUD mod from the owner's list (JAM's meters through UIO after T6, or
-     one that uses InjectUIXML).
+   - test with a tile injected through the console in smoke (vanilla data), then a HUD
+     mod from a Viva New Vegas `mods` folder (JAM's meters through UIO after T6).
 
    Shots in smoke.
    - **Carried over from T4** (hud.md §14-§14.5 have the observed values):
@@ -143,7 +143,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
 2. **T6. UIO include lists.** Read `uio\public\*.txt` and `uio\supported.txt`
    (menu-xml.md §7 item 3) and include their files at their targets when the menu or
    prefab loads; conditions `true`, `?plugin`, `#file`, `!`, `&&`. Test with JAM, MCM
-   Extender and UI Improvements from `F:\Modlists\VNV\mods` as overlays in
+   Extender and UI Improvements from a Viva New Vegas `mods` folder (upstream owner:
+   `F:\Modlists\VNV\mods`; spooknik: `E:\Games\Viva New Vegas\mods`) as overlays in
    `fnvtool ui`.
 3. **T7. MCM, headless first** (owner decision in owner-review.md first):
    - StartMenu built from the files while the pause or main menu is open, with MCM's
