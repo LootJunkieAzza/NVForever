@@ -152,9 +152,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - A bar lights `floor(value × 37)` ticks [observed: §14.3]. The health bar empties from
   the right, the action points bar from the left (towards its label).
 - The compass window is where the file puts it. The heading is in its middle: the
-  strip is shifted by heading / 360 x 1024 [hypothesis: not measured against the
-  original; §14.4]. The window's middle (x 192) is not where
-  the bracket's triangle is (x 165); which of the two the original uses is open.
+  strip is shifted by heading / 360 x 1024 [observed: §14.5]. The heading stands at the
+  bracket's triangle (x 148 of the window, 168 of `HitPoints`), not the window's middle
+  (x 192 of `HitPoints`) [observed: §14.5].
   The ends are cut off sharp.
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
   long and 20 high [documented: the size] at a quarter of the bar's strength
@@ -729,3 +729,27 @@ with the pistol drawn and three quick shots. Names from `hudtemplates.xml` and
   spreading crosshair is the owner's design, on by default, with the original's look
   when "Dynamic crosshair" is off (reticle.md §6).
 
+
+### 14.5 The compass's scale and centre (2026-10-29)
+
+[observed: the private `hud_sweep` job (run 1793266387), outdoors at the save's Goodsprings
+spot, the settler `GoodspringsSettler01Ref` moved 300 units due north and held with
+SetRestrained; the player turned with SetAngle Z through 0-355 in 5 degree steps, each
+with a screenshot (1920 x 1080 scaled to 1280 x 720), GetHeadingAngle to the settler and
+every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
+
+- **The marks**: the settler's tick stood at `x = 139.0 + 2.844 x bearing` (compass_window
+  units, bearing -180..180 from where the player faces), 14.2 units each 5 degrees at every
+  heading; 2.844 x 360 = 1024. It showed for bearings from about -49 to +48 (x from about 0
+  to 276; outside, `visible` 0).
+- **The strip** moved 85 pixels each 40 degrees on the screenshots (13 of 16 spans; the
+  others spoilt by the scene behind it): 85 / 0.75 / 40 = 2.83 units a degree, 1024 to the
+  turn as the marks. `heading / 360 x 1024` is right for both.
+- **The centre**: the tick picture's bar is at texel 9 of 32 (`compass.rs` `TICK_MIDDLE`),
+  so a bearing-0 tick's bar stands at 139 + 9 = **148** of the 345-wide window (x 168 of
+  `HitPoints`). On the heading-0 screenshot N stands under the bracket's downward triangle
+  (its tip about x 167 of `HitPoints`, N's middle about 172), which settles §4's open
+  question: the heading is at the triangle, not the window's middle (172.5 of the window,
+  192.5 of `HitPoints`).
+- [design] NVForever put the heading at the window's middle for the strip and the marks
+  (`compass.rs`, `COMPASS.x / 2`): 24.5 units, about 8.6 degrees, right of the original.

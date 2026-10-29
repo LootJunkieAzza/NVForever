@@ -6011,6 +6011,20 @@ expect = [
 manual = "hud_ammo_label.png: \"HP\" just right of the divider at the bottom right, \"13/37\" at the upright"
 
 [[scenario]]
+name = "hud-compass-north"
+source = "[observed: hud.md §14.5] the original's compass puts the heading at x 148 of the 345-wide window (a bearing-0 tick's x 139 plus its bar at texel 9; N under the bracket's triangle), not the window's middle; 1024 strip units to the turn"
+note = "facing due north outdoors in Goodsprings: N stands under the bracket's downward triangle"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:hud_compass_north.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'compass: heading at x 148(\.0)? of 345', label = "the heading stands at the bracket's triangle, not the window's middle" },
+]
+manual = "hud_compass_north.png: N right under the downward triangle of the compass's bracket line"
+
+[[scenario]]
 name = "hud-bars-partial"
 source = "[observed: hud.md §14.3] the original's health and action points bars light floor(share x 37) ticks (100 of 200 health: 18 ticks, not 19); its condition fill is round(59 x condition) inside the 60-wide ground"
 note = "health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol of hud-ammo-label"
