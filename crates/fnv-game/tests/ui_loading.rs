@@ -246,6 +246,7 @@ fn startup_and_rebuild() {
     let paths = src.files.keys().cloned().collect::<Vec<_>>();
     let report = ui_loading::load(&mut g, Box::new(src), paths.clone());
     assert_eq!((report.menus, report.tiles), (6, 12));
+    assert_eq!((report.game_strings, report.game_strings_unresolved), (1, 0));
     assert_eq!(report.warning_count(), 1);
     assert_eq!(report.warnings["menus\\prefabs\\probe.xml"].len(), 1);
     assert_eq!(g.ui_menus.path("hudmainmenu"), Some("menus\\added\\0.xml"));
@@ -269,6 +270,7 @@ fn missing_menu_and_globals_warn() {
     let report = ui_loading::load(&mut g, Box::new(src), ["menus/renamed.xml".into()]);
     assert_eq!(report.menus, 1);
     assert_eq!(report.warning_count(), 6);
+    assert_eq!((report.game_strings, report.game_strings_unresolved), (0, 0));
     assert_eq!(report.warnings["InventoryMenu"], ["menu not found"]);
     assert_eq!(report.warnings["menus\\globals.xml"], ["not found"]);
     assert!(g.ui_tree.menu("HUDMainMenu").is_some());
@@ -283,7 +285,7 @@ fn vfs_source_owns_strings_and_reads_files() {
     // Only these synthetic files under the repository's target directory [design].
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/ui-loading-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("Menus")).unwrap();
-    let xml = r#"<menu name="HUDMainMenu"><text name="Label"><string>&-sProbe;</string></text></menu>"#;
+    let xml = r#"<menu name="HUDMainMenu"><text name="Label"><string>&-sProbe;</string></text><text name="Gone"><string>&-sAbsent;</string></text></menu>"#;
     std::fs::write(dir.join("Menus/renamed.xml"), xml).unwrap();
     let vfs = Arc::new(Vfs::open(&dir, &[]).unwrap());
     let src = UiFiles::new(vfs.clone(), &world);
@@ -305,6 +307,12 @@ fn vfs_source_owns_strings_and_reads_files() {
     assert_eq!(ui.mod_added_tiles(root), [root]);
     let label = ui.find_tile("HUDMainMenu/Label").unwrap();
     assert_eq!(ui.tile(label).get("string"), Some(&Value::Str("plugin text".into())));
+    // T10: the load order's record answers; a name with no record and no built-in text
+    // (the built-in table is empty until the observer readings, menu-xml.md §2.4) reads empty.
+    assert_eq!(src.game_strings().lookup("sprobe"), Some(("plugin text", fnv_ui::strings::Origin::LoadOrder)));
+    assert_eq!(ui.get_string("HUDMainMenu/Gone/string").as_deref(), Some(""));
+    assert_eq!(ui.game_strings_read.get("sabsent"), Some(&false));
+    assert_eq!(ui.game_strings_read.get("sprobe"), Some(&true));
     std::fs::remove_file(dir.join("Menus/renamed.xml")).unwrap();
     std::fs::remove_dir(dir.join("Menus")).unwrap();
     std::fs::remove_dir(dir).unwrap();

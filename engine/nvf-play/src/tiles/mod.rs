@@ -30,6 +30,8 @@ impl MenuFiles<'_, '_> {
             warn!("ui: {file}: {}", messages.join("; "));
         }
         info!("ui: {} menus loaded ({} tiles), {} warnings", report.menus, report.tiles, report.warning_count());
+        // T10 (menu-xml.md §2.4): names with no GMST record wait for the built-in table.
+        info!("ui: game strings: {} read, {} without text", report.game_strings, report.game_strings_unresolved);
     }
 
     pub(crate) fn write(&self, game: &mut fnv_game::Game<'_>) {

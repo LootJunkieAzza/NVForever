@@ -4,10 +4,10 @@ use crate::{game::menus, Game};
 use fnv_sim::{settings::Setting, World};
 use fnv_ui::{
     value::{menu_class_name, menu_class_number},
-    MenuIndex, Source, Ui, Value,
+    GameStrings, MenuIndex, Source, Ui, Value,
 };
 use fnv_vfs::Vfs;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Menus kept for the run [documented: InjectUIXML notes, ui-tile-tree.md §3.3].
@@ -110,22 +110,25 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
 
 pub struct UiFiles {
     vfs: Arc<Vfs>,
-    strings: HashMap<String, String>,
+    strings: GameStrings,
 }
 
 impl UiFiles {
+    /// The game strings are the load order's string settings as they are now (one value
+    /// per name: the last plugin's record, or a run-time change), over the built-in table
+    /// (`fnv_ui::strings`; menu-xml.md §2.4, task T10).
     pub fn new(vfs: Arc<Vfs>, world: &World<'_>) -> Self {
         // Own the strings: scripts keep this source after the world's borrow ends [design].
-        let strings = world
-            .forms
-            .settings
-            .keys()
-            .filter_map(|name| match world.setting_value(name) {
-                Some(Setting::Str(value)) => Some((name.to_ascii_lowercase(), value.clone())),
-                _ => None,
-            })
-            .collect();
+        let strings = GameStrings::from_settings(world.forms.settings.keys().filter_map(|name| match world.setting_value(name) {
+            Some(Setting::Str(value)) => Some((name.as_str(), value.clone())),
+            _ => None,
+        }));
         Self { vfs, strings }
+    }
+
+    /// The table `&-sName;` reads from.
+    pub fn game_strings(&self) -> &GameStrings {
+        &self.strings
     }
 
     pub fn menu_paths(&self) -> Vec<String> {
@@ -147,7 +150,7 @@ impl Source for UiFiles {
     }
 
     fn game_string(&self, name: &str) -> Option<String> {
-        self.strings.get(&name.to_ascii_lowercase()).cloned()
+        self.strings.get(name)
     }
 }
 
@@ -157,6 +160,10 @@ pub struct LoadReport {
     pub tiles: usize,
     /// One entry per file; repeated reads of an include report its mends once [design].
     pub warnings: BTreeMap<String, Vec<String>>,
+    /// The game strings (`&-sName;`) the loaded menus read, and how many of them had no
+    /// text (menu-xml.md §2.4: no plugin record and no built-in text yet).
+    pub game_strings: usize,
+    pub game_strings_unresolved: usize,
 }
 
 impl LoadReport {
@@ -195,6 +202,8 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         }
     }
     ui.update();
+    report.game_strings = ui.game_strings_read.len();
+    report.game_strings_unresolved = ui.game_strings_read.values().filter(|&&found| !found).count();
     ui.warnings.extend(ui.uio.lines());
     for warning in &ui.warnings {
         let (file, message) = warning.split_once(": ").unwrap_or(("tree", warning));
