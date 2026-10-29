@@ -88,6 +88,7 @@ pub mod radiation;
 pub mod radio;
 pub mod reverb;
 pub mod repair;
+pub mod repeat;
 pub mod reputation;
 pub mod reticle;
 pub mod rumble;

@@ -367,6 +367,17 @@ impl Pictures {
     pub fn own_sized(&mut self, path: &str, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<SizedPicture> {
         self.texture(own_texture(path), data?, images, bc).map(|(image, size)| (image, None, size))
     }
+
+    /// The game path of the texture a picture was read from: its atlas's when
+    /// [`Pictures::picture_sized`] found it a `piece` (`texatlas` as given there), else
+    /// its own file's ([`Pictures::own_sized`], or the atlas's fallback).
+    pub fn texture_path(&mut self, path: &str, texatlas: Option<&str>, piece: bool, data: &GameData) -> String {
+        if piece {
+            self.locate(path, texatlas, &|p| data.read(p)).texture
+        } else {
+            own_texture(path)
+        }
+    }
 }
 
 /// A picture's own file: its path under the textures folder, in small letters.
