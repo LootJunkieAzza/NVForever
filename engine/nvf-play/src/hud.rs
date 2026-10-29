@@ -928,19 +928,27 @@ fn enemy_colours(
     mut ink: Query<(Option<&mut ImageNode>, Option<&mut TextColor>, Option<&mut BackgroundColor>)>,
 ) {
     let colour = if target.0.as_ref().is_some_and(|t| t.hostile) { crime_colour() } else { amber(255.0) };
+    // Only the hue changes: each node keeps its own alpha, so the transparent
+    // backgrounds every UI node carries stay transparent [design].
+    let hue = |old: Color| colour.with_alpha(old.alpha());
     for root in &enemy {
         for entity in children.iter_descendants(root) {
             if let Ok((image, text, fill)) = ink.get_mut(entity) {
                 if let Some(mut image) = image {
-                    if image.color != colour {
-                        image.color = colour;
+                    let new = hue(image.color);
+                    if image.color != new {
+                        image.color = new;
                     }
                 }
                 if let Some(mut text) = text {
-                    text.set_if_neq(TextColor(colour));
+                    let new = TextColor(hue(text.0));
+                    text.set_if_neq(new);
                 }
                 if let Some(mut fill) = fill {
-                    fill.set_if_neq(BackgroundColor(colour));
+                    if fill.0.alpha() > 0.0 {
+                        let new = BackgroundColor(hue(fill.0));
+                        fill.set_if_neq(new);
+                    }
                 }
             }
         }
@@ -960,7 +968,8 @@ mod tests {
         let bracket = app.world_mut().spawn(ImageNode::default()).id();
         let tick = app.world_mut().spawn(BackgroundColor(Color::WHITE)).id();
         let name = app.world_mut().spawn(TextColor(Color::WHITE)).id();
-        let group = app.world_mut().spawn_empty().add_children(&[tick, name]).id();
+        // A container's transparent background (every UI node has one) stays transparent.
+        let group = app.world_mut().spawn(BackgroundColor(Color::NONE)).add_children(&[tick, name]).id();
         app.world_mut().spawn(EnemyPiece).add_children(&[bracket, group]);
         for hostile in [false, true, false] {
             app.world_mut().resource_mut::<HudTarget>().0.as_mut().unwrap().hostile = hostile;
@@ -969,6 +978,7 @@ mod tests {
             assert_eq!(app.world().get::<ImageNode>(bracket).unwrap().color, colour);
             assert_eq!(app.world().get::<BackgroundColor>(tick).unwrap().0, colour);
             assert_eq!(app.world().get::<TextColor>(name).unwrap().0, colour);
+            assert_eq!(app.world().get::<BackgroundColor>(group).unwrap().0, Color::NONE);
         }
     }
 
