@@ -62,6 +62,10 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
     Resistance; the flat distance would give 9.025]. One spot only: the job's SetPos
     moves to two more did not move the player. To settle it, more spots
     (observer-checks.md item 33).
+  - [observed: hud.md §14.3's runs] Six more readings at that spot, the body's height
+    moving by 0.1 (d 693.65 to 693.66), each matched the formula to the sixth digit
+    (9.013797 against 9.013796, 9.013766 against 9.013767, …). Console `player.setpos`
+    steps did not move the player in the shack either.
 - A disabled marker (an enable parent, `Disable`) gives nothing [hypothesis].
 - The markers are kept by the space they stand in (the worldspace for exterior cells, else
   the interior); every marker of the player's space is measured each frame (119 in all,

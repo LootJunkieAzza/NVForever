@@ -641,3 +641,46 @@ code-made children of the nine pieces (501 reads a sample).]
   `sStatsH20Abbrev`), shared with the tile tree. The file tiles' strings above are
   written before scripts; absent sneak and prompt strings keep their last value.
   The code-made children remain for T4.
+
+### 14.3 The corners' bars, the ammo counter, the compass (2026-10-29)
+
+[observed: the private `hud_corners`, `hud_corners2` and `hud_enemy` jobs (runs
+1793264008, 1793264234, 1793264383) on the same install with JIP 57.3: §14.2's reads in
+each state, plus `*:k/*:i` one level under HitPoints, ActionPoints, EnemyHealth and
+ReticleCenter. Health set with DamageAV/RestoreAV, action points with DamageAV, the
+weapon's condition with SetWeaponHealthPerc, one shot with TapControl 4, the heading with
+SetAngle Z.]
+
+- **The bars fill in whole ticks, rounded down.** The health bar (`HitPoints/*:2`, x 20)
+  read 296 wide at 200 of 200, 144 at 100, 24 at 20; the action points bar
+  (`ActionPoints/*:5`) 160 at 43.68 of 80, 192 at 52.15, 256 at 69.7, 296 full. Every
+  width is `floor(share x 37) x 8` (a tick 8 units, 37 of them); rounding up or to the
+  nearest misses (20 of 200 is 3.7 ticks and showed 3). The action points bar's x is
+  `30 + 296 - width`: it stays on the right end and empties from the left; the health
+  bar's x stays 20 and empties from the right.
+- **The condition bar** (`ActionPoints/*:1`) is 59 wide at 99.9 % (the ground 60,
+  §14), 30 at 50 %, 29 at 49.87 %, 6 at 10 %: `round(59 x condition)`. At 10 % its alpha
+  moved between samples (260, 40, 35, 180, 115, 15, 75, 140): it flashes, by a value read
+  above 255 at times.
+- **The ammo counter** (`ActionPoints/*:3`) went from "13/60" to "12/60" after one shot.
+- **The compass did not move in what was read.** At headings 0, 90, 180 and 270 no `x`,
+  `y`, `width`, `height`, `alpha` or `visible` of the pieces or their children changed,
+  the strip `HitPoints/*:0` included; one level deeper (`HitPoints/*:0/*:0`) reads -999,
+  so xNVSE's `*:N` paths do not reach there or nothing is there. How the strip scrolls
+  (a texture offset trait, a deeper tile) is open.
+- **With a menu open the pieces' `visible` read 0.** The Item Condition tutorial box
+  (opened when the condition went to 10 %) hid the HUD, and every piece's `visible` read 0
+  behind it: T4a's "hidden root, pieces 0" [hypothesis] is observed.
+- **Subtitles move up by the prompt's height + 8.** With a two-line prompt name (80 high)
+  `Subtitles` y went to 572 (88 up); with a one-line name (42 high, §14.1) to 610 (50 up)
+  [hypothesis: the rule from these two].
+- **Health low**: at 20 of 200 a corner message "Your health is low. You may want to use
+  a Stimpak or find some water." came up (`Messages/*:1`), the Vault Boy's picture
+  changing with it.
+- Not reached: an enemy under the crosshair. The settler was hostile (IsInCombat 1) but
+  never under the crosshair (the observe step's drive script, turning the player with
+  GetHeadingAngle, did not turn it); aiming gave only §14.1's ReticleCenter 0 and
+  EnemyHealth 8. A console SetPos inside the shack did not move the player either.
+- [design] NVForever lights `ceil(share x 37)` ticks (`hud.rs` `lit`, "a tick for any
+  part of its share" [hypothesis]) and fills the condition bar to `condition x 60`; both
+  differ from the above by one tick or one unit.

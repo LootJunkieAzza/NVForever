@@ -6011,6 +6011,20 @@ expect = [
 manual = "hud_ammo_label.png: \"HP\" just right of the divider at the bottom right, \"13/37\" at the upright"
 
 [[scenario]]
+name = "hud-bars-partial"
+source = "[observed: hud.md §14.3] the original's health and action points bars light floor(share x 37) ticks (100 of 200 health: 18 ticks, not 19); its condition fill is round(59 x condition) inside the 60-wide ground"
+note = "health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol of hud-ammo-label"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:hud_bars_partial.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health lights 18 ticks, rounded down" },
+]
+manual = "hud_bars_partial.png: the health bar at the bottom left lit for 18 of its 37 ticks, ending just before the middle"
+
+[[scenario]]
 name = "hud-crippled-limbs"
 source = "owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
 note = "the console cripples the player's right leg at 10 s and left arm at 13 s; the second crippling starts the time again and only the arm flashes"
