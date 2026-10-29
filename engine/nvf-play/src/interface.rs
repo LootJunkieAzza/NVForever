@@ -271,10 +271,36 @@ pub fn file_name(path: &str) -> String {
 /// A picture: its texture and the part of it that is the picture (all of it for `None`).
 pub type Picture = (Handle<Image>, Option<Rect>);
 
+/// The atlas index a tile's `texatlas` names, as a game path in small letters: the
+/// files name it under the textures folder (`Interface\InterfaceShared.tai` is
+/// [`ATLAS_INDEX`]) [documented: GECK wiki Texatlas, its example beside a `filename`
+/// under `textures\`; the HUD's `texatlas` traits]. `None` for an empty name.
+pub fn atlas_index_path(texatlas: &str) -> Option<String> {
+    let t = texatlas.trim().trim_start_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase();
+    if t.is_empty() {
+        return None;
+    }
+    Some(if t.starts_with("textures\\") { t } else { format!("textures\\{t}") })
+}
+
+/// Where a picture is read from: the texture's game path and, for a piece of an atlas,
+/// the piece as parts of the texture's width and height (left, top, width, height).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Located {
+    pub texture: String,
+    pub part: Option<[f32; 4]>,
+}
+
+/// A picture with its size in texels (the atlas piece's, or the whole texture's).
+pub type SizedPicture = (Handle<Image>, Option<Rect>, Vec2);
+
 /// The interface's pictures as its files name them, read when first asked for.
 #[derive(Default)]
 pub struct Pictures {
     atlas: HashMap<String, AtlasPiece>,
+    /// Other atlas indexes a tile's `texatlas` named, by game path; empty for one that
+    /// could not be read.
+    indexes: HashMap<String, HashMap<String, AtlasPiece>>,
     /// Textures read so far, by path; `None` for one that could not be read.
     textures: HashMap<String, Option<(Handle<Image>, Vec2)>>,
 }
@@ -282,26 +308,64 @@ pub struct Pictures {
 impl Pictures {
     pub fn load(data: Option<&GameData>) -> Pictures {
         let atlas = data.and_then(|d| d.read(ATLAS_INDEX)).map(|b| atlas_index(&String::from_utf8_lossy(&b))).unwrap_or_default();
-        Pictures { atlas, textures: HashMap::new() }
+        Pictures { atlas, ..default() }
+    }
+
+    /// Pictures with this shared atlas index and no files to read (tests).
+    pub fn with_atlas(atlas: HashMap<String, AtlasPiece>) -> Pictures {
+        Pictures { atlas, ..default() }
     }
 
     fn texture(&mut self, path: String, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
         self.textures.entry(path).or_insert_with_key(|p| texture(p, data, images, bc)).clone()
     }
 
+    /// Where a picture named as the interface names it (under the textures folder) is:
+    /// its piece of the atlas `texatlas` names when that index has its file name (the
+    /// index read once through `read` and kept), else its piece of the shared atlas, else
+    /// its own file. The atlas texture is the index's line's file, in the index's folder
+    /// [documented: interfaceshared.tai's heading, "InterfaceShared<idx>.dds"; hypothesis:
+    /// another index's atlas beside it, as the shared one's]. Falling back to the shared
+    /// atlas and the own file when the named index lacks the picture is [design].
+    pub fn locate(&mut self, path: &str, texatlas: Option<&str>, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Located {
+        let name = file_name(path);
+        if let Some(index) = texatlas.and_then(atlas_index_path).filter(|p| p != ATLAS_INDEX) {
+            let pieces = self.indexes.entry(index.clone()).or_insert_with(|| read(&index).map(|b| atlas_index(&String::from_utf8_lossy(&b))).unwrap_or_default());
+            if let Some(piece) = pieces.get(&name) {
+                let folder = index.rfind('\\').map_or("", |i| &index[..=i]);
+                return Located { texture: format!("{folder}{}", piece.atlas), part: Some(piece.rect) };
+            }
+        }
+        if let Some(piece) = self.atlas.get(&name) {
+            return Located { texture: format!("textures\\interface\\{}", piece.atlas), part: Some(piece.rect) };
+        }
+        Located { texture: own_texture(path), part: None }
+    }
+
     /// A picture named as the interface names it (under the textures folder): its
     /// piece of the atlas when the index has its file name, else its own file.
     pub fn picture(&mut self, path: &str, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<Picture> {
+        self.picture_sized(path, None, data, images, bc).map(|(image, rect, _)| (image, rect))
+    }
+
+    /// [`Pictures::picture`] in the atlas `texatlas` names ([`Pictures::locate`]), with
+    /// its size in texels.
+    pub fn picture_sized(&mut self, path: &str, texatlas: Option<&str>, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<SizedPicture> {
         let data = data?;
-        if let Some(piece) = self.atlas.get(&file_name(path)).cloned() {
-            if let Some((image, size)) = self.texture(format!("textures\\interface\\{}", piece.atlas), data, images, bc) {
-                let [x, y, w, h] = piece.rect;
-                return Some((image, Some(Rect::new(x * size.x, y * size.y, (x + w) * size.x, (y + h) * size.y))));
+        let at = self.locate(path, texatlas, &|p| data.read(p));
+        if let Some([x, y, w, h]) = at.part {
+            if let Some((image, size)) = self.texture(at.texture, data, images, bc) {
+                let rect = Rect::new(x * size.x, y * size.y, (x + w) * size.x, (y + h) * size.y);
+                return Some((image, Some(rect), rect.size()));
             }
         }
-        let own = format!("textures\\{}", path.trim_start_matches(['\\', '/']).to_ascii_lowercase());
-        self.texture(own, data, images, bc).map(|(image, _)| (image, None))
+        self.texture(own_texture(path), data, images, bc).map(|(image, size)| (image, None, size))
     }
+}
+
+/// A picture's own file: its path under the textures folder, in small letters.
+fn own_texture(path: &str) -> String {
+    format!("textures\\{}", path.trim().trim_start_matches(['\\', '/']).to_ascii_lowercase())
 }
 
 #[cfg(test)]
