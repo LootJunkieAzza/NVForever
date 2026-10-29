@@ -10036,7 +10036,7 @@ paths = [
   "crates/fnv-game/Cargo.toml", "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/game.rs",
   "crates/fnv-game/src/ui_loading.rs", "crates/fnv-game/tests/ui_loading.rs",
   "engine/Cargo.toml", "engine/nvf-play/Cargo.toml", "engine/nvf-play/src/lib.rs",
-  "engine/nvf-play/src/script.rs", "engine/nvf-play/src/tiles.rs",
+  "engine/nvf-play/src/script.rs", "engine/nvf-play/src/tiles/mod.rs",
 ]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud depth %g\", (GetUIFloat \"HUDMainMenu/depth\");11:SetUIFloat \"HUDMainMenu/depth\" 37;11.5:PrintC \"nvf hud set %g\", (GetUIFloat \"HUDMainMenu/depth\")" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
@@ -10056,7 +10056,7 @@ areas = ["ui", "scripts", "console"]
 paths = [
   "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/ui_hud.rs",
   "crates/fnv-game/tests/ui_hud.rs",
-  "engine/nvf-play/src/tiles.rs", "engine/nvf-play/src/script_hud.rs",
+  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script_hud.rs",
 ]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\")" }
 # Fix the view explicitly; nvforever's --size default is also 1280x800 [design].
@@ -10106,7 +10106,7 @@ paths = [
   "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/value.rs",
   "crates/fnv-game/src/game.rs", "crates/fnv-game/src/ui_loading.rs",
   "crates/fnv-game/tests/ui_loading.rs",
-  "engine/nvf-play/src/tiles.rs", "engine/nvf-play/src/script.rs",
+  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script.rs",
 ]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf lifetime|Ok\";24.2:PrintC \"nvf message width %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\");26:PrintC \"nvf message closed %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\")" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
