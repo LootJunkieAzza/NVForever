@@ -58,6 +58,8 @@ pub enum Alignment {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     pub string: String,
+    /// [hypothesis: menu-xml.md §3.1.3] Positive zoom scales glyphs, not the anchor.
+    pub zoom: f64,
     pub font: f64,
     /// [design] Numeric view retained unchanged; named constants also set alignment.
     pub justify: f64,
@@ -123,6 +125,11 @@ fn symbol(tile: &Tile, name: &str) -> Option<String> {
     }
 }
 
+fn text_zoom(tile: &Tile) -> f64 {
+    let zoom = number(tile, "zoom", 100.0);
+    if zoom > 0.0 && zoom.is_finite() { zoom / 100.0 } else { 1.0 }
+}
+
 fn kind(tile: &Tile) -> Kind {
     match tile.kind.as_str() {
         "image" => Kind::Image(Image {
@@ -135,6 +142,7 @@ fn kind(tile: &Tile) -> Kind {
         }),
         "text" => Kind::Text(Text {
             string: tile.get("string").map(Value::text).unwrap_or_default(),
+            zoom: text_zoom(tile),
             font: number(tile, "font", 0.0),
             justify: number(tile, "justify", 0.0),
             alignment: match symbol(tile, "justify").as_deref() {
@@ -166,6 +174,8 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
             rect.width = number(tile, "width", w);
             rect.height = number(tile, "height", h);
         }
+        rect.width *= text.zoom;
+        rect.height *= text.zoom;
         rect.left -= match text.alignment {
             Alignment::Left => 0.0,
             Alignment::Center => rect.width / 2.0,

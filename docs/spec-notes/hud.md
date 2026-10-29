@@ -763,7 +763,7 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
 - [design] `crates/fnv-game/src/ui_hud/copies.rs` creates the copies after the HUD menu
   loads, including save-load rebuilds, through one helper awaiting the parallel `Code`
   tile origin. Missing templates/parents are skipped. Frames write before scripts
-  (ui-tile-tree.md §4.1); enemy children remain deferred. The file text tiles' widths
+  (ui-tile-tree.md §4.1); T12b adds enemy children (§14.8). The file text tiles' widths
   (`sneak_nif`, `button_text`, `radiation_text_value`) are measured with the game's
   fonts and written before scripts (T5 part C, menu-xml.md §3.1.2).
 - [documented: `menus/prefabs/hudtemplates.xml`] Template identifiers use
@@ -782,11 +782,9 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   Under `ActionPoints`, use background, condition meter, three right texts (CND,
   ammo, AP), AP meter, right bracket in indices 0–6 (§14–§14.3). The condition
   copy uses `template_meter` with the captured VATS picture (§14.2).
-- [hypothesis] Under `Info`, use six left texts (VAL, value, WG, weight, empty, locked)
-  and two centre texts (name, verb), after the file's hotrect: indices 1–8 (§14.2).
-  Show HP's left-text copy with visible 1/alpha 255; show prompt texts while prompted,
-  with empty/locked alpha controlled by the corresponding target state. Only the
-  actor's empty/locked alpha 0 was captured (§14.1); other targets need captures.
+- [observed: private jobs hud_prompt, hud_prompt2 p0-p8] Info's actual copy set,
+  places and showing rules supersede T5's provisional six-left/two-centre set: §14.8.
+  [hypothesis] HP's left-text copy uses visible 1/alpha 255, as in T5.
 - [hypothesis] Compass group 0 holds actor ticks, group 1 player/quest icons, group 2
   places. §14.4 settles the first group and the other two groups' y, but not the split
   between the latter. Start with ten hidden actor slots and one hidden player icon;
@@ -796,18 +794,16 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   `CompassView` stores kind/offset only; the quest template defaults to 1
   (documented: `hudtemplates.xml`)]. The NVForever-owned `_NVFHudTemplate` trait distinguishes
   pools even when a mod omits a template [design].
-- [hypothesis] §14.1 records pointer x 15, 36, 42 and 42.9, but no paired accumulated
-  radiation totals. Use the minimal provisional unit slope `x = 15 + accumulated rads`,
-  clamped to the captured x range [design: no extrapolation]. This is **not a measured
-  scale**. Tests choose synthetic totals to replay those x values, not claimed observed
-  rad/x pairs. To settle it, set several known accumulated-rad totals (including 0)
-  and read pointer x at each, with further totals between them to test linearity.
-- [hypothesis] Subtitles use `660 - (prompt height + 8)` while the prompt shows,
-  reproducing 610 at height 42 and 572 at height 80 (§14.3 [observed]); other heights
-  follow the same rule. Restore 660 without a prompt; §14.1 did not observe the return.
-  Capture prompt appearance/removal while subtitles remain on-screen to settle it.
-  The adapter uses 42 for one explicit name line, 80 for more [hypothesis]; automatic
-  wrapping and further lines await font layout [design].
+- [observed: private job hud_radiation2 r_in_000-r_in_990; hypothesis: the rule between
+  75 paired samples over 2.25..998.4 rads] The pointer uses `15 + 0.3 × rads`, replacing
+  the unit slope and 42.9 cap. Totals clamp to 0..1000; holding 315 above 1000 is
+  [hypothesis: Fatal not sampled]. Only write x while shown; hidden x persists.
+- [observed: private job hud_prompt2 p0-p8] Subtitles start at y 660, then hold the
+  raised y with no prompt for at least 19.9 s. [hypothesis] Each later prompt sets
+  `660 - (height + 8)`, fitting the two captured heights 42 and 80 (§14.3); changing
+  prompt heights in one run is untested. [design] Hold until another prompt or rebuild.
+  One explicit name line uses 42, more use 80 [hypothesis]; automatic wrapping and
+  further lines await font layout [design].
 - [design] `engine/nvf-play/src/tiles.rs` supplies the latest `HudView` shares and
   `CompassView` marks, current weapon/ammo, accumulated radiation actor value and
   existing activation prompt. Drawing systems are unchanged; snapshots gathered
@@ -828,11 +824,11 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 | `hud.rs` sneak word | `SneakMeter/sneak_nif` (§14.1-§14.2) | tiles; hand-built hidden |
 | `reticle.rs` crosshair (plain/filled, spread, gun cross) | `ReticleCenter/reticle_center` (§14.4) | tiles; hand-built hidden |
 | `radiation.rs` meter | `RadiationMeter` (§14.1-§14.2) | tiles; hand-built hidden |
-| `hud.rs` enemy bar (`hud_target.rs`) | `EnemyHealth` | hand-built: its children are not built (§14.6) |
-| `reticle.rs` prompt (key, verb, name, value and weight) | `Info` | hand-built: the code-made texts have no captured places, the divider is not built |
-| `hud_needs.rs` words | `HardcoreMode` | hand-built: the words have no places, the piece's alpha is not written |
-| `xp_meter.rs` | `XPMeter` | hand-built: its children's visibility is not written |
-| `hud_limbs.rs` | `crippled_limb_indicator` | hand-built: its pictures' alpha and places are not written |
+| `hud.rs` enemy bar (`hud_target.rs`) | `EnemyHealth` | tiles (§14.8); eligibility still provisional |
+| `reticle.rs` prompt (key, verb, name, value and weight) | `Info` | tiles (§14.8) |
+| `hud_needs.rs` words | `HardcoreMode` | tiles (§14.8), fixed word places |
+| `xp_meter.rs` | `XPMeter` | tiles (§14.8), independent visual clock |
+| `hud_limbs.rs` | `crippled_limb_indicator` | tiles (§14.8) |
 | `hud_breath.rs` | `BreathMeter` | hand-built: a `nif` tile (`Interface\HUD\AirTimer01.NIF`), not drawn |
 | `corner_messages.rs` | `Messages` | hand-built: its text and icon copies are not built |
 | `quest_messages.rs` | `QuestReminder`, `Region_Location` | hand-built: no texts in the tree |
@@ -852,8 +848,120 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
   on the screen, which §14 found where the original's corner lands.
 - [hypothesis] `AmmoTypeLabel` shows the ammo's abbreviation (by its name and place; its
   string was not read, §14.2).
-- Differences from the hand-built drawing, for T12b's comparison: hostile compass ticks
-  and a hostile crosshair are the HUD's colour, not red (the tree has no trait for them);
-  the crosshair does not spread (the original's look, §14.4); the warning sneak words are
+- [design] Differences still to compare: the crosshair does not spread (the original's
+  look, §14.4); the warning sneak words are
   the HUD's colour; the corners show whenever the root does (the hand-built HUD also
   hides them under a movement lock, a portrait, a held camera and the weapon wheel).
+
+### 14.8 T12b part A: captured rules for the tile HUD (2026-10-29)
+
+[observed: private jobs below; summaries `C:\fnv-private\hud-capture\t12b-findings.md`
+and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtest`,
+1920 × 1080. These are trait reads: every screenshot in both rounds failed with
+`StretchBlt failed`. No capture, game XML or dump is shipped.
+
+| Private jobs (run IDs) | What they read / reached |
+|---|---|
+| `hud_enemy2` (1793279665), `hud_enemy3` (1793281613) | Reticle pictures/colours, compass tick colours, EnemyHealth children, health/base/combat; neutral/hurt settler, full hostile settler, halved gecko in combat. Gecko never aimed at or shot. [observed: enemy2 e0-e6, g0-g2; enemy3 n0-n3, h1, g0-g2] |
+| `hud_prompt` (1793279735), `hud_prompt2` (1793281701) | Info copies by name/index, hotrect geometry and subtitle y; pistol, full/empty/locked containers, actor, nothing. Stimpak missed twice. [observed: prompt p0-p8; prompt2 p0-p8] |
+| `hud_hardcore` (1793279831), `hud_hardcore2` (1793281465) | Word places, alpha, systemcolor and indices. Second run set needs 250/450/650/850, mixed needs, rads 450, one cripple, Hardcore off. hc8/hc9 paused in MenuMode; Fatal untested. [observed: hardcore hc0-hc11; hardcore2 hc0-hc11] |
+| `hud_xp_limbs` (1793279919), `hud_xp_limbs2` (1793281789) | XP alpha/visible, pointer, amount/level strings; leg/head cripples/healing in round 1 only. Second run gain 190, LEVEL UP, menu. [observed: xp_limbs x1-x9, l1-l3; xp_limbs2 x9_level_up_long] |
+| `hud_radiation` (1793280006), `hud_radiation2` (1793281551) | Pointer x paired with GetAV RadiationRads inside/outside the shack; second run set 14 totals 0..990. 75 settled pairs over 2.25..998.4 rads, excluding nine first samples still showing the previous total. [observed: radiation r_out_0, r_in_000-r_in_990; radiation2 r_out_0, r_out_300, r_in_000-r_in_990] |
+
+- [observed: private job hud_jip file_0032; hud_hardcore2 hc2-hc5] Numeric systemcolor
+  1 = hudmain, 2 = hudalt. Hostile reticle/ticks use 2 and the plain crosshair;
+  neutral reticle/ticks use 1, filled on an activatable target [observed: private jobs
+  hud_enemy2 e0-e2, g0-g2; hud_enemy3 h1]. [design] Map numeric and named colours
+  alike in the renderer and numeric symbol reads.
+- [observed: private jobs hud_hardcore hc0; hud_xp_limbs all; hud_prompt2 p0-p8]
+  `*:N` and `name:N` count from the **last matching child**, zero-based. LMBs,
+  Right_Leg and XPLevelUp are each their file piece's `*:0`; Info's first file child
+  (the hotrect) is `*:8`. [design] Reverse code-copy creation to keep the observed
+  indices: HitPoints 0..3 compass, HP, meter, bracket; ActionPoints 0..6 condition
+  ground, condition fill, CND, ammo, AP, AP meter, right bracket. Compass groups are
+  created places, player/quest, NPC, so NPC remains `*:0`; indexed pools reuse slots
+  from the last child. Unindexed lookup and draw traversal keep file order [design;
+  hypothesis: unindexed lookup]. No contrary vanilla menu/script dependency was
+  established by these captures; other menus and deprecated xNVSE GetUIFloat parity
+  remain untested [hypothesis].
+- [observed: private job hud_radiation2 r_in_000-r_in_990; hypothesis: rule between
+  the 75 paired samples over 2.25..998.4 rads] Pointer x = `15 + 0.3 × rads`, within
+  0.7 x units of the reads, without saturation. Hidden x stayed 15 even at 300 rads
+  [observed: same job r_out_0, r_out_300]. [design] Retain x while hidden. Clamp rads
+  to 0..1000, holding 315 above 1000 [hypothesis: Fatal not captured].
+- [observed: private job hud_hardcore2 hc0-hc11; hud_xp_limbs l1-l3] The words stay
+  at x 0/55/109/162/218, y 0, zoom 75 within HardcoreMode (190,803), in both modes.
+  H20/FOD/SLP only in Hardcore, RAD/LMB in both. Stage looks: absent alpha 0;
+  Minor 124/main; Advanced 255/main; Critical 255/alt; Deadly flashes 128..255/alt.
+  One cripple gives LMB 124/main; two give 255 (colour unread). [hypothesis] Fatal
+  follows Deadly, RAD follows need colours above 600, LMB two or more retains main
+  colour/255 (3+ unmeasured). [design] Use a synchronized 0.6 s cosine for word
+  alpha until the period is measured. These tile rules supersede §13's provisional
+  placement/opacity/count rules only for the tile HUD.
+- [observed: private jobs hud_prompt, hud_prompt2 p0-p8] Info indices 0..8 are
+  separator, VAL, value, WG, weight, [EMPTY], lock, name, file hotrect. Two left
+  texts: VAL (165,60), WG (10,60); two right texts: value (290,60), weight (135,60);
+  three centred texts: [EMPTY]/lock (160,65), name (160,2). Separator y 32,
+  500 × 136 (`template_info_seperator`); its x was unset. [design] Use x 0.
+  Item only: separator/figures visible 1; otherwise hidden, figures `--`.
+  During any prompt name/lock visible 1, [EMPTY] visible 1 except when locked;
+  empty alpha 255 only for empty containers (before or after opening), lock alpha
+  255 only for locked containers, otherwise alpha 0. No prompt hides all children
+  and retains strings/alpha. Verb belongs to hotrect/button_text, never a copy;
+  hotrect visible 2 prompted, 0 absent. Locked box verb `Open`, lock string
+  `[Locked - Average]`; hidden lock normally `Locked`. Shortcut stays visible after
+  the first prompt. [hypothesis] The name copy retains its template name
+  (`justify_center_text:2`, not read by name); other lock levels use existing labels.
+- [observed: private job hud_prompt2 p0-p8] Subtitles start at 660 and retain the
+  raised y after the prompt goes, for 19.9 s; §14.6 describes the retained-offset
+  implementation and the untested later-height rule.
+- [observed: private jobs hud_enemy2 e5; hud_enemy3 n2, h1, g2] Enemy copies in
+  creation order: bracket (-7,3), 500 × 64, brightness 175/depth 1; meter y 3,
+  height 20, brightness 175/depth 1; centred name (170,35). Piece colour follows
+  shown actor's hostility (1 neutral, 2 hostile); children inherit it. [observed:
+  those states; hypothesis: rule between shares 0.156/0.178/0.5/1.0] Ticks =
+  `2 × floor(share × 15)`, width = ticks × 8, x = 171 - width/2. Widths are
+  32/32/112/240; floor(share × 31) rounded down to even fits equally well: near-full
+  shares remain open. [design] Keep existing target selection, require health below
+  base, show/hide all children together; keep piece visible 1 (8 aiming). Hurt
+  actors off target and the player's own shot still need captures.
+- [observed: private jobs hud_xp_limbs x1-x9; hud_xp_limbs2 x9_level_up_long;
+  hypothesis: linear fades/glide and approximate breakpoints over 0..9.35 s]
+  XP ordinary children fade in 2 s, hold 2 s, fade out 2 s, then become invisible.
+  Pointer waits for full alpha then glides 2 s. [observed: xp_limbs x1-x2b;
+  xp_limbs2 x9_level_up_long; hypothesis: formula between level-1 XP 10..200 points]
+  Pointer x = `55 + 215 × (XP - last) / (next - last)`; 10/20/50/200 read
+  65.75/76.5/108.8/270. First amount stays while shown [hypothesis: one +25 then
+  +5 example]; further gains update the endpoint. LEVEL UP alone appears around
+  7.2 s, rises within 0.34 s, holds about 1.3 s, falls by 9.35 s. [design] Tile-only
+  `ui_hud::Animation` clocks pause without the HUD and reset on tree rebuild or XP/
+  level reset. They do not schedule sounds/menus: the hand-built menu delay can
+  interrupt this longer visual sequence [documented: nvf-play/src/xp_meter.rs,
+  LEVEL_UP_DELAY]. Reconciling that owner's delay is outside part A.
+- [observed: private job hud_xp_limbs l1-l3] Limb pictures at zoom 75:
+
+  | Picture | x,y | width,height |
+  |---|---|---|
+  | Head | 0,40 | 63.75,69 |
+  | Face | 13.88,62.5 | 36,48 |
+  | Torso | -10.5,104.5 | 76.5,96 |
+  | Left_Arm | 57,104.5 | 75,39 |
+  | Right_Arm | -76.5,100.75 | 72,40.5 |
+  | Left_Leg | 24.75,169 | 54,84 |
+  | Right_Leg | -38.25,166.75 | 63,84 |
+
+  [observed: same job l1-l3; hypothesis: linear fades/sawtooth between samples, one
+  run only, 0..5 s] Whole pieces fade up 0.85 s, hold 3.3 s, fade out 0.85 s.
+  All crippled pictures flash together in `_broken`/systemcolor 2 for about 4.3 s;
+  roughly 470 alpha/s (~0.54 s period), then below zero (-15.3/-16.3 read).
+  [design] Use a sawtooth then -16; new crippling restarts all broken pieces;
+  healing cancels without a new display and retains broken pictures. Face selection
+  stays the file's: the health-to-face mapping is unmeasured.
+- [design] Five pieces leave KEPT_PIECES: HardcoreMode, Info, EnemyHealth, XPMeter,
+  crippled_limb_indicator. Keep BreathMeter (NIF), Messages (text/icon copies absent),
+  QuestReminder/Region_Location (texts absent), Subtitles (text absent). Only the five
+  visibility marker declarations move from the hand-built files into tiles/vanilla.rs;
+  their drawing/timing logic and optional sneak gauges stay untouched. Prompt/enemy
+  copies and XP readout widths are measured with the game fonts. Text zoom scales
+  glyphs about the top left [hypothesis: anchor unobserved]; image zoom remains
+  menu-xml.md §3.1.3's interpretation.

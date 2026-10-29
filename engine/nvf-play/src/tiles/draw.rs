@@ -112,11 +112,8 @@ impl FontKit<'_> {
         if self.data.is_none() {
             return;
         }
-        let fonts: Vec<f64> = fnv_game::ui_hud::MEASURED_TEXTS
-            .iter()
-            .filter_map(|p| ui.find_tile(&format!("{HUD_MENU}/{p}")))
-            .map(|t| ui.tile(t).get("font").map_or(0.0, Value::num))
-            .collect();
+        let fonts: Vec<f64> = fnv_game::ui_hud::measured_texts(ui).into_iter()
+            .map(|t| ui.tile(t).get("font").map_or(0.0, Value::num)).collect();
         if fonts.is_empty() {
             return;
         }
@@ -164,7 +161,7 @@ pub enum Look {
     /// An `image`'s `filename`, from the atlas its `texatlas` names (`None`: the shared
     /// one, as T5 reads every picture), filling its box as `fit` says.
     Picture { name: String, atlas: Option<String>, fit: Fit },
-    Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment },
+    Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment, zoom: f64 },
 }
 
 /// One tile to draw, in interface units from the view's top left.
@@ -198,6 +195,10 @@ pub enum Select<'a> {
 /// green and blue.
 fn system_colour(v: &Value) -> Option<[f32; 3]> {
     let rgb = |c: [u8; 3]| c.map(|x| f32::from(x) / 255.0);
+    let alt = || {
+        let c = crate::reticle::crime_colour().to_srgba();
+        [c.red, c.green, c.blue]
+    };
     match v {
         Value::Sym(name) => match name.to_ascii_lowercase().as_str() {
             // [hypothesis: by its name, the HUD's main colour; NVForever draws its HUD in
@@ -205,10 +206,7 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
             "hudmain" => Some(rgb(interface::hud_rgb())),
             // [observed: Fallout_default.ini `iSystemColorHUDAlt*` 255, 67, 42, as the
             // radiation meter (radiation.md §6) and `reticle::crime_colour`].
-            "hudalt" => {
-                let c = crate::reticle::crime_colour().to_srgba();
-                Some([c.red, c.green, c.blue])
-            }
+            "hudalt" => Some(alt()),
             // [hypothesis: by its name, the Pip-Boy's screen colour].
             "pipboy" => Some(rgb(interface::pipboy_rgb())),
             // [hypothesis: by their names, the tile's own colour].
@@ -216,8 +214,10 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
             // `&terminal;`, `&mainmenu;` and unknown names: the HUD's colour [hypothesis].
             _ => Some(rgb(interface::hud_rgb())),
         },
-        // The constants' numbers are not known (menu-xml.md §2.3): 0 the tile's own colour,
-        // any other the HUD's [hypothesis].
+        // [observed: private jobs hud_jip file_0032, hud_hardcore2 hc4-hc5]
+        Value::Num(n) if *n == 1.0 => Some(rgb(interface::hud_rgb())),
+        Value::Num(n) if *n == 2.0 => Some(alt()),
+        // Other nonzero IDs retain the HUD colour [hypothesis: menu-xml.md §3.1.2].
         Value::Num(n) if *n != 0.0 => Some(rgb(interface::hud_rgb())),
         _ => None,
     }
@@ -304,7 +304,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
                 Look::Picture { name: image.filename.trim().to_string(), atlas, fit }
             }
             Kind::Text(text) if !text.string.is_empty() => {
-                Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
+                Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment, zoom: text.zoom }
             }
             // Empty rects only place their children; nif, radial and window tiles
             // are not drawn in v1 [design].
@@ -401,19 +401,22 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                 }
             }
         }
-        Look::Text { string, font, wrap, alignment } => {
+        Look::Text { string, font, wrap, alignment, zoom } => {
             let Some(face) = ctx.fonts.faces.get(font) else { return };
             let base = line_base(face);
-            p.spawn((node, Pickable::IGNORE)).with_children(|t| {
+            p.spawn((node, Pickable::IGNORE)).with_children(|outer| {
+              // [design] A zero-size wrapper scales glyphs about the text's top left.
+              outer.spawn((at(0.0, 0.0, 0.0, 0.0), UiTransform { scale: Vec2::splat(*zoom as f32), ..default() }, Pickable::IGNORE)).with_children(|t| {
                 for (i, line) in face.font.lines(string, wrap.map(|w| w as f32)).iter().enumerate() {
                     // Each line inside the box by the tile's justification [hypothesis].
                     let x = match alignment {
                         Alignment::Left => 0.0,
-                        Alignment::Center => (f(r.width) - line.width) / 2.0,
-                        Alignment::Right => f(r.width) - line.width,
+                        Alignment::Center => (f(r.width / zoom) - line.width) / 2.0,
+                        Alignment::Right => f(r.width / zoom) - line.width,
                     };
                     set_line(t, face, line, x, base + i as f32 * face.font.size, colour);
                 }
+              });
             });
         }
     }
@@ -585,7 +588,7 @@ mod tests {
         let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
         assert_eq!(drawn[1].look, Look::Picture { name: "solid.dds".into(), atlas: None, fit: Fit::Stretch });
         assert_eq!(drawn[1].colour[..3], hud);
-        assert_eq!(drawn[2].look, Look::Text { string: "abc".into(), font: 1, wrap: None, alignment: Alignment::Right });
+        assert_eq!(drawn[2].look, Look::Text { string: "abc".into(), font: 1, wrap: None, alignment: Alignment::Right, zoom: 1.0 });
         assert_eq!(drawn[2].rect, TileRect { left: 75.0, top: 56.0, width: 30.0, height: 20.0 });
         assert_eq!(drawn[2].colour, [0.0, 0.0, 0.0, 128.0 / 255.0]);
         // The HUD hidden hides them; a zero alpha too.
@@ -616,7 +619,7 @@ mod tests {
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
         assert_eq!(drawn[3].clip, Some(TileRect { left: 0.0, top: 0.0, width: 40.0, height: 40.0 }));
         assert_eq!(drawn[1].clip, None);
-        assert_eq!(drawn[2].look, Look::Text { string: "x".into(), font: 1, wrap: None, alignment: Alignment::Left });
+        assert_eq!(drawn[2].look, Look::Text { string: "x".into(), font: 1, wrap: None, alignment: Alignment::Left, zoom: 1.0 });
     }
 
     #[test]
@@ -637,6 +640,28 @@ mod tests {
         assert_eq!(measure(&font, "ab cd", None), (75.0, 31.0));
         assert_eq!(measure(&font, "ab cd", Some(0.0)), (75.0, 31.0));
         assert_eq!(measure(&font, "ab cd", Some(40.0)), (30.0, 62.0));
+    }
+
+    #[test]
+    fn tiles_numeric_colours_match_symbols_and_flow_to_enemy_children() {
+        let src = MemSource::default().with("c.xml", r#"<menu name="HUDMainMenu"><rect name="EnemyHealth"><systemcolor>2</systemcolor>
+            <image name="meter"><filename>tick.dds</filename><brightness>175</brightness><width>32</width><height>20</height></image>
+            </rect><text name="Word"><systemcolor>1</systemcolor><string>H20</string><zoom>75</zoom><justify>&right;</justify></text></menu>"#);
+        let mut ui = Ui::new();
+        let root = ui.load_menu(&src, "c.xml").unwrap();
+        ui.update();
+        let (drawn, _) = pieces(&ui, root, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        assert_eq!(drawn.len(), 2);
+        for (number, name) in [(1.0, "hudmain"), (2.0, "hudalt")] {
+            assert_eq!(system_colour(&Value::Num(number)), system_colour(&Value::Sym(name.into())));
+        }
+        let red = system_colour(&Value::Num(2.0)).unwrap().map(|c| c * (175.0 / 255.0));
+        assert_eq!(drawn[0].colour[..3], red);
+        assert_eq!(drawn[1].rect, TileRect { left: -22.5, top: 0.0, width: 22.5, height: 15.0 });
+        assert!(matches!(drawn[1].look, Look::Text { zoom: 0.75, .. }));
+        for name in ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator"] {
+            assert!(!KEPT_PIECES.contains(&name));
+        }
     }
 
     /// [design] A synthetic HUD after the vanilla file's shapes: a corner piece in the

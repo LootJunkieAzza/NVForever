@@ -24,6 +24,7 @@ use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, text
 use crate::script::{with_world, ScriptState};
 use crate::sfx::{PlaySound, Sfx};
 use crate::sim::SimState;
+use crate::tiles::vanilla::MeterRoot;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -351,8 +352,7 @@ fn level_up(
 }
 
 /// The meter's pieces.
-#[derive(Component)]
-struct MeterRoot;
+
 #[derive(Component)]
 struct Pointer;
 #[derive(Component)]

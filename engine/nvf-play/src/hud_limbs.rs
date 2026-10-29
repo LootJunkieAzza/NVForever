@@ -14,6 +14,7 @@ use crate::hud::{HudSet, HudView};
 use crate::interface::{amber, at, bc_supported, texture, u};
 use crate::pipboy::stats::{FACE, HEAD, LIMB_PIECES, TORSO};
 use crate::reticle::crime_colour;
+use crate::tiles::vanilla::LimbRoot;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -166,8 +167,7 @@ fn watch(time: Res<Time>, state: Res<State<PlayState>>, limbs: Option<Res<Player
 }
 
 /// The picture's root, its pieces (whole and broken pictures) and its face.
-#[derive(Component)]
-struct LimbRoot;
+
 #[derive(Component)]
 struct Piece {
     index: usize,

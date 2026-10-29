@@ -123,7 +123,9 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
   `_SolidMeter`, with `_filename_1` the solid one and a comment saying a true
   `_SolidMeter` draws solid;
 - `&xbox;` `&console;` `&xenon;` 0, the PC build;
-- every other constant reads 0 as a number.
+- `&hudmain;` 1, `&hudalt;` 2 [observed: private job hud_jip file_0032;
+  hud_hardcore2 hc2-hc5; hud.md §14.8];
+- every other constant reads 0 as a number [hypothesis].
 
 ### 2.4 Game setting strings
 
@@ -242,7 +244,8 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   when it sets any; else the nearest tile above's `systemcolor`; else its own (255 each).
   `&hudmain;` is the HUD's colour (`interface::hud_rgb`, the settings'), `&pipboy;` the
   Pip-Boy's, `&nosystemcolor;` and `&uselocalcolor;` the tile's own, other names and
-  non-zero numbers the HUD's; `&hudalt;` is 255 67 42 [observed: Fallout_default.ini
+  unknown non-zero numbers the HUD's [hypothesis]; numeric 1/2 map to hudmain/hudalt
+  [observed: private job hud_jip file_0032; hud_hardcore2 hc4-hc5]. `&hudalt;` is 255 67 42 [observed: Fallout_default.ini
   `iSystemColorHUDAlt*`, radiation.md §6]. `brightness` (clamped to 0–255) scales the
   colour, `alpha` (§3.1.1's product) is its opacity.
 - [hypothesis] Stacking: the pieces draw in order of their summed `depth`, ties in
@@ -287,6 +290,10 @@ stands unchanged: every picture stretched, the shared atlas only.
   lacks is looked up in the shared index, then as its own file.
 - [design] `clips` as §3.1.2, a clipping node; the HUD's own clip tiles (`compass_icon`)
   clip their children only.
+- [hypothesis] Positive text zoom scales glyphs and their laid-out box by zoom/100,
+  keeping x/y as the justification anchor. Hardcore words read zoom 75 [observed:
+  private job hud_hardcore2 hc0-hc11]; the glyph/anchor interpretation needs screenshots.
+  Missing/nonpositive text zoom uses 100 percent [design].
 - [design] The compass strip is the one picture moved by code with no trait (hud.md
   §14.4): `HUDMainMenu/HitPoints/compass_window`'s picture is drawn twice side by side
   and moved by the heading as the hand-built HUD moves its own (1024 units a turn, the
@@ -378,8 +385,10 @@ pages]
 - A path is `MenuName/Tile/…/Tile/trait`, segments split by `/` or `\`, names without
   case.
 - `*` matches any child; `name:N` matches the N-th child of that name and `*:N` the
-  N-th child, counting from 0 [documented: "`*:0/*:5/*:9`"; counting among the children
-  of that name for `name:N` is a hypothesis].
+  N-th child [documented: "`*:0/*:5/*:9`"]. Both count from zero **from the last
+  matching child**, reversing file/creation order [observed: private jobs hud_hardcore
+  hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
+  searches in file order [hypothesis].
 - With `*`, the first child that leads to a full match is taken [hypothesis].
 - GetUIFloat returns -999 when the trait is not found [documented: GetUIFloat];
   SetUIFloatAlt, ModUIFloat return 1 on a change and 0 otherwise [documented].
@@ -531,5 +540,9 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    GetUIFloat and SetUIStringEx are "bugged for templated children tiles" and MCM
    depends on the bug, but its "Bug: Children Tiles" page is not in the export. Compare
    SetUIFloat and SetUIFloatAlt on a list item made from a template (`BarterMenu` rows).
-6. **`name:N` counting**: `GetUIFloat` with `RepairServicesMenu/…/RSM_RepairListTemplateRect:0`
-   against the first row's name.
+6. **`name:N` / `*:N` counting: answered 2026-10-29.** Last matching child first,
+   zero-based [observed: private jobs hud_hardcore hc0 (LMBs *:0), hud_xp_limbs all
+   (Right_Leg/XPLevelUp *:0), hud_prompt2 p0-p8 (VAL left:0, WG left:1, hotrect *:8);
+   hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
+   parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
+   was established by these captures; other menus/scripts still need checking.

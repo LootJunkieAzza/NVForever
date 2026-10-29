@@ -94,11 +94,11 @@ fn works_traits_out() {
     assert_eq!(ui.get_float("TestMenu/Panel/Gauge/width"), Some(380.0));
     assert_eq!(ui.get_float("TestMenu/Panel/Gauge/Bar/width"), Some(0.0));
     // The second gauge's own `_Fill` (after the include) replaces the prefab's.
-    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/width"), Some(380.0));
-    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/x"), Some(-190.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:0/Bar/width"), Some(380.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:0/Bar/x"), Some(-190.0));
     // A trait name ending in `_` after a number: `_pic_` + 1.
-    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:1/Bar/filename").as_deref(), Some("thick.dds"));
-    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:0/Bar/filename").as_deref(), Some("thin.dds"));
+    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:0/Bar/filename").as_deref(), Some("thick.dds"));
+    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:1/Bar/filename").as_deref(), Some("thin.dds"));
     // sibling(Gauge) 380 + globals() 12.
     assert_eq!(ui.get_float("TestMenu/Panel/Title/x"), Some(392.0));
     // `_Selected` is &false;: the copy is dropped by onlyif, the add goes on.
@@ -111,13 +111,16 @@ fn paths_with_wildcards_and_indexes() {
     let ui = loaded();
     assert_eq!(ui.get_float("TestMenu/*/*:1/_Fill"), Some(1.0));
     assert_eq!(ui.get_float("TestMenu/*/Gauge/_Fill"), Some(0.0));
-    assert_eq!(ui.get_float("TestMenu/*:0/*:2/x"), Some(392.0));
+    assert_eq!(ui.get_float("TestMenu/*:0/*:0/x"), Some(392.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/*:2/_Fill"), Some(0.0));
     assert!(ui.get("TestMenu/Panel/Gauge:2/_Fill").is_none());
+    assert!(ui.get("TestMenu/Panel/*:3/_Fill").is_none());
+    assert!(ui.find_tile("TestMenu/Panel/*:18446744073709551615").is_none());
     assert!(ui.get("NoMenu/x").is_none());
     assert!(ui.is_loaded("TestMenu/Panel/Gauge/Bar"));
     assert!(ui.is_loaded("TestMenu/Panel/width"));
     assert!(!ui.is_loaded("TestMenu/Panel/Nothing"));
-    let bar = ui.find_tile("TestMenu/Panel/Gauge:1/Bar").unwrap();
+    let bar = ui.find_tile("TestMenu/Panel/Gauge:0/Bar").unwrap();
     assert_eq!(ui.path_of(bar), "TestMenu/Panel/Gauge/Bar");
 }
 

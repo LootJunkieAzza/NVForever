@@ -83,6 +83,9 @@ pub fn sym_number(name: &str) -> Option<f64> {
     }
     Some(match name {
         "true" => 1.0,
+        // [observed: private job hud_jip file_0032; hud_hardcore2 hc4-hc5]
+        "hudmain" => 1.0,
+        "hudalt" => 2.0,
         "false" | "xbox" | "console" | "xenon" => 0.0,
         _ => return None,
     })
@@ -178,6 +181,12 @@ mod tests {
         for name in ["center", "nosound", "pipboymenu", "does_not_stack", "unknown"] {
             assert_eq!(sym_number(name), None);
         }
+    }
+
+    #[test]
+    fn observed_hud_colour_ids() {
+        assert_eq!(Value::Sym("hudmain".into()).num(), 1.0);
+        assert_eq!(Value::Sym("hudalt".into()).num(), 2.0);
     }
 
     #[test]

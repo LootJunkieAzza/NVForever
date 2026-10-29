@@ -24,6 +24,7 @@ use crate::interface::{amber, bc_supported, face, plain_font, set_text, u, Face,
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
+use crate::tiles::vanilla::WordsRoot;
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -172,8 +173,6 @@ struct Letter(usize);
 /// A word, shown or hidden.
 #[derive(Component)]
 struct Word(usize);
-#[derive(Component)]
-struct WordsRoot;
 
 /// The words' places from the piece's left: one after "HP" and a space between words;
 /// outside Hardcore the radiation and limb words take the first two places.

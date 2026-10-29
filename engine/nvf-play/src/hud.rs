@@ -24,7 +24,7 @@ use crate::player::Player;
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
-use crate::tiles::vanilla::DrawnByTiles;
+use crate::tiles::vanilla::{DrawnByTiles, EnemyPiece};
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
@@ -569,9 +569,7 @@ struct ConditionRow;
 #[derive(Component)]
 struct AmmoText;
 
-/// The enemy's health piece, and the node that holds its name's letters.
-#[derive(Component)]
-struct EnemyPiece;
+/// The node that holds the enemy name's letters.
 #[derive(Component)]
 struct EnemyName;
 /// Holds Living Anatomy's line under the name (`crate::hud_target::TargetHealth::anatomy_line`).

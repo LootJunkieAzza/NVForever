@@ -75,6 +75,7 @@ struct HudTiles<'w> {
     target: Option<Res<'w, crate::activate::Target>>,
     bindings: Option<Res<'w, crate::bindings::Bindings>>,
     enemy: Option<Res<'w, crate::hud_target::HudTarget>>,
+    aim_hostile: Option<Res<'w, crate::hud_target::AimHostile>>,
     limbs: Option<Res<'w, crate::hud_limbs::Indicator>>,
     player_limbs: Option<Res<'w, crate::combat::PlayerLimbs>>,
     breath: Option<Res<'w, crate::drowning::PlayerBreath>>,
@@ -105,7 +106,7 @@ impl HudTiles<'_> {
         // held camera and weapon wheel hide the corner HUD and its meters [design].
         let corners = playing && !locks.movement && !self.control.as_ref().is_some_and(|c| c.portrait.is_some()) && !driven && !wheel;
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
-        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref());
+        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref()).filter(|e| e.health < 1.0);
         // reticle::draw: the prompt also goes under true sights/the scope, and when
         // the enemy bar names this target; only the crosshair obeys movement [design].
         let reticle = playing && !creating && !driven && !wheel && !self.sights.as_ref().is_some_and(|s| s.0) && !self.scope.as_ref().is_some_and(|s| s.on);
@@ -174,7 +175,22 @@ impl HudTiles<'_> {
         let prompt = self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()));
         // Reuse the latest drawing snapshot before scripts [design: ui-tile-tree.md §4.1].
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
+        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref()).map(|e| {
+            let actor = fnv_sim::FormId(e.form_id);
+            let fighting = game.awareness.get(actor).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == fnv_sim::FormId::PLAYER_REF);
+            fnv_game::ui_hud::Enemy { name: e.name.clone(), health: f64::from(e.health), hostile: fighting || game.would_attack(actor, fnv_sim::FormId::PLAYER_REF) }
+        });
+        use fnv_game::aid::{DEHYDRATION, HUNGER, SLEEP_DEPRIVATION, RAD_LEVEL};
+        let need_stages = [DEHYDRATION, HUNGER, SLEEP_DEPRIVATION, RAD_LEVEL].map(|code| {
+            game.player.need_stages.get(&code).and_then(|held| game.data.need_stages.get(&code)?.iter().position(|s| s.stage == *held)).map_or(0, |i| i + 1)
+        });
         let frame = fnv_game::ui_hud::Frame {
+            aim_hostile: self.aim_hostile.as_ref().is_some_and(|h| h.0),
+            enemy,
+            hardcore: game.player.hardcore.unwrap_or(self.sim.world.config().hardcore),
+            need_stages,
+            crippled: std::array::from_fn(|i| self.player_limbs.as_ref().is_some_and(|l| l.crippled(25 + i as u16))),
+            animation: Default::default(),
             health: self.bars.as_ref().map_or(1.0, |v| f64::from(v.health)),
             action_points: self.bars.as_ref().map_or(1.0, |v| f64::from(v.action_points)),
             condition: weapon.condition.map(f64::from),
@@ -185,6 +201,13 @@ impl HudTiles<'_> {
                 weight: p.figures.as_ref().map_or_else(|| "--".into(), |f| f[0].clone()),
                 value: p.figures.as_ref().map_or_else(|| "--".into(), |f| f[1].clone()),
                 empty: p.note.is_some(),
+                item: p.figures.is_some(),
+                lock_text: self.target.as_ref().and_then(|t| t.0.as_ref()).map_or_else(|| "Locked".into(), |t| {
+                    match t.action {
+                        crate::activate::outcome::Action::Locked { level } => format!("[Locked - {}]", crate::activate::outcome::lock_text(level)),
+                        _ => "Locked".into(),
+                    }
+                }),
                 locked: self
                     .target
                     .as_ref()
@@ -223,17 +246,25 @@ impl HudTiles<'_> {
             needs: crate::hud_needs::texts(&self.sim),
             sneak: shown.sneak.then(|| crate::hud::sneak_now(game).word().to_string()),
             prompt_key: prompt.as_ref().map(|p| p.key_text().to_string()),
-            prompt_verb: prompt.map(|p| p.action),
+            prompt_verb: prompt.map(|p| if frame.prompt.as_ref().is_some_and(|p| p.locked) { "Open".into() } else { p.action }),
             frame,
         }
     }
 }
 
-fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut fonts: draw::FontKit, menus: Res<vanilla::TileMenus>) {
+fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut fonts: draw::FontKit, menus: Res<vanilla::TileMenus>, time: Res<Time>, mut animation: Local<fnv_game::ui_hud::Animation>) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);
     let shown = hud.shown(&rt.game, &files);
-    let texts = hud.texts(&mut rt.game, shown);
+    let mut texts = hud.texts(&mut rt.game, shown);
+    if let Some(root) = rt.game.ui_tree.find_tile("HUDMainMenu") {
+        // [design] Reset clocks on tree rebuild/save-load, without touching the hand HUD.
+        if rt.game.ui_tree.tile(root).get("_NVFAnimationClock").is_none() {
+            *animation = Default::default();
+            rt.game.ui_tree.set_trait(root, "_NVFAnimationClock", Value::Num(1.0));
+        }
+        texts.frame.animation = animation.step(f64::from(time.delta_secs()), shown.root && shown.corners, fnv_game::experience::standing(&rt.game), texts.frame.crippled);
+    }
     fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
     // The text tiles' widths from the strings just written, before scripts read them
     // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
