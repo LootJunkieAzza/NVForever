@@ -3,9 +3,13 @@
 use fnv_ui::{Ui, Value};
 
 /// What the engine's HUD currently shows; no drawing or engine types here [design].
+/// The pieces' `visible` does not follow these; the children it is observed on do
+/// (`write`), the rest wait for their captures [observed: hud.md §14.1].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Shown {
     pub root: bool,
+    /// Block held with a gun, the view zooming to its Sight FOV.
+    pub aiming: bool,
     pub corners: bool,
     pub sneak: bool,
     pub reticle: bool,
@@ -75,29 +79,49 @@ pub fn write(ui: &mut Ui, shown: Shown) {
     if let Some(tile) = ui.find_tile("HUDMainMenu/CNDArrows") {
         ui.set_trait(tile, "height", Value::Num(20.0)); // [observed: hud.md §14].
     }
-    // Shown values [observed: hud.md §14]; hidden reads 0 [hypothesis: only shown
-    // states were observed]. Pieces we do not draw keep the file's visible [design].
-    for (name, on, value) in [
-        ("ActionPoints", shown.corners, 1.0),
-        ("HitPoints", shown.corners, 2.0),
-        ("RadiationMeter", shown.radiation, 4.0),
-        ("QuestReminder", shown.quests, 16.0),
-        ("Region_Location", shown.location, 32.0),
-        ("ReticleCenter", shown.reticle, 64.0),
-        ("SneakMeter", shown.sneak, 128.0),
-        ("Messages", shown.messages, 256.0),
-        ("Info", shown.info, 512.0),
-        ("Subtitles", shown.subtitles, 1024.0),
-        ("XPMeter", shown.xp, 4096.0),
-        ("BreathMeter", shown.breath, 8192.0),
-        ("crippled_limb_indicator", shown.limbs, 32768.0),
-        ("HardcoreMode", shown.needs, 65536.0),
-        ("EnemyHealth", shown.enemy, 1.0),
-        ("AmmoTypeLabel", shown.ammo_label, 1.0),
-        ("CNDArrows", shown.condition, 1.0),
+    // A piece's visible keeps its value whether or not the piece shows: SneakMeter,
+    // Info and RadiationMeter kept theirs out of sneaking, with no prompt and out of
+    // radiation, as BreathMeter, XPMeter and the limb indicator when not shown. Only
+    // aiming changed one: ReticleCenter 0, EnemyHealth 8 [observed: hud.md §14.1].
+    // The corners, AmmoTypeLabel and CNDArrows were seen shown only [hypothesis: the
+    // same]. With the root hidden they read 0 [hypothesis: unobserved]. Pieces we do
+    // not draw keep the file's visible [design].
+    let reticle = if shown.reticle && !shown.aiming { 64.0 } else { 0.0 };
+    let enemy = if shown.aiming { 8.0 } else { 1.0 };
+    for (name, value) in [
+        ("ActionPoints", 1.0),
+        ("HitPoints", 2.0),
+        ("RadiationMeter", 4.0),
+        ("QuestReminder", 16.0),
+        ("Region_Location", 32.0),
+        ("ReticleCenter", reticle),
+        ("SneakMeter", 128.0),
+        ("Messages", 256.0),
+        ("Info", 512.0),
+        ("Subtitles", 1024.0),
+        ("XPMeter", 4096.0),
+        ("BreathMeter", 8192.0),
+        ("crippled_limb_indicator", 32768.0),
+        ("HardcoreMode", 65536.0),
+        ("EnemyHealth", enemy),
+        ("AmmoTypeLabel", 1.0),
+        ("CNDArrows", 1.0),
     ] {
         if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{name}")) {
-            ui.set_trait(tile, "visible", Value::Num(if shown.root && on { value } else { 0.0 }));
+            ui.set_trait(tile, "visible", Value::Num(if shown.root { value } else { 0.0 }));
+        }
+    }
+    // What shows is the children's alpha: the sneak word while sneaking, the radiation
+    // meter's four pieces in radiation, 255 shown and 0 not [observed: hud.md §14.1].
+    for (path, on) in [
+        ("SneakMeter/sneak_nif", shown.sneak),
+        ("RadiationMeter/radiation_text", shown.radiation),
+        ("RadiationMeter/radiation_text_value", shown.radiation),
+        ("RadiationMeter/radiation_pointer", shown.radiation),
+        ("RadiationMeter/radiation_bracket", shown.radiation),
+    ] {
+        if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) {
+            ui.set_trait(tile, "alpha", Value::Num(if on { 255.0 } else { 0.0 }));
         }
     }
 }

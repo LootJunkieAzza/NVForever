@@ -64,6 +64,7 @@ struct HudTiles<'w> {
     driven: Option<Res<'w, crate::player::ViewDriven>>,
     wheel: Option<Res<'w, crate::weapon_wheel::WeaponWheel>>,
     creator: Option<Res<'w, crate::creator::CreatorMenu>>,
+    zoom: Option<Res<'w, crate::aim_zoom::AimZoom>>,
     sights: Option<Res<'w, crate::aim_zoom::TrueSights>>,
     scope: Option<Res<'w, crate::aim_zoom::Scope>>,
     combat: Option<Res<'w, crate::combat::Combat>>,
@@ -119,6 +120,7 @@ impl HudTiles<'_> {
             || self.player_limbs.as_ref().is_some_and(|l| (25..=30).any(|code| l.crippled(code)));
         fnv_game::ui_hud::Shown {
             root,
+            aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
             sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak),
             reticle: reticle && !locks.movement,

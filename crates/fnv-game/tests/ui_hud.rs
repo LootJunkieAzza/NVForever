@@ -50,9 +50,19 @@ const VISIBLE: &[(&str, f64)] = &[
     ("CNDArrows", 1.0),
 ];
 
+/// The children whose alpha shows their piece [observed: hud.md §14.1].
+const CHILDREN: &[(&str, &str)] = &[
+    ("SneakMeter", "sneak_nif"),
+    ("RadiationMeter", "radiation_text"),
+    ("RadiationMeter", "radiation_text_value"),
+    ("RadiationMeter", "radiation_pointer"),
+    ("RadiationMeter", "radiation_bracket"),
+];
+
 fn all_shown() -> Shown {
     Shown {
         root: true,
+        aiming: false,
         corners: true,
         sneak: true,
         reticle: true,
@@ -75,7 +85,9 @@ fn all_shown() -> Shown {
 fn fixture() -> Ui {
     let mut xml = String::from(r#"<menu name="HUDMainMenu"><visible>17</visible>"#);
     for (name, _, _) in PLACES {
-        xml.push_str(&format!(r#"<rect name="{name}"><visible>17</visible></rect>"#));
+        let children = CHILDREN.iter().filter(|(piece, _)| piece == name);
+        let children: String = children.map(|(_, child)| format!(r#"<image name="{child}"><alpha>17</alpha></image>"#)).collect();
+        xml.push_str(&format!(r#"<rect name="{name}"><visible>17</visible>{children}</rect>"#));
     }
     xml.push_str(r#"<rect name="DDTIconAP"><visible>17</visible></rect>"#);
     for name in ["_CrosshairVisible", "_SneakVisible", "_SneakLevel", "_RadiationLevel", "_TargetType", "_ActionType", "_SpreadPercentage"] {
@@ -111,14 +123,16 @@ fn places_at_the_three_observed_aspect_ratios_and_resize() {
 }
 
 #[test]
-fn shown_values_hidden_zero_and_untouched_file_traits() {
+fn visible_keeps_its_value_shown_or_not_and_untouched_file_traits() {
     let mut ui = fixture();
+    // Everything shown, nothing shown (the reticle hidden too) and the root hidden.
     for shown in [all_shown(), Shown { root: true, ..Shown::default() }, Shown { root: false, ..all_shown() }] {
         ui_hud::write(&mut ui, shown);
         ui.update();
         assert_eq!(ui.get_float("HUDMainMenu/visible"), Some(f64::from(shown.root)));
         for (name, value) in VISIBLE {
-            let expected = if shown.root && shown.corners { *value } else { 0.0 };
+            let shows = shown.root && (*name != "ReticleCenter" || shown.reticle);
+            let expected = if shows { *value } else { 0.0 };
             assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/visible")), Some(expected), "{name}");
         }
         for name in ["Hokeys", "Explosive_positioning_rect", "DDTIcon", "DDTIconAP", "DDTIconEnemy", "DDTIconEnemyAP"] {
@@ -128,12 +142,32 @@ fn shown_values_hidden_zero_and_untouched_file_traits() {
             assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}")), Some(17.0), "{name}");
         }
     }
-    // Independent pieces can show while movement hides the corners [design].
-    ui_hud::write(&mut ui, Shown { root: true, subtitles: true, info: true, ..Shown::default() });
-    assert_eq!(ui.get_float("HUDMainMenu/HitPoints/visible"), Some(0.0));
+}
+
+#[test]
+fn aiming_hides_the_reticle_and_sets_the_enemy_bar_to_8() {
+    let mut ui = fixture();
+    ui_hud::write(&mut ui, Shown { aiming: true, ..all_shown() });
     assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/visible"), Some(0.0));
-    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/visible"), Some(1024.0));
-    assert_eq!(ui.get_float("HUDMainMenu/Info/visible"), Some(512.0));
+    assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/visible"), Some(8.0));
+    ui_hud::write(&mut ui, all_shown());
+    assert_eq!(ui.get_float("HUDMainMenu/ReticleCenter/visible"), Some(64.0));
+    assert_eq!(ui.get_float("HUDMainMenu/EnemyHealth/visible"), Some(1.0));
+}
+
+#[test]
+fn sneaking_and_radiation_show_through_the_childrens_alpha() {
+    let mut ui = fixture();
+    for (sneak, radiation) in [(true, false), (false, true), (false, false)] {
+        ui_hud::write(&mut ui, Shown { sneak, radiation, ..all_shown() });
+        for (piece, child) in CHILDREN {
+            let on = if *piece == "SneakMeter" { sneak } else { radiation };
+            let expected = if on { 255.0 } else { 0.0 };
+            assert_eq!(ui.get_float(&format!("HUDMainMenu/{piece}/{child}/alpha")), Some(expected), "{piece}/{child}");
+        }
+        assert_eq!(ui.get_float("HUDMainMenu/SneakMeter/visible"), Some(128.0));
+        assert_eq!(ui.get_float("HUDMainMenu/RadiationMeter/visible"), Some(4.0));
+    }
 }
 
 #[test]

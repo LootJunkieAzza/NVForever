@@ -9,7 +9,10 @@ into the spec.
 
 Checks for every task: `fnvtool ui menus` over the vanilla Data folder still gives 49
 menus (smoke `ui-menus`). Run it with the owner's MCM, Clean Vanilla HUD and Vanilla UI
-Plus folders as `--overlay` when a task touches loading.
+Plus folders as `--overlay` when a task touches loading. A task that changes what is drawn
+leaves before and after pictures of NVForever (main and the branch, same scene and size,
+e.g. smoke `NVF_PLAY_TEST_SHOTS`) in the ignored `pr-pictures/<branch>/` folder, for the
+owner to add to its pull request or issue (owner, 2026-10-29).
 
 ## Done
 
@@ -70,18 +73,24 @@ Plus folders as `--overlay` when a task touches loading.
   - Tests: `crates/fnv-game/tests/ui_hud.rs` (synthetic XML, all three captured aspect
     ratios, visibility, script writes, no loaded HUD); smoke `ui-hud-code-traits`
     (console GetUIFloat at an explicit 1280 x 800).
-  - T4 remains: the root's `_CrosshairVisible`, `_SneakVisible`, `_SneakLevel`,
-    `_RadiationLevel`, `_TargetType`, `_ActionType`, `_SpreadPercentage` and user
-    slots in other states; the code-made children under the corner pieces (bars,
-    compass, condition and ammo); strings. Capture the missing states/strings and
-    check them against ours (hud.md §14 "Open").
+  - 2026-10-29, from the states capture (hud.md §14.1): the pieces' `visible` keeps
+    its value shown or not, except `ReticleCenter` 0 and `EnemyHealth` 8 while aiming
+    (`Shown::aiming`); `sneak_nif` and the four radiation tiles show through their
+    alpha. The root's `_…` traits never changed in any state, so nothing writes them.
+  - T4 remains: the prompt's, the sneak word's and the radiation value's sizes (text
+    widths, after T5's measurement), the radiation pointer's place, the subtitles' move
+    up 50 under a prompt; the code-made children under the corner pieces (bars,
+    compass, condition and ammo); an enemy targeted; strings (JIP). Capture the
+    missing states/strings and check them against ours (hud.md §14 "Open").
 
 ## Next, in order
 
 1. **T4. The HUD's code-side traits.** Write into `HUDMainMenu` what the original's code
-   sets: health, action points, compass, crosshair (`_CrosshairVisible`,
-   `_SpreadPercentage`), sneak (`_SneakVisible`, `_SneakLevel`), `_RadiationLevel`,
-   `_ActionType`, the `user` slots, the visible flags of the pieces.
+   sets: health, action points, compass, the crosshair, sneak, radiation and the prompt,
+   on the pieces and their children. The root's `_CrosshairVisible`, `_SneakVisible`,
+   `_SneakLevel`, `_RadiationLevel`, `_TargetType`, `_ActionType` and
+   `_SpreadPercentage` never changed in the captured states (hud.md §14.1), so they are
+   not written unless a later capture shows the code setting them.
    - Places and visibility are T4a above; the first captures are in hud.md §14.
      Capture the root's other states, children's traits and strings next, so the
      names and values are observed, not guessed.

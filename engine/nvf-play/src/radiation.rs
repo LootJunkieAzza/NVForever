@@ -14,10 +14,11 @@
 //!   are rising strengths, the bands and the rhythm].
 //! - **Meter** ([`draw`]): `RadiationMeter` of `menus\main\hud_main_menu.xml` while rads
 //!   are taken: the rads a second (`radiation_text_value`, font 8, right-justified at x
-//!   237) and "RADS" (`radiation_text`, font 7, from x 245), in the HUD's alternative
+//!   237) and "RAD/SEC" (`radiation_text`, font 7, from x 245), in the HUD's alternative
 //!   colour (`&hudalt;`), and the pointer (`radiation_pointer`) under the bracket's notches
 //!   at the player's rads, 0 at the left end to 1000 at the right [documented: the menu
-//!   file; hypothesis: the texts, the word, the pointer's scale]. The meter stands at the
+//!   file; observed: the word, docs/spec-notes/hud.md §14.1; hypothesis: the value, the
+//!   pointer's scale]. The meter stands at the
 //!   top right, the mirror of the corner messages' bracket at the top left [owner,
 //!   2026-10-23].
 //! - **Explosion zones**: `crate::combat` leaves them when an explosion with radiation
@@ -83,8 +84,9 @@ const WORD_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
 // ---- set here [hypothesis] ---------------------------------------------------------------
 
-/// The word [hypothesis: `sStatsRADAbbrev` is set by no master].
-const WORD: &str = "RADS";
+/// The word [observed: the original's HUD in radiation, "+9 RAD/SEC", hud.md §14.1;
+/// `sStatsRADAbbrev` is set by no master].
+const WORD: &str = "RAD/SEC";
 /// The bracket picture (512 x 128, drawn 567 x 120): its line across at rows 12–16, its
 /// upright at columns 494–499, and sixteen notches hanging from the line every 20 columns
 /// from 173 to 473, the ends slanted, the long ones at 233, 293, 353 and 413 [observed: the
@@ -113,7 +115,7 @@ pub fn pointer_x(rads: f64) -> f32 {
 
 /// The texts stand lower and further right than the file's x and y [owner, 2026-10-23:
 /// "lower and to the right against the bracket but not interfering with the notches"]:
-/// "RADS" ends just inside the upright (its middle at x 414.8, its glow from about 410;
+/// The word ends just inside the upright (its middle at x 414.8, its glow from about 410;
 /// the letters' glow reaches about 10 past their width),
 /// the value before it with the file's gap (245 - 237); their line is 88 under the
 /// piece's top, so the value's capitals (about 36 high) start under the pointer's

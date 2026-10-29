@@ -405,3 +405,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     arguments for GetStage): three begin scripts (e.g. INFO 0x00160731) stop with "2 values
     left on the stack" in ours. To check: what Side Bets' report line does in the original
     (it sets nothing on the canonical path).
+
+## Added 2026-10-29 (HUD states capture)
+
+33. **How a radiation marker's level falls off inside its radius.** In the nuclear test
+    site's shack (`coc SLNuclearTestShackINT`, marker `00154611`, XRAD 15, XRDS 2000) the
+    original read GetRadiationLevel 9.014 and showed +9 RAD/SEC; NVForever gives the whole
+    15 (smoke `environment-radiation`, radiation.md §2). To check: GetRadiationLevel and the
+    player's distance to each of the shack's markers at three or four spots, and at the
+    marker itself.

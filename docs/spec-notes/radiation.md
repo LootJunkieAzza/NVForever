@@ -47,6 +47,13 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   Camp Searchlight 5/10000, 10/6000 and 18/2000 on one point, Black Mountain's crater
   1/3500, 10/1500, 5/500 — which makes a stepped gradient only if each marker is flat and
   they do not add. The wiki's "standing in the marker's radius" reads the same way.
+- **Against that** [observed: hud.md §14.1's run, 2026-10-29]: at the spot `coc
+  SLNuclearTestShackINT` puts the player, inside the radius of the shack's marker
+  `00154611` (XRAD 15, XRDS 2000), the original's GetRadiationLevel read 9.014 and its
+  HUD showed +9 RAD/SEC, not 15. So the level is not the marker's whole XRAD everywhere
+  in the radius, or another marker or the player's place lowers it. Where the 9 comes
+  from (distance to the marker, the shack's other markers) is open; NVForever's 15
+  there (smoke `environment-radiation`) is to be checked against it.
 - A disabled marker (an enable parent, `Disable`) gives nothing [hypothesis].
 - The markers are kept by the space they stand in (the worldspace for exterior cells, else
   the interior); every marker of the player's space is measured each frame (119 in all,
@@ -171,8 +178,10 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   233, 293, 353 and 413, short ones (to row 18) between. The pointer (64 × 32) is a
   triangle pointing up, its tip at row 8, its middle at column 32.
 - **Built**: while rads are taken the meter shows "+n" (the rads a second taken, whole,
-  at least 1) and "RADS" (`sStatsRADAbbrev` is set by no master), with the bracket and
-  the pointer [hypothesis: the texts and the word].
+  at least 1) and "RAD/SEC", with the bracket and the pointer [observed: the word, the
+  original's HUD showing "+9 RAD/SEC" in the test site's shack, hud.md §14.1;
+  `sStatsRADAbbrev` is set by no master; hypothesis: the value, which the original
+  shows lower there, §2]. The word was "RADS" until 2026-10-29.
   - **The pointer** [hypothesis]: its tip, just under the notches (6 under the picture's
     top at y 25), points at the player's rads: the left end's notch is 0, the right end's
     1000, so the long notches are 200, 400, 600 and 800, the radiation sickness steps
@@ -189,7 +198,7 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
     to their own shape (which drew the bracket 480 wide and put the upright through
     the text).
   - **The texts** [owner, 2026-10-23: "lower and to the right against the bracket but not
-    interfering with the notches"]: "RADS" ends at x 396, inside the upright (the letters'
+    interfering with the notches"]: the word ends at x 396, inside the upright (the letters'
     glow reaches about 10 past their width), the value before it with the file's gap of
     8; their line 88 under the piece's top, so the capitals start below the pointer's
     lowest place (y 49) and the notches (y 28). The file's x 237/245 and y 65 are not

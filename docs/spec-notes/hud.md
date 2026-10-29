@@ -526,22 +526,77 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   and `_SneakVisible` read 0, `_SneakLevel`, `_RadiationLevel`, `_TargetType` and
   `_ActionType` 0, `_SpreadPercentage` 1 standing still with a pistol.
 - [design] T4a (`fnv_game::ui_hud`, `nvf-play/src/tiles.rs`) writes these places and
-  the drawn pieces' visibility before scripts, beside the current HUD drawing. Pieces
-  not drawn yet keep the file's visibility. The root shows in play, outside menus,
-  dialogue, loading and pause/main menus; hidden visibility is 0 [hypothesis: only shown
-  states were observed]. The engine mirrors `hud::gather`/`draw`/`texts`, `reticle::draw`,
-  the needs, limb, breath, radiation and XP drawing, and the message queues; subtitles
-  share the drawing's selection. Discovery notices map to `Region_Location`, other
-  quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
+  the pieces' visibility before scripts, beside the current HUD drawing. Pieces not
+  drawn yet keep the file's visibility. The root shows in play, outside menus,
+  dialogue, loading and pause/main menus; with it hidden the pieces' `visible` is 0
+  [hypothesis: unobserved]. Each piece keeps its value whether it shows or not, and
+  what shows is written on the children observed in §14.1. The engine mirrors
+  `hud::gather`/`draw`/`texts`, `reticle::draw`, the needs, limb, breath, radiation and
+  XP drawing, and the message queues, for those children and the ones still to capture;
+  subtitles share the drawing's selection. Discovery notices map to `Region_Location`,
+  other quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
 - [hypothesis] T4a truncates W and W/2 before subtracting offsets: at 16:9,
   `1706.67 - 386` truncates to 1320 (nearest would give 1321); the truncated middle
   853 keeps the reticle's half-unit offset and reproduces its child's x 820.5.
   This fits the three captured sizes; the original's arithmetic at other sizes is open.
 - Open: a resize while playing; the children's traits other than places (strings,
-  filenames: they need GetUIString, JIP); the root's values while aiming, sneaking, in
-  radiation and with an enemy targeted.
+  filenames: they need GetUIString, JIP); an enemy targeted (the root's values in
+  aiming, sneaking, radiation and with an NPC under the crosshair are §14.1).
   Whether the original overwrites script-set places/visibility each frame is not
   observed; nor what the pieces' `visible` read while the original's console is open
   (NVForever's console is a `PlayState::Menu`, so its HUD and these values are hidden). T4a writes them every frame, so SetUIFloat holds until the next frame's
   write [hypothesis: menu-xml.md §6 / ui-tile-tree.md §4.2]; traits left to XML keep
   their existing expression-change behaviour.
+
+### 14.1 States: drawn, aiming, moving, sneaking, a prompt, radiation (2026-10-29)
+
+[observed: a private `hud_states` job built from §14's full read, run 1793257932 on the
+owner's test install (game 1.4.0.525, xNVSE 6.4.9, no JIP or SUP), save `hudtest` with the
+9mm pistol, 1920 x 1080 windowed. Each state read every tile and trait of §14 four to
+eight times, with screenshots; each also read IsWeaponOut, IsSneaking, IsControlPressed 6,
+GetRadiationLevel, the player's position and GetCrosshairRef, so a state that did not
+take shows. Results private, in `C:\fnv-private`.] The states, in order: the pistol
+holstered; drawn (TapControl 7); aiming (the key of control 6, Block, held: the right
+mouse button, scan code 257 from GetControl 6 1); walking forward about 1,000 units and
+stopping; sneaking with the pistol drawn and holstered (TapControl 8; holding the Ready
+key holsters, tapping it reloads); a Goodsprings settler 120 units ahead, under the
+crosshair (prompt "E) Talk"), holstered, drawn and aiming; standing in the nuclear test
+site's shack (`coc SLNuclearTestShackINT`).
+
+- **The root's own traits never changed.** `_CrosshairVisible`, `_SneakVisible`,
+  `_SneakLevel`, `_RadiationLevel`, `_TargetType`, `_ActionType`, `_SpreadPercentage`,
+  `user7` read the same (0, and `_SpreadPercentage` 1) in every state, with both
+  GetUIFloat and GetUIFloatAlt. The code shows these states through the pieces and their
+  children; it writes none of these root traits in them [observed]. Whether it writes
+  them anywhere else (VATS, other weapons) is open.
+- **A piece's `visible` keeps its value whether it shows or not.** `SneakMeter` read 128
+  standing and sneaking, `Info` 512 with and without the prompt, `RadiationMeter` 4 in
+  and out of radiation (and §14's `BreathMeter`, `XPMeter` and limb indicator read their
+  values while not shown). Only aiming changed a piece: `ReticleCenter` 64 to 0 (the
+  crosshair hidden, the gun up to the eye) and `EnemyHealth` 1 to 8, both back on
+  release, with or without the settler under the crosshair.
+- **What shows is the children.** Sneaking: `SneakMeter/sneak_nif` alpha 0 to 255 while
+  sneaking, back to 0 on standing; its width 14 (the file's), 106 with the word
+  `[HIDDEN]` on the screen, then 136, and it keeps the last width after standing (the
+  word's width [hypothesis: the width of the drawn text]). Radiation (+9 RAD/SEC on the
+  screen): `radiation_text`, `radiation_text_value`, `radiation_pointer` and
+  `radiation_bracket` alpha 0 to 255; `radiation_pointer` x moves from 15 to 36 and on
+  to 42.9 over 5 samples as the rads add up; `radiation_text_value` 50 wide, then 49.
+- **The prompt** (the settler under the crosshair): `Info/justify_center_hotrect` moves
+  from x 72 to 123 and from 176 to 74 wide (box, top and bottom with it; `button_text` x
+  84 to 33, 156 to 54 wide); `visible` 0 to 2 on the hotrect; the code-made children
+  `Info/*:1`-`*:4` change width (13 to 45, 14, 32, 14), `*:5` and `*:6` go visible 1 with
+  alpha 0, `*:7` (y 2, 269 wide) visible 1. The prompt's sizes stay after it goes;
+  `PCShortcutLabel` showed (visible 1, x -18 to -28) in the shack with nothing under the
+  crosshair. Which child is which text is [hypothesis] until the strings are read (JIP).
+- **Subtitles move up 50 when the prompt shows**: `Subtitles` y 660 to 610, and it stayed
+  610 for the rest of the run, the shack included [observed]. When it goes back is open.
+- **Drawn, walking and stopping changed nothing read.** With the pistol drawn, walking
+  about 160 units a sample and stopping, no trait of the reticle's tiles or the root
+  moved; the crosshair's spread is not in `x`, `y`, `width`, `height`, `alpha`,
+  `visible` or `depth` of the tiles read [observed]. Its other traits (`zoom`, `user`
+  slots of the children) are open.
+- [design] T4a writes the pieces' values as above and the alpha of `sneak_nif` and the
+  four radiation tiles (`Shown::sneak`, `Shown::radiation`); the reticle 0 and the enemy
+  bar 8 while `AimZoom::aimed`. The prompt's and the sneak word's sizes, the pointer's
+  place and the subtitles' move wait for the text measurement (T5) and the strings.
