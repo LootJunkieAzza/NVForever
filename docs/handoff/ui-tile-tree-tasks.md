@@ -120,16 +120,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
 
    Shots in smoke.
    - **Carried over from T4** (hud.md §14-§14.5 have the observed values):
-     - the code-made copies the original's code makes from `hudtemplates.xml` under
-       the pieces (the corners' labels "HP", "AP", "CND" and the ammo counter, the bars'
-       fills, `compass_window` and its marks with `_Heading`/`_Distance`,
-       `reticle_center` with `user0`/`user1`, the prompt's texts): created in our tree
-       with the traits and strings observed, so mods reading them by name or `*:N` find
-       them (§14.4: names reach where `*:N` alone does not);
+     - **Done: code-made copies** [design]: `fnv_game::ui_hud` builds the corner labels,
+       ammo/bars/brackets, compass and marks, reticle and prompt texts from loaded
+       templates; `tests/ui_hud.rs` checks names/`*:N`, rebuilds, frame writes and missing templates.
      - text widths written back (the sneak word 106/136, the prompt's hotrect, the
        radiation value), once T5 measures text with fnv-font;
-     - the radiation pointer's x as the rads add up (15 to 42.9, §14.1), and Subtitles
-       moving up by the prompt's height + 8 (§14.3, two data points);
+     - **Done: radiation pointer x** [design]: bounded provisional scale (§14.6 [hypothesis]);
+       `tests/ui_hud.rs` replays the recorded x values with explicitly synthetic input totals.
+     - **Done: Subtitles y** [design]: prompt height + 8 (§14.3 [hypothesis]);
+       `tests/ui_hud.rs` checks both captured heights and restoration without a prompt.
      - not captured: an enemy under the crosshair (the enemy bar's children; §14.3 has
        why three tries failed: face the actor with script steps, not a drive script),
        and how the strip itself scrolls (no trait; §14.4; our drawing's scale and

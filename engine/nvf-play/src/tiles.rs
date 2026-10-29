@@ -81,6 +81,8 @@ struct HudTiles<'w> {
     player: Option<Res<'w, crate::player::Player>>,
     panel: Option<Res<'w, crate::message_menu::MessagePanel>>,
     loading: Option<Res<'w, crate::loading::Loading>>,
+    bars: Option<Res<'w, crate::hud::HudView>>,
+    compass: Option<Res<'w, crate::compass::CompassView>>,
 }
 
 impl HudTiles<'_> {
@@ -142,10 +144,53 @@ impl HudTiles<'_> {
         }
     }
 
-    fn texts(&self, game: &fnv_game::Game<'_>, shown: fnv_game::ui_hud::Shown) -> fnv_game::ui_hud::Texts {
+    fn texts(&self, game: &mut fnv_game::Game<'_>, shown: fnv_game::ui_hud::Shown) -> fnv_game::ui_hud::Texts {
         // Read the drawing's current values before scripts, as for Shown [design:
         // ui-tile-tree.md §4.1]; the strings' file tiles [observed: hud.md §14.2].
         let prompt = self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()));
+        // Reuse the latest drawing snapshot before scripts [design: ui-tile-tree.md §4.1].
+        let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
+        let frame = fnv_game::ui_hud::Frame {
+            health: self.bars.as_ref().map_or(1.0, |v| f64::from(v.health)),
+            action_points: self.bars.as_ref().map_or(1.0, |v| f64::from(v.action_points)),
+            condition: weapon.condition.map(f64::from),
+            ammo: crate::hud::ammo_text(weapon.ammo),
+            radiation: fnv_game::functions::actor_value(game, fnv_sim::FormId::PLAYER_REF, fnv_game::aid::RAD_LEVEL).unwrap_or(0.0),
+            prompt: prompt.as_ref().map(|p| fnv_game::ui_hud::Prompt {
+                name: p.name.clone(),
+                weight: p.figures.as_ref().map_or_else(|| "--".into(), |f| f[0].clone()),
+                value: p.figures.as_ref().map_or_else(|| "--".into(), |f| f[1].clone()),
+                empty: p.note.is_some(),
+                locked: self
+                    .target
+                    .as_ref()
+                    .and_then(|t| t.0.as_ref())
+                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. })),
+                // Only the two captured heights; further lines/wrapping await text
+                // layout [hypothesis: hud.md §14.3; design: widths deferred].
+                height: if p.name.lines().count() > 1 { 80.0 } else { 42.0 },
+            }),
+            marks: self.compass.as_ref().map_or_else(Vec::new, |view| {
+                view.0
+                    .iter()
+                    .map(|(kind, offset)| {
+                        use crate::compass::Mark;
+                        use fnv_game::ui_hud::MarkKind;
+                        fnv_game::ui_hud::CompassMark {
+                            kind: match kind {
+                                Mark::Actor => MarkKind::Actor,
+                                Mark::Hostile => MarkKind::Hostile,
+                                Mark::Place => MarkKind::Place,
+                                Mark::Found => MarkKind::Found,
+                                Mark::Quest => MarkKind::Quest,
+                            },
+                            heading: 139.0 + f64::from(*offset), // [observed: hud.md §14.5].
+                            distance: 1.0,                       // [hypothesis: hud.md §14.6; drawing stores no distances].
+                        }
+                    })
+                    .collect()
+            }),
+        };
         fnv_game::ui_hud::Texts {
             radiation_word: crate::radiation::WORD.into(),
             radiation_value: crate::radiation::value_text(game.radiation().rate),
@@ -155,6 +200,7 @@ impl HudTiles<'_> {
             sneak: shown.sneak.then(|| crate::hud::sneak_now(game).word().to_string()),
             prompt_key: prompt.as_ref().map(|p| p.key_text().to_string()),
             prompt_verb: prompt.map(|p| p.action),
+            frame,
         }
     }
 }
@@ -163,7 +209,7 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);
     let shown = hud.shown(&rt.game, &files);
-    let texts = hud.texts(&rt.game, shown);
+    let texts = hud.texts(&mut rt.game, shown);
     fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
 }
 
