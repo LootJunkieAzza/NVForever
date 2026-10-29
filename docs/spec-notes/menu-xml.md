@@ -225,7 +225,8 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
 - [design] An `image` is its `filename` stretched over its box: the piece of
   `interfaceshared.tai` of that file name when the atlas has it, else the file under
   `textures\` (`interface::Pictures`). Another `.tai` named by `texatlas`, and `zoom`,
-  `tile`, `cropx`, `cropy`, are not applied in v1.
+  `tile`, `cropx`, `cropy`, are not applied to the mods' tiles in v1 (the whole HUD's
+  drawing applies `texatlas`, `zoom` and `tile`, §3.1.3).
 - [hypothesis] `font`: 1 to 9 is the INI's `sFontFile_N` [documented:
   Fallout_default.ini]; none, 0 or another number is font 1. The sneak word's tile has no
   `font`, and the original's widths for it (hud.md §14.1: 106 "[HIDDEN]", 136, 14) are
@@ -254,6 +255,44 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   prefab's own expression, the child's width plus `_horbuf` [documented: text_box.xml])
   and `RadiationMeter/radiation_text_value` (`fnv_game::ui_hud::write_text_widths`),
   only with the game's fonts. A tile without a `string` keeps its width [design].
+
+### 3.1.3 The whole menu, `zoom`, `tile`, `texatlas` (T12a)
+
+With `[UI] TileMenus=HUDMainMenu` (ui-tile-tree.md §6.2; hud.md §14.7) the renderer draws
+every tile of the HUD, not only the mods' (`nvf-play/src/tiles/draw.rs`,
+`Select::Whole`); then, and only then, it applies these. With the switch off §3.1.2
+stands unchanged: every picture stretched, the shared atlas only.
+
+- [documented: GECK wiki Zoom, revision 39942] `zoom` multiplies an image's size and
+  "cannot exceed the specified height and width"; the default is 100; -1 is free scaling
+  ("Scales any texture to 256x256 regardless its source size"). [hypothesis] A number
+  draws the picture at its texels' size times `zoom` / 100, one texel one interface unit
+  at 100, from the box's top left, cut to the box: the compass window (345 x 64, zoom 100)
+  then shows 345 of the 1024-texel strip, which turns 1024 units [observed: hud.md §14.4
+  `filewidth` 1024, §14.5 the scale]. The anchor is not observed.
+- [hypothesis] No `zoom` stretches the picture over its box, against the wiki's default:
+  the brackets' atlas pieces are 256 x 128 texels [observed: interfaceshared.tai, an atlas
+  of 1024 x 1024 by its heading] in 512 x 256 boxes the original fills on the screen.
+  [hypothesis] `&scale;` (number 0, §2.3) stretches too: its pictures (the compass ticks
+  32 x 32 in 32 x 32 boxes, the condition arrows, the sneak bracket) fit their boxes.
+- [hypothesis] `tile` true repeats the picture over the box at one texel a unit, both
+  ways: the bars' 8-texel tick picture in widths the code sets in steps of 8 [observed:
+  hud.md §14.3]; the template's `_ImageWidth` 8 says the same [documented:
+  hudtemplates.xml `template_meter`]. It is applied before `zoom`.
+- [documented: GECK wiki Texatlas; interfaceshared.tai's heading] `texatlas` names a
+  `.tai` index under `textures\`; each line gives a picture's file name, the atlas file
+  (`InterfaceShared<idx>.dds`) and its place as parts of the atlas. Any index a tile names
+  is read once and kept (`interface::Pictures::locate`); [hypothesis] its atlas textures
+  stand in the index's folder, as the shared one's. [design] A picture the named index
+  lacks is looked up in the shared index, then as its own file.
+- [design] `clips` as §3.1.2, a clipping node; the HUD's own clip tiles (`compass_icon`)
+  clip their children only.
+- [design] The compass strip is the one picture moved by code with no trait (hud.md
+  §14.4): `HUDMainMenu/HitPoints/compass_window`'s picture is drawn twice side by side
+  and moved by the heading as the hand-built HUD moves its own (1024 units a turn, the
+  heading at x 148 of the window [observed: hud.md §14.5]).
+- [design] `nif` tiles (the HUD's one, the breath meter) are still not drawn; the
+  hand-built breath meter stays.
 
 ## 4. Operators
 

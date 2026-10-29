@@ -207,6 +207,44 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     settings change in game.
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
+    - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.
+      `[UI] TileMenus=` (comma-separated menu names, empty by default; only
+      `HUDMainMenu` acted on) read at start from the settings' INI, or the test aid
+      `NVF_PLAY_TEST_TILE_MENUS`; resource `tiles::vanilla::TileMenus`. On, the renderer
+      draws the whole `HUDMainMenu` tree (`draw::Select::Whole`: file, code-made copies,
+      mods) and hides the hand-built corners (with the compass, condition row and
+      ammo), sneak word, crosshair and radiation meter (`DrawnByTiles`, one PostUpdate
+      system). Kept hand-built, their file/code tiles not drawn (`KEPT_PIECES`): the
+      enemy bar, prompt, Hardcore words, XP meter, limbs, breath meter (the one `nif`
+      tile), corner and quest messages, subtitles. The mapping: hud.md §14.7. Off,
+      T5's mod-only drawing is unchanged.
+      - Renderer [menu-xml.md §3.1.3]: `zoom` (a number: texels × zoom/100 from the box's
+        top left, cut to the box [documented: GECK wiki Zoom; hypothesis: one texel a
+        unit, the anchor]; none, -1 and `&scale;` stretch [hypothesis for none and
+        `&scale;`]); `tile` repeats at one texel a unit [hypothesis]; any `.tai` a
+        `texatlas` names, read once and kept (`interface::Pictures::locate`); `clips`
+        as T5. The compass strip: the `compass_window` picture twice, moved by
+        `hud::strip_left` (1024 a turn, heading at 148 [observed: §14.5; design]).
+      - Written only while on (`vanilla::write_corners`): the corner labels' copies at
+        the hand-built HUD's places [design: not captured], the right bracket at x -40
+        and `AmmoTypeLabel` the ammo abbreviation [hypothesis], the condition ground's
+        alpha 64 [design] and the row shown by alpha with a condition.
+      - Colours checked against the hand-built HUD's: `&hudmain;` at brightness 255 and
+        alpha 255 is `amber(255)`, `&hudalt;` the radiation meter's crime colour (test
+        `with_the_switch_on_…`). Differences: hostile ticks and crosshair not red, no
+        crosshair spread, warning sneak words in the HUD colour, the corners not hidden
+        under a movement lock.
+      - Tests: `tiles::vanilla` (3: the switch, aid/INI, corner writes); `tiles::draw`
+        (3 new: whole-menu selection with kept pieces and a mod under one, zoom/tile
+        fits, a texatlas lookup with a fake index). Smoke `tiles-hud-bars-partial`,
+        `tiles-hud-compass-north`, `tiles-ui-hud-code-traits`,
+        `tiles-environment-radiation` (shots `tiles_*.png`).
+    - **Left for T12b, the comparison**: the `tiles_*.png` shots against the original's
+      at the same sizes (hud.md §14's captures) and against the hand-built HUD's, every
+      hypothesis above; then the kept pieces one group at a time (hud-xml.md step 5):
+      the enemy bar's children, the prompt's places and divider, the Hardcore words'
+      places, the XP and limb children's visibility, messages, subtitles; the `nif`
+      breath meter; hostile colours; the corners' hiding rule.
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the
