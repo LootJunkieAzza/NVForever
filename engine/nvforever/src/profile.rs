@@ -163,7 +163,7 @@ impl Plugin for ProfilePlugin {
         info!("test aid NVF_PLAY_TEST_PROFILE: a span profile every {every} s");
         // GPU time per render pass (timestamp queries, Vulkan and DX12): `profile gpu:`.
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
-        app.insert_resource(ProfileWindow { every, ..default() }).add_systems(Last, report);
+        app.insert_resource(ProfileWindow { every, ..default() }).init_resource::<AssetChanges>().add_systems(Last, (count_asset_changes, report).chain());
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render.add_systems(bevy::render::Render, pipeline_counts.in_set(bevy::render::RenderSystems::Render));
             render.add_systems(bevy::render::Render, (move |mut last: Local<Option<Instant>>, shadow: Res<ViewBinnedRenderPhases<bevy::pbr::Shadow>>, opaque: Res<ViewBinnedRenderPhases<Opaque3d>>, mask: Res<ViewBinnedRenderPhases<AlphaMask3d>>, prepass: Res<ViewBinnedRenderPhases<Opaque3dPrepass>>, mask_prepass: Res<ViewBinnedRenderPhases<AlphaMask3dPrepass>>| {
@@ -207,6 +207,64 @@ fn batches<BPI: bevy::render::render_phase::BinnedPhaseItem>(name: &str, phases:
     format!("{name} {} views, {m} multi-drawn sets, {b} batched bins, {u} unbatched bins", phases.len())
 }
 
+/// The asset changes of a window, for `profile changes:`: each made, changed or dropped
+/// mesh, image and game material is sent to the GPU again (its staging memory included);
+/// the night stalls came with GPU memory made and freed hundreds of times a second
+/// (Nsight Systems, 2026-10-29), so this says what the frames send.
+#[derive(Resource, Default)]
+struct AssetChanges {
+    /// (added, modified, removed) per kind: meshes, images, materials.
+    counts: [[u64; 3]; 3],
+    /// Bytes of the added and modified meshes' vertices and the images' pixels.
+    mesh_bytes: u64,
+    image_bytes: u64,
+}
+
+/// Which of (made, changed, dropped) an asset event counts as.
+fn slot<A: Asset>(e: &AssetEvent<A>) -> Option<usize> {
+    match e {
+        AssetEvent::Added { .. } => Some(0),
+        AssetEvent::Modified { .. } => Some(1),
+        AssetEvent::Removed { .. } | AssetEvent::Unused { .. } => Some(2),
+        _ => None,
+    }
+}
+
+fn count_asset_changes(
+    mut c: ResMut<AssetChanges>,
+    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
+    mut image_events: MessageReader<AssetEvent<Image>>,
+    mut material_events: MessageReader<AssetEvent<nvf_assets::NifMaterial>>,
+    meshes: Res<Assets<Mesh>>,
+    images: Res<Assets<Image>>,
+) {
+    for e in mesh_events.read() {
+        if let Some(i) = slot(e) {
+            c.counts[0][i] += 1;
+        }
+        if let AssetEvent::Added { id } | AssetEvent::Modified { id } = e {
+            if let Some(m) = meshes.get(*id) {
+                c.mesh_bytes += (m.count_vertices() * m.get_vertex_size() as usize) as u64;
+            }
+        }
+    }
+    for e in image_events.read() {
+        if let Some(i) = slot(e) {
+            c.counts[1][i] += 1;
+        }
+        if let AssetEvent::Added { id } | AssetEvent::Modified { id } = e {
+            if let Some(d) = images.get(*id).and_then(|im| im.data.as_ref()) {
+                c.image_bytes += d.len() as u64;
+            }
+        }
+    }
+    for e in material_events.read() {
+        if let Some(i) = slot(e) {
+            c.counts[2][i] += 1;
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 struct ProfileWindow {
     every: f32,
@@ -227,7 +285,7 @@ fn report(
     mut last: Local<Option<Instant>>,
     loading: Option<Res<nvf_play::loading::Loading>>,
     mut pipelines_before: Local<u64>,
-    diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
+    (diagnostics, mut changes): (Res<bevy::diagnostic::DiagnosticsStore>, ResMut<AssetChanges>),
 ) {
     let pipelines = PIPELINES.load(std::sync::atomic::Ordering::Relaxed);
     let new_pipelines = pipelines.saturating_sub(*pipelines_before);
@@ -282,6 +340,22 @@ fn report(
         ids.len(),
         mats.len(),
         materials.len()
+    );
+    let per = |n: u64| n as f64 / frames;
+    let c = std::mem::take(&mut *changes);
+    info!(
+        "profile changes: per frame: meshes {:.1} made {:.1} changed {:.1} dropped ({:.2} MB of vertices), images {:.1} made {:.1} changed {:.1} dropped ({:.2} MB of pixels), materials {:.1} made {:.1} changed {:.1} dropped",
+        per(c.counts[0][0]),
+        per(c.counts[0][1]),
+        per(c.counts[0][2]),
+        per(c.mesh_bytes) / 1e6,
+        per(c.counts[1][0]),
+        per(c.counts[1][1]),
+        per(c.counts[1][2]),
+        per(c.image_bytes) / 1e6,
+        per(c.counts[2][0]),
+        per(c.counts[2][1]),
+        per(c.counts[2][2]),
     );
     // The render passes' GPU time (Bevy's render diagnostics, averaged over their last
     // samples), the costliest first: which pass grows when the frame waits on the GPU.
