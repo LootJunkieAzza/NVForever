@@ -265,6 +265,18 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    "Close"). Not transcribed from screenshots or read out of the original with
    `GetGameSetting` (LEGAL.md; owner decision 2026-10-30). An observer dump may still
    say *which* names the original fills in, not their text.
+   - **T10a done** 2026-10-29 (`claude/t10-strings`): `fnv_ui::strings::GameStrings`
+     (the load order's string GMSTs, last plugin winning, then `BUILT_IN`, names without
+     case) behind `UiFiles::game_string`; `Ui::game_strings_read` records each name read
+     and whether it had text; `LoadReport::game_strings{,_unresolved}` and the start-up
+     log line `ui: game strings: N read, M without text`. The names: 145 spellings (143
+     without case); only `sMorphine` has a vanilla GMST [observed, menu-xml.md §2.4].
+     Tests: `fnv-ui` `strings::tests` (3) and
+     `tests::game_strings_resolve_from_the_load_order_then_the_built_in_table`;
+     `fnv-game` `ui_loading` (`startup_and_rebuild`, `missing_menu_and_globals_warn`,
+     `vfs_source_owns_strings_and_reads_files`).
+   - **T10b open**: the labels for the names the plugins leave undefined, written by
+     NVForever under the rule above, in `BUILT_IN`; until then those names read empty.
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.

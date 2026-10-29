@@ -131,14 +131,71 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
 
 `&-sName;` is the text of the game setting `sName` [hypothesis: the names are game
 settings' names, `s` for a string, as the wait menu's `sHowManyWait` and `sCancel`
-(wait-menu.md)]. 145 different ones are in the vanilla files [observed]. They are **not
-in the masters** [observed: `sInventoryItems`, `sHowMany`, `sContinue`,
-`sPCMenuHintR`, `sStatsXP` appear nowhere in FalloutNV.esm]: their default text is built
-into the executable, and a plugin's GMST can override one. So the engine answers
-`Source::game_string` from the load order's GMSTs first and then from NVForever's own
-English table, filled from the owner's screenshots (as barter-menu.md did for
-`sHowMany`); a name in neither reads empty. The reader puts the text in when the file
-is read.
+(wait-menu.md)]. 145 different spellings are in the vanilla files, 143 without case
+(`sOK`/`sOk`, `sQuit`/`squit`) [observed: the `&-…;` entities of the 121 `menus\**\*.xml`
+in `Fallout - Misc.bsa`, 2026-10-29; no other vanilla archive holds menu files].
+
+Only one has a record in the vanilla load order: `sMorphine`, a GMST of FalloutNV.esm.
+The other 144 have none in FalloutNV.esm or the nine official add-on masters (DeadMoney,
+HonestHearts, OldWorldBlues, LonesomeRoad, GunRunnersArsenal, Caravan, Classic,
+Mercenary and Tribal packs) [observed: `fnvtool esm inventory`, GMST Editor IDs (649 in
+all) against the names, 2026-10-29]. Their text is the original's built-in default,
+which a plugin's GMST can override [hypothesis: as `iLockLevelMax…`, read with
+`GetGameSetting` though no master defines them, script-function-audit.md].
+
+How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
+[design]:
+
+1. the load order's string settings, the last plugin's record winning (the form store's
+   one value per setting, or a run-time change made before the files are read);
+2. `fnv_ui::strings::BUILT_IN`, the built-in defaults. It is **empty**: it is filled
+   only from readings of the original, never from guesses or from the ESM;
+3. a name in neither reads empty, and the reader puts the text in when the file is read
+   (a later `SetStringSetting` does not change a tile already built) [design].
+
+Names are compared without case [hypothesis; the readings below settle it]. The tree
+records each name it read and whether it had text (`Ui::game_strings_read`); the engine
+logs `ui: game strings: N read, M without text` at start for the menus it keeps loaded.
+
+**Unread** [hypothesis: built-in, text not known]: the 144 names with no record, until
+the observer job `t10_gmst` (private; one `GetStringGameSetting "sName"` text query per
+name [documented: GECK wiki GetStringGameSetting, origin NVSE], with an unknown name,
+`sMorphine` and both spellings of `sOK`/`sQuit` as controls) has been run:
+
+`sAccept`, `sAcceptText`, `sAddText`, `sAllCardsText`, `sAntePotText`, `sAutoAttempt`,
+`sAutoMatchText`, `sBack`, `sCWheelTitle`, `sCancel`, `sCaravanBiggestAnteText`,
+`sCaravanLossesText`, `sCaravanWinLossText`, `sCaravanWinningsText`, `sCardsInDeckText`,
+`sCauterize`, `sCloseButton`, `sConfirmWarning`, `sContinue`, `sCrew`,
+`sCurrentAnteText`, `sCurrentObjective`, `sData`, `sDevice`, `sDiscardCardText`,
+`sDiscardTrackText`, `sDone`, `sEnterName`, `sExit`, `sExplosive`, `sForfeitGameText`,
+`sHackingLockout3`, `sHackingLockout4`, `sHitPointsShort`, `sHowMany`, `sIngredients`,
+`sInventoryCaps`, `sInventoryCondition`, `sInventoryDamage`,
+`sInventoryDamagePerSecond`, `sInventoryDamageResistance`, `sInventoryDamageThreshold`,
+`sInventoryDrop`, `sInventoryEffects`, `sInventoryEquip`, `sInventoryHotKey`,
+`sInventoryItems`, `sInventoryMod`, `sInventoryRepair`, `sInventoryStrReq`,
+`sInventoryValue`, `sInventoryWeight`, `sInventoryWeightUpper`, `sLevelProgress`,
+`sLevelUp`, `sLoad`, `sLoadSavedGame`, `sLockLevelText`, `sLockpickSkillText`,
+`sMadeAt`, `sMakeActiveQuest`, `sMedicineSkill`, `sModffects`, `sNavigate`,
+`sNavigateText`, `sNew`, `sNext`, `sNextChallenge`, `sNoItemsToRepair`, `sOK`, `sOk`,
+`sPCMenuHintA`, `sPCMenuHintE`, `sPCMenuHintF`, `sPCMenuHintQ`, `sPCMenuHintR`,
+`sPCMenuHintRMB`, `sPCMenuHintS`, `sPCMenuHintW`, `sPCMenuHintX`, `sPicksRemainingText`,
+`sPlaceMarker`, `sPlayAudio`, `sPlayCaravanText`, `sPressStart`, `sPrevious`, `sQuit`,
+`sRaiseText`, `sRecipes`, `sRedeemCode`, `sRemoveText`, `sRepairAllItems`,
+`sRepairItem`, `sRepairServicesTitle`, `sRepairSkill`, `sReputationSwap`, `sReset`,
+`sReturn`, `sSave`, `sSaveGame`, `sSelect`, `sSelectCardText`, `sSettings`,
+`sShowActiveNotes`, `sShowAllNotes`, `sShowLocation`, `sSkillRequirement`, `sSpace`,
+`sStatsAP`, `sStatsCNDAbbrev`, `sStatsCrippled`, `sStatsEFFAbbrev`, `sStatsFODAbbrev`,
+`sStatsGeneral`, `sStatsH20Abbrev`, `sStatsHP`, `sStatsLMBAbbrev`, `sStatsLVLAbbrev`,
+`sStatsNoEffects`, `sStatsPerks`, `sStatsRADAbbrev`, `sStatsRadResist`,
+`sStatsSLPAbbrev`, `sStatsSkills`, `sStatsSpecial`, `sStatsStatus`, `sStatsXP`,
+`sStimpak`, `sStopAudio`, `sSwitchLimbs`, `sTakeAll`, `sTotalCardsText`,
+`sTotalFundsText`, `sTravel`, `sTune`, `sVDSGManual`, `sVDSGPlate`, `sVatsAiming`,
+`sVatsBodyPart`, `sVatsSelect`, `sVatsTarget`, `sWinLossText`, `sXPProgressMarker`,
+`squit`.
+
+`sHowMany` reads "How many?" in the barter menu [observed: the owner's screenshot,
+barter-menu.md §7]; the engine's hand-built menus keep their own words until the
+readings fill `BUILT_IN` [design].
 
 ## 3. Traits
 
