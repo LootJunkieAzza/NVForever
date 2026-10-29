@@ -10099,6 +10099,65 @@ expect = [
 ]
 
 [[scenario]]
+name = "tiles-hud-bars-partial"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-bars-partial with [UI] TileMenus=HUDMainMenu (the test aid): the corners drawn from HUDMainMenu's tiles, the meters' tick picture tiled over the widths the tree holds (hud.md §14.3, floor(share x 37) x 8), the hand-built corners hidden"
+note = "as hud-bars-partial: health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol; the shot at 22 s"
+areas = ["ui", "hud"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_bars_partial.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=HUDMainMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): HUDMainMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden', label = "the whole HUD tree draws, its code-made copies with it" },
+  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health: the tree's bar is 18 ticks wide, as the hand-built one's" },
+]
+manual = "tiles_hud_bars_partial.png: the HUD's corners drawn from tiles: the health bar lit for 18 of its 37 ticks, HP above it, the brackets, the compass strip; AP, CND, the ammo counter at the right; compare with hud_bars_partial.png"
+
+[[scenario]]
+name = "tiles-hud-compass-north"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-compass-north with [UI] TileMenus=HUDMainMenu: the compass window's strip drawn from its tile and moved by the heading (no trait moves it, hud.md §14.4; 1024 units a turn, the heading at x 148 of the window, §14.5)"
+note = "as hud-compass-north: facing due north outdoors in Goodsprings, N under the bracket's downward triangle"
+areas = ["ui", "hud"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/interface.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:tiles_hud_compass_north.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden', label = "the whole HUD tree draws" },
+]
+manual = "tiles_hud_compass_north.png: N right under the downward triangle of the tile-drawn compass bracket; compare with hud_compass_north.png"
+
+[[scenario]]
+name = "tiles-ui-hud-code-traits"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): ui-hud-code-traits with [UI] TileMenus=HUDMainMenu: the pieces' places read through GetUIFloat stay the observed 16:10 ones (hud.md §14) while the tree is drawn; the console closes at 10.4 s for a shot of the tile-drawn HUD"
+areas = ["ui", "hud", "scripts", "console"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\");10.4:close", NVF_PLAY_TEST_SHOTS = "14:tiles_ui_hud_code_traits.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden', label = "the whole HUD tree draws" },
+  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree keeps the observed 16:10 places with the switch on" },
+]
+manual = "tiles_ui_hud_code_traits.png: the HUD drawn from tiles at 1280 x 800: the corners at the bottom, the crosshair in the middle, nothing doubled"
+
+[[scenario]]
+name = "tiles-environment-radiation"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): environment-radiation with [UI] TileMenus=HUDMainMenu: the radiation meter drawn from RadiationMeter's four tiles in the alt colour (hud.md §14.1-§14.2: alpha 255 in radiation, \"RAD/SEC\", the value, the pointer's x), the hand-built meter hidden"
+note = "as environment-radiation: the player in the nuclear test site's shack; the shot at 24 s"
+areas = ["ui", "hud", "radiation"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/radiation.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "24:tiles_radiation_meter.png" }
+args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden', label = "the whole HUD tree draws" },
+  { re = 'radiation: level 15\.0 rads/s \(marker 0x00154611 15\.0\), taking 1\d\.\d\d/s \(Rad Resistance \d+ %\)', label = "in radiation, so the meter's tiles show" },
+]
+manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +n and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
+
+[[scenario]]
 name = "ui-menu-lifetime"
 source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
 areas = ["ui", "scripts", "console"]
