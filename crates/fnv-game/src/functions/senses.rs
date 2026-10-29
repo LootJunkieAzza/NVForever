@@ -404,9 +404,11 @@ pub fn is_in_dangerous_water(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 }
 
 /// GetRadiationLevel: the radiation level of the player's surroundings, rads a second
-/// before Rad Resistance (`crate::radiation`); 0 on any other actor [documented: GECK
-/// wiki GetRadiationLevel and GetRadiationLevelAlt].
+/// after Rad Resistance (`crate::radiation`, `Exposure::resisted`); 0 on any other actor
+/// [documented: GECK wiki GetRadiationLevel and GetRadiationLevelAlt; observed: the
+/// original's 9.013784 in the test site's shack is the marker's level there times
+/// (1 − 8 ÷ 100) for Rad Resistance 8, issue #894].
 pub fn get_radiation_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::Num(if r == FormId::PLAYER_REF { g.radiation().level } else { 0.0 }))
+    Ok(Value::Num(if r == FormId::PLAYER_REF { g.radiation().resisted } else { 0.0 }))
 }

@@ -406,15 +406,22 @@ The numbers above stay put so links to them hold; each item here gives its own p
     left on the stack" in ours. To check: what Side Bets' report line does in the original
     (it sets nothing on the canonical path).
 
-## Added 2026-10-29 (HUD states capture)
+## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
-33. **How a radiation marker's level falls off inside its radius.** In the nuclear test
-    site's shack (`coc SLNuclearTestShackINT`, marker `00154611`, XRAD 15, XRDS 2000) the
-    original read GetRadiationLevel 9.014 and showed +9 RAD/SEC; NVForever gives the whole
-    15 (smoke `environment-radiation`, radiation.md §2). One spot fits 15 x (1 - d / 2000)
-    x (1 - Rad Resistance) to five digits (d 693.67, Rad Resistance 8, 2026-10-29). To
-    check: GetRadiationLevel at two or three more distances (the job's script SetPos did
-    not move the player; use console `player.setpos` steps), and once with Rad-X.
+33. **Does a radiation marker fall off linearly with distance, and does Rad Resistance cut
+    GetRadiationLevel?** (P2: every irradiated place.) Ours now gives a marker's XRAD ×
+    (1 − d ÷ XRDS), d the 3-D distance from GetPos, and GetRadiationLevel and the HUD
+    that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
+    693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
+    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player,
+    nor did console `player.setpos` steps (hud.md §14.3).
+    To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
+    marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
+    (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours
+    4.115). Then, for overlapping markers (strongest or sum), on the Camp Searchlight
+    crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
+    point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
+    at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
 34. **The corner bars' ticks' brightness.** The original's health and action points ticks
     read about 0.7 of the bracket line's colour at their full rows (`hud_corners2.007`,
     hud.md §14.9); the tile HUD writes `brightness` 175 to `HitPoints/meter` and

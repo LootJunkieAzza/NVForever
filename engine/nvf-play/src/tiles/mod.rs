@@ -247,7 +247,7 @@ impl HudTiles<'_> {
         };
         fnv_game::ui_hud::Texts {
             radiation_word: crate::radiation::WORD.into(),
-            radiation_value: crate::radiation::value_text(game.radiation().rate),
+            radiation_value: crate::radiation::value_text(game.radiation().resisted),
             xp_label: crate::xp_meter::XP_WORD.into(),
             xp_level_up: crate::xp_meter::LEVEL_UP_WORD.into(),
             needs: crate::hud_needs::texts(&self.sim),

@@ -6,3 +6,6 @@ contact_links:
   - name: What is built and what is not yet
     url: https://github.com/LootJunkieAzza/NVForever/blob/main/docs/status.md
     about: Check here first. A missing feature that is listed as not started is not a bug.
+  - name: Discord
+    url: https://discord.gg/3HsVrsXSb
+    about: Questions and chat. Not sure it's a bug? Ask here first.

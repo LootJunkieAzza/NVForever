@@ -10,6 +10,7 @@ breaks them can't be merged, however good it is.
 - **Report bugs and differences from the original** with the
   [issue forms](https://github.com/LootJunkieAzza/NVForever/issues/new/choose). Never
   attach game files. Crash logs from `Documents\My Games\NVForever\logs` are fine.
+  Report security problems privately instead: see [SECURITY.md](SECURITY.md).
 - **Fix something or build something.** [docs/status.md](docs/status.md) says what is
   built and [docs/outstanding.md](docs/outstanding.md) says what is left. Small fixes can
   go straight to a pull request. For anything bigger (a new system, a new dependency, a
@@ -59,6 +60,22 @@ rules ([parity-lab/AGENT.md](parity-lab/AGENT.md)) apply to people too:
   looks wrong, open an issue with the evidence.
 - Never special-case inputs, such as hard-coded FormIDs or expected values.
 - Never read holdouts, pass `--reveal` or run `fnvlab baseline`.
+
+## Before you start: check nobody else has it
+
+Several people and the project's own AI sessions work on NVForever at once. To avoid two
+people building the same thing:
+
+- **Search the open [pull requests](https://github.com/LootJunkieAzza/NVForever/pulls)
+  (drafts included) and [issues](https://github.com/LootJunkieAzza/NVForever/issues)**
+  for your topic. A draft pull request means the work is under way. An issue labelled
+  `in progress` has been claimed.
+- **Claim it.** Comment on the issue that you are taking it (or open one first, if there
+  is none). The maintainer labels it `in progress`. Issues labelled `help wanted` or
+  `good first issue` are free to take.
+- **Open your pull request early, as a draft**, once you have a first commit, and mark it
+  ready for review when it is done. If you stop, say so on the issue so someone else can
+  pick it up.
 
 ## Making a change
 

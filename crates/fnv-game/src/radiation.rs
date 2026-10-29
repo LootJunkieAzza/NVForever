@@ -4,18 +4,26 @@
 //! - **Markers** ([`RadMarker`]): placed references carrying XRAD (rads a second) and XRDS
 //!   (the radius they reach) [documented: xEdit REFR; GECK wiki GetRadiationExtraData].
 //!   In FalloutNV.esm all 119 are references of the static `RadiationMarker` [observed].
-//!   Inside a marker's radius its whole level holds; where markers overlap the strongest
-//!   counts [hypothesis: the masters put markers of rising level and falling radius on
-//!   one spot (Clark Field 3/2000 and 720/10, the crater by Camp Searchlight 5/10000,
-//!   10/6000, 18/2000), which builds a gradient only if each is flat and they do not
-//!   add; radiation.md §2]. A disabled marker gives nothing [hypothesis].
+//!   A marker's level falls linearly with the 3-D distance from it, from its whole XRAD
+//!   at its position to nothing at its radius ([`level_at`]) [documented: GECK wiki
+//!   Reference, XRAD is the radiation given off "at the location of the marker", XRDS
+//!   "the distance from the Radiation Marker that starts giving the player radiation";
+//!   observed: the original's GetRadiationLevel in the nuclear test site's shack, 693.65
+//!   units from its 15/2000 marker with Rad Resistance 8, read 9.013784, and
+//!   15 × (1 − 693.65 ÷ 2000) × 0.92 = 9.013783 (issue #894); hypothesis: the linear
+//!   shape at other distances]. Where markers overlap the strongest at the point counts
+//!   [hypothesis: radiation.md §2]. A disabled marker gives nothing [hypothesis].
 //! - **Water** ([`WaterContact`], told by the engine): swimming or wading in a water whose
 //!   actor effect (WATR XNAM, the effect of drinking it) gives rads gives that many rads a
 //!   second times `fSwimRadiationDamageMult` or `fWadeRadiationDamageMult` (0.1 each in
 //!   FalloutNV.esm) [observed: the settings and the effects; hypothesis: the rule].
-//! - **The level** (GetRadiationLevel, the HUD's meter): markers plus water, before Rad
-//!   Resistance [documented: GECK wiki GetRadiationLevel, "a radiation level of 3 would
-//!   give you 3 rads/sec"].
+//! - **The level** ([`Exposure::level`]): markers plus water, before Rad Resistance.
+//!   GetRadiationLevel and the HUD's meter give it after Rad Resistance
+//!   ([`Exposure::resisted`]) [documented: GECK wiki GetRadiationLevel, the level "is
+//!   directly proportional to your rads/sec meter"; observed: the original's 9.013784
+//!   is the marker's 9.7976 × (1 − 8 ÷ 100), issue #894], before
+//!   `fRadiationAccumulationRate` [documented: GECK wiki fRadiationAccumulationRate,
+//!   the setting "does not influence the "+? Rad/Sec" UI element"].
 //! - **Rads taken** a second: level × `fRadiationAccumulationRate` (1.0) × (1 − Rad
 //!   Resistance ÷ 100), the resistance held to [`RESIST_CAP`] [hypothesis: the setting's
 //!   name; resistance as a percentage, as Rad-X's +50 % reads]. They raise the Rads
@@ -26,8 +34,9 @@
 //!   within the radiation radius (the Fat Man's: 10 rads/s, 12 s, 616 units)
 //!   [documented: GECK wiki Explosion, "Amount of RADs per second", "Duration of
 //!   radiation effect"; observed: the masters' values; hypothesis: the fade and the time
-//!   unit]. A zone counts as a marker does: whole
-//!   within its radius, the strongest of markers and zones counting (radiation.md §2.1).
+//!   unit]. A zone counts whole within its radius [hypothesis: whether it falls off
+//!   with distance as a marker does is not known], the strongest of markers and zones
+//!   counting (radiation.md §2.1).
 //! - **Damaging water**: a water with "Causes Damage" takes its DATA damage of health
 //!   from the player once a second while the player is in it [documented: GECK wiki
 //!   WaterType, "Causes n damage per second"; hypothesis: wading counts as swimming, the
@@ -55,7 +64,7 @@ pub const RESIST_CAP: f64 = 85.0;
 pub struct RadMarker {
     pub id: FormId,
     pub pos: [f32; 3],
-    /// Rads a second inside the radius (XRAD).
+    /// Rads a second at the marker's position (XRAD), falling to 0 at the radius.
     pub level: f32,
     /// Game units (XRDS; 0 when absent).
     pub radius: f32,
@@ -141,8 +150,11 @@ pub struct Exposure {
     pub zone: Option<FormId>,
     /// Rads a second from the water.
     pub from_water: f64,
-    /// The level (markers and water, before resistance): GetRadiationLevel.
+    /// The level (markers and water, before resistance).
     pub level: f64,
+    /// The level after Rad Resistance, before `fRadiationAccumulationRate`:
+    /// GetRadiationLevel and the HUD's meter.
+    pub resisted: f64,
     /// Rads a second the player takes (after Rad Resistance).
     pub rate: f64,
     /// The Rad Resistance that cut it (percent, before the cap).
@@ -170,14 +182,25 @@ pub fn markers(refs: &RefTable) -> HashMap<FormId, Vec<RadMarker>> {
     out
 }
 
-/// The level at `pos` from `markers` and the strongest marker covering it (the first in
-/// the list on a tie): a marker counts within its radius (3-D distance), whole.
+/// A marker's level at `pos`: its XRAD at its position, falling linearly with the 3-D
+/// distance to 0 at its radius, 0 beyond (see the module notes).
+pub fn level_at(m: &RadMarker, pos: [f32; 3]) -> f64 {
+    let d = (0..3).map(|i| (m.pos[i] as f64 - pos[i] as f64).powi(2)).sum::<f64>().sqrt();
+    let r = m.radius as f64;
+    if r <= 0.0 || d >= r {
+        return 0.0;
+    }
+    m.level as f64 * (1.0 - d / r)
+}
+
+/// The level at `pos` from `markers` and the strongest marker there (the first in the
+/// list on a tie), each by [`level_at`].
 pub fn marker_level(markers: &[RadMarker], pos: [f32; 3], enabled: impl Fn(FormId) -> bool) -> (f64, Option<FormId>) {
     let mut best: (f64, Option<FormId>) = (0.0, None);
     for m in markers {
-        let d2: f32 = (0..3).map(|i| (m.pos[i] - pos[i]).powi(2)).sum();
-        if d2 <= m.radius * m.radius && (m.level as f64) > best.0 && enabled(m.id) {
-            best = (m.level as f64, Some(m.id));
+        let l = level_at(m, pos);
+        if l > best.0 && enabled(m.id) {
+            best = (l, Some(m.id));
         }
     }
     best
@@ -274,6 +297,7 @@ impl Game<'_> {
         });
         let level = markers + from_water;
         let resist = if level > 0.0 { fa::actor_value(self, p, RAD_RESISTANCE).unwrap_or(0.0) } else { 0.0 };
+        let resisted = taken(level, resist, 1.0);
         let rate = taken(level, resist, setting(self, "fRadiationAccumulationRate", 1.0));
         if rate > 0.0 && dt > 0.0 {
             self.shift_need(RAD_LEVEL, rate * dt);
@@ -287,7 +311,7 @@ impl Game<'_> {
             water_hits += 1;
             self.effect_health_damage(p, water_damage, None);
         }
-        self.senses.radiation = Exposure { water, markers, marker, zone, from_water, level, rate, resist, water_damage, water_clock, water_hits };
+        self.senses.radiation = Exposure { water, markers, marker, zone, from_water, level, resisted, rate, resist, water_damage, water_clock, water_hits };
     }
 }
 
@@ -299,17 +323,38 @@ mod tests {
         RadMarker { id: FormId(id), pos: [0.0, 0.0, 0.0], level, radius }
     }
 
+    fn near((l, id): (f64, Option<FormId>), want: f64, who: u32) -> bool {
+        (l - want).abs() < 1e-9 && id == Some(FormId(who))
+    }
+
     #[test]
-    fn a_marker_counts_whole_within_its_radius_and_the_strongest_wins() {
+    fn a_marker_falls_off_linearly_within_its_radius_and_the_strongest_wins() {
         // The Camp Searchlight crater's three markers on one spot.
         let list = [m(1, 5.0, 10000.0), m(2, 10.0, 6000.0), m(3, 18.0, 2000.0)];
         let all = |_| true;
-        assert_eq!(marker_level(&list, [1000.0, 0.0, 0.0], all), (18.0, Some(FormId(3))));
-        assert_eq!(marker_level(&list, [3000.0, 0.0, 0.0], all), (10.0, Some(FormId(2))));
-        assert_eq!(marker_level(&list, [9999.0, 0.0, 0.0], all), (5.0, Some(FormId(1))));
+        assert_eq!(marker_level(&list, [0.0, 0.0, 0.0], all), (18.0, Some(FormId(3))));
+        // 1000 out: 18 × 0.5 = 9 beats 10 × (1 − 1000/6000) = 8.33.
+        assert!(near(marker_level(&list, [1000.0, 0.0, 0.0], all), 9.0, 3));
+        // 1500 out: 10 × 0.75 = 7.5 beats 18 × 0.25 = 4.5.
+        assert!(near(marker_level(&list, [0.0, 1500.0, 0.0], all), 7.5, 2));
+        // 7000 out, past the 6000 and 2000 radii: 5 × 0.3.
+        assert!(near(marker_level(&list, [7000.0, 0.0, 0.0], all), 1.5, 1));
         assert_eq!(marker_level(&list, [0.0, 0.0, 10001.0], all), (0.0, None));
         // A disabled marker gives nothing.
-        assert_eq!(marker_level(&list, [1000.0, 0.0, 0.0], |id| id != FormId(3)), (10.0, Some(FormId(2))));
+        assert!(near(marker_level(&list, [1000.0, 0.0, 0.0], |id| id != FormId(3)), 10.0 * 5.0 / 6.0, 2));
+        // No radius: nothing.
+        assert_eq!(level_at(&m(4, 10.0, 0.0), [0.0; 3]), 0.0);
+    }
+
+    #[test]
+    fn the_test_site_shack_matches_the_original() {
+        // Issue #894: marker 0x00154611 (XRAD 15, XRDS 2000) and the original's player at
+        // the shack's coc spot (GetPos), Rad Resistance 8: GetRadiationLevel 9.013784.
+        let mk = RadMarker { id: FormId(0x154611), pos: [4358.328, -718.8923, -88.0], level: 15.0, radius: 2000.0 };
+        let resisted = taken(level_at(&mk, [4318.96, -27.96, -135.1107]), 8.0, 1.0);
+        assert!((resisted - 9.013784).abs() < 1e-4, "{resisted}");
+        // The original's HUD: +9.
+        assert_eq!(resisted.round(), 9.0);
     }
 
     #[test]
