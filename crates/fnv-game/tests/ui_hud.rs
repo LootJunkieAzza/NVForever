@@ -643,3 +643,69 @@ fn copies_are_code_made_and_not_mod_tiles() {
     assert_eq!(ui.tile(window).origin, fnv_ui::Origin::Code);
     assert!(ui.mod_added_tiles(hud).is_empty());
 }
+
+/// Widths of the observed strings in the game's fonts, by font number as the tiles give
+/// it (0: none): the fonts' glyph advances summed, read from the owner's font files
+/// (font 1 `glow_monofonto_large`, 7 `baked-in_monofonto_large`, 8
+/// `glow_futura_caps_large`) [observed, 2026-10-29]. The font files are not available
+/// headless, so this stands in for fnv-font [design].
+fn observed_width(font: f64, text: &str) -> f64 {
+    match (font as u32, text) {
+        (0, "[HIDDEN]") => 106.0,
+        (0, "[DETECTED]") => 136.0,
+        (7, "Button Text") => 156.0,
+        (7, "Talk") => 54.0,
+        (8, "+0") => 50.0,
+        (8, "+9") => 49.0,
+        other => panic!("not measured: {other:?}"),
+    }
+}
+
+#[test]
+fn text_widths_follow_the_observed_measures_and_the_hotrect_its_child() {
+    // [design] Synthetic file tiles; the hotrect's width as its prefab works it out:
+    // the child's width plus `_horbuf` (20) [documented: text_box.xml].
+    let xml = r#"<menu name="HUDMainMenu">
+      <rect name="SneakMeter"><text name="sneak_nif"><width>128</width></text></rect>
+      <rect name="Info"><rect name="justify_center_hotrect"><_horbuf>20</_horbuf>
+        <width><copy src="child(button_text)" trait="width"/><add src="me()" trait="_horbuf"/></width>
+        <text name="button_text"><font>7</font><string>Button Text</string></text></rect></rect>
+      <rect name="RadiationMeter"><text name="radiation_text_value"><font>8</font><string></string></text></rect>
+    </menu>"#;
+    let mut ui = Ui::new();
+    ui.load_menu(&MemSource::default().with("hud.xml", xml), "hud.xml").unwrap();
+    ui.update();
+    let width = |ui: &Ui, path: &str| ui.get_float(&format!("HUDMainMenu/{path}/width")).unwrap();
+    let mut t = texts();
+    let mut shown = all_shown();
+    shown.sneak = false;
+    ui_hud::write(&mut ui, shown, &t);
+    ui_hud::write_text_widths(&mut ui, &observed_width);
+    ui.update();
+    // No sneak word yet: the file's width stays. The file's "Button Text": 156, box 176.
+    assert_eq!(width(&ui, "SneakMeter/sneak_nif"), 128.0);
+    assert_eq!(width(&ui, "Info/justify_center_hotrect/button_text"), 156.0);
+    assert_eq!(width(&ui, "Info/justify_center_hotrect"), 176.0);
+    assert_eq!(width(&ui, "RadiationMeter/radiation_text_value"), 50.0);
+    shown.sneak = true;
+    t.sneak = Some("[HIDDEN]".into());
+    t.prompt_verb = Some("Talk".into());
+    t.radiation_value = "+9".into();
+    ui_hud::write(&mut ui, shown, &t);
+    ui_hud::write_text_widths(&mut ui, &observed_width);
+    ui.update();
+    assert_eq!(width(&ui, "SneakMeter/sneak_nif"), 106.0);
+    assert_eq!(width(&ui, "Info/justify_center_hotrect/button_text"), 54.0);
+    assert_eq!(width(&ui, "Info/justify_center_hotrect"), 74.0);
+    assert_eq!(width(&ui, "RadiationMeter/radiation_text_value"), 49.0);
+    t.sneak = Some("[DETECTED]".into());
+    ui_hud::write(&mut ui, shown, &t);
+    ui_hud::write_text_widths(&mut ui, &observed_width);
+    assert_eq!(width(&ui, "SneakMeter/sneak_nif"), 136.0);
+    // Standing: the word and its width stay [observed: hud.md §14.1].
+    shown.sneak = false;
+    t.sneak = None;
+    ui_hud::write(&mut ui, shown, &t);
+    ui_hud::write_text_widths(&mut ui, &observed_width);
+    assert_eq!(width(&ui, "SneakMeter/sneak_nif"), 136.0);
+}

@@ -495,15 +495,10 @@ struct WheelView {
     kit: Option<Kit>,
 }
 
-/// Where a font's letters stand from a line's top: the tallest glyph's rise [design].
-fn base_of(face: &Face) -> f32 {
-    face.font.glyphs.iter().skip(0x20).take(0x5F).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.75)
-}
-
 /// Text centred on `cx`, its first line's top at `top`, wrapped at `wrap`.
 #[allow(clippy::too_many_arguments)]
 fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, cx: f32, top: f32, wrap: Option<f32>, color: Color) -> f32 {
-    let base = base_of(face);
+    let base = crate::interface::line_base(face);
     let lines = face.font.lines(s.trim(), wrap);
     let mut widest: f32 = 0.0;
     for (k, line) in lines.iter().enumerate() {

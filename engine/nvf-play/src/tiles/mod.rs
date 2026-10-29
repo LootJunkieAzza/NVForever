@@ -1,5 +1,6 @@
 //! The tile tree beside the drawn menus [design: ui-tile-tree.md §6.2 step 1].
 
+pub mod draw;
 pub mod layout;
 
 use crate::{script::ScriptState, PlaySet, PlayState};
@@ -207,12 +208,17 @@ impl HudTiles<'_> {
     }
 }
 
-fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles) {
+fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut fonts: draw::FontKit) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);
     let shown = hud.shown(&rt.game, &files);
     let texts = hud.texts(&mut rt.game, shown);
     fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
+    // The text tiles' widths from the strings just written, before scripts read them
+    // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
+    if rt.game.ui_files.is_some() {
+        fonts.write_widths(&mut rt.game.ui_tree);
+    }
 }
 
 fn update(mut script: ResMut<ScriptState>) {
@@ -229,6 +235,10 @@ impl Plugin for TilesPlugin {
     fn build(&self, app: &mut App) {
         // Writes run after physics, before activation's scripts and PlaySet::Scripts;
         // evaluation runs after PlaySet::Scripts, before the menus draw [design: ui-tile-tree.md §4.1].
-        app.add_systems(Update, write.after(PlaySet::Physics).before(PlaySet::Activation)).add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui));
+        // The mod tiles draw with the menus, after evaluation [design: §4.1 step 4].
+        app.init_resource::<draw::TileFonts>()
+            .add_systems(Update, write.after(PlaySet::Physics).before(PlaySet::Activation))
+            .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, draw::draw.in_set(PlaySet::Ui));
     }
 }

@@ -107,9 +107,43 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     positions]. The scenario now starts at `--heading 50`, facing the town; its
     expectation is unchanged (passes with `hud-compass-north`).
 
+- **T5. Tile renderer v1, drawing injected tiles over the HUD.** Done 2026-10-29
+  (claude/t5-renderer); parts A and B below.
+  - `nvf-play/src/tiles/draw.rs`: each frame the mod roots of `HUDMainMenu` are laid
+    out (`layout.rs`) into pieces (pure, `pieces()`), the Bevy nodes rebuilt only when
+    they differ: boxes for rects with their own colour, atlas or file pictures, fnv-font
+    text with justification and wrapping, alpha, visibility, the colour rules and clips,
+    one root at `GlobalZIndex` 60 over the HUD. Units: 960 to the view's height
+    (`interface::u`). Font n is `interface::FONT_FILES` (moved from `credits.rs`), none
+    or 0 font 1. What each trait is taken to mean: menu-xml.md §3.1.2. Log line
+    `tiles: HUDMainMenu: N mod tiles drawn (M items)` when the counts change.
+  - Which tiles: `Ui::mod_tile_drawn` (Injected/Template always, Code never, File only
+    against the archived file's name paths, `Ui::file_name_paths`). The game cannot read
+    the archived copy under a loose file (one VFS location per path), so a loose HUD
+    replacement draws none of its file tiles in v1; `fnvtool ui mod-tiles --menu …`
+    shows the comparison (test install: vanilla 0, Clean Vanilla Hud 0, Vanilla UI
+    Plus 5, its `VUI+` outlines).
+  - Carried over from T4, done: text widths written back before scripts
+    (`fnv_game::ui_hud::write_text_widths`): the sneak word, the prompt's `button_text`
+    (its hotrect follows by the file's expression), the radiation value; the observed
+    widths are the font files' advances (menu-xml.md §3.1.2).
+  - Tests: `fnv_ui` `a_loose_replacement_draws_only_what_the_archived_file_lacks`;
+    `nvf-play` `tiles::draw` (four: which tiles, colours, depth order and clips, loose
+    HUD, font numbers and measuring); `crates/fnv-game/tests/ui_hud.rs`
+    `text_widths_follow_the_observed_measures_and_the_hotrect_its_child` (a fake
+    measurer with the font files' widths: the fonts are not available headless). Smoke
+    `ui-mod-tile-drawn` (a box, picture and text injected by the console, shot
+    `ui_mod_tile.png`) and `ui-mod-tiles-vanilla` (fnvtool, 0 tiles).
+  - Left: nif and radial tiles; another `.tai` than the shared atlas, `zoom`, `tile`,
+    `cropx`, `cropy`; numeric `justify` and system colour numbers; reading the archived
+    copy under a loose file in the VFS (then loose HUD files draw their own tiles);
+    every hypothesis in menu-xml.md §3.1.2 against the original (screenshots of a HUD
+    mod at the same view size); a HUD mod from a Viva New Vegas `mods` folder in game
+    (JAM's meters after T6).
+
 ## Next, in order
 
-1. **T5. Tile renderer v1, drawing injected tiles over the HUD.**
+1. **T5 parts A and B** (done with T5 above; kept for their notes).
    - [design] **Part A done:** tile origins, file paths and loose-file provenance;
      `mod_added_tiles` and code-owned template copies; pure layout in `tiles/layout.rs`
      (no Bevy drawing). [observed] Tests: three fnv-ui provenance/root-selection tests
