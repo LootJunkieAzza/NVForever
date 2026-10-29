@@ -2,6 +2,7 @@
 
 pub mod draw;
 pub mod layout;
+pub mod vanilla;
 
 use crate::{script::ScriptState, PlaySet, PlayState};
 use bevy::{ecs::system::SystemParam, prelude::*, window::PrimaryWindow};
@@ -147,6 +148,26 @@ impl HudTiles<'_> {
         }
     }
 
+    /// What the tile-drawn corners take beyond T4's writes (`vanilla::write_corners`): the
+    /// hand-built HUD's label places as the copies' tops and edges, the right piece's moved
+    /// from its `MARGIN_X` in to the tile piece's place on the view's edge [observed: hud.md
+    /// §14, `ActionPoints` at W - 386; design: `hud::label_places`].
+    fn corner(&self, shown: fnv_game::ui_hud::Shown, fonts: &mut draw::FontKit) -> vanilla::Corner {
+        let (labels, line) = fonts.hud_labels();
+        let shift = crate::hud::MARGIN_X;
+        let top = |(x, base): (f32, f32), shift: f32| (f64::from(x - shift), f64::from(base - line));
+        let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
+        vanilla::Corner {
+            hp: top(labels[0], 0.0),
+            ap: top(labels[1], shift),
+            cnd: top(labels[2], shift),
+            ammo: top(labels[3], shift),
+            right_bracket: -f64::from(shift),
+            ammo_label: if shown.ammo_label { weapon.abbrev.unwrap_or_default() } else { String::new() },
+            condition: shown.condition,
+        }
+    }
+
     fn texts(&self, game: &mut fnv_game::Game<'_>, shown: fnv_game::ui_hud::Shown) -> fnv_game::ui_hud::Texts {
         // Read the drawing's current values before scripts, as for Shown [design:
         // ui-tile-tree.md §4.1]; the strings' file tiles [observed: hud.md §14.2].
@@ -208,7 +229,7 @@ impl HudTiles<'_> {
     }
 }
 
-fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut fonts: draw::FontKit) {
+fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut fonts: draw::FontKit, menus: Res<vanilla::TileMenus>) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);
     let shown = hud.shown(&rt.game, &files);
@@ -218,6 +239,10 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut f
     // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
     if rt.game.ui_files.is_some() {
         fonts.write_widths(&mut rt.game.ui_tree);
+        if menus.hud {
+            let corner = hud.corner(shown, &mut fonts);
+            vanilla::write_corners(&mut rt.game.ui_tree, &corner);
+        }
     }
 }
 
@@ -236,9 +261,13 @@ impl Plugin for TilesPlugin {
         // Writes run after physics, before activation's scripts and PlaySet::Scripts;
         // evaluation runs after PlaySet::Scripts, before the menus draw [design: ui-tile-tree.md §4.1].
         // The mod tiles draw with the menus, after evaluation [design: §4.1 step 4].
+        // T12a: `[UI] TileMenus=` read at start; the hand-built pieces the tiles draw are
+        // hidden after every drawing system, before visibility is passed down [design].
+        vanilla::setup(app);
         app.init_resource::<draw::TileFonts>()
             .add_systems(Update, write.after(PlaySet::Physics).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
-            .add_systems(Update, draw::draw.in_set(PlaySet::Ui));
+            .add_systems(Update, (draw::draw, draw::scroll).chain().in_set(PlaySet::Ui))
+            .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }

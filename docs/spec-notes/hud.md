@@ -812,3 +812,48 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   `CompassView` marks, current weapon/ammo, accumulated radiation actor value and
   existing activation prompt. Drawing systems are unchanged; snapshots gathered
   after scripts become available to the next frame's before-script writes.
+
+### 14.7 The HUD drawn from its tiles: which hand-built piece goes (T12a)
+
+[design] With `[UI] TileMenus=HUDMainMenu` (`engine/nvf-play/src/tiles/vanilla.rs`; the
+test aid `NVF_PLAY_TEST_TILE_MENUS`) the tile renderer draws the whole `HUDMainMenu`
+tree: the file's tiles, the code-made copies (§14.6) and the mods' (menu-xml.md §3.1.3).
+Each hand-built piece is mapped to the HUD file's piece by this note's sections; it is
+hidden only where the tree's tiles are filled enough to draw it. Off, nothing changes.
+
+| Hand-built (nvf-play) | HUDMainMenu piece | With the switch on |
+|---|---|---|
+| `hud.rs` left corner: bracket, "HP", health bar, compass strip and marks (`compass.rs`) | `HitPoints` (`left_bracket`, `justify_left_text`, `meter`, `compass_window` and its icon groups, §14.4-§14.6) | tiles; hand-built hidden |
+| `hud.rs` right corner: bracket, AP bar, "AP", "CND", condition ground and fill, jam arrows, ammo counter and its abbreviation | `ActionPoints` (§14.3, §14.6), `CNDArrows`, `AmmoTypeLabel` | tiles; hand-built hidden |
+| `hud.rs` sneak word | `SneakMeter/sneak_nif` (§14.1-§14.2) | tiles; hand-built hidden |
+| `reticle.rs` crosshair (plain/filled, spread, gun cross) | `ReticleCenter/reticle_center` (§14.4) | tiles; hand-built hidden |
+| `radiation.rs` meter | `RadiationMeter` (§14.1-§14.2) | tiles; hand-built hidden |
+| `hud.rs` enemy bar (`hud_target.rs`) | `EnemyHealth` | hand-built: its children are not built (§14.6) |
+| `reticle.rs` prompt (key, verb, name, value and weight) | `Info` | hand-built: the code-made texts have no captured places, the divider is not built |
+| `hud_needs.rs` words | `HardcoreMode` | hand-built: the words have no places, the piece's alpha is not written |
+| `xp_meter.rs` | `XPMeter` | hand-built: its children's visibility is not written |
+| `hud_limbs.rs` | `crippled_limb_indicator` | hand-built: its pictures' alpha and places are not written |
+| `hud_breath.rs` | `BreathMeter` | hand-built: a `nif` tile (`Interface\HUD\AirTimer01.NIF`), not drawn |
+| `corner_messages.rs` | `Messages` | hand-built: its text and icon copies are not built |
+| `quest_messages.rs` | `QuestReminder`, `Region_Location` | hand-built: no texts in the tree |
+| `script_hud.rs` subtitles | `Subtitles` | hand-built: its text copy is not built |
+| `sneak_gauges.rs` (NVForever's own, off by default) | none | hand-built |
+
+- [design] The kept pieces' file and code tiles are not drawn (`KEPT_PIECES`), a mod's
+  tiles under them still are.
+- [design] What the tile-drawn corners need that T4 does not write is written only while
+  the switch is on (`vanilla::write_corners`): the corner labels' copies at the
+  hand-built HUD's places (`hud::label_places`; their places were not captured), the
+  right piece's moved by its 40 units (`MARGIN_X`, the hand-built piece stands 40 in from
+  the view's edge, the tile piece at it); the condition ground's alpha a quarter
+  (`hud::GROUND`'s [hypothesis]); "CND", the ground and `CNDArrows` shown by alpha only
+  with a weapon's condition.
+- [hypothesis] `ActionPoints/right_bracket` at x -40: where the hand-built bracket stands
+  on the screen, which §14 found where the original's corner lands.
+- [hypothesis] `AmmoTypeLabel` shows the ammo's abbreviation (by its name and place; its
+  string was not read, §14.2).
+- Differences from the hand-built drawing, for T12b's comparison: hostile compass ticks
+  and a hostile crosshair are the HUD's colour, not red (the tree has no trait for them);
+  the crosshair does not spread (the original's look, §14.4); the warning sneak words are
+  the HUD's colour; the corners show whenever the root does (the hand-built HUD also
+  hides them under a movement lock, a portrait, a held camera and the weapon wheel).
