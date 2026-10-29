@@ -121,6 +121,13 @@ partially disabled: Action Points, Health, Crosshair".
   apart, the N split over the two ends: 1024 texels are one full turn.
 - `hud_compass_alphamap.dds` (64 x 16): white for the first 20 texels, then black.
   Nothing in the files says how it is used [hypothesis: it fades the compass's ends].
+  Its step is not the shape of the original's fade, which runs over about 70 units at
+  the window's right end (§4, §14.10) [observed].
+- **The atlas pieces are other art** than these own files (menu-xml.md §3.1.3): the
+  brackets' pieces in `interfaceshared.tai` have stepped end caps by the bars, cut
+  corners, a doubled long line and the health underline's hard end; the strip's piece a
+  doubled line with thick bars between the letters [observed: decoded, T12c]. The
+  original draws the pieces [observed: §14.10]; both NVForever drawings do since T12e.
 
 ## 4. How NVForever sets it out
 
@@ -132,18 +139,27 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   edge. Each bracket picture is drawn texel for unit at its piece's top left corner.
 - The bars stand on the long line, about 4 above it. A full bar is 37 ticks, 296 long
   (the file's "total width" is 300), from the upright's inner edge to just short of the
-  bracket's corner mark: x 21–317 on the left, 68–364 on the right [observed: on the
+  bracket's corner mark: x 20–316 on the left, 68–364 on the right [observed: on the
   `Target healthbar` screenshot the first tick starts at the upright's inner edge and
   the last ends about 2 pixels before the mark; on the right the first starts about 2
   pixels after the mark and the last meets the upright; owner's playtest 2026-10-16,
   after x 24–320 / 70–366 ran the last ticks into the mark and the upright; measured
   again 2026-10-16: left tick edges at x 69, 78 … 384 on both, right at 1520 … 1844 on
-  the original against 1518 … 1842 with 67–363].
+  the original against 1518 … 1842 with 67–363]. "The last meets the upright" was an
+  observation by eye at 1080 lines, not the owner's request (the owner's was the
+  opposite: no tick into the mark or the upright), and the 720-line shots contradict it:
+  every tick's block stands at the start of its step, the picture's 2 clear texels after
+  it, on both bars, so the action points' last tick ends that strip short of the upright
+  [observed: hud_compare needs_off at 1280 x 720, the original's last AP tick at x
+  1229-1232, a pixel clear of the upright at 1234; its first health tick at 45, the last
+  ending at 265, a pixel before the step cap at 267; the health bar's tile read at x 20,
+  §14]. Until T12e the action points' row put the strip before its first tick and its
+  last met the upright, and the health bar stood at 21 [design, corrected T12e].
 - The ticks are all as wide (whole pixels), and a full bar spans its room at any view
   size: the first tick at the bar's start, the last ending the tick's clear strip
-  (`round(8 × scale) − round(6 × scale)`) short of its end on the left, the first that
-  far in on the right; the ticks between stand on whole pixels evenly spread, so the
-  gaps differ by a pixel at most [design: a whole-pixel step `round(8 × scale)` left a
+  (`round(8 × scale) − round(6 × scale)`) short of its end, on both bars since T12e (the
+  first that far in on the right before); the ticks between stand on whole pixels evenly
+  spread, so the gaps differ by a pixel at most [design: a whole-pixel step `round(8 × scale)` left a
   full bar up to 25 pixels short of the mark or the upright at sizes where 8 × scale is
   not whole, 1280 × 800 or a maximised window; owner's playtest 2026-10-16, "a gap at
   the end of each"]. At 720, 1080 and 1440 lines the gaps are all equal, as before.
@@ -167,10 +183,17 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - The compass window is where the file puts it. The heading is in its middle: the
   strip is shifted by heading / 360 x 1024 [observed: §14.5]. The heading stands at the
   bracket's triangle (x 148 of the window, 168 of `HitPoints`), not the window's middle
-  (x 192 of `HitPoints`) [observed: §14.5].
-  The ends are cut off sharp.
+  (x 192 of `HitPoints`) [observed: §14.5]: the marks' heading point. The strip's own
+  N stands 6 further right at heading 0, x 154 of the window (`hud::STRIP_HEADING`)
+  [observed: §14.10; design until T12e: the strip at 148 too, its N 4.5 pixels left of
+  the original's at 720 lines].
+  The left end is cut off sharp; the right end fades out from x 273 of the window to
+  nothing at 341, linearly (`hud::STRIP_FADE`, `hud::strip_parts`), the marks over it
+  not faded [observed: §14.10; hypothesis: linear]. Until T12e both ends were sharp.
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
-  long and 20 high [documented: the size] at a quarter of the bar's strength
+  long and 20 high [documented: the size], the bar at brightness 175 over an opaque
+  ground at 100 [observed: §14.7, the original's 175/255 and 100/255 of the HUD's colour;
+  T12e]; until T12e the bar at 255 over the bar's colour at a quarter's alpha
   [hypothesis: as `meter.xml`'s ground]. The bar ends 17 before the divider (x 130–190)
   [observed: §14, read through xNVSE and on its screenshot; 10 before stood 7 too far
   right],
@@ -188,8 +211,14 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   right of the divider, whatever the counter's length [observed: the owner's screenshot
   2026-10-25 of the original, a 12 gauge with "1/16", marks the label's room at
   1680-1765 of 1920 pixels, the divider at 1672: 214-290 units; owner 2026-10-25:
-  "anchor it to the left separator not against the ammo count"]. A thrown weapon and a
-  weapon that uses no ammo show no label.
+  "anchor it to the left separator not against the ammo count"; commit 5887ee0e "at the
+  owner's request"]. A thrown weapon and a weapon that uses no ammo show no label.
+  **The maintainer's choice, kept (T12e).** The original at 1280 x 720 draws it **left**
+  of the divider, right-justified at `AmmoTypeLabel`'s captured x W - 236 ("HP" at x
+  1085-1104 pixels, the divider at 1114), the counter alone on the right, and moves
+  "CND", the condition bar and its arrows left by the abbreviation's width + 20 (50 for
+  "HP", 30 wide) [observed: hud_compare hud-ammo-label; hypothesis: the rule, one
+  abbreviation seen]. The tile-drawn HUD does that (§14.7).
 - Over the condition bar, the jamming threshold: `CNDArrows`, the picture
   `interface\shared\arrow\repair_meter_pips.dds` [documented: hud_main_menu.xml, its
   place "set in code"], two black arrows at the picture's top and bottom edges pointing
@@ -199,7 +228,11 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   at the top and the bottom (22 × 22) and cut to the bar, the arrows'
   middle at three quarters of the bar [owner: "the 75% threshold on condition … when
   jamming occurs"; observed: at about 0.75–0.79 of the bar on the screenshot].
-- Everything is in the interface's amber at full brightness.
+- Everything is in the interface's amber at full brightness, but the bars' ticks (175,
+  §14.9) and the condition row (175 and 100, above).
+- The brackets and the compass strip are their atlas pieces, stretched over their boxes,
+  the right bracket's 4 units right of its piece's corner (`hud::RIGHT_BRACKET_X`)
+  [observed: §3, §14.10; design until T12e: the own files at the corners].
 
 ## 5. Where the numbers come from
 
@@ -248,7 +281,8 @@ the compass the eight directions' letters in Bevy's font.
   place, the brightness of lines against text (§4 measured the bars, labels and the
   condition bar).
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
-- The compass's faded ends.
+- The compass's faded ends: the right end's fade is built (§4, T12e); how the original
+  makes it is not known.
 - [observed: private job hud_xp_limbs2, x9_level_up_long] XP meter: about 2 s fade in,
   2 s hold/glide (pointer starts at full alpha), 2 s fade out; LEVEL UP alone afterwards,
   up within 0.34 s, held about 1.3 s. [hypothesis] `xp_meter.rs` fits the notice at
@@ -403,6 +437,17 @@ menu's (`dialogue_menu.rs`).
   `_Distance` "set by code, distance to this object in game" and no trait reads it, so the
   original's compass shows none [documented: `menus/prefabs/compassicon.xml`, Fallout -
   Misc.bsa].
+- [observed: hud_compare hud-bars-partial, hud-ammo-label, perk-meltdown-anatomy,
+  xp-meter at 1280 x 720] A quest target off the compass's band is still drawn, held
+  under the line's end: in all four shots at the left end, its middle at x 53.5-54
+  pixels (the band's end, `_Heading` 0 with the icon's 40-unit box); in range it stands
+  at its bearing (needs_limbs, at SE, full brightness where the strip beside it fades).
+  [hypothesis] A target to the right is held at the right end. Built T12e
+  (`compass::pinned`, both drawings through `CompassView`); the log line counts them:
+  `… <m> on the compass, <k> held at an end`. Until T12e an off-band target had no mark
+  [hypothesis: the actor ticks' band, §14.5]. None of NVForever's comparison scenes had a
+  quest target (`compass: 0 quest target(s) placed`): no quest is started in them; the
+  original's save has one.
 - [design, T12d] Who and what is near is looked at ten times a second; where each mark
   stands is worked out every frame from the camera's heading, the player's place and the
   actors' moving bodies, unrounded (`compass::place`), before the tile HUD's writes, so
@@ -410,7 +455,8 @@ menu's (`dialogue_menu.rs`).
   units and only ten a second: the marks stepped while turning (§14.9).
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
   Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
-  `compass: <n> quest target(s) placed, <m> on the compass` when those change.
+  `compass: <n> quest target(s) placed, <m> on the compass, <k> held at an end` when
+  those change.
 
 ## 12. The crippled-limb picture (owner 2026-10-17)
 
@@ -473,8 +519,15 @@ menu's (`dialogue_menu.rs`).
   with words at x 0, 55, 109, 162, 218 and y 0, zoom 75 in every mode, including
   hidden words. Each x is the preceding x + its width + 10. [documented:
   hud_main_menu.xml, HardcoreMode] Right-justified. [hypothesis] The hand-built drawing
-  treats x as the right end, and uses the font's ink top at y 0. History: two font
-  spaces after HP, one between, on UPPER_BASE [hypothesis].
+  treats x as the right end. History: two font spaces after HP, one between, on
+  UPPER_BASE [hypothesis].
+- [observed: hud_compare needs_limbs at 1280 x 720; the font] **The zoom 75 does not
+  shrink the words.** The original's are 17 pixels tall (y 603-619), as tall as its
+  "HP", their right ends at x 145, 186, 226, 266, 308; the widths the capture read (45,
+  44, 43, 46, 43) are font 7's at 100 ("H20" 45, "LMB" 43, "HP" 30). T12b drew them at
+  0.75 (13 pixels, their starts right of the original's) [design, corrected T12e]: both
+  drawings draw them at the font's size, the first line `TEXT_BASE` (24) under the
+  piece's top (the capitals' top a pixel under it, as the original's) [hypothesis].
 - **Looks** [design: owner 2026-10-23]: faded (dim), normal amber, red, flashing red.
   [observed: private job hud_hardcore2, hc2, hc6; hud_radiation2, r_in_200, r_in_300]
   Faded alpha is 124/255. [observed: private job hud_hardcore2, hc5] Flashing words
@@ -501,7 +554,10 @@ menu's (`dialogue_menu.rs`).
   limb word's looks above. [observed: private jobs hud_hardcore2, hc9-hc10;
   hud_xp_limbs, l1_leg, l2_head] One limb has alpha 124, systemcolor 1; two alpha 255
   (two-limb colour and 3+ not read). Draft issue: decide whether LMB should use the
-  observed faded/normal looks for one/two crippled limbs.
+  observed faded/normal looks for one/two crippled limbs. [observed: hud_compare
+  needs_limbs and needs_off, an arm and both legs crippled] The original's LMB is the
+  alternative red at full alpha with three: the hand-built "flashing" at three is the
+  owner's look, kept; the tile HUD draws three or more red (§14.10).
 - **When they show**: H20, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
   [design: radiation sickness is not a Hardcore rule]. LMB in every mode
   [observed: private job hud_hardcore2, hc9-hc10]. RAD and LMB keep their x 162 and
@@ -827,10 +883,11 @@ every mark's `x` and `visible` under `compass_window/*:k/*:m`.]
   (its tip about x 167 of `HitPoints`, N's middle about 172), which settles §4's open
   question: the heading is at the triangle, not the window's middle (172.5 of the window,
   192.5 of `HitPoints`).
-- [design] NVForever uses `hud.rs`'s `COMPASS_HEADING`, x 148 of the window, for both
-  the strip and the marks (`compass.rs`), keeping 1024 units per turn; a mark shows
-  while its offset from the heading point is within 139 units either way [observed: actor
-  ticks and one place mark in the sweep; hypothesis: the same band for quest marks].
+- [design] NVForever uses `hud.rs`'s `COMPASS_HEADING`, x 148 of the window, for the
+  marks (`compass.rs`), keeping 1024 units per turn; a mark shows while its offset from
+  the heading point is within 139 units either way [observed: actor ticks and one place
+  mark in the sweep]; a quest mark off the band is held at its end (§11, T12e). The
+  strip's N stands at 154 (`STRIP_HEADING`, T12e, §14.10): until T12e at 148 too.
 
 ### 14.6 Headless copies and provisional rules (T5)
 
@@ -921,13 +978,19 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
   (`hud::GROUND`'s [hypothesis]); "CND", the ground and `CNDArrows` shown by alpha only
   with a weapon's condition.
 - [hypothesis] `ActionPoints/right_bracket` at x -40: where the hand-built bracket stands
-  on the screen, which §14 found where the original's corner lands.
+  on the screen, which §14 found where the original's corner lands. [observed: T12e,
+  §14.10] Drawn there the atlas piece's divider, upright and step cap stood 3 pixels (4
+  units) left of the original's at 720 lines: x -36 since T12e
+  (`vanilla::RIGHT_BRACKET_X`).
 - [hypothesis] `AmmoTypeLabel` shows the ammo's abbreviation (by its name and place; its
-  string was not read, §14.2). [design, T12c] While on, `write_corners` also sets its
-  place where the hand-built HUD sets the abbreviation (`AMMO_LABEL_X` right of the
-  divider, on the counter's line; the tile is right-justified, so its x is that start
-  plus the text's width): §14's W - 236, 883 was read with nothing shown (13 wide), and
-  there an abbreviation stood over the condition bar.
+  string was not read, §14.2). [observed: T12e, hud_compare hud-ammo-label] It stays at
+  §14's captured W - 236, 883 (right-justified: its right end just left of the divider),
+  and `write_corners` moves the condition row ("CND", the ground and fill, `CNDArrows`)
+  left by the abbreviation's width + 20 (`vanilla::condition_shift`, `LABEL_ROOM`)
+  [hypothesis: the rule, one abbreviation seen; the row follows the weapon also while the
+  HUD is hidden, design]. History [design, T12c]: the label at the hand-built HUD's
+  place right of the divider, because at W - 236 it stood over the unmoved condition
+  bar.
 - [design, T12c] While on, the condition fill (`ActionPoints/meter:0`,
   `vats_bar.dds`) gets `zoom` 100 × 20/11 (`vanilla::CONDITION_FILL_ZOOM`): the picture's
   drawn block is 74 x 11 of its 128 x 16 texels [observed: the texture], so tiled at a
@@ -935,8 +998,9 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
   [observed: private shots `hud_corners2` c0, c4, rows 665-679 at 720 lines]. How the
   original fills it is not traced (its `zoom`, `cropx`, `cropy` were not read).
 - [observed, T12c] The original's condition fill is 175/255 of the HUD's colour and its
-  ground an opaque 100/255 (same shots); the hand-built row draws 255 and a quarter-alpha
-  ground, the tile row 255 and alpha 64. Not changed.
+  ground an opaque 100/255 (same shots); the hand-built row drew 255 and a quarter-alpha
+  ground, the tile row 255 and alpha 64. Both draw the original's since T12e (the fill's
+  and the ground's `brightness` 175 and 100, the ground at alpha 255).
 - [design] Differences still to compare: the crosshair does not spread (the original's
   look, §14.4); the warning sneak words are
   the HUD's colour; the corners show whenever the root does (the hand-built HUD also
@@ -983,8 +1047,9 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   H20/FOD/SLP only in Hardcore, RAD/LMB in both. Stage looks: absent alpha 0;
   Minor 124/main; Advanced 255/main; Critical 255/alt; Deadly flashes 128..255/alt.
   One cripple gives LMB 124/main; two give 255 (colour unread). [hypothesis] Fatal
-  follows Deadly, RAD follows need colours above 600, LMB two or more retains main
-  colour/255 (3+ unmeasured). [design] Use a synchronized 0.6 s cosine for word
+  follows Deadly, RAD follows need colours above 600, LMB two retains main colour/255.
+  [observed: T12e, hud_compare needs_limbs and needs_off] Three give LMB 255 in the alt
+  red (steady in both shots); until T12e the tile HUD kept main colour there (amber). [design] Use a synchronized 0.6 s cosine for word
   alpha until the period is measured. These tile rules supersede §13's provisional
   placement/opacity/count rules only for the tile HUD.
 - [observed: private jobs hud_prompt, hud_prompt2 p0-p8] Info indices 0..8 are
@@ -1053,7 +1118,8 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   their drawing/timing logic and optional sneak gauges stay untouched. Prompt/enemy
   copies and XP readout widths are measured with the game fonts. Text zoom scales
   glyphs about the top left [hypothesis: anchor unobserved]; image zoom remains
-  menu-xml.md §3.1.3's interpretation.
+  menu-xml.md §3.1.3's interpretation. [observed: T12e] A text's zoom 75 does not shrink
+  the original's words (§13): the tile drawing no longer scales text by `zoom`.
 
 ### 14.9 T12d: the ticks' picture, the bars as one image, smooth compass marks (2026-10-29)
 
@@ -1107,3 +1173,57 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   only moved (`tiles::draw::moved_only`), and the hand-built marks' nodes move in place
   while their kinds stay. Nodes still land on whole pixels (Bevy's layout rounding), as
   the strip's does.
+
+### 14.10 T12e: the HUD's remaining differences from the original (2026-10-29)
+
+[observed: the three-way comparison at 1280 x 720 of 2026-10-29, the original's frames
+`C:\fnv-private\capture\shots\hud_compare_*` (1920 x 1080 scaled to 1280 x 720, 0.75
+pixels a unit) against NVForever's hand-built and tile-drawn rows, measured on the raw
+frames; one run each. Private, not shipped.] What changed, with the maintainer's choices
+the hand-built HUD (the default) keeps:
+
+| Difference | Hand-built HUD | Tile HUD |
+|---|---|---|
+| Ammo abbreviation left of the divider, the condition row 50 left for "HP" (§4) | kept: the owner's place right of the divider (commit 5887ee0e) | fixed: `AmmoTypeLabel` at W - 236, `vanilla::condition_shift` |
+| Need words 13 pixels tall, starting right of the original's (§13) | fixed: at the font's size | fixed: text `zoom` not applied |
+| The AP bar's last tick against the upright (§4) | fixed: the clear strip after every tick; the health bar at x 20 | fixed: the right bracket at x -36 |
+| LMB with three limbs (§13) | kept: the owner's flashing look | fixed: alt red, 255 |
+| Quest marker under the compass (§11) | no quest in the scenes; off-band targets now held at the end | the same, through `CompassView` |
+| The strip's right end fades (§4) | fixed: `strip_parts` | fixed: the same parts |
+| Condition bar 175, ground 100 (§4) | fixed | fixed |
+| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | needs a capture (below) |
+| Compass pattern, end caps, health underline (§3) | fixed: the atlas pieces | already the pieces |
+| Radiation ruler 40 units long, ticks 16.7 pixels | fixed: the bracket at its texels' size, the owner's place and texts kept on the screen (radiation.md §6) | already |
+| The strip 4 pixels left (§4) | fixed: `STRIP_HEADING` 154 | fixed: shared `strip_left` |
+
+- **The right bracket's place** [observed: needs_off, ammo-label, limbs_hidden,
+  xp_meter]: drawn at the right piece's corner the atlas piece's divider stood at x
+  1111-1113, the upright from 1231-1232, the step cap from 998, the original's at
+  1114-1116, 1234 and 1001-1002: 3 pixels, 4 units, the same in every shot.
+- **The strip's N** [observed: compass-north, heading 0]: the original's centred at x
+  159.5 pixels, the pointer's tip at about 153.5, both NVForever rows' N at 155 with the
+  strip at 148: 4.5 pixels, 6 units.
+- **The fade** [observed: needs_off, xp_meter; the strip's line over the ground]: about
+  0.68 of the colour at x 266 pixels, 0.38 at 280, 0.21 at 290, 0.05 at 298: from full at
+  about 250 to nothing at about 300.5 (window x 273 to 341). The quest marker at SE
+  (x 255-264) is drawn full where the line beside it is at about 0.8.
+- **Needs a capture: LEVEL UP on the tile HUD (5 pixels high).** The original's font-8
+  texts stand 30.7 units under their tiles' read `y` (`XPAmount` y 90: "+54" ends at y
+  578 pixels; `XPLevelUp` y 70: ends at 563), the radiation value 29.3 under the file's
+  y 65; its font-7 texts 22-24 (`XPLabel` y 80 ends at 564, the enemy's name, the need
+  words) but `radiation_text`, set at the same y as the value, also 29.3 [observed:
+  xp_meter, xp_levelup_menu, environment-radiation, perk-meltdown-anatomy]. A rule by
+  font (`TEXT_BASE` 24 for font 7, about 31 for font 8) would put "+9" under "RAD/SEC"'s
+  line, where the original shows them on one: read `radiation_text`'s and
+  `radiation_text_value`'s `y` (and `height`) in radiation before changing `TEXT_BASE`.
+- Tests: `hud::{the_last_action_point_tick_stands_clear_of_the_upright,
+  the_compass_strip_fades_out_at_its_right_end, the_compass_keeps_the_heading_at_the_triangle,
+  the_pieces_stand_inside_their_brackets}`, `hud_needs::the_words_are_drawn_unscaled_and_end_at_their_x`,
+  `compass::a_quest_target_off_the_compass_is_held_at_its_end`,
+  `xp_meter::level_up_stands_above_the_amounts_line`,
+  `radiation::the_bracket_stands_unstretched_where_it_stood`,
+  `tiles::vanilla::the_corners_take_the_hand_built_places_and_the_condition_row_its_rule`,
+  `tiles::draw::tiles_numeric_colours_match_symbols_and_flow_to_enemy_children` (text
+  zoom), `crates/fnv-game/tests/ui_hud.rs`
+  `need_words_keep_places_and_use_stage_alpha_and_colour_in_both_modes` (LMB). Smoke
+  `tiles-hud-ammo-label` (new), `hud-compass-north` (the strip's log line).

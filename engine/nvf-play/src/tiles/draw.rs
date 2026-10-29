@@ -27,7 +27,7 @@
 
 use super::layout::{self, Alignment, Kind, Rect as TileRect};
 use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
-use crate::hud::{strip_left, HudView, STRIP};
+use crate::hud::{strip_left, strip_parts, HudView, STRIP};
 use crate::interface::{self, at, bc_supported, face, plain_font, set_line, u, Face, Pictures, SizedPicture, FONT_FILES};
 use crate::repeat::{self, Repeats};
 use crate::script::ScriptState;
@@ -104,7 +104,7 @@ impl FontKit<'_> {
     /// HUD's [documented: hudtemplates.xml's text templates], and how far a text tile's
     /// first line stands below its top ([`TEXT_BASE`]): what a text tile's `y` is above
     /// the line.
-    pub(crate) fn hud_labels(&mut self) -> ([(f32, f32); 5], f32) {
+    pub(crate) fn hud_labels(&mut self) -> ([(f32, f32); 4], f32) {
         self.load(7.0);
         match self.face(7.0) {
             Some(face) => (crate::hud::label_places(&face.font), TEXT_BASE),
@@ -167,8 +167,9 @@ pub enum Fit {
     /// hud.md §14.3; zoom as the multiplier of the picture's size, GECK wiki Zoom].
     Tiled(f64),
     /// The compass strip: twice side by side, moved across its window by the heading
-    /// (nothing in the tree moves it, hud.md §14.4) at 1024 units a turn with the heading
-    /// at x 148 of the window [observed: hud.md §14.5; design: `hud::strip_left`, the
+    /// (nothing in the tree moves it, hud.md §14.4) at 1024 units a turn with its N at
+    /// x 154 of the window at heading 0, and fading out at the window's right end
+    /// [observed: hud.md §14.5, T12e; design: `hud::strip_left`, `hud::strip_parts`, the
     /// hand-built HUD's own].
     Strip,
 }
@@ -195,7 +196,8 @@ pub enum Look {
     Box,
     /// An `image`'s `filename`, read as `source` says, filling its box as `fit` says.
     Picture { name: String, source: Source, fit: Fit },
-    Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment, zoom: f64 },
+    /// At the font's own size, whatever the tile's `zoom` ([`layout::Text::zoom`]).
+    Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment },
 }
 
 /// Where a picture's texture stands in its box, in interface units from the box's top
@@ -410,7 +412,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
                 Look::Picture { name: image.filename.trim().to_string(), source, fit }
             }
             Kind::Text(text) if !text.string.is_empty() => {
-                Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment, zoom: text.zoom }
+                Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
             }
             // Empty rects only place their children; nif, radial and window tiles
             // are not drawn in v1 [design].
@@ -439,9 +441,12 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
 #[derive(Component)]
 struct TileRoot;
 
-/// The compass strip of a [`Fit::Strip`] picture, moved by [`scroll`].
+/// The compass strip of a [`Fit::Strip`] picture in one of its window's parts, `left`
+/// units into the window (`hud::strip_parts`), moved by [`scroll`].
 #[derive(Component)]
-pub(crate) struct TileStrip;
+pub(crate) struct TileStrip {
+    left: f32,
+}
 
 #[derive(Default)]
 pub(crate) struct Drawn {
@@ -526,29 +531,35 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Pickable::IGNORE));
                     })
                     .id(),
+                // The window in upright parts, the last ones fading as the original's
+                // (`hud::strip_parts`, T12e), each cutting its copy of the doubled strip.
                 Placed::Strip => p
-                    .spawn((cut, Pickable::IGNORE))
+                    .spawn((node, Pickable::IGNORE))
                     .with_children(|c| {
-                        c.spawn((TileStrip, at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
-                            for i in 0..2 {
-                                s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Pickable::IGNORE));
-                            }
-                        });
+                        for (left, width, alpha) in strip_parts() {
+                            let mut part = at(left, 0.0, width, f(r.height));
+                            part.overflow = Overflow::clip();
+                            let faded = ImageNode { color: colour.with_alpha(ca * alpha), rect, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) };
+                            c.spawn((part, Pickable::IGNORE)).with_children(|w| {
+                                w.spawn((TileStrip { left }, at(strip_left(ctx.heading) - left, 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
+                                    for i in 0..2 {
+                                        s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), faded.clone(), Pickable::IGNORE));
+                                    }
+                                });
+                            });
+                        }
                     })
                     .id(),
             })
         }
-        Look::Text { string, font, wrap, alignment, zoom } => {
+        Look::Text { string, font, wrap, alignment } => {
             let face = ctx.fonts.faces.get(font)?;
             let id = p
                 .spawn((node, Pickable::IGNORE))
-                .with_children(|outer| {
-                    // [design] A zero-size wrapper scales glyphs about the text's top left.
-                    outer.spawn((at(0.0, 0.0, 0.0, 0.0), UiTransform { scale: Vec2::splat(*zoom as f32), ..default() }, Pickable::IGNORE)).with_children(|t| {
-                        for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width / zoom) {
-                            set_line(t, face, &line, x, base, colour);
-                        }
-                    });
+                .with_children(|t| {
+                    for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width) {
+                        set_line(t, face, &line, x, base, colour);
+                    }
                 })
                 .id();
             Some(id)
@@ -713,10 +724,10 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
 
 /// Move the tile-drawn compass strip to the heading [design: as the hand-built HUD's
 /// `hud::draw` moves its own, `hud::strip_left`; hud.md §14.4-§14.5].
-pub(crate) fn scroll(hud: Option<Res<HudView>>, mut strips: Query<&mut Node, With<TileStrip>>) {
+pub(crate) fn scroll(hud: Option<Res<HudView>>, mut strips: Query<(&TileStrip, &mut Node)>) {
     let Some(hud) = hud else { return };
-    let left = interface::u(strip_left(hud.heading));
-    for mut node in &mut strips {
+    for (part, mut node) in &mut strips {
+        let left = interface::u(strip_left(hud.heading) - part.left);
         if node.left != left {
             node.left = left;
         }
@@ -775,7 +786,7 @@ mod tests {
         let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
         assert_eq!(drawn[1].look, Look::Picture { name: "solid.dds".into(), source: Source::Shared, fit: Fit::Stretch });
         assert_eq!(drawn[1].colour[..3], hud);
-        assert_eq!(drawn[2].look, Look::Text { string: "abc".into(), font: 1, wrap: None, alignment: Alignment::Right, zoom: 1.0 });
+        assert_eq!(drawn[2].look, Look::Text { string: "abc".into(), font: 1, wrap: None, alignment: Alignment::Right });
         assert_eq!(drawn[2].rect, TileRect { left: 75.0, top: 56.0, width: 30.0, height: 20.0 });
         assert_eq!(drawn[2].colour, [0.0, 0.0, 0.0, 128.0 / 255.0]);
         // The HUD hidden hides them; a zero alpha too.
@@ -806,7 +817,7 @@ mod tests {
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
         assert_eq!(drawn[3].clip, Some(TileRect { left: 0.0, top: 0.0, width: 40.0, height: 40.0 }));
         assert_eq!(drawn[1].clip, None);
-        assert_eq!(drawn[2].look, Look::Text { string: "x".into(), font: 1, wrap: None, alignment: Alignment::Left, zoom: 1.0 });
+        assert_eq!(drawn[2].look, Look::Text { string: "x".into(), font: 1, wrap: None, alignment: Alignment::Left });
     }
 
     #[test]
@@ -844,8 +855,10 @@ mod tests {
         }
         let red = system_colour(&Value::Num(2.0)).unwrap().map(|c| c * (175.0 / 255.0));
         assert_eq!(drawn[0].colour[..3], red);
-        assert_eq!(drawn[1].rect, TileRect { left: -22.5, top: 0.0, width: 22.5, height: 15.0 });
-        assert!(matches!(drawn[1].look, Look::Text { zoom: 0.75, .. }));
+        // T12e: the text's zoom 75 neither shrinks its box nor its glyphs (the original's
+        // Hardcore words, hud.md §13); right-justified, its x is the box's right end.
+        assert_eq!(drawn[1].rect, TileRect { left: -30.0, top: 0.0, width: 30.0, height: 20.0 });
+        assert!(matches!(drawn[1].look, Look::Text { .. }));
         for name in ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator"] {
             assert!(!KEPT_PIECES.contains(&name));
         }

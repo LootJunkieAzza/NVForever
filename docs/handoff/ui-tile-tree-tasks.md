@@ -461,6 +461,29 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         `repeat::{a_piece_repeats_from_its_top_left, a_box_holds_whole_texels}`; the
         `tiles::vanilla` corner test checks the brightness. Only `cargo check -p nvf-play
         --tests` was run.
+    - **T12e done** 2026-10-29 (`claude/t12e-vanilla`): the remaining differences of the
+      three-way comparison at 1280 x 720 (hud.md §14.10; the original's frames private).
+      Tile HUD (follows the original): `AmmoTypeLabel` at its captured W - 236 with the
+      condition row moved left by the abbreviation's width + 20
+      (`vanilla::condition_shift`) [observed; hypothesis: the rule]; text `zoom` no
+      longer applied (the need words as tall as "HP") [observed]; the right bracket at
+      x -36 (`vanilla::RIGHT_BRACKET_X`; at -40 its divider, upright and cap stood 3
+      pixels left) [observed]; LMB alt red at three limbs [observed]; condition fill
+      175 and ground an opaque 100 [observed, T12c]; the strip's N at 154 and its right
+      end fading (`hud::strip_parts`) [observed]. Both: off-band quest targets held at
+      the compass's end (`compass::pinned`) [observed; hypothesis: the side]. Hand-built
+      (the default): the need words at the font's size; the AP ticks' clear strip after
+      each tick and the health bar at x 20 (the "meets the upright" line was an
+      observation, not the owner's); the atlas pieces for the brackets and the strip;
+      the radiation bracket unstretched, the owner's place and texts kept on the screen;
+      LEVEL UP 16 above the amount's line; the condition row's brightness; the strip as
+      the tile HUD's [observed]. **Maintainer's choices kept:** the ammo abbreviation
+      right of the divider (owner 2026-10-25), LMB's looks (owner 2026-10-23/24), and
+      those T12b listed. **Needs a capture:** the tile HUD's LEVEL UP (font 8's line
+      under its `y` against `radiation_text`'s, §14.10); the side a target to the right
+      is held at. Smoke: `tiles-hud-ammo-label` (new); `hud-compass-north` logs the
+      strip's place. Only `cargo check -p nvf-play --tests` and `cargo check -p fnv-game
+      --tests` were run, and `python tools/smoke verify` (644 scenarios, fine).
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the

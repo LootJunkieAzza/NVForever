@@ -58,7 +58,9 @@ pub enum Alignment {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     pub string: String,
-    /// [hypothesis: menu-xml.md §3.1.3] Positive zoom scales glyphs, not the anchor.
+    /// The `zoom` trait as read, a fraction (1 without one): not applied to the text's
+    /// box or glyphs [hypothesis: menu-xml.md §3.1.3, the Hardcore words' zoom 75 left
+    /// them as tall and their tiles as wide as at 100 on the original, T12e].
     pub zoom: f64,
     pub font: f64,
     /// [design] Numeric view retained unchanged; named constants also set alignment.
@@ -174,8 +176,6 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
             rect.width = number(tile, "width", w);
             rect.height = number(tile, "height", h);
         }
-        rect.width *= text.zoom;
-        rect.height *= text.zoom;
         rect.left -= match text.alignment {
             Alignment::Left => 0.0,
             Alignment::Center => rect.width / 2.0,

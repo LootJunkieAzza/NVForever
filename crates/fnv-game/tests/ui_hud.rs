@@ -824,10 +824,12 @@ fn need_words_keep_places_and_use_stage_alpha_and_colour_in_both_modes() {
     input.frame.need_stages = [2; 4];
     for hardcore in [false, true] {
         input.frame.hardcore = hardcore;
-        for (limbs, alpha) in [(0, 0.0), (1, 124.0), (2, 255.0)] {
+        // T12e: three crippled limbs draw the word red, as the original's.
+        for (limbs, alpha, colour) in [(0, 0.0, 1.0), (1, 124.0, 1.0), (2, 255.0, 1.0), (3, 255.0, 2.0), (6, 255.0, 2.0)] {
             input.frame.crippled = std::array::from_fn(|i| i < limbs);
             ui_hud::write(&mut ui, all_shown(), &input);
             assert_eq!(ui.get_float("HUDMainMenu/HardcoreMode/LMBs/alpha"), Some(alpha));
+            assert_eq!(ui.get_float("HUDMainMenu/HardcoreMode/LMBs/systemcolor"), Some(colour), "{limbs} limbs");
             assert_eq!(ui.get_float("HUDMainMenu/HardcoreMode/Dehydration/alpha"), Some(if hardcore { 255.0 } else { 0.0 }));
             for (name, x) in [("Dehydration", 0.0), ("Hunger", 55.0), ("Sleep", 109.0), ("Rads", 162.0), ("LMBs", 218.0)] {
                 assert_eq!(ui.get_float(&format!("HUDMainMenu/HardcoreMode/{name}/x")), Some(x));

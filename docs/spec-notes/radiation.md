@@ -206,13 +206,21 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
     piece's top 33.5 under the view's top and its right edge 105 from the view's right
     edge, which puts the radiation bracket's line 47 under the top and its upright 57
     in from the right. Smoke `environment-radiation` saves `radiation_meter.png`.
-  - **The pictures are stretched** to the file's sizes (567 × 120, 46 × 24), not fitted
-    to their own shape (which drew the bracket 480 wide and put the upright through
-    the text).
+  - **The bracket stands at its texels' size** (512 × 128 from x −135), as the
+    original's: its notches 20 units apart, 15 pixels at 720 lines, the end notches
+    under the pointer's tip at 0 and 1000 rads [observed: hud_compare
+    environment-radiation at 1280 × 720, the original's ruler from x 978 to 1239 with
+    ticks every 15 pixels; menu-xml.md §3.1.3, T12c]. The piece stands around it so that
+    the owner's place holds: the line 47.1 under the view's top and the upright 57.3 in
+    from its right edge, the piece's top 32.6 down and its right edge 51.8 in; the texts
+    keep their places on the screen (`radiation.rs` `MOVED`). Until T12e the bracket was
+    stretched to the file's 567 × 120 [design]: its ruler 30 pixels longer to the left,
+    its notches 16.6 pixels apart. The pointer is stretched to its box (46 × 24).
   - **The texts** [owner, 2026-10-23: "lower and to the right against the bracket but not
-    interfering with the notches"]: the word ends at x 396, inside the upright (the letters'
+    interfering with the notches"]: the word ends at x 396 of the piece as placed before
+    T12e (342.7 of today's), inside the upright (the letters'
     glow reaches about 10 past their width), the value before it with the file's gap of
-    8; their line 88 under the piece's top, so the capitals start below the pointer's
+    8; their line 88 under that piece's top, so the capitals start below the pointer's
     lowest place (y 49) and the notches (y 28). The file's x 237/245 and y 65 are not
     used.
 

@@ -72,7 +72,10 @@ pub fn band(level: f64) -> usize {
 const PIECE: Vec2 = Vec2::new(367.0, 60.0);
 const BRACKET_PATH: &str = "textures\\interface\\hud\\glow_messages_radiation_seperator_right.dds";
 const BRACKET_AT: f32 = -135.0;
-const BRACKET: Vec2 = Vec2::new(567.0, 120.0);
+/// The file's box for the bracket, 567 x 120: the picture is not stretched to it
+/// ([`BRACKET`]).
+#[cfg(test)]
+const BRACKET_BOX: Vec2 = Vec2::new(567.0, 120.0);
 const POINTER_PATH: &str = "textures\\interface\\hud\\glow_messages_radiation_seperator_arrow.dds";
 const POINTER: Vec2 = Vec2::new(46.0, 24.0);
 const POINTER_Y: f32 = 25.0;
@@ -94,11 +97,20 @@ pub(crate) fn value_text(rate: f64) -> String {
     let whole = if rate > 0.0 { rate.round().max(1.0) as i64 } else { 0 };
     format!("+{whole}")
 }
-/// The bracket picture (512 x 128, drawn 567 x 120): its line across at rows 12–16, its
-/// upright at columns 494–499, and sixteen notches hanging from the line every 20 columns
-/// from 173 to 473, the ends slanted, the long ones at 233, 293, 353 and 413 [observed: the
-/// texture]. In the piece's units: the line's middle 13.6 under the top, the upright's
-/// middle at x 414.8, the end notches at x 57.1 and 388.3.
+/// The bracket picture (512 x 128): its line across at rows 12–16, its upright at columns
+/// 494–499, and sixteen notches hanging from the line every 20 columns from 173 to 473, the
+/// ends slanted, the long ones at 233, 293, 353 and 413 [observed: the texture]. Drawn at
+/// its texels' size from x -135, as the original's: its notches every 15 pixels at 720
+/// lines and the ruler from x 978 to 1239 [observed: hud_compare environment-radiation at
+/// 1280 x 720; menu-xml.md §3.1.3, T12c, the tile HUD's rule]. In the piece's units: the
+/// line's middle 14.5 under the top, the upright's middle at x 361.5, the end notches at x
+/// 38 and 338, where the pointer's tip stands at 0 and 1000 rads ([`pointer_x`] + 23).
+/// Until T12e it was stretched to the file's 567 x 120 [design]: the ruler 30 pixels too
+/// long to the left, its notches 16.6 pixels apart and the pointer off them.
+const BRACKET: Vec2 = Vec2::new(512.0, 128.0);
+/// The bracket's line and upright in the piece, drawn so.
+const LINE_MIDDLE: f32 = 14.5;
+const UPRIGHT: f32 = BRACKET_AT + 496.5;
 /// Upper bound [hypothesis: hold the measured linear scale at 1000; captures stop at
 /// 998.4 rads, private job hud_radiation2, r_in_990]. The notches are not 200-rad steps.
 pub const FULL_RADS: f64 = 1000.0;
@@ -108,11 +120,17 @@ pub const FULL_RADS: f64 = 1000.0;
 const POINTER_MIDDLE: f32 = 23.0;
 /// The meter's place, the mirror of the corner messages' bracket (`corner_messages.rs`:
 /// its line across 47 under the view's top, its upright 57 from the left edge [observed:
-/// the atlas's picture as drawn there]): the piece's top 33.5 under the view's top, its
-/// right edge 105 from the view's right edge (the bracket reaches past it, the upright
-/// 57 from the edge).
-const TOP: f32 = 33.5;
-const RIGHT: f32 = 105.1;
+/// the atlas's picture as drawn there]) [owner, 2026-10-23]: the bracket's line 47.1 under
+/// the view's top and its upright 57.3 from its right edge, as before T12e, the piece
+/// placed around the unstretched bracket (its top 32.6 under the view's top, its right
+/// edge 51.8 from the view's).
+const LINE_FROM_TOP: f32 = 47.1;
+const UPRIGHT_FROM_RIGHT: f32 = 57.3;
+const TOP: f32 = LINE_FROM_TOP - LINE_MIDDLE;
+const RIGHT: f32 = UPRIGHT_FROM_RIGHT - (PIECE.x - UPRIGHT);
+/// How far the piece moved right and up when the bracket stopped being stretched (T12e):
+/// the texts keep their places on the screen.
+const MOVED: Vec2 = Vec2::new(105.1 - RIGHT, 33.5 - TOP);
 /// Where the pointer picture stands [observed: private job hud_radiation2,
 /// r_in_000-r_in_990, linear over 2-998 rads]. Previously 34.1 + 0.3312 × rads [hypothesis].
 pub fn pointer_x(rads: f64) -> f32 {
@@ -121,14 +139,15 @@ pub fn pointer_x(rads: f64) -> f32 {
 
 /// The texts stand lower and further right than the file's x and y [owner, 2026-10-23:
 /// "lower and to the right against the bracket but not interfering with the notches"]:
-/// The word ends just inside the upright (its middle at x 414.8, its glow from about 410;
-/// the letters' glow reaches about 10 past their width),
+/// The word ends just inside the upright (18.8 before its middle, its glow from about 4
+/// before; the letters' glow reaches about 10 past their width),
 /// the value before it with the file's gap (245 - 237); their line is 88 under the
-/// piece's top, so the value's capitals (about 36 high) start under the pointer's
-/// lowest place (y 49), clear of the notches (to y 28).
-const WORD_END: f32 = 396.0;
+/// piece's top as placed before T12e, so the value's capitals (about 36 high) start under
+/// the pointer's lowest place (y 49), clear of the notches (to y 28). Their places on the
+/// screen are unchanged by T12e ([`MOVED`]).
+const WORD_END: f32 = 396.0 - MOVED.x;
 const GAP: f32 = WORD_X - VALUE_END;
-const BASE: f32 = 88.0;
+const BASE: f32 = 88.0 + MOVED.y;
 
 /// What the last level line named: the marker, the zone's explosion, the water, and
 /// the level in tenths.
@@ -437,6 +456,24 @@ mod tests {
         assert_eq!(band(5.0), 2);
         assert_eq!(band(10.0), 3);
         assert_eq!(band(720.0), 3);
+    }
+
+    /// T12e: the bracket at its texels' size; its upright and line where the owner's place
+    /// had them, the texts unmoved on the screen, the pointer's tip on the end notches at 0
+    /// and 1000 rads.
+    #[test]
+    fn the_bracket_stands_unstretched_where_it_stood() {
+        // The old stretched bracket's upright and line, from the view's right and top.
+        let stretch = BRACKET_BOX.x / 512.0;
+        let old_upright = 105.1 + PIECE.x - (BRACKET_AT + 496.5 * stretch);
+        assert!((old_upright - UPRIGHT_FROM_RIGHT).abs() < 0.1, "{old_upright}");
+        assert!((RIGHT + (PIECE.x - UPRIGHT) - UPRIGHT_FROM_RIGHT).abs() < 1e-4);
+        assert!((TOP + LINE_MIDDLE - LINE_FROM_TOP).abs() < 1e-4);
+        // The word's end on the screen, from the view's right edge, as before.
+        assert!((RIGHT + PIECE.x - WORD_END - (105.1 + PIECE.x - 396.0)).abs() < 1e-3);
+        assert!((TOP + BASE - (33.5 + 88.0)).abs() < 1e-3);
+        // Notches every 20 units, the end ones under the pointer's tip at 0 and 1000 rads.
+        assert_eq!((BRACKET_AT + 173.0, BRACKET_AT + 473.0), (pointer_x(0.0) + POINTER_MIDDLE, pointer_x(1000.0) + POINTER_MIDDLE));
     }
 
     #[test]

@@ -20,7 +20,7 @@
 
 use crate::combat::PlayerLimbs;
 use crate::hud::{HudSet, HudView, FONT};
-use crate::interface::{amber, bc_supported, face, line_base, plain_font, set_text, u, Face, Set};
+use crate::interface::{amber, bc_supported, face, plain_font, set_text, u, Face, Set};
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
@@ -35,10 +35,19 @@ use nvf_assets::GameData;
 /// Faded (owner's dim look), now measured [observed: private job hud_hardcore2, hc2,
 /// hc6; hud_radiation2, r_in_200, r_in_300]. Previously 0.3 [design].
 const FADED: f32 = 124.0 / 255.0;
-/// Fixed piece and word places and zoom [observed: private job hud_hardcore2,
-/// hc0-hc11]. Previously font spaces after HP and compacted outside Hardcore [hypothesis].
+/// Fixed piece and word places [observed: private job hud_hardcore2, hc0-hc11]. Previously
+/// font spaces after HP and compacted outside Hardcore [hypothesis].
 const WORD_X: [f32; 5] = [0.0, 55.0, 109.0, 162.0, 218.0];
-const ZOOM: f32 = 0.75;
+/// The words are drawn at the font's own size, as tall as "HP", whatever their `zoom` 75
+/// [observed: hud_compare needs_limbs at 1280 x 720, the original's words 17 pixels tall
+/// (y 603-619) as its "HP", their right ends at x 145, 186, 226, 266, 308; the tiles'
+/// widths read 45, 44, 43, 46, 43, "H20" as wide as at zoom 100 ("HP" 30), private job
+/// hud_hardcore]. T12b drew them scaled by 0.75 (13 pixels tall), which also left their
+/// starts right of the original's [design, corrected T12e]. Their first line stands
+/// `TEXT_BASE` under the piece's top, as the tile-drawn words [hypothesis: the capitals'
+/// top 1 pixel under the piece's, y 603 on the shot; the font's tallest glyph's top at
+/// 0 stood them 4 pixels lower].
+const WORD_BASE: f32 = crate::tiles::draw::TEXT_BASE;
 /// Word alpha bounds [observed: private job hud_hardcore2, hc5]. Period unresolved;
 /// retain the former 0.6 s cosine [hypothesis], independently of the limb sawtooth.
 fn flash(elapsed: f32) -> Color {
@@ -175,6 +184,13 @@ fn watch(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, lim
     words.set_if_neq(now);
 }
 
+/// A word's line in its node, which stands at the word's x: right-justified, as the file
+/// says [documented: hud_main_menu.xml], the x its right end [hypothesis], unscaled, its
+/// line [`WORD_BASE`] under the piece's top (see [`WORD_BASE`]).
+fn word_set(font: &fnv_font::Font, text: &str) -> Option<Set> {
+    font.lines(text, None).into_iter().next().map(|line| Set { x: -line.width, line, base: WORD_BASE })
+}
+
 /// A word's letters (they carry its colour).
 #[derive(Component, Clone, Copy)]
 struct Letter(usize);
@@ -221,12 +237,9 @@ fn draw(
         commands.spawn((WordsRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
             for (i, t) in texts.iter().enumerate() {
                 let node = Node { position_type: PositionType::Absolute, left: u(WORD_X[i]), top: u(0.0), width: u(0.0), height: u(0.0), ..default() };
-                p.spawn((Word(i), node, UiTransform { scale: Vec2::splat(ZOOM), ..default() }, Visibility::Hidden)).with_children(|w| {
-                    if let Some(line) = font.lines(t, None).into_iter().next() {
-                        // Right justification is in the file [documented: hud_main_menu.xml];
-                        // x as the right end, and the font's ink top at y 0 [hypothesis].
-                        let x = -line.width;
-                        set_text(w, &face_, &Set { line, x, base: line_base(&face_) }, Vec2::ZERO, amber(255.0), Letter(i));
+                p.spawn((Word(i), node, Visibility::Hidden)).with_children(|w| {
+                    if let Some(set) = word_set(font, t) {
+                        set_text(w, &face_, &set, Vec2::ZERO, amber(255.0), Letter(i));
                     }
                 });
             }
@@ -268,6 +281,17 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T12e: the words at the font's own size (the original's are as tall as "HP" with
+    /// their zoom 75), right-justified at their x, the line `TEXT_BASE` under the top.
+    #[test]
+    fn the_words_are_drawn_unscaled_and_end_at_their_x() {
+        let font = crate::interface::plain_font(36.0, 15.0);
+        let set = word_set(&font, "H20").unwrap();
+        assert_eq!(set.line.width, font.width("H20"));
+        assert_eq!((set.x + set.line.width, set.base), (0.0, crate::tiles::draw::TEXT_BASE));
+        assert!(word_set(&font, "").is_none() || word_set(&font, "").unwrap().line.width == 0.0);
+    }
 
     #[test]
     fn flashing_words_keep_the_red_and_the_measured_alpha_floor() {

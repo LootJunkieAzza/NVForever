@@ -25,7 +25,7 @@ use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
 use crate::tiles::vanilla::{DrawnByTiles, EnemyPiece};
-use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
+use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face, Picture, Pictures};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -58,8 +58,15 @@ pub(crate) const METER_BRIGHTNESS: f32 = 175.0;
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
 pub const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
-/// The heading's x in compass-window units [observed: hud.md §14.5].
+/// The heading's x in compass-window units: where a mark straight ahead stands
+/// [observed: hud.md §14.5].
 pub const COMPASS_HEADING: f32 = 148.0;
+/// Where the strip's own heading (its letter N at heading 0) stands in the window: 6 units
+/// right of the marks' [observed: hud_compare compass-north at 1280 x 720, heading 0, the
+/// original's N centred at x 159.5 pixels, both NVForever drawings' at 155 with the strip at
+/// 148; hud.md §14.5, N's middle about 172 of `HitPoints` on the heading-0 shot, 4 right of
+/// the bearing-0 tick's 168]. Until T12e the strip shared the marks' 148 [design].
+pub const STRIP_HEADING: f32 = COMPASS_HEADING + 6.0;
 /// The whole strip, north to north: 1024 texels for 360 degrees [observed: the texture].
 pub const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
 /// The solid bar's ground (weapon condition): length and height [documented: the file
@@ -126,6 +133,13 @@ const ENEMY_MARKS: (f32, f32) = (56.0 * 500.0 / 512.0, 307.0 * 500.0 / 512.0);
 
 /// From the view's side and bottom edges to the pieces.
 pub(crate) const MARGIN_X: f32 = 40.0;
+/// The right bracket's atlas piece stands this far right of the right piece's corner
+/// [observed: hud_compare at 1280 x 720 (needs_off, ammo-label, limbs_hidden, xp_meter):
+/// the piece drawn at the corner put the divider at x 1111-1113, the upright from 1231-1232
+/// and the step cap at 998, the original's at 1114-1116, 1234 and 1001-1002: 3 pixels, 4
+/// units]. The tile HUD's `ActionPoints/right_bracket` stands as far in
+/// (`tiles::vanilla::RIGHT_BRACKET_X`).
+pub(crate) const RIGHT_BRACKET_X: f32 = 4.0;
 pub(crate) const MARGIN_Y: f32 = 30.0;
 /// The bars stand this far above the long line.
 const METER_GAP: f32 = 4.0;
@@ -133,9 +147,14 @@ const METER_GAP: f32 = 4.0;
 const LABEL_GAP: f32 = 6.0;
 /// The line the texts of the lower row stand on.
 const LOWER_BASE: f32 = 106.0;
-/// The ground of the condition bar is this much of the bar's own brightness
-/// [hypothesis: as `meter.xml`'s ground, a quarter].
-const GROUND: f32 = 0.25;
+/// The condition bar's fill and its ground: the HUD's colour at brightness 175 and an
+/// opaque 100 [observed: the original's at 175/255 and 100/255 of its colour on the private
+/// shots `hud_corners2` c0, c4 (T12c, hud.md §14.7); hud_compare hud-ammo-label, the fill
+/// (175, 125, 45)]. Until T12e the fill at 255 over the fill's colour at a quarter's alpha
+/// [hypothesis: as `meter.xml`'s ground]. The tile HUD writes the same
+/// (`tiles::vanilla::write_corners`).
+pub(crate) const CONDITION_BRIGHTNESS: f32 = 175.0;
+pub(crate) const GROUND_BRIGHTNESS: f32 = 100.0;
 
 // ---- measured on the owner's 1920 x 1080 screenshot of the original [observed, §4] -----
 
@@ -147,11 +166,15 @@ const METER_WIDTH: f32 = PIPS as f32 * TICK.x;
 /// corner mark on the left piece, the upright on the right): the first tick starts at
 /// the upright's inside edge, the last ends clear of the mark and of the upright
 /// [observed: 3 pixels at 1080 lines against the `Target healthbar` screenshot, owner's
-/// playtest 2026-10-16]. The action points bar 1 less: its ticks stood 2 pixels left of
-/// the original's at 1080 lines, the last one clear of the upright where the original's
-/// meets it [observed: the same screenshot, tick edges 1520 … 1844 against 1518 … 1842,
-/// 2026-10-16].
-const METER_SHIFT: f32 = 3.0;
+/// playtest 2026-10-16, after the ticks ran into the mark]. The health bar at x 20 of
+/// `HitPoints`, 4 left [observed: hud.md §14, the bar's tile read at x 20; hud_compare
+/// needs_off at 1280 x 720, the original's first tick at x 45 pixels and its last ending
+/// at 265, a pixel before the step cap at 267, where 21 put them at 46 and 266, against
+/// the cap]; 3 until T12e. The action points bar 2: its ticks stood 2 pixels left of the
+/// original's at 1080 lines [observed: the same screenshot, tick edges 1520 … 1844
+/// against 1518 … 1842, 2026-10-16]; its last tick now ends the tick's clear strip short
+/// of the upright, as the original's at 720 lines ([`row_ticks`]).
+const METER_SHIFT: f32 = 4.0;
 const AP_METER_SHIFT: f32 = 2.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
 /// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
@@ -174,7 +197,10 @@ const CND_LABEL_GAP: f32 = 11.0;
 /// The ammo type's abbreviation starts here, just right of the divider, whatever the
 /// counter's length [observed: the owner's screenshot 2026-10-25 of the original marks
 /// its room at about x 1680-1765 of 1920 at 1080 lines, the divider at 1672: 214-290
-/// units; owner 2026-10-25: anchored to the divider, not against the counter].
+/// units; owner 2026-10-25: anchored to the divider, not against the counter; commit
+/// 5887ee0e "at the owner's request"]. The maintainer's choice, kept (T12e): the
+/// original draws it left of the divider, right-justified at `AmmoTypeLabel`'s W - 236,
+/// and moves the condition row left to make room (hud.md §4; the tile HUD does that).
 const AMMO_LABEL_X: f32 = 214.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
@@ -335,11 +361,62 @@ pub fn tick_lefts(length: f32, width: f32, count: usize) -> (Vec<f32>, f32) {
     ((0..count).map(|i| (i as f32 * pitch).round()).collect(), width)
 }
 
+/// The compass strip fades out towards the window's right end: full to this x of the
+/// window, nothing from that, linearly between [observed: hud_compare needs_off and
+/// xp_meter at 1280 x 720, the original's strip line at about 0.68 of its colour over the
+/// ground at x 266 pixels, 0.38 at 280, 0.21 at 290, 0.05 at 298, the letters there dim:
+/// full at about 250 and gone at about 300.5 pixels, the window from 45 to 303.75; its
+/// left end and the marks over it (the quest marker at SE, needs_limbs) are not faded;
+/// hypothesis: linear]. Nothing in the menu files says how: `hud_compass_alphamap.dds` is
+/// a white band of 20 texels and black [observed: the texture]. Until T12e the strip ran
+/// at full strength to the window's end [design].
+pub const STRIP_FADE: (f32, f32) = (273.0, 341.0);
+/// The fade's steps across, in units [design: 2 units, 1.5 pixels at 720 lines].
+const FADE_STEP: f32 = 2.0;
+
+/// The compass window's upright parts, each `(left, width, alpha)` in window units: the
+/// full part, then the fading steps of [`STRIP_FADE`], each at the alpha of its middle;
+/// nothing past the fade's end. Both drawings cut the strip this way (the tile HUD's
+/// `tiles::draw` too) [design: a part a copy of the strip, Bevy's nodes have no alpha
+/// mask].
+pub fn strip_parts() -> Vec<(f32, f32, f32)> {
+    let (from, to) = STRIP_FADE;
+    let steps = ((to - from) / FADE_STEP).ceil() as usize;
+    let mut out = vec![(0.0, from, 1.0)];
+    for i in 0..steps {
+        let left = from + i as f32 * FADE_STEP;
+        let width = FADE_STEP.min(to - left);
+        out.push((left, width, 1.0 - (left + width / 2.0 - from) / (to - from)));
+    }
+    out
+}
+
+/// A bar's ticks in a row `room` pixels long, `step` and `width` from [`tick_pixels`]:
+/// where the first stands, every tick's left from it, and their width. A full row runs
+/// the whole room but the clear strip after its last tick, each tick's block at the start
+/// of its step as in the picture (`hud_tick_mark.dds`, texels 6-7 clear) [observed: the
+/// texture; §4: at 1080 lines the first health tick at the upright, the last 2 pixels short
+/// of the mark]: the health and action points bars alike, so the action points' last tick
+/// stands that strip clear of the upright [observed: hud_compare needs_off at 1280 x 720,
+/// the original's last tick at x 1229-1232, a pixel clear of the upright at 1234]. Until
+/// T12e the action points' row put the strip before its first tick instead, mirrored, and
+/// its last tick met the upright [design: after "the last meets the upright", measured by
+/// eye on the 1080-line `Target healthbar` screenshot]. The enemy's stand in the middle.
+fn row_ticks(bar: Bar, room: f32, step: f32, width: f32, count: usize) -> (f32, Vec<f32>, f32) {
+    let clear = (step - width).max(1.0);
+    let (lefts, width) = tick_lefts((room - clear).round(), width, count);
+    let first = match bar {
+        Bar::Health | Bar::ActionPoints => 0.0,
+        Bar::Enemy => (clear / 2.0).round(),
+    };
+    (first, lefts, width)
+}
+
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
-/// (degrees) stands at [`COMPASS_HEADING`] [observed: hud.md §14.5].
+/// (degrees) stands at [`STRIP_HEADING`] [observed: hud.md §14.5].
 pub fn strip_left(heading: f32) -> f32 {
     let at = heading.rem_euclid(360.0) / 360.0 * STRIP.x;
-    -(at - COMPASS_HEADING).rem_euclid(STRIP.x)
+    -(at - STRIP_HEADING).rem_euclid(STRIP.x)
 }
 
 /// The ammo counter's text: rounds in the weapon / rounds carried besides.
@@ -396,13 +473,13 @@ impl Places {
 /// Where this HUD sets its corner labels, for the tile tree's code-made copies while the HUD
 /// is drawn from tiles (`crate::tiles::vanilla::write_corners`; the captures give none of
 /// their places, hud.md §14.6) [design]: "HP"'s start, the ends of "AP", "CND" and the
-/// ammo counter, and the ammo abbreviation's start (`AmmoTypeLabel`, whose place the
-/// captures read only with no abbreviation shown), each with the line it stands on, from
-/// its corner piece's top left (the right piece's as drawn here, [`MARGIN_X`] in from the
-/// view's edge).
-pub(crate) fn label_places(font: &Font) -> [(f32, f32); 5] {
+/// ammo counter, each with the line it stands on, from its corner piece's top left (the
+/// right piece's as drawn here, [`MARGIN_X`] in from the view's edge). The ammo
+/// abbreviation is not among them: the tile HUD keeps `AmmoTypeLabel` at its captured
+/// place, where the original draws it (T12e; this HUD's [`AMMO_LABEL_X`] is the owner's).
+pub(crate) fn label_places(font: &Font) -> [(f32, f32); 4] {
     let p = Places::new(font);
-    [(p.hp_label, UPPER_BASE), (AP_LABEL_END, UPPER_BASE), (p.cnd_x - CND_LABEL_GAP, LOWER_BASE), (p.ammo_right, LOWER_BASE), (AMMO_LABEL_X, LOWER_BASE)]
+    [(p.hp_label, UPPER_BASE), (AP_LABEL_END, UPPER_BASE), (p.cnd_x - CND_LABEL_GAP, LOWER_BASE), (p.ammo_right, LOWER_BASE)]
 }
 
 // ---- reading the game ------------------------------------------------------------------
@@ -515,21 +592,38 @@ impl Plugin for HudPlugin {
 /// What the HUD is drawn with.
 struct Art {
     font: Face,
-    left_bracket: Option<Handle<Image>>,
-    right_bracket: Option<Handle<Image>>,
+    left_bracket: Option<Picture>,
+    right_bracket: Option<Picture>,
     enemy_bracket: Option<Handle<Image>>,
-    strip: Option<Handle<Image>>,
+    strip: Option<Picture>,
     arrows: Option<Handle<Image>>,
 }
 
+/// The corner brackets and the compass strip are their pieces of the interface's atlas
+/// (`interfaceshared.tai`), as the HUD's files name them with `texatlas` [documented:
+/// hudtemplates.xml, `template_left_bracket`, `template_right_bracket`,
+/// `template_compass_window`], each stretched over its box: the original draws those
+/// pieces, with their stepped end caps, the health underline's hard end and the strip's
+/// thick bars between the letters [observed: hud_compare at 1280 x 720 against the tile
+/// HUD, which draws the pieces; the private shots `hud_corners2` c0, c4, T12c]; their own
+/// files are other art (square corners, single lines, a triangle cap, evenly spaced
+/// ticks) [observed: menu-xml.md §3.1.3]. Until T12e this HUD drew the own files [design:
+/// no owner request]. Without the atlas, the own files.
 fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Art {
+    let mut pictures = Pictures::load(data);
+    let mut piece = |name: &str| pictures.picture(&format!("interface\\hud\\{name}.dds"), data, images, bc);
+    let (left_bracket, right_bracket) = (piece("glow_hud_left_seperatorglow"), piece("glow_hud_right_seperatorglow"));
+    let strip = piece("glow_hud_comp_direction_strip");
     let mut read = |path: &str| data.and_then(|d| texture(path, d, images, bc)).map(|t| t.0);
     let hud = |name: &str| format!("{HUD_TEXTURES}{name}.dds");
-    let (left_bracket, right_bracket) = (read(&hud("glow_hud_left_seperatorglow")), read(&hud("glow_hud_right_seperatorglow")));
     let enemy_bracket = read(&hud("glow_enemy_health_seperator"));
-    let strip = read(&hud("glow_hud_comp_direction_strip"));
     let arrows = read(CND_ARROWS);
     Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, arrows }
+}
+
+/// A picture over a node's box: its atlas piece's part of the texture, stretched.
+fn picture_node(picture: &Picture, color: Color) -> ImageNode {
+    ImageNode { color, rect: picture.1, image_mode: NodeImageMode::Stretch, ..ImageNode::new(picture.0.clone()) }
 }
 
 #[derive(Component)]
@@ -563,9 +657,12 @@ struct Pip {
     index: usize,
 }
 
-/// The doubled compass strip in its window.
+/// The doubled compass strip in one of its window's parts, `left` units into the window
+/// (`strip_parts`).
 #[derive(Component)]
-struct Strip;
+struct Strip {
+    left: f32,
+}
 
 /// The marks over the compass (`crate::compass` fills it): the window's place and size,
 /// clipped at its sides only, as the marks reach above and below the strip.
@@ -597,11 +694,12 @@ fn spawn_row(p: &mut ChildSpawnerCommands, bar: Bar, x: f32, y: f32, width: f32,
     p.spawn((PipRow { bar, color, width, count }, at(x, y, width, TICK.y)));
 }
 
-/// A bracket: the game's picture, or plain lines where its lines are.
-fn spawn_bracket(p: &mut ChildSpawnerCommands, image: &Option<Handle<Image>>, uprights: &[f32], color: Color) {
+/// A bracket: the game's picture `x` right of its piece's corner, or plain lines where its
+/// lines are.
+fn spawn_bracket(p: &mut ChildSpawnerCommands, image: &Option<Picture>, x: f32, uprights: &[f32], color: Color) {
     match image {
         Some(image) => {
-            p.spawn((at(0.0, 0.0, BRACKET.x, BRACKET.y), ImageNode { color, ..ImageNode::new(image.clone()) }));
+            p.spawn((at(x, 0.0, BRACKET.x, BRACKET.y), picture_node(image, color)));
         }
         None => {
             p.spawn((at(LEFT_UPRIGHT, LINE_Y, RIGHT_UPRIGHT - LEFT_UPRIGHT, 2.0), BackgroundColor(color)));
@@ -624,28 +722,35 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
         root.spawn((piece, DrawnByTiles)).with_children(|p| {
-            spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
+            spawn_bracket(p, &art.left_bracket, 0.0, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
-            info!("compass: heading at x {x} of {w}", x = COMPASS_HEADING, w = COMPASS.x);
-            let mut window = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
-            window.overflow = Overflow::clip();
-            p.spawn(window).with_children(|w| {
-                w.spawn((Strip, at(0.0, 0.0, 2.0 * STRIP.x, STRIP.y))).with_children(|s| {
-                    if let Some(image) = &art.strip {
-                        for i in 0..2 {
-                            s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), ImageNode { color, ..ImageNode::new(image.clone()) }));
-                        }
-                    } else {
-                        // The eight directions' letters, 45 degrees apart.
-                        for i in 0..16 {
-                            let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][i % 8];
-                            let line = font.lines(name, None).remove(0);
-                            let x = i as f32 * STRIP.x / 8.0 - line.width / 2.0;
-                            set_line(s, &art.font, &line, x, 44.0, color);
-                        }
-                    }
-                });
+            info!("compass: heading at x {x} of {w}, the strip's N at {n}, fading from {f}", x = COMPASS_HEADING, w = COMPASS.x, n = STRIP_HEADING, f = STRIP_FADE.0);
+            p.spawn(at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y)).with_children(|w| {
+                // The window in upright parts, the last ones fading (`strip_parts`), each
+                // cutting its own copy of the doubled strip.
+                for (left, width, alpha) in strip_parts() {
+                    let mut part = at(left, 0.0, width, COMPASS.y);
+                    part.overflow = Overflow::clip();
+                    let color = color.with_alpha(alpha);
+                    w.spawn(part).with_children(|c| {
+                        c.spawn((Strip { left }, at(-left, 0.0, 2.0 * STRIP.x, STRIP.y))).with_children(|s| {
+                            if let Some(image) = &art.strip {
+                                for i in 0..2 {
+                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture_node(image, color)));
+                                }
+                            } else {
+                                // The eight directions' letters, 45 degrees apart.
+                                for i in 0..16 {
+                                    let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][i % 8];
+                                    let line = font.lines(name, None).remove(0);
+                                    let x = i as f32 * STRIP.x / 8.0 - line.width / 2.0;
+                                    set_line(s, &art.font, &line, x, 44.0, color);
+                                }
+                            }
+                        });
+                    });
+                }
             });
             let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             marks.overflow = Overflow::clip_x();
@@ -654,13 +759,13 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
         root.spawn((piece, DrawnByTiles)).with_children(|p| {
-            spawn_bracket(p, &art.right_bracket, &[RIGHT_UPRIGHT, DIVIDER], color);
+            spawn_bracket(p, &art.right_bracket, RIGHT_BRACKET_X, &[RIGHT_UPRIGHT, DIVIDER], color);
             spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             label(p, AP, places.ap_label, UPPER_BASE);
             p.spawn((ConditionRow, at(0.0, 0.0, DIVIDER, AP_PANEL.y), Visibility::Inherited)).with_children(|row| {
                 label(row, CND, places.cnd_label, LOWER_BASE);
-                row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color.with_alpha(GROUND))));
-                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_FILL_WIDTH, CND_BAR.y), BackgroundColor(color)));
+                row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(amber(GROUND_BRIGHTNESS))));
+                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_FILL_WIDTH, CND_BAR.y), BackgroundColor(amber(CONDITION_BRIGHTNESS))));
                 // The jamming threshold's two arrows, over the bar (§4).
                 match &art.arrows {
                     Some(image) => {
@@ -727,7 +832,7 @@ fn draw(
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
     mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
-    mut strip: Query<&mut Node, (With<Strip>, Without<ConditionBar>)>,
+    mut strip: Query<(&Strip, &mut Node), Without<ConditionBar>>,
 ) {
     if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
@@ -757,8 +862,8 @@ fn draw(
             node.width = width;
         }
     }
-    let left = u(strip_left(view.heading));
-    for mut node in &mut strip {
+    for (part, mut node) in &mut strip {
+        let left = u(strip_left(view.heading) - part.left);
         if node.left != left {
             node.left = left;
         }
@@ -797,19 +902,7 @@ fn pips(
         let (step, width) = tick_pixels(height);
         let px = |v: f32| Val::Px(v / sf);
         for (e, row) in &rows {
-            let room = row.width * height / 960.0;
-            // A full row runs the whole room but the clear strip after its last tick
-            // (§4: at 1080 lines the first tick at the upright, the last 2 pixels short of
-            // the mark); the ticks fill from the bar's outer end: from the left for
-            // health, from the right for action points; the enemy's stand in the middle.
-            let clear = (step - width).max(1.0);
-            let (lefts, width) = tick_lefts((room - clear).round(), width, row.count);
-            let first = match row.bar {
-                Bar::Health => 0.0,
-                Bar::ActionPoints => clear,
-                Bar::Enemy => clear / 2.0,
-            }
-            .round();
+            let (first, lefts, width) = row_ticks(row.bar, row.width * height / 960.0, step, width, row.count);
             commands.entity(e).despawn_related::<Children>().with_children(|r| {
                 for (index, left) in lefts.iter().enumerate() {
                     let node = Node { position_type: PositionType::Absolute, left: px(first + left), top: Val::Px(0.0), width: px(width), height: Val::Percent(100.0), ..default() };
@@ -1060,6 +1153,27 @@ mod tests {
         assert!(w == 7.0 && lefts.windows(2).all(|p| p[1] - p[0] == 9.0));
     }
 
+    /// T12e: at every size the action points' last tick ends at least a pixel short of its
+    /// row's end (the upright), as the health bar's before its corner mark.
+    #[test]
+    fn the_last_action_point_tick_stands_clear_of_the_upright() {
+        for lines in [600, 720, 768, 800, 900, 1009, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
+            let h = lines as f32;
+            let (step, width) = tick_pixels(h);
+            let room = METER_WIDTH * h / 960.0;
+            for bar in [Bar::Health, Bar::ActionPoints] {
+                let (first, lefts, w) = row_ticks(bar, room, step, width, PIPS);
+                assert_eq!(first, 0.0, "{lines} lines");
+                let end = first + lefts[PIPS - 1] + w;
+                assert!(room - end >= 0.5 && room - end <= step - w + 0.5, "{lines} lines: {bar:?} ends {end} of {room}");
+            }
+        }
+        // At 720 lines: ticks every 6 pixels, the last ending 1 pixel short (the original's
+        // 1229-1232 with the upright at 1234).
+        let (first, lefts, w) = row_ticks(Bar::ActionPoints, 222.0, 6.0, 5.0, PIPS);
+        assert_eq!((first, lefts[1], lefts[PIPS - 1] + w), (0.0, 6.0, 221.0));
+    }
+
     #[test]
     fn the_sneak_word_is_the_worst_news() {
         assert_eq!(Sneak::of(false, false, false), Sneak::Hidden);
@@ -1072,9 +1186,10 @@ mod tests {
 
     #[test]
     fn the_compass_keeps_the_heading_at_the_triangle() {
-        // Read the strip at x 148 instead of 172.5; its scale stays 1024 per turn
-        // [observed: hud.md §14.5].
-        let at = |heading: f32| (COMPASS_HEADING - strip_left(heading)).rem_euclid(STRIP.x);
+        // Read the strip at x 154 (T12e; 148 before, 172.5 at first); its scale stays 1024
+        // per turn [observed: hud.md §14.5].
+        assert_eq!(STRIP_HEADING, 154.0);
+        let at = |heading: f32| (STRIP_HEADING - strip_left(heading)).rem_euclid(STRIP.x);
         assert!((at(0.0) - 0.0).abs() < 1e-3 || (at(0.0) - 1024.0).abs() < 1e-3);
         assert!((at(90.0) - 256.0).abs() < 1e-3);
         assert!((at(225.0) - 640.0).abs() < 1e-3);
@@ -1087,6 +1202,26 @@ mod tests {
         }
         // Turning right moves the strip left.
         assert!(strip_left(100.0) < strip_left(90.0));
+    }
+
+    /// T12e: the strip's window in parts that cover it to the fade's end without gaps or
+    /// overlaps, full on the left, fading to nothing at the right.
+    #[test]
+    fn the_compass_strip_fades_out_at_its_right_end() {
+        let parts = strip_parts();
+        assert_eq!(parts[0], (0.0, STRIP_FADE.0, 1.0));
+        for p in parts.windows(2) {
+            assert!((p[0].0 + p[0].1 - p[1].0).abs() < 1e-4, "{p:?}");
+            assert!(p[1].2 < p[0].2 && p[1].2 > 0.0, "{p:?}");
+        }
+        let last = parts.last().unwrap();
+        assert!((last.0 + last.1 - STRIP_FADE.1).abs() < 1e-4 && STRIP_FADE.1 < COMPASS.x);
+        // Half way through the fade, half the strength; the original's 0.38 at x 280
+        // pixels is window x 313.
+        let at = |x: f32| parts.iter().find(|p| x >= p.0 && x < p.0 + p.1).map(|p| p.2);
+        assert!((at(307.0).unwrap() - 0.5).abs() < 0.02);
+        assert!((at(313.0).unwrap() - 0.41).abs() < 0.05);
+        assert_eq!(at(343.0), None);
     }
 
     #[test]
@@ -1107,6 +1242,8 @@ mod tests {
         // A full bar ends at the corner mark on the left and starts at it on the right,
         // and runs to just inside the upright.
         assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK - METER_SHIFT);
+        // T12e: the health bar where the original's tile stands [observed: hud.md §14].
+        assert_eq!(p.hp_meter, 20.0);
         assert_eq!(p.ap_meter, RIGHT_MARK - AP_METER_SHIFT);
         assert!(p.hp_meter > LEFT_UPRIGHT && p.hp_meter - LEFT_UPRIGHT < 10.0);
         assert!(p.ap_meter + METER_WIDTH < RIGHT_UPRIGHT && RIGHT_UPRIGHT - (p.ap_meter + METER_WIDTH) < 10.0);
