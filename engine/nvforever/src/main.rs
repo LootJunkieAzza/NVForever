@@ -1196,6 +1196,14 @@ fn main() -> AppExit {
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
     .add_plugins(blit_warm::BlitWarmPlugin)
+    // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
+    // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU
+    // memory made and freed every frame behind the night stalls (#897; wgpu trace,
+    // 2026-10-29).
+    .add_systems(Startup, |mut clusters: ResMut<bevy::light::cluster::GlobalClusterSettings>| {
+        clusters.gpu_clustering = None;
+        info!("lights: clustered on the CPU (GPU clustering made new buffers every frame)");
+    })
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
         enabled: !args.no_grass,
         fade_start: args.grass_distance.max(0.0),
