@@ -238,10 +238,24 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
   and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
   `button_text` has 0 and measured one line). [hypothesis] A text's height is its lines
-  times the font's line height; each line stands `interface::line_base` below its top,
-  one line height apart, and is set left, centred or right inside the box by `justify`.
+  times the font's line height; each line is set left, centred or right inside the box by
+  `justify`, one line height under the last.
+- [hypothesis, T12c] A text's first line stands `draw::TEXT_BASE`, 24 units, under its
+  top whatever its font. On the original's screenshots texts set at one `y` stand on one
+  line: `RadiationMeter`'s `radiation_text` (font 7) and `radiation_text_value` (font 8),
+  both at y 65, stand on one line 23.7 under it; the sneak word (font 1, `SneakMeter` y
+  30) 22 under its top; the prompt's verb, name and figures (font 7) 24.5-25.5 under the
+  places the captures read for their tiles, against the hand-built prompt's lines
+  measured on the owner's screenshots (`reticle.rs`) [observed: private shots
+  `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn; hud.md §14.8's places]. Until
+  T12c each font's tallest glyph set the line (`interface::line_base`: 28, 33, 48 for
+  fonts 1, 7, 8), which put `+14` 15 units under `RAD/SEC`. What the original's distance
+  is made of is not known; 24 is the font-7 readings' middle.
 - [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
-  when it sets any; else the nearest tile above's `systemcolor`; else its own (255 each).
+  when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
+  HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
+  assign"; T12c: until then its own, white, which drew `AmmoTypeLabel`, a menu child with
+  no colour above it, white].
   `&hudmain;` is the HUD's colour (`interface::hud_rgb`, the settings'), `&pipboy;` the
   Pip-Boy's, `&nosystemcolor;` and `&uselocalcolor;` the tile's own, other names and
   unknown non-zero numbers the HUD's [hypothesis]; numeric 1/2 map to hudmain/hudalt
@@ -273,15 +287,40 @@ stands unchanged: every picture stretched, the shared atlas only.
   at 100, from the box's top left, cut to the box: the compass window (345 x 64, zoom 100)
   then shows 345 of the 1024-texel strip, which turns 1024 units [observed: hud.md §14.4
   `filewidth` 1024, §14.5 the scale]. The anchor is not observed.
-- [hypothesis] No `zoom` stretches the picture over its box, against the wiki's default:
-  the brackets' atlas pieces are 256 x 128 texels [observed: interfaceshared.tai, an atlas
-  of 1024 x 1024 by its heading] in 512 x 256 boxes the original fills on the screen.
-  [hypothesis] `&scale;` (number 0, §2.3) stretches too: its pictures (the compass ticks
+- [hypothesis, T12c] No `zoom` (`draw::Fit::Natural`, `draw::placed`): an atlas piece
+  is stretched over its box, a picture read from its own file stands at its texels' size
+  (zoom's default 100) from the box's top left, cut to the box. The corner brackets'
+  atlas pieces are 255 x 127 texels [observed: interfaceshared.tai, an atlas of 1024 x
+  1024 by its heading] in 512 x 256 boxes the original fills on the screen; the
+  radiation pointer's 63 x 31 piece is drawn shrunk in its 46 x 24 box (its triangle
+  about 10 pixels across at 720 lines, 15 at its texels' size); the radiation bracket,
+  its own 512 x 128 file in a 567 x 120 box, stands unstretched: its notches 60 units
+  apart where its file has them 60 texels apart, its upright at W - 57 on the screen,
+  where x -135 + 494 texels puts it (stretched it stood at the view's edge, T12b)
+  [observed: private shot `hud_corners` rad_coc_spot]. Until T12c every unzoomed picture
+  was stretched.
+  [hypothesis] `&scale;` (number 0, §2.3) stretches: its pictures (the compass ticks
   32 x 32 in 32 x 32 boxes, the condition arrows, the sneak bracket) fit their boxes.
-- [hypothesis] `tile` true repeats the picture over the box at one texel a unit, both
-  ways: the bars' 8-texel tick picture in widths the code sets in steps of 8 [observed:
-  hud.md §14.3]; the template's `_ImageWidth` 8 says the same [documented:
-  hudtemplates.xml `template_meter`]. It is applied before `zoom`.
+- [hypothesis] `tile` true repeats the picture over the box from its top left at its
+  texels' size times a numeric `zoom` / 100 (100 without one), both ways: the bars'
+  8-texel tick picture in widths the code sets in steps of 8 [observed: hud.md §14.3];
+  the template's `_ImageWidth` 8 says the same [documented: hudtemplates.xml
+  `template_meter`]. Zoom as a multiplier of the picture's size [documented: GECK wiki
+  Zoom]; no vanilla tiled picture has a zoom; T12c's condition fill is given one
+  (`vanilla::CONDITION_FILL_ZOOM`, hud.md §14.7) [design].
+- [observed, T12c] An image without `texatlas` reads its own file, not the shared atlas
+  (`draw::Source::Own`): the radiation bracket, whose file comments its `texatlas` line
+  out (radiation.md §6), shows its own file's slanted ends and single line on the
+  original's screenshots, where the shared atlas's piece of that name has square ends
+  and a doubled line. The mods' tiles with the switch off keep §3.1.2's lookup.
+- [observed, T12c] **The atlas pieces are other art than the pictures' own files**, not
+  smaller copies: the corner brackets' pieces have cut corners, stepped arrow ends and a
+  doubled long line, the compass strip's a doubled line beside the letters and thick
+  middles, where the own files have square corners and single lines (both decoded from
+  `Fallout - Textures2.bsa`). The original's screenshots of the corners (`hud_corners2`
+  c0, c4) show the atlas pieces' shapes, as corner-messages.md §2.2 found for the
+  message bracket; the tile drawing draws them. The hand-built HUD (`hud.rs`) draws the
+  own files.
 - [documented: GECK wiki Texatlas; interfaceshared.tai's heading] `texatlas` names a
   `.tai` index under `textures\`; each line gives a picture's file name, the atlas file
   (`InterfaceShared<idx>.dds`) and its place as parts of the atlas. Any index a tile names
