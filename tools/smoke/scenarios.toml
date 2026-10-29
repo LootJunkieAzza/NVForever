@@ -10176,17 +10176,17 @@ manual = "tiles_ui_hud_code_traits.png: the HUD drawn from tiles at 1280 x 800: 
 [[scenario]]
 name = "tiles-environment-radiation"
 source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): environment-radiation with [UI] TileMenus=HUDMainMenu: the radiation meter drawn from RadiationMeter's four tiles in the alt colour (hud.md §14.1-§14.2: alpha 255 in radiation, \"RAD/SEC\", the value, the pointer's x), the hand-built meter hidden"
-note = "as environment-radiation: the player in the nuclear test site's shack; the shot at 24 s"
+note = "as environment-radiation: the player in the nuclear test site's shack; the shot at 27 s, as environment-radiation's, so the two shots compare"
 areas = ["ui", "hud", "radiation"]
 paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/radiation.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "24:tiles_radiation_meter.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "27:tiles_radiation_meter.png" }
 args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
   { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
-  { re = 'radiation: level 15\.0 rads/s \(marker 0x00154611 15\.0\), taking 1\d\.\d\d/s \(Rad Resistance \d+ %\)', label = "in radiation, so the meter's tiles show" },
+  { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "in radiation (the marker's level falling off with distance, issue #894), so the meter's tiles show" },
 ]
-manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +n and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
+manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
 
 [[scenario]]
 name = "ui-menu-lifetime"
