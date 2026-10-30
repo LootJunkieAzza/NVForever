@@ -1,6 +1,6 @@
 {
   "format": "fnv.script.actions/1",
-  "title": "Headless Et Tumor, Brute? (VMS35), Caesar killed on the table: the Legion chain to Caesar's coma, the operation used to kill him (stage 101)",
+  "title": "Headless Et Tumor, Brute? (VMS35), Caesar killed on the table: the Legion chain to Caesar's coma, the operation used to kill him (stage 101), Lucius fought (VMQ02 110)",
   "given": [
     {"kind": "menu", "menu": 1001, "open": false},
     {"kind": "quest", "quest": "VMQTops", "running": false, "completed": true, "stage": 80, "done": [80]},
@@ -175,7 +175,13 @@
     {"op": "wait_menu", "menu": 1001, "max_frames": 60, "label": "operation box"},
     {"op": "press_button", "button": 2},
     {"op": "dismiss_message_boxes", "max": 2, "wait_frames": 120, "label": "surgery boxes"},
-    {"op": "get_quest", "quest": "VMS35", "fields": ["stage", "done.101", "var.nSurgeryStatus"], "label": "final: VMS35 101"},
-    {"op": "get_global", "name": "VStoryEventCaesarKilled", "label": "caesar killed"}
+    {"op": "get_quest", "quest": "VMS35", "fields": ["stage", "done.101", "var.nSurgeryStatus"], "label": "milestone: VMS35 101"},
+    {"op": "get_global", "name": "VStoryEventCaesarKilled", "label": "caesar killed"},
+    {"op": "note", "text": "Lucius's confront package brings him to the player (talk stands in for his walk; GREETING for Caesar killed on the table); the player answers with Topic034: the Fort turns hostile (VMQ02 110). VMS35 has already stopped at 101, so VMQ02 110's stage script does not set VMS35 255."},
+    {"op": "move_player", "to": "FortLuciusRef"},
+    {"op": "talk", "actor": "FortLuciusRef", "label": "lucius"},
+    {"op": "choose", "topic": "VFreeformTheFortFortLuciusTopic034", "label": "lucius fight"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMQ02", "fields": ["stage", "done.110"], "label": "final: VMQ02 110"}
   ]
 }
