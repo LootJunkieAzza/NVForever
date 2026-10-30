@@ -346,6 +346,14 @@ impl Pointer {
         self.over.filter(|&t| ui.is_live(t))
     }
 
+    /// Whether a step has work left over from the last: `clicked` pulses to end or the
+    /// scripts' clicks to report. The engine steps for these even with no menu taking
+    /// input, so a script's click lasts one frame and fires its event once [design: the
+    /// maintainer's review of #957].
+    pub fn pending(&self) -> bool {
+        !self.pulsed.is_empty() || !self.queued.is_empty()
+    }
+
     /// One frame: end last frame's `clicked` pulses, follow the pointer, click, press the
     /// keys. `menus` are the menus that take input, back to front; the last one takes the
     /// keys [hypothesis: the menu on top].

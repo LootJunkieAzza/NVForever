@@ -6,7 +6,10 @@
 //!   does yet: the HUD (`[UI] TileMenus=HUDMainMenu`) is drawn from tiles but has no
 //!   pointer in play [hypothesis: the original's HUD takes no clicks]. So nothing is fed
 //!   and the frame does no tree work [design: the maintainer's review of #902], until a
-//!   menu moves to the tile renderer, or the test aid below makes the HUD take input.
+//!   menu moves to the tile renderer, or the test aid below makes the HUD take input; but
+//!   a script's ClickMenuButton or ClickMenuTile still ends (`clicked` back to 0) and
+//!   fires its event the next frame (`fnv_game::ui_input::idle`) [design: the
+//!   maintainer's review of #957].
 //! - **Units**: the cursor's logical pixels to interface units, 960 to the view's height,
 //!   as the tile renderer draws (`super::draw`, `crate::interface::u`) [design].
 //! - **Keys**: A to Z as `_PCButton_<letter>` [documented: the vanilla files' letters;
@@ -155,10 +158,10 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
     if taking.is_empty() {
-        // A highlight left from the last menu that took input goes (mouseover back to 0);
-        // otherwise nothing to do [design].
-        if rt.game.ui_pointer.over.is_some() {
-            fnv_game::ui_input::step(&mut rt.game, &[], &Input::default(), &no_measure);
+        // A highlight left from the last menu that took input goes (mouseover back to 0),
+        // and the scripts' clicks end and fire their events; otherwise nothing to do
+        // [design: `fnv_game::ui_input::idle`].
+        if fnv_game::ui_input::idle(&mut rt.game).is_some_and(|r| r.over.is_some()) {
             info!("tiles: pointer over nothing (no menu takes input)");
         }
         return;

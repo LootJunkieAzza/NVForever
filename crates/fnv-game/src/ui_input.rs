@@ -56,6 +56,18 @@ pub fn step(g: &mut Game, menus: &[TileId], input: &Input, measure: &Measure<'_>
     report
 }
 
+/// A frame with no menu taking tile input. A highlight left from the last menu that took
+/// it goes (mouseover back to 0, its event fired), and the clicks left over (`clicked`
+/// pulses, the scripts' ClickMenuButton and ClickMenuTile) end and fire their events, so a
+/// script's `clicked` lasts one frame there too and nothing waits for a menu to take
+/// input [design: the maintainer's review of #957]. With neither, no tree work: `None`.
+pub fn idle(g: &mut Game) -> Option<Report> {
+    if g.ui_pointer.over.is_none() && !g.ui_pointer.pending() {
+        return None;
+    }
+    Some(step(g, &[], &Input::default(), &fnv_ui::input::no_measure))
+}
+
 /// One line for the log about a click.
 pub fn click_line(ui: &Ui, c: &fnv_ui::input::Click) -> String {
     let by = match &c.by {

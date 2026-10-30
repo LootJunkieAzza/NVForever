@@ -356,3 +356,37 @@ End) 1"#,
     ui_input::step(&mut g, &[menu], &pointer_at(150.0, 130.0), &no_measure);
     assert_eq!(get(&mut g, "_cancel"), 2.0);
 }
+
+#[test]
+fn a_script_click_ends_with_no_menu_taking_input() {
+    use fnv_game::ui_input;
+    let f = fixture();
+    let mut g = game(&f);
+    pointer_menu(&mut g);
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "TestMenu/_cancel" 1
+End) 1 "TestMenu#2""#,
+    );
+    let clicked = |g: &Game| g.ui_tree.get_float("TestMenu/Main/CancelButton/clicked");
+    let fired = |g: &Game| g.ui_tree.get_float("TestMenu/_cancel").unwrap();
+    // Nothing highlighted and nothing left over: no step, no tree work.
+    assert!(ui_input::idle(&mut g).is_none());
+    // A mod clicks every frame and no menu takes tile input (play without the test aid):
+    // each click lasts its frame, fires its event once, and leaves nothing queued
+    // [design: the maintainer's review of #957].
+    for frame in 1..=3 {
+        assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2")])), 1.0);
+        assert_eq!(clicked(&g), Some(1.0));
+        assert!(g.ui_pointer.pending());
+        let report = ui_input::idle(&mut g).expect("the script's click is stepped");
+        assert_eq!(report.clicks.len(), 1, "frame {frame}");
+        assert_eq!(clicked(&g), Some(0.0), "frame {frame}");
+        assert_eq!(fired(&g), f64::from(frame));
+        assert!(!g.ui_pointer.pending(), "frame {frame}");
+    }
+    // The frame after: nothing left, nothing fired again.
+    assert!(ui_input::idle(&mut g).is_none());
+    assert_eq!(fired(&g), 3.0);
+}
