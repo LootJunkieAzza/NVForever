@@ -447,7 +447,7 @@ fn open(
         if def.stay_soft17 { "stays on" } else { "hits" }
     );
     rt.game.open_menu(MENU_BLACKJACK);
-    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help { title, text: crate::lockpick::help::expand_keys(&text, &bindings) });
+    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
     if let Some(h) = &help {
         info!("blackjack: help message {} {:?} shown (first use)", rules::HELP_MESSAGE, h.title);
     }

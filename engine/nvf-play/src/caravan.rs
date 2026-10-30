@@ -189,7 +189,7 @@ impl Session {
         }
         if let Some((title, text)) = rules::first_help(&mut rt.game, which) {
             info!("caravan: help message {} {title:?} shown (first time)", which.message());
-            self.help = Some(Help { title, text: crate::lockpick::help::expand_keys(&text, bindings) });
+            self.help = Some(Help::new(&rt.game, title, &text, bindings));
         }
     }
 }
