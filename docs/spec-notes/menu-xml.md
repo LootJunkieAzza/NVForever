@@ -274,7 +274,7 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
   clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
 - [design] `menu` and `hotrect` contribute layout to children but emit no drawing item;
-  hotrect input is T8. `rect`, `image`, `text`, `nif`, `radial` and `window` retain
+  hotrect input is T8 (§3.2). `rect`, `image`, `text`, `nif`, `radial` and `window` retain
   distinct kinds; producing a layout item does not implement model or radial drawing.
 - [design] Image `filename` is passed through (empty if absent); `texatlas` is retained
   as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
@@ -457,6 +457,78 @@ stands unchanged: every picture stretched, the shared atlas only.
   own `_NVFSequenceFraction` gives (hud.md §14.12, `tiles/model.rs`). [hypothesis] The
   model's origin stands at the tile's `x`, `y`, a model unit an interface unit; the
   tile's `width` and `height` do not scale it.
+
+### 3.2 The pointer and keys (T8)
+
+What the game's code writes for input, and how `fnv_ui::input` reads the files for it.
+Wiki pages in our own words [documented: the GECK wiki's Target, Mouseover, Clicked,
+Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding XML"
+§3.2 c), export of 2026-10-28].
+
+- [documented] `target` true makes a tile react to the pointer, the keys and a
+  controller; `mouseover`, `clicked`, `clicksound`, `mouseoversound`, `wheelable`,
+  `draggable` need it. A hotrect with `target` true makes its children targets too,
+  even with their own `target` 0. A hidden tile (`visible` false, its own or an
+  ancestor's) is neither moused over nor clicked, but a script can still click it.
+- [documented] `mouseover` is 1 while the tile has the pointer (or a controller's
+  highlight) and 0 otherwise. [hypothesis] Only on the tile that takes the event (below),
+  not on the tiles above it; observer check §8 item 9.
+- [documented, disagreeing] `clicked`: "set to 1 by the engine for a single frame after
+  the element is clicked by the mouse" (the tutorial) against "it will count how many
+  times a element has been clicked" (the Clicked page). [hypothesis] The single frame
+  (`fnv_ui::input::CLICKED_RULE`, `ClickedRule::OneFrame`; `Count` is the other); a
+  press, not the release, clicks. Observer check §8 item 8. `shiftclicked` is 1 for a
+  frame when Shift is held during the click [documented].
+- [documented: tutorial] A click sets `clicked` on a tile with an `id`; the Clicked page
+  says on any target. [hypothesis] `clicked` on any target, the `id` being what the
+  menu's code reads.
+- [documented: Target] `target` has no effect on a `rect` (the tutorial says "rect or
+  image"); [design] `rect` and `menu` tiles are never under the pointer.
+- [observed: the vanilla menu files, read privately] Every text button is the text_box
+  prefab: a target hotrect with `alpha` 0 and its text, box and key hint as children;
+  the save list's rows and the scrollbars are target hotrects at alpha 0 too.
+  [hypothesis] `alpha` therefore does not stop the pointer; a hit on a child the hotrect
+  made a target goes to the nearest tile above it whose own `target` is true.
+- [hypothesis] Boxes are the layout's (§3.1.1): `x`/`y` added to the parent's top-left,
+  `width`/`height`, a text measured when it has no size and moved by its `justify`,
+  `clips` cropping the children; `locus` is not read, as the layout does not.
+- [documented: tutorial, the higher `depth` is drawn on top] [hypothesis] Where targets
+  overlap, the highest summed `depth` takes the pointer, a tie going to the one drawn
+  later; a menu opened later is over an earlier one whatever their depths. Observer
+  check §8 item 7.
+- [observed: the vanilla files] `_PCButton_<key>` appears only on the `<menu>` element
+  (61 times, any case: `_PCButton_E`, `_PCBUTTON_S`), its value the name of a tile; the
+  letters used are A, B, E, F, Q, R, S, W and X. Pressing the key clicks that tile
+  [documented: the menus' key hints, e.g. lockpicking.md §2 "E is Exit"]; LStewieAl's
+  Tweaks "extends vanilla XML keybindings" to digits, F1-F12, Caps, Tab and Alt
+  [documented], so the unmodded game reads letters. [hypothesis] The tile is the first of
+  that name in the menu, and it must be shown and a target.
+- [documented: Input] The controller's traits `xbuttona` `xbuttonb` `xbuttonx`
+  `xbuttony` `xbuttonlt` `xbuttonrt` `xbuttonlb` `xbuttonrb` `xbuttonstart`, and `xup`
+  `xdown` `xleft` `xright`, which the arrow keys press too; the stick buttons are
+  `&xbuttonls;` `&xbuttonrs;` [documented: Hardcoded UI Shortcuts]. `xdefault`'s meaning
+  is unknown [documented: Input] and is not read. [observed: the vanilla files] Their
+  value is a `<ref src="…" trait="clicked"/>` on the `<menu>` element (the button the
+  key clicks) or `<ref … trait="mouseover"/>` on list items (`xup`/`xdown` to the
+  neighbour); one `xscroll` refs `_value_adjust_poke`. [documented: Ref, Input] A `ref`
+  to `mouseover` moves the highlight there; one to `clicked` clicks that tile.
+  [hypothesis] The highlighted tile's trait first, else the menu's, also when the
+  tile's ref does nothing (it names no tile, or one hidden or not a target); a key-moved
+  highlight holds until the pointer moves or its tile is hidden or stops being a target;
+  a ref to another trait is reported, not followed [design].
+- [documented: ClickMenuButton, SetOnMenuClickEventHandler] `Menu#<id>` names the tile
+  of that `<id>` in the menu. [hypothesis] The first in file order when two share one.
+- [documented] Wheelmoved, Draggable (`dragx` …), Repeathorizontal: not built (T8 left
+  them; `wheelable` is the next step for lists).
+- [design] NVForever: `fnv_ui::input::hit` (the tile under a pointer in interface units,
+  960 to the view's height as the tile renderer draws), `Pointer::step` (one frame:
+  pulses ended, the pointer followed, the press, the keys), `fnv_game::ui_input::step`
+  (that and the JIP events); the engine feeds only the menus drawn from tiles that take
+  input (none in play yet: the HUD takes none; the test aid `NVF_PLAY_TEST_POINTER`
+  makes it take input). GetActiveUIComponentName/FullName/ID read the highlighted tile,
+  empty and -1 with none [hypothesis: observer check §8 item 10]; ClickMenuButton (a
+  target with an `id`, `clickTimes`) and ClickMenuTile (any target, hidden too) click as
+  a press does.
 
 ## 4. Operators
 
@@ -703,3 +775,21 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
    parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
    was established by these captures; other menus/scripts still need checking.
+7. **Which target takes the pointer where two overlap.** Ours: the highest summed `depth`,
+   a tie to the one drawn later; a later menu over an earlier one (§3.2). In a menu with
+   overlapping buttons (the level-up menu's list over its buttons, or two tiles injected
+   with InjectUIComponent at the same place and different depths), GetActiveUIComponentName
+   with the cursor over the overlap.
+8. **How long `clicked` holds.** Ours: 1 for the frame of the press, then 0 (the
+   tutorial), not a count (the Clicked page). A tile injected with
+   `<_n> <copy src="me()" trait="_n"/> <add src="me()" trait="clicked"/> </_n>` and one
+   with `<_c> <copy src="me()" trait="clicked"/> </_c>`, clicked twice; GetUIFloat on
+   both after each click (a count: `_c` 1 then 2; a frame: `_c` back to 0, `_n` 1 then 2),
+   and whether it is the press or the release that sets it.
+9. **Whether `mouseover` reaches the tiles above.** With the cursor on a text_box button
+   (its text child), GetUIFloat on the hotrect's, the text's and the parent rect's
+   `mouseover` (ours: the hotrect 1, the others 0 or absent).
+10. **The pointer functions with no menu, and on a tile without an id.**
+    GetActiveUIComponentName, GetActiveUIComponentFullName and GetActiveUIComponentID in
+    game mode with no menu open (ours: "", "" and -1), and over a target with no `<id>`
+    (ours: its name and -1); ClickMenuTile's return value.
