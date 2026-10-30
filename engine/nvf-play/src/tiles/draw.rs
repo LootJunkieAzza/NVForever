@@ -80,6 +80,9 @@ pub fn measure(font: &Font, text: &str, wrap: Option<f64>) -> (f64, f64) {
 #[derive(Resource, Default)]
 pub struct TileFonts {
     faces: HashMap<u8, Face>,
+    /// The faces' fonts, owned, for the text widths a frame keeps back
+    /// ([`fnv_game::ui_hud::defer`]); made again when a face is read.
+    measure: Option<fnv_game::ui_hud::Measure>,
 }
 
 #[derive(SystemParam)]
@@ -97,6 +100,7 @@ impl FontKit<'_> {
             let bc = bc_supported(self.formats.as_deref());
             let f = face(FONT_FILES[n as usize - 1], plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
             self.fonts.faces.insert(n, f);
+            self.fonts.measure = None;
         }
     }
 
@@ -133,14 +137,26 @@ impl FontKit<'_> {
         }
     }
 
-    /// Write the HUD text tiles' measured widths into the tree
-    /// ([`fnv_game::ui_hud::write_text_widths`]); only with the game's own fonts, a stand-in
-    /// font would write made-up widths [design].
-    pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
+    /// The measure of the HUD text tiles' widths ([`fnv_game::ui_hud::write_text_widths`]);
+    /// only with the game's own fonts, a stand-in font would write made-up widths, so
+    /// `None` when a text tile's font is not read [design]. The text tiles' fonts are the
+    /// same before and after [`fnv_game::ui_hud::write`], which sets no fonts.
+    pub(crate) fn widths(&mut self, ui: &Ui) -> Option<fnv_game::ui_hud::Measure> {
         if !self.game_fonts(ui, &fnv_game::ui_hud::measured_texts(ui)) {
-            return;
+            return None;
         }
-        fnv_game::ui_hud::write_text_widths(ui, &|font, text| self.face(font).map_or(0.0, |f| measure(&f.font, text, None).0));
+        if self.fonts.measure.is_none() {
+            let owned: HashMap<u8, Font> = self.fonts.faces.iter().map(|(&n, face)| (n, face.font.clone())).collect();
+            self.fonts.measure = Some(std::sync::Arc::new(move |font: f64, text: &str| owned.get(&font_number(font)).map_or(0.0, |f| measure(f, text, None).0)));
+        }
+        self.fonts.measure.clone()
+    }
+
+    /// Write the HUD text tiles' measured widths into the tree ([`FontKit::widths`]).
+    pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
+        if let Some(measure) = self.widths(ui) {
+            fnv_game::ui_hud::write_text_widths(ui, &*measure);
+        }
     }
 
     /// Write the tile HUD's notice texts' widths (`super::notices::write_widths`), after
@@ -725,8 +741,10 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
+    // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
+    // walk or lay out (`fnv_ui::Ui::has_mod_added_tiles`, a kept count) [design: #938].
     let (pieces, roots) = match menu {
-        Some((ui, menu)) => {
+        Some((ui, menu)) if whole || ui.has_mod_added_tiles(menu) => {
             // The fonts of the text tiles drawn, read before measuring.
             let mut stack = if whole { vec![menu] } else { ui.mod_added_tiles(menu) };
             while let Some(t) = stack.pop() {
@@ -749,7 +767,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 pieces(ui, menu, &measured, Select::Mods { vanilla: None })
             }
         }
-        None => (Vec::new(), 0),
+        _ => (Vec::new(), 0),
     };
     // The whole menu's pieces come and go with the HUD's states; only the mods' count is
     // told then [design].

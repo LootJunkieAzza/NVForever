@@ -2536,49 +2536,62 @@ fn last_core_setters_change_what_their_getters_read() {
 /// The extender functions a script call still finds unbuilt ("not built yet"), by plugin,
 /// from the catalogue: `cargo test --release -p fnv-game --test synthetic -- --ignored
 /// extender_census --nocapture`; the list goes to `target/tmp/extender-census.txt`. Each
-/// is called once with placeholder arguments (0, PlayerREF, "a"); a name that does not
-/// compile so is counted apart.
+/// is called once (a name two plugins share, once) with placeholder arguments (0,
+/// PlayerREF, "a"), then with fewer when the compiler takes fewer than the catalogue
+/// lists; the statements (`let`, `while`, …) are syntax and skipped. A name the compiler
+/// does not know at all is listed apart, with what the compiler said.
 #[test]
 #[ignore]
 fn extender_census() {
+    const STATEMENTS: [&str; 8] = ["let", "while", "loop", "foreach", "break", "continue", "eval", "search"];
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/schemas/script/functions.json")).unwrap()).unwrap();
     let fs = doc.as_array().or_else(|| doc["functions"].as_array()).unwrap();
     let f = udf_fixture();
     let mut g = game(&f);
     let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
-    let mut nocompile = Vec::new();
+    let mut unknown = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for x in fs.iter().filter(|x| x["family"] == "extender") {
         let n = x["name"].as_str().unwrap_or_default();
-        if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || STATEMENTS.contains(&n.to_ascii_lowercase().as_str()) || !seen.insert(n.to_ascii_lowercase()) {
             continue;
         }
-        let args: Vec<&str> = x["params"].as_array().into_iter().flatten().map(|p| match p["kind"].as_str() {
-            Some("form" | "reference") => "PlayerREF",
-            Some("string") => "\"a\"",
-            Some("actor_value") => "Luck",
-            Some("axis") => "X",
-            _ => "0",
-        }).collect();
-        let before = g.events.len();
-        let r = g.run_query(&format!("Begin Function {{ }}
-{n} {}
-End
-", args.join(" ")), fnv_game::game::RunCtx::default());
-        let said = g.events[before..].iter().any(|e| format!("{e:?}").contains("not built"));
-        if r.as_ref().is_err_and(|e| e.contains("did not compile")) {
-            nocompile.push(n.to_string());
-        } else if said || r.as_ref().is_err_and(|e| e.contains("not built")) {
-            unbuilt.entry(x["origin"].as_str().unwrap_or("?").to_string()).or_default().push(n.to_string());
+        let args: Vec<&str> = x["params"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| match p["kind"].as_str() {
+                Some("form" | "reference") => "PlayerREF",
+                Some("string") => "\"a\"",
+                Some("actor_value") => "Luck",
+                Some("axis") => "X",
+                _ => "0",
+            })
+            .collect();
+        let mut verdict = None;
+        for k in (0..=args.len()).rev() {
+            let before = g.events.len();
+            let r = g.run_query(&format!("Begin Function {{ }}\n{n} {}\nEnd\n", args[..k].join(" ")), fnv_game::game::RunCtx::default());
+            let said: Vec<String> = g.events[before..].iter().map(|e| format!("{e:?}")).collect();
+            if r.as_ref().is_err_and(|e| e.contains("did not compile")) {
+                verdict = Some(Err(said.join(" | ")));
+                continue;
+            }
+            verdict = Some(Ok(said.iter().any(|e| e.contains("not built")) || r.as_ref().is_err_and(|e| e.contains("not built"))));
+            break;
+        }
+        match verdict {
+            Some(Ok(true)) => unbuilt.entry(x["origin"].as_str().unwrap_or("?").to_string()).or_default().push(n.to_string()),
+            Some(Err(why)) => unknown.push(format!("{n} ({why})")),
+            _ => {}
         }
     }
     let mut out = String::new();
     for (o, v) in &unbuilt {
-        out += &format!("{o} {}: {}
-", v.len(), v.join(", "));
+        out += &format!("{o} {}: {}\n", v.len(), v.join(", "));
     }
-    out += &format!("did not compile with placeholders {}: {}
-", nocompile.len(), nocompile.join(", "));
+    out += &format!("not compiled with any argument count {}: {}\n", unknown.len(), unknown.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();

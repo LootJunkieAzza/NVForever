@@ -47,14 +47,19 @@ GetBaseObject, ListGetCount, GetNumItems, IsFormValid, IsReference, the D1–D5 
 Counted by calling every extender function of the catalogue once
 (`cargo test --release -p fnv-game --test synthetic -- --ignored extender_census
 --nocapture`; the names go to `target/tmp/extender-census.txt`). A function counts as
-not built when the call ends in "not built yet"; 31 names do not compile with the
-census's placeholder arguments and are counted apart (statements such as `let`, `while`,
-and functions whose parameters the catalogue gets wrong).
+not built when the call ends in "not built yet". Each name is called once (a name two
+plugins share counts under the first), with placeholder arguments, then fewer when the
+compiler takes fewer than the catalogue lists; the statements (`let`, `while`, `ForEach`,
+`Loop`, `Break`, `Continue`, `eval`, `search`) are syntax and skipped (#1022). The
+catalogue's empty argument templates (`{{FunctionArgument |Name = |Type = }}`, a page's
+placeholder for no arguments) are no longer read as an argument (14 entries).
 
-**Core xNVSE (origins NVSE and FOSE1): 3 of 609 left, none buildable now.**
-- `eval`: if-statement syntax, built in the compiler (the census calls it as a function).
-- `SetNthPackage`: its page names no arguments ("Sets and returns the Nth package"), so
-  there is nothing to build from [documented: SetNthPackage].
+GetFOSEVersion, GetFOSERevision and GetFOSEBeta are not New Vegas functions: the game with
+xNVSE 6.4.9 gives them no opcode [observed: schemas/script/command_opcodes.json, from
+GetCommandOpcode in the original], so no script can call them. They are left out.
+
+**Core xNVSE (origins NVSE and FOSE1): 1 of 609 left.** SetNthPackage was built from
+in-game probes (#1021, ext-last-core.md §4).
 - `PrintActiveTile`: the name of the tile under the pointer; the tile tree has no
   pointer state headless, and the engine's menus do not report one yet.
 
@@ -77,10 +82,13 @@ owner's mod lists call 40 (`ToggleHUDCursor` 20 calls, `SetMaterialPropertyValue
 materials, menus); the next record families are destruction data, body-part data, land
 textures, water traits and the texture sets' decal traits (DODT, not decoded yet).
 
-**The plugin libraries: 1,515 left.** JIP LN 344 of 768, JohnnyGuitar 314 of 359, SUP
-182 of 184, LU 145 of 283, ShowOff 136 of 173, ITR 119 of 119, One111 54, CacheUI 45,
-PP 45 of 52, Anh 34 of 46, vheyes 21, NX 18, kNVSE 16 of 28, JIPPPLN 10, Command
-Extender 8, Overcharge 6, and 18 more in plugins with four or fewer. The next batches
+Built since: Anh 31 of 34 (#1015, ext-anh.md; not installed in the probe game, so from the
+pages alone) and ShowOff 28 (#1010, ext-showoff.md §5, probe set showoff2 49/50).
+
+**The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
+JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
+Anh 34, vheyes 21, NX 18, kNVSE 16, JIPPPLN 10, Command Extender 8, Overcharge 6, and 19
+more in plugins with four or fewer. One issue per library, listed in #1027. The next batches
 should follow what mods call: `fnvtool ext scan` over a mod list counts the functions
 their scripts use (docs/handoff/nvse-next-batch.md).
 

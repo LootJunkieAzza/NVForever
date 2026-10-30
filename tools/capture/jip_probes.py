@@ -4661,6 +4661,163 @@ JIP4_PROBES = (
                         ("rP.GetStartingAngle", " * 1000", "Z"))]
 )
 
+
+# rules1 (writes, session only; issues #1021 and #1025): rules no page documents.
+# FATan/FATan2 to eight decimals over a range (jip-getters read 44.9998 for 45 at six
+# digits); GetRunSpeed with the speed multiplier and Agility beside it (gaps4 read 338 for
+# the player); the references of Doc Mitchell's house with and without taken ones, as form
+# IDs (nvse-refs counted 21 and 22); and SetNthPackage, whose page gives no arguments, in
+# three likely forms, each read back with GetNthPackage (a form the game refuses to compile
+# leaves no row).
+def _r1(pid, body, text=True, prefix="rules1"):
+    return (f"{prefix}.{pid}", "ref rP\nref rDoc\nref rObj\nref rPkg\nref rF\nfloat fRes\nint iN\n"
+            "string_var sText\narray_var aA\narray_var aE\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+_R1_ATAN = (1, 0.5, 2, 0.25, 4, 10, 0.1, -1, 0)
+_R1_ATAN2 = ((1, 1), (1, -1), (-1, -1), (-1, 1), (3, 4), (4, 3), (0, 1), (1, 0), (1, 2))
+_R1_REFS = ('let aA := GetRefsInCell rF 0 0 {taken}\nlet sText := sv_Construct "%g:" (ar_Size aA)\n'
+            'foreach aE <- aA\n  let rObj := aE["value"]\n'
+            '  let sText := sText + " " + (GetFormIDString rObj)\nloop\nSetFunctionValue sText')
+_R1_PKG = 'let rPkg := rDoc.GetNthPackage 1\nlet rObj := rDoc.GetNthPackage 0\n'
+_R1_PKG_READ = 'SetFunctionValue (sv_Construct "%i %i %i" rObj rPkg (rDoc.GetNthPackage 0))'
+RULES1_PROBES = (
+    [_r1(f"fatan.{i}", f'SetFunctionValue (sv_Construct "%.8f" (fatan {x}))') for i, x in enumerate(_R1_ATAN)]
+    + [_r1(f"fatan2.{i}", f'SetFunctionValue (sv_Construct "%.8f" (fatan2 {y} {x}))') for i, (y, x) in enumerate(_R1_ATAN2)]
+    + [_r1("runspeed.player", 'SetFunctionValue (sv_Construct "%.4f" (rP.GetRunSpeed))'),
+       _r1("runspeed.doc", 'SetFunctionValue (sv_Construct "%.4f" (rDoc.GetRunSpeed))'),
+       _r1("speedmult.player", 'SetFunctionValue (sv_Construct "%.4f" (rP.GetAV SpeedMult))'),
+       _r1("speedmult.doc", 'SetFunctionValue (sv_Construct "%.4f" (rDoc.GetAV SpeedMult))'),
+       _r1("agility.player", 'SetFunctionValue (sv_Construct "%.4f" (rP.GetAV Agility))'),
+       _r1("agility.doc", 'SetFunctionValue (sv_Construct "%.4f" (rDoc.GetAV Agility))'),
+       _r1("encumbrance.player", 'SetFunctionValue (sv_Construct "%.4f %.4f" (rP.GetAV InventoryWeight) (rP.GetAV CarryWeight))')]
+    + [_r1(f"refs.doc.{t}", _form("rF", CELLS["doc"]) + _R1_REFS.format(taken=t)) for t in (0, 1)]
+    + [_r1("setnthpackage.ref.pkg.index", _R1_PKG + "rDoc.SetNthPackage rPkg 0\n" + _R1_PKG_READ),
+       _r1("setnthpackage.ref.index.pkg", _R1_PKG + "rDoc.SetNthPackage 0 rPkg\n" + _R1_PKG_READ),
+       _r1("setnthpackage.pkg.index.base", _R1_PKG + "SetNthPackage rPkg 0 (rDoc.GetBaseObject)\n" + _R1_PKG_READ),
+       _r1("setnthpackage.result", _R1_PKG + "let fRes := rDoc.SetNthPackage rPkg 0\n"
+           'SetFunctionValue (sv_Construct "%g" fRes)')]
+)
+
+
+# rules2 (writes, session only, each change put back; #1021, #1025): what rules1 left
+# open. FATan at sixteenths of 1 and more (an approximation, rules1); GetRunSpeed while
+# Speed Mult, Agility, fMoveRunMult and fMoveBaseSpeed change one at a time (rules1 read
+# 338.8 = fMoveBaseSpeed 77 x 4.4 for the player and Doc); SetNthPackage in the one form
+# that compiled in rules1 (`let fRes := ref.SetNthPackage package index`), read back.
+_R2_X = [k / 16 for k in range(1, 17)] + [0.3, 0.7, 0.9, 0.05]
+_R2_RUN = 'SetFunctionValue (sv_Construct "%.4f" (rP.GetRunSpeed))'
+def _r2(pid, body, text=True):
+    return _r1(pid, body, text, "rules2")
+
+
+_R2_PKGS = ('let rObj := rDoc.GetNthPackage 0\nlet rF := rDoc.GetNthPackage 1\nlet fRes := rDoc.GetPackageCount\n'
+            'SetFunctionValue (sv_Construct "%i %i %g" rObj rF fRes)')
+RULES2_PROBES = (
+    [_r2(f"fatan.x{i}", f'SetFunctionValue (sv_Construct "%.10f" (fatan {x:g}))') for i, x in enumerate(_R2_X)]
+    + [_r2("run.base", _R2_RUN),
+       _r2("run.speedmult50", 'rP.SetAV SpeedMult 50\n' + _R2_RUN),
+       _r2("run.speedmult50.next", _R2_RUN),
+       _r2("run.speedmult.restore", 'rP.SetAV SpeedMult 100\n' + _R2_RUN),
+       _r2("run.agility10", 'rP.SetAV Agility 10\n' + _R2_RUN),
+       _r2("run.agility.restore", 'rP.SetAV Agility 5\n' + _R2_RUN),
+       _r2("run.runmult5", 'SetNumericGameSetting "fMoveRunMult" 5\n' + _R2_RUN),
+       _r2("run.runmult.restore", 'SetNumericGameSetting "fMoveRunMult" 4\n' + _R2_RUN),
+       _r2("run.base100", 'SetNumericGameSetting "fMoveBaseSpeed" 100\n' + _R2_RUN),
+       _r2("run.base.restore", 'SetNumericGameSetting "fMoveBaseSpeed" 77\n' + _R2_RUN),
+       _r2("run.sneak", 'SetFunctionValue (sv_Construct "%.4f %g" (rP.GetRunSpeed) (rP.IsSneaking))')]
+    + [_r2("setnth.before", _R2_PKGS),
+       _r2("setnth.set", _R1_PKG + 'let fRes := rDoc.SetNthPackage rPkg 0\n'
+           + _R2_PKGS),
+       _r2("setnth.restore", 'let rPkg := GetFormFromMod "FalloutNV.esm" "15ED62"\nlet fRes := rDoc.SetNthPackage rPkg 0\n'
+           + _R2_PKGS),
+       _r2("setnth.past", _R1_PKG + 'let fRes := rDoc.SetNthPackage rPkg 99\n'
+           'SetFunctionValue (sv_Construct "%g" (rDoc.GetPackageCount))')]
+)
+
+
+# showoff2 (writes, session only, each change put back; #1010): the ShowOff functions of
+# the 2026-10-30 batch (docs/spec-notes/ext-showoff.md §8) on the player, Doc Mitchell, the
+# 10mm pistol, the nail board (the page's melee example), the combat knife, leather armor,
+# a stimpak, 10mm ammo, the dog VCrTier1DogMed, Doc's house and two encounter zones.
+SO2 = {"nailboard": "EB6B1", "knife": "4326", "dog": "14F425", "vault11zone": "E9081", "hooverzone": "131F33"}
+
+
+def _so2(pid, body, text=False):
+    return (f"showoff2.{pid}", "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _so2v(pid, expr, text=False):
+    return _so2(pid, f"SetFunctionValue ({expr})", text)
+
+
+def _so2f(pid, key, expr, text=False):
+    fid = SO2.get(key) or NF.get(key) or CELLS.get(key)
+    return _so2(pid, _form("rObj", fid) + f"SetFunctionValue ({expr})", text)
+
+
+SHOWOFF2_PROBES = (
+    [_so2v("equippedweapon.player", "GetFormIDString (rP.GetEquippedWeapon)", True),
+     _so2v("equippedweapon.doc", "GetFormIDString (rDoc.GetEquippedWeapon)", True),
+     _so2v("equippedmelee.player", "rP.IsEquippedWeaponMelee"),
+     _so2v("equippedranged.player", "rP.IsEquippedWeaponRanged"),
+     _so2v("equippedmelee.doc", "rDoc.IsEquippedWeaponMelee"),
+     _so2v("equippedranged.doc", "rDoc.IsEquippedWeaponRanged"),
+     _so2f("weaponmelee.nailboard", "nailboard", "IsWeaponMelee rObj"),
+     _so2f("weaponmelee.knife", "knife", "IsWeaponMelee rObj"),
+     _so2f("weaponmelee.pistol", "pistol10", "IsWeaponMelee rObj"),
+     _so2f("canhealth.pistol", "pistol10", "GetItemCanHaveHealth rObj"),
+     _so2f("canhealth.leather", "leather", "GetItemCanHaveHealth rObj"),
+     _so2f("canhealth.stimpak", "stimpak", "GetItemCanHaveHealth rObj"),
+     _so2v("limbs.mask", "rP.GetCrippledLimbsAsBitMask"),
+     _so2v("limbs.num", "rP.GetNumCrippledLimbs"),
+     _so2v("limbs.any", "rP.IsLimbCrippled"),
+     _so2v("limbs.mask.100", "rP.GetCrippledLimbsAsBitMask 100"),
+     _so2v("limbs.num.100", "rP.GetNumCrippledLimbs 100"),
+     _so2v("limbs.head.100", "rP.IsLimbCrippled 0 100"),
+     _so2(f"limbs.leftleg.cripple", 'rP.DamageAV LeftMobilityCondition 200\n'
+          'SetFunctionValue (sv_Construct "%g %g %g %g" (rP.GetCrippledLimbsAsBitMask) (rP.GetNumCrippledLimbs) (rP.IsLimbCrippled 4) (rP.GetAVDamage LeftMobilityCondition))', True),
+     _so2("limbs.leftleg.restore", 'rP.RestoreAV LeftMobilityCondition 200\nSetFunctionValue (rP.GetCrippledLimbsAsBitMask)'),
+     _so2v("avdamage.health", "rP.GetActorValueDamage Health"),
+     _so2v("avname.1", "GetActorValueName (1)", True),
+     _so2v("avname.25", "GetActorValueName (25)", True),
+     _so2v("avname.76", "GetActorValueName (76)", True),
+     _so2f("ammoname.0", "ammo10", "GetAmmoName 0 rObj", True),
+     _so2f("ammoname.1", "ammo10", "GetAmmoName 1 rObj", True),
+     _so2f("ammoname.2", "ammo10", "GetAmmoName 2 rObj", True),
+     _so2("ammoname.set", _form("rObj", NF["ammo10"]) + 'let sText := GetAmmoName 1 rObj\nrP.AuxVarSetStr "*nvfSO2" sText\n'
+          'SetAmmoName "NVF" 1 rObj\nSetFunctionValue (GetAmmoName 1 rObj)', True),
+     _so2("ammoname.restore", _form("rObj", NF["ammo10"]) + 'let sText := rP.AuxVarGetStr "*nvfSO2"\nSetAmmoName sText 1 rObj\n'
+          'rP.AuxVarErase "*nvfSO2"\nSetFunctionValue (GetAmmoName 1 rObj)', True),
+     _so2f("consume.stimpak", "stimpak", "GetFormIDString (GetIngestibleConsumeSound rObj)", True),
+     _so2("consume.set", _form("rObj", NF["stimpak"]) + _form("rOther", "88B16")
+          + 'let fRes := SetIngestibleConsumeSound rOther rObj\nSetFunctionValue (sv_Construct "%g %i" fRes (GetIngestibleConsumeSound rObj))', True),
+     _so2f("creature.foot", "dog", "GetCreatureFootWeight rObj"),
+     _so2f("creature.turn", "dog", "GetCreatureTurningSpeed rObj"),
+     _so2v("creature.foot.doc", "GetCreatureFootWeight (rDoc.GetBaseObject)"),
+     _so2("creature.set", _form("rObj", SO2["dog"]) + 'let fRes := SetCreatureTurningSpeed 45 rObj\n'
+          'SetFunctionValue (sv_Construct "%g %g" fRes (GetCreatureTurningSpeed rObj))', True),
+     _so2("creature.set.negative", _form("rObj", SO2["dog"]) + 'SetFunctionValue (SetCreatureFootWeight -1 rObj)'),
+     _so2("creature.restore", _form("rObj", SO2["dog"]) + 'SetCreatureTurningSpeed 90 rObj\nSetFunctionValue (GetCreatureTurningSpeed rObj)'),
+     _so2f("cellzone.doc", "doc", "GetFormIDString (GetCellEncounterZone rObj)", True),
+     _so2f("zonerespawns.vault11", "vault11zone", "GetZoneRespawns rObj"),
+     _so2f("zonerespawns.hoover", "hooverzone", "GetZoneRespawns rObj"),
+     _so2f("isbaseform.pistol", "pistol10", "IsBaseForm rObj"),
+     _so2v("isbaseform.player", "IsBaseForm rP"),
+     _so2v("isbaseform.docref", "IsBaseForm rDoc"),
+     _so2v("cloned.player", "rP.IsReferenceCloned"),
+     _so2f("isactoralt.docbase", "doc", "IsActorAlt rObj"),
+     _so2f("isactoralt.pistol", "pistol10", "IsActorAlt rObj"),
+     _so2v("isactoralt.docref", "rDoc.IsActorAlt"),
+     _so2("modsetting", 'let fRes := ModNumericGameSetting "fMoveRunMult" 1\n'
+          'SetFunctionValue (sv_Construct "%g %g" fRes (GetNumericGameSetting "fMoveRunMult"))', True),
+     _so2("modsetting.restore", 'ModNumericGameSetting "fMoveRunMult" -1\nSetFunctionValue (GetNumericGameSetting "fMoveRunMult")'),
+     _so2v("modsetting.missing", 'ModNumericGameSetting "fNVFNone" 1'),
+     _so2v("debugmode", "GetShowOffDebugMode")]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4718,11 +4875,14 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "hud1": HUD1_PROBES,
         "showoff1": SHOWOFF1_PROBES,
         "atk1": ATK1_PROBES,
-        "jip4": JIP4_PROBES}
+        "jip4": JIP4_PROBES,
+        "rules1": RULES1_PROBES,
+        "rules2": RULES2_PROBES,
+        "showoff2": SHOWOFF2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2"}
 
 
 def script(body):

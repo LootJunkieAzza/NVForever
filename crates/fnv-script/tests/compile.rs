@@ -877,13 +877,83 @@ end",
     );
     assert_eq!(h.0[&1], Value::Num(1.0));
     assert_eq!(h.0[&2], Value::Num(57.3));
-    assert_eq!(h.0[&3], Value::Num(135.0), "[observed]");
+    // 135 at six digits; 135.00020525 at eight [observed: jip-probes rules1, #1025].
+    assert!(matches!(h.0[&3], Value::Num(a) if (a - 135.000_205_25).abs() < 2e-5), "{:?}", h.0[&3]);
     assert_eq!(h.0[&4], Value::Num(0.0), "[observed]");
     assert_eq!(h.0[&5], Value::Num(7.0));
     assert_eq!(h.0[&6], Value::Num(5.0));
     assert_eq!(h.0[&7], Value::Num(-1.0));
     assert_eq!(h.text(8), "FalloutNV");
     assert_eq!(h.text(9), "FalloutNV.esm:104C0C");
+}
+
+#[test]
+fn fatan_follows_the_games_approximation() {
+    // [observed: jip-probes rules1 and rules2 (#1025), eight and ten decimals].
+    let h = run(
+        "float a
+float b
+float c
+float d
+float e
+float f
+begin GameMode
+let a := Fatan 1
+let b := Fatan 0.5
+let c := Fatan 10
+let d := Fatan2 -1, -1
+let e := Fatan2 1, 0
+let f := Fatan 0.3
+end",
+    );
+    for (k, want) in [(1, 44.999_803_18), (2, 26.564_936_48), (3, 84.289_417_94), (4, -135.000_205_25), (5, 90.000_002_5), (6, 16.699_303_67)] {
+        assert!(matches!(h.0[&k], Value::Num(v) if (v - want).abs() < 2e-5), "{k}: {:?} against {want}", h.0[&k]);
+    }
+}
+
+#[test]
+fn anh_functions_follow_their_pages() {
+    // [documented: Ar_Max, Ar_Min, Ar_RangeMath ((6,2,10,7): 10, 2, 8); V3Mult ((1,2,3),
+    // (4,5,6): (4,10,18)); V3MultByScalar ((1,2,3) by 2: (2,4,6)); Sv_Capitalize
+    // ("pepeglare": "Pepeglare"); GetAngleQuadrant (0.785: 1); Sv_PadStart; DegToRad].
+    let h = run(
+        "float a
+float b
+float c
+float d
+float e
+float f
+float g
+float q
+string_var s
+string_var t
+array_var aA
+array_var aB
+array_var aOut
+begin GameMode
+let aA := ar_List 6, 2, 10, 7
+let a := Ar_Max aA
+let b := Ar_Min aA
+let c := Ar_RangeMath aA
+let aA := ar_List 1, 2, 3
+let aB := ar_List 4, 5, 6
+let aOut := V3Mult aA aB
+let d := aOut[2]
+let aOut := V3MultByScalar aA 2
+let e := aOut[1]
+let f := V3Dotproduct aA aB
+let g := DegToRad 180
+let q := GetAngleQuadrant 0.785
+let s := Sv_Capitalize \"pepeglare snig\"
+let t := Sv_PadStart \"5\" 3 \"0\"
+end",
+    );
+    assert_eq!((h.0[&1], h.0[&2], h.0[&3]), (Value::Num(10.0), Value::Num(2.0), Value::Num(8.0)));
+    assert_eq!((h.0[&4], h.0[&5], h.0[&6]), (Value::Num(18.0), Value::Num(4.0), Value::Num(32.0)));
+    assert!(matches!(h.0[&7], Value::Num(x) if (x - std::f64::consts::PI).abs() < 1e-6));
+    assert_eq!(h.0[&8], Value::Num(1.0));
+    assert_eq!(h.text(9), "Pepeglare snig");
+    assert_eq!(h.text(10), "005");
 }
 
 #[test]

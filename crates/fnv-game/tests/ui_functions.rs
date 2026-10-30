@@ -128,7 +128,7 @@ fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
         frame: Default::default(),
     };
     // Nothing read the tree: the frame's writes wait, the tree keeps the file's text.
-    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts);
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
     assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("file"));
     assert!(!g.ui_used);
     // MenuTapKey reads no tree: still waiting.
@@ -137,6 +137,93 @@ fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
     // A script's read makes them first, and the engine writes every frame from then on.
     assert_eq!(run(&mut g, "GetUIString", &[s("HUDMainMenu/RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
     assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+#[test]
+fn deferred_hud_writes_carry_the_measured_text_widths() {
+    use fnv_game::ui_hud::{self, Measure, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    // The prompt's verb tile as the file has it: "Button Text", 156 wide [observed:
+    // hud.md §14.1].
+    let hud = MemSource::default().with(
+        "menus\\hud_main_menu.xml",
+        r#"<menu name="HUDMainMenu"> <rect name="Info"> <rect name="justify_center_hotrect"> <text name="button_text"> <string> Button Text </string> <font> 7 </font> <width> 156 </width> </text> </rect> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&hud, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: Some("Talk".into()),
+        frame: Default::default(),
+    };
+    // A stand-in for the engine's fonts: 13.5 units a letter in font 7, so "Talk" is 54
+    // as the original measured it [observed: hud.md §14.1].
+    let measure: Measure = std::sync::Arc::new(|font: f64, text: &str| if font == 7.0 { 13.5 * text.chars().count() as f64 } else { 0.0 });
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, Some(measure));
+    let path = "HUDMainMenu/Info/justify_center_hotrect/button_text/width";
+    assert_eq!(g.ui_tree.get_float(path), Some(156.0));
+    // The script's first read makes the strings and then the widths measured from them,
+    // as a frame writes them: the measured width, not the file's.
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s(path)])), 54.0);
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/Info/justify_center_hotrect/button_text/string").as_deref(), Some("Talk"));
+}
+
+/// A game with a small HUD and start menu, and a frame's HUD writes kept back.
+fn deferred(f: &Fixture) -> Game<'_> {
+    use fnv_game::ui_hud::{self, Shown, Texts};
+    let mut g = game(f);
+    let menus = MemSource::default()
+        .with("menus\\hud_main_menu.xml", r#"<menu name="HUDMainMenu"> <rect name="RadiationMeter"> <text name="radiation_text"> <string> file </string> </text> </rect> </menu>"#)
+        .with("menus\\start_menu.xml", r#"<menu name="StartMenu"> <rect name="Panel"> <x> 5 </x> <template name="row"> <rect name="Row"> <x> 1 </x> </rect> </template> </rect> </menu>"#);
+    g.ui_tree.load_menu(&menus, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.load_menu(&menus, "menus\\start_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+        frame: Default::default(),
+    };
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
+    g
+}
+
+#[test]
+fn only_hud_paths_make_the_deferred_hud_writes() {
+    let f = fixture();
+    let mut g = deferred(&f);
+    // Calls on another menu read and change it, and leave the HUD's writes waiting.
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/Panel/x")])), 5.0);
+    assert_eq!(n(run(&mut g, "SetUIFloat", &[s("StartMenu\\Panel\\x"), XVal::Num(6.0)])), 1.0);
+    assert_eq!(n(run(&mut g, "AddTileFromTemplate", &[s("StartMenu/Panel|row|Row0")])), 1.0);
+    assert_eq!(n(run(&mut g, "InjectUIComponent", &[s("StartMenu/Panel"), s("<rect name=\"Added\"/>")])), 1.0);
+    assert_eq!(n(run(&mut g, "UnloadUIComponent", &[s("StartMenu/Panel/Added")])), 1.0);
+    assert_eq!(n(run(&mut g, "IsComponentLoaded", &[s("StartMenu/Panel")])), 1.0);
+    assert!(!g.ui_used && g.ui_hud_pending.is_some());
+    // A read of the HUD (any case, either slash) makes them first.
+    assert_eq!(run(&mut g, "GetUIString", &[s(" hudmainmenu\\RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+#[test]
+fn a_change_to_the_hud_makes_the_deferred_hud_writes() {
+    let f = fixture();
+    let mut g = deferred(&f);
+    assert_eq!(n(run(&mut g, "InjectUIComponent", &[s("HUDMainMenu"), s("<rect name=\"ModGauge\"> <x> 3 </x> </rect>")])), 1.0);
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("RAD/SEC"));
 }
 
 /// A query script compiled from source and run by the VM, as a mod's script runs: the
@@ -191,4 +278,222 @@ fn mcm_functions_stand_for_start_menu_traits() {
     assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Mod/Option/string")]), s("on"));
     // A trait that is not there reads 0, where GetUIFloat reads NOT_FOUND.
     assert_eq!(n(run(&mut g, "GetMCMFloat", &[XVal::Num(5.0), XVal::Num(5.0), s("_enable")])), 0.0);
+}
+
+// ---- the pointer on tiles (task T8, fnv_game::ui_input, fnv_ui::input) --------------
+
+/// A synthetic menu with two buttons, a hidden target image, a plain image with an id,
+/// and the traits the event handlers below write.
+fn pointer_menu(g: &mut Game) -> fnv_ui::TileId {
+    let src = MemSource::default().with(
+        "menus\\pointer.xml",
+        r#"<menu name="TestMenu"> <class> &QuantityMenu; </class>
+           <_clickMenu> 0 </_clickMenu> <_clickId> 0 </_clickId> <_nameLen> 0 </_nameLen> <_cancel> 0 </_cancel>
+           <_prefix> 0 </_prefix> <_overs> 0 </_overs> <_overMenu> 0 </_overMenu>
+           <_PCButton_E> CancelButton </_PCButton_E>
+           <rect name="Main"> <x> 100 </x> <y> 100 </y>
+             <hotrect name="OkButton"> <id> 1 </id> <target> &true; </target> <x> 10 </x> <y> 10 </y> <width> 200 </width> <height> 50 </height> </hotrect>
+             <hotrect name="CancelButton"> <id> 2 </id> <target> &true; </target> <x> 10 </x> <y> 100 </y> <width> 200 </width> <height> 50 </height> </hotrect>
+             <image name="Arrow"> <target> &true; </target> <visible> &false; </visible> <x> 300 </x> <y> 10 </y> <width> 20 </width> <height> 20 </height> </image>
+             <image name="Plain"> <id> 9 </id> <x> 400 </x> <y> 10 </y> <width> 20 </width> <height> 20 </height> </image>
+           </rect> </menu>"#,
+    );
+    let menu = g.ui_tree.load_menu(&src, "menus\\pointer.xml").unwrap();
+    g.ui_tree.update();
+    menu
+}
+
+fn pointer_at(x: f64, y: f64) -> fnv_ui::input::Input {
+    fnv_ui::input::Input { at: Some((x, y)), ..Default::default() }
+}
+
+#[test]
+fn the_active_component_is_the_pointers_tile() {
+    use fnv_game::ui_input;
+    use fnv_ui::input::no_measure;
+    let f = fixture();
+    let mut g = game(&f);
+    let menu = pointer_menu(&mut g);
+    // Nothing highlighted [hypothesis: empty and -1].
+    assert_eq!(run(&mut g, "GetActiveUIComponentName", &[]), s(""));
+    assert_eq!(run(&mut g, "GetActiveUIComponentFullName", &[]), s(""));
+    assert_eq!(n(run(&mut g, "GetActiveUIComponentID", &[])), -1.0);
+    ui_input::step(&mut g, &[menu], &pointer_at(150.0, 130.0), &no_measure);
+    assert_eq!(run(&mut g, "GetActiveUIComponentName", &[]), s("OkButton"));
+    assert_eq!(run(&mut g, "GetActiveUIComponentFullName", &[]), s("TestMenu/Main/OkButton"));
+    assert_eq!(n(run(&mut g, "GetActiveUIComponentID", &[])), 1.0);
+    // The full name is a path GetUIFloat takes [documented: GetActiveUIComponentFullName].
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("TestMenu/Main/OkButton/mouseover")])), 1.0);
+    // Through the VM as a script calls them.
+    assert_eq!(n(query(&mut g, "SetFunctionValue (GetActiveUIComponentID)")), 1.0);
+    // The pointer leaves: nothing highlighted again, mouseover back to 0.
+    ui_input::step(&mut g, &[menu], &pointer_at(0.0, 0.0), &no_measure);
+    assert_eq!(run(&mut g, "GetActiveUIComponentName", &[]), s(""));
+    assert_eq!(n(run(&mut g, "GetActiveUIComponentID", &[])), -1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("TestMenu/Main/OkButton/mouseover")])), 0.0);
+}
+
+#[test]
+fn click_functions_click_as_a_press_does() {
+    use fnv_game::ui_input;
+    use fnv_ui::input::{no_measure, By};
+    let f = fixture();
+    let mut g = game(&f);
+    let menu = pointer_menu(&mut g);
+    // ClickMenuButton by `Menu#id` and by path [documented: ClickMenuButton]. The traits
+    // are read from the tree, not through GetUIFloat, so only the click functions could
+    // start the HUD's writes.
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#1")])), 1.0);
+    assert_eq!(g.ui_tree.get_float("TestMenu/Main/OkButton/clicked").unwrap(), 1.0);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu\\Main\\CancelButton"), XVal::Num(3.0)])), 1.0);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(0.0)])), 0.0);
+    // It needs a target with an id: not the hidden image (no id), not the plain one (no
+    // target), not a menu that is not there.
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu/Main/Arrow")])), 0.0);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#9")])), 0.0);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("NoMenu#1")])), 0.0);
+    // ClickMenuTile takes any target, hidden too [documented: ClickMenuTile; Tutorial].
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("TestMenu/Main/Arrow")])), 1.0);
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("TestMenu/Main/Plain")])), 0.0);
+    assert!(!g.ui_used, "clicks on another menu leave the HUD's writes waiting");
+    // The next step reports them all and ends the pulses.
+    let report = ui_input::step(&mut g, &[menu], &Default::default(), &no_measure);
+    let names: Vec<String> = report.clicks.iter().map(|c| g.ui_tree.tile(c.tile).name.clone()).collect();
+    assert_eq!(names, ["OkButton", "CancelButton", "CancelButton", "CancelButton", "Arrow"]);
+    assert!(report.clicks.iter().all(|c| c.by == By::Script));
+    assert_eq!(g.ui_tree.get_float("TestMenu/Main/OkButton/clicked").unwrap(), 0.0);
+    assert_eq!(g.ui_tree.get_float("TestMenu/Main/CancelButton/clicked").unwrap(), 0.0);
+}
+
+#[test]
+fn a_click_on_the_hud_makes_its_deferred_writes() {
+    use fnv_game::ui_hud::{self, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    let hud = MemSource::default().with(
+        "menus\\hud_main_menu.xml",
+        r#"<menu name="HUDMainMenu"> <hotrect name="Probe"> <id> 4 </id> <target> 1 </target> </hotrect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&hud, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: String::new(),
+        radiation_value: String::new(),
+        xp_label: String::new(),
+        xp_level_up: String::new(),
+        needs: Default::default(),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+        frame: Default::default(),
+    };
+    ui_hud::defer(&mut g, Shown::default(), texts, None);
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("HUDMainMenu#4")])), 1.0);
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+#[test]
+fn menu_events_fire_from_the_pointer_and_keys() {
+    use fnv_game::ui_input;
+    use fnv_ui::input::{no_measure, Input};
+    let f = fixture();
+    let mut g = game(&f);
+    let menu = pointer_menu(&mut g);
+    // [documented: SetOnMenuClickEventHandler: menu ID, tile id, lower-case name; a
+    // `Menu#id`, full or partial path filter. SetOnMouseoverChangeEventHandler: the menu
+    // ID, any menu without a filter.]
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+SetUIFloat "TestMenu/_clickMenu" m
+SetUIFloat "TestMenu/_clickId" t
+SetUIFloat "TestMenu/_nameLen" (Sv_Length sN)
+End) 1 "TestMenu#1"
+SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "TestMenu/_cancel" 1
+End) 1 "TestMenu/Main/CancelButton"
+SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "TestMenu/_prefix" 1
+End) 1 "testmenu/MAIN"
+SetOnMouseoverChangeEventHandler (Begin Function {int m}
+ModUIFloat "TestMenu/_overs" 1
+SetUIFloat "TestMenu/_overMenu" m
+End) 1"#,
+    );
+    let get = |g: &mut Game, t: &str| n(run(g, "GetUIFloat", &[s(&format!("TestMenu/{t}"))]));
+    // The pointer onto OkButton: one highlight change, in QuantityMenu (1016).
+    ui_input::step(&mut g, &[menu], &pointer_at(150.0, 130.0), &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 1.0);
+    assert_eq!(get(&mut g, "_overMenu"), 1016.0);
+    // A click on it: the `#1` and the partial-path handlers run, the Cancel one does not.
+    ui_input::step(&mut g, &[menu], &Input { press: true, ..pointer_at(150.0, 130.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_clickMenu"), 1016.0);
+    assert_eq!(get(&mut g, "_clickId"), 1.0);
+    assert_eq!(get(&mut g, "_nameLen"), 8.0, "\"okbutton\"");
+    assert_eq!(get(&mut g, "_prefix"), 1.0);
+    assert_eq!(get(&mut g, "_cancel"), 0.0);
+    assert_eq!(get(&mut g, "_overs"), 1.0, "a still pointer moves no highlight");
+    // The E key clicks CancelButton through the menu's _PCButton_E.
+    ui_input::step(&mut g, &[menu], &Input { keys: vec!["E".into()], ..pointer_at(150.0, 130.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_cancel"), 1.0);
+    assert_eq!(get(&mut g, "_prefix"), 2.0);
+    // A script's click fires its event at the next step.
+    run(&mut g, "ClickMenuButton", &[s("TestMenu#2")]);
+    assert_eq!(get(&mut g, "_cancel"), 1.0);
+    ui_input::step(&mut g, &[menu], &pointer_at(150.0, 130.0), &no_measure);
+    assert_eq!(get(&mut g, "_cancel"), 2.0);
+}
+
+#[test]
+fn a_script_click_ends_with_no_menu_taking_input() {
+    use fnv_game::ui_input;
+    let f = fixture();
+    let mut g = game(&f);
+    pointer_menu(&mut g);
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "TestMenu/_cancel" 1
+End) 1 "TestMenu#2""#,
+    );
+    let clicked = |g: &Game| g.ui_tree.get_float("TestMenu/Main/CancelButton/clicked");
+    let fired = |g: &Game| g.ui_tree.get_float("TestMenu/_cancel").unwrap();
+    // Nothing highlighted and nothing left over: no step, no tree work.
+    assert!(ui_input::idle(&mut g).is_none());
+    // A mod clicks every frame and no menu takes tile input (play without the test aid):
+    // each click lasts its frame, fires its event once, and leaves nothing queued
+    // [design: the maintainer's review of #957].
+    for frame in 1..=3 {
+        assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2")])), 1.0);
+        assert_eq!(clicked(&g), Some(1.0));
+        assert!(g.ui_pointer.pending());
+        let report = ui_input::idle(&mut g).expect("the script's click is stepped");
+        assert_eq!(report.clicks.len(), 1, "frame {frame}");
+        assert_eq!(clicked(&g), Some(0.0), "frame {frame}");
+        assert_eq!(fired(&g), f64::from(frame));
+        assert!(!g.ui_pointer.pending(), "frame {frame}");
+    }
+    // The frame after: nothing left, nothing fired again.
+    assert!(ui_input::idle(&mut g).is_none());
+    assert_eq!(fired(&g), 3.0);
+}
+
+#[test]
+fn a_huge_click_count_is_capped() {
+    use fnv_game::ui_functions::MAX_CLICK_TIMES;
+    use fnv_game::ui_input;
+    let f = fixture();
+    let mut g = game(&f);
+    pointer_menu(&mut g);
+    // `1e9` clicks would hang the frame; it makes MAX_CLICK_TIMES [design: the
+    // maintainer's review of #957]. An infinite count too; a count that is no number, none.
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(1e9)])), 1.0);
+    assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), MAX_CLICK_TIMES);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(f64::INFINITY)])), 1.0);
+    assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), MAX_CLICK_TIMES);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(f64::NAN)])), 0.0);
+    assert!(!g.ui_pointer.pending());
+    // Under the cap the count is kept.
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(5.0)])), 1.0);
+    assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), 5);
 }

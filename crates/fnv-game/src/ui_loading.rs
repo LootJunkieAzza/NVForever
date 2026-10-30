@@ -272,6 +272,8 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         }
     }
     game.ui_tree = ui;
+    // The old tree's tiles are gone with it [design].
+    game.ui_pointer = fnv_ui::input::Pointer::default();
     game.ui_menus = index;
     game.ui_files = Some(files);
     game.ui_lifetime = MenuLifetime { unavailable: BTreeSet::new(), warnings: game.ui_tree.warnings.iter().map(|w| warning_key(w)).collect() };

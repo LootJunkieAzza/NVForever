@@ -185,11 +185,19 @@ pub struct Ui {
     /// none, it has nothing to work out [design: writes of the same value, as the
     /// engine's every frame, leave the tree clean].
     dirty: bool,
+    /// How many live mod-added tiles (an `Injected`, `Template` or loose file origin, or
+    /// a loose UIO include's) each root tile holds, itself included, by root: kept where
+    /// tiles are made, unloaded or change origin, so [`Ui::has_mod_added_tiles`] walks
+    /// nothing [design: maintainer's review of #902, #938].
+    mod_tiles: HashMap<TileId, usize>,
     /// What loading mended or left out, one line each.
     pub warnings: Vec<String>,
     /// The game strings (`&-sName;`) read into traits so far, by lower-case name, and
     /// whether the source had text for it (menu-xml.md §2.4) [design].
     pub game_strings_read: BTreeMap<String, bool>,
+    /// What the game's own code last wrote to a tile's trait, for the writes it makes only
+    /// when its value changes, so a script's value in between lasts (`Ui::write_changed`).
+    code_written: HashMap<(TileId, String), Value>,
 }
 
 impl Ui {
@@ -207,8 +215,25 @@ impl Ui {
         ui
     }
 
+    /// Sets a trait as the game's code does for a value it writes only when the value
+    /// changes: nothing when `v` is what the code wrote last, whatever a script set since.
+    pub fn write_changed(&mut self, tile: TileId, name: &str, v: Value) {
+        let key = (tile, name.to_string());
+        if self.code_written.get(&key) == Some(&v) {
+            return;
+        }
+        self.set_trait(tile, name, v.clone());
+        self.code_written.insert(key, v);
+    }
+
     pub fn tile(&self, id: TileId) -> &Tile {
         &self.tiles[id.0 as usize]
+    }
+
+    /// Whether `id` names a live tile of this tree: false for one unloaded, and for an id
+    /// kept from a tree since replaced (a load builds a new one) [design].
+    pub fn is_live(&self, id: TileId) -> bool {
+        self.tiles.get(id.0 as usize).is_some_and(|t| t.live)
     }
 
     /// A tile to change (made, unloaded, renamed, its file traits or templates): the tree
@@ -256,7 +281,41 @@ impl Ui {
         if let Some(p) = parent {
             self.tile_mut(p).children.push(id);
         }
+        if self.tile(id).origin.mod_added() {
+            self.count_mod_tile(id, true);
+        }
         id
+    }
+
+    /// Whether a tile counts in [`Ui::mod_added_tiles`]' walk as the mod's: its origin, or
+    /// a loose UIO include's.
+    fn is_mod_added(&self, id: TileId) -> bool {
+        self.tile(id).origin.mod_added() || self.uio_tiles.contains(&id)
+    }
+
+    /// One mod-added tile more (`up`) or less under its root ([`Ui::mod_tiles`]).
+    fn count_mod_tile(&mut self, id: TileId, up: bool) {
+        let root = self.root_of(id);
+        let n = self.mod_tiles.entry(root).or_default();
+        if up {
+            *n += 1;
+        } else {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                self.mod_tiles.remove(&root);
+            }
+        }
+    }
+
+    /// Counts the live mod-added tiles again, after the UIO tiles were forgotten.
+    fn recount_mod_tiles(&mut self) {
+        self.mod_tiles.clear();
+        for i in 0..self.tiles.len() {
+            let id = TileId(i as u32);
+            if self.tile(id).live && self.is_mod_added(id) {
+                self.count_mod_tile(id, true);
+            }
+        }
     }
 
     // ---- loading --------------------------------------------------------------------
@@ -266,6 +325,7 @@ impl Ui {
     pub fn configure_uio(&mut self, src: &dyn Source, plugin: impl Fn(&str) -> bool) {
         self.uio = crate::uio::Report::read(src, &plugin);
         self.uio_tiles.clear();
+        self.recount_mod_tiles();
     }
 
     /// Reads `menus\globals.xml` into `globals()`.
@@ -275,7 +335,11 @@ impl Ui {
         };
         let g = self.globals();
         let origin = Origin::file(src, "menus\\globals.xml");
+        let counted = self.tile(g).live && self.is_mod_added(g);
         self.tile_mut(g).origin = origin.clone();
+        if counted != (self.tile(g).live && self.is_mod_added(g)) {
+            self.count_mod_tile(g, !counted);
+        }
         // The file is one `<rect name="Strings">` [observed]; its content is globals()'.
         for n in &doc.nodes {
             if let Node::Element(e) = n {
@@ -400,7 +464,13 @@ impl Ui {
                         // [design] Track this inclusion's tiles, rather than all uses of
                         // its filename: the same prefab may also occur in vanilla content.
                         if e.attr("nvf_uio") == Some("true") && src.is_loose(&path) {
-                            self.uio_tiles.extend((start..self.tiles.len()).map(|i| TileId(i as u32)));
+                            for i in start..self.tiles.len() {
+                                let id = TileId(i as u32);
+                                let counted = self.is_mod_added(id);
+                                if self.uio_tiles.insert(id) && !counted && self.tile(id).live {
+                                    self.count_mod_tile(id, true);
+                                }
+                            }
                         }
                     }
                     None => self.warnings.push(format!("include {file}: not found")),
@@ -475,6 +545,9 @@ impl Ui {
         self.roots.retain(|&r| r != id);
         let mut stack = vec![id];
         while let Some(t) = stack.pop() {
+            if self.tile(t).live && self.is_mod_added(t) {
+                self.count_mod_tile(t, false);
+            }
             let tile = self.tile_mut(t);
             tile.live = false;
             stack.extend(std::mem::take(&mut tile.children));
@@ -709,6 +782,14 @@ impl Ui {
             }
         }
         out
+    }
+
+    /// [design] Whether [`Ui::mod_added_tiles`] of `menu` has any, without walking it:
+    /// from the count kept as tiles are made, unloaded or change origin, so the engine may
+    /// ask every frame [design: #938].
+    pub fn has_mod_added_tiles(&self, menu: TileId) -> bool {
+        let tile = self.tile(menu);
+        tile.live && tile.kind == "menu" && self.mod_tiles.get(&menu).is_some_and(|&n| n > 0)
     }
 
     /// [design] The name paths ([`Ui::path_of`], lower case) of every live tile under

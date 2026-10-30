@@ -6002,6 +6002,111 @@ order = [[
   { re = 'hud: enemy health \S' },
 ]]
 
+# ------------------------------------------------------------------ the enemy bar's show rule (issue #935)
+
+[[scenario]]
+name = "hud-enemy-bar-hurt-neutral"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 2 and the [design] paragraph after the points; private job hud_enemy5 a1-a3): out of combat a hurt neutral under the crosshair, not the activation target and with no prompt up, has the enemy bar, the weapon not drawn"
+note = "Easy Pete held (SetRestrained) and put 350 units north of the player, beyond activation reach (150), then hurt by DamageActorValue; aimnpc turns the view onto him. He stays neutral: the crosshair is never red"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:damage:EasyPeteRef:Health:20", NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_SHOTS = "9:enemy_bar_hurt_neutral.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 11
+expect = [
+  { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto Easy Pete" },
+  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %', label = "the hurt neutral under the crosshair has the bar" },
+]
+forbid = [
+  { re = 'reticle: hostile spread', label = "Easy Pete stays neutral (the bar is not for foes only)" },
+]
+manual = "enemy_bar_hurt_neutral.png: the bar at the bottom middle in the HUD's main colour, part empty, \"Easy Pete\" under it; no prompt under the crosshair"
+
+[[scenario]]
+name = "hud-enemy-bar-picked-neutral"
+source = "issue #935 (docs/spec-notes/hud.md §8, points 2 and 3; private jobs hud_enemy4 s2, s3, hud_enemy5 a1, a3a): out of combat a hurt neutral under the crosshair has the bar; once he is the activation target, his prompt up, it goes"
+note = "as hud-enemy-bar-hurt-neutral, Easy Pete held 350 units north and hurt, the view turned onto him at 6 s: his bar, which the rule before #935 never gave a neutral. At 8 s he is put 100 units north, within activation reach and still in the crosshair's line: in that frame he becomes the activation target, the prompt names him and the bar goes (the gap; the off line is logged just before the prompt's, by system order); the view turned onto him again at 9 and 10 s keeps him the target"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:damage:EasyPeteRef:Health:20,8:moveto:EasyPeteRef:player:0:100:0", NVF_PLAY_TEST_CONTROL = "6:aimnpc,9:aimnpc,10:aimnpc", NVF_PLAY_TEST_SHOTS = "7.5:enemy_bar_picked_neutral_before.png,10.5:enemy_bar_picked_neutral.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto Easy Pete" },
+  { re = 'reticle: prompt ".*" on "Easy Pete"', label = "he is the activation target, his prompt up" },
+  { gap = [{ re = 'reticle: prompt ".*" on "Easy Pete"' }, { text = "hud: enemy health off" }], range = [-0.5, 0.5], label = "the bar goes as he becomes the target" },
+]
+order = [
+  [{ re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %' }, { re = 'reticle: prompt ".*" on "Easy Pete"' }],
+  [{ re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %' }, { text = "hud: enemy health off" }],
+]
+forbid = [
+  { re = 'reticle: hostile spread', label = "Easy Pete stays neutral" },
+]
+manual = "enemy_bar_picked_neutral_before.png: Easy Pete's bar in the HUD's main colour, part empty, no prompt; enemy_bar_picked_neutral.png: the prompt under the crosshair names Easy Pete; no enemy bar"
+
+[[scenario]]
+name = "hud-enemy-bar-full-hostile"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 1; private jobs hud_enemy4 g3, hud_enemy3 h1): a hostile in combat with the player, aimed at, at full health has no bar (before the change it had one)"
+note = "the Goodsprings dogs of perk-meltdown-anatomy set on the player (god mode) at 3 s, never hurt; aimactor turns the view onto the nearest actor every second from 6 s. The red crosshair shows a hostile was under it"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_CONTROL = "6:aimactor,7:aimactor,8:aimactor,9:aimactor,10:aimactor", NVF_PLAY_TEST_SHOTS = "8.2:enemy_bar_full_hostile.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto a dog" },
+  { re = 'reticle: hostile spread', label = "a hostile under the crosshair (it turns red)" },
+]
+forbid = [
+  { re = 'hud: enemy health \S', label = "no bar for a hostile at full health" },
+]
+manual = "enemy_bar_full_hostile.png: the crosshair red over a dog; no enemy bar"
+
+[[scenario]]
+name = "hud-enemy-bar-combat-unaimed"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 4; private jobs hud_enemy4 g4, hud_enemy3 g2): a hurt actor in combat with the player keeps the bar with the crosshair off it, for longer than the linger"
+note = "the dogs of perk-meltdown-anatomy set on the player (god mode) at 3 s, the player looking up at the sky from 3.5 s and never aimed at one; the Goodsprings dog's (000F573F) Health set to 2 at 4 s. Its bar holds to the end of the run, 9 s on"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,4:set_av:0x000F573F:Health:2", NVF_PLAY_TEST_LOOK = "3.5:0:70", NVF_PLAY_TEST_SHOTS = "11:enemy_bar_combat_unaimed.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--size", "1280x720"]
+run_seconds = 13
+expect = [
+  { re = 'hud: enemy health \S.* 0x000F573F \d+ %', label = "the hurt dog fighting the player has the bar, not aimed at" },
+]
+forbid = [
+  { re = 'hud: enemy health off', label = "the bar stays while it fights" },
+  { re = 'hud: enemy health .* held by the linger', label = "held by the fight, not by a linger" },
+  { re = 'reticle: hostile spread', label = "never aimed at: a dog under the crosshair would turn it red" },
+]
+manual = "enemy_bar_combat_unaimed.png: the sky; the enemy bar in red at the bottom middle, almost empty, the dog's name under it"
+
+[[scenario]]
+name = "hud-enemy-bar-linger"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 5; private job hud_enemy5 b2): after the crosshair leaves a hurt restrained hostile out of combat its bar stays about 5.5 s, then goes (hud_target::LINGER_SECONDS). The capture's figure is a hostile's: a neutral's bar stayed at least 16-18 s there, a known divergence not checked here"
+note = "sneak-attack-critical's gecko (NVCrGecko placed at the player at 3 s, held by SetRestrained at 3.2 s, before its first frame, UNSEEN so nothing starts a fight), as the capture's restrained gecko; then the player is put 350 units south of it by MoveTo at 4 s, beyond activation reach, with the view on the sky from 2.9 s so the gecko in the player is never the activation target (the Talk prompt hides the bar). The player moves, not the gecko [observed, 2026-10-30, four direct runs]: a gecko moved by MoveTo got no body at all when restrained and moved within its first 0.3 s, kept its body where it stood when restrained first, and ran at a coyote in the gap when moved first; each left the crosshair's ray with nothing at its place and the bar off. hud_enemy5 b2 is a hostile's linger; this gecko is out of combat and neutral to a player it cannot see, and gets the same 5.5 s [design]"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1,4:moveto:player:0xFF000000:0:-350:0,4.2:damage:0xFF000000:Health:5", NVF_PLAY_TEST_CONTROL = "6:aimactor", NVF_PLAY_TEST_LOOK = "2.9:0:60,9:0:60", NVF_PLAY_TEST_SHOTS = "8.5:enemy_bar_linger_on.png,11:enemy_bar_linger_held.png,17:enemy_bar_linger_gone.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  { re = 'test aid: aiming at actor FF[0-9A-F]{6}', label = "the view turned onto the gecko" },
+  { re = 'hud: enemy health \S.* 0xFF[0-9A-F]{6} \d+ %', label = "the hurt gecko under the crosshair has the bar" },
+  { re = 'hud: enemy health \S.* 0xFF[0-9A-F]{6} held by the linger', label = "the bar held after the crosshair left it" },
+  { gap = [{ re = 'hud: enemy health .* held by the linger' }, { text = "hud: enemy health off" }], range = [5.3, 8.0], label = "and gone about 5.5 s later" },
+]
+order = [[
+  { re = 'hud: enemy health \S.* 0xFF[0-9A-F]{6} \d+ %' },
+  { re = 'hud: enemy health .* held by the linger' },
+  { text = "hud: enemy health off" },
+]]
+forbid = [
+  { re = 'reticle: prompt ".*" on "Gecko"', label = "the gecko is never the activation target (that would hide its bar)" },
+]
+manual = "enemy_bar_linger_on.png: the gecko's bar; enemy_bar_linger_held.png: the sky, the bar still up; enemy_bar_linger_gone.png: no bar"
+
 [[scenario]]
 name = "hud-ammo-label"
 source = "owner 2026-10-25 (screenshot of the original): the ammo type's abbreviation (AMMO QNAM) stands left of the ammo counter, nothing for standard rounds (docs/spec-notes/hud.md §4)"
@@ -15778,6 +15883,39 @@ expect = [
 manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
 
 [[scenario]]
+name = "tiles-hud-pointer"
+source = "[design] ui-tile-tree.md §4.1 step 1 (T8, menu-xml.md §3.2): with [UI] TileMenus=HUDMainMenu and the test aid NVF_PLAY_TEST_POINTER making the HUD take tile input, a target hotrect injected into it gets mouseover under the pointer and 0 when it leaves, clicked from a press and from the menu's injected _PCButton_O key (a real O press); the tile's own expressions latch what they saw (an or of mouseover, the documented count of clicked)"
+note = "the console injects the button at 10 s and closes at 10.4 s; the pointer at 12 s, a click at 13 s, O at 14 s, the pointer away at 16 s; the console reads the latched traits at 20 s (the open console hides the HUD, so the live mouseover is no longer readable then)"
+areas = ["ui", "hud", "console"]
+paths = [
+  "crates/fnv-ui/src/input.rs", "crates/fnv-ui/src/tree.rs",
+  "crates/fnv-game/src/ui_input.rs", "crates/fnv-game/src/ui_functions.rs", "crates/fnv-game/src/jip_events.rs",
+  "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_POINTER = "12:150:330,13:150:330:click,16:20:20", NVF_PLAY_TEST_KEYS = "14:o", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<hotrect name=%qNVFSmokeButton%q><id>7</id><target>1</target><x>100</x><y>300</y><width>200</width><height>60</height><_seen><copy src=%qme()%q trait=%q_seen%q/><or src=%qme()%q trait=%qmouseover%q/></_seen><_clicks><copy src=%qme()%q trait=%q_clicks%q/><add src=%qme()%q trait=%qclicked%q/></_clicks></hotrect><_PCButton_O>NVFSmokeButton</_PCButton_O>\";10.4:close;20:PrintC \"nvf t8 %g %g %g %g\", (GetUIFloat \"HUDMainMenu/NVFSmokeButton/_seen\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/_clicks\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/clicked\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/mouseover\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 22
+expect = [
+  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
+  { re = 'tiles: pointer over HUDMainMenu/NVFSmokeButton \(id 7\), mouseover 1', count = 1, label = "the pointer finds the target hotrect and writes its mouseover" },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by the pointer, clicked 1', count = 1, label = "a press clicks it" },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by key O, clicked 1', count = 1, label = "the O key clicks the tile the menu's _PCButton_O names" },
+  { re = 'tiles: pointer over nothing', label = "the pointer leaves" },
+  { re = 'script: print "nvf t8 1 2 0 0"', label = "the tile's expressions saw mouseover 1 and two one-frame clicks; both back to 0" },
+]
+forbid = [
+  { re = 'tiles: key not followed', label = "no key trait left unfollowed" },
+]
+order = [[
+  { re = 'test aid: tile pointer at 150 330$' },
+  { re = 'tiles: pointer over HUDMainMenu/NVFSmokeButton' },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by the pointer' },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by key O' },
+  "tiles: pointer over nothing",
+  { re = 'script: print "nvf t8 ' },
+]]
+
+[[scenario]]
 name = "tiles-hud-notices"
 source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): corner-messages and quest-messages with [UI] TileMenus=HUDMainMenu: the hand-built queues' lines drawn from Messages' code-made copies (*:0 bracket, *:1 text at x 130 y 5 depth 2, *:2 icon [observed]) and QuestReminder's (the banner and the objectives with their boxes at the hand-built places), the hand-built areas hidden"
 note = "45 s as quest-messages: the add-ons' six quest notices queue before VCG02's completed line, which comes on screen at about 41 s; the corner messages at 1 s as corner-messages, the quest lines as quest-messages; the console's read at 15 s comes after both shots"
@@ -16104,4 +16242,16 @@ expect = [
   "console: Collision on",
   { re = 'console: (fDefaultFOV:Display = \S+|No INI setting fDefaultFOV:Display)', label = "con_GetINISetting prints" },
   "console: close",
+]
+
+[[scenario]]
+name = "hud-need-word-script-string"
+source = "#1026 (hud.md §14 open list) [observed: jip-probes gaps1]: a script's SetUIString on a HUD need word lasts across frames; the HUD writes the word only when its own word changes"
+areas = ["ui", "hud", "scripts"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-ui/src/tree.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "9:SetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\" \"NVF one\";11:PrintC \"nvf need %z\", (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\");11.4:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'script: print "nvf need NVF one"', label = "two seconds of HUD frames later the script's word is still there" },
 ]

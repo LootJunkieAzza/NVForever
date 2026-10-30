@@ -1,6 +1,7 @@
 //! The tile tree beside the drawn menus [design: ui-tile-tree.md §6.2 step 1].
 
 pub mod draw;
+pub mod input;
 pub mod layout;
 pub mod model;
 pub mod notices;
@@ -322,11 +323,14 @@ fn write(
     // Who reads the HUD's traits: the tile-drawn HUD, mod tiles in it (their traits may
     // copy the HUD's), or a script that called a UI function. With none (the default
     // game), the writes wait for the first UI call (`ui_hud::flush`) and the frame does
-    // no tree work [design: maintainer's review of #902].
+    // no tree work [design: maintainer's review of #902]. The widths are kept back with
+    // the strings (their measure), so the first UI call reads them as a frame writes
+    // them. The corners are written only with the tile-drawn HUD, and nothing waits then.
     let ui = &rt.game.ui_tree;
-    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| !ui.mod_added_tiles(m).is_empty());
+    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| ui.has_mod_added_tiles(m));
     if !(menus.hud || mod_tiles || rt.game.ui_used) {
-        fnv_game::ui_hud::defer(&mut rt.game, shown, texts);
+        let widths = if rt.game.ui_files.is_some() { fonts.widths(&rt.game.ui_tree) } else { None };
+        fnv_game::ui_hud::defer(&mut rt.game, shown, texts, widths);
         return;
     }
     rt.game.ui_hud_pending = None;
@@ -366,7 +370,7 @@ fn update(mut script: ResMut<ScriptState>) {
     if rt.game.ui_files.is_some() {
         rt.game.ui_tree.update();
     }
-    // Leave ui_taps queued: tile input is task T8 [design].
+    // MenuTapKey's keys stay queued unless a menu takes tile input (`input::feed`) [design].
 }
 
 pub struct TilesPlugin;
@@ -379,8 +383,11 @@ impl Plugin for TilesPlugin {
         // T12a: `[UI] TileMenus=` read at start; the hand-built pieces the tiles draw are
         // hidden after every drawing system, before visibility is passed down [design].
         vanilla::setup(app);
+        input::setup(app);
         app.init_resource::<draw::TileFonts>()
             .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
+            // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
+            .add_systems(Update, input::feed.after(write).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));

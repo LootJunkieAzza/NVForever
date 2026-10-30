@@ -80,6 +80,17 @@ fn slots(event: &str) -> &'static [Slot] {
     }
 }
 
+/// Whether a SetOnMenuClickEventHandler tile path names this tile (see
+/// [`Game::jip_menu_click`]).
+pub fn click_path_matches(filter: &str, menu: &str, path: &str, id: f64) -> bool {
+    if let Some((m, n)) = filter.split_once('#') {
+        return m.trim().eq_ignore_ascii_case(menu) && n.trim().parse::<f64>().is_ok_and(|n| n == id && id >= 0.0);
+    }
+    let segs = |p: &str| p.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()).map(str::to_ascii_lowercase).collect::<Vec<_>>();
+    let (want, have) = (segs(filter), segs(path));
+    !want.is_empty() && want.len() <= have.len() && want.iter().zip(&have).all(|(a, b)| a == b)
+}
+
 impl Game<'_> {
     /// `SetOn<event>EventHandler func add filters…`; a second identical registration is
     /// kept once [decision, jip-events.md §2]. Returns whether anything changed.
@@ -114,7 +125,30 @@ impl Game<'_> {
         if self.jip.handlers.is_empty() {
             return 0;
         }
-        let mut hs: Vec<JipHandler> = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).cloned().collect();
+        let hs: Vec<JipHandler> = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).cloned().collect();
+        self.jip_run(event, hs, on, args)
+    }
+
+    /// SetOnMenuClickEventHandler's event: a tile was clicked (task T8). `menu` is the
+    /// menu's name, `path` the tile's full path, `id` its `<id>` (-1 without one), `name`
+    /// the name passed. A handler's tile path matches when it is `Menu#<id>` of this tile,
+    /// or the tile's path or a path above it [documented: SetOnMenuClickEventHandler,
+    /// "a partial path … ANY tile beginning with that path"; hypothesis: compared by
+    /// whole segments, without case, `/` and `\` alike]. The handler gets the menu's ID,
+    /// the tile's id and its name in lower case [documented].
+    pub fn jip_menu_click(&mut self, menu: &str, path: &str, menu_id: f64, id: f64, name: &str) -> usize {
+        if self.jip.handlers.is_empty() {
+            return 0;
+        }
+        let matches = |f: &XVal| match f {
+            XVal::Str(f) => click_path_matches(f, menu, path, id),
+            _ => false,
+        };
+        let hs: Vec<JipHandler> = self.jip.handlers.iter().filter(|h| h.event == "menuclick" && h.filters.first().is_some_and(matches)).cloned().collect();
+        self.jip_run("menuclick", hs, None, vec![XVal::Num(menu_id), XVal::Num(id), XVal::Str(name.to_ascii_lowercase())])
+    }
+
+    fn jip_run(&mut self, event: &str, mut hs: Vec<JipHandler>, on: Option<FormId>, args: Vec<XVal>) -> usize {
         hs.sort_by_key(|h| std::cmp::Reverse(h.seq));
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
         let mut ran = 0;
