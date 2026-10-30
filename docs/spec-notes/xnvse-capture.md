@@ -14,7 +14,7 @@ The interface below is re-expressed from xNVSE's public plugin header
 `nvse/nvse/PluginAPI.h` and `nvse/nvse/nvse_version.h` (github.com/xNVSE/NVSE, master as
 of 2026-10-07, release 6.4.9) [documented]. The repository has no licence file, so its
 code is treated as all rights reserved: it is read as interface documentation only and
-nothing is copied (the same rule as for nv-rs). The plugin uses no game addresses and no
+nothing is copied. The plugin uses no game addresses and no
 game data structures: everything goes through xNVSE's interface and the game's own
 script language.
 

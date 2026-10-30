@@ -60,9 +60,12 @@ explain a format or cite an observation. Quotations from documentation are kept 
 cite their source; descriptions of scripting functions are written in our own words.
 
 The engine itself shows a handful of short on-screen phrases that are not in the data
-files and so cannot be read from your copy, such as a terminal's header lines. These are
-kept to the few words a faithful screen needs and are tagged where they are defined
-(for the terminals, [docs/spec-notes/hacking.md](docs/spec-notes/hacking.md) §8). The
+files and so cannot be read from your copy, such as a terminal's prompts. These are kept
+to plain functional words and are tagged where they are defined (for the terminals,
+[docs/spec-notes/hacking.md](docs/spec-notes/hacking.md) §8). Where the original's
+wording names a brand from the game's fiction, NVForever uses its own wording instead,
+and built-in labels the data files lack are written by the project, not transcribed
+from the original. The
 game's own dialogue, quest text, messages, names, notes and menu layouts are read at run
 time from your game's files and are not in this repository.
 
@@ -96,11 +99,13 @@ NVForever follows a clean-room process, in the spirit of OpenMW.
   unencrypted data was read (version resource, import table, plain strings and the type
   names they include), to identify the game build and the third-party components it uses
   ([docs/spec-notes/layer0-install.md](docs/spec-notes/layer0-install.md)).
-- No code from other projects whose provenance does not meet these rules. Where such a
-  project is consulted at all, it is for format facts only and its code is never copied.
-  The one such project so far is nv-rs, whose own policy admits leaked debug symbols and
-  translated decompiled code: its only recorded use was to cross-check the NIF animation
-  layouts already taken from `nif.xml` and the data ([docs/design/layer2.md](docs/design/layer2.md)).
+- No code or notes from other projects whose provenance does not meet these rules; such
+  projects are not opened. Before this rule was tightened (2026-10-30), one such project,
+  nv-rs, whose own policy admits leaked debug symbols and translated decompiled code, was
+  used once, to cross-check NIF animation layouts already taken from `nif.xml` and the
+  data. No code or layout was taken from it, and that cross-check has since been
+  replaced by the data alone: every animation file in the game and its add-ons decodes
+  exactly and re-encodes byte for byte ([docs/design/layer2.md](docs/design/layer2.md)).
 
 **From notes to code**
 
@@ -115,7 +120,9 @@ NVForever follows a clean-room process, in the spirit of OpenMW.
   parity lab ([parity-lab/README.md](parity-lab/README.md)).
 
 Contributions are accepted on the same terms: by contributing you confirm that your work
-follows these rules and that you have the right to submit it.
+follows these rules and that you have the right to submit it, and each commit is signed
+off under the [Developer Certificate of Origin](https://developercertificate.org/)
+([CONTRIBUTING.md](CONTRIBUTING.md#licence)).
 
 ## Licence
 
@@ -131,6 +138,13 @@ and grants no rights in, *Fallout: New Vegas* or its data files, which remain th
 of their owners and subject to the terms under which you bought the game.
 
 Third-party Rust crates that NVForever depends on keep their own licences (MIT,
-Apache-2.0 and similar permissive licences, and one MPL-2.0 crate). The allowed set is
+Apache-2.0 and similar permissive licences, and a few MPL-2.0 crates). The allowed set is
 enforced by `cargo deny` ([deny.toml](deny.toml),
-[docs/design/dependencies.md](docs/design/dependencies.md)).
+[docs/design/dependencies.md](docs/design/dependencies.md)). Every release archive
+carries `THIRD-PARTY-LICENSES.txt`: each package the programs are built from, its
+licence and where its source is, and the licence texts the packages ship.
+
+The capture plugin `nvf_capture` is a separate program that runs inside the original
+game. It is under the same licence with an additional permission under GPLv3 section 7
+to be combined with the game and the xNVSE script extender
+([tools/capture/nvf_capture/LICENSE-EXCEPTION.txt](tools/capture/nvf_capture/LICENSE-EXCEPTION.txt)).
