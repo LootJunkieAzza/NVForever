@@ -414,3 +414,7 @@ chain (379 stages at db11b046, 378 on main 1e9a14c7). Its script (SCPT 0x0016829
 point about 12000 frames later and the script takes its stage-5 branch instead. One of the
 two fnv-game changes since db11b046 (4449628f radiation falloff, cd93d5c7 aid effects) moved
 it; not bisected.
+
+## 10. Fifth batch (2026-10-30, issue #932)
+
+Under way: chains for the quests §9 lists as left and walkable.
