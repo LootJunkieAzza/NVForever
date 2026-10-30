@@ -141,21 +141,59 @@ pub fn kept_pieces(ui: &Ui) -> Vec<TileId> {
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct DrawnByTiles;
 
+/// What [`hide_hand_built`] hides of the hand-built HUD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hide {
+    /// The pieces the tiles draw ([`DrawnByTiles`] and the other roots' markers), the
+    /// subtitles aside.
+    pub pieces: bool,
+    /// The hand-built subtitles ([`SubtitlesArea`]).
+    pub subtitles: bool,
+}
+
+/// What to hide: with the HUD a tile menu and the tree having it (`loaded`), the pieces the
+/// tiles draw; the subtitles only while the tile renderer draws something of the HUD
+/// (`root_drawn`, [`root_drawn`]). In a menu the renderer draws nothing and the hand-built
+/// subtitles stay, so a line said while a message box is up still shows [design: hud.md
+/// §14.11; maintainer's review of #952].
+pub fn hide(menus: TileMenus, loaded: bool, root_drawn: bool) -> Hide {
+    let on = menus.hud && loaded;
+    Hide { pieces: on, subtitles: on && root_drawn }
+}
+
+/// Whether the tile renderer draws anything of the HUD menu `menu`: the menu tile live,
+/// visible and not transparent, as `super::layout::layout` passes them down to every tile
+/// under it (`fnv_game::ui_hud::write` sets its `visible` from `Shown::root`, 0 in a menu)
+/// [design].
+pub fn root_drawn(ui: &Ui, menu: TileId) -> bool {
+    let tile = ui.tile(menu);
+    tile.live && tile.get("visible").is_none_or(Value::truthy) && tile.get("alpha").map_or(255.0, Value::num) > 0.0
+}
+
 /// Hide [`DrawnByTiles`] nodes while the HUD is a tile menu and the tree has it (without
-/// the game's menu files the hand-built HUD stays): after every drawing system has set its
-/// visibility, before it is passed down [design: no drawer changes].
+/// the game's menu files the hand-built HUD stays), and the hand-built subtitles while the
+/// tile renderer draws something ([`hide`]): after every drawing system has set its
+/// visibility, before it is passed down [design: no drawer changes]. The subtitles' area
+/// sets no visibility of its own, so it is given back (`Inherited`) when the tiles draw
+/// nothing.
 #[allow(clippy::type_complexity)]
 pub(crate) fn hide_hand_built(
     menus: Res<TileMenus>,
     script: Res<crate::script::ScriptState>,
-    mut nodes: Query<&mut Visibility, Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>, With<MessagesArea>, With<QuestArea>, With<SubtitlesArea>, With<BreathRoot>)>>,
+    mut nodes: Query<&mut Visibility, (Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>, With<MessagesArea>, With<QuestArea>, With<BreathRoot>)>, Without<SubtitlesArea>)>,
+    mut subtitles: Query<&mut Visibility, With<SubtitlesArea>>,
 ) {
-    let loaded = script.rt.as_ref().is_some_and(|rt| rt.game.ui_files.is_some() && rt.game.ui_tree.menu(super::draw::HUD_MENU).is_some());
-    if !menus.hud || !loaded {
+    let menu = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).and_then(|rt| rt.game.ui_tree.menu(super::draw::HUD_MENU).map(|m| (&rt.game.ui_tree, m)));
+    let hide = hide(*menus, menu.is_some(), menu.is_some_and(|(ui, m)| root_drawn(ui, m)));
+    if !hide.pieces {
         return;
     }
     for mut v in &mut nodes {
         v.set_if_neq(Visibility::Hidden);
+    }
+    let subtitles_now = if hide.subtitles { Visibility::Hidden } else { Visibility::Inherited };
+    for mut v in &mut subtitles {
+        v.set_if_neq(subtitles_now);
     }
 }
 
@@ -319,6 +357,32 @@ mod tests {
     fn the_start_line_names_the_kept_pieces_only_when_there_are_any() {
         assert_eq!(drawn_line(900, 120, &KEPT_PIECES), "tiles: HUDMainMenu drawn from tiles (900 file tiles, 120 code tiles); hand-built HUD hidden");
         assert_eq!(drawn_line(1, 2, &["BreathMeter"]), "tiles: HUDMainMenu drawn from tiles (1 file tiles, 2 code tiles); hand-built HUD hidden but for BreathMeter");
+    }
+
+    #[test]
+    fn the_hand_built_subtitles_stay_while_the_tiles_draw_nothing() {
+        let on = TileMenus { hud: true };
+        // The HUD drawn from tiles and shown: every hand-built piece hidden.
+        assert_eq!(hide(on, true, true), Hide { pieces: true, subtitles: true });
+        // In a menu the tile root draws nothing: the hand-built subtitles stay.
+        assert_eq!(hide(on, true, false), Hide { pieces: true, subtitles: false });
+        // The switch off, or no menu files: nothing hidden.
+        for drawn in [true, false] {
+            assert_eq!(hide(TileMenus::default(), true, drawn), Hide { pieces: false, subtitles: false });
+            assert_eq!(hide(on, false, drawn), Hide { pieces: false, subtitles: false });
+        }
+        // The root's `visible` (written from `Shown::root`) and alpha decide whether
+        // anything of the menu is drawn.
+        let src = MemSource::default().with("hud.xml", r#"<menu name="HUDMainMenu"><text name="Subtitles"><string>Line</string></text></menu>"#);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "hud.xml").unwrap();
+        assert!(root_drawn(&ui, menu));
+        ui.set_trait(menu, "visible", Value::Num(0.0));
+        assert!(!root_drawn(&ui, menu));
+        ui.set_trait(menu, "visible", Value::Num(1.0));
+        assert!(root_drawn(&ui, menu));
+        ui.set_trait(menu, "alpha", Value::Num(0.0));
+        assert!(!root_drawn(&ui, menu));
     }
 
     #[test]

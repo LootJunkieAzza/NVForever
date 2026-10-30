@@ -136,7 +136,7 @@ impl Plugin for ScriptHudPlugin {
 
 /// The subtitles' area, a column as wide as the text may be, centred in the view.
 // The marker lives with the tile HUD's, which hides it while the HUD is drawn from tiles
-// (`crate::tiles::vanilla::hide_hand_built`).
+// and the tile renderer draws something (not in a menu; `crate::tiles::vanilla::hide`).
 use crate::tiles::vanilla::SubtitlesArea as SubtitleArea;
 
 // ---- the subtitles (corner-messages.md §8) -----------------------------------------------
