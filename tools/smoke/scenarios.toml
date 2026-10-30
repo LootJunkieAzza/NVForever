@@ -12894,3 +12894,37 @@ expect = [
   { json = "given_errors.*", count = 0, label = "sunshine-boogie: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-tend-to-your-business"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/tend-to-your-business.actions.json: Tend to Your Business (VMS55a): Hardin's vote of no confidence (VMS55 101) on the datastore's evidence (the virus hunt stood in), the Van Graffs killed (20), the power armour training (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/tend-to-your-business.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/tend-to-your-business.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS55 Hardin's objectives.objective.50.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 Hardin's objectives: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 Hardin's objectives.objective.51.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 Hardin's objectives: objective.51.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 Hardin's objectives.objective.52.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 Hardin's objectives: objective.52.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 chain found.objective.54.completed", equals = true, label = "tend-to-your-business, milestone: VMS55 chain found: objective.54.completed = true" },
+  { json = "observations.?label=milestone: VMS55 chain found.objective.61.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 chain found: objective.61.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 101.stage", equals = 101, label = "tend-to-your-business, milestone: VMS55 101: stage = 101" },
+  { json = "observations.?label=milestone: VMS55 101.done.101", equals = true, label = "tend-to-your-business, milestone: VMS55 101: done.101 = true" },
+  { json = "observations.?label=milestone: VMS55 101.completed", equals = true, label = "tend-to-your-business, milestone: VMS55 101: completed = true" },
+  { json = "observations.?label=milestone: VMS55 101.objective.50.completed", equals = true, label = "tend-to-your-business, milestone: VMS55 101: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VMS55a 10.running", equals = true, label = "tend-to-your-business, milestone: VMS55a 10: running = true" },
+  { json = "observations.?label=milestone: VMS55a 10.stage", equals = 10, label = "tend-to-your-business, milestone: VMS55a 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS55a 10.done.10", equals = true, label = "tend-to-your-business, milestone: VMS55a 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS55a 10.objective.10.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55a 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS55a 20.stage", equals = 20, label = "tend-to-your-business, milestone: VMS55a 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS55a 20.done.20", equals = true, label = "tend-to-your-business, milestone: VMS55a 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS55a 20.objective.10.completed", equals = true, label = "tend-to-your-business, milestone: VMS55a 20: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VMS55a 20.objective.19.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55a 20: objective.19.displayed = true" },
+  { json = "observations.?label=final: VMS55a 100.stage", equals = 100, label = "tend-to-your-business, final: VMS55a 100: stage = 100" },
+  { json = "observations.?label=final: VMS55a 100.done.100", equals = true, label = "tend-to-your-business, final: VMS55a 100: done.100 = true" },
+  { json = "observations.?label=final: VMS55a 100.completed", equals = true, label = "tend-to-your-business, final: VMS55a 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "tend-to-your-business: no step fails" },
+  { json = "given_errors.*", count = 0, label = "tend-to-your-business: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
