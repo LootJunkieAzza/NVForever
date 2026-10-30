@@ -130,9 +130,7 @@ impl FontKit<'_> {
     /// `None` when a text tile's font is not read [design]. The text tiles' fonts are the
     /// same before and after [`fnv_game::ui_hud::write`], which sets no fonts.
     pub(crate) fn widths(&mut self, ui: &Ui) -> Option<fnv_game::ui_hud::Measure> {
-        if self.data.is_none() {
-            return None;
-        }
+        self.data.as_ref()?;
         let fonts: Vec<f64> = fnv_game::ui_hud::measured_texts(ui).into_iter()
             .map(|t| ui.tile(t).get("font").map_or(0.0, Value::num)).collect();
         if fonts.is_empty() {
