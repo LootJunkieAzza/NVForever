@@ -1417,9 +1417,11 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 35] = [
+pub const FIELD_SIGS: [[u8; 4]; 41] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
+    // JIP batch 4 (`crate::nvse_jip4`).
+    *b"CLAS", *b"CSTY", *b"LIGH", *b"GRAS", *b"TXST", *b"WATR",
 ];
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base

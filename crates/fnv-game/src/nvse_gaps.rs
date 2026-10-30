@@ -62,6 +62,8 @@ pub struct GapsState {
     pub air_times: HashMap<FormId, f32>,
     /// The third JIP batch's state (`crate::nvse_jip3`).
     pub jip3: crate::nvse_jip3::Jip3State,
+    /// The fourth JIP batch's state (`crate::nvse_jip4`).
+    pub jip4: crate::nvse_jip4::Jip4State,
     /// The shots in flight, for the projectile functions (`crate::nvse_proj`).
     pub projs: crate::nvse_proj::ProjState,
     /// The sounds scripts played, for the sound functions (`crate::nvse_sound`).

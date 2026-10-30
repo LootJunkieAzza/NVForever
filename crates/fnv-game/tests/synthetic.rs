@@ -2416,3 +2416,114 @@ End
     std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
     println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
 }
+
+/// A plugin with one class, light, climate, grass, texture set and global for the fourth
+/// JIP batch (`nvse_jip4`).
+fn jip4_fixture() -> Fixture {
+    let le32 = |v: u32| v.to_le_bytes().to_vec();
+    let f32b = |v: f32| v.to_le_bytes().to_vec();
+    // CLAS DATA: four tag skills (i32), flags, services, teaches, max training, 2 unused.
+    let clas_data = [le32(42), le32(41), le32(33), le32(44), le32(0b01), le32((1 << 2) | (1 << 17)), vec![0, 50, 0, 0]].concat();
+    let clas = record(b"CLAS", 0, 0x0000_0A01, &[sub(b"EDID", z("TestClass")), sub(b"DATA", clas_data), sub(b"ATTR", vec![5, 6, 7, 4, 3, 8, 9])]);
+    // LIGH DATA: time, radius, colour, flags (Flicker Slow, bit 6), falloff, FOV, value,
+    // weight; FNAM fade.
+    let ligh_data = [le32(0), le32(200), vec![177, 120, 60, 0], le32(1 << 6), f32b(1.0), f32b(90.0), le32(0), f32b(0.0)].concat();
+    let ligh = record(b"LIGH", 0, 0x0000_0A02, &[sub(b"EDID", z("TestLight")), sub(b"DATA", ligh_data), sub(b"FNAM", f32b(1.25))]);
+    // CLMT TNAM: sunrise 30/42, sunset 96/108 (10-minute units), volatility 20, moons
+    // byte 0x83 (bit 7, phase length 3).
+    let clmt = record(b"CLMT", 0, 0x0000_0A03, &[sub(b"EDID", z("TestClimate")), sub(b"TNAM", vec![30, 42, 96, 108, 20, 0x83])]);
+    let gras_data = [vec![30, 0, 90, 0], 50u16.to_le_bytes().to_vec(), vec![0, 0], le32(4), f32b(22.0), f32b(16.0), f32b(0.5), f32b(4.0), vec![0b101, 0, 0, 0]].concat();
+    let gras = record(b"GRAS", 0, 0x0000_0A04, &[sub(b"EDID", z("TestGrass")), sub(b"MODL", z("Landscape\\Grass\\Test.nif")), sub(b"DATA", gras_data)]);
+    let txst = record(b"TXST", 0, 0x0000_0A05, &[sub(b"EDID", z("TestTextures")), sub(b"TX00", z("a_d.dds")), sub(b"TX02", z("a_m.dds"))]);
+    let glob = record(b"GLOB", 0, 0x0000_0A06, &[sub(b"EDID", z("TestRefGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let plugin = [tes4(), top(b"GLOB", &glob), top(b"CLAS", &clas), top(b"LIGH", &ligh), top(b"CLMT", &clmt), top(b"GRAS", &gras), top(b"TXST", &txst)].concat();
+    let plugins = vec![Plugin::parse(&plugin, "Jip4.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+#[test]
+fn jip_batch_four_reads_and_sets_record_traits() {
+    use fnv_script::vm::XVal;
+    let f = jip4_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let n = |g: &mut fnv_game::Game, e: &str| q(g, &format!("SetFunctionValue ({e})"));
+    let num = XVal::Num;
+    // Classes: the tag skills, then the attributes; flags 0-1 and the services from 2.
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 2"), num(33.0));
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 4"), num(5.0), "strength");
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 10"), num(9.0), "luck");
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 11"), num(0.0), "out of range");
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 0"), num(1.0), "playable");
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 1"), num(0.0));
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 4"), num(1.0), "service bit 2, alcohol");
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 19"), num(1.0), "service bit 17, repair");
+    assert_eq!(n(&mut g, "SetClassTraitNumeric TestClass 2 34"), num(34.0));
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 2"), num(34.0));
+    q(&mut g, "SetClassFlag TestClass 19 0\nSetClassFlag TestClass 1 1");
+    assert_eq!((n(&mut g, "GetClassFlag TestClass 19"), n(&mut g, "GetClassFlag TestClass 1"), n(&mut g, "GetClassFlag TestClass 4")), (num(0.0), num(1.0), num(1.0)));
+    // Lights.
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 0"), num(200.0));
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 2"), num(120.0), "green");
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 5"), num(90.0));
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 6"), num(1.25), "fade");
+    assert_eq!((n(&mut g, "GetLightFlag TestLight 6"), n(&mut g, "GetLightFlag TestLight 3")), (num(1.0), num(0.0)));
+    q(&mut g, "SetLightTraitNumeric TestLight 0 512\nSetLightFlag TestLight 3 1");
+    assert_eq!((n(&mut g, "GetLightTraitNumeric TestLight 0"), n(&mut g, "GetLightFlag TestLight 3")), (num(512.0), num(1.0)));
+    // Climates: minutes from the 10-minute units, the moons byte split.
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 0"), num(300.0));
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 2"), num(960.0));
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 4"), num(20.0));
+    assert_eq!((n(&mut g, "GetClimateTraitNumeric TestClimate 5"), n(&mut g, "GetClimateTraitNumeric TestClimate 6")), (num(2.0), num(3.0)));
+    q(&mut g, "SetClimateTraitNumeric TestClimate 2 1000\nSetClimateTraitNumeric TestClimate 6 7");
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 2"), num(1000.0));
+    assert_eq!((n(&mut g, "GetClimateTraitNumeric TestClimate 5"), n(&mut g, "GetClimateTraitNumeric TestClimate 6")), (num(2.0), num(7.0)), "the moons kept");
+    // Grass and texture sets.
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 0"), num(30.0));
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 3"), num(50.0));
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 5"), num(22.0));
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 9"), num(5.0), "flags bitmask");
+    assert_eq!(n(&mut g, "GetGrassModel TestGrass"), XVal::Str("Landscape\\Grass\\Test.nif".into()));
+    q(&mut g, "SetGrassTraitNumeric TestGrass 5 30\nSetGrassModel TestGrass \"x.nif\"");
+    assert_eq!((n(&mut g, "GetGrassTraitNumeric TestGrass 5"), n(&mut g, "GetGrassModel TestGrass")), (num(30.0), XVal::Str("x.nif".into())));
+    assert_eq!(n(&mut g, "GetTextureSetTexture TestTextures 2"), XVal::Str("a_m.dds".into()));
+    assert_eq!(n(&mut g, "GetTextureSetTexture TestTextures 1"), XVal::Str(String::new()), "no TX01");
+    q(&mut g, "SetTextureSetTexture TestTextures 1 \"n.dds\"");
+    assert_eq!(n(&mut g, "GetTextureSetTexture TestTextures 1"), XVal::Str("n.dds".into()));
+}
+
+#[test]
+fn jip_batch_four_reads_the_game_state() {
+    use fnv_script::vm::XVal;
+    let f = jip4_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let n = |g: &mut fnv_game::Game, e: &str| q(g, &format!("SetFunctionValue ({e})"));
+    assert_eq!(n(&mut g, "GetGameDifficulty"), XVal::Num(2.0), "normal");
+    q(&mut g, "SetGameDifficulty 4");
+    assert_eq!(n(&mut g, "GetGameDifficulty"), XVal::Num(4.0));
+    q(&mut g, "SetGameDifficulty 9");
+    assert_eq!(n(&mut g, "GetGameDifficulty"), XVal::Num(4.0), "out of range: unchanged");
+    assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0));
+    q(&mut g, "SetGlobalRef TestRefGlobal TestClass");
+    assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0x0000_0A01));
+    q(&mut g, "PlayerREF.SetGlobalRef TestRefGlobal");
+    assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(FormId::PLAYER_REF.0), "the calling reference");
+    let achr = f64::from(fnv_script::vm::form_type_code(b"ACHR").unwrap());
+    assert_eq!(n(&mut g, "PlayerREF.GetRefType"), XVal::Num(achr), "the reference's own type");
+    assert_eq!(n(&mut g, "GetPCDetectionState"), XVal::Num(0.0), "no one measured");
+    assert_eq!(n(&mut g, "PlayerREF.GetIsPoisoned"), XVal::Num(0.0));
+    assert_eq!(n(&mut g, "PlayerREF.GetTeleportDoor"), XVal::Ref(0));
+    let before = n(&mut g, "GetSessionTime");
+    g.tick();
+    let after = n(&mut g, "GetSessionTime");
+    assert!(matches!((before, after), (XVal::Num(a), XVal::Num(b)) if b > a), "time goes on");
+}

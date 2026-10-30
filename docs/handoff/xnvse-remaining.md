@@ -66,7 +66,18 @@ CompileScript, PrintVar, DebugPrintVar; PrintF, PrintDebugF, Ar_DumpF, Decompile
 DumpDocs and DumpCommandWikiDoc write nothing [decision: NVForever writes nothing beside
 the game]; GetFontFile and GetNthPerkEntryString (JIP and LU).
 
-**The plugin libraries: 1,561 left.** JIP LN 390 of 768, JohnnyGuitar 314 of 359, SUP
+JIP batch 4 (2026-10-30, #955, `nvse_jip4.rs`, docs/spec-notes/jip-traits-4.md): 46 built,
+JIP 390 → 344. The trait and flag getters and setters of classes, combat styles, lights,
+grass, texture-set textures, climates, quests, faction reputations, cells (climate,
+lighting template, noise texture), waters (sound, noise texture) and GetSoundFlag; and
+Get/SetGameDifficulty, GetSessionTime, GetPCDetectionState, GetRefType, GetTeleportDoor,
+GetDelayElapsed, Get/SetGlobalRef, GetEditorPosition, GetIsPoisoned. Of the 344 left, the
+owner's mod lists call 40 (`ToggleHUDCursor` 20 calls, `SetMaterialPropertyValue` 21,
+`SetUIFloatGradual` 18, the rest under 15), nearly all on the engine (cursor, NIF
+materials, menus); the next record families are destruction data, body-part data, land
+textures, water traits and the texture sets' decal traits (DODT, not decoded yet).
+
+**The plugin libraries: 1,515 left.** JIP LN 344 of 768, JohnnyGuitar 314 of 359, SUP
 182 of 184, LU 145 of 283, ShowOff 136 of 173, ITR 119 of 119, One111 54, CacheUI 45,
 PP 45 of 52, Anh 34 of 46, vheyes 21, NX 18, kNVSE 16 of 28, JIPPPLN 10, Command
 Extender 8, Overcharge 6, and 18 more in plugins with four or fewer. The next batches
