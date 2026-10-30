@@ -637,12 +637,15 @@ pub(crate) struct View<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 
+/// The colours an [`Ink`] node may carry.
+type InkNodes = (Option<&'static mut ImageNode>, Option<&'static mut BackgroundColor>, Option<&'static mut TextColor>);
+
 /// The drawn pieces' nodes: their places, and the nodes under a slot to recolour.
 #[derive(SystemParam)]
 pub(crate) struct Nodes<'w, 's> {
     place: Query<'w, 's, &'static mut Node>,
     children: Query<'w, 's, &'static Children>,
-    ink: Query<'w, 's, (Option<&'static mut ImageNode>, Option<&'static mut BackgroundColor>, Option<&'static mut TextColor>), With<Ink>>,
+    ink: Query<'w, 's, InkNodes, With<Ink>>,
 }
 
 pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Nodes) {
