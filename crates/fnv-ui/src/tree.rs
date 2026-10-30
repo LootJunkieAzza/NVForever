@@ -296,7 +296,10 @@ impl Ui {
         }
     }
 
-    /// Whether the id names a loaded tile.
+    /// Whether `id` names a loaded tile of this tree: false for one unloaded (even when
+    /// a later tile has its slot), and for an id kept from a tree since replaced (a load
+    /// builds a new one) when the new tree has fewer slots or that slot's generation moved
+    /// on [design].
     pub fn is_live(&self, id: TileId) -> bool {
         self.slot(id).is_some()
     }

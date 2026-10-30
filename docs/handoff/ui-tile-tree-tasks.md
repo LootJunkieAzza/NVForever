@@ -254,6 +254,17 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    - GetActiveUIComponentName, GetActiveUIComponentFullName, GetActiveUIComponentID,
      ClickMenuButton, ClickMenuTile;
    - the menu click and mouseover events (extender events, design §5.2).
+   - **Built 2026-10-30** (claude/t8-input-on-tiles, issue #948): `fnv_ui::input` (hit-test,
+     `Pointer::step`: `mouseover`, `clicked` for one frame [hypothesis: `ClickedRule`],
+     `shiftclicked`, `_PCButton_<letter>` and the `x…` traits' `<ref>`s),
+     `fnv_game::ui_input` (the step with the JIP mouseover-change and menu-click events),
+     the five functions in `ui_functions`, the engine feed `nvf-play/src/tiles/input.rs`
+     (no menu takes input in play yet; test aid `NVF_PLAY_TEST_POINTER` for the HUD).
+     What is settled and open: menu-xml.md §3.2, §8 items 7-10; observer check 54.
+     Tests: `fnv_ui::input` unit tests, `crates/fnv-game/tests/ui_functions.rs` (the
+     pointer functions, clicks, events), smoke `tiles-hud-pointer`. Not built:
+     `wheelable`/`wheelmoved`, `draggable`, `xdefault`, list rows' `:index` in the click
+     event, the click and mouseover sounds.
 5. **T9. The rest of the tile functions** (design §5.2): SetUIFloatGradual and its
    readers (gradients stepped on real time), SetUIFloatMultiple, GetUIFloatInherited,
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
