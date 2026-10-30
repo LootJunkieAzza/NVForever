@@ -1,0 +1,410 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless The White Wash (VMS11): Corporal White's trail from Boyd through Dazzle, Bascom, Romanowski to Tom Anderson, who gives himself up; Boyd completes the quest",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Lieutenant Boyd at McCarran mentions the missing Corporal White and asks the player to look into it (10); Dazzle at Gomorrah (20), Trent Bascom (30) and Lieutenant Romanowski (40) at the Sharecropper Farms each point further; Tom Anderson in Westside denies it (50), then confesses and agrees to give himself up (objective 90, outcome 1); Boyd's turn-in line completes the quest (CompleteQuest; stages 60-80 and 100-130 are set by nothing in FalloutNV.esm). Hector's water trail, the deal with Anderson and Etienne, and the killing are not run."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between McCarran, the Strip, the Sharecropper Farms and Westside: move_player to each speaker."
+  },
+  {
+   "op": "note",
+   "text": "Boyd tells of his missing soldiers only once the player is looking into the McCarran break-ins for Captain Curtis (VMS08 bCurtisSentPlayerToInvestigate): Colonel Hsu asks for help (VMS08 started, bHsuGaveQuest), Curtis sends the player to ask around (VMS08 objective 20)."
+  },
+  {
+   "op": "move_player",
+   "to": "ColonelHsuREF"
+  },
+  {
+   "op": "talk",
+   "actor": "ColonelHsuREF",
+   "label": "hsu asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08ColonelHsuTopic000",
+   "label": "hsu asks 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08ColonelHsuTopic032",
+   "label": "hsu asks 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08ColonelHsuTopic006",
+   "label": "hsu asks 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "CaptainCurtisREF"
+  },
+  {
+   "op": "talk",
+   "actor": "CaptainCurtisREF",
+   "label": "curtis investigate"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08CaptainCurtisHsuSentMe",
+   "label": "curtis investigate 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS08CaptainCurtisTopic027",
+   "label": "curtis investigate 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS08",
+   "fields": [
+    "running",
+    "var.bCurtisSentPlayerToInvestigate",
+    "objective.20.displayed"
+   ],
+   "label": "spell on you: asked around"
+  },
+  {
+   "op": "move_player",
+   "to": "LieutenantBoydREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LieutenantBoydREF",
+   "label": "boyd missing"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydTopic002",
+   "label": "boyd missing 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydMissing",
+   "label": "boyd missing 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydTopic016",
+   "label": "boyd missing 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydWhiteWash",
+   "label": "boyd missing 4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "var.bHeardAboutWhite"
+   ],
+   "label": "heard about white"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS11 10"
+  },
+  {
+   "op": "move_player",
+   "to": "DazzleRef"
+  },
+  {
+   "op": "talk",
+   "actor": "DazzleRef",
+   "label": "dazzle"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahDazzleTopic000",
+   "label": "dazzle 1"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahDazzleTopic002",
+   "label": "dazzle 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS11 20"
+  },
+  {
+   "op": "move_player",
+   "to": "TrentBascomRef"
+  },
+  {
+   "op": "talk",
+   "actor": "TrentBascomRef",
+   "label": "trent"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueSharecropper1ETrentBascomTopic013",
+   "label": "trent 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS11 30"
+  },
+  {
+   "op": "move_player",
+   "to": "0x000F05E4"
+  },
+  {
+   "op": "talk",
+   "actor": "0x000F05E4",
+   "label": "romanowski"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueSharecropper1ERomanowskiTopic004",
+   "label": "romanowski 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "stage",
+    "done.40"
+   ],
+   "label": "milestone: VMS11 40"
+  },
+  {
+   "op": "move_player",
+   "to": "AndersonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AndersonREF",
+   "label": "anderson denies"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCasaMadrid1EAndersonTopic002",
+   "label": "anderson denies 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "stage",
+    "done.50"
+   ],
+   "label": "milestone: VMS11 50"
+  },
+  {
+   "op": "note",
+   "text": "Hector, the boy in Westside, is talked into telling where his water comes from (Speech 80; objective 70, confront Anderson). Stand-in for the skill: Speech 100."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "HectorRef"
+  },
+  {
+   "op": "talk",
+   "actor": "HectorRef",
+   "label": "hector"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueWestsideWestsideHectorTopic002",
+   "label": "hector 1"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueWestsideWestsideHectorTopic011",
+   "label": "hector 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "objective.70.displayed"
+   ],
+   "label": "hector told"
+  },
+  {
+   "op": "move_player",
+   "to": "AndersonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AndersonREF",
+   "label": "anderson confesses"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCasaMadrid1EAndersonTopic009",
+   "label": "anderson confesses 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCasaMadrid1EAndersonTopic010",
+   "label": "anderson confesses 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformCasaMadrid1EAndersonTopic011",
+   "label": "anderson confesses 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "var.nOutcome",
+    "objective.90.displayed"
+   ],
+   "label": "anderson gives up"
+  },
+  {
+   "op": "move_player",
+   "to": "LieutenantBoydREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LieutenantBoydREF",
+   "label": "boyd told"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran2LieutenantBoydCplWhiteTurnIn",
+   "label": "boyd told 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS11",
+   "fields": [
+    "stage",
+    "completed",
+    "objective.90.completed",
+    "var.bDealBreaker"
+   ],
+   "label": "final: VMS11 completed"
+  }
+ ]
+}
