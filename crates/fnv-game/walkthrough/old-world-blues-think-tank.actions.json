@@ -230,7 +230,7 @@
     {"op": "wait_talk", "max_frames": 30000},
     {"op": "end_talk"},
     {"op": "dismiss_message_boxes", "max": 3, "wait_frames": 10},
-    {"op": "get_quest", "quest": "NVDLC03ThinkTankDoctorKlein", "fields": ["running", "stage", "completed"], "label": "milestone: He Came... And Went done"},
+    {"op": "get_quest", "quest": "NVDLC03ThinkTankDoctorKlein", "fields": ["running", "stage", "completed"], "label": "milestone: He Came, And Went done"},
     {"op": "note", "text": "Dr. Borous: his first greeting (Say Once), then his introduction (Topic003) starts A Brain's Best Friend."},
     {"op": "move_player", "to": "NVDLC03DoctorBorousREF"},
     {"op": "player_activate", "target": "NVDLC03DoctorBorousREF"},
