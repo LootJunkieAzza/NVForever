@@ -32,6 +32,12 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
 - **The default action** of a talking activator is a conversation with it [hypothesis:
   the intercom scripts' closing `Activate` is what starts the talk]: activating one (E, or
   a script's Activate) answers Talk, as an actor does.
+- **A script's `<activator>.Activate player`** is the player activating it: the REPCONN
+  intercom's trigger (SCPT 0x000CD04E, OnTriggerEnter player) sets Chris as the talking
+  actor of intercom 0x000CD67C or 0x000CD685 and then runs `<intercom>.Activate player`
+  [observed: `fnvtool script decompile` FalloutNV.esm], so the conversation opens as for
+  the player's own activation (nvf-play `talk_after`; the headless runner's
+  `scripted_talk`, issue #906; smoke `intercom-trigger-activate`).
 - **Who speaks**: the activator's talking actor while it lives, else the activator itself
   [documented: SetTalkingActivatorActor "makes a talking activator use the dialogue of a
   given actor; with no actor it reverts to normal behaviour"; hypothesis: a dead actor

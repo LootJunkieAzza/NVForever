@@ -1692,6 +1692,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "intercom-trigger-activate"
+source = "issue #906 (docs/spec-notes/talking-activators.md §2): the REPCONN intercom's trigger (SCPT 0x000CD04E, OnTriggerEnter player) sets Chris as the intercom's talking actor and runs `<intercom>.Activate player`; the player is the activator, the default action is Talk, and the conversation opens through the intercom with no hand activation [observed: fnvtool script decompile FalloutNV.esm]"
+note = "The player stands by the intercom 0x000CD67C (RocketLabMid) and is put in its trigger 0x000CD051 at 8 s; Chris's Say Once greeting \"Hey! Over here!\" (INFO 000CD87D) is said through the intercom"
+areas = ["dialogue", "scripts", "activation"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "000CD67C", NVF_PLAY_TEST_SCRIPT = "8:walk:0x000CD051" }
+args = ["--cell", "RocketLabMid", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'script: \S+ activated by .*"result":"talk"', label = "the trigger's script has the player activate the intercom: Talk" },
+  { re = 'dialogue: .* says \[GREETING\] .*000CD87D', label = "Chris's \"Hey! Over here!\" through the intercom, in a conversation" },
+  { re = 'dialogue look: the view turns to .*\(the talking activator itself\)', label = "the view turns to the intercom" },
+]
+
+[[scenario]]
 name = "talk-gestures-npcs"
 source = "docs/spec-notes/idles.md §12: two NPCs in a conversation between actors (Joe Cobb and Trudy, started by the test aid) play the tree's NPC-to-NPC gestures"
 note = "Trudy, Joe Cobb and the quest are enabled and started by the aid (in a game they come from INFO 0015F8B6 and the saloon trigger, dialogue.md §5.1)"
