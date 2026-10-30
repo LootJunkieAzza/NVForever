@@ -135,14 +135,15 @@ impl Plugin for ScriptHudPlugin {
 }
 
 /// The subtitles' area, a column as wide as the text may be, centred in the view.
-#[derive(Component)]
-struct SubtitleArea;
+// The marker lives with the tile HUD's, which hides it while the HUD is drawn from tiles
+// and the tile renderer draws something (not in a menu; `crate::tiles::vanilla::hide`).
+use crate::tiles::vanilla::SubtitlesArea as SubtitleArea;
 
 // ---- the subtitles (corner-messages.md §8) -----------------------------------------------
 
 /// The text may be as wide as the HUD's Subtitles rect [documented:
 /// menus\main\hud_main_menu.xml, `Subtitles` width 800].
-const SUBTITLE_WIDTH: f32 = 800.0;
+pub(crate) const SUBTITLE_WIDTH: f32 = 800.0;
 /// The first line's base under the view's top [observed: the owner's screenshot].
 const SUBTITLE_BASE: f32 = 633.0;
 /// Lines are the font's size and this much apart [observed: 38 units on the screenshot].
@@ -229,7 +230,13 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
 
 /// The adapter reads the drawing's subtitle selection before scripts [design].
 pub(crate) fn hud_subtitles_shown(hud: &ScriptHud, game: &fnv_game::Game<'_>, sim: &SimState, player: Option<&crate::player::Player>) -> bool {
-    !subtitles(hud, game, sim, player).on_screen.is_empty()
+    !hud_subtitle_texts(hud, game, sim, player).is_empty()
+}
+
+/// The subtitles drawn, one text each, for the tile-drawn HUD (`crate::tiles::notices`)
+/// [design: the drawing's own selection].
+pub(crate) fn hud_subtitle_texts(hud: &ScriptHud, game: &fnv_game::Game<'_>, sim: &SimState, player: Option<&crate::player::Player>) -> Vec<String> {
+    subtitles(hud, game, sim, player).on_screen
 }
 
 fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Option<&crate::player::Player>) -> Subtitles {
