@@ -43,6 +43,16 @@ pub struct OtherState {
     pub package_lists: HashMap<FormId, Vec<FormId>>,
     /// SetFlagsLow/High's record flags.
     pub flags: HashMap<FormId, u32>,
+    /// Con_SCOF's file name (nothing is written).
+    pub scof: Option<String>,
+    /// AddAnimation's and DelAnimation's lists, by actor base.
+    pub animations: HashMap<FormId, Vec<String>>,
+    /// SetLeveledListFlags' raw flags of item lists (the list keeps three bits).
+    pub lev_flags: HashMap<FormId, u8>,
+    /// Edited actor lists (LVLN, LVLC) (`Game::lev_list`).
+    pub lev_actors: HashMap<FormId, crate::nvse_leveled::LevList>,
+    /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
+    pub generic: HashMap<(i64, FormId), Vec<FormId>>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -100,9 +110,32 @@ impl<'a> Game<'a> {
         self.package_overrides.insert(p, leaked);
     }
 
-    /// A form's record flags, SetFlagsLow/High's change first.
+    /// A form's record flags, SetFlagsLow/High's change first, with the bits the game
+    /// sets at run time [observed: nvse-seventh and nvse-flags]:
+    /// - a form from a master file has bits 0 and 3 (ESM, "form cannot be saved"): the
+    ///   10mm pistol 9 though its record has none;
+    /// - an actor that has talked to the player has bit 6 (0x40): Doc and Ringo 1097,
+    ///   Chet, Sunny and Easy Pete 1033, none with 0x40 in its record (a REFR keeps its
+    ///   record's 0x40); hypothesis: the game keeps the same state as GetTalkedToPC;
+    /// - the player reads 0x408;
+    /// - a reference made at run time reads 0x108 (PlaceAtMe'd creature 264), with 0x400
+    ///   for an NPC (1288).
     fn record_flags(&self, f: FormId) -> u32 {
-        self.other.flags.get(&f).copied().unwrap_or_else(|| self.data.form_flags.get(&self.unclone(f)).copied().unwrap_or(0))
+        if let Some(&v) = self.other.flags.get(&f) {
+            return v;
+        }
+        if f == FormId::PLAYER_REF {
+            return 0x408;
+        }
+        if self.world.placed.get(f).is_none() && self.world.peek(f).is_some() {
+            let npc = self.world.peek(f).is_some_and(|s| self.data.sig(s.base) == Some(*b"NPC_"));
+            return 0x108 | if npc { 0x400 } else { 0 };
+        }
+        let f = self.unclone(f);
+        let own = self.data.form_flags.get(&f).copied().unwrap_or(0);
+        let master = self.data.load_order.get((f.0 >> 24) as usize).is_some_and(|p| p.to_ascii_lowercase().ends_with(".esm"));
+        let talked = self.extra.get(&f).is_some_and(|e| e.talked_to_pc);
+        own | if master { 0x9 } else { 0 } | if talked { 0x40 } else { 0 }
     }
 
     /// A base form's script, RemoveScript's and SetScript's changes first.
@@ -147,6 +180,11 @@ impl Game<'_> {
         let t = self.world.placed.get(door)?.teleport?;
         Some((t.door, t.pos, t.rot[2]))
     }
+}
+
+/// A form's record flags as GetFlagsLow sees them (GetReferenceFlag).
+pub(crate) fn record_flags_of(g: &Game, f: FormId) -> u32 {
+    g.record_flags(f)
 }
 
 /// Whether a block's code calls the opcode anywhere, in statements or expressions (the
@@ -215,8 +253,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             yes(before)
         }
         // [documented: GetConsoleOutputFilename; HasConsoleOutputFileName] no SCOF file.
-        "getconsoleoutputfilename" => XVal::Str(String::new()),
-        "hasconsoleoutputfilename" => zero,
+        "getconsoleoutputfilename" => XVal::Str(g.other.scof.clone().unwrap_or_default()),
+        "hasconsoleoutputfilename" => yes(g.other.scof.is_some()),
         // [documented: GetCrosshairRef, the reference the player would activate;
         // GetCrosshairRefEx, the same at any range] as the engine tells them; a null
         // reference otherwise [observed: GetCrosshairRefEx gives 00000000].
@@ -367,6 +405,31 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: Sv_Set; observed: nvse-fifth, `Sv_Set "n=%g" 3 sText` leaves the
         // string empty] it does nothing [hypothesis: the function is left over].
         "sv_set" => zero,
+        // [documented: GetSoldItemInvRef; observed: outside an OnSell 00000000; OnSell is
+        // not sent yet].
+        "getsolditeminvref" => XVal::Ref(0),
+        // [documented: GetPaired; observed: 0 in the base game, which has no tokens; no
+        // item is a token here (nvse_tokens.rs)].
+        "getpaired" => zero,
+        // The game's folder, ending in "\" [observed: it ends with "Fallout New Vegas\"]:
+        // the folder holding Data.
+        "getfalloutdirectory" => {
+            let dir = crate::mod_files::data_dir().and_then(|d| d.parent().map(|p| p.to_path_buf()));
+            XVal::Str(dir.map(|d| format!("{}\\", d.display().to_string().trim_end_matches('\\'))).unwrap_or_default())
+        }
+        // The current objective's targets, without the doors between [documented:
+        // GetCurrentQuestObjectiveTeleportLinks; observed: one entry with the target in
+        // the player's own space; hypothesis: the door path is not built].
+        "getcurrentquestobjectiveteleportlinks" => {
+            let q = g.ui.active_quest.unwrap_or(FormId(0));
+            let st = g.quest_state(q);
+            let cur = st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i);
+            let targets: Vec<XVal> = cur
+                .and_then(|i| g.data.quests.get(&q)?.objectives.get(&i).map(|o| o.targets.iter().filter_map(|t| t.target).map(|t| XVal::Ref(t.0)).collect()))
+                .unwrap_or_default();
+            let entries = targets.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+        }
         // [documented: OutputLocalMapPicturesOverride; SetOutputLocalMapPicturesGrids]
         // NVForever writes no local map pictures.
         "outputlocalmappicturesoverride" | "setoutputlocalmappicturesgrids" => zero,
@@ -474,10 +537,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let out = match name {
                 "addpackageat" => {
                     let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
+                    // -1 appends and gives the index of the last package before it; an
+                    // index past the end gives -1 and adds nothing [observed: nvse-seventh,
+                    // Doc's 10 packages: -1 gave 9, 99 gave -1, 0 gave 0].
                     let i = num(args, 1, -1.0) as i64;
-                    let at = usize::try_from(i).ok().filter(|&i| i <= list.len()).unwrap_or(list.len());
-                    list.insert(at, p);
-                    XVal::Num(at as f64)
+                    let n = list.len();
+                    match usize::try_from(i) {
+                        Ok(at) if at <= n => {
+                            list.insert(at, p);
+                            XVal::Num(at as f64)
+                        }
+                        Ok(_) => XVal::Num(-1.0),
+                        Err(_) => {
+                            list.push(p);
+                            XVal::Num(n as f64 - 1.0)
+                        }
+                    }
                 }
                 "removepackageat" => {
                     let i = num(args, 0, -1.0) as i64;
@@ -544,9 +619,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // Paths [documented: GetScopeModelPath; SetScopeModelPath; GetBipedIconPath, codes
-        // 0 male and 1 female (ICON, ICO2), 2 and 3 the ground (none for icons
-        // [hypothesis]); SetModelPath(Ex), SetIconPath(Ex), SetTexturePath,
+        // Paths [documented: GetScopeModelPath; SetScopeModelPath; GetBipedIconPath;
+        // SetModelPath(Ex), SetIconPath(Ex), SetTexturePath,
         // SetBipedModelPath(Ex), SetBipedIconPath(Ex)]: the scope model is MOD3 [observed:
         // the sniper rifle's MOD3 is interface\HUD\mildotscope.NIF]. The getters see the
         // change; the drawn models do not [hypothesis: "If the replaced model is already
@@ -555,7 +629,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (sub, at) = if name == "getscopemodelpath" {
                 ("MOD3", 0)
             } else {
-                (match num(args, 0, -1.0) as i64 { 0 => "ICON", 1 => "ICO2", _ => "" }, 1)
+                // 0 and 2 the male icon, 1 and 3 the female [observed: nvse-seventh,
+                // leather armour's codes 0 and 2 give the same icon].
+                (match num(args, 0, -1.0) as i64 { 0 | 2 => "ICON", 1 | 3 => "ICO2", _ => "" }, 1)
             };
             let f = form(args, at).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
             match crate::nvse::record_value(g, f, sub, "").or_else(|| crate::nvse::record_value(g, f, sub, "model")) {
@@ -571,7 +647,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 "setmodelpath" => "MODL",
                 "setscopemodelpath" => "MOD3",
                 "setbipedmodelpath" => match code { 0 => "MODL", 1 => "MOD3", 2 => "MOD2", 3 => "MOD4", _ => "" },
-                "setbipediconpath" => match code { 0 => "ICON", 1 => "ICO2", _ => "" },
+                "setbipediconpath" => match code { 0 | 2 => "ICON", 1 | 3 => "ICO2", _ => "" },
                 _ => "ICON",
             };
             let f = form(args, if biped { 2 } else { 1 }).or(subject).map(|f| base(g, f));

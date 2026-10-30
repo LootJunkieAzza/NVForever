@@ -159,6 +159,10 @@ pub struct PlacedRef {
     pub patrol_topic: Option<FormId>,
     /// XMRC on an actor reference: the container holding the actor's merchant stock.
     pub merchant_container: Option<FormId>,
+    /// WMI1 on a map marker: the reputation it belongs to [documented: xEdit
+    /// wbDefinitionsFNV.pas REFR, "Map Marker Reputation"].
+    #[serde(skip)]
+    pub marker_reputation: Option<FormId>,
     /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
     pub open_by_default: bool,
     /// XPRM, when it is a box or a sphere (not written to JSON: the tools' output
@@ -509,6 +513,7 @@ fn load_ref(
         // The map marker's TNAM decodes as a struct, the patrol topic as a FormID.
         patrol_topic: if d.iter().any(|x| &x.sig == b"XPPA") { all(&d, b"TNAM").find(|v| v.is_string()).and_then(|v| fid(Some(v), "TNAM", issues)) } else { None },
         merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
+        marker_reputation: fid(first(&d, b"WMI1"), "WMI1", issues),
         open_by_default: first(&d, b"ONAM").is_some(),
         primitive: first(&d, b"XPRM").and_then(|v| {
             let sphere = match v.get("type").and_then(|t| t.as_str()) {

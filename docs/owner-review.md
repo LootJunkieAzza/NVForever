@@ -176,6 +176,13 @@ the spec it links to.
     drawn from the game's (or a mod's) start_menu.xml and our settings become one entry
     in it. ([ui-tile-tree §7](design/ui-tile-tree.md))
 
+35. **Small corpses pass through each other.** Corpses under 64 units (rats, geckos,
+   radroaches, bloatflies, mantis nymphs) no longer collide with each other, only with
+   the ground, objects and bigger corpses; people, dogs and bigger still pile up. It
+   cuts the physics cost of a heap of 20+ small corpses (#910). Look at a nest of nymphs
+   killed in one spot: if corpses lying inside each other look wrong, the size limit can
+   come down or the rule go. [ragdoll.md](spec-notes/ragdoll.md), "Corpse against corpse".
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
@@ -224,7 +231,9 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
 - **File functions (J9).** JIP reads and writes files in the game folder; NVForever never
   writes there. *Proposed:* writers write only under NVForever's own engine-home folder,
   mirroring the relative path; readers prefer that copy, then the game folder (read-only).
-  docs/spec-notes/jip-math-utility.md §4. *Check:* say if you want something else.
+  docs/spec-notes/jip-math-utility.md §4. The same rule would cover mods' INI writes
+  (SetINIFloat, the MCM settings files under `Data\Config`) and Con_SCOF's console log
+  (docs/handoff/nvse-next-batch.md N3). *Check:* say if you want something else.
 - **Arc tangents are approximate in JIP:** `fatan 1` and `fatan2 1 1` give 44.9998, not 45.
   *Default:* NVForever computes the exact value and the lab accepts a small tolerance on
   these two functions only, unless a sweep of probe points lets us fit the game's curve
@@ -285,3 +294,28 @@ Runtime-compiled scripts in your game refuse two things the GECK may accept:
 like a command alias (`ref rK`, ReleaseKey's alias). NVForever refuses the alias name
 and accepts the Ex forms until the GECK says otherwise. Cases 24 and 25 in
 `tools/capture/ext-compile/` (README there says how): note whether each saves.
+
+## INI-file probes wrote into your game's Data folder, then cleaned up (2026-10-26)
+
+To probe the INI-file functions (next batch N3) in your game, the probe session created
+`Data\Config\` (it did not exist), put two test files there (`NVFExtProbe.ini`,
+`NVFExtProbe\probe.ini`), and let the game's LU functions write to them and create
+`NVFExtProbe\created.ini`. After the run the probe files were removed;
+copies of what the game wrote are in `C:\fnv-private\ext\ini-files-after`. Nothing else
+in Data was touched; NVForever itself still never writes there. *Answered 2026-10-26:*
+probing the base game install (including writes the original game makes there) is
+fine; only the NVForever application must never write into it.
+
+*Answered 2026-10-26:* you installed MCM (MCM.dll and its ESP, not in the load order);
+its script functions are probed through the DLL. MCM.dll made `Data\Config\MCM.ini` on
+its own at start-up, so `Data\Config` now stays, holding only that file; the probe files
+are still removed after each run.
+
+## Probing extender state across saves needs a save in your saves folder (2026-10-26)
+
+The extender core asked for N12 probes: set aux variables, ref maps, arrays and string
+variables in the game, save, load, and read them back, to learn what the extenders keep in
+a save. In the original game a save is written to `Documents\My Games\FalloutNV\Saves`,
+which you have not cleared for probes the way you cleared the game install. Not done.
+*Answered 2026-10-26:* yes, one save named `nvfprobe`, removed after the run, the owner's
+own saves untouched.

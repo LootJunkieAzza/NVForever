@@ -1,0 +1,110 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_data",
+ "title": "nvse-data, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfNum\" 5.5\nlet fRes := GetModLocalData \"nvfNum\"\nRemoveModLocalData \"nvfNum\"\nSetFunctionValue fRes\nEnd\n",
+   "label": "mld.number",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfStr\" \"abc\"\nSetFunctionValue (GetModLocalData \"nvfStr\")\nRemoveModLocalData \"nvfStr\"\nEnd\n",
+   "label": "mld.string",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfForm\" rF\nSetFunctionValue (GetFormIDString (GetModLocalData \"nvfForm\"))\nRemoveModLocalData \"nvfForm\"\nEnd\n",
+   "label": "mld.form",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfNum\" 1\nlet fRes := ModLocalDataExists \"nvfNum\"\nRemoveModLocalData \"nvfNum\"\nSetFunctionValue fRes\nEnd\n",
+   "label": "mld.exists",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ModLocalDataExists \"nvfNone\")\nEnd\n",
+   "label": "mld.exists.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetModLocalData \"nvfNone\")\nEnd\n",
+   "label": "mld.get.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfCase\" 7\nlet fRes := GetModLocalData \"NVFCASE\"\nRemoveModLocalData \"nvfCase\"\nSetFunctionValue fRes\nEnd\n",
+   "label": "mld.case",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfNum\" 1\nSetFunctionValue (RemoveModLocalData \"nvfNum\")\nEnd\n",
+   "label": "mld.remove.existed",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (RemoveModLocalData \"nvfNone\")\nEnd\n",
+   "label": "mld.remove.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfA\" 1\nSetModLocalData \"nvfB\" 2\nlet fRes := ar_Size (GetAllModLocalData)\nRemoveModLocalData \"nvfA\"\nRemoveModLocalData \"nvfB\"\nSetFunctionValue fRes\nEnd\n",
+   "label": "mld.all.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetModLocalData \"nvfA\" 1\nlet fRes := ar_HasKey (GetAllModLocalData) \"nvfA\"\nRemoveModLocalData \"nvfA\"\nSetFunctionValue fRes\nEnd\n",
+   "label": "mld.all.haskey",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_Size (GetUserTime))\nEnd\n",
+   "label": "usertime.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Year\")\nEnd\n",
+   "label": "usertime.has.Year",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Month\")\nEnd\n",
+   "label": "usertime.has.Month",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"DayOfWeek\")\nEnd\n",
+   "label": "usertime.has.DayOfWeek",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Day\")\nEnd\n",
+   "label": "usertime.has.Day",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Hour\")\nEnd\n",
+   "label": "usertime.has.Hour",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Minute\")\nEnd\n",
+   "label": "usertime.has.Minute",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Second\")\nEnd\n",
+   "label": "usertime.has.Second",
+   "field": "value"
+  },
+  {
+   "query": "ref rF\nfloat fRes\nBegin Function { }\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (ar_HasKey (GetUserTime) \"Millisecond\")\nEnd\n",
+   "label": "usertime.has.Millisecond",
+   "field": "value"
+  }
+ ]
+}

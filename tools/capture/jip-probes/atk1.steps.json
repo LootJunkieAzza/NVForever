@@ -1,0 +1,61 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "atk1",
+ "title": "atk1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B587\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "atk1.crea.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B587\"\nlet fRes := GetAttackDamage rObj\nrP.AuxVarSetFlt \"*nvfAD\" fRes\nSetAttackDamage 50 rObj\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "atk1.crea.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B587\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "atk1.crea.set.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"17B587\"\nSetAttackDamage (rP.AuxVarGetFlt \"*nvfAD\") rObj\nrP.AuxVarErase \"*nvfAD\"\nSetFunctionValue (GetAttackDamage rObj)\nEnd\n",
+   "label": "atk1.crea.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetWeaponSightFOV rObj)\nEnd\n",
+   "label": "atk1.fov.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet fRes := GetWeaponSightFOV rObj\nrP.AuxVarSetFlt \"*nvfAF\" fRes\nSetWeaponSightFOV 40 rObj\nSetFunctionValue (GetWeaponSightFOV rObj)\nEnd\n",
+   "label": "atk1.fov.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetWeaponSightFOV (rP.AuxVarGetFlt \"*nvfAF\") rObj\nrP.AuxVarErase \"*nvfAF\"\nSetFunctionValue (GetWeaponSightFOV rObj)\nEnd\n",
+   "label": "atk1.fov.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))\nEnd\n",
+   "label": "atk1.ammo.get",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"4241\"\nlet rOther := GetWeaponAmmo rObj\nrP.AuxVarSetRef \"*nvfAA\" rOther\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"4240\"\nSetWeaponAmmo rOther rObj\nSetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))\nEnd\n",
+   "label": "atk1.ammo.set",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rOther := rP.AuxVarGetRef \"*nvfAA\"\nSetWeaponAmmo rOther rObj\nrP.AuxVarErase \"*nvfAA\"\nSetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))\nEnd\n",
+   "label": "atk1.ammo.restore",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

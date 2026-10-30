@@ -1733,6 +1733,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             g.emit(EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(c), pos });
             g.player_entered(Some(c));
+            g.settle_start_weather();
             // "Changing cells will teleport the teammate to the player" [documented: GECK
             // wiki SetPlayerTeammate notes], as MoveTo and doors do (`Game::bring_teammates`).
             g.bring_teammates(from);

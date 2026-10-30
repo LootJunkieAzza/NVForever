@@ -66,7 +66,9 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   z following the formula to 1e-6; the 2-D distance (692.05) would give 9.0248 and
   no falloff 13.8; hypothesis: the linear shape at other distances, since all reads are
   at one distance, issue #894.] Until 2026-10-29 the whole XRAD held in the radius, which
-  gave 15 there.
+  gave 15 there. The same reads are hud.md §14.1-§14.3's; console `player.setpos` steps
+  did not move the player in the shack either [observed: hud.md §14.3]. More distances,
+  Rad-X and overlapping markers: observer-checks.md item 33.
 - **Overlapping markers** [hypothesis]: the strongest at the point counts; they do not
   add. The masters put markers of rising level and falling radius on one spot — Clark
   Field 3/2000 with three 720/10 spots, the crater by Camp Searchlight 5/10000, 10/6000
@@ -203,15 +205,16 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   233, 293, 353 and 413, short ones (to row 18) between. The pointer (64 × 32) is a
   triangle pointing up, its tip at row 8, its middle at column 32.
 - **Built**: while rads are taken the meter shows "+n" (GetRadiationLevel's value, §4,
-  rounded, at least 1) and "RADS" (`sStatsRADAbbrev` is set by no master), with the
-  bracket and the pointer [documented: §1, fRadiationAccumulationRate does not change
-  the number; observed: the original showed "+9 RAD/SEC" at its 9.0138, issue #894;
-  hypothesis: the rounding, the word (the original's reads "RAD/SEC", not matched yet)].
-  - **The pointer** [hypothesis]: its tip, just under the notches (6 under the picture's
-    top at y 25), points at the player's rads: the left end's notch is 0, the right end's
-    1000, so the long notches are 200, 400, 600 and 800, the radiation sickness steps
-    (death at 1000). Over 1000 it stays at the end. The file's x 15 is taken as a start
-    the code moves.
+  rounded, at least 1) and "RAD/SEC", with the bracket and the pointer [documented: §1,
+  fRadiationAccumulationRate does not change the number; observed: the original showed
+  "+9 RAD/SEC" at its 9.0138, issue #894, hud.md §14.1; `sStatsRADAbbrev` is set by no
+  master; hypothesis: the rounding]. The word was "RADS" until 2026-10-29; the number
+  was the rads taken until then.
+  - **The pointer** [observed: private job hud_radiation2, r_in_000-r_in_990]: its x is
+    `15 + 0.3 × rads`, linear over 2-998 rads; its tip is 23 right of x, 6 under the
+    picture's top at y 25 [observed: texture]. The long notches are not 200-rad steps.
+    [hypothesis] Clamp rads to 0-1000, holding x 315 above 1000 (not captured).
+    History: the notch-fit `34.1 + 0.3312 × rads` was a hypothesis, replaced 2026-10-29.
   - **The place** [owner, 2026-10-23: "in the top right corner of the screen symmetrical
     to the popup notification on the left side"]: the mirror of the corner messages'
     bracket (corner-messages.md §2), whose line across stands 47 under the view's top
@@ -219,13 +222,21 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
     piece's top 33.5 under the view's top and its right edge 105 from the view's right
     edge, which puts the radiation bracket's line 47 under the top and its upright 57
     in from the right. Smoke `environment-radiation` saves `radiation_meter.png`.
-  - **The pictures are stretched** to the file's sizes (567 × 120, 46 × 24), not fitted
-    to their own shape (which drew the bracket 480 wide and put the upright through
-    the text).
+  - **The bracket stands at its texels' size** (512 × 128 from x −135), as the
+    original's: its notches 20 units apart, 15 pixels at 720 lines, the end notches
+    under the pointer's tip at 0 and 1000 rads [observed: hud_compare
+    environment-radiation at 1280 × 720, the original's ruler from x 978 to 1239 with
+    ticks every 15 pixels; menu-xml.md §3.1.3, T12c]. The piece stands around it so that
+    the owner's place holds: the line 47.1 under the view's top and the upright 57.3 in
+    from its right edge, the piece's top 32.6 down and its right edge 51.8 in; the texts
+    keep their places on the screen (`radiation.rs` `MOVED`). Until T12e the bracket was
+    stretched to the file's 567 × 120 [design]: its ruler 30 pixels longer to the left,
+    its notches 16.6 pixels apart. The pointer is stretched to its box (46 × 24).
   - **The texts** [owner, 2026-10-23: "lower and to the right against the bracket but not
-    interfering with the notches"]: "RADS" ends at x 396, inside the upright (the letters'
+    interfering with the notches"]: the word ends at x 396 of the piece as placed before
+    T12e (342.7 of today's), inside the upright (the letters'
     glow reaches about 10 past their width), the value before it with the file's gap of
-    8; their line 88 under the piece's top, so the capitals start below the pointer's
+    8; their line 88 under that piece's top, so the capitals start below the pointer's
     lowest place (y 49) and the notches (y 28). The file's x 237/245 and y 65 are not
     used.
 

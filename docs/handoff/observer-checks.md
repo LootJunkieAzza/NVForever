@@ -406,14 +406,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     left on the stack" in ours. To check: what Side Bets' report line does in the original
     (it sets nothing on the canonical path).
 
-## Added 2026-10-29 (radiation falloff, issue #894)
+## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
 33. **Does a radiation marker fall off linearly with distance, and does Rad Resistance cut
     GetRadiationLevel?** (P2: every irradiated place.) Ours now gives a marker's XRAD ×
     (1 − d ÷ XRDS), d the 3-D distance from GetPos, and GetRadiationLevel and the HUD
     that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
     693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
-    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player.
+    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player,
+    nor did console `player.setpos` steps (hud.md §14.3).
     To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
     marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
     (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours
@@ -421,10 +422,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
     point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
     at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
+34. **The corner bars' ticks' brightness.** The original's health and action points ticks
+    read about 0.7 of the bracket line's colour at their full rows (`hud_corners2.007`,
+    hud.md §14.9); the tile HUD writes `brightness` 175 to `HitPoints/meter` and
+    `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
+    GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
+    (the paths §14.3 read the widths by) while the bars show.
 
 ## Added 2026-10-30 (add-on walkthroughs, issue #918)
 
-34. **Is a line that another line names as its follow-up (TCFU) said when its topic is
+37. **Is a line that another line names as its follow-up (TCFU) said when its topic is
     chosen?** (P2: Old World Blues' Sink.) Six topics of the ten masters store a
     follow-up line first and another line after it, e.g. the Think Tank's "Topic001"
     (`NVDLC03DialogueKleinNVDLC03DoctorOLVLTopic001`): 0x01013555 (the five-line
@@ -439,19 +446,19 @@ The numbers above stay put so links to them hold; each item here gives its own p
     VMS46 Diane's VRRCDianeTopic003, the Think Tank's OLVLTopic006 (Dala's 0x01011333 now
     leads into Klein's 0x01011335) and Dr. O's OLVLTopic036.
 
-35. **Does a block whose parameter is a form list run for any member?** (P3: Old World
+38. **Does a block whose parameter is a form list run for any member?** (P3: Old World
     Blues' force fields.) `Begin OnHitWith NVDLC03SonicWeaponList` (SCPT 0x01016AB4,
     0x01016953, 0x0101571D) names a FLST of the five Sonic Emitters; ours runs the block
     when the hitting weapon is in the list (game.rs `block_accepts`) [hypothesis, fit to
     the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
     field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
 
-36. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
     thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
     conversation is still open. In the original, after the line, does the new speaker
     force-greet? (mq-walkthrough §9 stall 1.)
-37. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
+40. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
     stall.) Leave Fort Freeside right after the King completes objective 65 and let Roy's
     line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
-38. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
+41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
     the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)

@@ -1,5 +1,8 @@
 # The remaining xNVSE functions: tasks
 
+*2026-10-26: every family here is built; the next batch for the whole extender
+integration is docs/handoff/nvse-next-batch.md.*
+
 Written 2026-10-26, after the core plan (docs/handoff/extender-core-tasks.md, D1–D6) and
 next to the JIP plan (jip-tasks.md). Same rules: no extender source; behaviour from the
 wiki export `[documented]` or the game `[observed]`.
@@ -40,7 +43,7 @@ GetBaseObject, ListGetCount, GetNumItems, IsFormValid, IsReference, the D1–D5 
 
 ## 3. Not built, by family (catalogue origins NVSE and FOSE1), recounted 2026-10-26
 
-198 left, counted from `schemas/script/functions.json` against the names the VM and the
+189 left (198 on 2026-10-26, less the nine UI functions built 2026-10-28), counted from `schemas/script/functions.json` against the names the VM and the
 fnv-game nvse*.rs files handle (a setter counts as built when its getter is). Every
 family built so far was checked against the peer session's in-game probe sets (#828,
 L5.ext.nvse.*); all match except rows that depend on the owner's save.
@@ -50,7 +53,7 @@ L5.ext.nvse.*); all match except rows that depend on the owner's save.
 | other | 76 | AddItemHealthPercentOwner, AddItemOwnership, AddSpellNS, BuildRef, CompareScripts, CopyIR, CopyIRAlt, CreateTempRef, EndVATScam, EquipItem2, EquipMe, ForEachInList, GetAgeClass, GetBaseSpellListLevSpells, GetConsoleEcho, GetConsoleOutputFilename, GetCrosshairRef, GetCurrentHealth, GetCurrentObjective, GetCurrentQuestObjectiveTeleportLinks, GetCurrentScript, GetDefaultForms, GetDoorTeleportX/Y/Z/Rot, GetEquippedCurrentHealth, GetEquippedWeaponCanUseAmmo, GetEquippedWeaponUsesAmmoList, GetFOSEBeta, GetFOSERevision, GetFOSEVersion, GetFalloutDirectory, GetGridsToLoad, GetHeadParts, GetHeadingAngleX, GetInGrid, GetInGridInCell, GetLevCharacterRefs, GetLevCreatureRefs, GetLocalRefIndex, GetNthDefaultForm, GetNthExplicitRef, GetNumExplicitRefs, GetPaired, GetParentCellOwningFactionRequiredRank, GetPermanent, GetPlayerCurrentAmmo, GetPlayerCurrentAmmoRounds, GetSelfAlt, GetSoldItemInvRef, GetTFC, GetWeaponCanUseAmmo, HasAmmoEquipped, HasConsoleOutputFileName, HasScriptCommand, IsEquippedAmmoInList, OutputLocalMapPicturesOverride, RemoveMeIR, RemoveScript, ResetAllVariables, RunScript, SetConsoleEcho, SetCurrentHealth, SetDoorTeleport, SetEditorID, SetEquippedCurrentHealth, SetIsPlayable, SetIsPowerArmor, SetNameEx, SetNthDefaultForm, SetNthFactionRankNameEx, SetOutputLocalMapPicturesGrids, SetPermanent, SetPlayerCurrentAmmoRounds, SetQuestItem, Sv_Set, UnequipMe, Update3D |
 | console | 21 | Con_Inv, Con_SCOF, Con_SQV, Con_SetUFOCamSpeedMult, Con_ShowVars, Con_TCL, Con_TDT, Con_TFC, Con_TFIK, Con_ToggleMenus, con_CloseAllMenus, con_GetINISetting, con_LoadGame, con_QuitGame, con_RefreshINI, con_Save, con_SaveINI, con_SetCameraFOV, con_SetGameSetting, con_SetINISetting, con_SetVel |
 | debug and docs | 15 | Ar_DumpF, Ar_DumpID, Assert, CompileScript, DebugPrintVar, DecompileScript, DumpCommandWikiDoc, DumpDocs, GetCommandOpcode, GetDebugMode, GetDebugSelection, PrintDebug, PrintDebugF, PrintF, PrintVar |
-| UI (owner decision) | 15 | GetUIFloat, GetUIFloatAlt, GetUIFloatInherited, MenuHoldKey, MenuReleaseKey, MenuTapKey, ModUIFloat, PrintActiveTile, SetUIFloat, SetUIFloatAlt, SetUIString, SetUIStringAlt, SetUIStringEx, ShowLevelUpMenu, SortUIListBox |
+| UI (tile tree, 2026-10-28: the others are built, `fnv_game::ui_functions`) | 6 | GetUIFloatInherited, MenuHoldKey, MenuReleaseKey, PrintActiveTile, ShowLevelUpMenu, SortUIListBox |
 | input | 12 | ClearHotkey, DisablePlayerControlsAlt, DisablePlayerControlsAltEx, EnablePlayerControlsAlt, EnablePlayerControlsAltEx, GetHotkeyItem, GetOpenKey, GetPlayerControlsDisabledAlt, GetPlayerControlsDisabledAltEx, SetHotkeyItem, SetIsControl, SetOpenKey |
 | flags | 10 | GetEquippedWeaponModFlags, GetEyesFlags, GetFlagsHigh, GetFlagsLow, GetHairFlags, SetEquippedWeaponModFlags, SetEyesFlags, SetFlagsHigh, SetFlagsLow, SetHairFlags |
 | quaternion Ex forms | 9 | QFromAxisAngleEx, QFromEulerEx, QInterpolateEx, QMultQuatQuatEx, QMultQuatVector3Ex, QNormalizeEx, QToEulerEx, V3CrossproductEx, V3NormalizeEx |
@@ -79,8 +82,12 @@ console echo's start state. Next:
    `Game::package_list` carry the scripts' package changes to every reader, the record
    header flags are kept in `GameData::form_flags`.) Claimed by the peer session the
    same day: quaternion Ex forms, settings and INI, tokens (GetPaired with them),
-   event-handler lists, debug and docs. Left here: animations, generic forms, console;
-   UI waits on the tile tree (#834).
+   event-handler lists, debug and docs (merged with #844). Animations, generic forms
+   (`nvse_lists.rs`) and the console functions (`nvse_console.rs`, each runs
+   NVForever's console command; output only with the console echo on) done the same
+   day; the tile tree (#834) merged into this branch and its UI functions wired into
+   `nvse::call` (`ui_functions.rs`), SetUIStringEx and InjectUIComponent formatted by
+   the VM.
 3. Was: Packages and paths setters, form flags (needs the records' header flags kept).
 3. Event-handler lists, tokens, animations, generic forms.
 4. Console (`con_*`) and debug/documentation commands; UI waits on the owner

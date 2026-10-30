@@ -503,9 +503,16 @@ pub fn drive(
     }
     // Who is in a conversation, and their part in it (talking gestures).
     let talk_parts = game.talk_parts();
+    // Scripts' StopIdle and ForceStopIdle (`fnv_game::nvse_plugins`).
+    let stops = std::mem::take(&mut game.gaps.idle_stops);
     for (_, v, _, idle, lo, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.check_owner(|s| owner_now(game, v.0, s));
+        if stops.contains(&FormId(v.0)) {
+            if let Some(c) = idle.0.cur.as_mut() {
+                c.play.stop();
+            }
+        }
         // A collection's idle ends when its actor walks off [design].
         let walking = lo.is_some_and(|l| l.velocity != [0.0; 2]) || !standing.contains_key(&v.0);
         if let Some(c) = idle.0.cur.as_mut().filter(|c| walking && matches!(c.source, IdleSource::PackageIdles | IdleSource::MarkerIdles)) {
@@ -557,6 +564,11 @@ pub fn drive(
     let player_seated = on_furniture(game, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
     if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !player_seated) {
         c.play.stop();
+    }
+    if stops.contains(&FormId(player_ref)) {
+        for slot in [&mut pi.first.cur, &mut pi.third.cur].into_iter().flatten() {
+            slot.play.stop();
+        }
     }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
     // An idle asked for this frame (a package's begin idle) comes before its collection.

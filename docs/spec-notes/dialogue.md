@@ -263,7 +263,7 @@ hypothesis: the first sayable one when a line lists several].
 
 When the player chooses a topic from a list, its lines that some line names as a
 follow-up are passed over while another line of the topic can be said; only when none
-can is a follow-up line taken [hypothesis, 2026-10-30; observer check 34]. Greetings and
+can is a follow-up line taken [hypothesis, 2026-10-30; observer check 37]. Greetings and
 SayTo keep taking the first sayable line: the rule tried there too changed the Legion's,
 House's, Yes Man's and Dead Money's walkthroughs (greetings whose first line is some
 line's follow-up) [observed: `script cover`, five chains with step errors]. Why: six

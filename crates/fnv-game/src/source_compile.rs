@@ -5,8 +5,8 @@
 //! loaded has bytes that call functions at opcodes the extender gave out, which the
 //! game's own function table does not have. NVForever has no table of those numbers, so it
 //! compiles such a unit's source again with its own compiler (`fnv_script::compile`) and
-//! runs that. The rule: a unit whose bytes call an opcode above the highest one in the
-//! function table, or whose bytes the decoder cannot read (the extender's own statements
+//! runs that. The rule: a unit whose bytes call an opcode the function table does not
+//! have, or whose bytes the decoder cannot read (the extender's own statements
 //! have byte forms of their own [hypothesis]), and that has source, runs from its source
 //! [decision: no shipped unit calls such an opcode or holds unreadable bytes (scripts.md
 //! §2.6), so the shipped game is unchanged]. The compile
@@ -77,28 +77,32 @@ pub fn highest_opcode(table: &FunctionTable) -> u16 {
     table.functions.keys().copied().filter(|&o| o < CONSOLE_OPCODE_BASE).max().unwrap_or(0)
 }
 
-/// Whether the program calls an opcode above `highest`.
-pub fn calls_above(p: &Program, highest: u16) -> bool {
+/// Whether the program calls an opcode the function table does not have. "Above the
+/// highest" is not enough: the table now holds some of the extender's observed opcodes
+/// (eval 0x153A, ar_Size 0x1550 …), and a mod's bytes call others below them [observed:
+/// TaleOfTwoWastelands.esm calls 0x146D–0x14AE, run from the bytes as "not in the
+/// function table" until this rule].
+pub fn calls_unknown(p: &Program, table: &FunctionTable) -> bool {
     fn args(a: &[Arg]) -> bool {
         a.iter().any(|a| matches!(a, Arg::FormatVars(v) if args(v)))
     }
-    fn expr(e: &Expr, h: u16) -> bool {
-        e.0.iter().any(|t| matches!(t, Token::Call { call } if call.opcode > h || args(&call.args)))
+    fn expr(e: &Expr, h: &FunctionTable) -> bool {
+        e.0.iter().any(|t| matches!(t, Token::Call { call } if h.get(call.opcode).is_none() || args(&call.args)))
     }
-    fn stmts(s: &[Stmt], h: u16) -> bool {
+    fn stmts(s: &[Stmt], h: &FunctionTable) -> bool {
         s.iter().any(|s| match s {
-            Stmt::Call { call } => call.opcode > h,
+            Stmt::Call { call } => h.get(call.opcode).is_none(),
             Stmt::Set { expr: e, .. } => expr(e, h),
             Stmt::If { arms, otherwise } => {
                 arms.iter().any(|a| expr(&a.cond, h) || stmts(&a.body, h)) || otherwise.as_ref().is_some_and(|o| stmts(o, h))
             }
             Stmt::Unmatched { cond, .. } => cond.as_ref().is_some_and(|c| expr(c, h)),
-            // An extended statement calls only what its tree names (no opcode above the table).
+            // An extended statement calls only what its tree names.
             Stmt::While { body, .. } | Stmt::ForEach { body, .. } => stmts(body, h),
             Stmt::Return | Stmt::Raw { .. } | Stmt::Let { .. } | Stmt::Eval { .. } | Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::Break | Stmt::Continue => false,
         })
     }
-    stmts(&p.top, highest) || p.blocks.iter().any(|b| stmts(&b.body, highest))
+    stmts(&p.top, table) || p.blocks.iter().any(|b| stmts(&b.body, table))
 }
 
 /// Whether the source declares a `string_var` or `array_var`: the record's variable list
@@ -118,13 +122,12 @@ pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv
     if m == Mode::Never {
         return;
     }
-    let highest = highest_opcode(table);
     let picked: Vec<usize> = (0..units.len())
         .filter(|&i| {
             let c = &units[i].1;
             c.unit.has_scda
                 && c.unit.source.is_some()
-                && (m == Mode::Always || calls_above(&c.program, highest) || c.raw > 0 || declares_extender_vars(c.unit.source.as_deref().unwrap_or("")))
+                && (m == Mode::Always || calls_unknown(&c.program, table) || c.raw > 0 || declares_extender_vars(c.unit.source.as_deref().unwrap_or("")))
         })
         .collect();
     if picked.is_empty() {
@@ -139,7 +142,7 @@ pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv
         .map(|&i| {
             let u = &units[i].1.unit;
             let env = ix.env(ix.plugin_index(&u.plugin).unwrap_or(0));
-            let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs }));
+            let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: true }));
             let first = c.errors().next().map(|e| format!("{}: line {}: {} {}", u.key(), e.line, e.kind, e.detail));
             let r = match first {
                 Some(e) => Err(e),

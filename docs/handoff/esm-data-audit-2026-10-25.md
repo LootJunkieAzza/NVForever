@@ -21,10 +21,9 @@ lines are [hypothesis].
 
 ## Biggest gaps, ranked by what a player would notice
 
-1. **Destruction visuals.** DEST logic works (health, stages, explosions, disable). The stage
-   replacement model (DMDL; 40 ACTI, 20 MSTT, more on CONT/PROJ) is read but never drawn
-   (`engine/nvf-play/src/combat.rs:3331` logs "not drawn yet"), DSTD debris is never spawned.
-   Player sees: destroyed objects look unchanged.
+1. **Destruction visuals.** Built since this audit (732ce546): stage replacement models
+   (DMDL; 40 ACTI, 20 MSTT, more on CONT/PROJ), staged shapes and debris (18 ACTI + 12 CONT
+   stages); destruction-stages.md §4.
 2. **Game settings: ~360 of 648 GMSTs never looked up** (estimate ±10%, string matching).
    Unread groups include most fVATS* (30 of 39), fWeaponConditionSpread* (22),
    fActionPoints*, fGunSpread*, fBlockSkill*, fAutoAim*, fFurnitureMarker*. Where those
@@ -39,7 +38,7 @@ lines are [hypothesis].
 6. **Light shadows.** Every placed light spawns with `shadow_maps_enabled: false`
    (`engine/nvforever/src/lights.rs:553`); LIGH Spot Shadow/Dynamic flags and falloff
    exponent unused.
-7. **Creature body data.** CREA TNAM turn speed (2,238) and WNAM foot weight (2,238)
+7. **Creature body data.** CREA TNAM turn speed (on all 2,238 records of the full load order, non-zero on 1,547) and WNAM foot weight (2,238)
    unread (turn rate is a constant 300°/s), LNAM melee weapon list (829) unread.
    ACBS flags unread: Tilt Front/Back (749), Tilt Left/Right (274), Swims (273),
    Weapon & Shield (27). Player sees: creatures don't tilt to slopes; uniform turning.
@@ -49,8 +48,9 @@ lines are [hypothesis].
 9. **Factions.** XNAM disposition modifiers (165 non-zero relations) unread — disposition
    ignores factions; rank titles MNAM/FNAM (46/32) unread; Hidden from PC / Allow Sell flags
    unused.
-10. **Dumb dialogue.** INFO Low Intelligence (33) / High Intelligence (22) flags and DIAL
-    TDUM dumb responses (135 topics) unread — low-INT dialogue never changes.
+10. **Dumb dialogue.** Built since this audit (#743): INFO Low Intelligence (33) / High
+    Intelligence (22) flags and DIAL TDUM dumb responses (135 topics) are used for a player
+    at or below `iDialogueDummySpeakThisIntOrBelow`.
 11. **Crowd walla.** ASPC 5th SNAM + WNAM (all 145 acoustic spaces) decoded, never played.
     ASPC OBND (placed acoustic-space boxes) unread; reverb comes only from the cell.
 12. **Explosion leftovers.** EXPL INAM placed object read, not built (`combat.rs:3852`).
