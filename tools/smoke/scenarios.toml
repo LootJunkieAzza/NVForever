@@ -12663,3 +12663,234 @@ forbid = [
   { re = 'script: VMQ03a stage (110|120|200) set', label = "the visit fails or is cancelled" },
   { re = 'combat group: .* alarms VHDKimballREF 0x0012FCD2 about the player', label = "the NCR turn on the player" },
 ]
+
+[[scenario]]
+name = "mq-someone-to-watch-over-me"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/someone-to-watch-over-me.actions.json: Someone to Watch Over Me (VDialogueVegasNorth): Crandon's watch, the squatters and the Fiends talked off, Alice talked into going home from Andy Scabb's (stage 87, then 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/someone-to-watch-over-me.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/someone-to-watch-over-me.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VDialogueVegasNorth 10.stage", equals = 10, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 10: stage = 10" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 10.done.10", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 10: done.10 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 10.objective.10.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.stage", equals = 20, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: stage = 20" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.done.20", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: done.20 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.objective.15.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: objective.15.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.objective.20.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.stage", equals = 25, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: stage = 25" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.done.25", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: done.25 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.objective.20.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.objective.25.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.var.FiendsDealtWith", equals = 1.0, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: var.FiendsDealtWith = 1.0" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.stage", equals = 30, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: stage = 30" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.done.30", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: done.30 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.objective.25.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: objective.25.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.objective.30.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.stage", equals = 40, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: stage = 40" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.done.40", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: done.40 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.objective.30.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: objective.30.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.objective.40.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.var.BeckyHiresPlayer", equals = 1.0, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: var.BeckyHiresPlayer = 1.0" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.stage", equals = 45, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: stage = 45" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.done.45", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: done.45 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.objective.40.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: objective.40.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.objective.45.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: objective.45.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.stage", equals = 50, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: stage = 50" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.done.50", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: done.50 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.objective.45.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: objective.45.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.objective.50.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.stage", equals = 60, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: stage = 60" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.done.60", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: done.60 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.objective.50.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.objective.60.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 63.stage", equals = 63, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 63: stage = 63" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 63.done.63", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 63: done.63 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 63.objective.63.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 63: objective.63.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.stage", equals = 82, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: stage = 82" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.done.70", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: done.70 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.done.82", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: done.82 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.objective.70.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: objective.70.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.objective.82.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: objective.82.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.var.AliceStaysHome", equals = 1.0, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: var.AliceStaysHome = 1.0" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.stage", equals = 100, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: stage = 100" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.done.87", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: done.87 = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.done.100", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: done.100 = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.completed", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: completed = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.objective.82.completed", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: objective.82.completed = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.objective.87.completed", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: objective.87.completed = true" },
+  { json = "steps.*.error", count = 0, label = "someone-to-watch-over-me: no step fails" },
+  { json = "given_errors.*", count = 0, label = "someone-to-watch-over-me: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-nothin-but-a-hound-dog"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/nothin-but-a-hound-dog.actions.json: Nothin' But a Hound Dog (VMS24): after G.I. Blues to 40, the King's Rex, Julie Farkas, Rey's brain from Old Lady Gibson, Doctor Henry's transplant (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/nothin-but-a-hound-dog.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/nothin-but-a-hound-dog.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS24 1.running", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 1: running = true" },
+  { json = "observations.?label=milestone: VMS24 1.stage", equals = 1, label = "nothin-but-a-hound-dog, milestone: VMS24 1: stage = 1" },
+  { json = "observations.?label=milestone: VMS24 1.done.1", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 1: done.1 = true" },
+  { json = "observations.?label=milestone: VMS24 1.objective.1.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 1: objective.1.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 10.stage", equals = 10, label = "nothin-but-a-hound-dog, milestone: VMS24 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS24 10.done.10", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS24 10.objective.2.completed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 10: objective.2.completed = true" },
+  { json = "observations.?label=milestone: VMS24 10.objective.10.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 20.stage", equals = 20, label = "nothin-but-a-hound-dog, milestone: VMS24 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS24 20.done.20", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.10.completed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.20.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.25.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.30.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 50.stage", equals = 50, label = "nothin-but-a-hound-dog, milestone: VMS24 50: stage = 50" },
+  { json = "observations.?label=milestone: VMS24 50.done.50", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 50: done.50 = true" },
+  { json = "observations.?label=milestone: VMS24 50.objective.20.completed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 50: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS24 50.objective.50.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 50: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 50.var.bGotDogBrain", equals = 1.0, label = "nothin-but-a-hound-dog, milestone: VMS24 50: var.bGotDogBrain = 1.0" },
+  { json = "observations.?label=final: VMS24 100.stage", equals = 100, label = "nothin-but-a-hound-dog, final: VMS24 100: stage = 100" },
+  { json = "observations.?label=final: VMS24 100.done.100", equals = true, label = "nothin-but-a-hound-dog, final: VMS24 100: done.100 = true" },
+  { json = "observations.?label=final: VMS24 100.completed", equals = true, label = "nothin-but-a-hound-dog, final: VMS24 100: completed = true" },
+  { json = "observations.?label=final: VMS24 100.objective.50.completed", equals = true, label = "nothin-but-a-hound-dog, final: VMS24 100: objective.50.completed = true" },
+  { json = "observations.?label=final: VMS24 100.var.nTransplantResult", equals = 1.0, label = "nothin-but-a-hound-dog, final: VMS24 100: var.nTransplantResult = 1.0" },
+  { json = "steps.*.error", count = 0, label = "nothin-but-a-hound-dog: no step fails" },
+  { json = "given_errors.*", count = 0, label = "nothin-but-a-hound-dog: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-the-coyotes"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/the-coyotes.actions.json: The Coyotes (VMS13): Captain Parker's missing refugees, the teddy bear and Dermot's ledger, Saint James and Dermot killed, Parker told (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/the-coyotes.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/the-coyotes.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS13 10.running", equals = true, label = "the-coyotes, milestone: VMS13 10: running = true" },
+  { json = "observations.?label=milestone: VMS13 10.stage", equals = 10, label = "the-coyotes, milestone: VMS13 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS13 10.done.10", equals = true, label = "the-coyotes, milestone: VMS13 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS13 10.objective.10.displayed", equals = true, label = "the-coyotes, milestone: VMS13 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 20.stage", equals = 20, label = "the-coyotes, milestone: VMS13 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS13 20.done.20", equals = true, label = "the-coyotes, milestone: VMS13 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS13 20.objective.20.displayed", equals = true, label = "the-coyotes, milestone: VMS13 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 20.objective.30.displayed", equals = true, label = "the-coyotes, milestone: VMS13 20: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 40.stage", equals = 40, label = "the-coyotes, milestone: VMS13 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS13 40.done.40", equals = true, label = "the-coyotes, milestone: VMS13 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMS13 40.objective.20.completed", equals = true, label = "the-coyotes, milestone: VMS13 40: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS13 40.objective.40.displayed", equals = true, label = "the-coyotes, milestone: VMS13 40: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 40.objective.60.displayed", equals = true, label = "the-coyotes, milestone: VMS13 40: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 50.stage", equals = 50, label = "the-coyotes, milestone: VMS13 50: stage = 50" },
+  { json = "observations.?label=milestone: VMS13 50.done.50", equals = true, label = "the-coyotes, milestone: VMS13 50: done.50 = true" },
+  { json = "observations.?label=milestone: VMS13 60.stage", equals = 60, label = "the-coyotes, milestone: VMS13 60: stage = 60" },
+  { json = "observations.?label=milestone: VMS13 60.done.60", equals = true, label = "the-coyotes, milestone: VMS13 60: done.60 = true" },
+  { json = "observations.?label=final: VMS13 100.stage", equals = 100, label = "the-coyotes, final: VMS13 100: stage = 100" },
+  { json = "observations.?label=final: VMS13 100.done.100", equals = true, label = "the-coyotes, final: VMS13 100: done.100 = true" },
+  { json = "observations.?label=final: VMS13 100.completed", equals = true, label = "the-coyotes, final: VMS13 100: completed = true" },
+  { json = "observations.?label=final: VMS13 100.objective.60.completed", equals = true, label = "the-coyotes, final: VMS13 100: objective.60.completed = true" },
+  { json = "steps.*.error", count = 0, label = "the-coyotes: no step fails" },
+  { json = "given_errors.*", count = 0, label = "the-coyotes: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-unfriendly-persuasion"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/unfriendly-persuasion.actions.json: Unfriendly Persuasion (VMS50): Jacobstown's mercenaries bought off with Marcus' caps (stage 40), Marcus told (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/unfriendly-persuasion.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/unfriendly-persuasion.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS50 10.running", equals = true, label = "unfriendly-persuasion, milestone: VMS50 10: running = true" },
+  { json = "observations.?label=milestone: VMS50 10.stage", equals = 10, label = "unfriendly-persuasion, milestone: VMS50 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS50 10.done.10", equals = true, label = "unfriendly-persuasion, milestone: VMS50 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS50 10.objective.10.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS50 20.stage", equals = 20, label = "unfriendly-persuasion, milestone: VMS50 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS50 20.done.20", equals = true, label = "unfriendly-persuasion, milestone: VMS50 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS50 20.objective.20.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMS50 20.objective.30.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 20: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMS50 20.var.NortonBuyout", equals = 1.0, label = "unfriendly-persuasion, milestone: VMS50 20: var.NortonBuyout = 1.0" },
+  { json = "observations.?label=milestone: VMS50 40.stage", equals = 40, label = "unfriendly-persuasion, milestone: VMS50 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS50 40.done.40", equals = true, label = "unfriendly-persuasion, milestone: VMS50 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMS50 40.objective.20.completed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 40: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS50 40.objective.40.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 40: objective.40.displayed = true" },
+  { json = "observations.?label=final: VMS50 100.stage", equals = 100, label = "unfriendly-persuasion, final: VMS50 100: stage = 100" },
+  { json = "observations.?label=final: VMS50 100.done.100", equals = true, label = "unfriendly-persuasion, final: VMS50 100: done.100 = true" },
+  { json = "observations.?label=final: VMS50 100.running", equals = false, label = "unfriendly-persuasion, final: VMS50 100: running = false" },
+  { json = "steps.*.error", count = 0, label = "unfriendly-persuasion: no step fails" },
+  { json = "given_errors.*", count = 0, label = "unfriendly-persuasion: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-eyesight-to-the-blind"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/eyesight-to-the-blind.actions.json: Eyesight to the Blind (VMS55b): after Still in the Dark, McNamara's transmitter installed at Black Mountain (20), the power armour training (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/eyesight-to-the-blind.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/eyesight-to-the-blind.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS55b 10.running", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 10: running = true" },
+  { json = "observations.?label=milestone: VMS55b 10.stage", equals = 10, label = "eyesight-to-the-blind, milestone: VMS55b 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS55b 10.done.10", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS55b 10.objective.10.displayed", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS55b 20.stage", equals = 20, label = "eyesight-to-the-blind, milestone: VMS55b 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS55b 20.done.20", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS55b 20.objective.10.completed", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 20: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VMS55b 20.objective.20.displayed", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 20: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMS55b 100.stage", equals = 100, label = "eyesight-to-the-blind, final: VMS55b 100: stage = 100" },
+  { json = "observations.?label=final: VMS55b 100.done.100", equals = true, label = "eyesight-to-the-blind, final: VMS55b 100: done.100 = true" },
+  { json = "observations.?label=final: VMS55b 100.completed", equals = true, label = "eyesight-to-the-blind, final: VMS55b 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "eyesight-to-the-blind: no step fails" },
+  { json = "given_errors.*", count = 0, label = "eyesight-to-the-blind: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-ant-misbehavin"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/ant-misbehavin.actions.json: Ant Misbehavin' (VNellisInfestation): the Nellis front gate, Raquel's ants, Loyal's sonic emitter on the nest, the generators back on (stage 20)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ant-misbehavin.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ant-misbehavin.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VNellisInfestation started.running", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: running = true" },
+  { json = "observations.?label=milestone: VNellisInfestation started.objective.15.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: objective.15.displayed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation started.objective.20.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation started.objective.35.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: objective.35.displayed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation power on.objective.15.completed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation power on: objective.15.completed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation power on.objective.45.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation power on: objective.45.displayed = true" },
+  { json = "observations.?label=final: VNellisInfestation 20.stage", equals = 20, label = "ant-misbehavin, final: VNellisInfestation 20: stage = 20" },
+  { json = "observations.?label=final: VNellisInfestation 20.done.20", equals = true, label = "ant-misbehavin, final: VNellisInfestation 20: done.20 = true" },
+  { json = "observations.?label=final: VNellisInfestation 20.completed", equals = true, label = "ant-misbehavin, final: VNellisInfestation 20: completed = true" },
+  { json = "observations.?label=final: VNellisInfestation 20.objective.45.completed", equals = true, label = "ant-misbehavin, final: VNellisInfestation 20: objective.45.completed = true" },
+  { json = "steps.*.error", count = 0, label = "ant-misbehavin: no step fails" },
+  { json = "given_errors.*", count = 0, label = "ant-misbehavin: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-sunshine-boogie"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/sunshine-boogie.actions.json: Sunshine Boogie (NellisSunshineBoogie): after Ant Misbehavin', Loyal's five broken solar arrays repaired by hand (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/sunshine-boogie.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/sunshine-boogie.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: NellisSunshineBoogie started.running", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie started: running = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie started.objective.25.displayed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie started: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie started.objective.50.displayed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie started: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie arrays fixed.objective.50.completed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie arrays fixed: objective.50.completed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie arrays fixed.objective.75.completed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie arrays fixed: objective.75.completed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie arrays fixed.objective.100.displayed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie arrays fixed: objective.100.displayed = true" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.stage", equals = 100, label = "sunshine-boogie, final: NellisSunshineBoogie 100: stage = 100" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.done.100", equals = true, label = "sunshine-boogie, final: NellisSunshineBoogie 100: done.100 = true" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.completed", equals = true, label = "sunshine-boogie, final: NellisSunshineBoogie 100: completed = true" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.objective.100.completed", equals = true, label = "sunshine-boogie, final: NellisSunshineBoogie 100: objective.100.completed = true" },
+  { json = "steps.*.error", count = 0, label = "sunshine-boogie: no step fails" },
+  { json = "given_errors.*", count = 0, label = "sunshine-boogie: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
