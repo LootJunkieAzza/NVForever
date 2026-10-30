@@ -78,7 +78,7 @@
     {"op": "get_quest", "quest": "VMS30", "fields": ["stage", "done.140", "done.150"], "label": "milestone: VMS30 150"},
     {"op": "note", "text": "Stand-in for the walk to Sergeant Cooper's assault team outside Nelson."},
     {"op": "move_player", "to": "VCFHSergeantCooperRef"},
-    {"op": "note", "text": "The Legion explorers at Nelson each call StartConversation on the player once from their GameMode as soon as they load (nvNelsonExplorerBarkSCRIPT); the engine starts it at once (StartConversation's walk-up is a stand-in, functions/misc.rs). The player says goodbye to each."},
+    {"op": "note", "text": "The Legion explorers at Nelson each call StartConversation on the player once from their GameMode as soon as they load (nvNelsonExplorerBarkSCRIPT); the engine starts it at once (StartConversation's walk-up is a stand-in, functions/misc.rs). The player answers each with the attack line (Topic006, a goodbye: the assault on Nelson is under way)."},
     {"op": "wait_talk", "start": true, "label": "explorer 1"},
     {"op": "choose", "topic": "nvNelsonExplorerBarknvNelsonLegionaryExplorerTopic006", "label": "explorer 1 bye"},
     {"op": "wait_talk"},
