@@ -176,6 +176,13 @@ the spec it links to.
     drawn from the game's (or a mod's) start_menu.xml and our settings become one entry
     in it. ([ui-tile-tree §7](design/ui-tile-tree.md))
 
+35. **Small corpses pass through each other.** Corpses under 64 units (rats, geckos,
+   radroaches, bloatflies, mantis nymphs) no longer collide with each other, only with
+   the ground, objects and bigger corpses; people, dogs and bigger still pile up. It
+   cuts the physics cost of a heap of 20+ small corpses (#910). Look at a nest of nymphs
+   killed in one spot: if corpses lying inside each other look wrong, the size limit can
+   come down or the rule go. [ragdoll.md](spec-notes/ragdoll.md), "Corpse against corpse".
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 

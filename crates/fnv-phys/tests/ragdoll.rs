@@ -635,3 +635,49 @@ fn an_object_joint_starting_outside_its_limits_is_built_free() {
     let r = actor.add_ragdoll(&start(7, &rag, &rest));
     assert!(r.freed.is_empty(), "an actor's joint keeps its limits");
 }
+
+/// A heap of corpses dropped in one spot (#910): 25 chains of three balls. Small ones
+/// (28 units long) pass through each other and still land on the ground; the same chains
+/// at three times the size (84 units, bigger than `SMALL_RAGDOLL_SPAN`) pile up. Prints the
+/// heap's contact pairs and step time (`--nocapture`).
+#[test]
+fn small_corpses_pass_through_each_other_big_ones_pile_up() {
+    let ball = |x: f32| body("b", Shape::Sphere { radius: 4.0 }, 2.0, [x, 0.0, 0.0]);
+    let joints = vec![joint(0, 1, [-5.0, 0.0, 0.0], [5.0, 0.0, 0.0], JointKind::Ball), joint(1, 2, [-5.0, 0.0, 0.0], [5.0, 0.0, 0.0], JointKind::Ball)];
+    let rag = Arc::new(Ragdoll { bodies: vec![ball(0.0), ball(10.0), ball(20.0)], joints, problems: vec![] });
+    let heap = |scale: f32| {
+        let mut w = ground();
+        for i in 0..25u32 {
+            // Stacked over one spot, each a little turned and shifted.
+            let (s, c) = (i as f32 * 0.7).sin_cos();
+            let lift = [(i % 3) as f32 * 2.0 * scale, (i % 2) as f32 * 2.0 * scale, (12.0 + i as f32 * 9.0) * scale];
+            let nodes: Vec<Iso> = rag
+                .bodies
+                .iter()
+                .map(|b| {
+                    let p = b.rest().translation.map(|v| v * scale);
+                    Iso { translation: [c * p[0] - s * p[1] + lift[0], s * p[0] + c * p[1] + lift[1], p[2] + lift[2]], rotation: [c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0] }
+                })
+                .collect();
+            w.add_ragdoll(&RagdollStart { scale, ..start(0x100 + i, &rag, &nodes) });
+            assert_eq!(w.ragdoll_is_small(0x100 + i), scale < 2.0);
+        }
+        let (mut peak, mut sum, t) = (0, 0, std::time::Instant::now());
+        for _ in 0..180 {
+            w.step();
+            let n = w.ragdoll_contacts_between();
+            peak = peak.max(n);
+            sum += n;
+        }
+        let ms = t.elapsed().as_secs_f64() * 1000.0 / 180.0;
+        eprintln!("25 chains at scale {scale}: contact pairs between corpses peak {peak}, mean {:.1}; {ms:.3} ms per step", sum as f64 / 180.0);
+        let lowest = (0..25).flat_map(|i| nodes(&w, 0x100 + i)).map(|n| n.translation[2]).fold(f32::INFINITY, f32::min);
+        (peak, lowest)
+    };
+    let (small_peak, small_low) = heap(1.0);
+    assert_eq!(small_peak, 0, "small corpses never touch each other");
+    assert!(small_low > 0.0, "and still lie on the ground: lowest bone at z {small_low}");
+    let (big_peak, big_low) = heap(3.0);
+    assert!(big_peak > 10, "big corpses pile up: {big_peak} pairs");
+    assert!(big_low > 0.0, "lowest bone at z {big_low}");
+}

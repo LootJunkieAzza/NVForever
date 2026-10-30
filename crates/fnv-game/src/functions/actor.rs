@@ -1055,8 +1055,7 @@ pub fn reset_health(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
     none()
 }
 
-/// Recorded on the actor and made its current package (the package runs in Layer 6);
-/// also traced as a stub call.
+/// Recorded on the actor and made its current package (the package runs in Layer 6).
 pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let p = a.form(0)?;
@@ -1069,14 +1068,13 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     } else {
         g.extra.entry(r).or_default().current_package = Some(p);
     }
-    g.stub_note(ctx, a.0);
     none()
 }
 
 /// The script package is dropped and the actor chooses from its own list again: with
 /// one slot, a package added before the last AddScriptPackage does not come back
 /// [observed: od_08_script_packages, owner-decision-captures.md item 8].
-pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn remove_script_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
         e.script_package = None;
@@ -1086,7 +1084,6 @@ pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value,
             g.evaluate_package(r);
         }
     }
-    g.stub_note(ctx, a.0);
     none()
 }
 
