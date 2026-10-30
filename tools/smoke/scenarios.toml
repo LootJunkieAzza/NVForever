@@ -178,9 +178,9 @@ expect = [
 [[scenario]]
 name = "reflection-lake"
 source = "issue #1042: at Lake Mead the reflection camera switches on with the lake in view and off looking at the sky, where Bevy's box test of the water planes still passed them (engine/nvforever/src/reflection.rs)"
-note = "Boulder Beach shore (as wade-in-swim), the lakelurks kept unaware (NVF_PLAY_TEST_UNSEEN); looking at the lake, then 70 degrees up"
+note = "Boulder Beach shore (as wade-in-swim), the lakelurks kept unaware (NVF_PLAY_TEST_UNSEEN); looking at the lake, then 70 degrees up. Since #1060 the camera comes on only when the water shader counted drawn water pixels, so this is also the positive check of that count (water.wesl), the one reflection-off-unseen (camera stays off) cannot give"
 areas = ["renderer", "graphics"]
-paths = ["engine/nvforever/src/reflection.rs", "engine/nvforever/src/water.rs"]
+paths = ["engine/nvforever/src/reflection.rs", "engine/nvforever/src/water.rs", "engine/nvforever/src/water.wesl"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_LOOK = "4:90:-10,12:270:70" }
 args = ["--play", "--pos=56992,37536,2745", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 24

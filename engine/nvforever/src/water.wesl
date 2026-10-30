@@ -206,9 +206,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // The counter's writes turn off the GPU's early depth test, so water behind the
     // scene is thrown away here, before the costly part, as the depth test would. What
     // is left counts, at the reflected height, one pixel in 16 (#1060).
+    //
+    // Keep the texture sampling below in helper functions (layer_slope and the rest):
+    // naga checks uniform control flow per function, and a textureSample written
+    // directly in fragment() after this discard would fail validation, so water would
+    // stop drawing.
     if hidden_by_scene(in.position) {
         discard;
     }
+    // One pixel in 16 (a 4 x 4 grid): water seen only through a gap narrower than that
+    // may count nothing and show the sky alone in it, an accepted cost for 16 times
+    // fewer atomic adds on one address.
     let grid = vec2<u32>(in.position.xy) & vec2(3u);
     if water.seen_plane.y > 0.5 && abs(pos.y - water.seen_plane.x) < 2.0 && grid.x == 0u && grid.y == 0u {
         atomicAdd(&water_seen, 1u);

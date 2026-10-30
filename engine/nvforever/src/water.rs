@@ -121,7 +121,8 @@ pub struct WaterMaterial {
     /// One u32 the shader adds to for drawn water pixels at `seen_plane`'s height that no
     /// opaque surface hides (one pixel in 16), shared by every water material and read back
     /// by `crate::reflection` (#1060). It only grows (wrapping): water was drawn between
-    /// two readbacks when the value changed.
+    /// two readbacks when the value changed. A storage buffer in the fragment stage: the
+    /// desktop adapters NVForever runs on have them; WebGL2 does not [design].
     #[storage(6, visibility(fragment))]
     pub seen: Handle<ShaderBuffer>,
 }
