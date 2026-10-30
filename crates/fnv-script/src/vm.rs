@@ -209,6 +209,10 @@ pub trait Host {
     fn local_var(&mut self, _name: &str) -> Option<VarRef> {
         None
     }
+    /// The name a script variable was declared with, for PrintVar.
+    fn var_name(&mut self, _var: &VarRef) -> Option<String> {
+        None
+    }
     /// The UDF MessageBoxExAlt runs with the pressed button.
     fn box_callback(&mut self, _func: XVal) {}
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
@@ -1393,6 +1397,24 @@ impl Vm<'_, '_> {
 
     /// A value as text (`$`, ToString): a number's text, a form's name or, without one, its
     /// FormID in hex [documented: ToString].
+    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`.
+    fn brief_array(&mut self, id: u32) -> Result<String, VmError> {
+        let Some(arr) = self.store()?.array(id).cloned() else { return Ok("(no array)".into()) };
+        let mut parts = Vec::new();
+        for (k, v) in &arr.entries {
+            let vt = match v {
+                XVal::Array(inner) => self.brief_array(*inner)?,
+                other => self.text_of(other)?,
+            };
+            parts.push(match (arr.kind, k) {
+                (ArrayKind::List, _) => vt,
+                (_, XKey::Num(x)) => format!("{}: {vt}", number_text(*x)),
+                (_, XKey::Str(s)) => format!("{s}: {vt}"),
+            });
+        }
+        Ok(format!("[{}]", parts.join(", ")))
+    }
+
     fn text_of(&mut self, v: &XVal) -> Result<String, VmError> {
         Ok(match v {
             XVal::Num(x) => number_text(*x),
@@ -1952,6 +1974,9 @@ impl Vm<'_, '_> {
                 self.host.print(&text);
                 num(0.0)
             }
+            // [documented: Ar DumpF] Ar_Dump into a file in the Fallout folder: nothing is
+            // written [decision: NVForever writes nothing beside the game].
+            "ar_dumpf" => num(0.0),
             // [documented: Ar DumpID] Ar_Dump by the array's id.
             "ar_dumpid" => {
                 let id = val(self, 0)?.num()? as u32;
@@ -2419,6 +2444,30 @@ impl Vm<'_, '_> {
                 XVal::Num(0.0)
             }
             // [documented: PrintDebug] Print, only while the calling mod's debug mode is on.
+            // `var [var …]` (up to 15): each as `name: value` on a line of its own
+            // [documented: PrintVar, "fMyVariable: 2.5", "aMyVariable: [2, 4]"];
+            // DebugPrintVar only with the calling mod's debug mode on [documented:
+            // DebugPrintVar]. Numbers as Print gives them; an array as its elements' texts
+            // in brackets [documented: the page's list example; hypothesis: a map shows
+            // `key: value` pairs].
+            "printvar" | "printv" | "debugprintvar" | "dprintv" => {
+                if n.starts_with('d') && !self.host.debug_mode(None, None) {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                for a in &c.args {
+                    let name = match a {
+                        XExpr::Var { var, .. } => self.host.var_name(var),
+                        _ => None,
+                    };
+                    let v = self.xeval(a)?;
+                    let t = match v {
+                        XVal::Array(id) => self.brief_array(id)?,
+                        v => self.text_of(&v)?,
+                    };
+                    self.host.print(&format!("{}: {t}", name.unwrap_or_else(|| "?".into())));
+                }
+                XVal::Num(0.0)
+            }
             "printdebug" | "printd" => {
                 let v = val(self, 0)?;
                 let t = self.text_of(&v)?;

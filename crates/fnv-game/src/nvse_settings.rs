@@ -36,6 +36,12 @@ fn parse(text: &str, into: &mut HashMap<String, String>) {
 }
 
 impl IniState {
+    /// The files are read again on the next use, so the session's changes go
+    /// (con_RefreshINI).
+    pub(crate) fn reload(&mut self) {
+        self.values = None;
+    }
+
     fn values(&mut self, texts: &[String]) -> &mut HashMap<String, String> {
         self.values.get_or_insert_with(|| {
             let mut m = HashMap::new();

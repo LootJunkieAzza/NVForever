@@ -2259,3 +2259,160 @@ fn main_loop_callbacks_of_function_scripts_outlive_a_load_unless_flag_8() {
         assert_eq!(v == 0.0, ran, "flags {flags}: the callback {} after the load", if ran { "runs" } else { "is gone" });
     }
 }
+
+#[test]
+fn console_functions_run_their_commands() {
+    // #913 [documented: the Con_ pages, "Runs the console command … via a script"].
+    use fnv_game::functions::console::ConsoleRequest;
+    use fnv_game::functions::toggles::Toggle;
+    use fnv_script::vm::XVal;
+    let mut f = udf_fixture();
+    f.data.ini_texts = vec!["[Display]\nfDefaultFOV=75.0000\n".into()];
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx());
+    assert_eq!(q(&mut g, "Con_TFC\nSetFunctionValue GetTFC"), Ok(XVal::Num(1.0)), "Con_TFC is ToggleFlyCam");
+    q(&mut g, "con_SetCameraFOV 90 60").unwrap();
+    assert_eq!(g.ui.camera.fov, Some((Some(90.0), Some(60.0))));
+    q(&mut g, "Con_TFIK\nCon_TCL").unwrap();
+    assert_eq!(g.toggles.asked, [Toggle::FootIk, Toggle::Collision]);
+    q(&mut g, "con_QuitGame\ncon_Save \"nvfq\" 1").unwrap();
+    assert_eq!(g.console_requests, [ConsoleRequest::Quit, ConsoleRequest::Save("nvfq".into())]);
+    // The INI the extender reads: con_SetINISetting changes it, con_RefreshINI reads the
+    // files again.
+    let num = |g: &mut fnv_game::Game| q(g, "SetFunctionValue (GetNumericINISetting \"fDefaultFOV:Display\")");
+    q(&mut g, "con_SetINISetting \"fDefaultFOV:Display\" \"80\"").unwrap();
+    assert_eq!(num(&mut g), Ok(XVal::Num(80.0)));
+    // Lines only with the echo on [documented: Con_SQV, Con_Inv "Requires Console Echo"].
+    q(&mut g, "con_GetINISetting \"fDefaultFOV:Display\"").unwrap();
+    assert!(g.console_out.is_empty(), "no echo");
+    q(&mut g, "SetConsoleEcho 1\ncon_GetINISetting \"fDefaultFOV:Display\"").unwrap();
+    assert_eq!(g.console_out, ["fDefaultFOV:Display = 80"]);
+    q(&mut g, "con_RefreshINI\ncon_SaveINI").unwrap();
+    assert_eq!(num(&mut g), Ok(XVal::Num(75.0)), "the files' value again");
+}
+
+#[test]
+fn generic_form_lists_and_animation_lists_change_for_the_session() {
+    // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
+    // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,
+    // DelAnimations, GetNthAnimation].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let glob = XVal::Ref(0x0000_0901);
+    let player = XVal::Ref(FormId::PLAYER_REF.0);
+    q(&mut g, "GenericAddForm 7, PlayerREF, TestAdd, -2\nGenericAddForm 7, PlayerREF, PlayerREF, 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 0)"), player, "index 0 put first");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 1)"), glob);
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 2)"), XVal::Ref(0), "outside the list");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 7, PlayerREF, TestAdd, 0)"), player);
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 7, PlayerREF, 1)"), glob);
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "the getter sees it");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 99, PlayerREF, 0)"), XVal::Ref(0), "no such list");
+
+    q(&mut g, "AddAnimation \"a.kf\" PlayerREF\nAddAnimation \"B.kf\" PlayerREF\nAddAnimation \"A.KF\" PlayerREF");
+    let nth = |g: &mut fnv_game::Game, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.GetNthAnimation {i})\nEnd\n"), ctx()).unwrap();
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1), nth(&mut g, 2)), (XVal::Str("a.kf".into()), XVal::Str("B.kf".into()), XVal::Str(String::new())));
+    q(&mut g, "PlayerREF.DelAnimation \"b.kf\"");
+    assert_eq!(nth(&mut g, 1), XVal::Str(String::new()));
+    q(&mut g, "PlayerREF.DelAnimations");
+    assert_eq!(nth(&mut g, 0), XVal::Str(String::new()));
+}
+
+#[test]
+fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
+    // [documented: CompileScript, a text file under data/nvse/user_defined_functions, used
+    // with Call, cached; PrintVar, "fMyVariable: 2.5", "aMyVariable: [2, 4]"].
+    use fnv_script::vm::XVal;
+    let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
+        (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
+    });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader) });
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("ref rF\nref rG\nfloat fRes\narray_var aA\nBegin Function {{ }}\n{body}\nEnd\n"), ctx());
+    assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
+    assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
+    assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None });
+
+    g.console_out.clear();
+    q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();
+    assert_eq!(g.console_out, ["fRes: 2.5", "aA: [2, 4]"]);
+    g.console_out.clear();
+    q(&mut g, "DebugPrintVar fRes").unwrap();
+    assert!(g.console_out.is_empty(), "debug mode off");
+}
+
+#[test]
+fn last_core_setters_change_what_their_getters_read() {
+    // [documented: SetHairLength; SetNPCWeight; SetActorBaseFlagsHigh; SetEyes;
+    // SetCurrentQuest, as ForceActiveQuest].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    q(&mut g, "SetActorBaseFlagsHigh 5 PlayerREF");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetActorBaseFlagsHigh PlayerREF)"), XVal::Num(5.0));
+    q(&mut g, "SetNPCWeight 42 PlayerREF");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNPCWeight PlayerREF)"), XVal::Num(42.0));
+    q(&mut g, "SetHairLength 0.5 PlayerREF");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetHairLength PlayerREF)"), XVal::Num(0.5));
+}
+
+/// The extender functions a script call still finds unbuilt ("not built yet"), by plugin,
+/// from the catalogue: `cargo test --release -p fnv-game --test synthetic -- --ignored
+/// extender_census --nocapture`; the list goes to `target/tmp/extender-census.txt`. Each
+/// is called once with placeholder arguments (0, PlayerREF, "a"); a name that does not
+/// compile so is counted apart.
+#[test]
+#[ignore]
+fn extender_census() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/schemas/script/functions.json")).unwrap()).unwrap();
+    let fs = doc.as_array().or_else(|| doc["functions"].as_array()).unwrap();
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let mut nocompile = Vec::new();
+    for x in fs.iter().filter(|x| x["family"] == "extender") {
+        let n = x["name"].as_str().unwrap_or_default();
+        if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue;
+        }
+        let args: Vec<&str> = x["params"].as_array().into_iter().flatten().map(|p| match p["kind"].as_str() {
+            Some("form" | "reference") => "PlayerREF",
+            Some("string") => "\"a\"",
+            Some("actor_value") => "Luck",
+            Some("axis") => "X",
+            _ => "0",
+        }).collect();
+        let before = g.events.len();
+        let r = g.run_query(&format!("Begin Function {{ }}
+{n} {}
+End
+", args.join(" ")), fnv_game::game::RunCtx::default());
+        let said = g.events[before..].iter().any(|e| format!("{e:?}").contains("not built"));
+        if r.as_ref().is_err_and(|e| e.contains("did not compile")) {
+            nocompile.push(n.to_string());
+        } else if said || r.as_ref().is_err_and(|e| e.contains("not built")) {
+            unbuilt.entry(x["origin"].as_str().unwrap_or("?").to_string()).or_default().push(n.to_string());
+        }
+    }
+    let mut out = String::new();
+    for (o, v) in &unbuilt {
+        out += &format!("{o} {}: {}
+", v.len(), v.join(", "));
+    }
+    out += &format!("did not compile with placeholders {}: {}
+", nocompile.len(), nocompile.join(", "));
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
+    println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
+}

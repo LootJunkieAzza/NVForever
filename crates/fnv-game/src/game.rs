@@ -979,6 +979,10 @@ pub struct Game<'a> {
     /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
     /// shares; named by `LAMBDA_BASE + index`.
     lambdas: Vec<LambdaDef<'a>>,
+    /// CompileScript's scripts, named by `COMPILED_BASE + index`, and their files' paths
+    /// (lower case) to them.
+    compiled_files: Vec<&'a Compiled>,
+    compiled_paths: std::collections::HashMap<String, u32>,
     /// A lambda already made, by where its expression is and whose variables it shares.
     lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
     /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
@@ -1624,6 +1628,9 @@ pub const MAX_UDF_DEPTH: usize = 30;
 /// lambda's place to; script-compiler.md §9].
 /// Ids of foreach's temporary inventory references (B5), below the lambdas'.
 pub const TEMP_REF_BASE: u32 = 0xFE40_0000;
+/// Ids of the scripts CompileScript made from text files, below the temporary
+/// references' [decision, as the lambdas'].
+pub const COMPILED_BASE: u32 = 0xFE20_0000;
 pub const LAMBDA_BASE: u32 = 0xFE80_0000;
 
 /// What a script run is attached to.
@@ -1674,6 +1681,8 @@ impl<'a> Game<'a> {
             ext: Default::default(),
             udf: Vec::new(),
             lambdas: Vec::new(),
+            compiled_files: Vec::new(),
+            compiled_paths: std::collections::HashMap::new(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
             handler_seq: 0,
@@ -2228,6 +2237,44 @@ impl<'a> Game<'a> {
         result.map(|_| v)
     }
 
+    /// CompileScript: the script a text file under `Data\NVSE\user_defined_functions`
+    /// compiles to, cached by path unless `force` [documented: CompileScript, "cached for
+    /// performance", forceRecompile]; `None` when the file is missing or does not compile
+    /// [hypothesis: the function then gives no form].
+    pub(crate) fn compile_file(&mut self, path: &str, force: bool) -> Option<u32> {
+        let key = path.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase();
+        if !force {
+            if let Some(&id) = self.compiled_paths.get(&key) {
+                return Some(id);
+            }
+        }
+        let bytes = crate::mod_files::read_data(&format!("nvse\\user_defined_functions\\{key}"))?;
+        let src = String::from_utf8_lossy(&bytes).into_owned();
+        let c = fnv_script::compile::compile(&src, &self.data.table, &GameEnv { g: self }, None);
+        if let Some(e) = c.errors().next() {
+            let what = format!("CompileScript {path}: {}: {}", e.kind.replace('_', " "), e.detail);
+            self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
+            return None;
+        }
+        let d = fnv_script::decode(&c.bytes, &self.data.table);
+        let unit = fnv_script::ScriptUnit {
+            plugin: "CompileScript".into(),
+            owner: fnv_script::UnitOwner::Other { sig: "SCPT".into(), form: 0, ordinal: 0 },
+            kind: fnv_script::ScriptKind::Object,
+            header: Default::default(),
+            variables: c.variables,
+            refs: c.refs,
+            has_scda: true,
+            bytes: c.bytes,
+            source: Some(src),
+        };
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let id = COMPILED_BASE + self.compiled_files.len() as u32;
+        self.compiled_files.push(unit);
+        self.compiled_paths.insert(key, id);
+        Some(id)
+    }
+
     /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
     /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
     /// lambda, over the variables of the script that made it [documented: Call; User
@@ -2256,7 +2303,11 @@ impl<'a> Game<'a> {
             };
             (unit, params, body, value.map(|v| *v), locals)
         } else {
-            let unit = data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?;
+            let compiled = id.checked_sub(COMPILED_BASE).filter(|_| id < TEMP_REF_BASE).and_then(|i| self.compiled_files.get(i as usize).copied());
+            let unit = match compiled {
+                Some(u) => u,
+                None => data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?,
+            };
             let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
             let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
             (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
@@ -4831,6 +4882,13 @@ impl Host for Exec<'_, '_> {
     fn local_var(&mut self, name: &str) -> Option<VarRef> {
         let index = self.unit.var_index(name)?;
         Some(VarRef { on: None, var: VarSlot::Local { index, letter: fnv_script::ir::VarLetter::Float } })
+    }
+
+    fn var_name(&mut self, var: &VarRef) -> Option<String> {
+        match (&var.on, &var.var) {
+            (None, VarSlot::Local { index, .. }) => self.unit.var_name(*index).map(str::to_string),
+            _ => None,
+        }
     }
 
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {

@@ -2113,6 +2113,7 @@ fn run_as(
     };
     let mut g = Game::new(data, world, cfg);
     g.voice = voice;
+    crate::ui_loading::load_headless(&mut g);
     if cover {
         g.coverage = Some(Default::default());
     }
