@@ -19,11 +19,16 @@
 //!   - Kept from before, not captured [hypothesis]: for [`HIT_SECONDS`] after the player
 //!     hits an actor, aimed at or not, prompt or not (now only while it is hurt). Never
 //!     for a dead actor [observed: hud_enemy5 b4].
+//!   - Never for an actor no longer here [design]: disabled, deleted or out of the
+//!     loaded cells ([`Case::gone`]), as a script's Disable or a load door leaves one the
+//!     bar held or the player hit. Behind a loading screen the bar forgets what it held
+//!     and the player's hits ([`Memory::enter`]).
 //!   - Not built [observed, open]: the bar shows about 1 s after a hurt in combat but
 //!     within 0.25 s out of it (hud_enemy4 g4, hud_enemy3 g2; hud_enemy5 a1, a3).
-//! - **One actor at a time** [design]: the one aimed at, else the one the player hit
-//!   last, else a hurt actor fighting the player (the one the bar holds first, then the
-//!   nearest within [`AIM_RANGE`]), else the one the bar lingers on.
+//! - **One actor at a time** [design]: the first of [`candidates`] that [`why_shown`]
+//!   shows: the one aimed at, else the one the player hit last, else a hurt actor
+//!   fighting the player (the one the bar holds first, then the nearest within
+//!   [`AIM_RANGE`]), else the one the bar lingers on.
 //! - The health is the actor's Health over its full value; the name is the one the
 //!   crosshair's prompt gives it (`SimState::ref_name`).
 //! - Living Anatomy (See Enemy Health, docs/spec-notes/perk-entry-points.md §9): "Enemy
@@ -52,9 +57,11 @@ pub const AIM_RANGE: f32 = 8192.0;
 pub const HIT_SECONDS: f32 = 5.0;
 /// Seconds the bar stays on an actor after the crosshair's ray left it, out of combat
 /// [observed for a hostile: private job hud_enemy5 b2, a hurt restrained gecko, shown to
-/// 5.52 s after the turn; hypothesis for a neutral: a hurt settler's bar was still up
-/// 16-18 s after the turn in hud_enemy5 a1-a3a when the watch ended, so the hostile's
-/// figure stands for both until it is captured again].
+/// 5.52 s after the turn]. For a neutral this is a known divergence [observed: a hurt
+/// settler's bar was still up 16-18 s after the turn in hud_enemy5 a1-a3a when the watch
+/// ended, so the original's neutral linger is at least that]: what makes the two differ
+/// (hostility, or how long the bar was up before) is not known, so the hostile's figure
+/// stands for both until a longer watch settles it (docs/handoff/observer-checks.md).
 pub const LINGER_SECONDS: f32 = 5.5;
 
 /// The actor whose health the bar shows: reference, name, Health as 0 to 1 of its full
@@ -95,6 +102,9 @@ pub struct Case {
     /// Its Health is below its full value (the meter would not be full).
     pub hurt: bool,
     pub dead: bool,
+    /// No longer here: disabled, deleted or out of the loaded cells (`Game::present`,
+    /// `Game::loaded_cells`).
+    pub gone: bool,
     /// Under the crosshair's ray now.
     pub aimed: bool,
     /// In combat with the player: its combat target is the player.
@@ -125,8 +135,9 @@ pub enum Why {
 
 /// Whether, and why, an actor gets the bar (the module notes' rule, points 1-5).
 pub fn why_shown(c: &Case) -> Option<Why> {
-    // 1. Never at full health [observed]; never dead [observed: hud_enemy5 b4].
-    if c.dead || !c.hurt {
+    // 1. Never at full health [observed]; never dead [observed: hud_enemy5 b4]; never
+    // for one no longer here [design].
+    if c.dead || c.gone || !c.hurt {
         return None;
     }
     // The player's own hit, as before [hypothesis: not captured].
@@ -169,6 +180,45 @@ pub fn held_next(held: Option<(u32, f32)>, shown: Option<u32>, aimed: Option<u32
     Some((id, age))
 }
 
+/// The actors that may get the bar this frame, in order, each once: the one aimed at;
+/// the one the player hit last; those fighting the player (`fighters`: reference and
+/// distance from the eye) within [`AIM_RANGE`], the one the bar holds first, then the
+/// nearest; the one the bar holds (its linger). The first that [`why_shown`] shows gets
+/// it.
+pub fn candidates(aimed: Option<u32>, hit_last: Option<u32>, fighters: &[(u32, f32)], held: Option<u32>) -> Vec<u32> {
+    let mut near: Vec<(bool, f32, u32)> = fighters.iter().filter(|f| f.1 <= AIM_RANGE).map(|&(id, d)| (held != Some(id), d, id)).collect();
+    near.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    let mut out: Vec<u32> = Vec::new();
+    for id in aimed.into_iter().chain(hit_last).chain(near.into_iter().map(|f| f.2)).chain(held) {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// What the bar keeps from frame to frame.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Memory {
+    /// The actor the bar holds and the seconds since the ray was on it ([`held_age`]).
+    pub held: Option<(u32, f32)>,
+    /// The actor the linger alone holds, for its log line.
+    pub lingering: Option<u32>,
+    /// Seconds since the player hit each actor, for [`HIT_SECONDS`].
+    pub hit_ago: HashMap<u32, f32>,
+}
+
+impl Memory {
+    /// Before a frame in `state`: behind a loading screen it forgets everything, so no
+    /// linger or hit of the area left carries into the next [design]. A menu or a
+    /// conversation only stops its clocks (the frame does not count).
+    pub fn enter(&mut self, state: PlayState) {
+        if state == PlayState::Loading {
+            *self = Memory::default();
+        }
+    }
+}
+
 pub struct HudTargetPlugin;
 
 impl Plugin for HudTargetPlugin {
@@ -187,15 +237,15 @@ fn aim(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut hits: MessageReader<ActorHit>,
-    mut hit_ago: Local<HashMap<u32, f32>>,
     mut target: ResMut<HudTarget>,
     mut aim_hostile: ResMut<AimHostile>,
     combat: Option<Res<Combat>>,
     (pick, locks): (Option<Res<crate::activate::Target>>, Option<Res<crate::control::ControlLocks>>),
-    mut held: Local<Option<(u32, f32)>>,
-    mut lingering: Local<Option<u32>>,
+    mut memory: Local<Memory>,
 ) {
     let dt = time.delta_secs();
+    memory.enter(*state.get());
+    let Memory { held, lingering, hit_ago } = &mut *memory;
     for t in hit_ago.values_mut() {
         *t += dt;
     }
@@ -237,32 +287,24 @@ fn aim(
             let fighting = g.awareness.get(r).and_then(|x| x.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
             !g.is_dead(r) && (fighting || g.would_attack(r, FormId::PLAYER_REF))
         });
-        // In order (module notes): the one aimed at; the one the player hit last; the
-        // actors fighting the player, the one the bar holds first, then the nearest; the
-        // one the bar lingers on.
+        // In order ([`candidates`]).
         let away = |at: Option<[f32; 3]>| at.map_or(f32::INFINITY, |p| ((p[0] - eye[0]).powi(2) + (p[1] - eye[1]).powi(2) + (p[2] - eye[2]).powi(2)).sqrt());
-        let mut fighters: Vec<(bool, f32, u32)> = rt
+        let fighters: Vec<(u32, f32)> = rt
             .game
             .awareness
             .actors
             .iter()
             .filter(|(id, a)| **id != FormId::PLAYER_REF && a.combat_target().is_some_and(|(t, _)| t == FormId::PLAYER_REF))
-            .map(|(id, a)| (kept.is_none_or(|h| h.0 != id.0), away(a.at), id.0))
-            .filter(|f| f.1 <= AIM_RANGE)
+            .map(|(id, a)| (id.0, away(a.at)))
             .collect();
-        fighters.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
-        let mut candidates: Vec<u32> = Vec::new();
-        for id in aimed.into_iter().chain(hit_last).chain(fighters.into_iter().map(|f| f.2)).chain(kept.map(|h| h.0)) {
-            if !candidates.contains(&id) {
-                candidates.push(id);
-            }
-        }
-        let found = candidates.into_iter().find_map(|id| {
+        let found = candidates(aimed, hit_last, &fighters, kept.map(|h| h.0)).into_iter().find_map(|id| {
             let r = FormId(id);
             let g = &mut rt.game;
             if g.is_dead(r) {
                 return None;
             }
+            // Still here: enabled, not deleted, in a loaded cell.
+            let gone = !(g.present(r) && g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)));
             let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
             let max = g.max_health(r);
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
@@ -270,6 +312,7 @@ fn aim(
             let case = Case {
                 hurt: health < max,
                 dead: false,
+                gone,
                 aimed: aimed == Some(id),
                 fighting,
                 picked: picked == Some(id),
@@ -436,5 +479,80 @@ mod tests {
         assert_eq!(held_next(Some((3, 2.0)), Some(3), Some(3)), Some((3, 0.0)));
         assert_eq!(held_next(Some((3, 2.0)), None, None), None);
         assert_eq!(held_next(Some((3, 2.0)), Some(4), None), Some((4, LINGER_SECONDS)));
+    }
+
+    #[test]
+    fn never_for_an_actor_no_longer_here() {
+        // Disabled, deleted or out of the loaded cells: under the ray, fighting, hit or
+        // lingering, no bar.
+        for c in [
+            Case { aimed: true, ..hurt() },
+            Case { fighting: true, ..hurt() },
+            Case { since_hit: Some(0.0), ..hurt() },
+            Case { since_aimed: Some(0.1), ..hurt() },
+        ] {
+            assert!(shown(&c), "{c:?}");
+            assert!(!shown(&Case { gone: true, ..c }), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn a_load_forgets_the_held_bar_and_the_hits() {
+        let full = Memory { held: Some((7, 1.0)), lingering: Some(7), hit_ago: HashMap::from([(7, 0.5), (8, 2.0)]) };
+        // A menu or a conversation keeps them (their clocks stop).
+        for s in [PlayState::Playing, PlayState::Menu, PlayState::Dialogue] {
+            let mut m = full.clone();
+            m.enter(s);
+            assert_eq!(m, full, "{s:?}");
+        }
+        let mut m = full.clone();
+        m.enter(PlayState::Loading);
+        assert_eq!(m, Memory::default());
+    }
+
+    #[test]
+    fn the_candidates_in_order() {
+        // Aimed 1, hit 2, fighters 3 (far), 4 (near), the held 5.
+        assert_eq!(candidates(Some(1), Some(2), &[(3, 900.0), (4, 300.0)], Some(5)), vec![1, 2, 4, 3, 5]);
+        // The fighter the bar holds comes before a nearer one, and only once.
+        assert_eq!(candidates(None, None, &[(3, 900.0), (4, 300.0)], Some(3)), vec![3, 4]);
+        // A fighter beyond the aim range is no candidate.
+        assert_eq!(candidates(None, None, &[(3, AIM_RANGE + 1.0), (4, AIM_RANGE)], None), vec![4]);
+        // Each once: aimed and hit the same, held the same as aimed.
+        assert_eq!(candidates(Some(1), Some(1), &[(1, 100.0)], Some(1)), vec![1]);
+        assert_eq!(candidates(None, None, &[], None), Vec::<u32>::new());
+    }
+
+    /// The first of the candidates that [`why_shown`] shows, with each actor's case.
+    fn first(order: Vec<u32>, cases: &[(u32, Case)]) -> Option<(u32, Why)> {
+        order.into_iter().find_map(|id| why_shown(&cases.iter().find(|c| c.0 == id)?.1).map(|w| (id, w)))
+    }
+
+    #[test]
+    fn the_first_shown_candidate_gets_the_bar() {
+        let fighter = Case { fighting: true, ..hurt() };
+        let lingering = Case { since_aimed: Some(1.0), ..hurt() };
+        let cases = [
+            (1, Case { aimed: true, ..hurt() }),
+            (2, Case { since_hit: Some(1.0), ..hurt() }),
+            (3, fighter),
+            (4, fighter),
+            (5, lingering),
+        ];
+        let order = |aimed, hit, held| candidates(aimed, hit, &[(3, 900.0), (4, 300.0)], held);
+        // The one aimed at, before the one hit, the fighters and the linger.
+        assert_eq!(first(order(Some(1), Some(2), Some(5)), &cases), Some((1, Why::Aimed)));
+        // The one hit, before the fighters.
+        assert_eq!(first(order(None, Some(2), Some(5)), &cases), Some((2, Why::Hit)));
+        // The nearest fighter, before the linger; the held fighter before a nearer one.
+        assert_eq!(first(order(None, None, Some(5)), &cases), Some((4, Why::Fighting)));
+        assert_eq!(first(order(None, None, Some(3)), &cases), Some((3, Why::Fighting)));
+        // The aimed actor at full health gets none: the next does.
+        let full_aimed = [(1, Case { aimed: true, ..Case::default() }), (5, lingering)];
+        assert_eq!(first(candidates(Some(1), None, &[], Some(5)), &full_aimed), Some((5, Why::Linger)));
+        // A fighter no longer here (a load door, a script's Disable): the linger, then none.
+        let gone = [(3, Case { gone: true, ..fighter }), (5, lingering)];
+        assert_eq!(first(candidates(None, None, &[(3, 100.0)], Some(5)), &gone), Some((5, Why::Linger)));
+        assert_eq!(first(candidates(None, None, &[(3, 100.0)], None), &gone), None);
     }
 }

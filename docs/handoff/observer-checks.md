@@ -499,8 +499,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
 52. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
     looked at.) The hurt settler's bar was still up 16-18 s after the player turned away
     in hud_enemy5 a1-a3a, where the watch ended; a restrained hostile gecko's went after
-    about 5.5 s (b2). Ours lingers 5.5 s for every actor (`hud_target::LINGER_SECONDS`)
-    [hypothesis for a neutral]. To check: hurt a neutral settler by script (DamageAV
+    about 5.5 s (b2). Ours lingers 5.5 s for every actor (`hud_target::LINGER_SECONDS`):
+    a known divergence for a neutral. To check: hurt a neutral settler by script (DamageAV
     Health), turn the player onto him from 350 units (not the activation target, no
     prompt), then 180 degrees away, and read `EnemyHealth`'s three children every 50 ms
     for 40-60 s with no MoveTo; then the same on a hurt restrained gecko, and on each

@@ -391,17 +391,22 @@ GetCrosshairRef]]:
 by point): hurt is Health below its full value (the meter not full); "in combat" is the
 actor's combat target being the player; the activation target is
 `crate::activate::Target`, and a prompt is up whenever there is one (unless a script has
-the rollover text off). The linger is `LINGER_SECONDS` = 5.5 s for every actor
-[observed for the hostile; hypothesis for a neutral], and the activation target or a
-prompt coming up ends it. The player's own hit keeps the earlier rule [hypothesis]: for 5
-seconds after the player hits an actor it has the bar, aimed at or not, prompt or not,
-while it is hurt. One actor at a time: the one under the crosshair (a ray along the
-crosshair's line through the collision world, up to 8192 units, to the first actor hit
-volume or capsule), else the one the player hit last, else a hurt actor fighting the
-player (the one the bar holds, else the nearest), else the one it lingers on. Logged as
-`hud: enemy health <name> 0x<ref> <percent> %`, `hud: enemy health <name> 0x<ref> held
-by the linger (…)` when only the linger holds it, and `hud: enemy health off`. The
-developer's stand-in (a line of `|` characters over the crosshair, `combat.rs`) is gone.
+the rollover text off). The linger is `LINGER_SECONDS` = 5.5 s for every actor [observed
+for the hostile; a known divergence for a neutral, whose bar the original kept at least
+16-18 s (point 5): what makes the two differ is not known], and the activation target or
+a prompt coming up ends it. The player's own hit keeps the earlier rule [hypothesis]:
+for 5 seconds after the player hits an actor it has the bar, aimed at or not, prompt or
+not, while it is hurt. No actor that is no longer here has it: disabled, deleted or
+outside the loaded cells (`Case::gone`, as after a script's Disable or a load door), and
+behind a loading screen the bar forgets the actor it held and the player's hits
+(`Memory::enter`). One actor at a time (`hud_target::candidates`, tested in that order):
+the one under the crosshair (a ray along the crosshair's line through the collision
+world, up to 8192 units, to the first actor hit volume or capsule), else the one the
+player hit last, else a hurt actor fighting the player (the one the bar holds, else the
+nearest), else the one it lingers on. Logged as `hud: enemy health <name> 0x<ref>
+<percent> %`, `hud: enemy health <name> 0x<ref> held by the linger (…)` when only the
+linger holds it, and `hud: enemy health off`. The developer's stand-in (a line of `|`
+characters over the crosshair, `combat.rs`) is gone.
 
 Earlier runs agree [observed: private job hud_enemy3, n0_neutral_dwell, n1-n1c,
 h1_hostile_combat, g2_gecko_half; hud_enemy2, e4-e6]: full-health actors showed no bar
