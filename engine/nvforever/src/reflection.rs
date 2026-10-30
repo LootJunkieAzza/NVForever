@@ -155,9 +155,13 @@ pub struct WaterPixels {
     /// Whether it grew between the last two readbacks: water at the reflected height was
     /// drawn, not hidden by the scene. `None` before two readbacks.
     drawn: Option<bool>,
-    /// The readback has been asked for.
-    started: bool,
+    /// When the readback was asked for (real seconds), once it has been.
+    started: Option<f32>,
 }
+
+/// Seconds without any readback after which the GPU check is taken to be broken and
+/// left out (#1047's view check alone) [engineering choice].
+const READBACK_WAIT: f32 = 2.0;
 
 impl WaterPixels {
     /// Take in a value read back.
@@ -168,20 +172,22 @@ impl WaterPixels {
         self.last = Some(v);
     }
 
-    /// Whether water may be on screen as far as the GPU knows: true until it has said.
-    fn may_be_drawn(&self) -> bool {
-        self.drawn.unwrap_or(true)
+    /// Whether water may be on screen as far as the GPU knows, at real time `now`. Before
+    /// two readbacks: not yet (no camera for the frames the world fades in), unless none
+    /// came for [`READBACK_WAIT`] seconds.
+    fn may_be_drawn(&self, now: f32) -> bool {
+        self.drawn.unwrap_or_else(|| self.started.is_some_and(|t| now - t > READBACK_WAIT))
     }
 }
 
 /// Ask for the water-pixel counter to be read back every frame, once a water material
 /// made it.
-fn read_water_pixels(mut commands: Commands, cache: Res<WaterCache>, mut px: ResMut<WaterPixels>) {
-    if px.started {
+fn read_water_pixels(mut commands: Commands, cache: Res<WaterCache>, mut px: ResMut<WaterPixels>, time: Res<Time<Real>>) {
+    if px.started.is_some() {
         return;
     }
     let Some(counter) = cache.seen_counter() else { return };
-    px.started = true;
+    px.started = Some(time.elapsed_secs());
     commands.spawn((Name::new("Water pixel readback"), Readback::buffer(counter.clone()))).observe(
         |ev: On<ReadbackComplete>, mut px: ResMut<WaterPixels>| {
             if ev.data.len() >= 4 {
@@ -389,7 +395,7 @@ fn update_reflection(
     let water_drawn = !hidden.is_some_and(|h| h.water);
     // The shader counts the water at the reflected height (#1060).
     cache.set_seen_plane(&mut materials, near_water.map_or(Vec4::ZERO, |h| Vec4::new(h, 1.0, 0.0, 0.0)));
-    let seen = near_water.filter(|_| water_drawn && pixels.may_be_drawn()).and_then(|h| {
+    let seen = near_water.filter(|_| water_drawn && pixels.may_be_drawn(time.elapsed_secs())).and_then(|h| {
         let clip_from_world = main_proj.get_clip_from_view() * main_gt.to_matrix().inverse();
         water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h)
     });
@@ -517,21 +523,25 @@ mod tests {
     }
 
     /// #1060: the counter only grows; water was drawn between two readbacks when it
-    /// changed, wrapping included. Before two readbacks it may be.
+    /// changed, wrapping included. Before two readbacks it is not, unless the readback
+    /// never answers.
     #[test]
     fn water_pixels_drawn_when_the_count_changed() {
-        let mut px = WaterPixels::default();
-        assert!(px.may_be_drawn());
+        let mut px = WaterPixels { started: Some(10.0), ..default() };
+        assert!(!px.may_be_drawn(10.5));
         px.read(10);
-        assert!(px.may_be_drawn());
+        assert!(!px.may_be_drawn(10.5));
         px.read(10);
-        assert!(!px.may_be_drawn());
+        assert!(!px.may_be_drawn(10.5));
         px.read(25);
-        assert!(px.may_be_drawn());
+        assert!(px.may_be_drawn(10.5));
         px.read(25);
         px.read(u32::MAX);
         px.read(3);
-        assert!(px.may_be_drawn());
+        assert!(px.may_be_drawn(10.5));
+        // No readback for READBACK_WAIT seconds: the GPU check is left out.
+        assert!(WaterPixels { started: Some(10.0), ..default() }.may_be_drawn(12.5));
+        assert!(!WaterPixels::default().may_be_drawn(100.0));
     }
 
     #[test]
