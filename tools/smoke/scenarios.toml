@@ -157,8 +157,9 @@ args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 expect = [
   { re = 'distant LOD blocks over the run: (\d+) new', range = [50, 100000], label = "object blocks spawned for new squares along the flight" },
-  { re = 'distant LOD blocks over the run: .*, up to (\d+) in one frame', range = [1, 60], label = "new squares wait for the 4 ms rebuild budget: a handful a frame, not a whole row (216 in one frame before #1038)" },
+  { re = 'distant LOD blocks over the run: .*slowest update [\d.]+ ms \(blocks ([\d.]+) ms\)', range = [0, 20], label = "the block loop keeps near its 4 ms budget: models come from worker threads, so no block loads on the main thread (34 ms idle before #1048, 1187 ms before #1038; it counted blocks per frame then, up to 216)" },
   { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [1, 100000], label = "squares put off by the budget still get their blocks" },
+  { re = 'distant LOD blocks over the run: .*, (\d+) waited for their model', range = [1, 100000], label = "block models are prepared on worker threads; squares wait for them (#1048)" },
 ]
 
 [[scenario]]

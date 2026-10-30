@@ -52,6 +52,9 @@
 //! Blocks are alpha-tested: their atlas cuts trees, pylons and lattices out in its alpha
 //! channel, though the meshes have no NiAlphaProperty (world.md §7 "Objects"; the model
 //! loader does it for the "LOD_Building" shader flag, `nif_spawn::shape_alpha_mode`).
+//! A block's model (with its CPU meshes, which the split needs) is prepared on a worker
+//! thread (`ModelCtx::model_with_cpu_ready`); its square waits until it is, as squares
+//! wait for the rebuild budget (#1048). So does a game terrain chunk's model.
 //!
 //! Terrain chunk shading [observed, world.md §7]: the chunk meshes carry no vertex
 //! normals and their normal maps are in model space (red = east, green = north, blue =
@@ -74,6 +77,7 @@ use nvf_assets::model::ModelCtx;
 use nvf_assets::texture::dds_image;
 use nvf_assets::{nif_material, NifMaterial, PreparedModel};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Terrain LOD levels in the data, finest first [observed: WastelandNV has 1,024 / 256 /
 /// 64 / 16 chunks; its `.dlodsettings` reads 4 and 32 as the smallest and largest].
@@ -252,6 +256,11 @@ pub struct BlockStats {
     /// Squares put off to a later frame because the frame's budget was spent (one per
     /// square and frame).
     pub put_off: usize,
+    /// Squares that waited a frame for their block's model, prepared on a worker thread
+    /// (one per square and frame).
+    pub waited: usize,
+    /// The same for terrain chunks (one per chunk and frame).
+    pub terrain_waited: usize,
     /// Slowest frames of the whole LOD update and of its block loop alone (ms), and the
     /// frames the update took longer than [`SLOW_UPDATE_MS`].
     pub update_slowest_ms: f32,
@@ -265,8 +274,8 @@ const SLOW_UPDATE_MS: f32 = 2.0 * REBUILD_BUDGET_MS;
 impl BlockStats {
     pub fn describe(&self) -> String {
         format!(
-            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms",
-            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS
+            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame, {} waited for their model; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms; terrain chunks waited {} times for their model",
+            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.waited, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS, self.terrain_waited
         )
     }
 }
@@ -585,6 +594,15 @@ pub fn update_lod(
         if lod.terrain.get(&chunk).is_some_and(|t| t.key == key) {
             continue;
         }
+        // The game's chunk model is prepared on a worker thread, as object blocks' are
+        // (below); the old chunk stays drawn until it is.
+        if !generated {
+            let tp = lod.terrain_path(chunk);
+            if models.data.vfs.exists(&tp) && models.model_with_cpu_ready(&tp).is_none() {
+                lod.block_stats.terrain_waited += 1;
+                continue;
+            }
+        }
         if over_budget(rebuilt) {
             break;
         }
@@ -618,15 +636,30 @@ pub fn update_lod(
                 }
                 b.steps = steps;
             }
-            // Over the budget: a changed block stays as it is, and a new square stays
-            // empty, until a later frame (nothing marks it done, so it is tried again
-            // next frame). New squares used to skip the budget and load every model of a
-            // row coming into range in one frame (#1038); waiting costs a little more
-            // pop-in at the view's edge, nearest squares first (`squares` is sorted).
-            // One slow block can still overrun the budget: the check runs between blocks.
-            _ if over_budget(rebuilt) => lod.block_stats.put_off += 1,
             b => {
-                if b.is_some() {
+                let had = b.is_some();
+                // The block's model is prepared on a worker thread: until it is, a changed
+                // block stays as it is and a new square stays empty (tried again next
+                // frame, as nothing marks it done). Loading it here took up to a second
+                // for a row of squares coming into range (#1038), and one cold block
+                // could still overrun the budget below (#1048).
+                let bp = lod.block_path(sq.0, sq.1);
+                let model = match models.data.vfs.exists(&bp).then(|| models.model_with_cpu_ready(&bp)) {
+                    None => None,
+                    Some(Some(m)) => m,
+                    Some(None) => {
+                        lod.block_stats.waited += 1;
+                        continue;
+                    }
+                };
+                // Over the budget: the same wait, for a later frame. New squares used to
+                // skip the budget (#1038); waiting costs a little more pop-in at the
+                // view's edge, nearest squares first (`squares` is sorted).
+                if over_budget(rebuilt) {
+                    lod.block_stats.put_off += 1;
+                    continue;
+                }
+                if had {
                     lod.block_stats.rebuilt += 1;
                 } else {
                     lod.block_stats.spawned += 1;
@@ -636,7 +669,7 @@ pub fn update_lod(
                 if let Some(old) = lod.block_entities.remove(&sq) {
                     despawn_all(&mut commands, old.entities.into_iter().chain(old.pieces.into_iter().map(|(_, e)| e)));
                 }
-                let spawned = spawn_block(&mut commands, root, &mut lod, &mut models, sq, key, steps);
+                let spawned = spawn_block(&mut commands, root, &mut lod, &mut models, model, sq, key, steps);
                 lod.block_entities.insert(sq, spawned);
                 changed = true;
             }
@@ -745,13 +778,13 @@ fn spawn_block(
     root: Entity,
     lod: &mut LodState,
     models: &mut ModelCtx,
+    model: Option<Arc<PreparedModel>>,
     (cx, cy): Grid,
     key: BlockKey,
     steps: [u8; CELLS],
 ) -> BlockEntities {
     let mut out = BlockEntities { key, steps, ..default() };
-    let bp = lod.block_path(cx, cy);
-    let Some(model) = models.data.vfs.exists(&bp).then(|| models.model_with_cpu(&bp)).flatten() else { return out };
+    let Some(model) = model else { return out };
     if key.present == 0 {
         for s in &model.shapes {
             let t = Transform::from_matrix(Mat4::from(model.root * s.transform));

@@ -914,10 +914,15 @@ impl ModelSink for Deferred {
 /// A model prepared on a worker thread, waiting for the main thread.
 type Fetched = (Result<PreparedModel, String>, DeferredAssets);
 
-/// The cache key of a model: its normalised path, marked for the first-person copy and
-/// for a list of alternate textures (by the list's hash).
-fn model_key(path: &str, first_person: bool, swaps: &[AltTexture]) -> String {
+/// The cache key of a model: its normalised path, marked for the copy that keeps CPU
+/// meshes, for the first-person copy and for a list of alternate textures (by the list's
+/// hash). The CPU mark keeps a copy without CPU meshes from answering
+/// [`ModelCtx::model_with_cpu`].
+fn model_key(path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> String {
     let mut key = if first_person { format!("{path}|1stperson") } else { path.to_string() };
+    if keep_cpu {
+        key.push_str("|cpu");
+    }
     if !swaps.is_empty() {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -982,10 +987,28 @@ impl ModelCtx<'_> {
     }
 
     /// Like [`Self::model`], also keeping a CPU copy of every shape's mesh (for code that
-    /// derives new meshes from it later). Use it consistently for a given path: the
-    /// first load decides whether copies are kept.
+    /// derives new meshes from it later). Cached apart from the copy without CPU meshes.
     pub fn model_with_cpu(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
         self.load(path, true)
+    }
+
+    /// [`Self::model_with_cpu`] without preparing on this thread: the model (`Some(None)`
+    /// when it fails) once prepared, else `None` while a worker thread prepares it (asked
+    /// for here the first time). For callers that can wait a few frames instead of
+    /// reading and parsing a large file in one (`nvforever::lod` object blocks).
+    pub fn model_with_cpu_ready(&mut self, path: &str) -> Option<Option<Arc<PreparedModel>>> {
+        let path = fnv_vfs::normalize(path);
+        let key = model_key(&path, true, false, &[]);
+        if let Some(m) = self.cache.map.get(&key) {
+            return Some(m.clone());
+        }
+        if let Some(f) = self.cache.fetched.remove(&key) {
+            return Some(self.take_in(key, f));
+        }
+        if !self.cache.fetching.contains_key(&key) {
+            self.fetch(key, path, true, Vec::new(), &mut None);
+        }
+        None
     }
 
     /// Like [`Self::model`], drawn with the first-person form of each texture that has
@@ -1009,7 +1032,7 @@ impl ModelCtx<'_> {
         let path = fnv_vfs::normalize(path);
         // The first-person copy is kept apart from the model's own, and so is each
         // retextured copy (by its list's hash).
-        let key = model_key(&path, first_person, swaps);
+        let key = model_key(&path, keep_cpu, first_person, swaps);
         if let Some(m) = self.cache.map.get(&key) {
             return m.clone();
         }
@@ -1037,10 +1060,10 @@ impl ModelCtx<'_> {
     /// is drawn in (`nvforever::world`, docs/design/streaming-hitches.md).
     pub fn models_ready<'p>(&mut self, wanted: impl IntoIterator<Item = (&'p str, &'p [AltTexture])>) -> bool {
         let mut ready = true;
-        let mut shared: Option<(Arc<TextureSnapshot>, Providers)> = None;
+        let mut shared = None;
         for (path, swaps) in wanted {
             let path = fnv_vfs::normalize(path);
-            let key = model_key(&path, false, swaps);
+            let key = model_key(&path, false, false, swaps);
             if self.cache.map.contains_key(&key) {
                 continue;
             }
@@ -1048,33 +1071,39 @@ impl ModelCtx<'_> {
             if self.cache.fetching.contains_key(&key) || self.cache.fetched.contains_key(&key) {
                 continue;
             }
-            if shared.is_none() {
-                let providers = Providers {
-                    meshes: self.meshes.get_handle_provider(),
-                    materials: self.materials.get_handle_provider(),
-                    bindposes: self.bindposes.get_handle_provider(),
-                    images: self.images.get_handle_provider(),
-                };
-                shared = Some((self.texture_snapshot(), providers));
-            }
-            let (cached, providers) = shared.clone().expect("made above");
-            let mut sink = Deferred {
-                data: (*self.data).clone(),
-                providers,
-                cached,
-                workers: self.textures.workers.clone(),
-                bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
-                formats: HashMap::new(),
-                out: DeferredAssets::default(),
-            };
-            let swaps = swaps.to_vec();
-            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
-                let m = prepare_into(&mut sink, &path, false, false, &swaps);
-                (m, sink.out)
-            });
-            self.cache.fetching.insert(key, task);
+            self.fetch(key, path, false, swaps.to_vec(), &mut shared);
         }
         ready
+    }
+
+    /// Prepare the model at `path` (normalised) on a worker thread under `key`, taken in
+    /// by [`Self::take_fetched`]. `shared`: the texture list and handle providers, made
+    /// on the first call and reused for the rest of a batch.
+    fn fetch(&mut self, key: String, path: String, keep_cpu: bool, swaps: Vec<AltTexture>, shared: &mut Option<(Arc<TextureSnapshot>, Providers)>) {
+        if shared.is_none() {
+            let providers = Providers {
+                meshes: self.meshes.get_handle_provider(),
+                materials: self.materials.get_handle_provider(),
+                bindposes: self.bindposes.get_handle_provider(),
+                images: self.images.get_handle_provider(),
+            };
+            *shared = Some((self.texture_snapshot(), providers));
+        }
+        let (cached, providers) = shared.clone().expect("made above");
+        let mut sink = Deferred {
+            data: (*self.data).clone(),
+            providers,
+            cached,
+            workers: self.textures.workers.clone(),
+            bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
+            formats: HashMap::new(),
+            out: DeferredAssets::default(),
+        };
+        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+            let m = prepare_into(&mut sink, &path, keep_cpu, false, &swaps);
+            (m, sink.out)
+        });
+        self.cache.fetching.insert(key, task);
     }
 
     /// The texture cache's list for workers: the last copy while it is unchanged and a
