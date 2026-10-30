@@ -13436,3 +13436,20 @@ expect = [
   { json = "given_errors.*", count = 0, label = "fail-honest-hearts-crush: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-honest-hearts-happy-trails"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/honest-hearts-happy-trails.actions.json (HonestHearts.esm): Happy Trails Expedition from the start, as the other Honest Hearts chains give it: the broadcast (NVDLC02MQ00 10), Jed met at the Northern Passage (20), the caravan's terms (30), the departure and the intro slides (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/honest-hearts-happy-trails.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/honest-hearts-happy-trails.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Happy Trails Expedition 10 (the broadcast).stage", equals = 10, label = "honest-hearts-happy-trails milestone: Happy Trails Expedition 10: stage = 10" },
+  { json = "observations.?label=milestone: Happy Trails Expedition 20 (Jed met).stage", equals = 20, label = "honest-hearts-happy-trails milestone: Happy Trails Expedition 20: stage = 20" },
+  { json = "observations.?label=milestone: Happy Trails Expedition 30 (the terms).stage", equals = 30, label = "honest-hearts-happy-trails milestone: Happy Trails Expedition 30: stage = 30" },
+  { json = "observations.?label=final: Happy Trails Expedition done.completed", equals = true, label = "honest-hearts-happy-trails final: Happy Trails Expedition done: completed = true" },
+  { json = "steps.*.error", count = 0, label = "honest-hearts-happy-trails: no step fails" },
+  { json = "given_errors.*", count = 0, label = "honest-hearts-happy-trails: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
