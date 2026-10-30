@@ -224,6 +224,10 @@ pub struct LodState {
     chosen: Vec<Chunk>,
     squares: Vec<Grid>,
     terrain: HashMap<Chunk, TerrainEntities>,
+    /// Chunks no longer chosen, kept drawn until every chosen chunk over their area is
+    /// spawned: those wait for their models on worker threads, and dropping the old ones
+    /// at once left holes in the distant terrain meanwhile (#1052 review).
+    outgoing: HashMap<Chunk, TerrainEntities>,
     block_entities: HashMap<Grid, BlockEntities>,
     /// Shading-fixed meshes of whole (untrimmed) game terrain chunks, per chunk and shape.
     meshes: HashMap<Chunk, Vec<Option<Handle<Mesh>>>>,
@@ -261,6 +265,10 @@ pub struct BlockStats {
     pub waited: usize,
     /// The same for terrain chunks (one per chunk and frame).
     pub terrain_waited: usize,
+    /// Frames that kept outgoing terrain chunks drawn until their replacements were in,
+    /// and the most kept at once.
+    pub outgoing_frames: usize,
+    pub outgoing_most: usize,
     /// Slowest frames of the whole LOD update and of its block loop alone (ms), and the
     /// frames the update took longer than [`SLOW_UPDATE_MS`].
     pub update_slowest_ms: f32,
@@ -274,8 +282,8 @@ const SLOW_UPDATE_MS: f32 = 2.0 * REBUILD_BUDGET_MS;
 impl BlockStats {
     pub fn describe(&self) -> String {
         format!(
-            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame, {} waited for their model; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms; terrain chunks waited {} times for their model",
-            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.waited, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS, self.terrain_waited
+            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame, {} waited for their model; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms; terrain chunks waited {} times for their model, outgoing chunks kept drawn in {} frames (up to {} at once)",
+            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.waited, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS, self.terrain_waited, self.outgoing_frames, self.outgoing_most
         )
     }
 }
@@ -283,7 +291,7 @@ impl BlockStats {
 impl LodState {
     /// The terrain chunks' entities (shadow_probe.rs).
     pub fn terrain_entities(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.terrain.values().flat_map(|t| t.entities.iter().copied())
+        self.terrain.values().chain(self.outgoing.values()).flat_map(|t| t.entities.iter().copied())
     }
 }
 
@@ -348,6 +356,7 @@ impl LodState {
             chosen: Vec::new(),
             squares: Vec::new(),
             terrain: HashMap::new(),
+            outgoing: HashMap::new(),
             block_entities: HashMap::new(),
             meshes: HashMap::new(),
             pieces: HashMap::new(),
@@ -371,7 +380,7 @@ impl LodState {
     pub fn set_enabled(&mut self, commands: &mut Commands, enabled: bool) {
         self.enabled = enabled;
         self.centre = None;
-        for (_, t) in self.terrain.drain() {
+        for (_, t) in self.terrain.drain().chain(self.outgoing.drain()) {
             despawn_all(commands, t.entities);
         }
         for (_, b) in self.block_entities.drain() {
@@ -425,6 +434,11 @@ fn chunk_cell((cx, cy): Grid, i: usize) -> Grid {
 /// Whether cell `c` lies in chunk `(l, x, y)`.
 fn in_chunk(c: Grid, (l, x, y): Chunk) -> bool {
     (x..x + l).contains(&c.0) && (y..y + l).contains(&c.1)
+}
+
+/// Whether two chunks share any cell.
+fn chunks_overlap((la, xa, ya): Chunk, (lb, xb, yb): Chunk) -> bool {
+    xa < xb + lb && xb < xa + la && ya < yb + lb && yb < ya + la
 }
 
 /// Depth by which LOD vertices inside the loaded square are sunk (game units).
@@ -558,7 +572,14 @@ pub fn update_lod(
         let gone: Vec<Chunk> = lod.terrain.keys().filter(|ch| !chosen.contains(ch)).copied().collect();
         for ch in gone {
             if let Some(t) = lod.terrain.remove(&ch) {
-                despawn_all(&mut commands, t.entities);
+                lod.outgoing.insert(ch, t);
+            }
+        }
+        // Outgoing chunks chosen again are drawn as they were (their key is checked below).
+        let back: Vec<Chunk> = lod.outgoing.keys().filter(|ch| chosen.contains(ch)).copied().collect();
+        for ch in back {
+            if let Some(t) = lod.outgoing.remove(&ch) {
+                lod.terrain.insert(ch, t);
             }
         }
         let gone: Vec<Grid> = lod.block_entities.keys().filter(|sq| !squares.contains(sq)).copied().collect();
@@ -615,6 +636,21 @@ pub fn update_lod(
         lod.terrain_rebuilds += 1;
         changed = true;
     }
+    // Drop the outgoing chunks whose area the chosen chunks now cover.
+    if !lod.outgoing.is_empty() {
+        let terrain = &lod.terrain;
+        let covered = |o: Chunk| chosen.iter().filter(|&&ch| chunks_overlap(ch, o)).all(|ch| terrain.contains_key(ch));
+        let done: Vec<Chunk> = lod.outgoing.keys().copied().filter(|&o| covered(o)).collect();
+        for ch in done {
+            if let Some(t) = lod.outgoing.remove(&ch) {
+                despawn_all(&mut commands, t.entities);
+            }
+        }
+        let kept = lod.outgoing.len();
+        let st = &mut lod.block_stats;
+        st.outgoing_frames += 1;
+        st.outgoing_most = st.outgoing_most.max(kept);
+    }
     lod.chosen = chosen;
     let squares = std::mem::take(&mut lod.squares);
     let blocks_started = std::time::Instant::now();
@@ -644,6 +680,17 @@ pub fn update_lod(
                 // for a row of squares coming into range (#1038), and one cold block
                 // could still overrun the budget below (#1048).
                 let bp = lod.block_path(sq.0, sq.1);
+                // Over the budget: only ask for the model (taking a finished one in costs
+                // main-thread time too), and wait for a later frame. New squares used to
+                // skip the budget (#1038); waiting costs a little more pop-in at the
+                // view's edge, nearest squares first (`squares` is sorted).
+                if over_budget(rebuilt) {
+                    if models.data.vfs.exists(&bp) {
+                        models.request_model_with_cpu(&bp);
+                    }
+                    lod.block_stats.put_off += 1;
+                    continue;
+                }
                 let model = match models.data.vfs.exists(&bp).then(|| models.model_with_cpu_ready(&bp)) {
                     None => None,
                     Some(Some(m)) => m,
@@ -652,13 +699,6 @@ pub fn update_lod(
                         continue;
                     }
                 };
-                // Over the budget: the same wait, for a later frame. New squares used to
-                // skip the budget (#1038); waiting costs a little more pop-in at the
-                // view's edge, nearest squares first (`squares` is sorted).
-                if over_budget(rebuilt) {
-                    lod.block_stats.put_off += 1;
-                    continue;
-                }
                 if had {
                     lod.block_stats.rebuilt += 1;
                 } else {
@@ -1048,6 +1088,16 @@ mod tests {
     /// The chosen chunks tile the ground without overlaps, use level 4 within `near` and
     /// reach no farther than `far`; at the owner's settings levels 4 to 16 appear
     /// (16 only where a level-16 chunk lies beyond 98,304 units).
+    #[test]
+    fn chunks_overlap_by_cells() {
+        // A level-8 chunk holds the four level-4 chunks of its area, and touches no other.
+        assert!(chunks_overlap((8, 0, 0), (4, 4, 4)));
+        assert!(chunks_overlap((4, 4, 4), (8, 0, 0)));
+        assert!(!chunks_overlap((8, 0, 0), (4, 8, 0)));
+        assert!(!chunks_overlap((4, -4, 0), (4, 0, 0)));
+        assert!(chunks_overlap((32, -32, -32), (4, -4, -4)));
+    }
+
     #[test]
     fn chunk_choice() {
         let s = LodSettings::default();

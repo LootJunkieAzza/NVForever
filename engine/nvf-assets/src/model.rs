@@ -1011,6 +1011,17 @@ impl ModelCtx<'_> {
         None
     }
 
+    /// Ask a worker thread for [`Self::model_with_cpu`]'s model unless it is prepared or
+    /// under way; nothing is taken in here.
+    pub fn request_model_with_cpu(&mut self, path: &str) {
+        let path = fnv_vfs::normalize(path);
+        let key = model_key(&path, true, false, &[]);
+        let c = &self.cache;
+        if !(c.map.contains_key(&key) || c.fetched.contains_key(&key) || c.fetching.contains_key(&key)) {
+            self.fetch(key, path, true, Vec::new(), &mut None);
+        }
+    }
+
     /// Like [`Self::model`], drawn with the first-person form of each texture that has
     /// one (`crate::texture::first_person_texture`): the weapon in the arms rig's hands.
     pub fn model_first_person(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
