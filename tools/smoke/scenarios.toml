@@ -596,6 +596,8 @@ expect = [
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 2810, known_failing = "main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 177, known_failing = "main 2026-10-11: 182" },
   { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
+  # issue #909 item 9 (2026-10-30): pairs unreachable from the editor placement but reached from a place a script MoveTo's the actor to (Yes Man's penthouse marker 0x00166304)
+  { json = "verdicts.reachable from where a script moves it (MoveTo)", schema = "fnv.ai.reach/1", equals = 120, label = "reached from a script's MoveTo target: 120 pairs" },
   # main on 2026-10-11, so any change shows here and gets explained
   { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
   { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main 2026-10-17 (6a53e8e7): 10,403; with every package type carried out (Escort, Find, Use Item At, Ambush, Flee, actor-behaviour.md §5.10): 10,620" },
