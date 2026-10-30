@@ -1,0 +1,142 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Pheeble Will, Heck killed before he is met (VMS25 15, 120)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Walter hires the player (10), as pheeble-will does; the player kills Heck Gunderson before speaking to him (VMS18HeckGundersonSCRIPT, VMS25 between 10 and 15: 15); Walter hears it (Topic099, line 0x00127B3B: Ethel's stage 25 not done, so 120, Complete Quest). Copied from pheeble-will.actions.json up to the hiring. Stand-ins: travel by move_player; the fight with Heck by kill."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the Strip's street event script (VStreetEventStarterScript), which enables Walter and Ethel one by one while the player is on the Strip (VStreetFluffNPC.iPlayerInArea 2)."
+  },
+  {
+   "op": "enable",
+   "target": "WalterPhebusREF"
+  },
+  {
+   "op": "enable",
+   "target": "EthelPhebusREF"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter hires"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic001",
+   "label": "walter hires 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic007",
+   "label": "walter hires 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic021",
+   "label": "walter hires 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic024",
+   "label": "walter hires 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic030",
+   "label": "walter hires 5"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS25 10"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS18HeckGundersonREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS18HeckGundersonREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS18HeckGundersonREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS18HeckGundersonREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.15"
+   ],
+   "label": "milestone: VMS25 15"
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter pays"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic099"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.120",
+    "completed"
+   ],
+   "label": "final: VMS25 120"
+  }
+ ]
+}
