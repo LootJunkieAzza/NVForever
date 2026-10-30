@@ -38,6 +38,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::casino;
 use fnv_game::slots::{self as rules, Limits, REELS};
 use fnv_sim::FormId;

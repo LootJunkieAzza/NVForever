@@ -21,6 +21,7 @@ use crate::dialogue::ChoiceButton;
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, Face, Picture, Pictures};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::Button;
 use bevy::window::PrimaryWindow;
 use fnv_font::{Font, Line};
 use nvf_assets::GameData;

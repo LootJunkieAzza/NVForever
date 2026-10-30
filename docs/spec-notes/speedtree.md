@@ -172,7 +172,7 @@ The records give a wind strength and two speeds, not the motion: WTHR DATA wind 
 (0-255; 50 for most weathers, 127 HVDustStorm, 130 NVHooverFinalBattle [observed]) and
 TREE CNAM rock speed and rustle speed (WastelandShrub01 0.07 and 0.35; EuonymusBush01
 and WhiteOak01 1.0 and 1.0 [observed]). No record gives a wind direction [observed:
-WTHR DATA has none]; NVForever uses a fixed one. NVForever's motion (tree.wgsl): the
+WTHR DATA has none]; NVForever uses a fixed one. NVForever's motion (tree.wesl): the
 whole tree leans along the wind and swings about that lean, the offset growing with
 the square of the height in the tree, up to a quarter of the tree's height at full
 strength (wind speed 255); each leaf card also tilts (up to 0.35 rad) and flutters

@@ -1412,37 +1412,37 @@ struct MapHit;
 #[derive(Component, Clone, Copy)]
 struct PopupHit(usize);
 
-fn on_popup_over(e: On<Pointer<Over>>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
+fn on_popup_over(e: On<PointerOver>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
         s.acts.push(Act::PopupOver(h.0));
     }
 }
 
-fn on_popup_click(e: On<Pointer<Click>>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
+fn on_popup_click(e: On<PointerClick>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
         s.acts.push(Act::PopupPick(h.0));
     }
 }
 
-fn on_row_over(e: On<Pointer<Over>>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
+fn on_row_over(e: On<PointerOver>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(r), Some(mut s)) = (rows.get(e.entity), state) {
         s.acts.push(Act::Hover(r.0, r.1));
     }
 }
 
-fn on_row_out(e: On<Pointer<Out>>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
+fn on_row_out(e: On<PointerOut>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(r), Some(mut s)) = (rows.get(e.entity), state) {
         s.acts.push(Act::Leave(r.0, r.1));
     }
 }
 
-fn on_row_click(e: On<Pointer<Click>>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
+fn on_row_click(e: On<PointerClick>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(r), Some(mut s)) = (rows.get(e.entity), state) {
         s.acts.push(Act::Use(r.0, r.1));
     }
 }
 
-fn on_button_click(e: On<Pointer<Click>>, buttons: Query<&ButtonHit>, state: Option<ResMut<DataState>>) {
+fn on_button_click(e: On<PointerClick>, buttons: Query<&ButtonHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(b), Some(mut s)) = (buttons.get(e.entity), state) {
         s.acts.push(Act::Button(b.0));
     }

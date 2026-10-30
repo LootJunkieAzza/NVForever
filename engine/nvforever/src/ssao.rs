@@ -47,6 +47,7 @@ const FADE_END: f32 = 7000.0;
 /// Ambient occlusion on a camera; the projection part is kept up to date by
 /// [`follow_projection`].
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct AmbientOcclusion {
     /// Radius, strength, near plane, fade end.
     pub params: Vec4,
@@ -64,7 +65,7 @@ pub struct SsaoPlugin;
 
 impl Plugin for SsaoPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "ssao.wgsl");
+        bevy::asset::embedded_asset!(app, "ssao.wesl");
         app.add_plugins((ExtractComponentPlugin::<AmbientOcclusion>::default(), UniformComponentPlugin::<AmbientOcclusion>::default()))
             .add_systems(PostUpdate, follow_projection.after(bevy::camera::CameraUpdateSystems));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
@@ -138,7 +139,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
             ),
         )
     };
-    let shader = assets.load("embedded://nvforever/ssao.wgsl");
+    let shader = assets.load("embedded://nvforever/ssao.wesl");
     let base = |label: &'static str, entry: &'static str| RenderPipelineDescriptor {
         label: Some(label.into()),
         vertex: fullscreen.to_vertex_state(),
@@ -247,7 +248,7 @@ pub(crate) fn ao_pass(
     if depth_multisampled(prepass) != Some(ao.multi) || !format_matches(target, ao.format) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let (Some(occlusion), Some(apply)) = (cache.get_render_pipeline(ao.occlusion), cache.get_render_pipeline(ao.apply)) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     // GPU time of the pass (recorded with --log-frame-times, graphics.rs).

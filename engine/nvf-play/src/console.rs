@@ -61,6 +61,7 @@ use bevy::camera::primitives::Aabb;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use bevy::window::PrimaryWindow;
 use fnv_game::functions::console::{ConsoleCtx, ConsoleRequest};
 use fnv_phys::{layers, Filter, Owner};
@@ -254,7 +255,7 @@ fn toggle(
         if free && (keys.just_pressed(KeyCode::Backquote) || by_aid) {
             c.open = true;
             // Already `Menu` under the free camera: no change of state, which would close it.
-            NextState::set_if_neq(&mut *next, PlayState::Menu);
+            NextState::set_if_different(&mut *next, PlayState::Menu);
             spawn(&mut commands);
             info!("console: open");
         }

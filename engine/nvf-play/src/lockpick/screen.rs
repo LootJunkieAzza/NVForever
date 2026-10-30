@@ -24,6 +24,7 @@ use crate::interface::{amber, at, face, plain_font, set_line, u, Face, Pictures}
 use crate::pause::AidTime;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::Button;
 use bevy::window::PrimaryWindow;
 use fnv_font::Line;
 use fnv_game::lockpick::{Phase, FULL_TURN, PIN_RANGE};

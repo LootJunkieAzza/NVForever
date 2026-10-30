@@ -1,0 +1,28 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Volare! (VMS15), the fail: Mother Pearl's first task (stage 20), then Argyll, Raquel and Jack killed (116, 118, 120)",
+  "given": [
+    {"kind": "quest", "quest": "VMQYesMan02", "running": true, "completed": false, "objectives": [{"index": 20, "displayed": true}]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path, the fail: Mother Pearl's first task as in volare (VMS15 20); then the player kills Argyll, Raquel and Jack (kill stands in for the fights: each one's OnDeath sets its fail stage, 116, 118 and 120). Raquel starts disabled and is enabled by Nellis's front gate script; the chain enables her (stand-in for that gate). Travel is move_player."},
+    {"op": "note", "text": "Stand-in for the walk through Nellis's artillery field and the gate to Pearl's hangar."},
+    {"op": "move_player", "to": "NellisPearlREF"},
+    {"op": "talk", "actor": "NellisPearlREF", "label": "pearl greeting"},
+    {"op": "choose", "topic": "VMS15NellisPearlTopic000", "label": "pearl offer help"},
+    {"op": "choose", "topic": "VFreeformNellisNellisPearlTopic010", "label": "pearl first task"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS15", "fields": ["running", "stage", "objective.25.displayed"], "label": "milestone: VMS15 20"},
+    {"op": "get_quest", "quest": "VMQYesMan02", "fields": ["objective.20.completed", "objective.28.displayed"], "label": "yes man boomers met"},
+    {"op": "move_player", "to": "NellisArgyllREF"},
+    {"op": "kill", "actor": "NellisArgyllREF", "killer": "player"},
+    {"op": "get_quest", "quest": "VMS15", "fields": ["stage", "done.116"], "label": "milestone: VMS15 116"},
+    {"op": "enable", "target": "NellisRaquelREF"},
+    {"op": "move_player", "to": "NellisRaquelREF"},
+    {"op": "kill", "actor": "NellisRaquelREF", "killer": "player"},
+    {"op": "get_quest", "quest": "VMS15", "fields": ["stage", "done.118"], "label": "milestone: VMS15 118"},
+    {"op": "move_player", "to": "NellisJackREF"},
+    {"op": "kill", "actor": "NellisJackREF", "killer": "player"},
+    {"op": "get_quest", "quest": "VMS15", "fields": ["stage", "done.116", "done.118", "done.120"], "label": "final: VMS15 120"}
+  ]
+}

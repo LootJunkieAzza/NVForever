@@ -103,20 +103,20 @@ struct RepairCancel;
 
 /// Only a row not chosen yet: choosing redraws the list, and the new row under the pointer
 /// would come over it again every frame, so a press and its release never met one row.
-fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RepairRow>, repair: Res<PipRepair>, mut out: MessageWriter<RepairInput>) {
+fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, mut out: MessageWriter<RepairInput>) {
     let (Ok(r), Some(s)) = (rows.get(over.entity), repair.0.as_ref()) else { return };
     if s.selected != r.0 {
         out.write(RepairInput::Hover(r.0));
     }
 }
 
-fn on_row_click(click: On<Pointer<Click>>, rows: Query<&RepairRow>, mut out: MessageWriter<RepairInput>) {
+fn on_row_click(click: On<PointerClick>, rows: Query<&RepairRow>, mut out: MessageWriter<RepairInput>) {
     if let Ok(r) = rows.get(click.entity) {
         out.write(RepairInput::Click(r.0));
     }
 }
 
-fn on_cancel_click(click: On<Pointer<Click>>, cancel: Query<&RepairCancel>, mut out: MessageWriter<RepairInput>) {
+fn on_cancel_click(click: On<PointerClick>, cancel: Query<&RepairCancel>, mut out: MessageWriter<RepairInput>) {
     if cancel.get(click.entity).is_ok() {
         out.write(RepairInput::Cancel);
     }

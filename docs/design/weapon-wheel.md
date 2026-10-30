@@ -1,7 +1,7 @@
 # Weapon wheel: hold a hotkey for a slow-time wheel
 
 Status 2026-10-23: **built** on `claude/weapon-wheel` (`engine/nvf-play/src/hotkeys.rs`,
-`weapon_wheel.rs`, `weapon_wheel/draw.rs`, `weapon_wheel/slice.wgsl`; smoke scenario
+`weapon_wheel.rs`, `weapon_wheel/draw.rs`, `weapon_wheel/slice.wesl`; smoke scenario
 `weapon-wheel`). The Pip-Boy's hotkey panel (§3) since 2026-10-27
 (`pipboy/hotkey_panel.rs`, smoke `pipboy-hotkey-assign`). Not built yet: the sounds (§8). Owner request: every hotkey (1–8)
 works as a quick key when tapped, and opens a wheel of all eight when held, modelled on
