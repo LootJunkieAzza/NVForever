@@ -85,22 +85,27 @@ Notes [observed]:
 4. Done: the runner's `patrol_point {actor, point}` op calls
    `Game::patrol_point_reached` (runner.rs). Was hit by: Moore at Kimball's podium (REFR
    0x00130C75 gives him 0x00145EC3); Yes Man's and Oliver's markers.
-5. `package {event: done}` does not mark the goal met, so a script package stays current:
-   Kimball's walk back to the vertibird (0x001377CC, then 0x00130C7A). Fix: `done` calls
-   `package_goal_met` when the package is the actor's current one (small).
-6. Dialogue packages start no conversation headless (fnv-ai's `talk` goal is not in
-   fnv-game). Hit by: the Lucky 38 elevator, Cato, Oliver, Lanius. Stand-in:
-   `StartConversation` / `talk`. Fix: the runner force-greets with the package's topic
-   (small to medium).
-7. `trigger_enter` with `inside` is one frame; the Hidden Valley bunker's escape trigger
-   counts 1 s inside. Stand-in: the trigger's timer is set. Fix: a `frames: N` field
-   (small).
+5. **Done** (2026-10-30, issue #909): `package {event: done}` on the actor's current
+   package now calls `package_goal_met`, so a script package is dropped at the next choice
+   (Kimball's walk back to the vertibird, 0x001377CC, then 0x00130C7A). Test:
+   perk_talk.rs `the_runner_finishes_packages_and_force_greets_for_dialogue_packages`.
+6. **Done** (2026-10-30, issue #909): a `dialogue_package {actor, package?}` op carries
+   out a Dialogue package reaching its target as fnv-ai's `carry.rs` does: a Say To
+   package says its topic, any other force-greets the player with the package's topic
+   (`Game::force_greet`), and the goal is met. The Lucky 38 elevator uses it (house
+   chain); Cato, Oliver and Lanius still use `talk` with the topic (their packages were not
+   looked up).
+7. **Done** (2026-10-30, issue #909): `trigger_enter` takes `frames: N` with `inside`:
+   OnTrigger runs N frames, the game going on between them. The Hidden Valley escort
+   trigger now runs 180 frames instead of having its timer set (brotherhood chain).
 8. Opening a container headless runs no OnOpen (the engine queues it from the container
    menu). Not on any main path (see the storage note in §1). Fix: queue OnOpen/OnClose in
    the runner's container menus (small).
-9. `ai reach` reports `VMQYesMan01MoveToTerminal` unreachable (§1). Fix: start the check
-   also from the places scripts MoveTo the actor, as its own verdict (about 50-100 lines
-   in fnv-ai).
+9. **Done** (2026-10-30, issue #909): `fnvtool ai reach` (the code is in
+   crates/fnvtool/src/ai_run.rs, not fnv-ai) also tries, when a package is unreachable
+   from the editor placement, the places scripts `MoveTo` the actor (`<actor>.MoveTo
+   <marker>` with both in the unit's reference list); reached from one of them, the pair
+   gets its own verdict, "reachable from where a script moves it (MoveTo)".
 
 **Possibly hard, unverified** (not on the canonical paths; observer checks 30-32):
 
@@ -287,10 +292,15 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
 1. Possibly hard: two Dead Money narrator lines name Elijah as fixed speaker with no GetIsID
    condition (INFO 0x01013C60, 0x01011DE9), so `can_say_as` refuses them and their slides are
    skipped [observed]; what the original does is an observer question.
-2. Possibly hard: a script making a talking activator activate the player (REPCONN's
-   intercom, SCPT 0x000CD04E) gives a "talk" outcome no one opens, in the runner and in play
-   (nvf-play `talk_after` takes the player's own activations only) [observed]; about 30-60
-   lines in `Game`, plus an observer check.
+2. **Done** (2026-10-30, issue #906): the REPCONN intercom's trigger (SCPT 0x000CD04E)
+   runs `<intercom>.Activate player`, so the player is the activator, not the intercom
+   [observed: `fnvtool script decompile`], and the play loop's `talk_after` (player's
+   activations) already opened it. Only the runner lost it: `talk_since` ran for
+   `player_activate` alone. The runner now opens the conversation for a script's Talk
+   activation by the player after any other op and in every frame it waits (`scripted_talk`);
+   the come-fly-with-me chain no longer activates the intercom by hand. Test: perk_talk.rs
+   `a_scripted_activate_player_of_a_talking_activator_opens_the_conversation`; smoke
+   `intercom-trigger-activate`.
 3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
    (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
    says those lines they are lost.
