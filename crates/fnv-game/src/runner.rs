@@ -1403,6 +1403,15 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 "change" => 2,
                 _ => return Err(format!("package event {ev:?} is not start, done or change")),
             };
+            // `done` stands in for the AI reaching the goal of the actor's current
+            // package: from then on GetCurrentAIProcedure reads 17 DONE for it, as
+            // `Game::package_goal_met` has it (Camp Golf's range packages wait for the
+            // other three misfits to read DONE, PACK 0x0012FEED end).
+            if which == 1 {
+                if let Some(e) = g.extra.get_mut(&a).filter(|e| e.current_package == Some(p)) {
+                    e.package_goal_met = true;
+                }
+            }
             g.package_event(a, p, which);
         }
         Action::SayToDone { actor, topic } => {
