@@ -478,25 +478,30 @@ impl Pointer {
     /// items; documented: Input, "once mouseover becomes true on this tile, clicking one of
     /// the button will execute the function inside it"]. Its `<ref src=… trait=…/>` is
     /// followed: `clicked` clicks that tile, `mouseover` highlights it [documented: Ref,
-    /// Input]; another trait is reported, not followed [design].
+    /// Input]; another trait is reported, not followed [design]. When the highlighted
+    /// tile's ref does nothing (it names no tile, a tile hidden or not a target, or a trait
+    /// not followed), the menu's is tried [hypothesis: "else the menu's" read as "when
+    /// the tile's does nothing"; the maintainer's review of #957].
     fn pad(&mut self, ui: &mut Ui, menu: TileId, name: &str, shift: bool, report: &mut Report) {
-        let on = [self.active(ui), Some(menu)].into_iter().flatten().find(|&t| ref_of(ui, t, name).is_some());
-        let Some(on) = on else { return };
-        let Some((src, trait_name)) = ref_of(ui, on, name) else { return };
-        let Some(t) = ui.resolve(on, &src) else {
-            report.unfollowed.push(format!("{name}: its ref names no tile"));
-            return;
-        };
-        if !Self::takes_keys(ui, t) {
-            return;
-        }
-        if trait_name.eq_ignore_ascii_case(CLICKED) {
-            let c = self.click(ui, t, shift, By::Key(name.to_string()));
-            report.clicks.push(c);
-        } else if trait_name.eq_ignore_ascii_case(MOUSEOVER) {
-            self.highlight(ui, Some(t), report);
-            self.keyed = true;
-        } else {
+        let first = self.active(ui).filter(|&t| t != menu);
+        for on in [first, Some(menu)].into_iter().flatten() {
+            let Some((src, trait_name)) = ref_of(ui, on, name) else { continue };
+            let Some(t) = ui.resolve(on, &src) else {
+                report.unfollowed.push(format!("{name}: its ref names no tile"));
+                continue;
+            };
+            if !Self::takes_keys(ui, t) {
+                continue;
+            }
+            if trait_name.eq_ignore_ascii_case(CLICKED) {
+                let c = self.click(ui, t, shift, By::Key(name.to_string()));
+                report.clicks.push(c);
+                return;
+            } else if trait_name.eq_ignore_ascii_case(MOUSEOVER) {
+                self.highlight(ui, Some(t), report);
+                self.keyed = true;
+                return;
+            }
             report.unfollowed.push(format!("{name}: ref to {trait_name} not followed"));
         }
     }
@@ -539,6 +544,7 @@ mod tests {
       <id> 2 </id> <target> &true; </target>
       <x> 110 </x> <y> 30 </y> <width> 200 </width> <height> 50 </height> <depth> 5 </depth>
       <xup> <ref src="sibling(OkButton)" trait="mouseover"/> </xup>
+      <xbuttona> <ref src="sibling(HiddenButton)" trait="clicked"/> </xbuttona>
     </hotrect>
     <hotrect name="HiddenButton">
       <id> 3 </id> <target> &true; </target> <visible> &false; </visible>
@@ -715,6 +721,27 @@ mod tests {
         assert_eq!(p.over, Some(ok));
         p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
         assert_eq!(p.over, Some(cancel));
+    }
+
+    #[test]
+    fn a_pad_ref_that_cannot_act_falls_through_to_the_menus() {
+        let (mut ui, menu) = tree();
+        let ok = id(&ui, "TestMenu/Main/OkButton");
+        let cancel = id(&ui, "TestMenu/Main/CancelButton");
+        let hidden = id(&ui, "TestMenu/Main/HiddenButton");
+        let a = |p: &mut Pointer, ui: &mut Ui| p.step(ui, &[menu], &Input { pads: vec!["xbuttona".into()], ..at(220.0, 140.0) }, &no_measure).clicks;
+        let key = By::Key("xbuttona".into());
+        let mut p = Pointer::default();
+        p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        assert_eq!(p.over, Some(cancel));
+        // Cancel's own xbuttona names HiddenButton, which is hidden: the menu's (OkButton).
+        assert_eq!(a(&mut p, &mut ui), [Click { tile: ok, id: Some(1.0), by: key.clone() }]);
+        // Shown, it takes the key: the highlighted tile's ref comes first.
+        assert!(ui.set_float("TestMenu/Main/HiddenButton/visible", 1.0));
+        assert_eq!(a(&mut p, &mut ui), [Click { tile: hidden, id: Some(3.0), by: key.clone() }]);
+        // Disabled (`target` 0): the menu's again.
+        assert!(ui.set_float("TestMenu/Main/HiddenButton/target", 0.0));
+        assert_eq!(a(&mut p, &mut ui), [Click { tile: ok, id: Some(1.0), by: key }]);
     }
 
     #[test]
