@@ -543,6 +543,11 @@ pub struct LeveledActorDef {
     pub chance_none: u8,
     pub all_levels: bool,
     pub entries: Vec<(u16, FormId)>,
+    /// Each entry's count (LVLO), beside `entries`.
+    pub counts: Vec<u16>,
+    /// LVLF as bits: 1 all levels, 2 each item in count, 4 use all [documented: xEdit
+    /// LVLF] (GetLeveledListFlags).
+    pub flags: u8,
 }
 
 /// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
@@ -803,6 +808,8 @@ pub struct GameData {
     pub table: FunctionTable,
     pub param_types: ParamTypes,
     pub load_order: Vec<String>,
+    /// Each plugin's TES4 HEDR version, in load order (GetPluginHeaderVersion).
+    pub plugin_versions: Vec<f32>,
     pub units: Vec<Compiled>,
     /// SCPT FormID → unit.
     pub scripts: HashMap<FormId, UnitId>,
@@ -869,6 +876,11 @@ pub struct GameData {
     pub edid_of: HashMap<FormId, String>,
     /// Record header flags of the winning records that have any (GetFlagsLow/High).
     pub form_flags: HashMap<FormId, u32>,
+    /// Where each inventory item form was first defined: (plugin, place among its records),
+    /// for GetLoadedTypeArray's order.
+    pub item_order: HashMap<FormId, (u8, u32)>,
+    /// OBND of the base forms that have one ([`BOUNDS_SIGS`]): min x, y, z, max x, y, z.
+    pub object_bounds: HashMap<FormId, [i16; 6]>,
     /// The name the player sees (FULL) of every winning record that has one.
     pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
@@ -1402,15 +1414,21 @@ struct Read {
 
 const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
+/// The base form types whose OBND [`GameData::object_bounds`] keeps (GetObjectDimensions).
+const BOUNDS_SIGS: [[u8; 4]; 20] = [
+    *b"NPC_", *b"CREA", *b"CONT", *b"ACTI", *b"STAT", *b"MSTT", *b"FURN", *b"DOOR", *b"LIGH", *b"TERM", *b"MISC", *b"WEAP", *b"ARMO", *b"ALCH", *b"AMMO",
+    *b"BOOK", *b"KEYM", *b"NOTE", *b"TACT", *b"IDLM",
+];
+
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 23] = [
+pub const FIELD_SIGS: [[u8; 4]; 35] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
-    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES",
+    *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
 ];
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
 /// getters read.
-const ACTOR_SUBS: [[u8; 4]; 9] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM"];
+const ACTOR_SUBS: [[u8; 4]; 13] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
@@ -1498,6 +1516,12 @@ impl GameData {
         out
     }
 
+    /// Every `sub` of a record in [`GameData::record_fields`], in record order (a
+    /// repeated subrecord: AMMO RCIL, WEAP SNAM).
+    pub fn record_all(&self, form: FormId, sub: &str) -> Vec<&Json> {
+        self.record_fields.get(&form).into_iter().flatten().filter(|(s, _)| s == sub.as_bytes()).map(|(_, v)| v).collect()
+    }
+
     /// A decoded field of a record in [`GameData::record_fields`]: subrecord `sub`, then
     /// `path` (field names split by `.`; empty for the whole subrecord). A flags field
     /// gives its number.
@@ -1532,6 +1556,7 @@ impl GameData {
             table,
             param_types,
             load_order: lo.plugins.iter().map(|p| p.name.clone()).collect(),
+            plugin_versions: lo.plugins.iter().map(|p| p.header.version).collect(),
             units: Vec::new(),
             scripts: HashMap::new(),
             quests: BTreeMap::new(),
@@ -1559,6 +1584,24 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            item_order: lo
+                .index
+                .iter()
+                .filter_map(|(&g, defs)| {
+                    let first = defs.first()?;
+                    let r = lo.records[first.plugin as usize][first.ordinal as usize];
+                    crate::functions::items::form_type_code(&r.header.sig).map(|_| (FormId(g), (first.plugin, first.ordinal)))
+                })
+                .collect(),
+            object_bounds: winners
+                .par_iter()
+                .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
+                .filter_map(|&(g, _, r)| {
+                    let s = r.subrecords().ok()?.into_iter().find(|s| &s.sig == b"OBND")?;
+                    let v: Vec<i16> = s.data.as_chunks::<2>().0.iter().take(6).map(|b| i16::from_le_bytes(*b)).collect();
+                    Some((FormId(g), <[i16; 6]>::try_from(v).ok()?))
+                })
+                .collect(),
             form_flags: winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect(),
             full_names: HashMap::new(),
             sigs: HashMap::new(),
@@ -1964,6 +2007,27 @@ impl GameData {
             Some(e) => e.clone(),
             None => id.to_string(),
         }
+    }
+
+    /// The loaded forms whose type has that form type code
+    /// (`functions::items::form_type_code`), in the game's order: the forms below 0x800
+    /// first, highest first, then each plugin's records in file order, in load order;
+    /// forms without a place in a file last [observed: glta-order, GasTrapDummy 1F6 then
+    /// Fists 1F4, then FalloutNV.esm's WEAP records as the file has them, the last
+    /// plugin's last; hypothesis: the low forms' order].
+    pub fn forms_of_type(&self, code: i32) -> Vec<FormId> {
+        let mut out: Vec<FormId> = self.sigs.iter().filter(|(_, s)| crate::functions::items::form_type_code(s) == Some(code)).map(|(&f, _)| f).collect();
+        out.sort_by_key(|f| {
+            if f.0 < 0x800 {
+                (0u8, u8::MAX - (f.0 >> 8) as u8, u64::from(u32::MAX - f.0))
+            } else {
+                match self.item_order.get(f) {
+                    Some(&(p, o)) => (1, p, u64::from(o)),
+                    None => (2, 0, u64::from(f.0)),
+                }
+            }
+        });
+        out
     }
 
     pub fn sig(&self, id: FormId) -> Option<[u8; 4]> {
@@ -2859,12 +2923,17 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let mut l = LeveledActorDef::default();
             for (s, v) in &decoded {
                 match *s {
-                    b"LVLF" => l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level"),
+                    b"LVLF" => {
+                        l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level");
+                        let bits = [("Calculate from all levels <= player's level", 1u8), ("Calculate for each item in count", 2), ("Use All", 4)];
+                        l.flags = bits.iter().filter(|(n, _)| has_flag(v.as_ref(), n)).map(|(_, b)| b).sum();
+                    }
                     b"LVLD" => l.chance_none = v.as_ref().and_then(Json::as_u64).unwrap_or(0).min(100) as u8,
                     b"LVLO" => {
                         let level = v.as_ref().and_then(|v| v.get("level")).and_then(Json::as_u64).unwrap_or(0).min(u64::from(u16::MAX)) as u16;
                         if let Some(f) = v.as_ref().and_then(|v| v.get("reference")).and_then(hexid).and_then(map) {
                             l.entries.push((level, FormId(f)));
+                            l.counts.push(v.as_ref().and_then(|v| v.get("count")).and_then(Json::as_u64).unwrap_or(1).min(u64::from(u16::MAX)) as u16);
                         }
                     }
                     _ => {}

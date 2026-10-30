@@ -62,12 +62,22 @@ NPC_/CREA/RACE SPLO entries of type Ability are the actor's abilities (aid-items
 Entries of type 0 "Actor Effect" (Ruthless on 21 Hoover Dam legionaries, the Tunnelers'
 DT spells on 23 creatures, SporeCarrierRegen on 7, NVDLC02QuietWatersPerkEffect on 57,
 LegionExplorerAura on 2, PerkParalyzingPalm on 1) [observed]. They are not cast or held:
-as before, only the abilities are (`crate::abilities`). Whether the original holds them
-like abilities is open: several look meant as constant (the Tunnelers' Increase Damage
-Threshold 2 and 5, Ruthless's +25 melee damage, the spore carriers' regeneration, all with
-duration 0 on Self), but a duration-0 spell cast once would end at once. Captures esmfx2
-and esmfx3 (§4) placed a spore carrier and a Ruthless legionary but could not ask about
-them.
+as before, only the abilities are (`crate::abilities`). The original does the same
+[observed 2026-10-30, capture `o4_00_probe` (save nvfairport; issue #916): one placed copy
+each of NVDLC04Tunneler01, NVDLC04TunnelerBrute01, CrSporeCarrierFU and VHDCLLegionary1,
+held with SetRestrained, read about 2 s after PlaceAtMe]:
+
+| actor | Actor Effect spell | IsSpellTarget | value read (GetAV / GetBaseAV) |
+|---|---|---|---|
+| Tunneler | NVDLC04TunnelerDT (DT +2) | 0 | DamageThreshold 0 / 0 |
+| Hulking Tunneler | NVDLC04TunnelerBruteDT (DT +5) | 0 | DamageThreshold 0 / 0 |
+| spore carrier | SporeCarrierRegen (Heal Rate +2500) | 0 | HealRate 0 / 0 |
+| Hoover Dam legionary | Ruthless (Melee Damage +25) | 0 | MeleeDamage 3 / 3 |
+| spore carrier (control) | SporeCarrierPoisonResist, type **Ability** | 1 | PoisonResist 120 / 20 |
+
+So the type-0 entries are neither cast at spawn nor held, while the Ability in the same
+list is; these enemies are as strong in ours as in the original. Not covered: whether some
+script or package casts them later (none of these actors was in combat when read).
 
 ## 4. Captures
 

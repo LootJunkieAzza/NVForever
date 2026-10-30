@@ -2374,3 +2374,56 @@ fn coverage_reports_which_missing_stages_the_data_can_set() {
     assert_eq!(set.literal[&(FormId(Q2), 20)][0].stage, Some(10));
     assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
 }
+
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
+/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
+/// <null> == 1` passed over; observer-checks.md check 35].
+#[test]
+fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let index = |name: &str| f.data.table.by_name(name).unwrap() - 0x1000;
+    let null = ArgValue::Value(Value::NONE);
+    let cond = |function: u16, params: Vec<ArgValue>, cmp: Cmp, rhs: f64| Condition { cmp, or: false, run_on: RunOn::Subject, function, params, rhs: Operand::Value(rhs) };
+    let is_id = cond(index("GetIsID"), vec![null.clone()], Cmp::Eq, 1.0);
+    let qvar_0 = cond(index("GetQuestVariable"), vec![null.clone(), ArgValue::Value(Value::Num(1.0))], Cmp::Eq, 0.0);
+    let qvar_1 = cond(index("GetQuestVariable"), vec![null, ArgValue::Value(Value::Num(1.0))], Cmp::Eq, 1.0);
+    let player = Some(FormId::PLAYER_REF);
+    assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
+    assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
+    assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+}
+
+#[test]
+fn a_string_variable_named_in_a_plain_string_parameter_is_its_name() {
+    // [observed: nvse-sixth, `SetStringIniSetting "sLanguage:General" sText` set the text
+    // "sText"; documented: SetNameEx, string variables "must be converted" with `$`].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = "string_var s\nref r\nBegin Function { }\nlet s := \"nvfKey\"\nlet r := PlayerREF\nSetEditorID r s\nSetFunctionValue (EditorIDToFormID \"s\")\nEnd\n";
+    assert_eq!(g.run_query(q, ctx()).unwrap(), XVal::Ref(0x14), "the editor ID is the text \"s\"");
+}
+
+#[test]
+fn main_loop_callbacks_of_function_scripts_outlive_a_load_unless_flag_8() {
+    // [documented: SetGameMainLoopCallback, 8 "auto-remove on load game"] TestSet sets
+    // TestGlobal to its parameter, 0 when called with none.
+    for (flags, ran) in [(1, true), (9, false)] {
+        let f = udf_fixture();
+        let mut g = game(&f);
+        g.run_source(&format!("SetGameMainLoopCallback TestSet 1 1 {flags}"), Default::default()).unwrap();
+        let session = g.take_session();
+        let mut g2 = game(&f);
+        g2.put_session(session);
+        g2.run_source("set TestGlobal to 5", Default::default()).unwrap();
+        g2.tick();
+        let v = g2.world.global(FormId(0x0000_0800)).unwrap();
+        assert_eq!(v == 0.0, ran, "flags {flags}: the callback {} after the load", if ran { "runs" } else { "is gone" });
+    }
+}

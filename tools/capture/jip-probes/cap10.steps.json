@@ -1,0 +1,53 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "cap10",
+ "title": "cap10: form and array results (nvf_capture 10)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue rPlayer\nEnd\n",
+   "label": "cap10.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetBaseObject)\nEnd\n",
+   "label": "cap10.base",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := rPlayer.GetEquippedObject 15\nSetFunctionValue rObj\nEnd\n",
+   "label": "cap10.noform",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetAvailableRadios)\nEnd\n",
+   "label": "cap10.radios",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := ar_List 1 \"two\" rPlayer\nSetFunctionValue aArr\nEnd\n",
+   "label": "cap10.list",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := ar_List 1 (ar_List 2 3)\nSetFunctionValue aArr\nEnd\n",
+   "label": "cap10.nested",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := ar_Construct \"array\"\nSetFunctionValue aArr\nEnd\n",
+   "label": "cap10.empty",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := ar_Map \"a\"::1 \"b\"::2\nSetFunctionValue aArr\nEnd\n",
+   "label": "cap10.map",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 7\nEnd\n",
+   "label": "cap10.number",
+   "field": "value"
+  }
+ ]
+}

@@ -164,6 +164,16 @@
       "max_frames": 30000
     },
     {
+      "op": "note",
+      "text": "The first chain's last line (INFO 0x010134D9) starts quest 0x01013F1F, whose GameMode (SCPT 0x01013F20) runs `0x01010716.Activate player`: the brain bot, a talking activator, then talks itself (GREETING 0x01013F1B, then topic 0x01010710, ending on a Goodbye line). The player activates Dr. Klein again after it."
+    },
+    {
+      "op": "wait_talk",
+      "start": true,
+      "max_frames": 30000,
+      "label": "brain bot scripted talk"
+    },
+    {
       "op": "player_activate",
       "target": "NVDLC03DoctorKleinREF"
     },

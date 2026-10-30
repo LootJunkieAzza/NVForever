@@ -82,26 +82,30 @@ Notes [observed]:
 
 **Soft** (headless only, open; each chain works around it with a stand-in):
 
-4. The runner has no op for reaching a patrol marker, so the marker's script never runs.
-   Hit by: Moore at Kimball's podium (REFR 0x00130C75 gives him 0x00145EC3); Yes Man's and
-   Oliver's markers. Stand-in: `package {event: done}` on the next package. Fix: a
-   `patrol_point {actor, point}` op calling `Game::patrol_point_reached` (small).
-5. `package {event: done}` does not mark the goal met, so a script package stays current:
-   Kimball's walk back to the vertibird (0x001377CC, then 0x00130C7A). Fix: `done` calls
-   `package_goal_met` when the package is the actor's current one (small).
-6. Dialogue packages start no conversation headless (fnv-ai's `talk` goal is not in
-   fnv-game). Hit by: the Lucky 38 elevator, Cato, Oliver, Lanius. Stand-in:
-   `StartConversation` / `talk`. Fix: the runner force-greets with the package's topic
-   (small to medium).
-7. `trigger_enter` with `inside` is one frame; the Hidden Valley bunker's escape trigger
-   counts 1 s inside. Stand-in: the trigger's timer is set. Fix: a `frames: N` field
-   (small).
+4. Done: the runner's `patrol_point {actor, point}` op calls
+   `Game::patrol_point_reached` (runner.rs). Was hit by: Moore at Kimball's podium (REFR
+   0x00130C75 gives him 0x00145EC3); Yes Man's and Oliver's markers.
+5. **Done** (2026-10-30, issue #909): `package {event: done}` on the actor's current
+   package now calls `package_goal_met`, so a script package is dropped at the next choice
+   (Kimball's walk back to the vertibird, 0x001377CC, then 0x00130C7A). Test:
+   perk_talk.rs `the_runner_finishes_packages_and_force_greets_for_dialogue_packages`.
+6. **Done** (2026-10-30, issue #909): a `dialogue_package {actor, package?}` op carries
+   out a Dialogue package reaching its target as fnv-ai's `carry.rs` does: a Say To
+   package says its topic, any other force-greets the player with the package's topic
+   (`Game::force_greet`), and the goal is met. The Lucky 38 elevator uses it (house
+   chain); Cato, Oliver and Lanius still use `talk` with the topic (their packages were not
+   looked up).
+7. **Done** (2026-10-30, issue #909): `trigger_enter` takes `frames: N` with `inside`:
+   OnTrigger runs N frames, the game going on between them. The Hidden Valley escort
+   trigger now runs 180 frames instead of having its timer set (brotherhood chain).
 8. Opening a container headless runs no OnOpen (the engine queues it from the container
    menu). Not on any main path (see the storage note in §1). Fix: queue OnOpen/OnClose in
    the runner's container menus (small).
-9. `ai reach` reports `VMQYesMan01MoveToTerminal` unreachable (§1). Fix: start the check
-   also from the places scripts MoveTo the actor, as its own verdict (about 50-100 lines
-   in fnv-ai).
+9. **Done** (2026-10-30, issue #909): `fnvtool ai reach` (the code is in
+   crates/fnvtool/src/ai_run.rs, not fnv-ai) also tries, when a package is unreachable
+   from the editor placement, the places scripts `MoveTo` the actor (`<actor>.MoveTo
+   <marker>` with both in the unit's reference list); reached from one of them, the pair
+   gets its own verdict, "reachable from where a script moves it (MoveTo)".
 
 **Possibly hard, unverified** (not on the canonical paths; observer checks 30-32):
 
@@ -121,6 +125,7 @@ Notes [observed]:
     greeting (0x001164F1, shared by GetIsID OR) once (dialogue.md question 13).
 12. `GetStage Q N == 1` compiled with an extra argument leaves two values on the stack.
     Three begin scripts (e.g. INFO 0x00160731) stop there; ours gives a script error.
+    Settled 2026-10-30: the original stops them too (scripts.md §4.2, issue #908).
 13. A line with both a follow-up and choices (0x00158A3D, Topic056) plays the follow-up and
     never offers Topic068 [observed in the runner; the original's order is not known].
 
@@ -140,7 +145,8 @@ Notes [observed]:
 
 ## 4. What is left
 
-- Soft stalls 4-9: small runner ops; each would remove a stand-in.
+- Soft stalls 4-9: 4 done here, 5, 6, 7 and 9 in PR #925 (issue #909); 8 (OnOpen in the
+  runner's container menus) is still open.
 - Observer checks 28-32 (docs/handoff/observer-checks.md): the two end-slide fixes are
   hypotheses until the original confirms them.
 - The other endings' slides: all four endings now run every slide to ExitGame (2026-10-27,
@@ -232,7 +238,8 @@ Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
   was refused; fixed by the companions walkthrough (perks kept per actor), which brought
   the totals to 386 failed calls in 54 causes and 114 line scripts with a problem.
 - **`GetStage Q N == 1` with an extra argument** (3 lines, e.g. INFO 0x001588E5): a script
-  error stops the begin script before its SetStage; item 12 of §2, observer check 32.
+  error stops the begin script before its SetStage; item 12 of §2. The original stops it
+  the same way [observed 2026-10-30; scripts.md §4.2].
 
 The commonest call failures:
 
@@ -287,14 +294,22 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
 1. Possibly hard: two Dead Money narrator lines name Elijah as fixed speaker with no GetIsID
    condition (INFO 0x01013C60, 0x01011DE9), so `can_say_as` refuses them and their slides are
    skipped [observed]; what the original does is an observer question.
-2. Possibly hard: a script making a talking activator activate the player (REPCONN's
-   intercom, SCPT 0x000CD04E) gives a "talk" outcome no one opens, in the runner and in play
-   (nvf-play `talk_after` takes the player's own activations only) [observed]; about 30-60
-   lines in `Game`, plus an observer check.
+2. **Done** (2026-10-30, issue #906): the REPCONN intercom's trigger (SCPT 0x000CD04E)
+   runs `<intercom>.Activate player`, so the player is the activator, not the intercom
+   [observed: `fnvtool script decompile`], and the play loop's `talk_after` (player's
+   activations) already opened it. Only the runner lost it: `talk_since` ran for
+   `player_activate` alone. The runner now opens the conversation for a script's Talk
+   activation by the player after any other op and in every frame it waits (`scripted_talk`);
+   the come-fly-with-me chain no longer activates the intercom by hand. Test: perk_talk.rs
+   `a_scripted_activate_player_of_a_talking_activator_opens_the_conversation`; smoke
+   `intercom-trigger-activate`.
 3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
    (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
-   says those lines they are lost.
-4. Soft: AddScriptPackage is a stub, so scripted packages never run (ED-E in Lonesome Road);
+   says those lines they are lost. Settled 2026-10-30: the original reads 0 for both
+   (dialogue.md §4, issue #907); ours now gives 0 without a failed call, which keeps the
+   lines chosen as before.
+4. Soft: AddScriptPackage is built (`functions/actor.rs`, one slot per actor); whether ED-E's
+   Lonesome Road packages then run headless is unchecked;
    dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
    stood in; MoveTo travel leaves Dead Money's collar radios counting the player in range
    (their check runs only while their cell is loaded); no pickpocket, loot or sit op.
@@ -362,10 +377,10 @@ World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ
    Tank's Topic001 gave 0x01013555, the first line of a follow-up chain, never the chip line
    0x01013559. `Game::select_choice_line` (dialogue.rs) passes over lines another line names
    as its follow-up (TCFU) while another line can be said; greetings and SayTo keep the old
-   choice (applying it there broke five chains). [hypothesis; observer check 34;
+   choice (applying it there broke five chains). [hypothesis; observer check 37;
    dialogue.md §3.4]
 2. **Hard: `Begin OnHitWith <form list>` never ran** (the Sonic Emitter's force fields).
-   `block_accepts` (game.rs) accepts a member of the list. [hypothesis; observer check 35]
+   `block_accepts` (game.rs) accepts a member of the list. [hypothesis; observer check 38]
 3. **Runner: hidden message-box buttons could be pressed.** It pressed the Lucky 38
    mainframe's bug button before Emily gave the bug. Buttons whose conditions fail at
    ShowMessage are kept (`MessageBox.hidden`) and refused by `press_button`, in play and in
@@ -376,7 +391,7 @@ World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ
 
 ### Stalls, ranked
 
-**Possibly hard** (observer checks 36-38):
+**Possibly hard** (observer checks 39-41):
 1. StartConversation from a Goodbye line's end script is refused: the old conversation is
    still open when the end script runs (`finish_line` runs it before `end_dialogue_as`).
    8 INFO end scripts in FalloutNV.esm do this (0x00116C36, 0x00129351, 0x00142A9C,
@@ -461,17 +476,17 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
 1. **Possibly hard: the doctors' addiction cure does nothing.** VDoctors and Doctors stage
    20 call RemoveSpell with no reference; a stage result script has no calling reference
    (script-language.md), so all 13 calls fail and the withdrawal stays [observed]. Observer
-   check 39.
+   check 42.
 2. **Soft: Old World Blues' first quest script never runs in the older chains.**
    old-world-blues and the chains that copy its start talk to Dr. Klein in the same second
    the quest starts; MQ01 reaches 100 before its 5 s script has run, so the Act XP values and
    NVDLC03Enc 10 are never set there. old-world-blues-setups spends 6 s first and reaches
-   them [observed]. Observer check 40.
+   them [observed]. Observer check 43.
 3. **Soft: `RemoveItem x 0` is refused** (Loyal's reward line, INFO 0x0010A1BF, when the
-   arrays were fixed by hand). Not blocking. Observer check 41.
+   arrays were fixed by hand). Not blocking. Observer check 44.
 4. **Soft:** a second Nelson explorer force-greets at once (the any-distance
-   StartConversation stall, check 42); the HELIOS One west-terminal password lands on
-   Fantastic as the speaker (check 43); Kilborn's conversation ends when stage 100 stops
+   StartConversation stall, check 45); the HELIOS One west-terminal password lands on
+   Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
    vNiptonVulpes; Doctors 30's line (0x000BE417) is offered by none of the doctors tried;
    VNellisInfestation's iInfestation stays 0 when the emitter is used before the power.
 5. **Not from this batch:** `GetQuestVariable` "parameter 1 is not a form" in every Hidden
@@ -523,16 +538,16 @@ chains using the op still pass.
 1. **Possibly hard: a talking activator's scripted `Activate player` opens no conversation**
    (the Tops intercom in Benny's voice; same as the REPCONN intercom, #906). Not fixed here: a
    change in `default_activation` would double-start conversations with the runner's
-   `talk_since` and play's `talk_after`. Observer check 44.
-2. **Possibly hard (check 37 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
+   `talk_since` and play's `talk_after`. Observer check 47.
+2. **Possibly hard (check 40 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
    completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
    and Garret's short-handed line unoffered. The chain kills them before the quest starts.
-3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 46); no line of sight
-   (VMS31 60, check 47); Jed and the caravan guards are essential until stage 100, so
+3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 49); no line of sight
+   (VMS31 60, check 50); Jed and the caravan guards are essential until stage 100, so
    NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
 4. **Soft:** Oliver's Topic065 has two lines with the same conditions; ours always says
-   0x00159932, so his retreat lines are never offered (check 45). EDEScript logs an
-   empty-reference error every frame because ours does not short-circuit `&&` (check 48).
+   0x00159932, so his retreat lines are never offered (check 48). EDEScript logs an
+   empty-reference error every frame because ours does not short-circuit `&&` (check 51).
 
 **Settable, not walked (116 left):** VMS29's nine Kings' Gambit alternatives; VMS20, VMS21,
 VMS23, VMS55 branches; VMQ02 40, VMQ03a 110, VMQ03b 110/115/200, VMQHouse3/4/6 report lines;

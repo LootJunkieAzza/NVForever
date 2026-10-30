@@ -57,7 +57,7 @@ use serde::Serialize;
 pub use crate::actor_values::{HEALTH, LIMB_CONDITIONS};
 
 /// What scripts ask of the engine's combat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum CombatRequest {
     /// Set off the placed explosives of this actor that detonate
     /// (`DetonatePlacedExplosives`).
@@ -68,6 +68,9 @@ pub enum CombatRequest {
     /// KillActor's limb argument. The engine knows the actor's body parts
     /// (docs/spec-notes/dismemberment.md §5).
     Dismember { actor: FormId, location: i32, by: Option<FormId> },
+    /// Set off an explosion placed by a script (PlaceAtMe of an EXPL) where it was placed,
+    /// nobody's.
+    Explode { explosion: FormId, at: [f32; 3] },
 }
 
 /// What damage did to a destructible reference (step C7).
@@ -361,6 +364,7 @@ impl Game<'_> {
         // docs/spec-notes/ext-events.md].
         let killer_val = fnv_script::vm::XVal::Ref(killer.map_or(0, |k| k.0));
         self.dispatch_event("OnDeath", vec![fnv_script::vm::XVal::Ref(r.0), killer_val], Some(r));
+        self.jg_event(crate::nvse_jip3::JgEvent::Dying, Some(r));
         self.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
         // "Teammate state is cleared on death of the actor" [documented: GECK wiki
         // SetPlayerTeammate]; after OnDeath, which may still ask [hypothesis: the order].
@@ -605,7 +609,9 @@ impl Game<'_> {
         // Pretend In Combat: "the actor to enter combat when the package is begun" [documented:
         // Combat Package Flags]: its weapon is out as in a fight [our choice].
         let drawn = self.package_has(actor, flags::WEAPON_DRAWN) || self.package_has(actor, flags::PRETEND_IN_COMBAT);
-        !unequipped && !fleeing && (self.draws_weapon(actor) || drawn || self.active_weapon_use(actor).is_some())
+        // SetWeaponOut 1 holds it drawn (`crate::nvse_hud`).
+        let held = self.hud.forced_out.contains(&actor);
+        !unequipped && !fleeing && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and

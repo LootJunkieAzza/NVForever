@@ -387,3 +387,41 @@ impl FunctionTable {
         self.enums.get(kind)?.get(&code).map(String::as_str)
     }
 }
+
+/// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
+/// `schemas/fnv/common.json`].
+/// Script names of actor values that shipped source never spells (so `encodings.json`
+/// has none) and whose xEdit name squashes to something else. Each is its AVIF record's
+/// Editor ID without the `AV` prefix [observed: FalloutNV.esm AVIF `AVCritChance`
+/// 0x44E, `AVPoisonResist` 0x453, `AVDetectLifeRange` 0x5E1, `AVFireResist` 0x5E2,
+/// `AVEnergyResist` 0x5EA; the masters' AVIF FormIDs run in code order]. The original
+/// compiler takes that name [observed: `GetAV PoisonResist` compiled and answered 125 in
+/// the game, capture abilities-1; hypothesis for the others: every spelling of shipped
+/// source is its AVIF Editor ID without `AV`, except Guns (AVSmallGuns) and Survival
+/// (AVThrowing)]. Electric, Frost and EMP resistance have no AVIF record in the masters;
+/// their names follow the pattern [hypothesis].
+pub const SCRIPT_AV_NAMES: [(u16, &str); 8] = [
+    (14, "CritChance"),
+    (19, "PoisonResist"),
+    (51, "DetectLifeRange"),
+    (52, "FireResist"),
+    (58, "ElectricResist"),
+    (59, "FrostResist"),
+    (60, "EnergyResist"),
+    (61, "EMPResist"),
+];
+
+pub const AV_NAMES: [&str; 77] = [
+    "Aggression", "Confidence", "Energy", "Responsibility", "Mood", "Strength", "Perception", "Endurance",
+    "Charisma", "Intelligence", "Agility", "Luck", "Action Points", "Carry Weight", "Critical Chance",
+    "Heal Rate", "Health", "Melee Damage", "Damage Resistance", "Poison Resistance", "Rad Resistance",
+    "Speed Multiplier", "Fatigue", "Karma", "XP", "Perception Condition", "Endurance Condition",
+    "Left Attack Condition", "Right Attack Condition", "Left Mobility Condition", "Right Mobility Condition",
+    "Brain Condition", "Barter", "Big Guns", "Energy Weapons", "Explosives", "Lockpick", "Medicine",
+    "Melee Weapons", "Repair", "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed",
+    "Inventory Weight", "Paralysis", "Invisibility", "Chameleon", "Night Eye", "Turbo", "Fire Resistance",
+    "Water Breathing", "Rad Level", "Bloody Mess", "Unarmed Damage", "Assistance", "Electric Resistance",
+    "Frost Resistance", "Energy Resistance", "EMP Resistance", "Variable01", "Variable02", "Variable03",
+    "Variable04", "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
+    "Ignore Crippled Limbs", "Dehydration", "Hunger", "Sleep Deprivation", "Damage Threshold",
+];

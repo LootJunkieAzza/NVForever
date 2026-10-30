@@ -13,11 +13,14 @@
 //! No Bevy here: the tree is plain data, tested without the game's files.
 
 pub mod expr;
+pub mod index;
 pub mod tree;
+pub mod uio;
 pub mod value;
 pub mod xml;
 
-pub use tree::{MemSource, Source, Tile, TileId, Trait, Ui};
+pub use tree::{MemSource, Origin, Source, Tile, TileId, Trait, Ui};
+pub use index::MenuIndex;
 pub use value::Value;
 
 #[cfg(test)]

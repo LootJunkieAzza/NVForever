@@ -1,7 +1,7 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "jip_events",
- "title": "JIP events, runtime-compiled (read-only)",
+ "title": "jip-events, runtime-compiled",
  "start": "any save (read-only)",
  "steps": [
   {

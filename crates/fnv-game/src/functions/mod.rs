@@ -109,6 +109,12 @@ impl Args<'_> {
         self.opt_form(i).ok_or_else(|| format!("parameter {} is not a form", i + 1))
     }
 
+    /// Whether parameter `i` is a null form: a condition's form parameter stored as
+    /// FormID 0 (`crate::cond`).
+    pub fn is_null_form(&self, i: usize) -> bool {
+        matches!(self.0.get(i), Some(ArgValue::Value(Value::Ref(0))))
+    }
+
     pub fn opt_form(&self, i: usize) -> Option<FormId> {
         match self.0.get(i)? {
             ArgValue::Value(v) => v.as_form().map(FormId),
@@ -240,11 +246,11 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x11F4, "GetWeaponHealthPerc", Impl(items::get_weapon_health_perc)),
             // Actors.
             (0x100E, "GetActorValue", Impl(actor::get_actor_value)),
-            (0x100F, "SetActorValue", Impl(actor::set_actor_value)),
-            (0x1010, "ModActorValue", Impl(actor::mod_actor_value)),
-            (0x110E, "ForceActorValue", Impl(actor::force_actor_value)),
-            (0x1181, "DamageActorValue", Impl(actor::damage_actor_value)),
-            (0x1182, "RestoreActorValue", Impl(actor::restore_actor_value)),
+            (0x100F, "SetActorValue", Impl(actor::set_actor_value_watched)),
+            (0x1010, "ModActorValue", Impl(actor::mod_actor_value_watched)),
+            (0x110E, "ForceActorValue", Impl(actor::force_actor_value_watched)),
+            (0x1181, "DamageActorValue", Impl(actor::damage_actor_value_watched)),
+            (0x1182, "RestoreActorValue", Impl(actor::restore_actor_value_watched)),
             (0x1115, "GetBaseActorValue", Impl(actor::get_base_actor_value)),
             (0x11EF, "GetPermanentActorValue", Impl(actor::get_permanent_actor_value)),
             (0x102E, "GetDead", Impl(actor::get_dead)),

@@ -168,7 +168,7 @@
     },
     {
       "op": "note",
-      "text": "Up in the suite (the elevator trigger as the walk): Benny has not reached the suite, so with bennyfleeing set VTopsAmbushTriggerSCRIPT marks him fled and starts its 15 s timer; the player stands by the intercom (travel stand-in). When the timer runs out the script gives the intercom Benny's voice and calls its Activate with the player; that scripted activation opens no conversation here (stall: a talking activator's scripted Activate starts no talk, docs/handoff/mq-walkthrough-2026-10-27.md section 9), so the player's talk to the intercom stands in for it."
+      "text": "Up in the suite (the elevator trigger as the walk): Benny has not reached the suite, so with bennyfleeing set VTopsAmbushTriggerSCRIPT marks him fled and starts its 15 s timer; the player stands by the intercom (travel stand-in). When the timer runs out the script gives the intercom Benny's voice and calls its Activate with the player; that scripted activation opens the conversation through the intercom."
     },
     {
       "op": "trigger_enter",
@@ -183,8 +183,9 @@
       "seconds": 17
     },
     {
-      "op": "talk",
-      "actor": "VTopsPresidentialIntercomREF",
+      "op": "wait_talk",
+      "start": true,
+      "max_frames": 30000,
       "label": "intercom: Benny speaks"
     },
     {
