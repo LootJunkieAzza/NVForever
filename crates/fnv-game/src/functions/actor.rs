@@ -1064,7 +1064,7 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
 /// The script package is dropped and the actor chooses from its own list again: with
 /// one slot, a package added before the last AddScriptPackage does not come back
 /// [observed: od_08_script_packages, owner-decision-captures.md item 8].
-pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn remove_script_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
         e.script_package = None;
