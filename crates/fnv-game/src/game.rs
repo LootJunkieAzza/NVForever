@@ -1101,6 +1101,12 @@ pub struct Game<'a> {
     /// Keys MenuTapKey pressed (DirectInput scan codes), for the engine to take as one
     /// frame's presses in the open menu.
     pub ui_taps: Vec<u32>,
+    /// The trait changes over real time (SetUIFloatGradual, CacheUI's gradual and reveal
+    /// functions): the engine steps them each frame (`ui_gradients::Gradients::step`).
+    pub ui_gradients: crate::ui_gradients::Gradients,
+    /// The other tile functions' session state (`crate::ui_more`): CacheUI's caches and
+    /// queues, SUP's HUD bars, the attached components, the text measure.
+    pub ui_extra: crate::ui_more::UiExtra,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
     pub difficulty: crate::difficulty::Difficulty,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
@@ -1742,6 +1748,8 @@ impl<'a> Game<'a> {
             ui_hud_pending: None,
             ui_used: false,
             ui_taps: Vec::new(),
+            ui_gradients: Default::default(),
+            ui_extra: Default::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),

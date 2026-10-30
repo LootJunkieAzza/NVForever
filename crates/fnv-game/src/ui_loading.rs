@@ -254,6 +254,7 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         }
     }
     game.ui_tree = ui;
+    crate::ui_more::tree_rebuilt(game);
     game.ui_menus = index;
     game.ui_files = Some(files);
     game.ui_lifetime = MenuLifetime { unavailable: BTreeSet::new(), warnings: game.ui_tree.warnings.iter().map(|w| warning_key(w)).collect() };

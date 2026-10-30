@@ -2685,13 +2685,14 @@ impl Vm<'_, '_> {
             return Ok(v);
         }
         // [documented: the catalogue's parameters (schemas/script/functions.json, from the
-        // pages SetUIStringEx, SetUIStringAlt, InjectUIComponent, AddTileFromTemplate)]:
+        // pages SetUIStringEx, SetUIStringAlt, InjectUIComponent, AttachUIComponent,
+        // AddTileFromTemplate)]:
         // the first string (AddTileFromTemplate's path) or the one after the path is a
         // format string with its values, formatted here; the game gets the text in their
         // place (fnv_game::ui_functions).
         let format_at = match lname.as_str() {
             "addtilefromtemplate" => Some(0),
-            "setuistringex" | "setuistringalt" | "injectuicomponent" => Some(1),
+            "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
             _ => None,
         };
         if let Some(at) = format_at {
@@ -3028,6 +3029,7 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],
+        "getstringuidimensions" => &[3, 4, 5],
         _ => return None,
     })
 }

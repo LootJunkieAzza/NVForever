@@ -293,9 +293,11 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut f
 }
 
 /// Works the tree out after the scripts; nothing to do on a frame where nothing changed
-/// it (`fnv_ui::Ui::update`).
-fn update(mut script: ResMut<ScriptState>) {
+/// it (`fnv_ui::Ui::update`). The scripts' gradual changes step first, on real time
+/// (`fnv_game::ui_gradients`, task T9).
+fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>) {
     let Some(rt) = script.rt.as_mut() else { return };
+    rt.game.ui_gradients.step(&mut rt.game.ui_tree, f64::from(time.delta_secs()));
     if rt.game.ui_files.is_some() {
         rt.game.ui_tree.update();
     }
