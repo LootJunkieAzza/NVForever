@@ -1,6 +1,7 @@
 //! The tile tree beside the drawn menus [design: ui-tile-tree.md §6.2 step 1].
 
 pub mod draw;
+pub mod input;
 pub mod layout;
 pub mod model;
 pub mod notices;
@@ -345,6 +346,9 @@ fn write(
             // nothing is made under their pieces [design].
             let shows = hud.notices(&rt.game, shown);
             notices::write(&mut rt.game.ui_tree, &shows, &fonts.hud_lines());
+            // Their widths from the strings just written, before scripts read them, as
+            // the other HUD texts' above.
+            fonts.write_notice_widths(&mut rt.game.ui_tree);
             for (line, last) in notices::describe(&shows).into_iter().zip(told.iter_mut()) {
                 if line.is_some() && line != *last {
                     info!("{}", line.as_deref().unwrap_or_default());
@@ -366,7 +370,7 @@ fn update(mut script: ResMut<ScriptState>) {
     if rt.game.ui_files.is_some() {
         rt.game.ui_tree.update();
     }
-    // Leave ui_taps queued: tile input is task T8 [design].
+    // MenuTapKey's keys stay queued unless a menu takes tile input (`input::feed`) [design].
 }
 
 pub struct TilesPlugin;
@@ -379,8 +383,11 @@ impl Plugin for TilesPlugin {
         // T12a: `[UI] TileMenus=` read at start; the hand-built pieces the tiles draw are
         // hidden after every drawing system, before visibility is passed down [design].
         vanilla::setup(app);
+        input::setup(app);
         app.init_resource::<draw::TileFonts>()
             .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
+            // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
+            .add_systems(Update, input::feed.after(write).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
