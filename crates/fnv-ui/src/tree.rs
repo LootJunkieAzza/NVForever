@@ -190,6 +190,9 @@ pub struct Ui {
     /// The game strings (`&-sName;`) read into traits so far, by lower-case name, and
     /// whether the source had text for it (menu-xml.md §2.4) [design].
     pub game_strings_read: BTreeMap<String, bool>,
+    /// What the game's own code last wrote to a tile's trait, for the writes it makes only
+    /// when its value changes, so a script's value in between lasts (`Ui::write_changed`).
+    code_written: HashMap<(TileId, String), Value>,
 }
 
 impl Ui {
@@ -205,6 +208,17 @@ impl Ui {
         ui.strings = Some(strings);
         ui.globals = Some(globals);
         ui
+    }
+
+    /// Sets a trait as the game's code does for a value it writes only when the value
+    /// changes: nothing when `v` is what the code wrote last, whatever a script set since.
+    pub fn write_changed(&mut self, tile: TileId, name: &str, v: Value) {
+        let key = (tile, name.to_string());
+        if self.code_written.get(&key) == Some(&v) {
+            return;
+        }
+        self.set_trait(tile, name, v.clone());
+        self.code_written.insert(key, v);
     }
 
     pub fn tile(&self, id: TileId) -> &Tile {
