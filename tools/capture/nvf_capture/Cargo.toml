@@ -3,6 +3,8 @@ name = "nvf_capture"
 description = "xNVSE plugin for the ORIGINAL game: runs parity-lab capture jobs and records observations (docs/spec-notes/xnvse-capture.md). Not part of the engine."
 version = "0.1.0"
 edition = "2021"
+# With an additional permission under GPLv3 section 7 to combine it with the game and
+# xNVSE (LICENSE-EXCEPTION.txt).
 license = "GPL-3.0-or-later"
 publish = false
 

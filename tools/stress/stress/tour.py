@@ -31,7 +31,7 @@ HITCH = re.compile(r"stress hitch: ([\d.]+) ms at t ([\d.]+) s, (\d+) cells load
 PROGRESS = re.compile(r"stress (tour|sample)")
 # Counts a leak would show in (the engine's sample fields, and the process's memory).
 WATCHED = ["entities", "refs drawn", "meshes", "images", "materials", "models cached", "textures cached", "audio",
-           "cells", "bodies", "actors", "ragdolls", "working set", "private bytes"]
+           "cells", "bodies", "actors", "ragdolls", "working set", "private bytes", "gpu allocated", "gpu reserved"]
 # GPU assets and the caches that hold them: back near where they were once the tour has
 # left a place behind (the caches keep what nothing uses for a minute, nvf_assets::release).
 ASSETS = ["meshes", "images", "models cached", "textures cached"]

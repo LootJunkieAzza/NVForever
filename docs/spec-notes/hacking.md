@@ -189,10 +189,16 @@ in the data looks like a word list.
 
 ## 8. Words not in the plugins
 
-From the owner's screenshots [observed]: the hacking header lines, "N ATTEMPT(S) LEFT:",
-"Entry denied", "N/L correct.", "Allowance replenished.", "Exact match!", "Please wait
-while system is accessed.", the menu's header lines. NVForever's until the original's
-are seen [hypothesis]: "Dud removed.", "Error", "!!! WARNING: LOCKOUT IMMINENT !!!" (on
+From the owner's screenshots [observed], and shown as the original has them: "ENTER
+PASSWORD NOW", "N ATTEMPT(S) LEFT:", "Entry denied", "N/L correct.", "Allowance
+replenished.", "Exact match!", "Please wait while system is accessed.".
+
+NVForever's own wording in place of the original's (owner decision 2026-10-30, LEGAL.md):
+the hacking title and the menu's two header lines, which in the original name the game's
+fictional maker (§2, §6), read "TERMINAL ACCESS PROTOCOL", "TERMINAL OPERATING SYSTEM"
+and "VERSION 1.0". The layout is unchanged.
+
+NVForever's until the original's are seen [hypothesis]: "Dud removed.", "Error", "!!! WARNING: LOCKOUT IMMINENT !!!" (on
 the last attempt), "TERMINAL LOCKED" / "PLEASE CONTACT AN ADMINISTRATOR", the refusals
 "You need a Science skill of N to hack this terminal." and "This terminal requires a
 password.", and the prompt word "Access".

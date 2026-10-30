@@ -86,7 +86,10 @@ pub(crate) fn worker_texture(
         return None;
     }
     let image = match data.read(&key.0).ok_or_else(|| "not in any archive".to_string()).and_then(|bytes| dds_image(&bytes, srgb, bc_supported)) {
-        Ok(image) => image,
+        Ok(mut image) => {
+            image.texture_descriptor.label = Some(folder_label(&key.0));
+            image
+        }
         Err(e) => {
             workers.failed.lock().expect("worker textures").insert(key, e);
             return None;
@@ -202,7 +205,22 @@ pub fn checked_image(w: u32, h: u32, mips: u32, format: TextureFormat, data: Vec
     }
     let mut img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, data, format, RenderAssetUsages::RENDER_WORLD);
     img.texture_descriptor.mip_level_count = mips;
+    img.texture_descriptor.label = Some("dds texture");
     Ok(img)
+}
+
+/// The GPU label of a game texture: its folder under `textures\` (`textures\clutter`),
+/// so the GPU allocator's report (nvforever `stress_sample.rs`) tells what kinds of
+/// texture it holds. One string per folder, made once.
+fn folder_label(path: &str) -> &'static str {
+    static LABELS: Mutex<Option<HashMap<String, &'static str>>> = Mutex::new(None);
+    let mut parts = path.split('\\');
+    let folder = match (parts.next(), parts.next(), parts.next()) {
+        (Some(a), Some(b), Some(_)) => format!("{a}\\{b}"),
+        _ => "textures".to_string(),
+    };
+    let mut labels = LABELS.lock().expect("texture labels");
+    labels.get_or_insert_with(HashMap::new).entry(folder).or_insert_with_key(|k| Box::leak(k.clone().into_boxed_str()))
 }
 
 /// The PC's own form of a texture a model names in a console's folder: the same path
@@ -383,6 +401,7 @@ impl TextureCache {
         };
         let handle = match result {
             Ok(mut img) => {
+                img.texture_descriptor.label = Some(folder_label(&path));
                 if clamp {
                     if let ImageSampler::Descriptor(d) = &mut img.sampler {
                         d.address_mode_u = ImageAddressMode::ClampToEdge;
