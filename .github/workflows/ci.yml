@@ -90,6 +90,9 @@ jobs:
       - name: Smoke-runner self-tests
         if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s tools/smoke/tests -v
+      - name: Stress-tool self-tests
+        if: steps.changes.outputs.code == 'true'
+        run: python -m unittest discover -s tools/stress/tests -v
 
       - name: Engine tests
         if: steps.changes.outputs.code == 'true'

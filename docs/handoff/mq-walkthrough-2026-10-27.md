@@ -82,10 +82,9 @@ Notes [observed]:
 
 **Soft** (headless only, open; each chain works around it with a stand-in):
 
-4. The runner has no op for reaching a patrol marker, so the marker's script never runs.
-   Hit by: Moore at Kimball's podium (REFR 0x00130C75 gives him 0x00145EC3); Yes Man's and
-   Oliver's markers. Stand-in: `package {event: done}` on the next package. Fix: a
-   `patrol_point {actor, point}` op calling `Game::patrol_point_reached` (small).
+4. Done: the runner's `patrol_point {actor, point}` op calls
+   `Game::patrol_point_reached` (runner.rs). Was hit by: Moore at Kimball's podium (REFR
+   0x00130C75 gives him 0x00145EC3); Yes Man's and Oliver's markers.
 5. `package {event: done}` does not mark the goal met, so a script package stays current:
    Kimball's walk back to the vertibird (0x001377CC, then 0x00130C7A). Fix: `done` calls
    `package_goal_met` when the package is the actor's current one (small).
@@ -140,7 +139,8 @@ Notes [observed]:
 
 ## 4. What is left
 
-- Soft stalls 4-9: small runner ops; each would remove a stand-in.
+- Soft stalls 4-9: 4 done here, 5, 6, 7 and 9 in PR #925 (issue #909); 8 (OnOpen in the
+  runner's container menus) is still open.
 - Observer checks 28-32 (docs/handoff/observer-checks.md): the two end-slide fixes are
   hypotheses until the original confirms them.
 - The other endings' slides: all four endings now run every slide to ExitGame (2026-10-27,
@@ -294,7 +294,8 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
 3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
    (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
    says those lines they are lost.
-4. Soft: AddScriptPackage is a stub, so scripted packages never run (ED-E in Lonesome Road);
+4. Soft: AddScriptPackage is built (`functions/actor.rs`, one slot per actor); whether ED-E's
+   Lonesome Road packages then run headless is unchecked;
    dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
    stood in; MoveTo travel leaves Dead Money's collar radios counting the player in range
    (their check runs only while their cell is loaded); no pickpocket, loot or sit op.

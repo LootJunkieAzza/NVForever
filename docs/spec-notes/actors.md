@@ -1160,7 +1160,7 @@ only in the walk test and on the player's body. All rules here are engine choice
   list]; it is not in FalloutNV.esm, so its value is the executable's and unknown.
   Creatures carry their own, CREA `TNAM` "Turning Speed" [documented: xEdit CREA]: 100
   (mole rat), 90 (mantis), 75 (sentry bot), 50 (Protectron), 45 (giant ant), 40
-  (bighorner), 0 on templated ones [observed, a sample of 12 of 1,578 records]; read as
+  (bighorner), 0 on templated ones [observed, a sample of 12 of FalloutNV.esm's 1,578 records; every CREA carries TNAM, non-zero on 1,033 of them, and on 1,547 of 2,238 over the base game and add-ons]; read as
   degrees per second [hypothesis]; not used yet. While its heading catches up with the
   way to go the actor slows down: it keeps `0.3 + 0.7 × max(cos off, 0)` of its speed
   (`turn_slowdown`; a right-angle corner costs about half a second). Actors moved by
