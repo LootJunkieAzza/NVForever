@@ -13453,3 +13453,50 @@ expect = [
   { json = "given_errors.*", count = 0, label = "honest-hearts-happy-trails: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-dead-money-act3"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-dead-money-act3.actions.json (DeadMoney.esm): the heist chain with Dog killed in the kitchen (NVDLC01MQ03a 60), Curtain Call as the heist chain walks it, and Christine killed in the suites (NVDLC01MQ03c 30)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-dead-money-act3.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-dead-money-act3.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Put the Beast Down 60 (Dog killed).stage", equals = 60, label = "fail-dead-money-act3 milestone: Put the Beast Down 60: stage = 60" },
+  { json = "observations.?label=player alive after Dog's death.dead", equals = false, label = "fail-dead-money-act3 player alive after Dog's death: dead = false" },
+  { json = "observations.?label=milestone: Last Luxuries 30 (Christine killed).stage", equals = 30, label = "fail-dead-money-act3 milestone: Last Luxuries 30: stage = 30" },
+  { json = "steps.*.error", count = 0, label = "fail-dead-money-act3: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-dead-money-act3: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-dead-money-dog"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-dead-money-dog.actions.json (DeadMoney.esm): part 1 to Dog found at the police station, then Dog killed: Find Collar 8 fails (NVDLC01MQ01a 255)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-dead-money-dog.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-dead-money-dog.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Find Collar 8 failed (Dog dead, 255).stage", equals = 255, label = "fail-dead-money-dog milestone: Find Collar 8 failed: stage = 255" },
+  { json = "observations.?label=final: player after Dog's death.dead", equals = false, label = "fail-dead-money-dog final: player after Dog's death: dead = false" },
+  { json = "steps.*.error", count = 0, label = "fail-dead-money-dog: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-dead-money-dog: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-dead-money-gala"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-dead-money-gala.actions.json (DeadMoney.esm): part 1 to the three Act 2 jobs, then Dog killed (Fires in the Sky, NVDLC01MQ02a 255) and Dean killed (Trigger the Gala Event, NVDLC01MQ02 255)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-dead-money-gala.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-dead-money-gala.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Fires in the Sky failed (Dog dead, 255).stage", equals = 255, label = "fail-dead-money-gala milestone: Fires in the Sky failed: stage = 255" },
+  { json = "observations.?label=milestone: Trigger the Gala Event failed (Dean dead, 255).stage", equals = 255, label = "fail-dead-money-gala milestone: Trigger the Gala Event failed: stage = 255" },
+  { json = "observations.?label=final: player after the deaths.dead", equals = false, label = "fail-dead-money-gala final: player after the deaths: dead = false" },
+  { json = "steps.*.error", count = 0, label = "fail-dead-money-gala: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-dead-money-gala: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
