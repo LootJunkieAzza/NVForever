@@ -1,0 +1,75 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Nelson explorer challenge (nvNelsonExplorerBark): a Legion explorer stops the player (10) and takes him to the Decanus (100, complete)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: near Nelson a Legion explorer calls StartConversation on the player when his script first runs (nvNelsonExplorerBarkSCRIPT, while We Are Legion is below 10). The player answers that he is passing through (Topic009) and agrees to see the Decanus (Topic010: its end script sets 10 and talkedto); the quest script (delay 0.1 s) then moves the player to NelsonBarracksDeadSeaMarkerREF and sets 100 (Complete Quest). Stand-ins: travel by move_player; StartConversation's walk-up (the engine starts it at once). A second explorer's challenge is walked off (end_talk)."
+  },
+  {
+   "op": "move_player",
+   "to": "nvNelsonExplorer01REF"
+  },
+  {
+   "op": "wait_talk",
+   "start": true,
+   "label": "explorer stops the player"
+  },
+  {
+   "op": "choose",
+   "topic": "nvNelsonExplorerBarknvNelsonLegionaryExplorerTopic009",
+   "label": "explorer passing"
+  },
+  {
+   "op": "choose",
+   "topic": "nvNelsonExplorerBarknvNelsonLegionaryExplorerTopic010",
+   "label": "explorer decanus"
+  },
+  {
+   "op": "wait_talk",
+   "label": "explorer done"
+  },
+  {
+   "op": "note",
+   "text": "A second explorer's script starts its own StartConversation as soon as the first ends (headless StartConversation starts at any distance: soft stall of \u00a79); the player walks off from it."
+  },
+  {
+   "op": "wait_talk",
+   "start": true,
+   "label": "explorer 2 stops the player"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "nvNelsonExplorerBark",
+   "fields": [
+    "running",
+    "done.10"
+   ],
+   "label": "milestone: nvNelsonExplorerBark 10"
+  },
+  {
+   "op": "get_quest",
+   "quest": "nvNelsonExplorerBark",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed",
+    "var.talkedto"
+   ],
+   "label": "final: nvNelsonExplorerBark 100"
+  },
+  {
+   "op": "get_ref",
+   "of": "player",
+   "label": "player at the barracks"
+  }
+ ]
+}

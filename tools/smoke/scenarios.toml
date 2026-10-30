@@ -10637,7 +10637,7 @@ manual = "on a failure, the chain's notes say what each step stands for; the sta
 [[scenario]]
 name = "mq-beyond-the-beef"
 kind = "tool"
-source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/beyond-the-beef.actions.json (a tribe outcome the Yes Man / House chains give as done), Beyond the Beef (VMS18), Heck's side: Marjorie, Mortimer's key, the investigator, Chauncey in the steam room (objective 50), Ted found and walked back to his father (objective 80)"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/beyond-the-beef.actions.json (a tribe outcome the Yes Man / House chains give as done), Beyond the Beef (VMS18), Heck's side: Marjorie, Mortimer's key, the investigator, Chauncey in the steam room (objective 50), Ted found and walked back to his father (objective 80), Heck's reward (quest completed)"
 areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/beyond-the-beef.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/beyond-the-beef.actions.json"]]
@@ -10649,6 +10649,10 @@ expect = [
   { json = "observations.?label=milestone: Ted follows.var.bTedFollowing", equals = 1.0, label = "milestone: Ted follows: var.bTedFollowing = 1.0" },
   { json = "observations.?label=final: VMS18 objective 80.objective.80.completed", equals = true, label = "final: VMS18 objective 80: objective.80.completed = true" },
   { json = "observations.?label=final: VMS18 objective 80.objective.90.displayed", equals = true, label = "final: VMS18 objective 80: objective.90.displayed = true" },
+  { json = "observations.?label=final: VMS18 completed.completed", equals = true, label = "final: VMS18 completed: completed = true (Heck's reward, CompleteQuest)" },
+  { json = "observations.?label=final: VMS18 completed.objective.90.completed", equals = true, label = "final: VMS18 completed: objective.90.completed = true" },
+  { json = "steps.*.error", count = 0, label = "beyond-the-beef: no step fails" },
+  { json = "given_errors.*", count = 0, label = "beyond-the-beef: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
 
@@ -12663,3 +12667,232 @@ forbid = [
   { re = 'script: VMQ03a stage (110|120|200) set', label = "the visit fails or is cancelled" },
   { re = 'combat group: .* alarms VHDKimballREF 0x0012FCD2 about the player', label = "the NCR turn on the player" },
 ]
+
+[[scenario]]
+name = "mq-exploring-vault-74"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/exploring-vault-74.actions.json: Exploring Vault 74 (VT74): the vault trigger (10) and the overseer's note carried out (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/exploring-vault-74.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/exploring-vault-74.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VT74 10.running", equals = true, label = "exploring-vault-74, milestone: VT74 10: running = true" },
+  { json = "observations.?label=milestone: VT74 10.stage", equals = 10, label = "exploring-vault-74, milestone: VT74 10: stage = 10" },
+  { json = "observations.?label=milestone: VT74 10.done.10", equals = true, label = "exploring-vault-74, milestone: VT74 10: done.10 = true" },
+  { json = "observations.?label=milestone: VT74 10.objective.10.displayed", equals = true, label = "exploring-vault-74, milestone: VT74 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VT74 100.stage", equals = 100, label = "exploring-vault-74, final: VT74 100: stage = 100" },
+  { json = "observations.?label=final: VT74 100.done.100", equals = true, label = "exploring-vault-74, final: VT74 100: done.100 = true" },
+  { json = "observations.?label=final: VT74 100.completed", equals = true, label = "exploring-vault-74, final: VT74 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "exploring-vault-74: no step fails" },
+  { json = "given_errors.*", count = 0, label = "exploring-vault-74: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-nelson-explorer"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/nelson-explorer.actions.json: Nelson explorer challenge (nvNelsonExplorerBark): the explorer's stop (10) and the Decanus (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/nelson-explorer.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/nelson-explorer.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: nvNelsonExplorerBark 10.running", equals = false, label = "nelson-explorer, milestone: nvNelsonExplorerBark 10: running = false" },
+  { json = "observations.?label=milestone: nvNelsonExplorerBark 10.done.10", equals = true, label = "nelson-explorer, milestone: nvNelsonExplorerBark 10: done.10 = true" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.stage", equals = 100, label = "nelson-explorer, final: nvNelsonExplorerBark 100: stage = 100" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.done.100", equals = true, label = "nelson-explorer, final: nvNelsonExplorerBark 100: done.100 = true" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.completed", equals = true, label = "nelson-explorer, final: nvNelsonExplorerBark 100: completed = true" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.var.talkedto", equals = 0.0, label = "nelson-explorer, final: nvNelsonExplorerBark 100: var.talkedto = 0.0" },
+  { json = "steps.*.error", count = 0, label = "nelson-explorer: no step fails" },
+  { json = "given_errors.*", count = 0, label = "nelson-explorer: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-geckoman"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/geckoman.actions.json: Geckoman encounter (VES02DialogueGeckoman): his plea (50), the player agrees (60), the ridge trap (70)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/geckoman.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/geckoman.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.running", equals = true, label = "geckoman, milestone: VES02DialogueGeckoman 60: running = true" },
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.stage", equals = 60, label = "geckoman, milestone: VES02DialogueGeckoman 60: stage = 60" },
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.done.50", equals = true, label = "geckoman, milestone: VES02DialogueGeckoman 60: done.50 = true" },
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.done.60", equals = true, label = "geckoman, milestone: VES02DialogueGeckoman 60: done.60 = true" },
+  { json = "observations.?label=final: VES02DialogueGeckoman 70.stage", equals = 70, label = "geckoman, final: VES02DialogueGeckoman 70: stage = 70" },
+  { json = "observations.?label=final: VES02DialogueGeckoman 70.done.70", equals = true, label = "geckoman, final: VES02DialogueGeckoman 70: done.70 = true" },
+  { json = "steps.*.error", count = 0, label = "geckoman: no step fails" },
+  { json = "given_errors.*", count = 0, label = "geckoman: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-legend-of-the-star"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/legend-of-the-star.actions.json: The Legend of the Star (VMS09 20, 30) and A Valuable Lesson (VMS09a 10, 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/legend-of-the-star.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/legend-of-the-star.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS09 20.running", equals = true, label = "legend-of-the-star, milestone: VMS09 20: running = true" },
+  { json = "observations.?label=milestone: VMS09 20.stage", equals = 20, label = "legend-of-the-star, milestone: VMS09 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS09 20.done.20", equals = true, label = "legend-of-the-star, milestone: VMS09 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS09 20.objective.20.displayed", equals = true, label = "legend-of-the-star, milestone: VMS09 20: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMS09 30.stage", equals = 30, label = "legend-of-the-star, final: VMS09 30: stage = 30" },
+  { json = "observations.?label=final: VMS09 30.done.30", equals = true, label = "legend-of-the-star, final: VMS09 30: done.30 = true" },
+  { json = "observations.?label=final: VMS09 30.failed", equals = true, label = "legend-of-the-star, final: VMS09 30: failed = true" },
+  { json = "observations.?label=final: VMS09 30.objective.20.completed", equals = true, label = "legend-of-the-star, final: VMS09 30: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS09a 10.running", equals = true, label = "legend-of-the-star, milestone: VMS09a 10: running = true" },
+  { json = "observations.?label=milestone: VMS09a 10.stage", equals = 10, label = "legend-of-the-star, milestone: VMS09a 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS09a 10.done.10", equals = true, label = "legend-of-the-star, milestone: VMS09a 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS09a 10.objective.10.displayed", equals = true, label = "legend-of-the-star, milestone: VMS09a 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS09a 100.stage", equals = 100, label = "legend-of-the-star, final: VMS09a 100: stage = 100" },
+  { json = "observations.?label=final: VMS09a 100.done.100", equals = true, label = "legend-of-the-star, final: VMS09a 100: done.100 = true" },
+  { json = "observations.?label=final: VMS09a 100.completed", equals = true, label = "legend-of-the-star, final: VMS09a 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "legend-of-the-star: no step fails" },
+  { json = "given_errors.*", count = 0, label = "legend-of-the-star: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-crazy-crazy-crazy"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/crazy-crazy-crazy.actions.json: Crazy, Crazy, Crazy (VMS57): Neil's warning (10) to Tabitha's death (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/crazy-crazy-crazy.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/crazy-crazy-crazy.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS57 10.running", equals = true, label = "crazy-crazy-crazy, milestone: VMS57 10: running = true" },
+  { json = "observations.?label=milestone: VMS57 10.stage", equals = 10, label = "crazy-crazy-crazy, milestone: VMS57 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS57 10.done.10", equals = true, label = "crazy-crazy-crazy, milestone: VMS57 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS57 10.objective.10.displayed", equals = true, label = "crazy-crazy-crazy, milestone: VMS57 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS57 100.stage", equals = 100, label = "crazy-crazy-crazy, final: VMS57 100: stage = 100" },
+  { json = "observations.?label=final: VMS57 100.done.100", equals = true, label = "crazy-crazy-crazy, final: VMS57 100: done.100 = true" },
+  { json = "observations.?label=final: VMS57 100.completed", equals = true, label = "crazy-crazy-crazy, final: VMS57 100: completed = true" },
+  { json = "observations.?label=final: VMS57 100.objective.10.completed", equals = true, label = "crazy-crazy-crazy, final: VMS57 100: objective.10.completed = true" },
+  { json = "steps.*.error", count = 0, label = "crazy-crazy-crazy: no step fails" },
+  { json = "given_errors.*", count = 0, label = "crazy-crazy-crazy: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-cold-cold-heart"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/cold-cold-heart.actions.json: Cold, Cold Heart (vNiptonVulpes): Vulpes's lesson (10) to the word brought to Kilborn (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/cold-cold-heart.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/cold-cold-heart.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: vNiptonVulpes 10.running", equals = true, label = "cold-cold-heart, milestone: vNiptonVulpes 10: running = true" },
+  { json = "observations.?label=milestone: vNiptonVulpes 10.stage", equals = 10, label = "cold-cold-heart, milestone: vNiptonVulpes 10: stage = 10" },
+  { json = "observations.?label=milestone: vNiptonVulpes 10.done.10", equals = true, label = "cold-cold-heart, milestone: vNiptonVulpes 10: done.10 = true" },
+  { json = "observations.?label=milestone: vNiptonVulpes 10.objective.10.displayed", equals = true, label = "cold-cold-heart, milestone: vNiptonVulpes 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: vNiptonVulpes 100.stage", equals = 100, label = "cold-cold-heart, final: vNiptonVulpes 100: stage = 100" },
+  { json = "observations.?label=final: vNiptonVulpes 100.done.100", equals = true, label = "cold-cold-heart, final: vNiptonVulpes 100: done.100 = true" },
+  { json = "observations.?label=final: vNiptonVulpes 100.completed", equals = true, label = "cold-cold-heart, final: vNiptonVulpes 100: completed = true" },
+  { json = "observations.?label=final: vNiptonVulpes 100.objective.10.completed", equals = true, label = "cold-cold-heart, final: vNiptonVulpes 100: objective.10.completed = true" },
+  { json = "steps.*.error", count = 0, label = "cold-cold-heart: no step fails" },
+  { json = "given_errors.*", count = 0, label = "cold-cold-heart: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-doctors"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/doctors.actions.json: doctors' services (VDoctors 10, 20, 30 at Ada Straus; Doctors 20 at Argyll)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/doctors.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/doctors.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VDoctors 10.running", equals = true, label = "doctors, milestone: VDoctors 10: running = true" },
+  { json = "observations.?label=milestone: VDoctors 10.done.10", equals = true, label = "doctors, milestone: VDoctors 10: done.10 = true" },
+  { json = "observations.?label=milestone: VDoctors 20.done.20", equals = true, label = "doctors, milestone: VDoctors 20: done.20 = true" },
+  { json = "observations.?label=final: VDoctors 30.stage", equals = 30, label = "doctors, final: VDoctors 30: stage = 30" },
+  { json = "observations.?label=final: VDoctors 30.done.30", equals = true, label = "doctors, final: VDoctors 30: done.30 = true" },
+  { json = "observations.?label=milestone: Doctors 10.running", equals = true, label = "doctors, milestone: Doctors 10: running = true" },
+  { json = "observations.?label=milestone: Doctors 10.stage", equals = 0, label = "doctors, milestone: Doctors 10: stage = 0" },
+  { json = "observations.?label=milestone: Doctors 10.done.10", equals = false, label = "doctors, milestone: Doctors 10: done.10 = false" },
+  { json = "observations.?label=final: Doctors 20.stage", equals = 20, label = "doctors, final: Doctors 20: stage = 20" },
+  { json = "observations.?label=final: Doctors 20.done.20", equals = true, label = "doctors, final: Doctors 20: done.20 = true" },
+  { json = "steps.*.error", count = 0, label = "doctors: no step fails" },
+  { json = "given_errors.*", count = 0, label = "doctors: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-that-lucky-old-sun"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json: That Lucky Old Sun (VMS03): Haggerty (5), Fantastic (10), terminals, generator, tower console, Fantastic thanked (completed)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS03 5.running", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: running = true" },
+  { json = "observations.?label=milestone: VMS03 5.stage", equals = 5, label = "that-lucky-old-sun, milestone: VMS03 5: stage = 5" },
+  { json = "observations.?label=milestone: VMS03 5.done.5", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: done.5 = true" },
+  { json = "observations.?label=milestone: VMS03 5.objective.5.displayed", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: objective.5.displayed = true" },
+  { json = "observations.?label=final: VMS03 10.stage", equals = 10, label = "that-lucky-old-sun, final: VMS03 10: stage = 10" },
+  { json = "observations.?label=final: VMS03 10.done.10", equals = true, label = "that-lucky-old-sun, final: VMS03 10: done.10 = true" },
+  { json = "observations.?label=final: VMS03 10.objective.20.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMS03 10.objective.30.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.30.displayed = true" },
+  { json = "observations.?label=final: VMS03 completed.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: completed = true" },
+  { json = "observations.?label=final: VMS03 completed.objective.80.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: objective.80.completed = true" },
+  { json = "steps.*.error", count = 0, label = "that-lucky-old-sun: no step fails" },
+  { json = "given_errors.*", count = 0, label = "that-lucky-old-sun: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-cottonwood-cove"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/cottonwood-cove.actions.json: Left My Heart (vCCLeftMyHeart, completed) and Eye for an Eye (vCCEyeforaneye 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/cottonwood-cove.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/cottonwood-cove.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: vCCLeftMyHeart objective 10.running", equals = true, label = "cottonwood-cove, milestone: vCCLeftMyHeart objective 10: running = true" },
+  { json = "observations.?label=milestone: vCCLeftMyHeart objective 10.objective.10.displayed", equals = true, label = "cottonwood-cove, milestone: vCCLeftMyHeart objective 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: vCCLeftMyHeart objective 10.var.iMetFrank", equals = 1.0, label = "cottonwood-cove, milestone: vCCLeftMyHeart objective 10: var.iMetFrank = 1.0" },
+  { json = "observations.?label=milestone: family freed.objective.50.completed", equals = true, label = "cottonwood-cove, milestone: family freed: objective.50.completed = true" },
+  { json = "observations.?label=milestone: family freed.objective.100.displayed", equals = true, label = "cottonwood-cove, milestone: family freed: objective.100.displayed = true" },
+  { json = "observations.?label=milestone: family freed.var.iBuySlaves", equals = 3.0, label = "cottonwood-cove, milestone: family freed: var.iBuySlaves = 3.0" },
+  { json = "observations.?label=final: vCCLeftMyHeart completed.completed", equals = true, label = "cottonwood-cove, final: vCCLeftMyHeart completed: completed = true" },
+  { json = "observations.?label=final: vCCLeftMyHeart completed.objective.100.completed", equals = true, label = "cottonwood-cove, final: vCCLeftMyHeart completed: objective.100.completed = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.running", equals = true, label = "cottonwood-cove, milestone: vCCEyeforaneye started: running = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.objective.10.displayed", equals = true, label = "cottonwood-cove, milestone: vCCEyeforaneye started: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.objective.30.displayed", equals = true, label = "cottonwood-cove, milestone: vCCEyeforaneye started: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.var.iAstorAsked", equals = 2.0, label = "cottonwood-cove, milestone: vCCEyeforaneye started: var.iAstorAsked = 2.0" },
+  { json = "observations.?label=milestone: intel and bug.objective.10.completed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.10.completed = true" },
+  { json = "observations.?label=milestone: intel and bug.objective.20.completed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.20.completed = true" },
+  { json = "observations.?label=milestone: intel and bug.objective.30.completed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.30.completed = true" },
+  { json = "observations.?label=milestone: intel and bug.objective.40.displayed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: clear the cove.objective.40.completed", equals = true, label = "cottonwood-cove, milestone: clear the cove: objective.40.completed = true" },
+  { json = "observations.?label=milestone: clear the cove.objective.90.displayed", equals = true, label = "cottonwood-cove, milestone: clear the cove: objective.90.displayed = true" },
+  { json = "observations.?label=milestone: cove poisoned.var.iRadiationKill", equals = 1.0, label = "cottonwood-cove, milestone: cove poisoned: var.iRadiationKill = 1.0" },
+  { json = "observations.?label=milestone: cove poisoned.objective.90.completed", equals = true, label = "cottonwood-cove, milestone: cove poisoned: objective.90.completed = true" },
+  { json = "observations.?label=milestone: cove poisoned.objective.95.completed", equals = true, label = "cottonwood-cove, milestone: cove poisoned: objective.95.completed = true" },
+  { json = "observations.?label=milestone: cove poisoned.objective.100.displayed", equals = true, label = "cottonwood-cove, milestone: cove poisoned: objective.100.displayed = true" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.stage", equals = 100, label = "cottonwood-cove, final: vCCEyeforaneye 100: stage = 100" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.done.100", equals = true, label = "cottonwood-cove, final: vCCEyeforaneye 100: done.100 = true" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.completed", equals = true, label = "cottonwood-cove, final: vCCEyeforaneye 100: completed = true" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.objective.100.completed", equals = true, label = "cottonwood-cove, final: vCCEyeforaneye 100: objective.100.completed = true" },
+  { json = "steps.*.error", count = 0, label = "cottonwood-cove: no step fails" },
+  { json = "given_errors.*", count = 0, label = "cottonwood-cove: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-fail-beyond-the-beef"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-beyond-the-beef.actions.json: Beyond the Beef failed (VMS18 255): Ted killed first"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-beyond-the-beef.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-beyond-the-beef.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMS18 255.stage", equals = 255, label = "fail-beyond-the-beef, final: VMS18 255: stage = 255" },
+  { json = "observations.?label=final: VMS18 255.done.255", equals = true, label = "fail-beyond-the-beef, final: VMS18 255: done.255 = true" },
+  { json = "observations.?label=final: VMS18 255.failed", equals = true, label = "fail-beyond-the-beef, final: VMS18 255: failed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-beyond-the-beef: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-beyond-the-beef: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
