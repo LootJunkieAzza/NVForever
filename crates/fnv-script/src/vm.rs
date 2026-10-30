@@ -3027,6 +3027,7 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getangleex" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
+        "geteditorposition" => &[0, 1, 2, 3, 4, 5],
         _ => return None,
     })
 }
