@@ -1298,7 +1298,7 @@ mod tests {
     #[test]
     fn a_models_colour_change_is_answered_by_a_respawn() {
         let model = Piece {
-            tile: TileId(0),
+            tile: Ui::new().screen(),
             look: Look::Model { filename: r"Interface\HUD\AirTimer01.NIF".into(), animation: Some("Forward".into()) },
             rect: TileRect { left: 10.0, top: 20.0, width: 64.0, height: 64.0 },
             clip: None,

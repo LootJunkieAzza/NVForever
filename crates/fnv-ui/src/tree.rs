@@ -92,8 +92,22 @@ fn norm(path: &str) -> String {
     path.replace('/', "\\").to_ascii_lowercase()
 }
 
+/// A tile: its slot in the tree and the slot's generation when the tile was made. An
+/// unloaded tile's slot is used again for a later tile with the next generation, so an id
+/// kept past its tile's unloading names no tile ([`Ui::tile`] answers a dead, empty tile)
+/// and never the slot's new tile [design: #1039].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TileId(pub u32);
+pub struct TileId {
+    index: u32,
+    gen: u32,
+}
+
+impl TileId {
+    /// The tile's slot: the same for a later tile made there, so not an identity.
+    pub fn index(self) -> u32 {
+        self.index
+    }
+}
 
 /// [design] Creator of a tile; descendants retain that creator across includes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +144,17 @@ pub struct Trait {
     pub changed: u64,
     /// The change count when the expression was last worked out (0: never).
     evaluated: u64,
+    /// The traits (tile, index) the expression read when last worked out, valid while the
+    /// tree's shape is still `seen` (0: not known): with none of them changed since
+    /// `evaluated`, [`Ui::update`] skips it without working it out [design: #1039].
+    sources: Vec<(TileId, u32)>,
+    seen: u64,
+}
+
+impl Trait {
+    fn new(name: String, value: Value, expr: Option<Vec<Op>>, changed: u64) -> Trait {
+        Trait { name, value, expr, changed, evaluated: 0, sources: Vec::new(), seen: 0 }
+    }
 }
 
 /// A `<template>`: content kept to make tiles from later (`AddTileFromTemplate`, the
@@ -151,11 +176,28 @@ pub struct Tile {
     pub children: Vec<TileId>,
     pub traits: Vec<Trait>,
     pub templates: Vec<Template>,
-    /// False once unloaded; its id is not used again.
+    /// False once unloaded: [`Ui::tile`] answers such a tile for an id kept past its
+    /// tile's unloading.
     pub live: bool,
 }
 
+/// What [`Ui::tile`] answers for an unloaded tile's id.
+static DEAD: Tile = Tile::dead();
+
 impl Tile {
+    const fn dead() -> Tile {
+        Tile {
+            origin: Origin::Code,
+            kind: String::new(),
+            name: String::new(),
+            parent: None,
+            children: Vec::new(),
+            traits: Vec::new(),
+            templates: Vec::new(),
+            live: false,
+        }
+    }
+
     pub fn trait_index(&self, name: &str) -> Option<usize> {
         self.traits.iter().position(|t| t.name.eq_ignore_ascii_case(name))
     }
@@ -172,7 +214,17 @@ pub struct Ui {
     /// [design] Evaluated list entries and cumulative outcomes for this tree's lifetime.
     pub uio: crate::uio::Report,
     uio_tiles: HashSet<TileId>,
+    /// The tiles by slot; an unloaded tile's slot holds a dead tile until it is used again.
     tiles: Vec<Tile>,
+    /// Each slot's generation, one up each time its tile is unloaded.
+    slot_gens: Vec<u32>,
+    /// The slots of unloaded tiles, to use again [design: #1039, so opening and closing a
+    /// menu leaves the tree its size].
+    free: Vec<u32>,
+    /// One up whenever tiles are made, unloaded or changed other than in a value (renamed,
+    /// given a trait or a template): what a source names may have changed, so the sources
+    /// a trait read last are no longer known.
+    shape: u64,
     /// The loaded menus (and `globals()`, `screen()`, `strings()`), in load order.
     roots: Vec<TileId>,
     globals: Option<TileId>,
@@ -198,6 +250,12 @@ pub struct Ui {
     /// What the game's own code last wrote to a tile's trait, for the writes it makes only
     /// when its value changes, so a script's value in between lasts (`Ui::write_changed`).
     code_written: HashMap<(TileId, String), Value>,
+    /// Expressions [`Ui::update`] worked out (not skipped), for the tests.
+    #[cfg(test)]
+    pub(crate) evaluations: usize,
+    /// Work every expression out at every pass as before #1039, for the tests to compare.
+    #[cfg(test)]
+    pub(crate) never_skip: bool,
 }
 
 impl Ui {
@@ -218,6 +276,9 @@ impl Ui {
     /// Sets a trait as the game's code does for a value it writes only when the value
     /// changes: nothing when `v` is what the code wrote last, whatever a script set since.
     pub fn write_changed(&mut self, tile: TileId, name: &str, v: Value) {
+        if !self.is_live(tile) {
+            return;
+        }
         let key = (tile, name.to_string());
         if self.code_written.get(&key) == Some(&v) {
             return;
@@ -226,15 +287,45 @@ impl Ui {
         self.code_written.insert(key, v);
     }
 
+    /// The tile; for an id kept past its tile's unloading a dead tile (not `live`, no
+    /// name, children or traits).
     pub fn tile(&self, id: TileId) -> &Tile {
-        &self.tiles[id.0 as usize]
+        match self.slot(id) {
+            Some(i) => &self.tiles[i],
+            None => &DEAD,
+        }
     }
 
-    /// A tile to change (made, unloaded, renamed, its file traits or templates): the tree
-    /// is worked out again at the next [`Ui::update`]. Value writes go through `set_at`.
+    /// Whether the id names a loaded tile.
+    pub fn is_live(&self, id: TileId) -> bool {
+        self.slot(id).is_some()
+    }
+
+    /// The id's slot, when its tile is loaded.
+    fn slot(&self, id: TileId) -> Option<usize> {
+        let i = id.index as usize;
+        (self.slot_gens.get(i) == Some(&id.gen) && self.tiles[i].live).then_some(i)
+    }
+
+    /// How many slots the tree holds: the most tiles loaded at once, the pseudo-tiles
+    /// included.
+    pub fn tile_slots(&self) -> usize {
+        self.tiles.len()
+    }
+
+    /// How many tiles are loaded, the pseudo-tiles included.
+    pub fn live_tiles(&self) -> usize {
+        self.tiles.len() - self.free.len()
+    }
+
+    /// A loaded tile to change (made, unloaded, renamed, its file traits or templates):
+    /// the tree is worked out again at the next [`Ui::update`], every expression in it
+    /// (the shape changed). Value writes go through `set_at`.
     fn tile_mut(&mut self, id: TileId) -> &mut Tile {
         self.dirty = true;
-        &mut self.tiles[id.0 as usize]
+        self.shape += 1;
+        let i = self.slot(id).expect("a loaded tile");
+        &mut self.tiles[i]
     }
 
     pub fn screen(&self) -> TileId {
@@ -261,17 +352,19 @@ impl Ui {
 
     fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
         self.dirty = true;
-        let id = TileId(self.tiles.len() as u32);
-        self.tiles.push(Tile {
-            origin,
-            kind: kind.to_ascii_lowercase(),
-            name: name.to_string(),
-            parent,
-            children: Vec::new(),
-            traits: Vec::new(),
-            templates: Vec::new(),
-            live: true,
-        });
+        self.shape += 1;
+        let tile = Tile { origin, kind: kind.to_ascii_lowercase(), name: name.to_string(), parent, live: true, ..Tile::dead() };
+        let id = match self.free.pop() {
+            Some(index) => {
+                self.tiles[index as usize] = tile;
+                TileId { index, gen: self.slot_gens[index as usize] }
+            }
+            None => {
+                self.tiles.push(tile);
+                self.slot_gens.push(0);
+                TileId { index: self.tiles.len() as u32 - 1, gen: 0 }
+            }
+        };
         if let Some(p) = parent {
             self.tile_mut(p).children.push(id);
         }
@@ -305,7 +398,7 @@ impl Ui {
     fn recount_mod_tiles(&mut self) {
         self.mod_tiles.clear();
         for i in 0..self.tiles.len() {
-            let id = TileId(i as u32);
+            let id = TileId { index: i as u32, gen: self.slot_gens[i] };
             if self.tile(id).live && self.is_mod_added(id) {
                 self.count_mod_tile(id, true);
             }
@@ -453,13 +546,16 @@ impl Ui {
                 };
                 match self.read_doc(src, &path) {
                     Some(doc) => {
-                        let start = self.tiles.len();
+                        let start = self.tile(tile).children.len();
                         self.fill(src, tile, &doc.nodes, depth + 1, &included_origin);
                         // [design] Track this inclusion's tiles, rather than all uses of
                         // its filename: the same prefab may also occur in vanilla content.
+                        // They are the children it added to `tile` and theirs (slots are
+                        // used again, so they are no run of slots).
                         if e.attr("nvf_uio") == Some("true") && src.is_loose(&path) {
-                            for i in start..self.tiles.len() {
-                                let id = TileId(i as u32);
+                            let mut stack = self.tile(tile).children[start..].to_vec();
+                            while let Some(id) = stack.pop() {
+                                stack.extend(self.tile(id).children.iter().copied());
                                 let counted = self.is_mod_added(id);
                                 if self.uio_tiles.insert(id) && !counted && self.tile(id).live {
                                     self.count_mod_tile(id, true);
@@ -524,27 +620,46 @@ impl Ui {
         self.gen += 1;
         let gen = self.gen;
         let t = self.tile_mut(tile);
-        let new = Trait { name: e.name.clone(), value, expr, changed: gen, evaluated: 0 };
+        let new = Trait::new(e.name.clone(), value, expr, gen);
         match t.trait_index(&e.name) {
             Some(k) => t.traits[k] = new,
             None => t.traits.push(new),
         }
     }
 
-    /// Unloads a tile and everything in it.
+    /// Unloads a tile and everything in it, and frees their slots for later tiles;
+    /// nothing for an id whose tile is already unloaded.
     pub fn unload_tile(&mut self, id: TileId) {
+        if !self.is_live(id) {
+            return;
+        }
+        // Counted off while the tiles are all there: a tile's root is found through them.
+        let mut stack = vec![id];
+        let mut gone = Vec::new();
+        while let Some(t) = stack.pop() {
+            if self.is_mod_added(t) {
+                self.count_mod_tile(t, false);
+            }
+            stack.extend(self.tile(t).children.iter().copied());
+            gone.push(t);
+        }
         if let Some(p) = self.tile(id).parent {
             self.tile_mut(p).children.retain(|&c| c != id);
         }
         self.roots.retain(|&r| r != id);
-        let mut stack = vec![id];
-        while let Some(t) = stack.pop() {
-            if self.tile(t).live && self.is_mod_added(t) {
-                self.count_mod_tile(t, false);
-            }
-            let tile = self.tile_mut(t);
-            tile.live = false;
-            stack.extend(std::mem::take(&mut tile.children));
+        self.dirty = true;
+        self.shape += 1;
+        for &t in &gone {
+            let i = t.index as usize;
+            self.tiles[i] = Tile::dead();
+            self.slot_gens[i] = self.slot_gens[i].wrapping_add(1);
+            self.free.push(t.index);
+        }
+        // Forget what was kept by the tiles' ids, so nothing grows as menus open and close.
+        if !self.uio_tiles.is_empty() || !self.code_written.is_empty() {
+            let gone: HashSet<TileId> = gone.into_iter().collect();
+            self.uio_tiles.retain(|t| !gone.contains(t));
+            self.code_written.retain(|(t, _), _| !gone.contains(t));
         }
         self.gen += 1;
     }
@@ -666,12 +781,16 @@ impl Ui {
 
     /// Sets a tile's trait by name, making it when it is not there (the engine's own
     /// writes: the game code's `io()` traits, `screen()`'s size).
+    /// Nothing for an id whose tile is unloaded.
     pub fn set_trait(&mut self, tile: TileId, name: &str, v: Value) {
+        if !self.is_live(tile) {
+            return;
+        }
         let k = match self.tile(tile).trait_index(name) {
             Some(k) => k,
             None => {
                 let t = self.tile_mut(tile);
-                t.traits.push(Trait { name: name.to_string(), value: Value::default(), expr: None, changed: 0, evaluated: 0 });
+                t.traits.push(Trait::new(name.to_string(), Value::default(), None, 0));
                 t.traits.len() - 1
             }
         };
@@ -681,14 +800,17 @@ impl Ui {
     fn set_at(&mut self, t: TileId, k: usize, v: Value) {
         self.gen += 1;
         let gen = self.gen;
-        let tr = &mut self.tiles[t.0 as usize].traits[k];
+        let tr = &mut self.tiles[t.index as usize].traits[k];
         if v.differs(&tr.value) {
             tr.changed = gen;
             self.dirty = true;
         }
         tr.value = v;
-        // A trait set from outside keeps its value until a source changes again.
+        // A trait set from outside keeps its value until a source changes again. What it
+        // read last may have changed before this write, so the next update works it out
+        // to learn its sources again.
         tr.evaluated = gen;
+        tr.seen = 0;
     }
 
     /// Whether a path names a live menu, tile or trait (`IsComponentLoaded`).
@@ -841,19 +963,36 @@ impl Ui {
             return 0;
         }
         let mut changed = 0;
+        let mut sources = Vec::new();
         for _ in 0..MAX_PASSES {
             let mut this_pass = 0;
             for id in 0..self.tiles.len() {
                 if !self.tiles[id].live {
                     continue;
                 }
+                let tid = TileId { index: id as u32, gen: self.slot_gens[id] };
                 for k in 0..self.tiles[id].traits.len() {
-                    let tid = TileId(id as u32);
                     let tr = &self.tiles[id].traits[k];
                     let Some(ops) = tr.expr.as_ref() else { continue };
+                    // What it read last, unchanged since and still what its sources name
+                    // (the same shape): working it out would find the same and skip it.
+                    let skip = tr.evaluated != 0 && tr.seen == self.shape && tr.sources.iter().all(|&(t, j)| self.tiles[t.index as usize].traits[j as usize].changed <= tr.evaluated);
+                    #[cfg(test)]
+                    let skip = skip && !self.never_skip;
+                    if skip {
+                        continue;
+                    }
+                    #[cfg(test)]
+                    {
+                        self.evaluations += 1;
+                    }
                     let mut deps = 0;
-                    let v = self.eval(tid, ops, &mut deps);
-                    let tr = &self.tiles[id].traits[k];
+                    sources.clear();
+                    let v = self.eval_reading(tid, ops, &mut deps, &mut sources);
+                    let shape = self.shape;
+                    let tr = &mut self.tiles[id].traits[k];
+                    tr.sources.clone_from(&sources);
+                    tr.seen = shape;
                     if tr.evaluated != 0 && deps <= tr.evaluated {
                         continue;
                     }
@@ -939,12 +1078,13 @@ impl Ui {
         None
     }
 
-    fn read_trait(&self, me: TileId, src: &Src, name: &str, deps: &mut u64) -> Value {
+    fn read_trait(&self, me: TileId, src: &Src, name: &str, deps: &mut u64, sources: &mut Vec<(TileId, u32)>) -> Value {
         let Some(t) = self.resolve(me, src) else { return Value::default() };
         match self.tile(t).trait_index(name) {
             Some(k) => {
                 let tr = &self.tile(t).traits[k];
                 *deps = (*deps).max(tr.changed);
+                sources.push((t, k as u32));
                 tr.value.clone()
             }
             // A trait not there reads 0 [hypothesis].
@@ -955,12 +1095,19 @@ impl Ui {
     /// Works out an operator list on tile `me`; `deps` takes the latest change count of
     /// anything read.
     pub fn eval(&self, me: TileId, ops: &[Op], deps: &mut u64) -> Value {
+        self.eval_reading(me, ops, deps, &mut Vec::new())
+    }
+
+    /// [`Ui::eval`], and the traits read (tile, index) put in `sources`. What it reads
+    /// depends only on the tree's shape and the values read (`_filename_<n>` on a value
+    /// worked out before), so while neither changed it reads the same.
+    fn eval_reading(&self, me: TileId, ops: &[Op], deps: &mut u64, sources: &mut Vec<(TileId, u32)>) -> Value {
         let mut acc = Value::default();
         for (k, op) in ops.iter().enumerate() {
             let arg = match &op.arg {
                 Arg::None => Value::default(),
                 Arg::Const(v) => v.clone(),
-                Arg::Seq(inner) => self.eval(me, inner, deps),
+                Arg::Seq(inner) => self.eval_reading(me, inner, deps, sources),
                 Arg::Ref { src, name } => {
                     // `<copy … trait="_filename_"/>` after a number reads `_filename_<n>`
                     // [hypothesis: the meter and barter files pick a picture so].
@@ -968,7 +1115,7 @@ impl Ui {
                         (Value::Num(n), true) if op.kind == OpKind::Copy => format!("{name}{}", *n as i64),
                         _ => name.clone(),
                     };
-                    self.read_trait(me, src, &name, deps)
+                    self.read_trait(me, src, &name, deps, sources)
                 }
             };
             acc = apply(op.kind, acc, arg, me, k);
@@ -1037,7 +1184,7 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
         // every time [design: when the original draws is not known].
         OpKind::Rand => {
             let n = y.max(1.0) as u64;
-            let h = (me.0 as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (k as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+            let h = (me.index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (k as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
             num((h >> 33) as f64 % n as f64)
         }
         OpKind::Eq => Value::from_bool(acc.same(&a)),
