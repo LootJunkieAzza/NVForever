@@ -6006,7 +6006,7 @@ order = [[
 
 [[scenario]]
 name = "hud-enemy-bar-hurt-neutral"
-source = "issue #935 (docs/spec-notes/hud.md §8, points 2 and 6; private job hud_enemy5 a1-a3): out of combat a hurt neutral under the crosshair, not the activation target and with no prompt up, has the enemy bar, the weapon not drawn"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 2 and the [design] paragraph after the points; private job hud_enemy5 a1-a3): out of combat a hurt neutral under the crosshair, not the activation target and with no prompt up, has the enemy bar, the weapon not drawn"
 note = "Easy Pete held (SetRestrained) and put 350 units north of the player, beyond activation reach (150), then hurt by DamageActorValue; aimnpc turns the view onto him. He stays neutral: the crosshair is never red"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/hud_target.rs"]
@@ -6024,21 +6024,27 @@ manual = "enemy_bar_hurt_neutral.png: the bar at the bottom middle in the HUD's 
 
 [[scenario]]
 name = "hud-enemy-bar-picked-neutral"
-source = "issue #935 (docs/spec-notes/hud.md §8, point 3; private jobs hud_enemy4 s2, s3, hud_enemy5 a3a): out of combat a hurt actor that is the activation target, its prompt up, has no bar"
-note = "as hud-enemy-bar-hurt-neutral, Easy Pete put 100 units north, within activation reach, so the prompt names him"
+source = "issue #935 (docs/spec-notes/hud.md §8, points 2 and 3; private jobs hud_enemy4 s2, s3, hud_enemy5 a1, a3a): out of combat a hurt neutral under the crosshair has the bar; once he is the activation target, his prompt up, it goes"
+note = "as hud-enemy-bar-hurt-neutral, Easy Pete held 350 units north and hurt, the view turned onto him at 6 s: his bar, which the rule before #935 never gave a neutral. At 8 s he is put 100 units north, within activation reach, and the view turned onto him again at 9 s: the prompt names him and the bar goes in the same moment (the gap)"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/hud_target.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:100:0,4:damage:EasyPeteRef:Health:20", NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_SHOTS = "9:enemy_bar_picked_neutral.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:damage:EasyPeteRef:Health:20,8:moveto:EasyPeteRef:player:0:100:0", NVF_PLAY_TEST_CONTROL = "6:aimnpc,9:aimnpc,10:aimnpc", NVF_PLAY_TEST_SHOTS = "7.5:enemy_bar_picked_neutral_before.png,10.5:enemy_bar_picked_neutral.png" }
 args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
-run_seconds = 11
+run_seconds = 12
 expect = [
   { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto Easy Pete" },
   { re = 'reticle: prompt ".*" on "Easy Pete"', label = "he is the activation target, his prompt up" },
+  { gap = [{ re = 'reticle: prompt ".*" on "Easy Pete"' }, { text = "hud: enemy health off" }], range = [-0.5, 0.5], label = "the bar goes as he becomes the target" },
 ]
+order = [[
+  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %' },
+  { re = 'reticle: prompt ".*" on "Easy Pete"' },
+  { text = "hud: enemy health off" },
+]]
 forbid = [
-  { re = 'hud: enemy health \S', label = "no bar while he is the activation target" },
+  { re = 'reticle: hostile spread', label = "Easy Pete stays neutral" },
 ]
-manual = "enemy_bar_picked_neutral.png: the prompt under the crosshair names Easy Pete; no enemy bar"
+manual = "enemy_bar_picked_neutral_before.png: Easy Pete's bar in the HUD's main colour, part empty, no prompt; enemy_bar_picked_neutral.png: the prompt under the crosshair names Easy Pete; no enemy bar"
 
 [[scenario]]
 name = "hud-enemy-bar-full-hostile"
@@ -6073,30 +6079,31 @@ expect = [
 forbid = [
   { re = 'hud: enemy health off', label = "the bar stays while it fights" },
   { re = 'hud: enemy health .* held by the linger', label = "held by the fight, not by a linger" },
-  { re = 'test aid: aiming at', label = "never aimed at" },
+  { re = 'reticle: hostile spread', label = "never aimed at: a dog under the crosshair would turn it red" },
 ]
 manual = "enemy_bar_combat_unaimed.png: the sky; the enemy bar in red at the bottom middle, almost empty, the dog's name under it"
 
 [[scenario]]
 name = "hud-enemy-bar-linger"
-source = "issue #935 (docs/spec-notes/hud.md §8, point 5; private job hud_enemy5 b2): after the crosshair leaves a hurt actor out of combat its bar stays about 5.5 s, then goes (hud_target::LINGER_SECONDS)"
-note = "as hud-enemy-bar-hurt-neutral (Easy Pete held 350 units north and hurt), the view turned onto him at 6 s and up at the sky at 9 s. The original's neutral lingered at least 16 s [observed]; 5.5 s, the hostile's figure, is the hypothesis built"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 5; private job hud_enemy5 b2): after the crosshair leaves a hurt restrained hostile out of combat its bar stays about 5.5 s, then goes (hud_target::LINGER_SECONDS). The capture's figure is a hostile's: a neutral's bar stayed at least 16-18 s there, a known divergence not checked here"
+note = "sneak-attack-critical's gecko (NVCrGecko placed 300 units from the player at 3 s, held by SetRestrained at 3.2 s, UNSEEN so nothing starts a fight), as the capture's restrained gecko; hurt by DamageActorValue at 4 s, the view turned onto it at 6 s and up at the sky at 9 s. Held, it is out of combat and Game::would_attack is false, so the crosshair stays white and the bar takes the HUD's main colour, where the capture's held gecko turned the crosshair red (the colour is not this scenario's check)"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/hud_target.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:damage:EasyPeteRef:Health:20", NVF_PLAY_TEST_CONTROL = "6:aimnpc", NVF_PLAY_TEST_LOOK = "9:0:60", NVF_PLAY_TEST_SHOTS = "8.5:enemy_bar_linger_on.png,11:enemy_bar_linger_held.png,17:enemy_bar_linger_gone.png" }
-args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1,4:damage:0xFF000000:Health:5", NVF_PLAY_TEST_CONTROL = "6:aimactor", NVF_PLAY_TEST_LOOK = "9:0:60", NVF_PLAY_TEST_SHOTS = "8.5:enemy_bar_linger_on.png,11:enemy_bar_linger_held.png,17:enemy_bar_linger_gone.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 18
 expect = [
-  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %', label = "the hurt neutral under the crosshair has the bar" },
-  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} held by the linger', label = "the bar held after the crosshair left him" },
+  { re = 'test aid: aiming at actor FF[0-9A-F]{6}', label = "the view turned onto the gecko" },
+  { re = 'hud: enemy health \S.* 0xFF[0-9A-F]{6} \d+ %', label = "the hurt gecko under the crosshair has the bar" },
+  { re = 'hud: enemy health \S.* 0xFF[0-9A-F]{6} held by the linger', label = "the bar held after the crosshair left it" },
   { gap = [{ re = 'hud: enemy health .* held by the linger' }, { text = "hud: enemy health off" }], range = [5.3, 8.0], label = "and gone about 5.5 s later" },
 ]
 order = [[
-  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %' },
+  { re = 'hud: enemy health \S.* 0xFF[0-9A-F]{6} \d+ %' },
   { re = 'hud: enemy health .* held by the linger' },
   { text = "hud: enemy health off" },
 ]]
-manual = "enemy_bar_linger_on.png: Easy Pete's bar; enemy_bar_linger_held.png: the sky, the bar still up; enemy_bar_linger_gone.png: no bar"
+manual = "enemy_bar_linger_on.png: the gecko's bar; enemy_bar_linger_held.png: the sky, the bar still up; enemy_bar_linger_gone.png: no bar"
 
 [[scenario]]
 name = "hud-ammo-label"
