@@ -166,8 +166,11 @@ fn water_on_screen(
     placed: &PlacedWater,
     clip_from_world: Mat4,
     h: f32,
+    cam: Vec3,
 ) -> Option<SeenWater> {
-    let cells: Vec<(i32, i32)> = streamer.loaded.keys().copied().chain(dw.plane_cells()).collect();
+    // Nearest first, so the water named is the same every run (the maps' order is not).
+    let g = bevy_to_game(cam);
+    let cells = nearest_first(streamer.loaded.keys().copied().chain(dw.plane_cells()), cell_of(g.x, g.y));
     for c in cells {
         let Some((height, _)) = dw.surface(world, c) else { continue };
         if (height - h).abs() > SAME_HEIGHT {
@@ -178,6 +181,7 @@ fn water_on_screen(
             return Some(SeenWater::Cell(c));
         }
     }
+    let mut best: Option<(f32, u32)> = None;
     for (t, aabb, r) in placed {
         let m = t.affine();
         let (c, e) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
@@ -195,10 +199,23 @@ fn water_on_screen(
             continue;
         }
         if box_in_view(clip_from_world, &corners) {
-            return Some(SeenWater::Placed(r.0));
+            // The nearest one seen, the lower FormID on a tie.
+            let d = m.transform_point3(c).distance_squared(cam);
+            if best.is_none_or(|(bd, bf)| (d, r.0) < (bd, bf)) {
+                best = Some((d, r.0));
+            }
         }
     }
-    None
+    best.map(|(_, f)| SeenWater::Placed(f))
+}
+
+/// `cells` without repeats, nearest `centre` first (by grid steps both ways, then the
+/// cell's own coordinates), so the order does not depend on the maps they came from.
+fn nearest_first(cells: impl Iterator<Item = (i32, i32)>, centre: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut v: Vec<(i32, i32)> = cells.collect();
+    v.sort_unstable_by_key(|&(x, y)| ((x - centre.0).abs().max((y - centre.1).abs()), (x - centre.0).abs() + (y - centre.1).abs(), x, y));
+    v.dedup();
+    v
 }
 
 /// The wet part of a cell (`[x0, y0, x1, y1]`, game units) at game height `height`, its
@@ -312,7 +329,7 @@ fn update_reflection(
     // Only while water is on screen (module notes, "Only when water is seen").
     let seen = near_water.and_then(|h| {
         let clip_from_world = main_proj.get_clip_from_view() * main_gt.to_matrix().inverse();
-        water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h)
+        water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h, cam)
     });
     if seen.is_some() {
         *unseen_for = 0.0;
@@ -421,6 +438,14 @@ mod tests {
         assert!(box_in_view(view(Vec3::ZERO, 0.0), &corners));
         let far: [Vec3; 8] = corners.map(|c| c * 0.1 + Vec3::new(0.0, 0.0, 9000.0));
         assert!(!box_in_view(view(Vec3::ZERO, 0.0), &far));
+    }
+
+    #[test]
+    fn cells_come_nearest_first_whatever_their_order() {
+        let a = nearest_first([(5, 5), (0, 1), (2, 0), (0, 0), (1, 1), (0, 1)].into_iter(), (0, 0));
+        let b = nearest_first([(1, 1), (0, 1), (5, 5), (2, 0), (0, 0)].into_iter(), (0, 0));
+        assert_eq!(a, vec![(0, 0), (0, 1), (1, 1), (2, 0), (5, 5)]);
+        assert_eq!(a, b);
     }
 
     #[test]
