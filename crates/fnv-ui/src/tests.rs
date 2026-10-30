@@ -294,6 +294,7 @@ fn mod_roots_cover_injections_templates_and_loose_includes_once() {
         assert_eq!(ui.tile(ui.find_tile(path).unwrap()).origin, Origin::File { path: "menus\\prefabs\\child.xml".into(), loose: false });
     }
     assert_eq!(ui.mod_added_tiles(root), [loose]);
+    assert!(ui.has_mod_added_tiles(root));
     assert!(ui.inject_file(&src, "M/File", "Data/inject.xml"));
     let injected = ui.find_tile("M/File/Injected").unwrap();
     for path in ["M/File/Injected", "M/File/Injected/Loose", "M/File/Injected/Loose/Child/Grandchild"] {
@@ -320,6 +321,57 @@ fn mod_roots_cover_injections_templates_and_loose_includes_once() {
     assert_eq!(ui.tile(file).origin, Origin::File { path: "menu.xml".into(), loose: false });
     ui.unload_tile(root);
     assert!(ui.mod_added_tiles(root).is_empty());
+    assert!(!ui.has_mod_added_tiles(root));
+}
+
+#[test]
+fn the_mod_tile_answer_follows_injection_templates_and_unloading() {
+    // [design: #938] `has_mod_added_tiles` answers as `mod_added_tiles` walks, per menu.
+    let src = MemSource::default()
+        .with("hud.xml", r#"<menu name="HUD"><rect name="Piece"><template name="row"><rect name="Row"><rect name="Inner"/></rect></template></rect></menu>"#)
+        .with("start.xml", r#"<menu name="Start"><rect name="Panel"/></menu>"#);
+    let mut ui = Ui::new();
+    let hud = ui.load_menu(&src, "hud.xml").unwrap();
+    let start = ui.load_menu(&src, "start.xml").unwrap();
+    let agree = |ui: &Ui| {
+        for menu in [hud, start] {
+            assert_eq!(ui.has_mod_added_tiles(menu), !ui.mod_added_tiles(menu).is_empty());
+        }
+    };
+    assert!(!ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // A tile injected into another menu leaves the HUD's answer alone.
+    assert!(ui.inject_text(&src, "Start/Panel", r#"<rect name="MCM"><text name="Label"/></rect>"#));
+    assert!(ui.has_mod_added_tiles(start) && !ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // Injected with children: yes; the tree worked out leaves it so.
+    assert!(ui.inject_text(&src, "HUD/Piece", r#"<rect name="Gauge"><image name="Bar"/></rect>"#));
+    assert!(ui.has_mod_added_tiles(hud));
+    ui.update();
+    ui.set_trait(ui.find_tile("HUD/Piece").unwrap(), "x", Value::Num(3.0));
+    ui.update();
+    assert!(ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // A child of the injected tile unloaded: still yes; the injected tile unloaded: no.
+    ui.unload_tile(ui.find_tile("HUD/Piece/Gauge/Bar").unwrap());
+    assert!(ui.has_mod_added_tiles(hud));
+    ui.unload_tile(ui.find_tile("HUD/Piece/Gauge").unwrap());
+    assert!(!ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // A mod's template copy counts; the engine's own copies do not.
+    ui.add_code_tile_from_template(&src, "HUD/Piece", "row", Some("CodeRow")).unwrap();
+    assert!(!ui.has_mod_added_tiles(hud));
+    let row = ui.add_from_template(&src, "HUD/Piece", "row", Some("ModRow")).unwrap();
+    assert!(ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    ui.unload_tile(row);
+    assert!(!ui.has_mod_added_tiles(hud));
+    // The menu read again starts with none; unloading a menu forgets its count.
+    assert!(ui.inject_text(&src, "HUD", r#"<rect name="Again"/>"#));
+    let hud = ui.load_menu(&src, "hud.xml").unwrap();
+    assert!(!ui.has_mod_added_tiles(hud));
+    ui.unload_tile(start);
+    assert!(!ui.has_mod_added_tiles(start));
 }
 
 #[test]

@@ -127,7 +127,9 @@ or holds no `<menu>` is an error for that menu only.
    - Pointer state: `mouseover` and `clicked` on hotrects (task T8).
 
    The HUD's writes (`fnv_game::ui_hud::write`) are made only when something reads
-   them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD, or a
+   them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD
+   (`Ui::has_mod_added_tiles`: a count per menu kept where tiles are made, unloaded or
+   change origin, so neither this check nor the drawing walks the HUD a frame, #938), or a
    script that has called a UI function on the HUD (a path whose menu is `HUDMainMenu`:
    a trait read or set there, a tile injected, made from a template or unloaded there;
    calls on other menus and MCM's shorthands do not count, #937). Otherwise the frame

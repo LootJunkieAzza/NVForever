@@ -401,6 +401,7 @@ mod tests {
         let root = ui.load_menu(&src, "menus/hud.xml").unwrap();
         assert!(ui.warnings.iter().any(|w| w.contains("nested too deep")));
         assert!(ui.mod_added_tiles(root).is_empty());
+        assert!(!ui.has_mod_added_tiles(root));
         assert!(!ui.mod_tile_drawn(ui.tile(root).children[0], None));
     }
 
@@ -421,5 +422,9 @@ mod tests {
         assert!(ui.mod_tile_drawn(children[1], None));
         assert_eq!(ui.mod_added_tiles(root), [children[1]]);
         assert!(matches!(ui.tile(children[1]).origin, Origin::File { loose: false, .. }));
+        // [design: #938] The UIO tile counts, and no longer once the UIO tiles are forgotten.
+        assert!(ui.has_mod_added_tiles(root));
+        ui.configure_uio(&src, |_| false);
+        assert!(ui.mod_added_tiles(root).is_empty() && !ui.has_mod_added_tiles(root));
     }
 }

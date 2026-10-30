@@ -276,7 +276,7 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut f
     // the strings (their measure), so the first UI call reads them as a frame writes
     // them. The corners are written only with the tile-drawn HUD, and nothing waits then.
     let ui = &rt.game.ui_tree;
-    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| !ui.mod_added_tiles(m).is_empty());
+    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| ui.has_mod_added_tiles(m));
     if !(menus.hud || mod_tiles || rt.game.ui_used) {
         let widths = if rt.game.ui_files.is_some() { fonts.widths(&rt.game.ui_tree) } else { None };
         fnv_game::ui_hud::defer(&mut rt.game, shown, texts, widths);

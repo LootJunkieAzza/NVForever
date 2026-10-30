@@ -669,8 +669,10 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
+    // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
+    // walk or lay out (`fnv_ui::Ui::has_mod_added_tiles`, a kept count) [design: #938].
     let (pieces, roots) = match menu {
-        Some((ui, menu)) => {
+        Some((ui, menu)) if whole || ui.has_mod_added_tiles(menu) => {
             // The fonts of the text tiles drawn, read before measuring.
             let mut stack = if whole { vec![menu] } else { ui.mod_added_tiles(menu) };
             while let Some(t) = stack.pop() {
@@ -693,7 +695,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 pieces(ui, menu, &measured, Select::Mods { vanilla: None })
             }
         }
-        None => (Vec::new(), 0),
+        _ => (Vec::new(), 0),
     };
     // The whole menu's pieces come and go with the HUD's states; only the mods' count is
     // told then [design].
