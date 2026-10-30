@@ -345,8 +345,9 @@ History: §8 previously generalised the hostile screenshot to always red [hypoth
 [owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
 the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.
 
-[design: maintainer's choice, T12b B/M1; needs an issue] Keep the 31 ticks and current
-`lit_middle` rounding (code floors, above owner text says ceil). [observed: private jobs
+[design: maintainer's choice, T12b B/M1; needs an issue] Keep the 31 ticks and the
+owner's `ceil` above (`hud::lit_middle`; the health and action points bars floor, §14.3).
+[observed: private jobs
 hud_enemy2, e5_back; hud_enemy3, n2_away, g2_gecko_half] The original has at most 30,
 always even; `2 × floor(share × 15)` fits the captured shares. Draft issue: decide
 whether to replace the owner's 31-tick rule with the measured even-tick rule.

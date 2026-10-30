@@ -326,9 +326,10 @@ pub fn lit(value: f32, count: usize) -> usize {
 /// The ticks lit of a bar that empties from both ends towards its middle (the enemy's
 /// [observed: owner's playtest list 5, item 32]): from and to (exclusive), counted from
 /// the left. An odd tick left over goes from the right end first [design: centred ticks].
-/// The count rounds down [hypothesis: as the other bars].
+/// The count is a tick for any part of its share, kept with the 31 ticks [hypothesis;
+/// the original's differs, hud.md §8]: an actor still alive keeps a lit tick.
 pub fn lit_middle(value: f32, count: usize) -> (usize, usize) {
-    let n = lit(value, count);
+    let n = if value.is_finite() { ((value.clamp(0.0, 1.0) * count as f32).ceil() as usize).min(count) } else { 0 };
     let from = (count - n) / 2;
     (from, from + n)
 }
@@ -1115,8 +1116,10 @@ mod tests {
     fn the_enemy_bar_empties_from_both_ends() {
         assert_eq!(lit_middle(1.0, 31), (0, 31));
         assert_eq!(lit_middle(0.0, 31), (15, 15));
-        // Half: 15 lit, 16 gone, 8 from each end [hypothesis: as the other bars].
-        assert_eq!(lit_middle(0.5, 31), (8, 23));
+        // Half: 16 lit, 15 gone, 7 from the left and 8 from the right.
+        assert_eq!(lit_middle(0.5, 31), (7, 23));
+        // Alive at 2 % (0.62 of a tick): one tick still lit.
+        assert_eq!(lit_middle(0.02, 31), (15, 16));
         for i in 0..=100 {
             let (from, to) = lit_middle(i as f32 / 100.0, 31);
             assert!(to <= 31 && (31 - to) - from <= 1, "{i}: {from}..{to}");
