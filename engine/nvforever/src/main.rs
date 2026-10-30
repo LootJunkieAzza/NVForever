@@ -1554,6 +1554,7 @@ fn main() -> AppExit {
                     t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
                 info!("distant LOD at the end: {}", lod.describe());
+                info!("distant LOD blocks over the run: {}", lod.block_stats.describe());
                 info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame, {} switches of nodes shown and hidden by visibility tracks",
