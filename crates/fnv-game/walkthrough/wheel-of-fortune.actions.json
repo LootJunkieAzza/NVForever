@@ -1,0 +1,452 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Wheel of Fortune (VMS44): Logan's radiation suits found through the storage terminal and Boxcars, the police and fire station searches at Camp Searchlight (50)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: the NCR storage terminal at Camp Searchlight says where its radiation suits went (HasRadSuitLocation); Logan, told, wants them (10); Boxcars in Nipton points to them (15); the suit package is picked up (20); Logan, suited, searches the police station (30, 35) and the fire station (40, 45) with the player, whose pickups there count HasLoot (CampSearchlightLootPickups OnAdd); with 20 he takes the haul and turns on the player (50, 'Quest completed'). VMS44 has no stage flagged Complete Quest."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between Camp Searchlight and Nipton."
+  },
+  {
+   "op": "move_player",
+   "to": "0x00141392"
+  },
+  {
+   "op": "terminal",
+   "target": "0x00141392",
+   "item": 2,
+   "label": "storage terminal"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "var.HasRadSuitLocation"
+   ],
+   "label": "suit location"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100 (Logan's Speech 50 line)."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic031",
+   "label": "logan first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic008",
+   "label": "logan asks 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic041",
+   "label": "logan asks 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic047",
+   "label": "logan asks 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS44 10"
+  },
+  {
+   "op": "move_player",
+   "to": "vNiptonBoxcarsREF"
+  },
+  {
+   "op": "talk",
+   "actor": "vNiptonBoxcarsREF",
+   "label": "boxcars"
+  },
+  {
+   "op": "choose",
+   "topic": "VNiptonvNiptonBoxcars2Topic005",
+   "label": "boxcars 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.15"
+   ],
+   "label": "milestone: VMS44 15"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for finding the suit package in the cave Boxcars names (a container there): it is added to the player; the quest script sees it (20)."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "CampSearchlightRadSuit",
+   "count": 1
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 6
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS44 20"
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan suits"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic007",
+   "label": "logan suits 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic052",
+   "label": "logan suits 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic056",
+   "label": "logan suits 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic060",
+   "label": "logan suits 4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS44 30"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Logan's walk into the police station: his trigger (CampSearchlightLoganSearchPolice) sets 35 and enables the loot there."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:CampSearchlightLoganSearchPolice",
+   "actor": "LoganREF"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.35"
+   ],
+   "label": "milestone: VMS44 35"
+  },
+  {
+   "op": "note",
+   "text": "The player picks up the police station's loot (the PoliceLoot items) and empties its desks."
+  },
+  {
+   "op": "player_activate",
+   "target": "0x00148300"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x00148301"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x00148302"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x00148303"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x0014830B"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x001483B5"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x00148317",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x00148324",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014831F",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x00148322",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014C061",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014C062",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014C063",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014C064",
+   "to": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "var.HasLoot"
+   ],
+   "label": "police loot"
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan fire station"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic065",
+   "label": "logan fire station 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.40"
+   ],
+   "label": "milestone: VMS44 40"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Logan's walk into the fire station (CampSearchlightLoganSearchFire: 45, the FireLoot enabled)."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:CampSearchlightLoganSearchFire",
+   "actor": "LoganREF"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.45"
+   ],
+   "label": "milestone: VMS44 45"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x001483C7"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x001483C8"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x00143E78"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x001483C9"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x001483C5"
+  },
+  {
+   "op": "player_activate",
+   "target": "0x001483C6"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x00143E74",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x00143E72",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014C065",
+   "to": "player"
+  },
+  {
+   "op": "remove_all_items",
+   "from": "0x0014C066",
+   "to": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "var.HasLoot"
+   ],
+   "label": "fire loot"
+  },
+  {
+   "op": "move_player",
+   "to": "LoganREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LoganREF",
+   "label": "logan haul"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS44CampSearchlightLoganTopic068",
+   "label": "logan haul 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS44",
+   "fields": [
+    "stage",
+    "done.50"
+   ],
+   "label": "final: VMS44 50"
+  }
+ ]
+}
