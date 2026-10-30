@@ -534,6 +534,7 @@ mod tests {
   <xbuttonx> <ref src="OkButton" trait="_poke"/> </xbuttonx>
   <_PCButton_E> CancelButton </_PCButton_E>
   <_PCButton_H> HiddenButton </_PCButton_H>
+  <_PCBUTTON_S> OkButton </_PCBUTTON_S>
   <rect name="Main">
     <x> 100 </x> <y> 100 </y> <width> 800 </width> <height> 600 </height>
     <hotrect name="OkButton">
@@ -696,6 +697,11 @@ mod tests {
         let r = p.step(&mut ui, &[menu], &Input { keys: vec!["H".into(), "Q".into()], ..Input::default() }, &no_measure);
         assert!(r.clicks.is_empty() && r.unfollowed.is_empty(), "{r:?}");
         assert_eq!(ui.get_float("TestMenu/Main/CancelButton/clicked"), Some(0.0));
+        // The trait's name is compared without case: `_PCBUTTON_S`, as some vanilla files
+        // write it [observed: menu-xml.md §3.2], answers an S press.
+        let ok = id(&ui, "TestMenu/Main/OkButton");
+        let r = p.step(&mut ui, &[menu], &Input { keys: vec!["S".into()], ..Input::default() }, &no_measure);
+        assert_eq!(r.clicks, [Click { tile: ok, id: Some(1.0), by: By::Key("S".into()) }]);
     }
 
     #[test]
