@@ -1138,7 +1138,8 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   stays the file's: the health-to-face mapping is unmeasured.
 - [design] Five pieces leave KEPT_PIECES: HardcoreMode, Info, EnemyHealth, XPMeter,
   crippled_limb_indicator. Keep BreathMeter (NIF), Messages (text/icon copies absent),
-  QuestReminder/Region_Location (texts absent), Subtitles (text absent). Only the five
+  QuestReminder/Region_Location (texts absent), Subtitles (text absent) (as of T12b;
+  the texts leave it in §14.11, BreathMeter in §14.12, and it is empty since). Only the five
   visibility marker declarations move from the hand-built files into tiles/vanilla.rs;
   their drawing/timing logic and optional sneak gauges stay untouched. Prompt/enemy
   copies and XP readout widths are measured with the game fonts. Text zoom scales
@@ -1278,7 +1279,9 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   subtitle selection of `script_hud.rs`, and the hand-built showing rules (hidden and
   held behind a message box, in dialogue, while an idle holds the camera). The hand-built
   areas are hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`), their queues
-  still run; only `BreathMeter` stayed in `KEPT_PIECES` (until §14.12).
+  still run; the subtitles' area only while the tile renderer draws something (below,
+  "Differences"). `KEPT_PIECES` is empty: `BreathMeter`, the last kept piece, is drawn
+  from its tile since §14.12; `Region_Location` gets a discovery's copies (below).
 - **Messages** [design, places observed]: the icon, text and bracket are made in that
   order, so `*:0`-`*:2` are as read; the text at its read x 130, y 5, depth 2. Alpha:
   icon and text 255 × the queue's strength, the bracket 0.65 of that (the hand-built
@@ -1319,7 +1322,10 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   one tile stands the font's size under the one before (the hand-built 2 more); the
   subtitles stand under `Subtitles`' y (660, or raised by a prompt, §14.6), the
   hand-built ones on a fixed base 633; the tile renderer draws nothing in a menu (the
-  root hidden), the hand-built subtitles stay.
+  root's `visible` 0, written from `Shown::root`), and while it draws nothing the
+  hand-built subtitles are not hidden (`vanilla::{hide, root_drawn}`, the root live,
+  visible and with an alpha above 0 as the layout passes them down), so a line said
+  while a message box is up shows, drawn by hand.
 - **Subtitles** [design, observed place]: one centre-justified text at x 400, made at the
   first write with " ", hidden; while lines are drawn its string is the lines (one text a
   line), `visible` 1, wrapped at 800 [hypothesis: the hand-built HUD's width, its own
@@ -1335,9 +1341,11 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   subtitles_are_one_centred_text_there_from_the_start,
   a_rebuilt_tree_gets_its_copies_again_and_a_tree_without_the_pieces_none,
   a_discovery_is_written_under_region_location_too_and_drawn_once,
-  the_log_names_what_each_area_shows}`. Smoke `tiles-hud-notices`, `tiles-hud-discovered`,
-  `tiles-hud-subtitles`; the five other `tiles-*` scenarios expect only `BreathMeter`
-  kept.
+  the_log_names_what_each_area_shows}`,
+  `tiles::vanilla::the_hand_built_subtitles_stay_while_the_tiles_draw_nothing`. Smoke
+  `tiles-hud-notices`, `tiles-hud-discovered`, `tiles-hud-subtitles`; every `tiles-*`
+  scenario expects the start line to end `hand-built HUD hidden` (no piece kept, since
+  §14.12).
 
 ### 14.12 The breath meter from its `nif` tile (T12 leftovers, 2026-10-29)
 
