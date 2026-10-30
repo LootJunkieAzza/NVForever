@@ -282,8 +282,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
      there too. Only which names read text is used; what they read is not recorded and
      not used (the rule above). NVForever matches: unknown names read empty, lookups
      (including `MemSource`'s) ignore case.
-   - **T10b open**: the labels for the names the plugins leave undefined, written by
-     NVForever under the rule above, in `BUILT_IN`; until then those names read empty.
+   - **T10b done** 2026-10-30 (`claude/t10-strings-table`): `BUILT_IN` holds 140
+     entries (name, label, where the label came from), every name the vanilla files read
+     that the masters leave undefined except `sModffects` and `sReputationSwap` (empty
+     in the original too), plus `sExplosive` (only in a comment); `strings::built_in`
+     and `fnv_game::ui_loading::game_string` read it. The tutorial menu and the lockpick
+     menu and its help take their words from it by the names their files use. Tests:
+     `strings::tests::the_shipped_table_is_one_labelled_entry_per_name`,
+     `the_load_order_wins_over_the_shipped_table`. Smoke `ui-tree-in-game` expects one
+     name without text at start (`sModffects`).
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.

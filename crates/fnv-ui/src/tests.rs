@@ -381,7 +381,7 @@ fn game_strings_resolve_from_the_load_order_then_the_built_in_table() {
             self.strings.get(name)
         }
     }
-    const BUILT_IN: &[(&str, &str)] = &[("sNvfButton", "built-in button"), ("sNvfTitle", "built-in title")];
+    const BUILT_IN: &[crate::strings::Entry] = &[("sNvfButton", "built-in button", "test"), ("sNvfTitle", "built-in title", "test")];
     let mem = MemSource::default().with(
         "menus/s.xml",
         r#"<menu name="S">
