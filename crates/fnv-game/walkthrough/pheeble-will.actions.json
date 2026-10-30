@@ -70,9 +70,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS25",
    "fields": [
@@ -161,9 +158,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS25",
    "fields": [
@@ -245,9 +239,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "get_quest",

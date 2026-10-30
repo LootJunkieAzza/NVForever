@@ -1,0 +1,124 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless There Stands the Grass (VMS06): Doctor Hildern's Vault 22 research data downloaded and returned (30)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Doctor Hildern at Camp McCarran asks for Vault 22's research data (10); the data is downloaded at Vault 22's mainframe terminal (20); handed to Hildern (30, Complete Quest). Keely's way (31, 32) is not run."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between Camp McCarran and Vault 22."
+  },
+  {
+   "op": "move_player",
+   "to": "ThomasHildernREF"
+  },
+  {
+   "op": "talk",
+   "actor": "ThomasHildernREF",
+   "label": "hildern asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic000",
+   "label": "hildern asks 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic011",
+   "label": "hildern asks 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic015",
+   "label": "hildern asks 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS06",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS06 10"
+  },
+  {
+   "op": "move_player",
+   "to": "V22DownloadMainframeREF"
+  },
+  {
+   "op": "terminal",
+   "target": "V22DownloadMainframeREF",
+   "item": 0,
+   "label": "download"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS06",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS06 20"
+  },
+  {
+   "op": "move_player",
+   "to": "ThomasHildernREF"
+  },
+  {
+   "op": "talk",
+   "actor": "ThomasHildernREF",
+   "label": "hildern data"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic030",
+   "label": "hildern data 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic032",
+   "label": "hildern data 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic042",
+   "label": "hildern data 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS06ThomasHildernTopic038",
+   "label": "hildern data 4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS06",
+   "fields": [
+    "stage",
+    "done.30",
+    "completed"
+   ],
+   "label": "final: VMS06 30"
+  }
+ ]
+}

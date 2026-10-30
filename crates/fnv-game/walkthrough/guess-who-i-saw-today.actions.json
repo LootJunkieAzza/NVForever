@@ -128,9 +128,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS41",
    "fields": [
@@ -161,9 +158,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS41",
    "fields": [
@@ -192,9 +186,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "get_quest",
@@ -250,9 +241,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS41",
    "fields": [
@@ -282,9 +270,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "get_quest",

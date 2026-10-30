@@ -76,9 +76,6 @@
    "op": "end_talk"
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS52",
    "fields": [
@@ -106,9 +103,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "end_talk"
@@ -146,9 +140,6 @@
    "op": "end_talk"
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS52",
    "fields": [
@@ -176,9 +167,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "end_talk"
@@ -216,9 +204,6 @@
    "op": "end_talk"
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS52",
    "fields": [
@@ -246,9 +231,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "end_talk"
@@ -371,9 +353,6 @@
    "op": "end_talk"
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "move_player",
    "to": "0x0011EBDC"
   },
@@ -398,9 +377,6 @@
    "op": "end_talk"
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "move_player",
    "to": "0x0015362C"
   },
@@ -420,9 +396,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "end_talk"
@@ -503,9 +476,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS52",
    "fields": [
@@ -559,9 +529,6 @@
   {
    "op": "advance_seconds",
    "seconds": 5
-  },
-  {
-   "op": "end_talk"
   },
   {
    "op": "get_quest",

@@ -220,9 +220,6 @@
    "seconds": 5
   },
   {
-   "op": "end_talk"
-  },
-  {
    "op": "get_quest",
    "quest": "VMS12",
    "fields": [
