@@ -38,15 +38,15 @@ const AREA_WIDTH: f32 = 460.0;
 /// The area's corner in the view.
 const AREA: (f32, f32) = (25.0, 55.0);
 /// Where the text starts, and how far under the area's top its first line stands.
-const TEXT_X: f32 = 130.0;
+pub(crate) const TEXT_X: f32 = 130.0;
 const TEXT_BASE: f32 = 30.0;
 /// Lines are the font's size and this much apart.
 const LEADING: f32 = 2.0;
 /// The text is broken at what is left of the area's width [hypothesis: the screenshot's
 /// text breaks between 228 and 336 units, §4].
-const WRAP: f32 = AREA_WIDTH - TEXT_X;
+pub(crate) const WRAP: f32 = AREA_WIDTH - TEXT_X;
 /// The bracket is drawn fainter than the icon and the text.
-const BRACKET_STRENGTH: f32 = 0.65;
+pub(crate) const BRACKET_STRENGTH: f32 = 0.65;
 
 // ---- NVForever's own [design, §5] -------------------------------------------------------
 
@@ -59,7 +59,7 @@ const MAX_WAITING: usize = 64;
 
 const BRACKET_FILE: &str = "interface\\icons\\mood\\glow_messages_seperator_left.dds";
 /// The icon of a message without one [documented: GECK wiki, Message].
-const DEFAULT_ICON: &str = "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds";
+pub(crate) const DEFAULT_ICON: &str = "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds";
 /// Font 7 [documented: the file's text template; Fallout_default.ini `sFontFile_7`].
 const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
@@ -160,8 +160,9 @@ impl Plugin for CornerMessagesPlugin {
     }
 }
 
-#[derive(Component)]
-pub(crate) struct AreaRoot;
+// The area's root; the marker lives with the tile HUD's, which hides it while the HUD is
+// drawn from tiles (`crate::tiles::vanilla::hide_hand_built`).
+pub(crate) use crate::tiles::vanilla::MessagesArea as AreaRoot;
 
 /// A picture or text that carries the interface's colour, to come and go with the
 /// message, and how strongly it is drawn when the message is fully there.

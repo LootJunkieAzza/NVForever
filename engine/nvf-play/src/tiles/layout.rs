@@ -69,13 +69,22 @@ pub struct Text {
     pub wrapwidth: Option<f64>,
 }
 
+/// A `nif` tile's model and the sequence it plays [documented: hud_main_menu.xml's
+/// `BreathMeter`, `filename` and `animation`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Nif {
+    pub filename: String,
+    /// The sequence's name; `None` without one or with an empty one.
+    pub animation: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     Rect,
     Image(Image),
     Text(Text),
     Hotrect,
-    Nif,
+    Nif(Nif),
     Radial,
     Window,
     Menu,
@@ -155,7 +164,10 @@ fn kind(tile: &Tile) -> Kind {
             wrapwidth: optional(tile, "wrapwidth"),
         }),
         "hotrect" => Kind::Hotrect,
-        "nif" => Kind::Nif,
+        "nif" => Kind::Nif(Nif {
+            filename: tile.get("filename").map(Value::text).unwrap_or_default(),
+            animation: tile.get("animation").map(|v| v.text().trim().to_string()).filter(|a| !a.is_empty()),
+        }),
         "radial" => Kind::Radial,
         "window" => Kind::Window,
         "menu" => Kind::Menu,
@@ -354,7 +366,7 @@ mod tests {
             Kind::Image(Image { filename: "pic.dds".into(), zoom: 75.0, tile: Some(2.0), cropx: Some(3.0), cropy: Some(4.0), texatlas: Some(Value::Str("atlas.tai".into())) })
         );
         assert_eq!(items[1].colour, Colour { red: 0.0, green: 128.0, blue: 255.0, brightness: 160.0, systemcolor: Some(7.0), systemcolor_name: None });
-        assert_eq!(items[2].kind, Kind::Nif);
+        assert_eq!(items[2].kind, Kind::Nif(Nif::default()));
         assert_eq!(items[3].kind, Kind::Radial);
         assert_eq!(items[4].kind, Kind::Window);
         assert_eq!(items[4].colour.systemcolor_name.as_deref(), Some("hudmain"));
