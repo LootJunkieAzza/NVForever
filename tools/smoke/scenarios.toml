@@ -10055,7 +10055,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 16
 expect = [
   { re = 'ui: 6 menus loaded \(\d+ tiles\), \d+ warnings', label = "the six menus load from the VFS" },
-  { re = 'ui: game strings: [1-9]\d* read, \d+ without text', label = "the six menus' game strings are looked up and counted (T10, menu-xml.md §2.4)" },
+  { re = 'ui: game strings: [1-9]\d* read, 1 without text', label = "the six menus' game strings all have text but sModffects, empty in the original too: the load order, then NVForever's labels (T10, menu-xml.md §2.4)" },
   { re = 'script: print "nvf hud depth -?\d+(?:\.\d+)?"', label = "GetUIFloat prints the HUD file's depth" },
   { re = 'script: print "nvf hud depth -999(?:\.0+)?"', count = 0, label = "the HUD depth exists" },
   { re = 'console: SetUIFloat "HUDMainMenu/depth" 37 >> ran', label = "the console compiles and runs SetUIFloat" },
