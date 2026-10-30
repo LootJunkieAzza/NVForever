@@ -57,6 +57,8 @@ pub struct OtherState {
     pub owner_ranks: HashMap<FormId, i32>,
     /// SetZoneMinLevel's and SetZoneOwner's changes, by encounter zone (`nvse_anh`).
     pub zone_changes: HashMap<FormId, crate::nvse_anh::ZoneChange>,
+    /// SetShowOffDebugMode's switch (nothing more is printed).
+    pub showoff_debug: bool,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
