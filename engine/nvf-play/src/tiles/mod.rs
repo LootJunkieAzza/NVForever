@@ -117,7 +117,8 @@ impl HudTiles<'_> {
         let notices = !driven && *self.state.get() != PlayState::Dialogue && !self.panel.as_ref().is_some_and(|p| p.view.is_some());
         let quest = self.quests.as_ref().and_then(|q| q.showing());
         // Map discovery to Region_Location [hypothesis: hud.md §14; one queue here]. The
-        // tile HUD draws it under QuestReminder, where the owner's screenshot shows it
+        // tile HUD writes it under both: Region_Location's copies hold its traits (not
+        // drawn), QuestReminder's are drawn, where the owner's screenshot shows it
         // (`notices`, hud.md §14.11).
         let location = matches!(quest, Some(crate::script_events::QuestNotice::Discovered(_)));
         // hud_needs::watch/draw: H20/FOD/SLP in Hardcore, RAD and LMB in every mode
@@ -201,7 +202,8 @@ impl HudTiles<'_> {
             Some(match n {
                 QuestNotice::Objectives(list) => notices::Quest::Objectives { list: list.iter().map(|o| (crate::quest_messages::objective_text(o), o.completed)).collect(), strength },
                 QuestNotice::Added(name) | QuestNotice::Completed(name) | QuestNotice::Failed(name) | QuestNotice::Discovered(name) => {
-                    notices::Quest::Banner { label: crate::quest_messages::label(n).unwrap_or_default().into(), name: name.clone(), strength }
+                    let discovered = matches!(n, QuestNotice::Discovered(_));
+                    notices::Quest::Banner { label: crate::quest_messages::label(n).unwrap_or_default().into(), name: name.clone(), strength, discovered }
                 }
             })
         });
@@ -301,7 +303,7 @@ fn write(
     menus: Res<vanilla::TileMenus>,
     time: Res<Time>,
     mut animation: Local<fnv_game::ui_hud::Animation>,
-    mut told: Local<[Option<String>; 3]>,
+    mut told: Local<[Option<String>; 4]>,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);

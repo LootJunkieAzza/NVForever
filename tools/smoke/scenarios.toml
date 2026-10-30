@@ -10222,7 +10222,7 @@ manual = "tiles_hud_notices_banner.png: \"Quest added\" over BACK IN THE SADDLE 
 
 [[scenario]]
 name = "tiles-hud-discovered"
-source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'You have discovered' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets nothing"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'You have discovered' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets the same banner's copies, hidden (drawn once) [hypothesis: hud.md §14 maps discoveries to Region_Location]"
 note = "as reputation-box's start, without its reputation steps"
 areas = ["ui", "hud", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/quest_messages.rs"]
@@ -10232,6 +10232,7 @@ run_seconds = 10
 expect = [
   { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found (the hand-built queue)" },
   { re = 'tiles: QuestReminder banner You have discovered: GOODSPRINGS', label = "the tile HUD draws the same line" },
+  { re = 'tiles: Region_Location banner You have discovered: GOODSPRINGS \(not drawn\)', label = "the tile HUD writes it under Region_Location too, not drawn there" },
 ]
 manual = "tiles_hud_discovered.png: \"You have discovered\" over GOODSPRINGS at the left, as on reputation-box's frame at 6 s, once"
 

@@ -84,8 +84,10 @@ pub(crate) fn setup(app: &mut App) {
 /// [design] Remaining hand-built pieces: none. Settled T12b pieces draw from tiles (hud.md
 /// §14.8); the messages, quest notices and subtitles since their copies are written
 /// (`super::notices`, hud.md §14.11); the breath meter since `nif` tiles are drawn
-/// (`super::model`, hud.md §14.12). `Region_Location` is no longer kept: nothing is made
-/// under it (what the original shows there is not known) and its file rect draws nothing.
+/// (`super::model`, hud.md §14.12). `Region_Location` is no longer kept: a discovery's
+/// label and name copies are written under it (`super::notices`, hud.md §14.11)
+/// [hypothesis: hud.md §14 maps discoveries to Region_Location; the capture saw no copies
+/// there, so their layout is the quest banner's], hidden, as `QuestReminder`'s draw it.
 /// Kept as a list for a piece that has to go back to being hand-built.
 pub const KEPT_PIECES: [&str; 0] = [];
 

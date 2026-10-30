@@ -678,8 +678,9 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   XP drawing, and the message queues, for those children and the ones still to capture;
   subtitles share the drawing's selection. Discovery notices map to `Region_Location`,
   other quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
-  Since §14.11 the tile HUD draws discoveries under `QuestReminder`, where the owner's
-  screenshot shows them; `Shown::location` still only tells which kind of line shows.
+  Since §14.11 the tile HUD writes a discovery's copies under both `Region_Location` and
+  `QuestReminder` and draws `QuestReminder`'s, where the owner's screenshot shows them;
+  `Shown::location` still only tells which kind of line shows.
 - [hypothesis] T4a truncates W and W/2 before subtracting offsets: at 16:9,
   `1706.67 - 386` truncates to 1320 (nearest would give 1321); the truncated middle
   853 keeps the reticle's half-unit offset and reproduces its child's x 820.5.
@@ -981,7 +982,7 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 | `hud_limbs.rs` | `crippled_limb_indicator` | tiles (§14.8) |
 | `hud_breath.rs` | `BreathMeter` | tiles (§14.12): its `nif` tile drawn with the hand-built meter's model reader; the showing rule and the breath stay the hand-built HUD's |
 | `corner_messages.rs` | `Messages` | tiles (§14.11): the bracket, text and icon copies; the queue stays hand-built |
-| `quest_messages.rs` | `QuestReminder` (`Region_Location` gets nothing) | tiles (§14.11): banner and objective copies; the queue and sounds stay hand-built |
+| `quest_messages.rs` | `QuestReminder`, discoveries also `Region_Location` | tiles (§14.11): banner and objective copies (a discovery's banner also under `Region_Location`, not drawn there); the queue and sounds stay hand-built |
 | `script_hud.rs` subtitles | `Subtitles` | tiles (§14.11): its text copy; the selection stays hand-built |
 | `sneak_gauges.rs` (NVForever's own, off by default) | none | hand-built |
 
@@ -1291,9 +1292,21 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   square; the file's templates say x -20 and 16 x 16 for the open one) [observed:
   quest-messages.md §4-§5]. Surplus copies are hidden, not removed. A discovery ("You
   have discovered" over the name) is a banner here, where the owner's screenshot shows it
-  [observed: quest-messages.md, "Discovered"]; `Region_Location` (45, 728) gets nothing:
-  what the original shows there is not known [hypothesis: a region or location name on
-  entering one].
+  [observed: quest-messages.md, "Discovered"].
+- **Discoveries under `Region_Location`** [hypothesis: hud.md §14 maps discoveries to
+  Region_Location; the capture saw no copies there, so their layout is the quest
+  banner's]: at the first discovery a label and a name copy (`template_justify_left_text`,
+  no bracket: the hand-built HUD draws a discovery as the label and the name only) are
+  made under `Region_Location` (45, 728), at the quest banner's places moved to its top
+  left, so they stand where the hand-built HUD draws a discovery: the label at (0, -505),
+  the name in font 8 at (-1.5, -441). Their strings and alpha follow the queue as
+  `QuestReminder`'s banner (alpha 0 with the last discovery held while another notice or
+  none shows); their `visible` stays 0 [design]: the same notice is drawn once, from
+  `QuestReminder`'s copies, because the hand-built drawing's place (the label's top 223,
+  the name's 287) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
+  `Region_Location`'s (45, 728, 100 x 100). What the original draws under
+  `Region_Location` on entering a named place (a region or location name) is still not
+  known.
 - **Differences from the hand-built drawing** [design]: the quest's name fades as one
   tile (the hand-built letters come one after another over 0.6 s); a wrapped line inside
   one tile stands the font's size under the one before (the hand-built 2 more); the
@@ -1314,6 +1327,7 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   a_quest_banner_and_its_objectives_take_the_hand_built_places,
   subtitles_are_one_centred_text_there_from_the_start,
   a_rebuilt_tree_gets_its_copies_again_and_a_tree_without_the_pieces_none,
+  a_discovery_is_written_under_region_location_too_and_drawn_once,
   the_log_names_what_each_area_shows}`. Smoke `tiles-hud-notices`, `tiles-hud-discovered`,
   `tiles-hud-subtitles`; the five other `tiles-*` scenarios expect only `BreathMeter`
   kept.
