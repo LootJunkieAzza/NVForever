@@ -188,6 +188,9 @@ pub fn place_in(piece: &Piece, origin: Vec2, at: Vec2, zoom: f32) -> (Vec2, Vec2
     (Vec2::new(piece.centre.x - origin.x, origin.y - piece.centre.y) * zoom + at, piece.size * zoom)
 }
 
+/// Reads a texture by its game path: the image and its size in texels.
+pub(crate) type TextureRead<'a> = dyn FnMut(&str) -> Option<(Handle<Image>, Vec2)> + 'a;
+
 /// Spawn the model's pieces under `p`: each a picture of its texture's part turned to its
 /// angle, `place` giving its centre and size in the box ([`place_in`]), drawn in `colour`,
 /// shown as `shown` says and carrying `mark`. `texture` reads a texture by its game path
@@ -198,7 +201,7 @@ pub(crate) fn spawn_pieces<M: Component>(
     model: &MeterModel,
     place: impl Fn(&Piece) -> (Vec2, Vec2),
     colour: Color,
-    texture: &mut dyn FnMut(&str) -> Option<(Handle<Image>, Vec2)>,
+    texture: &mut TextureRead<'_>,
     mark: impl Fn(&Piece) -> M,
     shown: impl Fn(&Piece) -> bool,
 ) {

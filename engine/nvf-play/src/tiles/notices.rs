@@ -152,10 +152,13 @@ fn pool(ui: &mut Ui, piece: &str, template: &str, role: &str, n: usize) -> Vec<T
     have
 }
 
+/// A text's line count at a wrap width, and the line height.
+type LineCount<'a> = dyn Fn(&str, Option<f64>) -> (usize, f64) + 'a;
+
 /// Write the three areas' copies, after T4's writes, before scripts, only while the HUD
 /// is a tile menu (`super::write`). `lines` gives a text's line count at a wrap width and
 /// the line height, in font 7 (the objectives' places follow the lines before them).
-pub fn write(ui: &mut Ui, n: &Notices, lines: &dyn Fn(&str, Option<f64>) -> (usize, f64)) {
+pub fn write(ui: &mut Ui, n: &Notices, lines: &LineCount<'_>) {
     if ui.find_tile(HUD).is_none() {
         return;
     }
@@ -204,7 +207,7 @@ fn write_message(ui: &mut Ui, m: Option<&Message>) {
 /// not read; the first objective's top, 39, is next to `QuestStages`' 40]. A discovery is
 /// a banner here too [observed: the owner's screenshot "Discovered" at "Quest added"'s place
 /// and fonts, quest-messages.md].
-fn write_quest(ui: &mut Ui, q: Option<&Quest>, lines: &dyn Fn(&str, Option<f64>) -> (usize, f64)) {
+fn write_quest(ui: &mut Ui, q: Option<&Quest>, lines: &LineCount<'_>) {
     if ui.find_tile(&format!("{HUD}/QuestReminder")).is_none() {
         return;
     }
