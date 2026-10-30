@@ -13500,3 +13500,54 @@ expect = [
   { json = "given_errors.*", count = 0, label = "fail-dead-money-gala: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-lonesome-road-camarader-e"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-camarader-e.actions.json (LonesomeRoad.esm): the main chain to ED-E following, then two Eyebot Upgrade Circuit Boards taken from destroyed eyebots: Camarader-E ranks 1 and 2 (NVDLC04GenericPerkQUEST 10, 12)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-camarader-e.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-camarader-e.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Camarader-E rank 1.stage", equals = 10, label = "lonesome-road-camarader-e milestone: Camarader-E rank 1: stage = 10" },
+  { json = "observations.?label=milestone: Camarader-E rank 1.var.nCamaradeRERank", equals = 1.0, label = "lonesome-road-camarader-e milestone: Camarader-E rank 1: var.nCamaradeRERank = 1.0" },
+  { json = "observations.?label=milestone: Camarader-E rank 2.stage", equals = 12, label = "lonesome-road-camarader-e milestone: Camarader-E rank 2: stage = 12" },
+  { json = "observations.?label=final: Camarader-E.value", equals = 1.0, label = "lonesome-road-camarader-e final: Camarader-E: value = 1.0" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-camarader-e: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-camarader-e: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-lonesome-road-launch-ncr"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-launch-ncr.actions.json (LonesomeRoad.esm): the main chain to the Temple of the Union, the missiles launched at the NCR only, the end slides and the completion (NVDLC04MQ04 100), NVDLC04BearSlayerPerk (NVDLC04GenericPerkQUEST 70)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-launch-ncr.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-launch-ncr.actions.json"]]
+expect = [
+  { json = "observations.?label=MQ03b 255, target 1.var.nMissileTarget", equals = 1.0, label = "lonesome-road-launch-ncr MQ03b 255, target 1: var.nMissileTarget = 1.0" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at the NCR).completed", equals = true, label = "lonesome-road-launch-ncr final: MQ04 100: completed = true" },
+  { json = "observations.?label=NVDLC04BearSlayerPerk.value", equals = 1.0, label = "lonesome-road-launch-ncr NVDLC04BearSlayerPerk: value = 1.0" },
+  { json = "observations.?label=milestone: GenericPerkQUEST 70 (the target's perk).stage", equals = 70, label = "lonesome-road-launch-ncr milestone: GenericPerkQUEST 70: stage = 70" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-launch-ncr: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-launch-ncr: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-lonesome-road-launch-legion"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-launch-legion.actions.json (LonesomeRoad.esm): the main chain to the Temple of the Union, the missiles launched at the Legion only, the end slides and the completion (NVDLC04MQ04 100), NVDLC04ScourgeOfTheEastPerk (NVDLC04GenericPerkQUEST 80)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-launch-legion.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-launch-legion.actions.json"]]
+expect = [
+  { json = "observations.?label=MQ03b 255, target 2.var.nMissileTarget", equals = 2.0, label = "lonesome-road-launch-legion MQ03b 255, target 2: var.nMissileTarget = 2.0" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at the Legion).completed", equals = true, label = "lonesome-road-launch-legion final: MQ04 100: completed = true" },
+  { json = "observations.?label=NVDLC04ScourgeOfTheEastPerk.value", equals = 1.0, label = "lonesome-road-launch-legion NVDLC04ScourgeOfTheEastPerk: value = 1.0" },
+  { json = "observations.?label=milestone: GenericPerkQUEST 80 (the target's perk).stage", equals = 80, label = "lonesome-road-launch-legion milestone: GenericPerkQUEST 80: stage = 80" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-launch-legion: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-launch-legion: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
