@@ -64,30 +64,6 @@
   },
   {
    "op": "note",
-   "text": "The player opens the Pip-Boy (its inventory, a MenuMode 1 menu) with the limb still crippled: the MenuMode 1 block sets 212."
-  },
-  {
-   "op": "menu",
-   "menu": 1002
-  },
-  {
-   "op": "wait_frames",
-   "frames": 600
-  },
-  {
-   "op": "menu",
-   "menu": null
-  },
-  {
-   "op": "get_quest",
-   "quest": "CGTutorial",
-   "fields": [
-    "done.212"
-   ],
-   "label": "milestone: CGTutorial 212"
-  },
-  {
-   "op": "note",
    "text": "Stand-in for chems bought and taken until the player is hooked."
   },
   {
@@ -154,7 +130,31 @@
    "fields": [
     "done.218"
    ],
-   "label": "final: CGTutorial 218"
+   "label": "milestone: CGTutorial 218"
+  },
+  {
+   "op": "note",
+   "text": "The player opens the Pip-Boy (its inventory, a MenuMode 1 menu) with the limb still crippled: the MenuMode 1 block sets 212."
+  },
+  {
+   "op": "menu",
+   "menu": 1002
+  },
+  {
+   "op": "wait_frames",
+   "frames": 600
+  },
+  {
+   "op": "menu",
+   "menu": null
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "done.212"
+   ],
+   "label": "final: CGTutorial 212"
   }
  ]
 }

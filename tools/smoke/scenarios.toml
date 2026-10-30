@@ -14036,9 +14036,9 @@ expect = [
   { json = "observations.?label=milestone: CGTutorial 200.stage", equals = 200, label = "tutorial-hints, milestone: CGTutorial 200: stage = 200" },
   { json = "observations.?label=milestone: CGTutorial 200.done.200", equals = true, label = "tutorial-hints, milestone: CGTutorial 200: done.200 = true" },
   { json = "observations.?label=milestone: CGTutorial 210.done.210", equals = true, label = "tutorial-hints, milestone: CGTutorial 210: done.210 = true" },
-  { json = "observations.?label=milestone: CGTutorial 212.done.212", equals = true, label = "tutorial-hints, milestone: CGTutorial 212: done.212 = true" },
-  { json = "observations.?label=milestone: CGTutorial 216.done.216", equals = false, label = "tutorial-hints, milestone: CGTutorial 216: done.216 = false" },
-  { json = "observations.?label=final: CGTutorial 218.done.218", equals = false, label = "tutorial-hints, final: CGTutorial 218: done.218 = false" },
+  { json = "observations.?label=milestone: CGTutorial 216.done.216", equals = true, label = "tutorial-hints, milestone: CGTutorial 216: done.216 = true" },
+  { json = "observations.?label=milestone: CGTutorial 218.done.218", equals = true, label = "tutorial-hints, milestone: CGTutorial 218: done.218 = true" },
+  { json = "observations.?label=final: CGTutorial 212.done.212", equals = true, label = "tutorial-hints, final: CGTutorial 212: done.212 = true" },
   { json = "steps.*.error", count = 0, label = "tutorial-hints: no step fails" },
   { json = "given_errors.*", count = 0, label = "tutorial-hints: no given fails" },
 ]
