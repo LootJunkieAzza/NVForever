@@ -43,22 +43,23 @@ fn yes(b: bool) -> XVal {
     XVal::Num(if b { 1.0 } else { 0.0 })
 }
 
-/// The functions [`call`] takes that read or change the tree (all but MenuTapKey), in
-/// lower case.
-const TREE_FUNCTIONS: [&str; 17] = [
+/// The functions [`call`] takes that may read or change the HUD's traits, in lower case:
+/// their first call makes the HUD's kept-back writes (`crate::ui_hud::flush`). Not
+/// MenuTapKey, and not MCM's shorthands, which reach `StartMenu/MCM/...` only, so a mod's
+/// settings menu does not start the HUD's per-frame tree writes [design].
+const TREE_FUNCTIONS: [&str; 14] = [
     "getuifloat", "getuifloatalt", "getuistring", "setuifloat", "setuifloatalt", "setuistring", "setuistringalt", "setuistringex", "moduifloat",
-    "getmcmfloat", "setmcmfloat", "setmcmstring",
     "iscomponentloaded", "injectuixml", "injectuicomponent", "unloaduicomponent", "addtilefromtemplate",
 ];
 
-/// The UI function `name` (any case) with its arguments; `None` when it is not one of
-/// these.
 /// The trait path MCM's functions stand for: `StartMenu/MCM/*:child/*:grandchild/setting`.
 fn mcm_path(args: &[XVal]) -> String {
     let i = |k| num(args, k) as i64;
     format!("StartMenu/MCM/*:{}/*:{}/{}", i(0), i(1), text(args, 2))
 }
 
+/// The UI function `name` (any case) with its arguments; `None` when it is not one of
+/// these.
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     let lname = name.to_ascii_lowercase();
     if TREE_FUNCTIONS.contains(&lname.as_str()) {
