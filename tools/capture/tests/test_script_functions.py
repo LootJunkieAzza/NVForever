@@ -86,6 +86,11 @@ class WikiParsing(unittest.TestCase):
         rec = sf.parse_page("FrobWidget", PAGE.split(" |arguments")[0] + " |arguments = {{FunctionArgument |Name = |Type = }}\n}}")
         self.assertNotIn("params", rec)
 
+    def test_observed_parameters_fill_a_page_without_arguments(self):
+        page = PAGE.replace("FrobWidget", "SetNthPackage").split(" |arguments")[0] + "\n}}"
+        rec = sf.parse_page("SetNthPackage", page)
+        self.assertEqual([x["kind"] for x in rec["params"]], ["form", "int"])
+
     def test_page_without_template_is_skipped(self):
         self.assertIsNone(sf.parse_page("Category:Stuff", "[[Category:Functions]]"))
 
