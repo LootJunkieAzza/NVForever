@@ -378,8 +378,7 @@ fn level_up(
     info!("xp: level up taken: level {level} (cap {max})");
 }
 
-/// The meter's pieces.
-
+/// The meter's pointer.
 #[derive(Component)]
 struct Pointer;
 /// The bracket and pointer disappear before the separate LEVEL UP notice [observed:
@@ -404,7 +403,6 @@ struct Kit {
     amount: Face,
 }
 
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 /// Where the amount, or "LEVEL UP" in its place, ends and the line it stands on.
 fn third_line(level_up: bool) -> (f32, f32) {
     if level_up {
