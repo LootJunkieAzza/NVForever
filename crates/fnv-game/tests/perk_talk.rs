@@ -30,6 +30,7 @@ const INTERCOM: u32 = 0x600;
 const INTERCOM_REF: u32 = 0x601;
 const CANNIBAL: u32 = 0x700;
 const SANDMAN: u32 = 0x701;
+const SHUTDOWN: u32 = 0x702;
 const QUEST: u32 = 0x800;
 const GREETING: u32 = 0x900;
 const LINE_BENNY: u32 = 0x910;
@@ -40,6 +41,7 @@ const P: FormId = FormId::PLAYER_REF;
 const GET_DEAD: u16 = 46;
 const HAS_BEEN_EATEN: u16 = 127;
 const GET_IS_ID: u16 = 72;
+const IS_SNEAKING: u16 = 286;
 const TALKING_THROUGH: u16 = 430;
 const EQ: u8 = 0x00;
 
@@ -70,11 +72,19 @@ fn on_player(op: u16) -> Vec<u8> {
 
 /// A PERK with one Activate entry: tab 1 conditions, the button, the fragment.
 fn perk(fid: u32, edid: &str, button: &str, target_conds: Vec<Subrecord>, fragment: Vec<u8>) -> Vec<u8> {
+    perk_tabs(fid, edid, button, vec![(1, target_conds)], fragment)
+}
+
+/// A PERK with one Activate entry and conditions on several tabs (0 the player, 1 the
+/// activated reference), as Robot Compliance's (OldWorldBlues.esm).
+fn perk_tabs(fid: u32, edid: &str, button: &str, tabs: Vec<(u8, Vec<Subrecord>)>, fragment: Vec<u8>) -> Vec<u8> {
     let mut s = vec![sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"DATA", vec![0, 1, 1, 1, 0])];
     s.push(sub(b"PRKE", vec![2, 0, 0]));
     s.push(sub(b"DATA", vec![27, 9, 2]));
-    s.push(sub(b"PRKC", vec![1]));
-    s.extend(target_conds);
+    for (tab, conds) in tabs {
+        s.push(sub(b"PRKC", vec![tab]));
+        s.extend(conds);
+    }
     s.push(sub(b"EPFT", vec![4]));
     s.push(sub(b"EPF2", z(button)));
     s.push(sub(b"EPF3", vec![0, 0]));
@@ -104,6 +114,7 @@ fn plugin_bytes() -> Vec<u8> {
     let perks = [
         perk(CANNIBAL, "Cannibal", "Devour", vec![ctda(EQ, 0.0, HAS_BEEN_EATEN, 0), ctda(EQ, 1.0, GET_DEAD, 0)], on_player(0x107E)),
         perk(SANDMAN, "MisterSandman", "Murder", vec![ctda(EQ, 0.0, GET_DEAD, 0)], on_player(0x107C)),
+        perk_tabs(SHUTDOWN, "Shutdown", "Deactivate", vec![(0, vec![ctda(EQ, 1.0, IS_SNEAKING, 0)]), (1, vec![ctda(EQ, 0.0, GET_DEAD, 0)])], on_player(0x107C)),
     ]
     .concat();
     let npcs = [
@@ -330,4 +341,41 @@ fn a_goodbye_greeting_through_an_activator_opens_a_conversation() {
     assert!(g.dialogue.is_none(), "the Goodbye line ends the conversation");
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(LINE_CHRIS_BYE))));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", .. })));
+}
+
+/// The runner's `perk_choice` opens the perks' choice list on the target and picks the
+/// named choice, as the play loop's activation by hand does; `player_sneak` crouches the
+/// player for a choice whose tab-0 condition is IsSneaking (Robot Compliance's
+/// "Deactivate", OldWorldBlues.esm). A choice not offered is a step error.
+#[test]
+fn the_runner_picks_a_perks_activate_choice() {
+    let f = fixture();
+    let victim = format!("0x{VICTIM_REF:08X}");
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": format!("player.AddPerk 0x{SHUTDOWN:08X}")},
+            {"op": "perk_choice", "target": victim, "choice": "Deactivate", "label": "standing"},
+            {"op": "player_sneak", "sneaking": true},
+            {"op": "call", "line": "player.IsSneaking", "label": "sneaking"},
+            {"op": "perk_choice", "target": victim, "choice": "Devour", "label": "not offered"},
+            {"op": "perk_choice", "target": victim, "choice": "deactivate", "label": "crouched"},
+            {"op": "get_menus", "menus": [1001], "label": "menus after"},
+            {"op": "player_sneak", "sneaking": false},
+            {"op": "call", "line": "player.IsSneaking", "label": "standing up"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap_or_else(|| panic!("no {l}")).clone();
+    let err = |i: usize| out["steps"][i]["error"].as_str().map(str::to_owned);
+    assert!(err(1).is_some_and(|e| e.contains("offers no perk choices")), "not sneaking: no list ({:?})", err(1));
+    assert_eq!(by("sneaking")["value"], 1.0);
+    assert!(err(4).is_some_and(|e| e.contains("not offered")), "{:?}", err(4));
+    assert_eq!(err(5), None);
+    assert_eq!(by("crouched")["choices"], serde_json::json!(["Deactivate"]));
+    assert!(out["events"].as_array().unwrap().iter().any(|e| e["kind"] == "result_script" && e["on"] == victim), "the choice's script ran on the target");
+    assert_eq!(by("menus after")["menu.1001"], false, "the list closed");
+    assert_eq!(by("standing up")["value"], 0.0);
 }
