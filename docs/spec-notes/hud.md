@@ -689,6 +689,13 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   (NVForever's console is a `PlayState::Menu`, so its HUD and these values are hidden). T4a writes them every frame, so SetUIFloat holds until the next frame's
   write [hypothesis: menu-xml.md §6 / ui-tile-tree.md §4.2]; traits left to XML keep
   their existing expression-change behaviour.
+- A script's string on a need word stays [observed: the jip-probes set gaps1 (golden gaps1.json):
+  `SetUIString "HUDMainMenu/HardcoreMode/Dehydration/string" "NVF one"`, then
+  `SetUIStringAlt … "NVF %g" 2` read "NVF 2" in a later step (frames later), and "H20" only
+  after the probe wrote it back], out of Hardcore at least. So the original does not write
+  the need words every frame, or writes them only when they change [hypothesis]; T4a
+  writes them every frame and loses the script's string at the next frame. Open for the
+  HUD tasks (ui-tile-tree-tasks.md).
 
 ### 14.1 States: drawn, aiming, moving, sneaking, a prompt, radiation (2026-10-29)
 

@@ -1,0 +1,34 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless The Finger of Suspicion (VMS33): Vulpes Inculta at the Fort sends the player to protect Martina Groesbeck; the Omerta thugs talked off (Speech 50); Vulpes pays (stage 100)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 50},
+    {"kind": "quest", "quest": "VDialogueCaesar", "vars": {"FirstTalk": 1}}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: at the Fort Vulpes Inculta tells of Martina Groesbeck, a Legion informant on the Strip the Omertas mean to kill, and sends the player to her (stage 10: Martina and the thugs enabled at the Vault 21 gift shop); the lead thug is told the Legion protects her (Speech 50, given: stage 50, objective 30); back at the Fort Vulpes is told they left (speechsuccess: stage 100, Legion fame). The other ways: the thugs killed (30, then 100), Martina dead (40), Vulpes killed (110, fail). Given: Caesar met (VDialogueCaesar FirstTalk; until then Vulpes only says Caesar awaits); the legion chain walks that meeting."},
+    {"op": "note", "text": "Stand-in for the trip to the Fort and the walk to Vulpes Inculta."},
+    {"op": "move_player", "to": "FortVulpesIncultaRef"},
+    {"op": "talk", "actor": "FortVulpesIncultaRef", "label": "vulpes greeting"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpeIncultaTopic009", "label": "a task for the legion"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpesIncultaTopic007", "label": "task taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS33 10"},
+    {"op": "get_ref", "ref": "MartinaGroesbeckREF", "fields": ["disabled"], "label": "martina enabled"},
+    {"op": "note", "text": "Stand-in for the trip to the Strip's Vault 21 gift shop, where the thugs corner Martina."},
+    {"op": "move_player", "to": "VMS33OmertaThug01Ref"},
+    {"op": "talk", "actor": "VMS33OmertaThug01Ref", "label": "thug greeting"},
+    {"op": "choose", "topic": "VMS33VMS33OmertaThug01Topic001", "label": "the legion protects her"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["stage", "var.speechsuccess", "objective.30.displayed"], "label": "milestone: VMS33 50"},
+    {"op": "note", "text": "Stand-in for the trip back to the Fort."},
+    {"op": "move_player", "to": "FortVulpesIncultaRef"},
+    {"op": "talk", "actor": "FortVulpesIncultaRef", "label": "vulpes again"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpesIncultaTopic002", "label": "the thugs left"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["stage", "done.100", "completed", "objective.30.completed"], "label": "final: VMS33 100"},
+    {"op": "get_reputation", "rep": "RepNVCaesarsLegion", "fields": ["fame"], "label": "legion fame"}
+  ]
+}

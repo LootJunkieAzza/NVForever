@@ -52,6 +52,11 @@ pub struct Texts {
     pub frame: Frame,
 }
 
+/// The need words' game settings and the words used without them, in [`Texts::needs`]
+/// order [documented: hud_main_menu.xml, HardcoreMode; observed: hud.md §14.2, H20 ends in
+/// a zero] (the engine's `hud_needs` draws the same).
+pub const NEED_WORDS: [(&str, &str); 5] = [("sStatsH20Abbrev", "H20"), ("sStatsFODAbbrev", "FOD"), ("sStatsSLPAbbrev", "SLP"), ("sStatsRADAbbrev", "RAD"), ("sStatsLMBAbbrev", "LMB")];
+
 /// `HitPoints`' place in interface units, from the view's top left [observed: hud.md §14,
 /// the pieces' place table].
 pub const HIT_POINTS_AT: (f64, f64) = (40.0, 803.0);

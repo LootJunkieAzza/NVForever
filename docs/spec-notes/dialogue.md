@@ -261,6 +261,20 @@ said next, without a choice by the player [owner statement 2026-10-10: follow-up
 no player response, as read here from Doc Mitchell's lines; not yet captured;
 hypothesis: the first sayable one when a line lists several].
 
+When the player chooses a topic from a list, its lines that some line names as a
+follow-up are passed over while another line of the topic can be said; only when none
+can is a follow-up line taken [hypothesis, 2026-10-30; observer check 37]. Greetings and
+SayTo keep taking the first sayable line: the rule tried there too changed the Legion's,
+House's, Yes Man's and Dead Money's walkthroughs (greetings whose first line is some
+line's follow-up) [observed: `script cover`, five chains with step errors]. Why: six
+topics of the ten masters store a follow-up line first and a line that is no follow-up
+after it [observed: scratch survey of `fnvtool dialogue lines --all`]. One of them is
+the Think Tank's answer to "Topic001" in Old World Blues: its first line 0x01013555
+starts the five-line chain that Topic000's line 0x0101432E leads into, and the line
+after the chain, 0x01013559, is the only one offering Topic002, whose last line gives
+the Sink's Central Intelligence chip (the start of All My Friends Have Off Switches).
+Taking the first line would make the Sink unreachable.
+
 ### 3.5 Link From (TCLF)
 
 The wiki: "This can be used to allow many topics to link to this topic" [documented:
@@ -384,6 +398,17 @@ A speaker **can say** a line when:
   lists a line's conditions under its topic, and a DIAL record has no condition
   subrecords of its own [observed: no CTDA among the DIAL subrecords, the topics
   summary's `subrecords`].
+- **A null form parameter** (FormID 0 in a CTDA form parameter: GetQuestVariable on Papa
+  Khan's goodbyes INFO 0x0014B595-7, GetIsID on Cass's greeting 0x000FF5BA) reads 0
+  [observed 2026-10-30, capture `o4_00_probe` (save nvfairport; issue #907): ShowOff's
+  SayTo_GetTopicInfo after a placed copy of VRRCPapaKhan was told to SayTo the player:
+  GOODBYE chose 0x0014B595 (`GetQuestVariable <null> 1 == 0`, then GetIsID VRRCPapaKhan),
+  and GREETING chose 0x0014B5A9 (position 1613), passing over 0x000FF5BA (position 1305,
+  only `GetIsID <null> == 1`; both quests priority 55 and running)]. So Cass's line
+  0x000FF5BA is never said and Papa Khan's 0x0014B596/7 (`== 1`) never either. Ours gives
+  0 for these two functions in a condition without a failed call (`Args::is_null_form`);
+  other functions with a null form still fail their call, which also reads 0
+  [hypothesis that the original gives 0 for them too].
 
 Pointer for the AI package work: the owner states that an actor's package is chosen the
 same way, the first eligible one from the top of its list [owner statement 2026-10-10];
