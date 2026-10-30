@@ -387,7 +387,7 @@ fn a_click_on_the_hud_makes_its_deferred_writes() {
         prompt_verb: None,
         frame: Default::default(),
     };
-    ui_hud::defer(&mut g, Shown::default(), texts);
+    ui_hud::defer(&mut g, Shown::default(), texts, None);
     assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("HUDMainMenu#4")])), 1.0);
     assert!(g.ui_used && g.ui_hud_pending.is_none());
 }
