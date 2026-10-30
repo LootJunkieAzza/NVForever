@@ -4578,6 +4578,89 @@ ATK1_PROBES = (
           "SetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))", True)]
 )
 
+
+# jip4 (writes, session only; docs/spec-notes/jip-traits-4.md): the record traits and
+# game-state getters of JIP batch 4 on the wiki pages' example forms (FalloutNV.esm IDs from
+# fnvtool esm inventory [observed]): every trait and flag ID of NCRRanger (CLAS 8D424),
+# FollowersCombatStyleRanged (CSTY C80B6), BasementLightFillWarm (LIGH 695BE),
+# GrassWasteland01 (GRAS 17753), 1stPersonSniperRifleTexture (TXST 782D2), LandscapeDirtNV
+# (TXST 11673A), WastelandClimate (CLMT 17907), EMTMedicalBeep01 (SOUN 174325); the quest
+# flags of five quests; cell and water forms; then SetClimateTraitNumeric 6 (does it keep the
+# moons?), SetQuestFlag 5 and SetGlobalRef on GameYear (is the number kept?), each put back;
+# GetStartingPos/GetStartingAngle on the player, Doc Mitchell and his door. GetEditorPosition
+# is not here: no form of the call compiled at run time (six tried, 2026-10-30), and the
+# GetDelayElapsed values change every frame (they are in docs/spec-notes/jip-traits-4.md).
+J4 = {"class": "8D424", "csty": "C80B6", "light": "695BE", "grass": "17753", "sniper": "782D2",
+      "dirt": "11673A", "climate": "17907", "beep": "174325", "vcg01": "104C1C", "vcg02": "10A214",
+      "vms01": "80664", "vms20": "10E908", "deadsea": "125E7E", "ncr": "A46E7", "gomorrah": "10D629",
+      "gasstation": "109038", "water": "1009CA", "gameyear": "35"}
+
+
+def _j4(pid, body, text=False):
+    return (f"jip4.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fX\nfloat fY\nfloat fZ\n"
+            "float fA\nfloat fB\nfloat fC\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j4v(pid, key, expr, text=False):
+    """fRes (or a form ID's text) of expr with rObj = the J4 form `key`."""
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return _j4(pid, _form("rObj", J4[key]) + rd, bool(text))
+
+
+_J4_QUESTS = ("vcg01", "vcg02", "vms01", "vms20", "deadsea")
+_J4_REFS = (("player", None), ("doc", NF["docref"]), ("door", AF["door"]))
+JIP4_PROBES = (
+    [_j4v(f"class.trait.{n}", "class", f"GetClassTraitNumeric rObj {n}") for n in range(12)]
+    + [_j4v(f"class.flag.{n}", "class", f"GetClassFlag rObj {n}") for n in range(20)]
+    + [_j4v(f"csty.trait.{n}", "csty", f"GetCombatStyleTraitNumeric rObj {n}") for n in range(64)]
+    + [_j4v(f"csty.flag.{n}", "csty", f"GetCombatStyleFlag rObj {n}") for n in range(9)]
+    + [_j4v(f"light.trait.{n}", "light", f"GetLightTraitNumeric rObj {n}") for n in range(7)]
+    + [_j4v(f"light.flag.{n}", "light", f"GetLightFlag rObj {n}") for n in range(32)]
+    + [_j4v(f"grass.trait.{n}", "grass", f"GetGrassTraitNumeric rObj {n}") for n in range(10)]
+    + [_j4v("grass.model", "grass", "GetGrassModel rObj", True)]
+    + [_j4v(f"txst.{k}.{n}", k, f"GetTextureSetTexture rObj {n}", True) for k in ("sniper", "dirt") for n in range(6)]
+    + [_j4v(f"climate.trait.{n}", "climate", f"GetClimateTraitNumeric rObj {n}") for n in range(7)]
+    + [_j4("climate.set6", _form("rObj", J4["climate"]) + 'let fRes := GetClimateTraitNumeric rObj 6\nrP.AuxVarSetFlt "*nvfJ4C" fRes\n'
+           "SetClimateTraitNumeric rObj 6 7\nSetFunctionValue (GetClimateTraitNumeric rObj 6)"),
+       _j4v("climate.set6.moons", "climate", "GetClimateTraitNumeric rObj 5"),
+       _j4("climate.set6.restore", _form("rObj", J4["climate"]) + 'SetClimateTraitNumeric rObj 6 (rP.AuxVarGetFlt "*nvfJ4C")\n'
+           'rP.AuxVarErase "*nvfJ4C"\nSetFunctionValue (GetClimateTraitNumeric rObj 6)')]
+    + [_j4v(f"quest.{q}.{n}", q, f"GetQuestFlag rObj {n}") for q in _J4_QUESTS for n in range(8)]
+    + [_j4("quest.deadsea.set5", _form("rObj", J4["deadsea"]) + "SetQuestFlag rObj 5 1\nSetFunctionValue (GetQuestFlag rObj 5)"),
+       _j4v("quest.deadsea.set5.running", "deadsea", "GetQuestFlag rObj 0"),
+       _j4("quest.deadsea.set5.restore", _form("rObj", J4["deadsea"]) + "SetQuestFlag rObj 5 0\nSetFunctionValue (GetQuestFlag rObj 5)")]
+    + [_j4v("faction.reptype", "ncr", "GetFactionReputationType rObj", "form")]
+    + [_j4v(f"cell.{c}.{f}", c, f"GetCell{F} rObj", "form")
+       for c in ("gomorrah", "gasstation") for f, F in (("climate", "Climate"), ("ltmp", "LightingTemplate"))]
+    + [_j4v(f"cell.{c}.noise", c, "GetCellNoiseTexture rObj", True) for c in ("gomorrah", "gasstation")]
+    + [_j4v("water.sound", "water", "GetWaterSound rObj", "form"),
+       _j4v("water.noise", "water", "GetWaterNoiseTexture rObj", True)]
+    + [_j4v(f"sound.flag.{n}", "beep", f"GetSoundFlag rObj {n}") for n in range(14)]
+    + [_j4("difficulty", "SetFunctionValue (GetGameDifficulty)"),
+       _j4("sessiontime.positive", "SetFunctionValue ((GetSessionTime) > 0)"),
+       _j4("sessiontime.order", "let fRes := GetSessionTime\nSetFunctionValue ((GetSessionTime) >= fRes)"),
+       _j4("pcdetection", "SetFunctionValue (GetPCDetectionState)"),
+       _j4("poisoned.player", "SetFunctionValue (rP.GetIsPoisoned)")]
+    + [_j4v(f"delay.{q}.le5", q, "(GetDelayElapsed rObj) <= 5") for q in ("vcg01", "deadsea")]
+    + [_j4v("globalref.before.number", "gameyear", "GetGlobalValue GameYear")]
+    + [_j4(f"reftype.{k}", ("" if fid is None else _form("rP", fid)) + "SetFunctionValue (rP.GetRefType)") for k, fid in _J4_REFS]
+    + [_j4(f"reftype.{k}.base", ("" if fid is None else _form("rP", fid)) + "SetFunctionValue (GetType (rP.GetBaseObject))") for k, fid in _J4_REFS]
+    + [_j4("teleportdoor.door", _form("rObj", AF["door"]) + "SetFunctionValue (GetFormIDString (rObj.GetTeleportDoor))", True),
+       _j4("teleportdoor.linked", _form("rObj", AF["door"]) + "SetFunctionValue (GetFormIDString (rObj.GetLinkedDoor))", True)]
+    + [_j4v("globalref.read", "gameyear", "GetGlobalRef rObj", "form"),
+       _j4("globalref.set", _form("rObj", J4["gameyear"]) + _form("rOther", NF["docref"])
+           + "SetGlobalRef rObj rOther\nSetFunctionValue (GetFormIDString (GetGlobalRef rObj))", True),
+       _j4("globalref.set.number", "SetFunctionValue (GetGlobalValue GameYear)"),
+       # Put back with the value globalref.before.number reads (a value carried in an
+       # auxiliary variable came back 0 in the first runs).
+       _j4("globalref.restore", "let fRes := SetGlobalValue GameYear 2281\nSetFunctionValue (GetGlobalValue GameYear)")]
+    + [_j4(f"start{fn[-3:].lower()}.{k}.{a.lower()}", ("" if fid is None else _form("rP", fid)) + f"SetFunctionValue (Floor (({fn} {a}){m}))")
+       for k, fid in _J4_REFS
+       for fn, m, a in (("rP.GetStartingPos", "", "X"), ("rP.GetStartingPos", "", "Y"), ("rP.GetStartingPos", "", "Z"),
+                        ("rP.GetStartingAngle", " * 1000", "X"), ("rP.GetStartingAngle", " * 1000", "Y"),
+                        ("rP.GetStartingAngle", " * 1000", "Z"))]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4634,11 +4717,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "controls1": CONTROLS1_PROBES,
         "hud1": HUD1_PROBES,
         "showoff1": SHOWOFF1_PROBES,
-        "atk1": ATK1_PROBES}
+        "atk1": ATK1_PROBES,
+        "jip4": JIP4_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4"}
 
 
 def script(body):

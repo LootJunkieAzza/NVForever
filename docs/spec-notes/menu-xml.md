@@ -131,14 +131,105 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
 
 `&-sName;` is the text of the game setting `sName` [hypothesis: the names are game
 settings' names, `s` for a string, as the wait menu's `sHowManyWait` and `sCancel`
-(wait-menu.md)]. 145 different ones are in the vanilla files [observed]. They are **not
-in the masters** [observed: `sInventoryItems`, `sHowMany`, `sContinue`,
-`sPCMenuHintR`, `sStatsXP` appear nowhere in FalloutNV.esm]: their default text is built
-into the executable, and a plugin's GMST can override one. So the engine answers
-`Source::game_string` from the load order's GMSTs first and then from NVForever's own
-English table, filled from the owner's screenshots (as barter-menu.md did for
-`sHowMany`); a name in neither reads empty. The reader puts the text in when the file
-is read.
+(wait-menu.md)]. 145 different spellings are in the vanilla files, 143 without case
+(`sOK`/`sOk`, `sQuit`/`squit`) [observed: the `&-…;` entities of the 121 `menus\**\*.xml`
+in `Fallout - Misc.bsa`, 2026-10-29; no other vanilla archive holds menu files].
+
+Only one has a record in the vanilla load order: `sMorphine`, a GMST of FalloutNV.esm.
+The other 144 have none in FalloutNV.esm or the nine official add-on masters (DeadMoney,
+HonestHearts, OldWorldBlues, LonesomeRoad, GunRunnersArsenal, Caravan, Classic,
+Mercenary and Tribal packs) [observed: `fnvtool esm inventory`, GMST Editor IDs (649 in
+all) against the names, 2026-10-29]. One spelling, `sExplosive`, stands only inside a
+comment of `hud_main_menu.xml`, so the reader never asks for it: the reader reads 144
+spellings, 142 without case [observed: the archive's menu files, 2026-10-30].
+Four more uses lack the closing `;` (`&-sChallengeToggle` in `map_menu.xml`, `&-sStats`
+and one `&-sStatsGeneral` in `stats_menu.xml`, `&-sNetTotalText` in
+`prefabs\caravan_game_menu.xml`) [observed: same files]; the reader keeps them as plain
+text, not names [design: `fnv_ui::xml`; what the original does with them is not known].
+
+Which names the original fills in [observed: private capture `t10_gmst`,
+`GetStringGameSetting`, 2026-10-29, the 10 official masters and fo_proof.esp loaded, 146
+reads, no errors]: of the 142 names without a record (without case, `sExplosive` among
+them), 140 read a text and two, `sModffects` and `sReputationSwap`, read empty. A name no game defines
+(`sNvfT10NoSuchSetting`) read empty, and both spellings of `sOK`/`sOk` and of
+`sQuit`/`squit` read alike, so names are compared without case. The capture is kept
+privately for these points only: what the names read is not recorded anywhere in the
+repository and is not used (the rule below). That a plugin's GMST overrides the built-in
+text is [hypothesis: as `iLockLevelMax…`, read with `GetGameSetting` though no master
+defines them, script-function-audit.md].
+
+**The rule for the text** (the maintainer's decision, 2026-10-30, LEGAL.md "built-in
+labels the data files lack are written by the project, not transcribed from the
+original") [design]:
+
+- The load order's string game settings win.
+- Where the plugins define none, the text is an English label NVForever writes itself
+  from two things only: the setting's name and where the menu files use it (the tile's
+  kind, its menu, its neighbours, its place: a button row, a title, a prompt).
+  `sCloseButton`, a button at the foot of the tutorial box, reads "Close"; `sNext` reads
+  "Next".
+- The original's text is not looked up by any route: not from screenshots, not from
+  `GetGameSetting` or `GetStringGameSetting` readings, not from memory of the game, not
+  from any list of game-setting values. An observer dump may say only which names the
+  original fills in, not what they say.
+- Wording is not changed on purpose either: a short generic label ("Close", "Next",
+  "Back", "OK") stays what the use calls for even if it is the original's word. A longer
+  label (a prompt, a sentence) is written fresh from what the menu needs. The menu files'
+  comments are not copied into labels.
+
+How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
+[design]:
+
+1. the load order's string settings, the last plugin's record winning (the form store's
+   one value per setting, or a run-time change made before the files are read);
+2. `fnv_ui::strings::BUILT_IN`, NVForever's own labels under the rule above, each entry
+   with the name, the label and where the label came from (the setting's name and the
+   file and place that use it). The two names the original leaves empty
+   (`sModffects`, `sReputationSwap`) have no entry and read empty; `sMorphine` comes
+   from its record. The engine's own menus that stand in for menu files (the tutorial
+   menu, the lockpick menu and its help) read their words from the same table, by the
+   names their files use;
+3. a name in neither reads empty, as in the original. The reader puts the text in when
+   the file is read (a later `SetStringSetting` does not change a tile already built)
+   [design].
+
+The tree records each name it read and whether it had text (`Ui::game_strings_read`); the
+engine logs `ui: game strings: N read, M without text` at start for the menus it keeps
+loaded (with the vanilla files, `sModffects` of `item_stats_display.xml` is the one name
+without text there).
+
+The names with no record in the vanilla masters, by spelling:
+
+`sAccept`, `sAcceptText`, `sAddText`, `sAllCardsText`, `sAntePotText`, `sAutoAttempt`,
+`sAutoMatchText`, `sBack`, `sCWheelTitle`, `sCancel`, `sCaravanBiggestAnteText`,
+`sCaravanLossesText`, `sCaravanWinLossText`, `sCaravanWinningsText`, `sCardsInDeckText`,
+`sCauterize`, `sCloseButton`, `sConfirmWarning`, `sContinue`, `sCrew`,
+`sCurrentAnteText`, `sCurrentObjective`, `sData`, `sDevice`, `sDiscardCardText`,
+`sDiscardTrackText`, `sDone`, `sEnterName`, `sExit`, `sExplosive`, `sForfeitGameText`,
+`sHackingLockout3`, `sHackingLockout4`, `sHitPointsShort`, `sHowMany`, `sIngredients`,
+`sInventoryCaps`, `sInventoryCondition`, `sInventoryDamage`,
+`sInventoryDamagePerSecond`, `sInventoryDamageResistance`, `sInventoryDamageThreshold`,
+`sInventoryDrop`, `sInventoryEffects`, `sInventoryEquip`, `sInventoryHotKey`,
+`sInventoryItems`, `sInventoryMod`, `sInventoryRepair`, `sInventoryStrReq`,
+`sInventoryValue`, `sInventoryWeight`, `sInventoryWeightUpper`, `sLevelProgress`,
+`sLevelUp`, `sLoad`, `sLoadSavedGame`, `sLockLevelText`, `sLockpickSkillText`,
+`sMadeAt`, `sMakeActiveQuest`, `sMedicineSkill`, `sModffects`, `sNavigate`,
+`sNavigateText`, `sNew`, `sNext`, `sNextChallenge`, `sNoItemsToRepair`, `sOK`, `sOk`,
+`sPCMenuHintA`, `sPCMenuHintE`, `sPCMenuHintF`, `sPCMenuHintQ`, `sPCMenuHintR`,
+`sPCMenuHintRMB`, `sPCMenuHintS`, `sPCMenuHintW`, `sPCMenuHintX`, `sPicksRemainingText`,
+`sPlaceMarker`, `sPlayAudio`, `sPlayCaravanText`, `sPressStart`, `sPrevious`, `sQuit`,
+`sRaiseText`, `sRecipes`, `sRedeemCode`, `sRemoveText`, `sRepairAllItems`,
+`sRepairItem`, `sRepairServicesTitle`, `sRepairSkill`, `sReputationSwap`, `sReset`,
+`sReturn`, `sSave`, `sSaveGame`, `sSelect`, `sSelectCardText`, `sSettings`,
+`sShowActiveNotes`, `sShowAllNotes`, `sShowLocation`, `sSkillRequirement`, `sSpace`,
+`sStatsAP`, `sStatsCNDAbbrev`, `sStatsCrippled`, `sStatsEFFAbbrev`, `sStatsFODAbbrev`,
+`sStatsGeneral`, `sStatsH20Abbrev`, `sStatsHP`, `sStatsLMBAbbrev`, `sStatsLVLAbbrev`,
+`sStatsNoEffects`, `sStatsPerks`, `sStatsRADAbbrev`, `sStatsRadResist`,
+`sStatsSLPAbbrev`, `sStatsSkills`, `sStatsSpecial`, `sStatsStatus`, `sStatsXP`,
+`sStimpak`, `sStopAudio`, `sSwitchLimbs`, `sTakeAll`, `sTotalCardsText`,
+`sTotalFundsText`, `sTravel`, `sTune`, `sVDSGManual`, `sVDSGPlate`, `sVatsAiming`,
+`sVatsBodyPart`, `sVatsSelect`, `sVatsTarget`, `sWinLossText`, `sXPProgressMarker`,
+`squit`.
 
 ## 3. Traits
 

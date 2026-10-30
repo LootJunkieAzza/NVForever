@@ -62,8 +62,12 @@ is the one door:
 
 Replaced menu files therefore work without any code: the VFS already prefers the loose
 file. Game strings (`&-sName;`) come from `Source::game_string`. The engine answers from
-the load order's GMSTs and then from NVForever's English table, since the masters hold
-none of the 145 names (menu-xml.md §2.4; task T10).
+`fnv_ui::GameStrings`: the load order's GMSTs (last plugin wins), then the built-in table
+`fnv_ui::strings::BUILT_IN`, since the masters hold only one of the 145 names
+(`sMorphine`). The table holds NVForever's own English labels, written from each
+setting's name and where the menu files use it, never from the original's text (the
+maintainer's decision 2026-10-30, LEGAL.md; menu-xml.md §2.4). A name with no text reads
+empty, as an unknown name does in the original, and names ignore case (task T10).
 
 ### 3.2 Which menu file
 

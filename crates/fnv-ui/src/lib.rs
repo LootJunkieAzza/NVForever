@@ -11,12 +11,14 @@
 //! - [`tree`]: tiles, traits, loading with includes and templates, paths, updates.
 //! - [`input`]: the pointer and keys on tiles: hit-tests, `mouseover`, `clicked`, the
 //!   `_PCButton_*` keys and the controller's `x…` traits (task T8).
+//! - [`strings`]: the game strings table for `&-sName;`.
 //!
 //! No Bevy here: the tree is plain data, tested without the game's files.
 
 pub mod expr;
 pub mod index;
 pub mod input;
+pub mod strings;
 pub mod tree;
 pub mod uio;
 pub mod value;
@@ -24,6 +26,7 @@ pub mod xml;
 
 pub use tree::{MemSource, Origin, Source, Tile, TileId, Trait, Ui};
 pub use index::MenuIndex;
+pub use strings::GameStrings;
 pub use value::Value;
 
 #[cfg(test)]

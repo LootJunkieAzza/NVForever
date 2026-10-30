@@ -276,6 +276,32 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    "Close"). Not transcribed from screenshots or read out of the original with
    `GetGameSetting` (LEGAL.md; owner decision 2026-10-30). An observer dump may still
    say *which* names the original fills in, not their text.
+   - **T10a done** 2026-10-29 (`claude/t10-strings`): `fnv_ui::strings::GameStrings`
+     (the load order's string GMSTs, last plugin winning, then `BUILT_IN`, names without
+     case) behind `UiFiles::game_string`; `Ui::game_strings_read` records each name read
+     and whether it had text; `LoadReport::game_strings{,_unresolved}` and the start-up
+     log line `ui: game strings: N read, M without text`. The names: 145 spellings (143
+     without case); only `sMorphine` has a vanilla GMST [observed, menu-xml.md §2.4].
+     Tests: `fnv-ui` `strings::tests` (3) and
+     `tests::game_strings_resolve_from_the_load_order_then_the_built_in_table`;
+     `fnv-game` `ui_loading` (`startup_and_rebuild`, `missing_menu_and_globals_warn`,
+     `vfs_source_owns_strings_and_reads_files`).
+   - **Readings** 2026-10-29: the private observer job `t10_gmst` ran in the original
+     (`GetStringGameSetting`) [observed]: an unknown name reads empty; lookup ignores
+     case (both spellings of `sOK` and `sQuit` read alike); 141 of the 143 names have
+     text (`sMorphine` from its record); `sModffects` and `sReputationSwap` are empty
+     there too. Only which names read text is used; what they read is not recorded and
+     not used (the rule above). NVForever matches: unknown names read empty, lookups
+     (including `MemSource`'s) ignore case.
+   - **T10b done** 2026-10-30 (`claude/t10-strings-table`): `BUILT_IN` holds 140
+     entries (name, label, where the label came from), every name the vanilla files read
+     that the masters leave undefined except `sModffects` and `sReputationSwap` (empty
+     in the original too), plus `sExplosive` (only in a comment); `strings::built_in`
+     and `fnv_game::ui_loading::game_string` read it. The tutorial menu and the lockpick
+     menu and its help take their words from it by the names their files use. Tests:
+     `strings::tests::the_shipped_table_is_one_labelled_entry_per_name`,
+     `the_load_order_wins_over_the_shipped_table`. Smoke `ui-tree-in-game` expects one
+     name without text at start (`sModffects`).
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.
