@@ -192,8 +192,15 @@ pub fn get_self(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(ctx.self_ref.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
 }
 
-/// 1 when the caller's base form is the given form (or the caller is that form).
+/// 1 when the caller's base form is the given form (or the caller is that form). In a
+/// condition a null form (FormID 0, as on INFO 0x000FF5BA) is no one's: 0 [observed
+/// 2026-10-30, capture o4_00_probe: a placed copy of Papa Khan told to SayTo GREETING
+/// passed over 0x000FF5BA, `GetIsID <null> == 1` its only condition, for a line 308
+/// places further on; observer-checks.md check 34].
 pub fn get_is_id(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    if ctx.in_condition && a.is_null_form(0) {
+        return yes(false);
+    }
     let r = ctx.subject()?;
     let id = a.form(0)?;
     yes(r == id || base_of(g, r) == Some(id))

@@ -109,6 +109,12 @@ impl Args<'_> {
         self.opt_form(i).ok_or_else(|| format!("parameter {} is not a form", i + 1))
     }
 
+    /// Whether parameter `i` is a null form: a condition's form parameter stored as
+    /// FormID 0 (`crate::cond`).
+    pub fn is_null_form(&self, i: usize) -> bool {
+        matches!(self.0.get(i), Some(ArgValue::Value(Value::Ref(0))))
+    }
+
     pub fn opt_form(&self, i: usize) -> Option<FormId> {
         match self.0.get(i)? {
             ArgValue::Value(v) => v.as_form().map(FormId),
