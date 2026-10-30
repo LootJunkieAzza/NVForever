@@ -1160,8 +1160,9 @@ only in the walk test and on the player's body. All rules here are engine choice
   list]; it is not in FalloutNV.esm, so its value is the executable's and unknown.
   Creatures carry their own, CREA `TNAM` "Turning Speed" [documented: xEdit CREA]: 100
   (mole rat), 90 (mantis), 75 (sentry bot), 50 (Protectron), 45 (giant ant), 40
-  (bighorner), 0 on templated ones [observed, a sample of 12 of 1,578 records]; read as
-  degrees per second [hypothesis]; not used yet. While its heading catches up with the
+  (bighorner), 0 on templated ones [observed, a sample of 12 of 1,578 records]. A
+  creature's steady turn rates are TNAM × 1.25, × 3 or × 0.075 degrees per second
+  [observed 2026-10-30, §8.10 "TNAM"]; not used yet. While its heading catches up with the
   way to go the actor slows down: it keeps `0.3 + 0.7 × max(cos off, 0)` of its speed
   (`turn_slowdown`; a right-angle corner costs about half a second). Actors moved by
   the character controller (near the player, `residents.rs`) walk along their heading
@@ -1477,6 +1478,39 @@ stopped and started, as Victor's walk had before #258). Code:
   when its way is more than 60° off (`CREATURE_SPOT_TURN_START`, design; people: 20°,
   §8.9). With the people's 120°/s and 20°, a fast cazador stopped to turn at the start
   of nearly every short sandbox walk.
+- **TNAM** [observed 2026-10-30, campaign `o4turn` (save nvfairport, the airport runway;
+  issue #915), headings every game loop, about 64 a second]: 13 creatures, chosen in pairs
+  of one skeleton and base scale with different TNAM, were spawned 900 units north of the
+  player, turned to face away (SetAngle Z 0) and set on it. Of the 38 runs of four or more
+  game loops at one steady rate (within 3%), 35 turned at TNAM × 1.25, × 3 or × 0.075
+  degrees per second, to within 1%; the other three were CrDeathClaw at 24.1°/s (× 0.32,
+  10 loops, running at about 590 units/s on its Travel procedure), CrCoyote at 51.9 (× 0.35,
+  4 loops, attacking) and NVCrGiantMantis at 13.9 (× 0.23, 4 loops, walking):
+
+  | creature (TNAM, base scale) | × 1.25 | × 3 | × 0.075 |
+  |---|---|---|---|
+  | CrLegionMongrel (90, 1.0) | | 269.1, 270.0 | 6.8 |
+  | CrCoyote (150, 1.0) | 187.3, 187.5 | | 11.3 |
+  | VCrNightStalkerTier1TypeB (90, 1.05) | 112.6, 112.5 | 269.3 | 6.7 |
+  | VCrNightStalkerTier1TypeA (200, 1.0) | 250.0 | | |
+  | CrDeathClaw (75, 1.0) | 93.7–93.8 (5 runs) | | |
+  | CrDeathClawAlpha (100, 1.0) | 125.0 | 299.6 | 7.5 |
+  | CrMoleRat (100, 1.0) | 125.0 | | |
+  | QJSnuffles (200, 1.0) | | 600.1 | 15.0 |
+  | NVCrGiantMantis (60, 1.0) | 75.0, 75.1 | | |
+  | V22AttackMantis (90, 1.0) | 112.5, 112.4 | | |
+  | NVCrCazador (720, 1.0) | 900.2 | | |
+  | VCrCazadorTier1TypeA (200, 0.8) | 250.1, 250.0 | 600.1 (twice) | 15.0 |
+  | CrRadscorpion2Large (90, 1.0) | 111.6 | | |
+
+  So TNAM is a turn rate in degrees per second that the game multiplies, the same on
+  every skeleton, and the base scale plays no part (VCrCazadorTier1TypeA at 0.8 turned at
+  exactly 1.25 and 3 × 200). × 0.075 came with the target within about 6° of the heading
+  (aim tracking). × 1.25 and × 3 both came on turns towards a target far off (90–180°),
+  standing or moving; what picks × 3 is not known [hypothesis: an attack or movement state
+  the fields read here do not show]. The fitted 300°/s × scale above does not follow from
+  this; the cazadors' 304°/s and 137°/s plateaus, from headings 0.16 s apart, mix these
+  rates. Not yet used by the engine (issue #915 stays open until the × 3 rule is known).
 - **Walk/run changes** [design]: the gait changes only when a speed smoothed over 0.2 s
   (`Locomotion::gait_speed`) is 15% past the switch point (`GAIT_HYSTERESIS`). In
   NVForever a creature's drawn speed jumped to two or three times its walk for a single
