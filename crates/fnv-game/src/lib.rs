@@ -148,6 +148,7 @@ pub mod traps;
 pub mod ui_functions;
 pub mod ui_loading;
 pub mod ui_hud;
+pub mod ui_input;
 pub mod unconscious;
 pub mod use_weapon;
 pub mod vats;
