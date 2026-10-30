@@ -326,6 +326,10 @@ fn the_active_component_is_the_pointers_tile() {
     assert_eq!(n(run(&mut g, "GetUIFloat", &[s("TestMenu/Main/OkButton/mouseover")])), 1.0);
     // Through the VM as a script calls them.
     assert_eq!(n(query(&mut g, "SetFunctionValue (GetActiveUIComponentID)")), 1.0);
+    // PrintActiveTile prints its name [documented: PrintActiveTile].
+    g.console_out.clear();
+    run(&mut g, "PrintActiveTile", &[]);
+    assert_eq!(g.console_out, ["OkButton"]);
     // The pointer leaves: nothing highlighted again, mouseover back to 0.
     ui_input::step(&mut g, &[menu], &pointer_at(0.0, 0.0), &no_measure);
     assert_eq!(run(&mut g, "GetActiveUIComponentName", &[]), s(""));

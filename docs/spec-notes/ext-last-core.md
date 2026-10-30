@@ -88,7 +88,9 @@ nvfairport; goldens private). They read to eight or ten decimals, more than the 
   (#1023), not to a counting rule. The game lists the cell's references in its own order,
   not by FormID [observed]; NVForever's order is FormID order.
 
-## 5. Not built
+## 5. PrintActiveTile
 
-- PrintActiveTile: the tile under the pointer; the tile tree has no pointer state.
-- `eval` is the if-statement form (ext-syntax.md), built in the compiler.
+The highlighted tile's name, printed on the console [documented: PrintActiveTile, "Prints
+name of highlighted UI component"]; nothing with none. The highlighted tile is the tile
+tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads it. The
+console's exact line is not documented: the name alone [hypothesis].
