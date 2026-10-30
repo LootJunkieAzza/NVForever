@@ -146,18 +146,19 @@ impl Vm<'_, '_> {
             }
             // [documented: Fasin; Facos; Fatan; observed: fasin 2 = 90] degrees, the input
             // held to ±1 [hypothesis from the clamp observed].
-            "fasin" | "facos" | "fatan" => {
+            "fasin" | "facos" => {
                 let x = val(self, 0)?.num()?;
                 num(match n {
                     "fasin" => x.clamp(-1.0, 1.0).asin().to_degrees(),
-                    "facos" => x.clamp(-1.0, 1.0).acos().to_degrees(),
-                    _ => x.atan().to_degrees(),
+                    _ => x.clamp(-1.0, 1.0).acos().to_degrees(),
                 })
             }
-            // [documented: Fatan2; observed: (1, -1) = 135, (-1, -1) = -135].
+            // [documented: Fatan; Fatan2; observed: (1, -1) = 135, (-1, -1) = -135] degrees
+            // by the game's own approximation (`fast_atan2`), not the exact angle.
+            "fatan" => num(fast_atan2(val(self, 0)?.num()?, 1.0)),
             "fatan2" => {
                 let (y, x) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
-                num(y.atan2(x).to_degrees())
+                num(fast_atan2(y, x))
             }
             // [documented: Fsqrt; observed: fsqrt -1 = 0].
             "fsqrt" => {
@@ -935,4 +936,36 @@ fn regex_error_code(msg: &str) -> f64 {
     } else {
         14.0
     }
+}
+
+/// FATan and FATan2 as the game computes them, in degrees: an odd polynomial of degree 11
+/// in 32-bit floats over the smaller over the larger of |y| and |x|, then π/2 less it when
+/// |y| is the larger, π less it when x is negative, negated when y is [observed: the
+/// jip-probes sets rules1 and rules2 (#1025), 29 readings to eight and ten decimals; the
+/// coefficients are a least-squares fit of the 21 readings in (0, 1], residual 4.6e-8
+/// radians, the 32-bit noise there; every reading is reproduced within 0.000014°]. The
+/// quadrant constants are π and π/2 as 32-bit floats [observed: FATan2 1 0 = 90.0000025,
+/// FATan2 1 -1 = 135.0002]. FATan x is FATan2 x 1.
+fn fast_atan2(y: f64, x: f64) -> f64 {
+    const C: [f32; 6] = [0.999_995_6, -0.332_994_4, 0.195_635, -0.121_236_9, 0.057_475_3, -0.013_479_8];
+    let (ay, ax) = ((y as f32).abs(), (x as f32).abs());
+    if ay == 0.0 && ax == 0.0 {
+        return 0.0;
+    }
+    let poly = |r: f32| {
+        let r2 = r * r;
+        let mut s = C[5];
+        for c in C[..5].iter().rev() {
+            s = s * r2 + c;
+        }
+        s * r
+    };
+    let mut a = if ay > ax { std::f32::consts::FRAC_PI_2 - poly(ax / ay) } else { poly(ay / ax) };
+    if x < 0.0 {
+        a = std::f32::consts::PI - a;
+    }
+    if y < 0.0 {
+        a = -a;
+    }
+    f64::from(a).to_degrees()
 }

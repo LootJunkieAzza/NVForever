@@ -79,6 +79,26 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
+        // `ref.SetNthPackage package index`: the package at the index of the actor's base
+        // list replaced, for the AI too; it gives the package it replaced; an index past
+        // the end changes nothing [observed: jip-probes rules1 and rules2 (#1021): Doc's 9
+        // packages, index 0 15ED62 became 10B756 and back, the count stayed 9; index 99
+        // left 9; the result was 15ED62. The page gives no arguments; the three statement
+        // forms tried did not compile in the game, `let x := ref.SetNthPackage p i` did].
+        "setnthpackage" => {
+            let (Some(actor), Some(p)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Ref(0))) };
+            let Some(b) = crate::functions::base_of(g, actor) else { return Some(Ok(XVal::Ref(0))) };
+            let mut list = g.package_list(actor);
+            let i = num(args, 1, -1.0);
+            match usize::try_from(i as i64).ok().filter(|&i| i < list.len()) {
+                Some(i) => {
+                    let old = std::mem::replace(&mut list[i], p);
+                    g.other.package_lists.insert(b, list);
+                    XVal::Ref(old.0)
+                }
+                None => XVal::Ref(0),
+            }
+        }
         // `count`: a placed stack's count [documented: SetRefCount]; an inventory
         // reference's stack is not changed here [hypothesis: the page warns of older
         // versions only].
