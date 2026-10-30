@@ -244,7 +244,14 @@ pub fn response_at(lengths: &[f64], elapsed: f64) -> usize {
 /// taken from the simulation (between frames the runtime's own world is swapped out,
 /// `script::with_world`).
 pub fn line_lengths(g: &Game, sim: &SimState, s: &Speech) -> Vec<f64> {
-    g.response_lengths_as(sim.base_of(s.speaker.0), s.info)
+    g.response_lengths_as(voice_base(g, sim, s.speaker), s.info)
+}
+
+/// The base form whose voice type a speaker speaks with: its template chain's "Traits"
+/// source, a leveled list standing for the entry picked for it, so an actor speaks with
+/// the voice of the sex and race it shows (`Game::voice_base`; issue #1051).
+fn voice_base(g: &Game, sim: &SimState, speaker: FormId) -> Option<FormId> {
+    sim.base_of(speaker.0).map(|b| g.voice_base_in(&sim.world, b, speaker))
 }
 
 /// Which response (index in record order) of a SayTo or Say line is being said: the
@@ -461,7 +468,7 @@ fn play(
                 }
             }
         }
-        let base = sim.base_of(s.speaker.0);
+        let base = voice_base(g, &sim, s.speaker);
         let fitted = g.response_seconds_as(base, s.info, k);
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);

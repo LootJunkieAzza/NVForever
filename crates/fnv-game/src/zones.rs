@@ -50,6 +50,23 @@ impl<'a> Game<'a> {
         self.data.display_base_at(base, r, self.leveled_at(r))
     }
 
+    /// The base form whose voice type `r` (placed with `base`) speaks with: the "Traits"
+    /// source of its template chain, at its level, so an actor whose traits come from a
+    /// leveled list speaks with the voice of the entry picked for it (the one whose race
+    /// and sex it shows; docs/spec-notes/voice.md §7). `base` itself for a talking
+    /// activator or an actor without such a template. `GetIsVoiceType` reads the same
+    /// source (`Game::traits_def`), so a line chosen for a voice is played in that voice.
+    pub fn voice_base(&self, base: FormId, r: FormId) -> FormId {
+        self.voice_base_in(&self.world, base, r)
+    }
+
+    /// [`Game::voice_base`] with `r`'s level read from `world`: for callers that hold the
+    /// world themselves between frames (the engine, `script::with_world`).
+    pub fn voice_base_in(&self, world: &fnv_sim::World, base: FormId, r: FormId) -> FormId {
+        let at = world.level_at(r, self.list_player_level());
+        self.data.template_source_at(base, r, at, |d| d.template_traits).map_or(base, |(id, _)| id)
+    }
+
     /// `cell` comes into the loaded area: its encounter zone gets its level if it has none,
     /// and the actors and containers placed there are fixed at their level
     /// (`fnv_sim::zones`). A placed actor whose carried items come from a leveled pick takes

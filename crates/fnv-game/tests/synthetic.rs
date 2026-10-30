@@ -1349,6 +1349,38 @@ fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
 }
 
 #[test]
+fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_voice() {
+    // Issue #1051: generic actors take race, sex and voice type from a leveled list of
+    // male and female entries (template flag "Traits"). The voice is the entry's, the
+    // one `GetIsVoiceType` reads, not the placed base record's own.
+    const LIST: u32 = 0x9F0;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC_AUTO))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+    npc.template = Some(FormId(LIST));
+    npc.template_traits = true;
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    let speaker = FormId(NPC_REF);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC_AUTO));
+    assert_eq!(g.speaker_voice_base(speaker), Some(FormId(NPC_AUTO)));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![0.5]);
+    // Without the flag the base keeps its own voice.
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();

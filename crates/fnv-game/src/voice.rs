@@ -47,7 +47,13 @@ impl Game<'_> {
     /// The length of each response of a line, in record order. A line without responses
     /// lasts as one empty response does ([`Game::line_seconds`] is their sum).
     pub fn response_lengths(&self, speaker: FormId, info: FormId) -> Vec<f64> {
-        self.response_lengths_as(crate::functions::base_of(self, speaker), info)
+        self.response_lengths_as(self.speaker_voice_base(speaker), info)
+    }
+
+    /// The base form whose voice `speaker` (a reference) speaks with
+    /// ([`Game::voice_base`] of its base).
+    pub fn speaker_voice_base(&self, speaker: FormId) -> Option<FormId> {
+        crate::functions::base_of(self, speaker).map(|b| self.voice_base(b, speaker))
     }
 
     /// [`Game::response_lengths`] for a speaker given by its base form.
