@@ -203,7 +203,7 @@ fn fly(
 /// the state stays `Menu` while no other menu is open.
 fn hold_world(free: Res<FreeCam>, console: Res<Console>, paused: Res<crate::pause::Paused>, menu: Res<crate::menu::ActiveMenu>, mut next: ResMut<NextState<PlayState>>, state: Res<State<PlayState>>) {
     if free.holds_world() && !console.open && !paused.0 && menu.0.is_none() && matches!(*state.get(), PlayState::Playing | PlayState::Menu) {
-        NextState::set_if_neq(&mut *next, PlayState::Menu);
+        NextState::set_if_different(&mut *next, PlayState::Menu);
     }
 }
 

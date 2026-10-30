@@ -67,7 +67,7 @@ note covers the whole census, fire refraction and actors.
 - `BSRefractionFirePeriodController` is not played (it drives only the Novac windows,
   which do not refract).
 - Built: `nvf_assets::nif_spawn::fire_period`, `NifSurface::fire_period`, the `REFRACT`
-  branch of `nif_material.wgsl`.
+  branch of `nif_material.wesl`.
 
 ## 4. Cut-outs
 

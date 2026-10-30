@@ -553,7 +553,7 @@ fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
 
 // ---- pointer --------------------------------------------------------------------------
 
-fn on_over(over: On<Pointer<Over>>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>) {
+fn on_over(over: On<PointerOver>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(over.entity), view) else { return };
     let tab = pip.tab();
     match spot {
@@ -572,7 +572,7 @@ fn on_over(over: On<Pointer<Over>>, spots: Query<&Spot>, view: Option<ResMut<Sta
     }
 }
 
-fn on_out(out: On<Pointer<Out>>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>) {
+fn on_out(out: On<PointerOut>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(out.entity), view) else { return };
     change(&mut view, |v| {
         if v.hover == Some(spot) {
@@ -584,7 +584,7 @@ fn on_out(out: On<Pointer<Out>>, spots: Query<&Spot>, view: Option<ResMut<StatsV
     });
 }
 
-fn on_click(click: On<Pointer<Click>>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, mut asks: MessageWriter<UseHint>) {
+fn on_click(click: On<PointerClick>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, mut asks: MessageWriter<UseHint>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(click.entity), view) else { return };
     let tab = pip.tab();
     let ask = match spot {

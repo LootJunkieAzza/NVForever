@@ -26,6 +26,7 @@ use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::window::PrimaryWindow;
 use fnv_game::game::menus;
 use fnv_sim::FormId;

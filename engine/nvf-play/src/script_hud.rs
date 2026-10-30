@@ -44,6 +44,7 @@ use crate::script_events::BoxMessage;
 use crate::sim::SimState;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_font::{Font, Line};
 use fnv_game::game::menus;
 use fnv_sim::FormId;

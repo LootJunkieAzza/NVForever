@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(shape_sibling("x", "Hat", "egm"), "xhat.egm");
     }
 
-    /// CPU mirror of the shader's `facegen_offset_at` (nif_material.wgsl).
+    /// CPU mirror of the shader's `facegen_offset_at` (nif_material.wesl).
     fn offset_at(offset: &[[f32; 3]], rows: usize, columns: usize, u: f32, v: f32) -> [f32; 3] {
         let (u, v) = (u.rem_euclid(1.0), v.rem_euclid(1.0));
         let x = (u * columns as f32 - 0.5).clamp(0.0, (columns - 1) as f32);

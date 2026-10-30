@@ -1,0 +1,342 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Bye Bye Love failed: Joana left waiting in the lobby until dawn (VMS21a 130, 140)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: the escape is planned and Joana is told to go (objective 65 shown, VMS21aSupport running), as bye-bye-love does; the player leaves Gomorrah and does not come for her; at 5 in the morning VMS21aSupport gives up on the escape (130, whose stage script sets 140, Fail Quest). Copied from bye-bye-love.actions.json up to Joana's go line. Stand-ins: travel by move_player; the hours of waiting by setting GameHour (the wait menu's result)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100 for every check on the path."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the diner, where Carlitos's GetDistance V21DinerMarkerREF < 1024 lines are said."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aCarlitosREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21aCarlitosREF",
+   "label": "carlitos greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic001",
+   "label": "c0"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic006",
+   "label": "c1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic007",
+   "label": "c2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic017",
+   "label": "c3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic021",
+   "label": "c4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic029",
+   "label": "c5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic031",
+   "label": "c6"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic034",
+   "label": "c7"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "var.CarlitosHiresYou"
+   ],
+   "label": "milestone: VMS21a 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Joana's room in Gomorrah: the player enters the room's trigger with Joana there (JoanaInRoom 1, which her plan lines need)."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21JoanaREF"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:VMS21aJoanaRoomTrigger01"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "var.JoanaInRoom"
+   ],
+   "label": "in room"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21JoanaREF",
+   "label": "joana greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic031",
+   "label": "j1"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic065",
+   "label": "j2"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic066",
+   "label": "j3"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic075",
+   "label": "j4"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic078",
+   "label": "j5"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic063",
+   "label": "j6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS21a 30"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aCarlitosREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21aCarlitosREF",
+   "label": "carlitos news"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic038",
+   "label": "k1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic040",
+   "label": "k2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic054",
+   "label": "k3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aCarlitosWayneTopic056",
+   "label": "k4"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.40",
+    "done.50"
+   ],
+   "label": "milestone: VMS21a 50"
+  },
+  {
+   "op": "note",
+   "text": "Optional objective 50: the two guns for hire (Carlitos's line enabled them) agree to come (70). Stand-in for the walk to them."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aGunForHire01REF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21aGunForHire01REF",
+   "label": "big beard greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aVMS21aHiredGun01Topic000",
+   "label": "g1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aVMS21aHiredGun01Topic004",
+   "label": "g2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS21aVMS21aHiredGun01Topic005",
+   "label": "g3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.70",
+    "objective.50.completed"
+   ],
+   "label": "milestone: VMS21a 70"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21JoanaREF"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:VMS21aJoanaRoomTrigger01"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21JoanaREF",
+   "label": "joana plan"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic144",
+   "label": "p1"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic145",
+   "label": "p2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.60"
+   ],
+   "label": "milestone: VMS21a 60"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for waiting until after midnight: Joana's go line needs GameHour < 3, and VMS21aSupport (started by her answer) fails the quest at 5 when she is not out yet."
+  },
+  {
+   "op": "set_global",
+   "name": "GameHour",
+   "value": 1
+  },
+  {
+   "op": "talk",
+   "actor": "VMS21JoanaREF",
+   "label": "joana go"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic147",
+   "label": "q1"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueGomorrahVMS21JoanaTopic148",
+   "label": "q2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "objective.65.displayed"
+   ],
+   "label": "lobby plan"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21aSupport",
+   "fields": [
+    "running"
+   ],
+   "label": "support running"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for leaving Gomorrah and waiting until dawn (the wait menu): the player on the Strip, GameHour 5.5."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS21aJoanaEscapeOutside01REF"
+  },
+  {
+   "op": "set_global",
+   "name": "GameHour",
+   "value": 5.5
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS21a",
+   "fields": [
+    "stage",
+    "done.130",
+    "done.140",
+    "failed"
+   ],
+   "label": "fail: VMS21a 130/140"
+  }
+ ]
+}

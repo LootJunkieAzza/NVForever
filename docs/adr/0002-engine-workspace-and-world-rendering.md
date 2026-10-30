@@ -11,7 +11,7 @@
    workspace for the reasons in ADR-0001 §2. Members: `nvf-assets` (library: archives,
    NIF spawning, prepared models, textures, KF playback), `nvf-viewer` (the M2 viewer,
    unchanged behaviour) and `nvforever` (the game binary; a free-camera explorer at M3).
-   Bevy stays pinned at `=0.19.1` in `engine/Cargo.toml`.
+   Bevy stays pinned exactly in `engine/Cargo.toml` (`=0.20.1` since #934).
 2. **Static references use prepared models** (`nvf_assets::model`): each NIF is parsed
    once into (mesh, material, model-space transform) per visible shape, and every
    reference spawns one entity per shape sharing those handles, so Bevy batches them.

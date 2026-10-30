@@ -355,7 +355,7 @@ pub fn keys(
 
 /// The row the pointer comes onto takes the selection, unless the wheel holds it
 /// (`crate::menu::WheelHold`: a list redrawn under a resting pointer would undo the wheel).
-fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, mut out: MessageWriter<MenuInput>) {
+fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, mut out: MessageWriter<MenuInput>) {
     if hold.is_some_and(|h| h.held()) {
         return;
     }
@@ -368,7 +368,7 @@ fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RowButton>, active: Res<Act
 /// A click selects the row (and on the selected row acts on it); with a hotkey's key held,
 /// a left click puts the row's item in that slot instead (`super::hotkey_panel`).
 fn on_row_click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     rows: Query<&RowButton>,
     active: Res<ActiveMenu>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),

@@ -1,0 +1,20 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Crazy, Crazy, Crazy (VMS57): Neil's warning at Black Mountain (10) to Tabitha's death (100, complete)",
+ "given": [],
+ "actions": [
+  {"op": "note", "text": "Path: Neil, at the foot of Black Mountain, greets the player (0x000E6CA6) and tells of the danger up the mountain (BMNeilAskDanger, end script: 10); the player climbs to the summit and kills Tabitha, whose OnDeath block (BMTabithaScript) completes objective 10 and sets 100 (Complete Quest, 1000 XP). The peaceful ends (Rhonda repaired, Tabitha leaving: BMTabithaYesRhonda and the Tabitha topics) are not walked. Stand-ins: travel by move_player; the climb past the Nightkin and the fight with Tabitha by kill."},
+  {"op": "move_player", "to": "NeilREF"},
+  {"op": "talk", "actor": "NeilREF", "label": "neil greeting"},
+  {"op": "choose", "topic": "BMNeilAskDanger", "label": "neil danger"},
+  {"op": "wait_talk"},
+  {"op": "end_talk"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_quest", "quest": "VMS57", "fields": ["running", "stage", "done.10", "objective.10.displayed"], "label": "milestone: VMS57 10"},
+  {"op": "note", "text": "Stand-in for the climb to the summit and the fight with Tabitha."},
+  {"op": "move_player", "to": "TabithaREF"},
+  {"op": "kill", "actor": "TabithaREF", "killer": "player"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_quest", "quest": "VMS57", "fields": ["stage", "done.100", "completed", "objective.10.completed"], "label": "final: VMS57 100"}
+ ]
+}

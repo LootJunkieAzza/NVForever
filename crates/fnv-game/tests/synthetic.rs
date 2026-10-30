@@ -2254,6 +2254,127 @@ fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
     assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
 }
 
+/// Script coverage counts a quest completed when a run marks it completed, by a Complete
+/// Quest stage or by the script function CompleteQuest (many quests end by the function
+/// with no flagged stage reached: VMS39, VVault21Tour; High Times and Debt Collector have
+/// only a fail stage); a chain's given state does not. A quest completed with no stage
+/// reached counts as touched.
+#[test]
+fn coverage_counts_a_quest_completed_by_complete_quest() {
+    let f = fixture();
+    let report = |cov: &fnv_game::coverage::Coverage| {
+        let log = cov.log(&f.data, "t");
+        fnv_game::coverage::report(&f.data, &[log], 10).unwrap()
+    };
+    let ctx = fnv_game::game::RunCtx::default;
+    // Stage 10 only (not flagged): touched, not completed.
+    let mut g = game(&f);
+    g.new_game();
+    g.coverage = Some(Default::default());
+    g.set_stage(q(), 10);
+    let r = report(g.coverage.as_ref().unwrap());
+    assert_eq!(r["summary"]["quests"]["touched"], json!(1));
+    assert_eq!(r["summary"]["quests"]["completed"], json!(0));
+    // A given completed state (as a chain's `given`) is not the run's: still not counted.
+    g.quest(q()).completed = true;
+    assert!(g.coverage.as_ref().unwrap().completed.is_empty());
+    g.quest(q()).completed = false;
+    // CompleteQuest with stage 20 (the flagged one) never reached: completed.
+    g.run_query("Begin Function { }
+CompleteQuest Q
+End
+", ctx()).unwrap();
+    let r = report(g.coverage.as_ref().unwrap());
+    assert_eq!(r["summary"]["quests"]["completed"], json!(1));
+    assert!(!g.coverage.as_ref().unwrap().stages.contains(&(q(), 20)));
+    // A log without the field (older runs) still reads, by the stage flags alone.
+    let mut log = g.coverage.as_ref().unwrap().log(&f.data, "old");
+    log.as_object_mut().unwrap().remove("completed");
+    let r = fnv_game::coverage::report(&f.data, &[log], 10).unwrap();
+    assert_eq!(r["summary"]["quests"]["completed"], json!(0));
+
+    // CompleteQuest alone, no stage reached: touched and completed, not untouched.
+    let mut g = game(&f);
+    g.new_game();
+    g.coverage = Some(Default::default());
+    g.run_query("Begin Function { }
+CompleteQuest Q
+End
+", ctx()).unwrap();
+    let cov = g.coverage.as_ref().unwrap();
+    assert!(!cov.stages.iter().any(|(quest, _)| *quest == q()), "no stage of Q reached");
+    let r = report(cov);
+    assert_eq!(r["summary"]["quests"]["touched"], json!(1));
+    assert_eq!(r["summary"]["quests"]["completed"], json!(1));
+    assert!(r["untouched"].as_array().unwrap().iter().all(|u| u["quest"] != "Q"));
+}
+
+/// Script coverage reports which missing stages the data can set (`fnvtool script
+/// cover`): a SetStage call with a literal stage in any unit (a script, a stage result)
+/// makes that stage settable; a stage set only from its own result script is not; a
+/// stage given by a variable makes the quest's other stages settable "by variable".
+#[test]
+fn coverage_reports_which_missing_stages_the_data_can_set() {
+    const Q2: u32 = 0xA00;
+    const Q3: u32 = 0xA01;
+    const SCPT: u32 = 0xA02;
+    const GLOB: u32 = 0xA03;
+    let stage = |s: i16, unit_: Vec<Subrecord>| [vec![sub(b"INDX", s.to_le_bytes().to_vec()), sub(b"QSDT", vec![0])], unit_].concat();
+    let data = sub(b"DATA", [vec![0u8, 0, 0, 0], 0f32.to_le_bytes().to_vec()].concat());
+    // Q2 stage 10: SetStage Q2 10 (itself) ; SetStage Q2 20. Stage 20: SetStage Q3
+    // TestGlobal. Stage 30: nothing.
+    let q2 = [
+        vec![sub(b"EDID", z("Q2")), data.clone()],
+        stage(10, unit(0, &[call(SET_STAGE, &[r(1), n(10)]), call(SET_STAGE, &[r(1), n(20)])].concat(), &[], &[Q2])),
+        stage(20, unit(0, &call(SET_STAGE, &[r(1), [vec![b'G'], le16(2)].concat()]), &[], &[Q3, GLOB])),
+        stage(30, vec![]),
+    ]
+    .concat();
+    let q3 = [vec![sub(b"EDID", z("Q3")), data], stage(5, vec![]), stage(6, vec![])].concat();
+    // A script: begin GameMode / SetStage Q2 30 / end.
+    let scpt = [vec![sub(b"EDID", z("SetterScript"))], unit(0, &script(&[(0, None, call(SET_STAGE, &[r(1), n(30)]))]), &[], &[Q2])].concat();
+    let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b's']), sub(b"FLTV", 5f32.to_le_bytes().to_vec())]);
+    let bytes = [
+        tes4(),
+        top(b"GLOB", &glob),
+        top(b"SCPT", &record(b"SCPT", 0, SCPT, &scpt)),
+        top(b"QUST", &[record(b"QUST", 0, Q2, &q2), record(b"QUST", 0, Q3, &q3)].concat()),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    assert_eq!(d.quests[&FormId(Q2)].stages.len(), 3);
+
+    let mut cov = fnv_game::coverage::Coverage::default();
+    cov.stages.insert((FormId(Q2), 20));
+    let r = fnv_game::coverage::report(&d, &[cov.log(&d, "t")], 10).unwrap();
+    let s = &r["summary"]["stages"];
+    assert_eq!(s["total"], json!(5));
+    assert_eq!(s["reached"], json!(1));
+    assert_eq!(s["settable"], json!(2), "Q2 20 and 30; not 10, set only by its own result");
+    assert_eq!(s["by_variable"], json!(2), "Q3 5 and 6");
+    assert_eq!(s["missing_settable"], json!(1));
+    assert_eq!(s["missing_by_variable"], json!(2));
+    let quests = r["detail"]["quests"].as_array().unwrap();
+    let q2 = quests.iter().find(|q| q["quest"] == "Q2").unwrap();
+    assert_eq!(q2["missing_settable"], json!([30]));
+    assert_eq!(q2["missing_unsettable"], json!([10]));
+    assert_eq!(q2["setters"]["30"], json!([{"kind": "script", "form": "Test.esm:000A02", "edid": "SetterScript"}]));
+    assert!(q2.get("missing_by_variable").is_none());
+    let q3 = quests.iter().find(|q| q["quest"] == "Q3").unwrap();
+    assert_eq!(q3["missing_settable"], json!([]));
+    assert_eq!(q3["missing_by_variable"], json!([5, 6]));
+    assert_eq!(q3["by_variable_setters"], json!([{"kind": "stage", "form": "Test.esm:000A00", "edid": "Q2", "stage": 20}]));
+    // The setter scan: stage 20 is set by Q2's stage 10 result.
+    let set = fnv_game::coverage::stage_setters(&d);
+    assert_eq!(set.literal[&(FormId(Q2), 20)][0].stage, Some(10));
+    assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
+}
+
 /// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
 /// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
 /// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID

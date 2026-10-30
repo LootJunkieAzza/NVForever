@@ -59,7 +59,7 @@ impl Plugin for StressSamplePlugin {
 /// (issue #903: allocator textures doubling over a tour while `images` stayed flat).
 fn render_census(
     images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
-    allocators: Option<Res<bevy::pbr::MaterialBindGroupAllocators>>,
+    allocators: Option<Res<bevy::render::material_bind_groups::MaterialBindGroupAllocators>>,
     mut last: Local<Option<std::time::Instant>>,
 ) {
     // The render world has no clock of its own: real time.

@@ -41,6 +41,7 @@ use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use fnv_game::repair::{gain_percent, vendor_lists, vendor_quote, Gear, Quote, RepairSettings, CAPS, REPAIR_SERVICES_MENU};
 use fnv_sim::forms::{BaseData, ItemKind};
 use fnv_sim::inventory::Extra;

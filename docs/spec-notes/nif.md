@@ -296,7 +296,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   screenshots the cut-out edges of plants are smooth where a per-pixel alpha test gives
   steps [observed]. How the game's transparency multisampling turns alpha into coverage is
   not known. The renderers anti-alias alpha-tested shapes where the view is multisampled
-  (`--msaa`, default 4; `nvf_assets::soft_edges`, `nif_material.wgsl`, and `tree.wgsl` for
+  (`--msaa`, default 4; `nvf_assets::soft_edges`, `nif_material.wesl`, and `tree.wesl` for
   leaf cards and tree billboards): the fragment covers a share of the pixel's samples that
   is 1 at and above the cutoff and falls to 0 within one pixel outside it,
   (alpha − cutoff) / (change of alpha across the pixel) + 1 [chosen]. The depth prepass
@@ -365,7 +365,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   window openings and skirting of the house in Primm [observed: owner's screenshot,
   2026-10-10, and `nvforever --cell=-16,-14 --pos=-62714,-54035,5919 --heading 150
   --pitch -5`]. NIF shapes now use a prepass fragment that includes the vertex alpha
-  (`nif_prepass.wgsl`); the giant rat's shape is the other one in the archive it
+  (`nif_prepass.wesl`); the giant rat's shape is the other one in the archive it
   changes. The same symptom, from vertex alphas that are not numbers, is in "Vertex
   colours" below.
 
@@ -573,7 +573,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   of the brain behind it, and without the glow map in the product it would be clear.
   No game screenshot was compared.
 
-  In the engine (`nif_material.wgsl`, CPU mirror `nif_material::multiply_factor`): the
+  In the engine (`nif_material.wesl`, CPU mirror `nif_material::multiply_factor`): the
   lit colour and the emissive light are each taken to display values (gamma 2.2), summed,
   limited to 0..1 and taken back; the emissive value of a multiply shape is raised to
   the gamma first, so that the product with the linear texture is the display-value
@@ -630,7 +630,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   frame behind it, `behind` (Bevy's view transmission texture: the copy of the frame
   after the opaque pass that water and refracting shapes already read), and adds
   `(behind^(1/2.2) + colour^(1/2.2) × alpha)^2.2 − behind`: the display-value sum, as
-  linear light (`nif_material.wgsl` `add_display`, CPU mirror `nif_material::add_display`).
+  linear light (`nif_material.wesl` `add_display`, CPU mirror `nif_material::add_display`).
   The colour is fogged first (at alpha 1). The emissive colour × multiplier of an additive
   shape counts in display values (raised to 2.2 before the shader, as for "Multiply
   blend"; `display_emissive`; for an unlit shape its brightness under "Emissive colour of
@@ -665,7 +665,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
     The gate lamp's beams (0x0015DB0B, 0x0015DB0E) then added +65 grey levels in the
     gate's box and blew out white, where the original's frames (owner's, 2026-10-25, and
     `fx_strip_b`) show no cone at all [observed]. Rule since 2026-10-25 [hypothesis]:
-    additive shapes do not take the image space's Emissive Mult (`nif_material.wgsl`);
+    additive shapes do not take the image space's Emissive Mult (`nif_material.wesl`);
     the gate's box is then 94 against the original's 76 (79 with the beams not drawn).
   - X-13's door lamps (`fxlightbeambrt03`) show as two beams, as in the original; Primm
     and the Strip's other effects are otherwise unchanged.
@@ -746,7 +746,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   How the renderers blend it [hypothesis, fitted]: the colour of an unlit
   alpha-blended shape is scaled by √alpha in the shader, so the blend adds colour ×
   alpha^1.5 while the share of what lies behind stays 1 − alpha
-  (`nif_material.wgsl` `blend_colour_scale`, CPU mirror
+  (`nif_material.wesl` `blend_colour_scale`, CPU mirror
   `nif_material::blend_colour_scale`). The power was chosen by the display-value error
   of `colour·alpha^p + behind·(1 − alpha)^q` against the display-value blend, over
   behind 0 to 1, colour 0.15 to 0.85 and alpha 0.01 to 0.6 (a grid, root mean square

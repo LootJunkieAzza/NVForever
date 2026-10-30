@@ -27,7 +27,7 @@
 //! - **Sun shafts**: light streaming past what stands in front of the sun, as strong as
 //!   the weather's fog makes the air hazy (`shafts.rs`).
 //! - **Screen-space water reflections** where the mirrored reflection camera does not
-//!   reach: water at another height than the one it shows, and interiors (`water.wgsl`).
+//!   reach: water at another height than the one it shows, and interiors (`water.wesl`).
 //!
 //! The game's own image space (the grade and the modifiers' blur, imagespace.rs) is left
 //! as it is: none of these replaces or repeats it. Every value here is an engineering

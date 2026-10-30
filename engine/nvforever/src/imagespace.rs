@@ -55,6 +55,7 @@ use fnv_world::imagespace::Hdr;
 
 /// Grade parameters on the main camera.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ImageSpaceGrade {
     /// Tint colour (rgb) and amount (a).
     pub tint: Vec4,
@@ -118,7 +119,7 @@ impl Default for ImageSpaceGrade {
 
 impl FullscreenMaterial for ImageSpaceGrade {
     fn fragment_shader() -> ShaderRef {
-        "embedded://nvforever/imagespace.wgsl".into()
+        "embedded://nvforever/imagespace.wesl".into()
     }
 
     /// After tonemapping: the game grades the final display colours [hypothesis].
@@ -235,8 +236,8 @@ pub struct ImageSpacePlugin;
 
 impl Plugin for ImageSpacePlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "imagespace.wgsl");
-        bevy::asset::embedded_asset!(app, "imagespace_blur.wgsl");
+        bevy::asset::embedded_asset!(app, "imagespace.wesl");
+        bevy::asset::embedded_asset!(app, "imagespace_blur.wesl");
         app.init_resource::<ScreenModifiers>()
             .add_plugins(FullscreenMaterialPlugin::<ImageSpaceGrade>::default())
             .add_systems(Update, update_grade.after(crate::sky::update_sky))
@@ -669,7 +670,7 @@ fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<Asse
         label: Some("imagespace_blur_pipeline".into()),
         layout: vec![single.clone()],
         vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/imagespace_blur.wgsl"), ..default() }),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/imagespace_blur.wesl"), ..default() }),
         ..default()
     };
     commands.insert_resource(BlurPipelines { layouts: [single, multi], sampler, base, by_format: HashMap::default() });
@@ -723,7 +724,7 @@ pub(crate) fn blur_pass(
     if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let (Some(motion), Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1]), cache.get_render_pipeline(ids.0[2])) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[ids.1 as usize]);

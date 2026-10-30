@@ -14,7 +14,7 @@ ask about it with `IsImageSpaceActive`.
 
 Code: `fnv_world::image_modifier` (the record, its tracks, the effect at a moment, several
 at once), `fnv_game` (`Game::image_modifiers`, the three script functions),
-`engine/nvforever/src/imagespace.rs` with `imagespace.wgsl` and `imagespace_blur.wgsl`
+`engine/nvforever/src/imagespace.rs` with `imagespace.wesl` and `imagespace_blur.wesl`
 (the picture).
 
 ## 1. The IMAD record
@@ -208,7 +208,7 @@ at that time.
 ## 8. Depth of field
 
 Code: `fnv_world::image_modifier::dof_weight` (the rule below), `engine/nvforever/src/imagespace.rs`
-(the sources and the log line) with `imagespace_blur.wgsl` (the picture).
+(the sources and the log line) with `imagespace_blur.wesl` (the picture).
 
 ### 8.1 The fields
 
@@ -298,7 +298,7 @@ modifier's Editor ID, `VATS` or `iron sights`), and "depth of field: off".
 ## 9. Motion blur
 
 Code: `engine/nvforever/src/imagespace.rs` (`motion_blur`, `motion_frames`,
-`update_motion`, the log line) with `imagespace_blur.wgsl` (`motion_blur`, the picture).
+`update_motion`, the log line) with `imagespace_blur.wesl` (`motion_blur`, the picture).
 
 ### 9.1 The field
 
