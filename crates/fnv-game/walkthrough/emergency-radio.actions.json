@@ -1,0 +1,43 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Emergency Radio (VEFR01NCRGood2EmergencyRadio): an NCR radio operator finds a player the NCR likes and hands over the emergency radio; the radio calls a supply drop (stage 10); the supply cache opened (stage 20)",
+  "given": [
+    {"kind": "reputation", "rep": "RepNVNCR", "fame": 100}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: with NCR fame (given; good tier >= 2) and no faction armour on, the quest script, while the player is outdoors in the region vMapCanSupportPCHere, moves the radio operator (VEFR01NCRRadioOperatorRef) near the player with a talk-to-player package; his greeting gives the emergency radio (bHasRadio: the radio added); used, the radio's effect sets bUsingRadio and the quest's MenuMode shows the radio's menu; button 1 calls a supply drop, which over the next menu-mode passes places a supply cache by the player (stage 10); the cache's OnActivate sets 20 (completes; the stages repeat, one call a day)."},
+    {"op": "note", "text": "Stand-in for walking into the region: the player at Nipton's map marker (the Wasteland), then SetPos to a point inside one of the region's polygons (REGN 0x0015F432)."},
+    {"op": "move_player", "to": "NiptonMapMarker"},
+    {"op": "call", "line": "player.SetPos x 60000"},
+    {"op": "call", "line": "player.SetPos y -5000"},
+    {"op": "call", "line": "player.IsPlayerInRegion vMapCanSupportPCHere", "label": "in the region"},
+    {"op": "advance_seconds", "seconds": 8},
+    {"op": "get_quest", "quest": "VEFR01NCRGood2EmergencyRadio", "fields": ["running", "var.bRadioOpPlaced", "var.bRadioOpOscarMike"], "label": "milestone: radio operator sent"},
+    {"op": "note", "text": "Stand-in for his talk-to-player package (AddScriptPackage is a stub, dialogue packages start no conversation headless): the operator starts the conversation."},
+    {"op": "move_player", "to": "VEFR01NCRRadioOperatorRef"},
+    {"op": "talk", "actor": "VEFR01NCRRadioOperatorRef", "label": "operator greeting"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VEFR01NCRGood2EmergencyRadio", "fields": ["var.bHasRadio", "var.bRadioOpDoneTalking"], "label": "radio handed over"},
+    {"op": "get_item_count", "of": "player", "item": "NVVEFR01NCRGood2Radio", "label": "milestone: radio carried"},
+    {"op": "note", "text": "The radio is used from the Pip-Boy (menu 1002 open: the quest's MenuMode runs), its menu answered with button 1 (a supply drop), and the Pip-Boy kept open for the drop's menu-mode passes (ten seconds: the button's ResetQuest also drops the quest's SetQuestDelay 0.1, so the next MenuMode pass waits the default 5 s; whether the original's ResetQuest resets the delay is not known, see the report)."},
+    {"op": "use_item", "item": "NVVEFR01NCRGood2Radio"},
+    {"op": "get_quest", "quest": "VEFR01NCRGood2EmergencyRadio", "fields": ["var.bUsingRadio"], "label": "radio in use"},
+    {"op": "menu", "menu": 1002},
+    {"op": "wait_frames", "frames": 10},
+    {"op": "press_button", "button": 1},
+    {"op": "get_menus", "menus": [1001, 1002], "label": "menus after the button"},
+    {"op": "menu", "menu": 1002},
+    {"op": "wait_frames", "frames": 600},
+    {"op": "get_quest", "quest": "VEFR01NCRGood2EmergencyRadio", "fields": ["var.iSpawnSupplyDelay"], "label": "drop under way"},
+    {"op": "menu", "menu": null},
+    {"op": "close_menus"},
+    {"op": "get_quest", "quest": "VEFR01NCRGood2EmergencyRadio", "fields": ["stage", "objective.10.displayed", "var.iSpawnSupplyDelay"], "label": "milestone: VEFR01NCRGood2EmergencyRadio 10"},
+    {"op": "note", "text": "The cache the drop placed (PlaceAtMe: a reference made at run time, named created:)."},
+    {"op": "move_player", "to": "created:VEFR01NCRSupplyCacheContainer"},
+    {"op": "player_activate", "target": "created:VEFR01NCRSupplyCacheContainer", "label": "cache opened"},
+    {"op": "close_menus"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VEFR01NCRGood2EmergencyRadio", "fields": ["stage", "done.20", "completed"], "label": "final: VEFR01NCRGood2EmergencyRadio 20"}
+  ]
+}

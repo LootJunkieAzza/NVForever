@@ -2206,3 +2206,20 @@ fn player_control_locks_are_kept_per_plugin() {
     q(&mut g, "EnablePlayerControlsAlt");
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
 }
+
+/// The runner's `created:<base>` names the newest reference made at run time from a
+/// base form (PlaceAtMe, a drop), as the sim runner's actions do: a chain can then
+/// activate a container a quest script placed (Emergency Radio's supply cache).
+#[test]
+fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    assert!(fnv_game::runner::resolve(&g, "created:TestActivator").is_err(), "nothing made yet");
+    let first = g.world.place(FormId(ACTIVATOR), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(fnv_game::runner::resolve(&g, "created:TestActivator"), Ok(first));
+    let second = g.world.place(FormId(ACTIVATOR), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(fnv_game::runner::resolve(&g, "created:TestActivator"), Ok(second), "the newest");
+    // A placed reference of the same base is not one made at run time.
+    assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
+}
