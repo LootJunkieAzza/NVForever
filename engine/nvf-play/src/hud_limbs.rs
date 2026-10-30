@@ -14,6 +14,7 @@ use crate::hud::{HudSet, HudView};
 use crate::interface::{amber, at, bc_supported, texture, u};
 use crate::pipboy::stats::{FACE, HEAD, LIMB_PIECES, TORSO};
 use crate::reticle::crime_colour;
+use crate::tiles::vanilla::LimbRoot;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -36,11 +37,16 @@ const TOP: f32 = 170.7;
 const INK_LEFT: f32 = 101.0;
 const INK_RIGHT: f32 = 176.0;
 const INK_HEIGHT: f32 = 282.0;
-/// The limb just crippled flashes: its red pulses between full and this brightness, a
-/// full pulse in `FLASH_SECONDS` [design; observed: the owner's screenshot caught the
-/// dashes at about (105, 30, 30), a dim red].
-const FLASH_LOW: f32 = 0.35;
-const FLASH_SECONDS: f32 = 0.6;
+/// Whole pictures fade for 0.85 s at each end of the owner's five seconds
+/// [observed: private job hud_xp_limbs, l1_leg, l2_head; one run]. Previously instant [design].
+const FADE_SECONDS: f32 = 0.85;
+/// Broken pictures flash in alpha 0-255 [observed: private job hud_xp_limbs, l1_leg,
+/// l2_head]; rising sawtooth and period fitted to those samples [hypothesis].
+/// Previously a brightness cosine, low 0.35, period 0.6 s [design].
+const FLASH_SECONDS: f32 = 0.54;
+/// The broken pictures' alpha read negative after about 4.3 s [observed: private job
+/// hud_xp_limbs, l1_leg, l2_head; one run]; what the original draws then is not known.
+const FLASH_STOP: f32 = 4.3;
 
 /// The pieces, as the limb conditions 25–30 (head, torso, left arm, right arm, left leg,
 /// right leg) [documented: the actor value codes]; the brain (31) has no piece.
@@ -93,6 +99,12 @@ impl Indicator {
         self.left > 0.0
     }
 
+    /// The whole pictures' envelope [observed: private job hud_xp_limbs, l1_leg,
+    /// l2_head]: 0.85 s in, 3.3 s full, 0.85 s out within SHOW_SECONDS.
+    pub fn strength(&self) -> f32 {
+        ((SHOW_SECONDS - self.left) / FADE_SECONDS).min(self.left / FADE_SECONDS).clamp(0.0, 1.0)
+    }
+
     pub fn look(&self, piece: usize) -> Look {
         match (self.crippled[piece], self.fresh[piece]) {
             (true, true) => Look::Flashing,
@@ -121,13 +133,24 @@ pub fn face(health: f32) -> &'static str {
     }
 }
 
-/// The flashing red at `elapsed` seconds: the HUD's red pulsing between full and
-/// `FLASH_LOW` of it (also the need words', `crate::hud_needs`).
+/// Alpha sawtooth [observed: private job hud_xp_limbs, l1_leg, l2_head;
+/// hypothesis: fitted period]. Need words have their own flash in `crate::hud_needs`.
 pub fn flash(elapsed: f32) -> Color {
-    let phase = (elapsed / FLASH_SECONDS * std::f32::consts::TAU).cos() * 0.5 + 0.5;
-    let red = crime_colour().to_srgba();
-    let b = FLASH_LOW + (1.0 - FLASH_LOW) * phase;
-    Color::srgb(red.red * b, red.green * b, red.blue * b)
+    crime_colour().with_alpha((elapsed / FLASH_SECONDS).rem_euclid(1.0))
+}
+
+/// The flashing piece `elapsed` seconds into the picture, under the whole pictures'
+/// envelope (`strength`, [`Indicator::strength`]): the sawtooth while it flashes, then
+/// held red at the envelope, so it fades in and out with the rest of the picture and
+/// leaves no hole in it [design: maintainer's review of #902; previously hidden after
+/// [`FLASH_STOP`], the negative alpha clamped].
+pub fn flashing(elapsed: f32, strength: f32) -> Color {
+    if elapsed < FLASH_STOP {
+        let c = flash(elapsed);
+        c.with_alpha(c.alpha() * strength)
+    } else {
+        crime_colour().with_alpha(strength)
+    }
 }
 
 /// Where a piece's picture stands from the head's top left, and how much of it shows
@@ -165,9 +188,7 @@ fn watch(time: Res<Time>, state: Res<State<PlayState>>, limbs: Option<Res<Player
     }
 }
 
-/// The picture's root, its pieces (whole and broken pictures) and its face.
-#[derive(Component)]
-struct LimbRoot;
+/// One of the picture's pieces: a limb's whole or broken picture.
 #[derive(Component)]
 struct Piece {
     index: usize,
@@ -188,7 +209,6 @@ fn cut(image: Handle<Image>, x: f32, y: f32, size: Vec2, color: Color) -> (Node,
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    time: Res<Time>,
     view: Res<HudView>,
     ind: Res<Indicator>,
     data: Option<Res<GameData>>,
@@ -248,17 +268,18 @@ fn draw(
     if !wanted {
         return;
     }
-    let flash = flash(time.elapsed_secs());
+    let flash = flashing(SHOW_SECONDS - ind.left, ind.strength());
     for (piece, mut vis, mut image) in &mut pieces {
         let look = ind.look(piece.index);
         vis.set_if_neq(show((look != Look::Whole) == piece.broken));
-        let color = if look == Look::Flashing { flash } else { amber(255.0) };
+        let color = if look == Look::Flashing { flash } else { amber(255.0).with_alpha(ind.strength()) };
         if image.color != color {
             image.color = color;
         }
     }
     let name = face(view.health);
     if let (Some(Faces(all)), Ok(mut node)) = (faces.as_ref(), face_node.single_mut()) {
+        node.color = amber(255.0).with_alpha(ind.strength());
         if let Some((_, h)) = all.iter().find(|(n, _)| *n == name) {
             if node.image != *h {
                 node.image = h.clone();
@@ -299,6 +320,52 @@ mod tests {
         ind.update(only(0), 0.0, true);
         ind.update(only(0), 10.0, false);
         assert!(ind.shown());
+    }
+
+    #[test]
+    fn the_whole_pictures_fade_within_the_owners_five_seconds() {
+        let mut ind = Indicator::default();
+        ind.update(only(0), 0.0, true);
+        assert_eq!(ind.strength(), 0.0);
+        ind.update(only(0), 0.425, true);
+        assert!((ind.strength() - 0.5).abs() < 1e-5);
+        ind.update(only(0), 0.425, true);
+        assert!((ind.strength() - 1.0).abs() < 1e-5);
+        ind.update(only(0), 3.3, true);
+        assert!((ind.strength() - 1.0).abs() < 1e-5);
+        ind.update(only(0), 0.425, true);
+        assert!((ind.strength() - 0.5).abs() < 1e-5);
+        let held = ind.strength();
+        ind.update(only(0), 10.0, false);
+        assert_eq!(ind.strength(), held);
+        ind.update(only(0), 0.425, true);
+        assert!(ind.strength() < 1e-5);
+    }
+
+    #[test]
+    fn the_flash_changes_alpha_and_keeps_the_red() {
+        let red = crime_colour().to_srgba();
+        for (t, alpha) in [(0.0, 0.0), (0.27, 0.5), (0.54, 0.0)] {
+            let c = flash(t).to_srgba();
+            assert_eq!((c.red, c.green, c.blue), (red.red, red.green, red.blue));
+            assert!((c.alpha - alpha).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn the_flashing_piece_follows_the_pictures_envelope() {
+        let alpha = |t: f32| {
+            let ind = Indicator { left: SHOW_SECONDS - t, ..Default::default() };
+            flashing(t, ind.strength()).alpha()
+        };
+        // Fading in: the sawtooth under the envelope (0.5 of a flash, 0.5 of the fade).
+        assert!((alpha(0.27) - 0.5 * 0.27 / FADE_SECONDS).abs() < 1e-5);
+        // Full: the sawtooth alone.
+        assert!((alpha(2.27) - flash(2.27).alpha()).abs() < 1e-5);
+        // After the flash: held at the envelope while the picture fades out, gone at 5 s.
+        assert!((alpha(4.5) - 0.5 / FADE_SECONDS).abs() < 1e-5);
+        assert!(alpha(SHOW_SECONDS) < 1e-5);
+        assert_eq!(flashing(4.5, 1.0).to_srgba().red, crime_colour().to_srgba().red);
     }
 
     #[test]

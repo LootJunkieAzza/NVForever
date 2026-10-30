@@ -1,0 +1,211 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "ini_files",
+ "title": "ini-files, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fNum\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:iInt\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.int",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"Other:fNum\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.other",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General/fNum\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.slash",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General\\fNum\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.backslash",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"general:FNUM\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.case",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:sText\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.string",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fNone\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.float.missingkey",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fNum\" \"NVFExtProbe\\none.ini\")\nEnd\n",
+   "label": "lu.float.missingfile",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fNum\" \"NVFExtProbe\\probe\")\nEnd\n",
+   "label": "lu.float.noext",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fNum\" \"NVFExtProbe.ini\")\nEnd\n",
+   "label": "lu.float.top",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIString \"General:sText\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.string",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIString \"General:fNum\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.string.num",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIString \"General:sNone\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.string.missing",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General:fNum\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "so.float",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat_Cached \"General:fNum\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "so.float.alias",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General/fNum\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "so.float.slash",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General:fNone\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "so.float.missingkey",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General:fNum\" \"NVFExtProbe\\none.ini\" 9)\nEnd\n",
+   "label": "so.float.missingfile",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General:fNone\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "so.float.nodefault",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General:sText\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "so.float.string",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIStringOrDefault_Cached \"General:sText\" \"NVFExtProbe\\probe.ini\" \"dflt\")\nEnd\n",
+   "label": "so.string",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIStringOrDefault_Cached \"General:sNone\" \"NVFExtProbe\\probe.ini\" \"dflt\")\nEnd\n",
+   "label": "so.string.missing",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIStringOrDefault_Cached \"General:fNum\" \"NVFExtProbe\\probe.ini\" \"dflt\")\nEnd\n",
+   "label": "so.string.num",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrCreate_Cached \"General:fMade\" \"NVFExtProbe\\probe.ini\" 4.5 \"made by a probe\")\nEnd\n",
+   "label": "so.create.float",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"General:fMade\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "so.create.float.read",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fMade\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "so.create.float.lu",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrCreate_Cached \"General:fNum\" \"NVFExtProbe\\probe.ini\" 4.5)\nEnd\n",
+   "label": "so.create.float.existing",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIStringOrCreate_Cached \"General:sMade\" \"NVFExtProbe\\probe.ini\" \"new\" \"\")\nEnd\n",
+   "label": "so.create.string",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIStringOrDefault_Cached \"General:sMade\" \"NVFExtProbe\\probe.ini\" \"dflt\")\nEnd\n",
+   "label": "so.create.string.read",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetINIFloat \"General:fSet\" 2.25 \"NVFExtProbe\\probe.ini\"\nSetFunctionValue (GetINIFloat \"General:fSet\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.set",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetINIFloat \"Other:fNum\" 6 \"NVFExtProbe\\probe.ini\"\nSetFunctionValue (GetINIFloat \"Other:fNum\" \"NVFExtProbe\\probe.ini\")\nEnd\n",
+   "label": "lu.set.existing",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"Other:fNum\" \"NVFExtProbe\\probe.ini\" 9)\nEnd\n",
+   "label": "lu.set.cached",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetINIFloat \"New:fVal\" 1.5 \"NVFExtProbe\\created.ini\"\nSetFunctionValue (GetINIFloat \"New:fVal\" \"NVFExtProbe\\created.ini\")\nEnd\n",
+   "label": "lu.set.newfile",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloatOrDefault_Cached \"New:fVal\" \"NVFExtProbe\\created.ini\" 9)\nEnd\n",
+   "label": "lu.set.newfile.cached",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetModINISetting \"NVFExtProbe/General/fNum\")\nEnd\n",
+   "label": "mcm.get",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetModINISetting \"NVFExtProbe/General/fNone\")\nEnd\n",
+   "label": "mcm.get.missing",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetModINISetting \"NVFExtProbe/General/fMcm\" 5\nSetFunctionValue (GetModINISetting \"NVFExtProbe/General/fMcm\")\nEnd\n",
+   "label": "mcm.set",
+   "field": "value"
+  },
+  {
+   "query": "float fRes\nstring_var sText\nBegin Function { }\nSetFunctionValue (GetINIFloat \"General:fMcm\" \"NVFExtProbe.ini\")\nEnd\n",
+   "label": "mcm.set.lu",
+   "field": "value"
+  }
+ ]
+}

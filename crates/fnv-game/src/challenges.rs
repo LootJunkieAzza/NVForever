@@ -341,6 +341,7 @@ impl Game<'_> {
             self.challenge_queue.rewards.push(c);
             self.challenge_queue.notices.push(Notice::Completed { challenge: c });
             self.count_stat(crate::misc_stats::CHALLENGES_COMPLETED, 1.0);
+            self.jg_event(crate::nvse_jip3::JgEvent::ChallengeComplete, Some(c));
         } else {
             self.player.challenges.entry(c).or_default().progress = after;
             let crossed = interval > 0 && after / interval > before / interval;

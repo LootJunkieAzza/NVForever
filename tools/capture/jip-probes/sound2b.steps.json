@@ -1,0 +1,63 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "sound2b",
+ "title": "sound2b",
+ "start": "nvftest (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetSoundSourceFile rObj \"fx\\emt\\medicalbeep\\emtmedicalbeep01.wav\"\nSetFunctionValue 1\nEnd\n",
+   "label": "sound2b.file.same",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue 1\nEnd\n",
+   "label": "sound2b.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue 1\nEnd\n",
+   "label": "sound2b.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nPlaySound rObj\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.play",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.f0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.f1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.f2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.f3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.f4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nSetFunctionValue (IsSoundPlaying rObj)\nEnd\n",
+   "label": "sound2b.f5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174325\"\nStopSound rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "sound2b.stop",
+   "field": "value"
+  }
+ ]
+}

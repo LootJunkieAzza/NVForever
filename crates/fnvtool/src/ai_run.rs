@@ -371,6 +371,42 @@ fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, For
     }))
 }
 
+/// Where scripts move each actor: every `<actor>.MoveTo <marker>` call of every unit
+/// whose actor and marker are both forms of the unit's reference list (a call on the
+/// unit's own reference, or with a variable, is not followed).
+fn move_to_targets(data: &GameData) -> BTreeMap<FormId, Vec<FormId>> {
+    const MOVE_TO: u64 = 0x109E;
+    fn walk(v: &Value, unit: &fnv_script::unit::ScriptUnit, out: &mut BTreeMap<FormId, Vec<FormId>>) {
+        let form = |n: Option<u64>| match n.and_then(|n| u16::try_from(n).ok()).and_then(|n| unit.slot(fnv_script::ir::RefIndex(n))) {
+            Some(fnv_script::unit::RefSlot::Form(f)) => Some(FormId(f)),
+            _ => None,
+        };
+        match v {
+            Value::Object(m) => {
+                if m.get("opcode").and_then(Value::as_u64) == Some(MOVE_TO) {
+                    let marker = m.get("args").and_then(|a| a.get(0)).filter(|a| a["kind"] == "ref").and_then(|a| a["value"].as_u64());
+                    if let (Some(actor), Some(marker)) = (form(m.get("on").and_then(Value::as_u64)), form(marker)) {
+                        let e = out.entry(actor).or_default();
+                        if !e.contains(&marker) {
+                            e.push(marker);
+                        }
+                    }
+                }
+                m.values().for_each(|x| walk(x, unit, out));
+            }
+            Value::Array(a) => a.iter().for_each(|x| walk(x, unit, out)),
+            _ => {}
+        }
+    }
+    let mut out = BTreeMap::new();
+    for u in &data.units {
+        if let Ok(v) = serde_json::to_value(&u.program) {
+            walk(&v, &u.unit, &mut out);
+        }
+    }
+    out
+}
+
 /// `ai reach`: for every placed actor and every package of its list, whether the actor
 /// can get from where it is placed to where the package sends it, over the navmeshes
 /// and through doors (any number of interiors and worldspaces).
@@ -400,6 +436,7 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
     let mut through: BTreeMap<u32, (u64, Vec<String>)> = BTreeMap::new();
     let mut longest: Vec<(usize, String)> = Vec::new();
     let (mut actors, mut with_packages, mut pairs) = (0u64, 0u64, 0u64);
+    let moved_to = move_to_targets(data);
     let ids: Vec<FormId> = refs.refs.iter().filter(|(_, p)| matches!(&p.sig, b"ACHR" | b"ACRE")).map(|(id, _)| *id).collect();
     for actor in ids {
         actors += 1;
@@ -514,7 +551,19 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
                             why = text;
                         }
                     }
-                    if worst == 0 {
+                    // Not from where it is placed, but a script moves it (`<actor>.MoveTo
+                    // <marker>`) and from one of those places every target is reached:
+                    // a verdict of its own (Yes Man is moved to his penthouse marker
+                    // before VMQYesMan01MoveToTerminal can be chosen [observed:
+                    // docs/handoff/mq-walkthrough-2026-10-27.md §1]).
+                    let params = if cant_open { &shy } else { &open };
+                    let from_move_to = worst >= 2
+                        && moved_to.get(&actor).is_some_and(|ms| {
+                            ms.iter().filter_map(|m| goal::editor_place(refs, *m)).any(|m| targets.iter().all(|to| nav.door_route(m, *to, params).is_ok()))
+                        });
+                    if from_move_to {
+                        "reachable from where a script moves it (MoveTo)".to_string()
+                    } else if worst == 0 {
                         let k = match most_doors {
                             0 => "no door",
                             1 => "1 door",

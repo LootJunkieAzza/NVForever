@@ -314,21 +314,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
-23. **Actor Effect spells in NPC and creature spell lists** (P2; decides whether we
-    build it). About 110 actors carry SPEL records of type 0 "Actor Effect" (not
-    Ability) in their NPC_/CREA SPLO lists, all duration 0 on Self. Ours applies only
-    the Ability ones. Examples:
-    - Ruthless on 21 Hoover Dam legionaries (+25 melee damage);
-    - the Tunnelers' Increase Damage Threshold 2 and 5 (23 creatures);
-    - SporeCarrierRegen (7);
-    - NVDLC02QuietWatersPerkEffect (57).
-
-    The GECK wiki's AddSpell page says the vanilla game uses only addictions and
-    abilities. To check: does the original apply these type-0 entries? Read a Tunneler's
-    DamageThreshold with GetActorValue against its base record's, and GetIsSpellTarget /
-    IsSpellTarget for the SPEL on the actor. The earlier captures esmfx2 and esmfx3
-    placed a spore carrier and a Ruthless legionary but did not ask.
-    ([area-effects §3](../spec-notes/area-effects.md))
+23. **Actor Effect spells in NPC and creature spell lists** — answered 2026-10-30 (issue
+    #916): the original does not apply the type-0 entries (Tunnelers' DT, Ruthless,
+    SporeCarrierRegen read IsSpellTarget 0 and base values; the Ability beside them 1), as
+    ours. ([area-effects §3](../spec-notes/area-effects.md))
 24. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
     goes on to its next point after a reload.
     To check: save while it is half-way along its route, reload, and see whether it
@@ -401,19 +390,19 @@ The numbers above stay put so links to them hold; each item here gives its own p
     mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
     GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
     To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
-32. **An expression that leaves extra values** (`GetStage Q N == 1`, compiled with two
-    arguments for GetStage): three begin scripts (e.g. INFO 0x00160731) stop with "2 values
-    left on the stack" in ours. To check: what Side Bets' report line does in the original
-    (it sets nothing on the canonical path).
+32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
+    original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
+    ([scripts §4.2](../spec-notes/scripts.md))
 
-## Added 2026-10-29 (radiation falloff, issue #894)
+## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
 33. **Does a radiation marker fall off linearly with distance, and does Rad Resistance cut
     GetRadiationLevel?** (P2: every irradiated place.) Ours now gives a marker's XRAD ×
     (1 − d ÷ XRDS), d the 3-D distance from GetPos, and GetRadiationLevel and the HUD
     that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
     693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
-    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player.
+    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player,
+    nor did console `player.setpos` steps (hud.md §14.3).
     To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
     marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
     (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours
@@ -421,10 +410,31 @@ The numbers above stay put so links to them hold; each item here gives its own p
     crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
     point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
     at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
+34. **The corner bars' ticks' brightness.** The original's health and action points ticks
+    read about 0.7 of the bracket line's colour at their full rows (`hud_corners2.007`,
+    hud.md §14.9); the tile HUD writes `brightness` 175 to `HitPoints/meter` and
+    `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
+    GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
+    (the paths §14.3 read the widths by) while the bars show.
+
+## Added 2026-10-30 (issues #907, #915)
+
+35. **A condition with a null form parameter** (GetQuestVariable on INFO 0x0014B595-7,
+    GetIsID on 0x000FF5BA) — answered 2026-10-30 (issue #907): the original reads 0 for
+    both; ours now does without a failed call. Open: other functions given a null form
+    in a condition (ours: a failed call, also 0). ([dialogue §4](../spec-notes/dialogue.md))
+36. **Which of a creature's turn rates applies when** (P3; issue #915). Steady turns are
+    TNAM × 1.25, × 3 or × 0.075 °/s on every skeleton tried, whatever the base scale
+    (actors.md §8.10 "TNAM"); × 0.075 is aim tracking within about 6°, but × 1.25 and × 3
+    both came on big turns towards a target. To check: GetAnimAction, the movement
+    speed, IsInCombat and the combat target's distance against the rate, with more turns
+    per creature (e.g. a mongrel set on the player again and again from behind), and
+    whether a standing turn without combat (a Travel package to a marker behind it)
+    takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
 
 ## Added 2026-10-30 (add-on walkthroughs, issue #918)
 
-34. **Is a line that another line names as its follow-up (TCFU) said when its topic is
+37. **Is a line that another line names as its follow-up (TCFU) said when its topic is
     chosen?** (P2: Old World Blues' Sink.) Six topics of the ten masters store a
     follow-up line first and another line after it, e.g. the Think Tank's "Topic001"
     (`NVDLC03DialogueKleinNVDLC03DoctorOLVLTopic001`): 0x01013555 (the five-line
@@ -439,32 +449,32 @@ The numbers above stay put so links to them hold; each item here gives its own p
     VMS46 Diane's VRRCDianeTopic003, the Think Tank's OLVLTopic006 (Dala's 0x01011333 now
     leads into Klein's 0x01011335) and Dr. O's OLVLTopic036.
 
-35. **Does a block whose parameter is a form list run for any member?** (P3: Old World
+38. **Does a block whose parameter is a form list run for any member?** (P3: Old World
     Blues' force fields.) `Begin OnHitWith NVDLC03SonicWeaponList` (SCPT 0x01016AB4,
     0x01016953, 0x0101571D) names a FLST of the five Sonic Emitters; ours runs the block
     when the hitting weapon is in the list (game.rs `block_accepts`) [hypothesis, fit to
     the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
     field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
 
-36. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
     thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
     conversation is still open. In the original, after the line, does the new speaker
     force-greet? (mq-walkthrough §9 stall 1.)
-37. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
+40. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
     stall.) Leave Fort Freeside right after the King completes objective 65 and let Roy's
     line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
-38. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
+41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
     the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)
-39. **Does a stage result script's reference-less RemoveSpell act on the player?** (P1 if
+42. **Does a stage result script's reference-less RemoveSpell act on the player?** (P1 if
     yes: the doctors' addiction cure does nothing headless.) Get addicted to Jet, have Ada
     Straus cure it (VDoctors 20): is the withdrawal gone from the player's effects? (§10
     stall 1.)
-40. **Does a newly started quest's script run before its first delay?** (P2.) Old World
+43. **Does a newly started quest's script run before its first delay?** (P2.) Old World
     Blues: wake in the Think Tank and talk to Dr. Klein at once. Do the Big Empty's random
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
-41. **What does `RemoveItem <item> 0` do?** (P3.) Fix Nellis' arrays by hand, then take
+44. **What does `RemoveItem <item> 0` do?** (P3.) Fix Nellis' arrays by hand, then take
     Loyal's Sunshine Boogie reward: any error, anything removed? (§10 stall 3.)
-42. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
+45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
-43. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
+46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
     (P3; §10 stall 5.)

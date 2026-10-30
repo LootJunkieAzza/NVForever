@@ -163,6 +163,32 @@ pub fn play_group(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// The group code a PlayAnimSequence request carries: a sequence named by text, not an
+/// animation group [design: IsAnimPlaying with a group never matches it].
+pub const SEQUENCE: u16 = u16::MAX;
+
+/// JIP's `ref.PlayAnimSequence sequence [nodeName]`: plays the named sequence of the
+/// reference's model at once [documented: GECK wiki PlayAnimSequence], through the same
+/// request PlayGroup makes, so the engine plays the sequence of that name
+/// (`nvforever` object_anims.rs). The node argument is not used: the engine plays the
+/// model's sequences by name wherever their controller manager is [hypothesis: the shipped
+/// models keep one manager]. On an actor the page allows a `.kf` path; the engine's actor
+/// groups do not load one [not built]. A door, drawn by the engine's door system, does not
+/// play it either (its Open and Close sequences play only as it opens and closes) [not
+/// built].
+pub(crate) fn call_ext(g: &mut Game, name: &str, subject: Option<FormId>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
+    if name != "playanimsequence" {
+        return None;
+    }
+    let seq = match args.first() {
+        Some(fnv_script::vm::XVal::Str(s)) if !s.is_empty() => s.clone(),
+        _ => return Some(Ok(fnv_script::vm::XVal::Num(0.0))),
+    };
+    let Some(on) = subject else { return Some(Ok(fnv_script::vm::XVal::Num(0.0))) };
+    g.ask_anim(AnimRequest { on, group: SEQUENCE, name: Some(seq), start: Start::Immediate });
+    Some(Ok(fnv_script::vm::XVal::Num(0.0)))
+}
+
 /// `ref.IsAnimPlaying [group]`: 1 while the calling reference plays an animation; with a
 /// group, only that group [documented: GECK wiki IsAnimPlaying, which says "the sequence
 /// type for that Animation Group"; we match the group itself, hypothesis: shipped

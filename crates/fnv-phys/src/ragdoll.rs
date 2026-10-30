@@ -12,6 +12,8 @@
 //!   relative rotation's quaternion, which equal the stored angles for a turn about one
 //!   axis and approximate the cones for mixed turns [design].
 //! - **Contacts** [design]: with the world (terrain, references, other ragdolls); not
+//!   between two small ragdolls ([`SMALL_RAGDOLL_SPAN`]: a heap of small corpses would
+//!   cost the solver for nothing the eye sees; hypothesis that the original allows it); not
 //!   with characters (they walk through corpses as they do through hit volumes); between
 //!   two bodies of one ragdoll only when they are not joined and do not touch in the bind
 //!   pose (so an arm rests on the chest instead of inside it, and overlapping neighbours
@@ -54,6 +56,14 @@ const MAX_LIMIT: f32 = 3.0;
 /// Bodies of one ragdoll closer than this in the bind pose never collide with each
 /// other, game units [design].
 pub const SELF_COLLISION_GAP: f32 = 1.0;
+
+/// A ragdoll whose bodies' shapes fit inside a box this long on every side in the bind
+/// pose (game units, actor scale included) is small: two small ragdolls of different
+/// actors pass through each other, while each still meets the world, loose objects and
+/// every bigger ragdoll [design: 64 units holds rats, geckos, radroaches, bloatflies and
+/// mantis nymphs and leaves people, dogs and anything bigger colliding; hypothesis: the
+/// original's rule for corpse against corpse is not known].
+pub const SMALL_RAGDOLL_SPAN: f32 = 64.0;
 
 /// How far past its limits (radians) a placed object's joint may start and still keep
 /// them ([`PhysWorld::add_object_ragdoll`]) [design].
@@ -113,6 +123,8 @@ pub(crate) struct RagdollBodies {
     /// Joints cut by dismemberment ([`PhysWorld::cut_ragdoll`]), by stored index: never
     /// built again.
     cut: Vec<usize>,
+    /// Smaller than [`SMALL_RAGDOLL_SPAN`]: no contacts with other small ragdolls.
+    small: bool,
     /// A placed object's jointed bodies (a swinging trap, [`PhysWorld::add_object_ragdoll`]),
     /// not an actor's: its colliders report the reference ([`Owner::Ref`]) and its
     /// keyframed and static bodies are fixed.
@@ -141,7 +153,10 @@ impl PhysicsHooks for RagdollHooks<'_> {
                 let row = self.ragdolls.get(&fa).and_then(|r| r.collide.get(ia as usize)).copied().unwrap_or(0);
                 (ib < 64 && row & (1 << ib) != 0).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES)
             }
-            (Some(_), Some(_)) => Some(SolverFlags::COMPUTE_RIGID_IMPULSES),
+            (Some((fa, _)), Some((fb, _))) => {
+                let small = |f: u32| self.ragdolls.get(&f).is_some_and(|r| r.small);
+                (!(small(fa) && small(fb))).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES)
+            }
             (Some(_), None) => (!matches!(owner(c.collider2), Some(Owner::Character { .. } | Owner::Actor { .. }))).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES),
             (None, Some(_)) => (!matches!(owner(c.collider1), Some(Owner::Character { .. } | Owner::Actor { .. }))).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES),
             (None, None) => Some(SolverFlags::COMPUTE_RIGID_IMPULSES),
@@ -283,7 +298,7 @@ impl PhysWorld {
         let start_velocity = Some(vec3(velocity) * k).filter(|v| v.is_finite()).unwrap_or_default();
         let n = data.bodies.len();
         let joints = vec![None; data.joints.len()];
-        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, object };
+        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, small: false, object };
         // The bodies' shapes in the bind pose, for the self-collision pairs.
         let mut rest: Vec<Vec<(Pose, SharedShape)>> = Vec::with_capacity(n);
         for (i, b) in data.bodies.iter().enumerate() {
@@ -361,6 +376,14 @@ impl PhysWorld {
             rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, built));
             report.joints += 1;
         }
+        // Its size from the bind-pose shapes (scaled as built).
+        let mut extent: Option<(Vector, Vector)> = None;
+        for (pose, shape) in rest.iter().flatten() {
+            let a = shape.compute_aabb(pose);
+            let e = extent.get_or_insert((a.mins, a.maxs));
+            *e = (e.0.min(a.mins), e.1.max(a.maxs));
+        }
+        rag.small = !object && extent.is_some_and(|(lo, hi)| (hi - lo).max_element() < SMALL_RAGDOLL_SPAN * k);
         let gap = SELF_COLLISION_GAP * f * k;
         // A placed object's parts do not meet each other: its bodies share one Havok
         // collision group (a swinging trap's chains and weight, UPB `ColGroupInfo`), and
@@ -478,6 +501,23 @@ impl PhysWorld {
             self.remove_body(b);
         }
         true
+    }
+
+    /// Whether the actor's ragdoll counts as small ([`SMALL_RAGDOLL_SPAN`]).
+    pub fn ragdoll_is_small(&self, form_id: u32) -> bool {
+        self.ragdolls.get(&form_id).is_some_and(|r| r.small)
+    }
+
+    /// Contact pairs touching now (as of the last step) between bodies of two different
+    /// ragdolls. Diagnostics: what a heap of corpses costs the solver.
+    pub fn ragdoll_contacts_between(&self) -> usize {
+        let of = |c: ColliderHandle| self.w.colliders.get(c).and_then(|c| c.parent()).and_then(|b| self.ragdoll_of.get(&b)).map(|o| o.0);
+        self.w
+            .narrow_phase
+            .contact_pairs()
+            .filter(|p| p.has_any_active_contact())
+            .filter(|p| matches!((of(p.collider1), of(p.collider2)), (Some(a), Some(b)) if a != b))
+            .count()
     }
 
     /// Whether the player's grab holds a body of this actor's ragdoll.

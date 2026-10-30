@@ -187,7 +187,7 @@ impl Game<'_> {
         let effect_secs = self.data.effect_items.get(&item).map_or(0.0, |l| l.iter().map(|e| e.duration as f64).fold(0.0, f64::max));
         self.ingest(actor, item);
         if let Some(sound) = self.data.by_edid(USING_SOUND) {
-            self.ask_sound(SoundRequest { sound, at: Some(actor), system: false });
+            self.ask_sound(SoundRequest { sound, at: Some(actor), system: false, id: 0 });
         }
         let after = fa::actor_value(self, actor, crate::actor_values::HEALTH).unwrap_or(before);
         self.npc_stimpaks.wait_until.insert(actor, self.time + REUSE_SECONDS.max(effect_secs));
