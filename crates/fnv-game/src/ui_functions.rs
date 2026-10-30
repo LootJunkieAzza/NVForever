@@ -48,8 +48,8 @@ fn yes(b: bool) -> XVal {
 /// (`crate::ui_hud::flush`). Not MenuTapKey, and not MCM's shorthands, which reach
 /// `StartMenu/MCM/...` only, so a mod's settings menu does not start the HUD's per-frame
 /// tree writes [design].
-const TREE_FUNCTIONS: [&str; 14] = [
-    "getuifloat", "getuifloatalt", "getuistring", "setuifloat", "setuifloatalt", "setuistring", "setuistringalt", "setuistringex", "moduifloat",
+const TREE_FUNCTIONS: [&str; 15] = [
+    "getuifloat", "getuifloatalt", "getuifloatinherited", "getuistring", "setuifloat", "setuifloatalt", "setuistring", "setuistringalt", "setuistringex", "moduifloat",
     "iscomponentloaded", "injectuixml", "injectuicomponent", "unloaduicomponent", "addtilefromtemplate",
 ];
 
@@ -70,6 +70,35 @@ fn mcm_path(args: &[XVal]) -> String {
     format!("StartMenu/MCM/*:{}/*:{}/{}", i(0), i(1), text(args, 2))
 }
 
+/// GetUIFloatInherited: `x`, `y` and `depth` with the values of every parent tile whose
+/// `locus` is on added, up to the menu's root, which `exclude_root` leaves out; any other
+/// trait as GetUIFloatAlt reads it [documented: GetUIFloatInherited; observed: hud.md §14,
+/// the page's example `HUDMainMenu/RadiationMeter/radiation_text/depth` -50, and 0 with
+/// ExcludeMenuRoot]. Whether a parent without `locus` stops the sum is open
+/// [hypothesis: it does not; the page counts "all parent tiles with an active locus"].
+fn inherited(ui: &fnv_ui::Ui, path: &str, exclude_root: bool) -> Option<f64> {
+    let (tile_path, name) = path.rsplit_once(['/', '\\'])?;
+    if !["x", "y", "depth"].iter().any(|t| t.eq_ignore_ascii_case(name)) {
+        return ui.get_float(path);
+    }
+    // A tile without the trait counts 0 [observed: radiation_text has no depth in
+    // hud_main_menu.xml, and the example still gives -50].
+    let mut id = ui.find_tile(tile_path)?;
+    let own = ui.get_float(path).unwrap_or(0.0);
+    let screen = ui.screen();
+    let mut sum = own;
+    while let Some(parent) = ui.tile(id).parent.filter(|&p| p != screen) {
+        let p = ui.tile(parent);
+        let root = p.parent.is_none_or(|pp| pp == screen);
+        let locus = p.get("locus").is_some_and(|v| v.num() != 0.0);
+        if locus && !(root && exclude_root) {
+            sum += p.get(name).map_or(0.0, |v| v.num());
+        }
+        id = parent;
+    }
+    Some(sum)
+}
+
 /// The UI function `name` (any case) with its arguments; `None` when it is not one of
 /// these.
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
@@ -87,6 +116,7 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
     }
     Some(Ok(match lname.as_str() {
         "getuifloat" | "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
+        "getuifloatinherited" => XVal::Num(inherited(&g.ui_tree, &path, num(args, 1) != 0.0).unwrap_or(NOT_FOUND)),
         "getuistring" => XVal::Str(g.ui_tree.get_string(&path).unwrap_or_default()),
         "setuifloat" | "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
         "setuistring" | "setuistringalt" | "setuistringex" => yes(g.ui_tree.set_string(&path, &text(args, 1))),

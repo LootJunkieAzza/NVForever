@@ -291,6 +291,13 @@ pub enum Action {
     SayFirst { infos: Vec<String>, #[serde(default)] speaker: Option<String>, #[serde(default)] label: Option<String> },
     /// A package starts, finishes or changes on an actor.
     Package { actor: String, package: String, event: String },
+    /// An actor's Dialogue package reaches the one it is to talk to, as the AI layer
+    /// carries it out (fnv-ai `carry.rs`, docs/spec-notes/packages.md): a Say To package
+    /// says its topic at the target, any other force-greets the player with the
+    /// package's topic (a conversation opens); the package's goal is met. `package`: the
+    /// actor's current package when left out. With `label`, observation `info`: the
+    /// line said.
+    DialoguePackage { actor: String, #[serde(default)] package: Option<String>, #[serde(default)] label: Option<String> },
     /// A `SayTo` line finished (SayToDone blocks of the speaker).
     SayToDone { actor: String, #[serde(default)] topic: Option<String> },
     /// An actor walking a patrol reaches one of its points: the point's patrol script
@@ -302,8 +309,18 @@ pub enum Action {
     Fire { weapon: String, #[serde(default)] actor: Option<String> },
     /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
     /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
-    /// (OnTriggerLeave).
-    TriggerEnter { trigger: String, #[serde(default)] actor: Option<String>, #[serde(default)] event: Option<String> },
+    /// (OnTriggerLeave). With `frames` ("inside" only) the actor stays in it that many
+    /// frames, OnTrigger running in each, the game going on between them (a trigger that
+    /// counts the time spent inside).
+    TriggerEnter {
+        trigger: String,
+        #[serde(default)]
+        actor: Option<String>,
+        #[serde(default)]
+        event: Option<String>,
+        #[serde(default)]
+        frames: Option<u64>,
+    },
     /// The player picks a button of the open message box.
     PressButton { button: i32 },
     /// A menu opens (MenuMode with its code) or closes (`null`).
@@ -486,7 +503,9 @@ fn frames_after(a: &Action) -> u64 {
     }
 }
 
-/// Name resolution: `player`, a hex FormID, or an Editor ID (any record).
+/// Name resolution: `player`, a hex FormID, or an Editor ID (any record);
+/// `scripted:<script>[#n]`, `placed:<base>` and `created:<base>` (the newest reference
+/// made at run time from that base, e.g. by PlaceAtMe) name references by what they are.
 pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
     if s.eq_ignore_ascii_case("player") || s.eq_ignore_ascii_case("playerref") {
         return Ok(FormId::PLAYER_REF);
@@ -517,6 +536,12 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
         // The first placed reference (FormID order) of a base form.
         let b = resolve(g, base)?;
         return g.world.placed.refs.values().find(|p| p.base == b).map(|p| p.id).ok_or_else(|| format!("no placed reference of {base}"));
+    }
+    if let Some(base) = s.strip_prefix(fnv_sim::actions::CREATED_PREFIX) {
+        // The newest reference made at run time (PlaceAtMe, a drop) of a base form that
+        // is still there, as the sim runner names it: its FormID is not known in advance.
+        let b = resolve(g, base)?;
+        return g.world.newest_created(b).ok_or_else(|| format!("no reference of {base} was created"));
     }
     if let Some(r) = g.world.placed.by_edid(s) {
         return Ok(r);
@@ -606,6 +631,20 @@ fn talk_since(g: &Game, since: usize) -> Option<FormId> {
         EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "talk" => serde_json::from_value(v["actor"].clone()).ok(),
         _ => None,
     })
+}
+
+/// A script made the player activate something whose default action is to talk (since
+/// event `since`): the conversation opens, as the play loop's `talk_after` opens it
+/// (nvf-play script.rs). The REPCONN intercom's trigger (SCPT 0x000CD04E) runs
+/// `<intercom>.Activate player` after SetTalkingActivatorActor: the player is the
+/// activator and the intercom answers Talk [observed: `fnvtool script decompile`
+/// FalloutNV.esm]. An actor with nothing to say opens none. Returns who was talked to.
+fn scripted_talk(g: &mut Game, since: usize) -> Option<FormId> {
+    if g.dialogue.is_some() {
+        return None;
+    }
+    let who = talk_since(g, since)?;
+    g.start_dialogue(who, None).ok().map(|_| who)
 }
 
 /// The menu code of the container menu [observed: `MenuMode 1008` was true while a
@@ -1367,7 +1406,49 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 "change" => 2,
                 _ => return Err(format!("package event {ev:?} is not start, done or change")),
             };
-            g.package_event(a, p, which);
+            // "done" on the actor's current package is its goal met, as the AI layer
+            // reports it (`Game::package_goal_met`): a script package is then dropped at
+            // the next choice, and a Must Complete one may be replaced (ai.rs).
+            let current = g.extra.get(&a).is_some_and(|e| e.current_package == Some(p) && !e.package_goal_met);
+            if which == 1 && current {
+                g.package_goal_met(a);
+            }
+            // With the AI running packages, `package_goal_met` ran the end event already.
+            if !(which == 1 && current && g.runs_packages()) {
+                g.package_event(a, p, which);
+            }
+        }
+        Action::DialoguePackage { actor, package, label: l } => {
+            use crate::package::{PackageType, TargetKind};
+            lab = l.clone();
+            let a = resolve(g, actor)?;
+            let p = match package {
+                Some(p) => resolve(g, p)?,
+                None => g.current_package(a).ok_or_else(|| format!("{} has no current package", g.data.name(a)))?,
+            };
+            let def = g.package_def(&p).ok_or_else(|| format!("{} is not a package", g.data.name(p)))?;
+            if def.ty != PackageType::Dialogue {
+                return Err(format!("{} is not a Dialogue package", g.data.name(p)));
+            }
+            let talk = def.dialogue.unwrap_or_default();
+            let target = match def.target.map(|t| t.kind) {
+                Some(TargetKind::Reference(Some(r))) => r,
+                Some(TargetKind::LinkedReference) => {
+                    g.world.placed.get(a).and_then(|r| r.linked).ok_or_else(|| format!("{} has no linked reference to talk to", g.data.name(a)))?
+                }
+                _ => return Err(format!("{} names no reference to talk to", g.data.name(p))),
+            };
+            let line = if talk.say_to {
+                let topic = talk.topic.ok_or_else(|| format!("{} is Say To without a topic", g.data.name(p)))?;
+                g.say(a, Some(target), topic, true).ok_or_else(|| format!("{} has no line of {} to say", g.data.name(a), g.data.name(topic)))?
+            } else if target == FormId::PLAYER_REF {
+                // A conversation also for a greeting with the Goodbye flag (`Game::force_greet`).
+                g.force_greet(a, talk.topic)?
+            } else {
+                return Err("a conversation between two actors is not carried out (fnv-ai goal::talk)".into());
+            };
+            g.package_goal_met(a);
+            obs.insert("info".into(), json!(line.to_string()));
         }
         Action::SayToDone { actor, topic } => {
             let a = resolve(g, actor)?;
@@ -1394,7 +1475,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("{} has no OnFire block", g.data.name(w)));
             }
         }
-        Action::TriggerEnter { trigger, actor, event: ev } => {
+        Action::TriggerEnter { trigger, actor, event: ev, frames } => {
             let t = resolve(g, trigger)?;
             let a = match actor {
                 Some(a) => resolve(g, a)?,
@@ -1406,11 +1487,26 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 Some("leave") => event::ON_TRIGGER_LEAVE,
                 Some(o) => return Err(format!("trigger event {o:?} is not enter, inside or leave")),
             };
-            if code == event::ON_TRIGGER {
-                g.trigger_frame(t);
-            }
-            if !g.ref_event(t, code, Some(Value::Ref(a.0)), Some(a)) {
-                return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
+            let n = match frames {
+                Some(n) if code != event::ON_TRIGGER => return Err(format!("frames ({n}) is for the event \"inside\" only")),
+                Some(n) => (*n).max(1),
+                None => 1,
+            };
+            for k in 0..n {
+                if k > 0 {
+                    g.tick();
+                }
+                if code == event::ON_TRIGGER {
+                    g.trigger_frame(t);
+                }
+                if !g.ref_event(t, code, Some(Value::Ref(a.0)), Some(a)) {
+                    // A block that stops answering (the script disabled the trigger,
+                    // moved the actor) ends the stay; only the first frame must answer.
+                    if k == 0 {
+                        return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
+                    }
+                    break;
+                }
             }
         }
         Action::PressButton { button } => {
@@ -1418,6 +1514,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             // the button is set, one frame runs with the box still open, so MenuMode 1001
             // blocks read it with GetButtonPressed, then the box closes.
             let m = g.message_box.as_mut().ok_or("no message box is open")?;
+            m.can_press(*button)?;
             m.pressed = Some(*button);
             let message = m.message;
             // A box the input left modeless (no `given` menu) is shown without a menu: the
@@ -2025,6 +2122,7 @@ fn run_as(
     };
     let mut g = Game::new(data, world, cfg);
     g.voice = voice;
+    crate::ui_loading::load_headless(&mut g);
     if cover {
         g.coverage = Some(Default::default());
     }
@@ -2043,6 +2141,7 @@ fn run_as(
     let mut st = RunState::default();
     for (i, a) in input.actions.iter().enumerate() {
         let start_frame = g.frame;
+        let events_from = g.events.len();
         let res = match a {
             Action::GetQuest { quest: q, fields, label: l } => match quest(&g, q) {
                 Ok(q) => {
@@ -2122,7 +2221,20 @@ fn run_as(
             Action::AdvanceSeconds { seconds } => (seconds / input.frame_seconds).round().max(0.0) as u64,
             _ => frames_after(a),
         };
-        g.frames(wait);
+        // A script's activation by the player whose default is to talk opens the
+        // conversation, in the frame it happened, as the play loop's `talk_after` does
+        // (`scripted_talk`). The activation ops answer for their own activation.
+        let opens = !matches!(a, Action::PlayerActivate { .. } | Action::Activate { .. } | Action::ActivateRead { .. });
+        if opens {
+            scripted_talk(&mut g, events_from);
+        }
+        for _ in 0..wait {
+            let from = g.events.len();
+            g.tick();
+            if opens {
+                scripted_talk(&mut g, from);
+            }
+        }
         let mut s = json!({"step": i, "frame": start_frame});
         if let Err(e) = res {
             s["error"] = json!(e);
@@ -2187,6 +2299,7 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAvDamage { label, .. }
         | Action::Talk { label, .. }
         | Action::PlayerActivate { label, .. }
+        | Action::DialoguePackage { label, .. }
         | Action::Hit { label, .. }
         | Action::Choose { label, .. }
         | Action::WaitTalk { label, .. }

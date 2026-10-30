@@ -1,0 +1,545 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Return to Sender (VMS52): Reyes's radio codes to the six Ranger Stations, the three false reports, Chief Hanlon talked into giving himself up (100)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Sergeant Reyes at Camp Forlorn Hope gives the radio codes (10); the six station rangers take the upgrade (objectives 11-16; the sixth sets 20); Reyes's follow-up (30) and her list of doubtful reports from Camp Golf (40); Lineholm at Alpha, Pason at Delta and Kudlow at Foxtrot each disprove one (objectives 41-43; the last sets 50); Reyes sends the player to Chief Hanlon (60); Hanlon in his office (70) confesses and is talked into turning himself in (100, Complete Quest)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between Camp Forlorn Hope, the six Ranger Stations and Camp Golf: move_player to each speaker."
+  },
+  {
+   "op": "move_player",
+   "to": "CFHSergeantReyesREF"
+  },
+  {
+   "op": "talk",
+   "actor": "CFHSergeantReyesREF",
+   "label": "reyes codes"
+  },
+  {
+   "op": "choose",
+   "topic": "RSGlobalCommBreakdownTopic002",
+   "label": "reyes codes 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSGlobalCommBreakdownRSSergeantReyesTopic015",
+   "label": "reyes codes 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "running",
+    "stage",
+    "objective.11.displayed",
+    "objective.16.displayed"
+   ],
+   "label": "milestone: VMS52 10"
+  },
+  {
+   "op": "move_player",
+   "to": "RSAlphaCastilloRef"
+  },
+  {
+   "op": "talk",
+   "actor": "RSAlphaCastilloRef",
+   "label": "alpha upgraded"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSAlphaQuestRSCommRangerAlphaTopic002",
+   "label": "alpha upgraded 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "var.nNumStationsUpgraded"
+   ],
+   "label": "alpha station"
+  },
+  {
+   "op": "move_player",
+   "to": "0x0015362B"
+  },
+  {
+   "op": "talk",
+   "actor": "0x0015362B",
+   "label": "bravo upgraded"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSBravoQuestRSCommRangerBravoTopic000",
+   "label": "bravo upgraded 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "var.nNumStationsUpgraded"
+   ],
+   "label": "bravo station"
+  },
+  {
+   "op": "move_player",
+   "to": "RSCharlieStepanicREF"
+  },
+  {
+   "op": "talk",
+   "actor": "RSCharlieStepanicREF",
+   "label": "charlie upgraded"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueRangerStationCharlieRSCharlieStepinacTopic001",
+   "label": "charlie upgraded 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "var.nNumStationsUpgraded"
+   ],
+   "label": "charlie station"
+  },
+  {
+   "op": "move_player",
+   "to": "0x001199A4"
+  },
+  {
+   "op": "talk",
+   "actor": "0x001199A4",
+   "label": "delta upgraded"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueRangerStationDeltaRSDeltaSchefferTopic001",
+   "label": "delta upgraded 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "var.nNumStationsUpgraded"
+   ],
+   "label": "delta station"
+  },
+  {
+   "op": "move_player",
+   "to": "0x001132CA"
+  },
+  {
+   "op": "talk",
+   "actor": "0x001132CA",
+   "label": "echo upgraded"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueRangerStationEchoRSEchoGreenTopic001",
+   "label": "echo upgraded 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "var.nNumStationsUpgraded"
+   ],
+   "label": "echo station"
+  },
+  {
+   "op": "move_player",
+   "to": "0x00152E90"
+  },
+  {
+   "op": "talk",
+   "actor": "0x00152E90",
+   "label": "foxtrot upgraded"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueRangerStationFoxtrotRSCommRangerFoxtrotTopic000",
+   "label": "foxtrot upgraded 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "var.nNumStationsUpgraded"
+   ],
+   "label": "foxtrot station"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS52 20"
+  },
+  {
+   "op": "move_player",
+   "to": "CFHSergeantReyesREF"
+  },
+  {
+   "op": "talk",
+   "actor": "CFHSergeantReyesREF",
+   "label": "reyes report"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSGlobalCommBreakdownRSSergeantReyesTopic063",
+   "label": "reyes report 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS52 30"
+  },
+  {
+   "op": "move_player",
+   "to": "CFHSergeantReyesREF"
+  },
+  {
+   "op": "talk",
+   "actor": "CFHSergeantReyesREF",
+   "label": "reyes list"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSGlobalCommBreakdownRSSergeantReyesTopic065",
+   "label": "reyes list 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSGlobalCommBreakdownRSSergeantReyesTopic071",
+   "label": "reyes list 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.40"
+   ],
+   "label": "milestone: VMS52 40"
+  },
+  {
+   "op": "move_player",
+   "to": "LineholmREF"
+  },
+  {
+   "op": "talk",
+   "actor": "LineholmREF",
+   "label": "lineholm"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSAlphaQuestRSRangerAlphaLineholmTopic004",
+   "label": "lineholm 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSAlphaQuestRSRangerAlphaLineholmTopic010",
+   "label": "lineholm 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "0x0011EBDC"
+  },
+  {
+   "op": "talk",
+   "actor": "0x0011EBDC",
+   "label": "pason"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSDeltaQuestRSRangerDeltaPasonTopic007",
+   "label": "pason 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "0x0015362C"
+  },
+  {
+   "op": "talk",
+   "actor": "0x0015362C",
+   "label": "kudlow"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueRangerStationFoxtrotRSFoxtrotKudlowTopic001",
+   "label": "kudlow 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.50",
+    "objective.41.completed",
+    "objective.42.completed",
+    "objective.43.completed"
+   ],
+   "label": "milestone: VMS52 50"
+  },
+  {
+   "op": "move_player",
+   "to": "CFHSergeantReyesREF"
+  },
+  {
+   "op": "talk",
+   "actor": "CFHSergeantReyesREF",
+   "label": "reyes hanlon"
+  },
+  {
+   "op": "choose",
+   "topic": "VMSRSGlobalCommBreakdownRSSergeantReyesTopic107",
+   "label": "reyes hanlon 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.60"
+   ],
+   "label": "milestone: VMS52 60"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Chief Hanlon's walk (his AI packages) onto the balcony: he enters the balcony trigger (HanlonBalconyTriggerSCRIPT, bHanlonOnBalcony), where he talks."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:HanlonBalconyTriggerSCRIPT",
+   "actor": "ChiefHanlonRef"
+  },
+  {
+   "op": "move_player",
+   "to": "ChiefHanlonRef"
+  },
+  {
+   "op": "talk",
+   "actor": "ChiefHanlonRef",
+   "label": "hanlon"
+  },
+  {
+   "op": "choose",
+   "topic": "VCampGolfHanlon2CHanlonTopic034",
+   "label": "hanlon 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.70"
+   ],
+   "label": "milestone: VMS52 70"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for his walk to the office his next package takes him to: he leaves the balcony trigger and enters the office trigger (bHanlonInOffice)."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:HanlonBalconyTriggerSCRIPT",
+   "actor": "ChiefHanlonRef",
+   "event": "leave"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:HanlonOfficeTriggerSCRIPT",
+   "actor": "ChiefHanlonRef"
+  },
+  {
+   "op": "move_player",
+   "to": "ChiefHanlonRef"
+  },
+  {
+   "op": "talk",
+   "actor": "ChiefHanlonRef",
+   "label": "hanlon office"
+  },
+  {
+   "op": "choose",
+   "topic": "VCampGolfHanlon2CHanlonTopic039",
+   "label": "hanlon office 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VCampGolfHanlon2CHanlonTopic044",
+   "label": "hanlon office 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VCampGolfHanlon2CHanlonTopic055",
+   "label": "hanlon office 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS52",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed",
+    "var.nHanlonOutcome"
+   ],
+   "label": "final: VMS52 100"
+  }
+ ]
+}
