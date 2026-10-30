@@ -226,6 +226,16 @@ def parse_wiki(path):
     return out
 
 
+# Parameters of functions whose page gives none, as the original game took them
+# [observed: the probe named with each].
+OBSERVED_PARAMS = {
+    # jip-probes rules1/rules2 (#1021): `let x := ref.SetNthPackage package index` compiled
+    # in the game and replaced the package at the index; the statement forms did not.
+    "SetNthPackage": [{"name": "package", "type": "form", "kind": "form"},
+                      {"name": "index", "type": "int", "kind": "int"}],
+}
+
+
 def parse_page(title, text):
     body = _template_body(text, "Function")
     if body is None:
@@ -256,6 +266,8 @@ def parse_page(title, text):
         if _truthy(af.get("Optional", af.get("optional", ""))):
             p["optional"] = True
         params.append(p)
+    if not params and name in OBSERVED_PARAMS:
+        params = [dict(x) for x in OBSERVED_PARAMS[name]]
     if params:
         rec["params"] = params
     cond = plain(f.get("conditionFunc", "")).split()

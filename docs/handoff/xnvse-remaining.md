@@ -58,10 +58,8 @@ GetFOSEVersion, GetFOSERevision and GetFOSEBeta are not New Vegas functions: the
 xNVSE 6.4.9 gives them no opcode [observed: schemas/script/command_opcodes.json, from
 GetCommandOpcode in the original], so no script can call them. They are left out.
 
-**Core xNVSE (origins NVSE and FOSE1): 3 of 609 left, none buildable now.**
-- `eval`: if-statement syntax, built in the compiler (the census calls it as a function).
-- `SetNthPackage`: its page names no arguments ("Sets and returns the Nth package"), so
-  there is nothing to build from [documented: SetNthPackage].
+**Core xNVSE (origins NVSE and FOSE1): 1 of 609 left.** SetNthPackage was built from
+in-game probes (#1021, ext-last-core.md §4).
 - `PrintActiveTile`: the name of the tile under the pointer; the tile tree has no
   pointer state headless, and the engine's menus do not report one yet.
 
