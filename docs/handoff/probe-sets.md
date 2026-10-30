@@ -81,6 +81,7 @@ nothing is marked or loosened for them.
 | hud1 | 139 | none (engine side) | – | HUD visibility override, shudder, reticle position and limb, the corner-message queue, compass hostiles and targets before and during a fight |
 | showoff1 | 202 | none (engine side) | – | ShowOff:OnAdd with GetAddedItemRefShowOff, ShowOff:OnExplosionHit with Get/SetExplosionHitDamage (handlers of 0 and 2 args), SetOnAuxTimerStopHandler on expiry and AuxTimerStop 1, ForceWeaponJamAnim away and drawn |
 | atk1 | 10 | none | – | GetAttackDamage/SetAttackDamage on a creature base (reads 0, the set ignored), SetWeaponSightFOV and SetWeaponAmmo on the 10mm pistol read back and put back |
+| jip4 | 281 | L5.ext.jip4 | 275/281 | JIP batch 4 record traits and flags on the wiki examples, quest flags, SetGlobalRef (the form ID in the float bits), GetStartingPos/Angle; save `nvftest`; the 6 left are save rows (quest states, detection 2 with Ringo near) |
 
 ## Coverage
 

@@ -15728,7 +15728,7 @@ name = "ui-tree-in-game"
 source = "[design] ui-tile-tree.md §3, §4.1, §6.2 step 1 (T3a): the running game's VFS loads the six persistent menus; scripts read and write an existing HUD trait"
 areas = ["ui", "scripts", "console"]
 paths = [
-  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/lib.rs",
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/lib.rs", "crates/fnv-ui/src/strings.rs",
   "crates/fnv-game/Cargo.toml", "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/game.rs",
   "crates/fnv-game/src/ui_loading.rs", "crates/fnv-game/tests/ui_loading.rs",
   "engine/Cargo.toml", "engine/nvf-play/Cargo.toml", "engine/nvf-play/src/lib.rs",
@@ -15739,6 +15739,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 16
 expect = [
   { re = 'ui: 6 menus loaded \(\d+ tiles\), \d+ warnings', label = "the six menus load from the VFS" },
+  { re = 'ui: game strings: [1-9]\d* read, 1 without text', label = "the six menus' game strings all have text but sModffects, empty in the original too: the load order, then NVForever's labels (T10, menu-xml.md §2.4)" },
   { re = 'script: print "nvf hud depth -?\d+(?:\.\d+)?"', label = "GetUIFloat prints the HUD file's depth" },
   { re = 'script: print "nvf hud depth -999(?:\.0+)?"', count = 0, label = "the HUD depth exists" },
   { re = 'console: SetUIFloat "HUDMainMenu/depth" 37 >> ran', label = "the console compiles and runs SetUIFloat" },

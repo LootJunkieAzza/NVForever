@@ -346,6 +346,32 @@ pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// The reference's place as the plugins put it, before anything moved it: (position,
+/// angles in radians). The player reads 0 on every axis [documented: GetStartingPos,
+/// GetStartingAngle; observed: jip4 probe set, the player 0, DocMitchellRef its placement,
+/// angle Z 22.918].
+fn starting_place(g: &Game, r: FormId) -> ([f32; 3], [f32; 3]) {
+    if r == FormId::PLAYER_REF {
+        return ([0.0; 3], [0.0; 3]);
+    }
+    g.world.placed.get(r).map_or(([0.0; 3], [0.0; 3]), |p| (p.pos, p.rot))
+}
+
+/// `GetStartingPos axis` [documented: GECK wiki GetStartingPos].
+pub fn get_starting_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let i = a.axis(0)?;
+    Ok(Value::Num(f64::from(starting_place(g, r).0[i])))
+}
+
+/// `GetStartingAngle axis`, in degrees [documented: GECK wiki GetStartingAngle].
+pub fn get_starting_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let i = a.axis(0)?;
+    // + 0.0: a stored -0 reads 0, as in the game [observed: jip4, DocMitchellRef Y].
+    Ok(Value::Num(f64::from(starting_place(g, r).1[i]).to_degrees() + 0.0))
+}
+
 pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     // SetLinkedReference's link first [observed: jip-n7].
