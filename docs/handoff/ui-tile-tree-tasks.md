@@ -439,7 +439,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         units, and the tile HUD respawned every node when one moved. Now
         `compass::place` works them out every frame, unrounded, before the tile writes
         (actors follow their moving bodies), and both drawings move the nodes in place
-        (`tiles::draw::moved_only`, the hand-built marks while their kinds stay)
+        (`tiles::draw::change`, the hand-built marks while their kinds stay)
         [design].
       - Ticks flat: the picture's rows and alpha were already drawn; the original's
         ticks are about 0.7 of the line's colour [observed: `hud_corners2.007`], drawn

@@ -16,11 +16,13 @@
 //! - With `[UI] TileMenus=HUDMainMenu` (T12a, `super::vanilla`) the whole menu draws
 //!   instead ([`Select::Whole`]), with `zoom`, `tile`, any `texatlas` and the compass
 //!   strip ([`Fit`], [`Source`]; menu-xml.md §3.1.3).
-//! - The pieces are worked out every frame (a pure function of the tree, [`pieces`]);
-//!   the Bevy nodes are rebuilt only when they differ from the last frame's [design: the
-//!   tree's change count moves on every write, so it cannot tell]. When only places
-//!   changed (the compass marks while the player turns, [`moved_only`]) the nodes are
-//!   moved in place instead (T12d) [design].
+//! - The pieces are worked out every frame (a pure function of the tree, [`pieces`]) and
+//!   compared with the last frame's, piece by piece, each in its own slot node [design:
+//!   the tree's change count moves on every write, so it cannot tell]. A piece only moved
+//!   or recoloured (the compass marks while the player turns, the fades and flashes) has
+//!   its nodes moved and recoloured in place (T12d); one of another look or size is
+//!   spawned again in its slot alone; a piece that comes or goes (a fade reaching 0)
+//!   spawns or removes its slot ([`change`]; maintainer's review of #902) [design].
 //! - A `tile` picture is one image of its repeats baked at its texels' resolution and
 //!   stretched over its box ([`crate::repeat`]), so the bars' ticks stand evenly at any
 //!   window size (T12d) [design].
@@ -29,7 +31,7 @@ use super::layout::{self, Alignment, Kind, Rect as TileRect};
 use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
 use crate::compass_strip::{StripNode, StripTexels, StripWindow};
 use crate::hud::{strip_left, HudView, STRIP};
-use crate::interface::{self, at, bc_supported, face, plain_font, set_line, u, Face, Pictures, SizedPicture, FONT_FILES};
+use crate::interface::{self, at, bc_supported, face, plain_font, set_marked, u, Face, Pictures, SizedPicture, FONT_FILES};
 use crate::repeat::{self, Repeats};
 use crate::script::ScriptState;
 use bevy::ecs::system::SystemParam;
@@ -448,6 +450,35 @@ struct TileRoot;
 #[derive(Component)]
 pub(crate) struct TileStrip(StripNode);
 
+/// A node that takes its piece's colour: a box's fill, a picture, a glyph (recoloured in
+/// place, [`Change::InPlace`]).
+#[derive(Component, Clone)]
+struct Ink;
+
+/// A piece's nodes: its slot (over the whole view, stacked by the piece's place in the
+/// list), the clip wrapper in it and the piece's own outer node.
+struct Slot {
+    node: Entity,
+    order: usize,
+    wrapper: Option<Entity>,
+    outer: Option<Entity>,
+}
+
+/// A piece by its tile and its count among that tile's pieces, as slots are kept.
+type Key = (TileId, usize);
+
+fn keys(pieces: &[Piece]) -> Vec<Key> {
+    let mut seen: HashMap<TileId, usize> = HashMap::new();
+    pieces
+        .iter()
+        .map(|p| {
+            let n = seen.entry(p.tile).or_default();
+            *n += 1;
+            (p.tile, *n - 1)
+        })
+        .collect()
+}
+
 #[derive(Default)]
 pub(crate) struct Drawn {
     root: Option<Entity>,
@@ -458,9 +489,8 @@ pub(crate) struct Drawn {
     /// The whole menu's start line is written (T12a).
     told: bool,
     pictures: Option<Pictures>,
-    /// Each piece's clip wrapper and its own outer node, as spawned (moved in place when
-    /// [`moved_only`]).
-    nodes: Vec<(Option<Entity>, Option<Entity>)>,
+    /// Each piece's nodes, as spawned ([`change`]).
+    slots: HashMap<Key, Slot>,
     repeats: Repeats,
     /// The compass strip's first window is told (`crate::compass_strip`).
     strip_told: bool,
@@ -471,16 +501,27 @@ pub(crate) struct Drawn {
 /// the box).
 type Baked = (Handle<Image>, f32, f32);
 
-/// Whether `new` is `old` with some pieces moved only: the same tiles, looks, colours and
-/// depths, their boxes and clips the same sizes. Their nodes are then moved in place, not
-/// spawned again [design: the compass marks move every frame while the player turns or
-/// the actors walk, T12d].
-pub fn moved_only(old: &[Piece], new: &[Piece]) -> bool {
+/// How a piece differs from its tile's piece of the last frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+    Same,
+    /// Moved or recoloured only: the same look, box and clip sizes. Its nodes are moved
+    /// and recoloured in place [design: the compass marks move every frame while the
+    /// player turns or the actors walk (T12d); the fades and flashes change alpha].
+    InPlace,
+    /// Another look or size: its nodes are spawned again, in its slot alone.
+    Spawn,
+}
+
+pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
-    old.len() == new.len()
-        && old.iter().zip(new).all(|(a, b)| {
-            a.tile == b.tile && a.look == b.look && a.colour == b.colour && a.depth == b.depth && size(&a.rect) == size(&b.rect) && a.clip.map(|c| size(&c)) == b.clip.map(|c| size(&c))
-        })
+    if old == new {
+        Change::Same
+    } else if old.look == new.look && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+        Change::InPlace
+    } else {
+        Change::Spawn
+    }
 }
 
 fn f(v: f64) -> f32 {
@@ -502,20 +543,20 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
     let colour = Color::srgba(cr, cg, cb, ca);
     let node = at(f(r.left - dx), f(r.top - dy), f(r.width), f(r.height));
     match &piece.look {
-        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Pickable::IGNORE)).id()),
+        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Ink, Pickable::IGNORE)).id()),
         Look::Picture { fit, .. } => {
             let (image, rect, size) = picture?;
             let picture = |image_mode| ImageNode { color: colour, rect, image_mode, ..ImageNode::new(image.clone()) };
             let mut cut = node.clone();
             cut.overflow = Overflow::clip();
             Some(match placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))) {
-                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Pickable::IGNORE)).id(),
+                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE)).id(),
                 Placed::Repeat { width, .. } => match baked {
                     // One image of the repeats, stretched [design: `crate::repeat`].
                     Some((strip, w, h)) => p
                         .spawn((cut, Pickable::IGNORE))
                         .with_children(|c| {
-                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Pickable::IGNORE));
+                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Ink, Pickable::IGNORE));
                         })
                         .id(),
                     // Without the picture's texels or for a box too large to bake: Bevy's
@@ -524,13 +565,13 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                     None => {
                         let per_texel = if size.x > 0.0 { f(width) / size.x } else { 1.0 };
                         let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale * per_texel };
-                        p.spawn((node, picture(mode), Pickable::IGNORE)).id()
+                        p.spawn((node, picture(mode), Ink, Pickable::IGNORE)).id()
                     }
                 },
                 Placed::At { width, height } => p
                     .spawn((cut, Pickable::IGNORE))
                     .with_children(|c| {
-                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Pickable::IGNORE));
+                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE));
                     })
                     .id(),
                 // One image of the window's strip, its right end faded as the original's
@@ -542,12 +583,12 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         Some(window) => {
                             let size = window.size();
                             let image = ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(window.image()) };
-                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Pickable::IGNORE));
+                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Ink, Pickable::IGNORE));
                         }
                         None => {
                             c.spawn((TileStrip(StripNode::Moving), at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
                                 for i in 0..2 {
-                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Pickable::IGNORE));
+                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE));
                                 }
                             });
                         }
@@ -561,7 +602,7 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
                     for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width) {
-                        set_line(t, face, &line, x, base, colour);
+                        set_marked(t, face, &line, x, base, colour, Ink);
                     }
                 })
                 .id();
@@ -596,7 +637,15 @@ pub(crate) struct View<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 
-pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Query<&mut Node>) {
+/// The drawn pieces' nodes: their places, and the nodes under a slot to recolour.
+#[derive(SystemParam)]
+pub(crate) struct Nodes<'w, 's> {
+    place: Query<'w, 's, &'static mut Node>,
+    children: Query<'w, 's, &'static Children>,
+    ink: Query<'w, 's, (Option<&'static mut ImageNode>, Option<&'static mut BackgroundColor>, Option<&'static mut TextColor>), With<Ink>>,
+}
+
+pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Nodes) {
     let drawn = &mut *drawn;
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
@@ -642,110 +691,171 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     if pieces == drawn.pieces && scale == drawn.scale {
         return;
     }
-    if scale == drawn.scale && moved_only(&drawn.pieces, &pieces) {
-        for ((old, new), (wrapper, outer)) in drawn.pieces.iter().zip(&pieces).zip(&drawn.nodes) {
-            if old.rect == new.rect && old.clip == new.clip {
-                continue;
-            }
-            if let (Some(e), Some(c)) = (wrapper, new.clip) {
-                if let Ok(mut node) = nodes.get_mut(*e) {
-                    node.left = u(f(c.left));
-                    node.top = u(f(c.top));
-                }
-            }
-            let (dx, dy) = new.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
-            if let Some(e) = outer {
-                if let Ok(mut node) = nodes.get_mut(*e) {
-                    node.left = u(f(new.rect.left - dx));
-                    node.top = u(f(new.rect.top - dy));
-                }
-            }
-        }
-        drawn.pieces = pieces;
-        return;
-    }
     let root = *drawn.root.get_or_insert_with(|| {
         let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
         commands.spawn((TileRoot, full, GlobalZIndex(TILES_Z), Pickable::IGNORE)).id()
     });
-    let bc = bc_supported(kit.formats.as_deref());
-    let data = kit.data.as_deref();
-    let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
-    let mut looked: Vec<Option<SizedPicture>> = Vec::with_capacity(pieces.len());
-    for piece in &pieces {
-        looked.push(match &piece.look {
-            Look::Picture { name, source, .. } => match source {
-                Source::Shared => pictures.picture_sized(name, None, data, &mut kit.images, bc),
-                Source::Index(atlas) => pictures.picture_sized(name, Some(atlas), data, &mut kit.images, bc),
-                Source::Own => pictures.own_sized(name, data, &mut kit.images, bc),
-            },
-            _ => None,
-        });
+    // A new size: the tiled pictures are set for the old one, so every piece again.
+    if scale != drawn.scale {
+        commands.entity(root).despawn_related::<Children>();
+        drawn.slots.clear();
+        drawn.pieces.clear();
+        drawn.scale = scale;
     }
-    // The `tile` pictures' repeats, baked into one image each.
-    let mut baked: Vec<Option<Baked>> = Vec::with_capacity(pieces.len());
-    for (piece, picture) in pieces.iter().zip(&looked) {
-        baked.push(match (&piece.look, picture, data) {
-            (Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) => {
-                let texels = (f64::from(size.x), f64::from(size.y));
-                match placed(*fit, rect.is_some(), texels) {
-                    Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels).and_then(|(out, node)| {
-                        let atlas = match source {
-                            Source::Index(a) => Some(a.as_str()),
-                            _ => None,
-                        };
-                        let path = pictures.texture_path(name, atlas, rect.is_some(), data);
-                        let cut = rect.map(repeat::piece_texels);
-                        drawn.repeats.baked(&path, cut, out, data, &mut kit.images).map(|image| (image, f(node.0), f(node.1)))
-                    }),
-                    _ => None,
-                }
-            }
-            _ => None,
-        });
-    }
-    let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
-    // The compass strip's window, baked into one image (`crate::compass_strip`).
-    let mut strips: Vec<Option<StripWindow>> = Vec::with_capacity(pieces.len());
-    for (piece, picture) in pieces.iter().zip(&looked) {
-        strips.push(match (&piece.look, picture, data) {
-            (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
-                let atlas = match source {
-                    Source::Index(a) => Some(a.as_str()),
-                    _ => None,
-                };
-                let window = StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images));
-                if !drawn.strip_told {
-                    match &window {
-                        Some(w) => info!("tiles: the compass strip baked into one window image of {} x {} texels", w.texels().0, w.texels().1),
-                        None => info!("tiles: the compass strip drawn unfaded (its texels not read)"),
-                    }
-                    drawn.strip_told = true;
-                }
-                window
-            }
-            _ => None,
-        });
-    }
-    let ctx = Ctx { fonts: &kit.fonts, scale, heading };
-    let mut spawned = Vec::with_capacity(pieces.len());
-    commands.entity(root).despawn_related::<Children>().with_children(|r| {
-        for (((piece, picture), baked), strip) in pieces.iter().zip(looked).zip(baked).zip(strips) {
-            spawned.push(match piece.clip {
-                Some(c) => {
-                    let mut wrapper = at(f(c.left), f(c.top), f(c.width), f(c.height));
-                    wrapper.overflow = Overflow::clip();
-                    let mut outer = None;
-                    let id = r.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, &ctx, picture, baked, strip)).id();
-                    (Some(id), outer)
-                }
-                None => (None, spawn_piece(r, piece, &ctx, picture, baked, strip)),
-            });
+    let keys = keys(&pieces);
+    let old: HashMap<Key, &Piece> = self::keys(&drawn.pieces).into_iter().zip(&drawn.pieces).collect();
+    // The pieces gone take their slots with them.
+    let wanted: HashSet<Key> = keys.iter().copied().collect();
+    drawn.slots.retain(|key, slot| {
+        let keep = wanted.contains(key);
+        if !keep {
+            commands.entity(slot.node).despawn();
         }
+        keep
     });
-    drawn.nodes = spawned;
+    let mut spawn = Vec::new();
+    for (i, (key, piece)) in keys.iter().zip(&pieces).enumerate() {
+        let (Some(slot), Some(was)) = (drawn.slots.get_mut(key), old.get(key)) else {
+            spawn.push(i);
+            continue;
+        };
+        if slot.order != i {
+            commands.entity(slot.node).insert(ZIndex(i as i32));
+            slot.order = i;
+        }
+        match change(was, piece) {
+            Change::Same => {}
+            Change::Spawn => spawn.push(i),
+            Change::InPlace => {
+                if was.rect != piece.rect || was.clip != piece.clip {
+                    if let (Some(e), Some(c)) = (slot.wrapper, piece.clip) {
+                        if let Ok(mut node) = nodes.place.get_mut(e) {
+                            node.left = u(f(c.left));
+                            node.top = u(f(c.top));
+                        }
+                    }
+                    let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
+                    if let Some(e) = slot.outer {
+                        if let Ok(mut node) = nodes.place.get_mut(e) {
+                            node.left = u(f(piece.rect.left - dx));
+                            node.top = u(f(piece.rect.top - dy));
+                        }
+                    }
+                }
+                if was.colour != piece.colour {
+                    let [r, g, b, a] = piece.colour;
+                    let colour = Color::srgba(r, g, b, a);
+                    for e in nodes.children.iter_descendants(slot.node) {
+                        let Ok((image, fill, text)) = nodes.ink.get_mut(e) else { continue };
+                        if let Some(mut image) = image {
+                            image.color = colour;
+                        }
+                        if let Some(mut fill) = fill {
+                            fill.0 = colour;
+                        }
+                        if let Some(mut text) = text {
+                            text.0 = colour;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !spawn.is_empty() {
+        let bc = bc_supported(kit.formats.as_deref());
+        let data = kit.data.as_deref();
+        let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
+        let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
+        let mut made = Vec::with_capacity(spawn.len());
+        for &i in &spawn {
+            let piece = &pieces[i];
+            let picture = match &piece.look {
+                Look::Picture { name, source, .. } => match source {
+                    Source::Shared => pictures.picture_sized(name, None, data, &mut kit.images, bc),
+                    Source::Index(atlas) => pictures.picture_sized(name, Some(atlas), data, &mut kit.images, bc),
+                    Source::Own => pictures.own_sized(name, data, &mut kit.images, bc),
+                },
+                _ => None,
+            };
+            // A `tile` picture's repeats, baked into one image.
+            let baked = match (&piece.look, &picture, data) {
+                (Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) => {
+                    let texels = (f64::from(size.x), f64::from(size.y));
+                    match placed(*fit, rect.is_some(), texels) {
+                        Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels).and_then(|(out, node)| {
+                            let atlas = match source {
+                                Source::Index(a) => Some(a.as_str()),
+                                _ => None,
+                            };
+                            let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                            let cut = rect.map(repeat::piece_texels);
+                            drawn.repeats.baked(&path, cut, out, data, &mut kit.images).map(|image| (image, f(node.0), f(node.1)))
+                        }),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            // The compass strip's window, baked into one image (`crate::compass_strip`).
+            let strip = match (&piece.look, &picture, data) {
+                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
+                    let atlas = match source {
+                        Source::Index(a) => Some(a.as_str()),
+                        _ => None,
+                    };
+                    let window = StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images));
+                    if !drawn.strip_told {
+                        match &window {
+                            Some(w) => info!("tiles: the compass strip baked into one window image of {} x {} texels", w.texels().0, w.texels().1),
+                            None => info!("tiles: the compass strip drawn unfaded (its texels not read)"),
+                        }
+                        drawn.strip_told = true;
+                    }
+                    window
+                }
+                _ => None,
+            };
+            made.push((i, picture, baked, strip));
+        }
+        let ctx = Ctx { fonts: &kit.fonts, scale, heading };
+        for (i, picture, baked, strip) in made {
+            let piece = &pieces[i];
+            let key = keys[i];
+            match drawn.slots.get_mut(&key) {
+                Some(slot) => {
+                    let mut nodes = (None, None);
+                    commands.entity(slot.node).despawn_related::<Children>().with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip));
+                    (slot.wrapper, slot.outer) = nodes;
+                }
+                None => {
+                    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+                    let mut slot = None;
+                    commands.entity(root).with_children(|r| {
+                        let mut nodes = (None, None);
+                        let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip)).id();
+                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1 });
+                    });
+                    drawn.slots.extend(slot.map(|s| (key, s)));
+                }
+            }
+        }
+    }
     drawn.pieces = pieces;
-    drawn.scale = scale;
+}
+
+/// A piece in its slot, in a clip wrapper when it has a clip: the wrapper and the piece's
+/// own outer node.
+fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>) -> (Option<Entity>, Option<Entity>) {
+    match piece.clip {
+        Some(c) => {
+            let mut wrapper = at(f(c.left), f(c.top), f(c.width), f(c.height));
+            wrapper.overflow = Overflow::clip();
+            let mut outer = None;
+            let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip)).id();
+            (Some(id), outer)
+        }
+        None => (None, spawn_piece(s, piece, ctx, picture, baked, strip)),
+    }
 }
 
 /// Show the tile-drawn compass strip at the heading [design: as the hand-built HUD's
@@ -1056,26 +1166,45 @@ mod tests {
         }
     }
 
-    /// T12d: pieces that only moved (the compass marks while turning) are moved in place;
-    /// a change of size, look or colour spawns the nodes again.
+    /// T12d and the review of #902: a piece only moved (the compass marks while turning)
+    /// or recoloured (the fades and flashes) is changed in place; a change of size or
+    /// look spawns that piece's nodes again, and only its own.
     #[test]
-    fn only_moved_pieces_are_moved_in_place() {
+    fn moved_and_recoloured_pieces_change_in_place() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
         let (old, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
-        let mut new = old.clone();
-        new[0].rect.left += 0.25;
-        if let Some(c) = new[1].clip.as_mut() {
+        assert_eq!(change(&old[0], &old[0]), Change::Same);
+        let mut moved = old[0].clone();
+        moved.rect.left += 0.25;
+        if let Some(c) = moved.clip.as_mut() {
             c.top += 3.0;
         }
-        assert!(moved_only(&old, &new));
-        let mut wider = old.clone();
-        wider[1].rect.width += 8.0;
-        assert!(!moved_only(&old, &wider));
-        let mut dimmer = old.clone();
-        dimmer[2].colour[3] = 0.5;
-        assert!(!moved_only(&old, &dimmer));
-        assert!(!moved_only(&old, &old[1..]));
+        assert_eq!(change(&old[0], &moved), Change::InPlace);
+        let mut dimmer = old[2].clone();
+        dimmer.colour[3] = 0.5;
+        assert_eq!(change(&old[2], &dimmer), Change::InPlace);
+        let mut wider = old[1].clone();
+        wider.rect.width += 8.0;
+        assert_eq!(change(&old[1], &wider), Change::Spawn);
+        let text = old.iter().find(|p| matches!(p.look, Look::Text { .. })).expect("a text piece");
+        let mut other = text.clone();
+        if let Look::Text { string, .. } = &mut other.look {
+            string.push('!');
+        }
+        assert_eq!(change(text, &other), Change::Spawn);
+    }
+
+    #[test]
+    fn a_tiles_pieces_are_kept_apart_by_their_count() {
+        let (ui, _, menu) = vanilla_hud();
+        let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
+        let (mut all, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        all.push(all[0].clone());
+        let keys = keys(&all);
+        assert_eq!(keys[0], (all[0].tile, 0));
+        assert_eq!(*keys.last().unwrap(), (all[0].tile, 1));
+        assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
     }
 
     #[test]

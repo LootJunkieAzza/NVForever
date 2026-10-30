@@ -207,7 +207,8 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
     set_marked(p, face, line, x, base, color, ());
 }
 
-fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
+/// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
+pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
     let Some((image, size)) = &face.image else {
         let text: String = line.glyphs.iter().map(|g| g.code as char).collect();
         let size = face.font.size * 0.75;

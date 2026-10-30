@@ -1184,7 +1184,7 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   HUD spawned all its nodes again whenever a place changed. [design] The places are
   worked out every frame, unrounded, through `CompassView`, the tile tree's `_Heading`
   and `x`, and the tiles' boxes (§11); the tile renderer moves the nodes of pieces that
-  only moved (`tiles::draw::moved_only`), and the hand-built marks' nodes move in place
+  only moved (`tiles::draw::change`), and the hand-built marks' nodes move in place
   while their kinds stay. Nodes still land on whole pixels (Bevy's layout rounding), as
   the strip's does.
 

@@ -317,10 +317,12 @@ stands unchanged: every picture stretched, the shared atlas only.
   [observed: the owner, T12d; hypothesis: the original's even, slightly soft ticks are
   one repeated texture filtered across the bar, hud.md §14.9]. A box over 4M texels, or
   a picture whose texels cannot be read, keeps Bevy's tiles.
-- [design, T12d] The renderer spawns its nodes again only when a piece changes more than
-  its place: when the pieces differ only in their boxes' and clips' places
-  (`draw::moved_only`; the compass marks every frame while the player turns) it moves
-  the nodes it spawned.
+- [design, T12d; maintainer's review of #902] The renderer keeps each piece's nodes in a
+  slot of its own (by tile, stacked by the piece's place in the list) and compares the
+  pieces with the last frame's one by one (`draw::change`): a piece that only moved or
+  changed colour (the compass marks every frame while the player turns, the fades and
+  flashes) has its nodes moved and recoloured; a piece of another look or size is
+  spawned again alone; a piece that comes or goes adds or removes its slot.
 - [observed, T12c] An image without `texatlas` reads its own file, not the shared atlas
   (`draw::Source::Own`): the radiation bracket, whose file comments its `texatlas` line
   out (radiation.md §6), shows its own file's slanted ends and single line on the
