@@ -34,6 +34,7 @@ pub struct Attachment {
 /// The tile functions' session state beyond the tree (not saved).
 #[derive(Default)]
 pub struct UiExtra {
+    pub cache: crate::ui_cache::Cache,
     pub attached: Vec<Attachment>,
     /// The engine's text measure for GetStringUIDimensions; `None` headless (the function
     /// then writes nothing).
@@ -96,6 +97,37 @@ pub(crate) fn gradual(g: &mut Game, owner: Owner, tile: TileId, name: &str, rest
             g.ui_gradients.start(&mut g.ui_tree, gr);
         }
     }
+    true
+}
+
+/// CacheUIGradualDelay's tail `delay [end [duration [flag [mode [match]]]]]`: after the
+/// delay the trait goes from its value then to `end` [documented: CacheUIGradualDelay].
+/// Without an end it stops the trait's changes, locked ones too; flag 0 gives way to a
+/// running change, 1 replaces it, 2 replaces it and locks until it finishes; `match` names
+/// a trait of the tile whose change during the delay ends it [documented: the page and
+/// its notes].
+pub(crate) fn gradual_delay(g: &mut Game, tile: TileId, name: &str, rest: &[XVal]) -> bool {
+    let owner = Owner::CacheUi;
+    if rest.len() < 2 {
+        g.ui_gradients.stop(owner, tile, name);
+        return true;
+    }
+    let flag = num(rest, 3) as i64;
+    let mode = num(rest, 4).max(0.0) as u8;
+    if !mode_built(mode) || (flag != 2 && g.ui_gradients.locked(owner, tile, name)) {
+        return false;
+    }
+    if flag == 0 && g.ui_gradients.active(owner, tile, name).is_some() {
+        return false;
+    }
+    let watch = (rest.len() > 5).then(|| {
+        let m = text(rest, 5);
+        let v = g.ui_tree.tile(tile).get(&m).cloned().unwrap_or_default();
+        (m, v)
+    });
+    let kind = Kind::Float { start: None, end: num(rest, 1), mode };
+    let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: num(rest, 2), elapsed: 0.0, delay: num(rest, 0).max(0.0), lock: flag == 2, watch };
+    g.ui_gradients.start(&mut g.ui_tree, gr);
     true
 }
 
@@ -371,6 +403,7 @@ fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool 
 /// ([`crate::ui_hudbar::rebuilt`]).
 pub fn tree_rebuilt(g: &mut Game) {
     g.ui_gradients.clear();
+    g.ui_extra.cache.clear();
     g.ui_extra.attached.clear();
 }
 
@@ -401,6 +434,9 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
     if TREE_FUNCTIONS.contains(&lname.as_str()) || lname.starts_with("cacheui") || lname.starts_with("hudbar") {
         g.ui_used = true;
         crate::ui_hud::flush(g);
+    }
+    if let Some(r) = crate::ui_cache::call(g, &lname, args) {
+        return Some(r);
     }
     let path = text(args, 0);
     let zero = XVal::Num(0.0);

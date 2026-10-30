@@ -298,3 +298,119 @@ fn dump_tile_info_to_the_console_and_an_array() {
     let none = run(&mut g, "DumpTileInfoToArray", &[s("TestMenu/Nope")]);
     assert!(array(&g, &none).is_empty());
 }
+
+#[test]
+fn cache_ui_by_index_per_mod_and_by_key() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.other.plugin = "first.esp".into();
+    assert_eq!(n(run(&mut g, "CacheUI", &[x(20.0), s("TestMenu/Box")])), 1.0);
+    run(&mut g, "CacheUIFloat", &[x(20.0), s("width"), x(120.0)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 120.0);
+    run(&mut g, "CacheUIModFloat", &[x(20.0), s("width"), x(5.0)]);
+    assert_eq!(n(run(&mut g, "CacheUIGetFloat", &[x(20.0), s("width")])), 125.0);
+    // A path under the cached tile, and a trait not there.
+    run(&mut g, "CacheUIString", &[x(20.0), s("Words/string"), s("new")]);
+    assert_eq!(string(&g, "TestMenu/Box/Words/string"), "new");
+    assert_eq!(n(run(&mut g, "CacheUIGetFloat", &[x(20.0), s("nope")])), -999.0);
+    // Another mod's cache is its own.
+    g.other.plugin = "second.esp".into();
+    assert_eq!(n(run(&mut g, "CacheUIGetFloat", &[x(20.0), s("width")])), -999.0);
+    // The Alt forms by key, from any mod.
+    run(&mut g, "CacheUIAlt", &[s("Combat"), x(0.0), s("TestMenu/Box/Pic")]);
+    run(&mut g, "CacheUIAlt", &[s("Combat"), x(1.0), s("TestMenu/Box/Words")]);
+    g.other.plugin = "first.esp".into();
+    assert_eq!(run(&mut g, "CacheUIGetStringAlt", &[s("combat"), x(1.0), s("string")]), s("new"));
+    // Ranges, either argument order for RangeMod (its page and example differ).
+    assert_eq!(n(run(&mut g, "CacheUIRangeAlt", &[s("Combat"), s("alpha"), x(0.0), x(1.0), x(50.0)])), 2.0);
+    assert_eq!(float(&g, "TestMenu/Box/Pic/alpha"), 50.0);
+    run(&mut g, "CacheUIRangeModAlt", &[s("Combat"), s("alpha"), x(0.0), x(1.0), x(2.0)]);
+    run(&mut g, "CacheUIRangeModAlt", &[s("Combat"), x(0.0), x(1.0), s("alpha"), x(3.0)]);
+    assert_eq!(float(&g, "TestMenu/Box/Words/alpha"), 55.0);
+    // Dump to the console, erase.
+    run(&mut g, "CacheUIDumpAlt", &[s("Combat"), x(-1.0)]);
+    assert_eq!(g.console_out, vec!["CacheUI [0] TestMenu/Box/Pic".to_string(), "CacheUI [1] TestMenu/Box/Words".into()]);
+    run(&mut g, "CacheUIEraseAlt", &[s("Combat"), x(0.0)]);
+    assert_eq!(n(run(&mut g, "CacheUIGetFloatAlt", &[s("Combat"), x(0.0), s("alpha")])), -999.0);
+    assert_eq!(n(run(&mut g, "CacheUIGetFloatAlt", &[s("Combat"), x(1.0), s("alpha")])), 55.0);
+    run(&mut g, "CacheUIEraseAlt", &[s("Combat"), x(-1.0)]);
+    assert_eq!(n(run(&mut g, "CacheUIGetFloatAlt", &[s("Combat"), x(1.0), s("alpha")])), -999.0);
+    // An unloaded tile's entry goes.
+    let pic = g.ui_tree.find_tile("TestMenu/Box").unwrap();
+    g.ui_tree.unload_tile(pic);
+    assert_eq!(n(run(&mut g, "CacheUIGetFloat", &[x(20.0), s("width")])), -999.0);
+}
+
+#[test]
+fn cache_ui_gradual_delay_lock_and_reveal() {
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "CacheUI", &[x(0.0), s("TestMenu/Box")]);
+    run(&mut g, "CacheUI", &[x(1.0), s("TestMenu/Box/Pic")]);
+    // A gradual by index, mode 5 (ease in).
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("alpha"), x(0.0), x(100.0), x(2.0), x(5.0)]);
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/alpha"), 25.0);
+    // Mode 4 is not built: refused, nothing changes.
+    assert_eq!(n(run(&mut g, "CacheUIGradual", &[x(1.0), s("alpha"), x(0.0), x(100.0), x(2.0), x(4.0)])), 0.0);
+    assert_eq!(float(&g, "TestMenu/Box/Pic/alpha"), 10.0);
+    // A range of indices.
+    run(&mut g, "CacheUIRangeGradual", &[x(0.0), x(1.0), s("alpha"), x(0.0), x(10.0), x(1.0)]);
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/alpha"), 10.0);
+    assert_eq!(float(&g, "TestMenu/Box/Pic/alpha"), 10.0);
+    // A delay: nothing for 2 s, then from the value then to 200 in 1 s; locked (flag 2).
+    run(&mut g, "CacheUIGradualDelay", &[x(0.0), s("width"), x(2.0), x(200.0), x(1.0), x(2.0)]);
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 200.0, "the file's 200, untouched in the delay");
+    g.ui_tree.set_float("TestMenu/Box/width", 100.0);
+    frame(&mut g, 1.5);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 150.0, "from 100 at the delay's end, half a second in");
+    // Locked: a gradual with an end is refused, a stop is not.
+    assert_eq!(n(run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(0.0), x(1.0), x(1.0)])), 0.0);
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(5.0)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 5.0);
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 5.0);
+    // A delay watching a trait ends when it changes.
+    run(&mut g, "CacheUIGradualDelay", &[x(0.0), s("width"), x(2.0), x(300.0), x(1.0), x(0.0), x(0.0), s("alpha")]);
+    g.ui_tree.set_float("TestMenu/Box/alpha", 77.0);
+    frame(&mut g, 3.0);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 5.0);
+    assert!(g.ui_gradients.is_empty());
+    // JIP's stop leaves CacheUI's change running.
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(0.0), x(10.0), x(10.0)]);
+    run(&mut g, "SetUIFloatGradual", &[s("TestMenu/Box/width")]);
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 1.0);
+    // A reveal by index.
+    run(&mut g, "CacheUIStringReveal", &[x(0.0), s("Words/string"), s("abcd"), x(4.0), x(1.0)]);
+    frame(&mut g, 1.0);
+    assert_eq!(string(&g, "TestMenu/Box/Words/string"), "d");
+}
+
+#[test]
+fn cache_ui_queues() {
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "CUICreateQueue", &[x(0.0)]);
+    for v in [0.0, 25.0, 20.0, 9.0] {
+        run(&mut g, "CUIQueueFloat", &[x(0.0), x(v)]);
+    }
+    assert_eq!(n(run(&mut g, "CUIGetQueueSize", &[x(0.0)])), 4.0);
+    run(&mut g, "CUIQueueCycle", &[x(0.0), x(1.0)]);
+    let q = |g: &mut Game| -> Vec<f64> { (0..4).map(|k| n(run(g, "CUIGetQueue", &[x(0.0), x(k as f64)]))).collect() };
+    assert_eq!(q(&mut g), vec![25.0, 20.0, 9.0, 0.0]);
+    run(&mut g, "CUIQueueCycle", &[x(0.0), x(0.0)]);
+    assert_eq!(q(&mut g), vec![0.0, 25.0, 20.0, 9.0]);
+    // Called again, a value goes; forced add with duplicates refused, without allowed.
+    run(&mut g, "CUIQueueFloat", &[x(0.0), x(25.0)]);
+    assert_eq!(q(&mut g), vec![0.0, 20.0, 9.0, -1.0]);
+    run(&mut g, "CUIQueueFloat", &[x(0.0), x(9.0), x(1.0), x(1.0)]);
+    assert_eq!(n(run(&mut g, "CUIGetQueueSize", &[x(0.0)])), 3.0);
+    run(&mut g, "CUIQueueFloat", &[x(0.0), x(9.0), x(0.0), x(1.0)]);
+    assert_eq!(n(run(&mut g, "CUIGetQueueSize", &[x(0.0)])), 4.0);
+    run(&mut g, "CUIQueueFloat", &[x(0.0), x(9.0), x(0.0), x(0.0)]);
+    assert_eq!(n(run(&mut g, "CUIGetQueueSize", &[x(0.0)])), 3.0);
+    assert_eq!(n(run(&mut g, "CUIGetQueue", &[x(5.0), x(0.0)])), -1.0);
+}
