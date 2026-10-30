@@ -332,7 +332,7 @@ pub struct Pointer {
     /// The tile whose `mouseover` is 1 (GetActiveUIComponentName's tile).
     pub over: Option<TileId>,
     /// A key moved the highlight (`<ref … trait="mouseover"/>`): it holds until the
-    /// pointer moves [hypothesis].
+    /// pointer moves [hypothesis], or its tile is hidden or stops being a target [design].
     keyed: bool,
     /// Tiles whose `clicked` (and `shiftclicked`) go back to 0 at the next step.
     pulsed: Vec<TileId>,
@@ -367,7 +367,10 @@ impl Pointer {
         }
         let moved = input.at != self.at;
         self.at = input.at;
-        if moved {
+        // A key-moved highlight goes when the pointer moves, or when its tile is hidden or
+        // stops being a target (it could then be clicked by a press): the pointer's tile
+        // takes it again [design: the maintainer's review of #957].
+        if moved || self.over.is_some_and(|t| !Self::takes_keys(ui, t)) {
             self.keyed = false;
         }
         if !self.keyed {
@@ -742,6 +745,35 @@ mod tests {
         // Disabled (`target` 0): the menu's again.
         assert!(ui.set_float("TestMenu/Main/HiddenButton/target", 0.0));
         assert_eq!(a(&mut p, &mut ui), [Click { tile: ok, id: Some(1.0), by: key }]);
+    }
+
+    #[test]
+    fn a_key_moved_highlight_goes_with_its_tile() {
+        let (mut ui, menu) = tree();
+        let ok = id(&ui, "TestMenu/Main/OkButton");
+        let cancel = id(&ui, "TestMenu/Main/CancelButton");
+        let still = at(120.0, 115.0);
+        let down = Input { pads: vec!["xdown".into()], ..still.clone() };
+        let press = Input { press: true, ..still.clone() };
+        let mut p = Pointer::default();
+        p.step(&mut ui, &[menu], &still, &no_measure);
+        p.step(&mut ui, &[menu], &down, &no_measure);
+        assert_eq!(p.over, Some(cancel));
+        // Cancel hidden: the pointer's tile (Ok) takes the highlight back, and a press
+        // clicks Ok, not the hidden Cancel.
+        ui.set_trait(cancel, "visible", Value::Num(0.0));
+        let r = p.step(&mut ui, &[menu], &press, &no_measure);
+        assert_eq!(r.over, Some((Some(cancel), Some(ok))));
+        assert_eq!(ui.get_float("TestMenu/Main/CancelButton/mouseover"), Some(0.0));
+        assert_eq!(r.clicks, [Click { tile: ok, id: Some(1.0), by: By::Pointer }]);
+        // Shown again and moved to by the key, then no longer a target: the same.
+        ui.set_trait(cancel, "visible", Value::Num(1.0));
+        p.step(&mut ui, &[menu], &down, &no_measure);
+        assert_eq!(p.over, Some(cancel));
+        assert!(ui.set_float("TestMenu/Main/CancelButton/target", 0.0));
+        let r = p.step(&mut ui, &[menu], &press, &no_measure);
+        assert_eq!(p.over, Some(ok));
+        assert_eq!(r.clicks, [Click { tile: ok, id: Some(1.0), by: By::Pointer }]);
     }
 
     #[test]

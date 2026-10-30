@@ -416,9 +416,10 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   key clicks) or `<ref … trait="mouseover"/>` on list items (`xup`/`xdown` to the
   neighbour); one `xscroll` refs `_value_adjust_poke`. [documented: Ref, Input] A `ref`
   to `mouseover` moves the highlight there; one to `clicked` clicks that tile.
-  [hypothesis] The highlighted tile's trait first, else the menu's; a key-moved
-  highlight holds until the pointer moves; a ref to another trait is reported, not
-  followed [design].
+  [hypothesis] The highlighted tile's trait first, else the menu's, also when the
+  tile's ref does nothing (it names no tile, or one hidden or not a target); a key-moved
+  highlight holds until the pointer moves or its tile is hidden or stops being a target;
+  a ref to another trait is reported, not followed [design].
 - [documented: ClickMenuButton, SetOnMenuClickEventHandler] `Menu#<id>` names the tile
   of that `<id>` in the menu. [hypothesis] The first in file order when two share one.
 - [documented] Wheelmoved, Draggable (`dragx` …), Repeathorizontal: not built (T8 left
