@@ -35,6 +35,7 @@ pub struct Attachment {
 #[derive(Default)]
 pub struct UiExtra {
     pub cache: crate::ui_cache::Cache,
+    pub bars: crate::ui_hudbar::Bars,
     pub attached: Vec<Attachment>,
     /// The engine's text measure for GetStringUIDimensions; `None` headless (the function
     /// then writes nothing).
@@ -405,6 +406,7 @@ pub fn tree_rebuilt(g: &mut Game) {
     g.ui_gradients.clear();
     g.ui_extra.cache.clear();
     g.ui_extra.attached.clear();
+    crate::ui_hudbar::rebuilt(g);
 }
 
 /// The functions here that read or change the tree, in lower case (the HUD's kept-back
@@ -436,6 +438,9 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
         crate::ui_hud::flush(g);
     }
     if let Some(r) = crate::ui_cache::call(g, &lname, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::ui_hudbar::call(g, &lname, args) {
         return Some(r);
     }
     let path = text(args, 0);

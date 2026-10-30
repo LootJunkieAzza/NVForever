@@ -414,3 +414,123 @@ fn cache_ui_queues() {
     assert_eq!(n(run(&mut g, "CUIGetQueueSize", &[x(0.0)])), 3.0);
     assert_eq!(n(run(&mut g, "CUIGetQueue", &[x(5.0), x(0.0)])), -1.0);
 }
+
+#[test]
+fn hud_bars_made_of_tiles_in_the_hud() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.other.plugin = "bars.esp".into();
+    assert_eq!(n(run(&mut g, "HudBarCreate", &[s("Health"), x(10.0), x(100.0), x(0.0)])), 1.0);
+    assert_eq!(n(run(&mut g, "HudBarCreate", &[s("Health"), x(0.0), x(0.0), x(0.0)])), 0.0, "the mod has one of the name");
+    assert_eq!(n(run(&mut g, "HudBarExists", &[s("health")])), 1.0);
+    let path = match run(&mut g, "HudBarGetElementUIPath", &[s("Health"), x(10.0)]) {
+        XVal::Str(p) => p,
+        other => panic!("{other:?}"),
+    };
+    assert!(g.ui_tree.find_tile(&path).is_some(), "a rect in HUDMainMenu: {path}");
+    let meter = format!("{path}/Meter");
+    // Hidden until shown; placed where made.
+    assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+    assert_eq!(float(&g, &format!("{path}/x")), 10.0);
+    run(&mut g, "HudBarShowBar", &[s("Health"), x(1.0)]);
+    assert_eq!(float(&g, &format!("{path}/visible")), 1.0);
+    assert_eq!(n(run(&mut g, "HudBarGetVisible", &[s("Health"), x(10.0)])), 1.0);
+    // The meter's width from the value: indent 30 plus half of the rest of 330.
+    run(&mut g, "HudBarSetTexture", &[s("Health"), x(0.0), s("mybars\\line.dds")]);
+    run(&mut g, "HudBarSetSize", &[s("Health"), x(0.0), x(330.0), x(20.0)]);
+    run(&mut g, "HudBarSetIndent", &[s("Health"), x(0.0), x(30.0)]);
+    run(&mut g, "HudBarSetValueMax", &[s("Health"), x(200.0)]);
+    assert_eq!(n(run(&mut g, "HudBarSetValueFloat", &[s("Health"), x(100.0)])), 1.0);
+    assert_eq!(float(&g, &format!("{meter}/width")), 180.0);
+    assert_eq!(string(&g, &format!("{meter}/filename")), "mybars\\line.dds");
+    run(&mut g, "HudBarSetValuePercentage", &[s("Health"), x(2.0)]);
+    assert_eq!(float(&g, &format!("{meter}/width")), 330.0, "normalized to 100 %");
+    // Look: alpha for the images (10 all), colour, depth, position, rotation, text.
+    run(&mut g, "HudBarSetAlpha", &[s("Health"), x(10.0), x(120.0)]);
+    assert_eq!(float(&g, &format!("{path}/Frame/alpha")), 120.0);
+    assert_eq!(float(&g, &format!("{path}/Text/alpha")), 255.0, "the Text is not an image");
+    run(&mut g, "HudBarSetColor", &[s("Health"), x(2.0), x(1.0), x(2.0), x(3.0)]);
+    assert_eq!(float(&g, &format!("{path}/Text/green")), 2.0);
+    assert_eq!(float(&g, &format!("{path}/Meter/depth")), 100.0);
+    run(&mut g, "HudBarSetPos", &[s("Health"), x(2.0), x(5.0), x(9.0)]);
+    assert_eq!(float(&g, &format!("{path}/Text/y")), 9.0);
+    run(&mut g, "HudBarSetRotation", &[s("Health"), x(0.0), x(0.0), x(1.5)]);
+    assert_eq!(float(&g, &format!("{meter}/rotateangle")), 1.5);
+    run(&mut g, "HudBarSetTextString", &[s("Health"), x(0.0), s("my bar")]);
+    assert_eq!(string(&g, &format!("{path}/Text/string")), "my bar");
+    run(&mut g, "HudBarSetTextTrait", &[s("Health"), x(0.0), x(1.0), x(2.0)]);
+    assert!(matches!(g.ui_tree.get(&format!("{path}/Text/justify")), Some(Value::Sym(c)) if c == "center"));
+    // Auto position: the Text right of the Meter.
+    run(&mut g, "HudBarSetAutoPos", &[s("Health")]);
+    assert_eq!(float(&g, &format!("{path}/Text/x")), 330.0);
+    // Bar traits kept and read back; 1 / -1.
+    assert_eq!(n(run(&mut g, "HudBarGetBarTrait", &[s("Health"), x(2.0)])), 0.1);
+    assert_eq!(n(run(&mut g, "HudBarSetBarTrait", &[s("Health"), x(23.0), x(1.0)])), 1.0);
+    assert_eq!(n(run(&mut g, "HudBarGetBarTrait", &[s("Health"), x(23.0)])), 1.0);
+    assert_eq!(n(run(&mut g, "HudBarSetBarTrait", &[s("Nope"), x(23.0), x(1.0)])), -1.0);
+    // Other bar types: value text, percentage, alpha.
+    run(&mut g, "HudBarCreate", &[s("Weight"), x(0.0), x(0.0), x(3.0)]);
+    run(&mut g, "HudBarSetTextString", &[s("Weight"), x(1.0), s("Carry:")]);
+    run(&mut g, "HudBarSetTextString", &[s("Weight"), x(2.0), s(" wg")]);
+    run(&mut g, "HudBarSetMeterTrait", &[s("Weight"), x(2.0), x(1.0)]);
+    run(&mut g, "HudBarSetValueMax", &[s("Weight"), x(210.0)]);
+    run(&mut g, "HudBarSetValueFloat", &[s("Weight"), x(50.0)]);
+    let wpath = match run(&mut g, "HudBarGetElementUIPath", &[s("Weight"), x(2.0)]) {
+        XVal::Str(p) => p,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(string(&g, &format!("{wpath}/string")), "Carry:50/210 wg");
+    assert_eq!(n(run(&mut g, "HudBarSetValuePercentage", &[s("Weight"), x(0.5)])), -1.0, "not for type 3");
+    run(&mut g, "HudBarCreate", &[s("Pct"), x(0.0), x(0.0), x(4.0)]);
+    run(&mut g, "HudBarSetTextString", &[s("Pct"), x(2.0), s("%")]);
+    run(&mut g, "HudBarSetValuePercentage", &[s("Pct"), x(0.444)]);
+    let ppath = match run(&mut g, "HudBarGetElementUIPath", &[s("Pct"), x(2.0)]) {
+        XVal::Str(p) => p,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(string(&g, &format!("{ppath}/string")), "44%");
+    run(&mut g, "HudBarCreate", &[s("Fade"), x(0.0), x(0.0), x(2.0)]);
+    run(&mut g, "HudBarSetMeterTrait", &[s("Fade"), x(0.0), x(50.0)]);
+    run(&mut g, "HudBarSetValueFloat", &[s("Fade"), x(50.0)]);
+    let fpath = match run(&mut g, "HudBarGetElementUIPath", &[s("Fade"), x(0.0)]) {
+        XVal::Str(p) => p,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(float(&g, &format!("{fpath}/alpha")), 152.5);
+    // Another mod sees only its own; the console takes the first of the name.
+    g.other.plugin = "other.esp".into();
+    assert_eq!(n(run(&mut g, "HudBarExists", &[s("Health")])), 0.0);
+    let own = run(&mut g, "HudBarGetAllBars", &[]);
+    assert!(array(&g, &own).is_empty());
+    let all = run(&mut g, "HudBarGetAllBars", &[x(1.0)]);
+    let all = array(&g, &all);
+    assert_eq!(array(&g, &all[0].1).len(), 4);
+    g.other.plugin = String::new();
+    assert_eq!(n(run(&mut g, "HudBarExists", &[s("Health")])), 1.0);
+    // Destroyed: the tiles go.
+    g.other.plugin = "bars.esp".into();
+    run(&mut g, "HudBarDestroy", &[s("Health")]);
+    assert!(g.ui_tree.find_tile(&path).is_none());
+    run(&mut g, "HudBarDestroyAllBars", &[]);
+    assert!(g.ui_extra.bars.list.is_empty());
+    // Not built: the script-variable value.
+    assert!(call(&mut g, "HudBarSetValueScriptVar", None, &[s("x"), x(1.0)]).is_none());
+}
+
+#[test]
+fn hud_bars_are_made_again_in_a_rebuilt_tree() {
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "HudBarCreate", &[s("Kept"), x(1.0), x(2.0), x(0.0)]);
+    run(&mut g, "HudBarCreate", &[s("Gone"), x(1.0), x(2.0), x(0.0)]);
+    run(&mut g, "HudBarSetBarTrait", &[s("Gone"), x(1.0), x(1.0)]);
+    // A new tree, as a load builds.
+    let src = files();
+    let mut ui = fnv_ui::Ui::new();
+    ui.load_menu(&src, "menus\\hud.xml").unwrap();
+    g.ui_tree = ui;
+    fnv_game::ui_more::tree_rebuilt(&mut g);
+    assert_eq!(g.ui_extra.bars.list.len(), 1);
+    let path = g.ui_extra.bars.list[0].path();
+    assert_eq!(float(&g, &format!("{path}/y")), 2.0);
+}

@@ -150,6 +150,7 @@ pub mod traps;
 pub mod ui_cache;
 pub mod ui_functions;
 pub mod ui_gradients;
+pub mod ui_hudbar;
 pub mod ui_loading;
 pub mod ui_hud;
 pub mod ui_more;
