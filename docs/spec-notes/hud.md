@@ -1330,6 +1330,13 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   first write with " ", hidden; while lines are drawn its string is the lines (one text a
   line), `visible` 1, wrapped at 800 [hypothesis: the hand-built HUD's width, its own
   `wrapwidth` not read]; after them hidden with the last text [hypothesis].
+- **Widths** [design: ui-tile-tree.md §4.1]: each text copy's `width` is written from
+  its string just after the copies, before scripts, in its font at its `wrapwidth`, only
+  with the game's own fonts (`notices::write_widths`) [hypothesis: a wrapped text is as
+  wide as its widest line; `Messages/*:1` was read 281 wide under the 330 wrap, and no
+  copy holding a wrapped string was read]. The hand-built subtitles' area is given back
+  (`Inherited`) every frame the tiles do not draw them, the HUD menu gone included
+  (`vanilla::subtitles_visibility`).
 - **Needs a capture**: the copies' traits while a message, a quest notice, a discovery
   and a subtitle show (alpha over time, `wrapwidth`, which template, the parents under
   `QuestReminder`, whether `Region_Location` gets children on entering a named place),
@@ -1341,7 +1348,8 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   subtitles_are_one_centred_text_there_from_the_start,
   a_rebuilt_tree_gets_its_copies_again_and_a_tree_without_the_pieces_none,
   a_discovery_is_written_under_region_location_too_and_drawn_once,
-  the_log_names_what_each_area_shows}`,
+  the_log_names_what_each_area_shows,
+  every_text_copy_gets_its_width_from_its_string_font_and_wrap}`,
   `tiles::vanilla::the_hand_built_subtitles_stay_while_the_tiles_draw_nothing`. Smoke
   `tiles-hud-notices`, `tiles-hud-discovered`, `tiles-hud-subtitles`; every `tiles-*`
   scenario expects the start line to end `hand-built HUD hidden` (no piece kept, since

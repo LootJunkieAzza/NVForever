@@ -137,21 +137,33 @@ impl FontKit<'_> {
     /// ([`fnv_game::ui_hud::write_text_widths`]); only with the game's own fonts, a stand-in
     /// font would write made-up widths [design].
     pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
-        if self.data.is_none() {
-            return;
-        }
-        let fonts: Vec<f64> = fnv_game::ui_hud::measured_texts(ui).into_iter()
-            .map(|t| ui.tile(t).get("font").map_or(0.0, Value::num)).collect();
-        if fonts.is_empty() {
-            return;
-        }
-        for &f in &fonts {
-            self.load(f);
-        }
-        if fonts.iter().any(|&f| self.face(f).is_none_or(|face| face.image.is_none())) {
+        if !self.game_fonts(ui, &fnv_game::ui_hud::measured_texts(ui)) {
             return;
         }
         fnv_game::ui_hud::write_text_widths(ui, &|font, text| self.face(font).map_or(0.0, |f| measure(&f.font, text, None).0));
+    }
+
+    /// Write the tile HUD's notice texts' widths (`super::notices::write_widths`), after
+    /// `super::notices::write` has set their strings; only with the game's own fonts, as
+    /// [`FontKit::write_widths`].
+    pub(crate) fn write_notice_widths(&mut self, ui: &mut Ui) {
+        if !self.game_fonts(ui, &super::notices::texts(ui)) {
+            return;
+        }
+        super::notices::write_widths(ui, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, text, wrap).0));
+    }
+
+    /// Whether the fonts of `tiles` are all the game's own (read, not stand-ins), loading
+    /// them; false without game data or without tiles.
+    fn game_fonts(&mut self, ui: &Ui, tiles: &[TileId]) -> bool {
+        if self.data.is_none() || tiles.is_empty() {
+            return false;
+        }
+        let fonts: Vec<f64> = tiles.iter().map(|&t| ui.tile(t).get("font").map_or(0.0, Value::num)).collect();
+        for &f in &fonts {
+            self.load(f);
+        }
+        fonts.iter().all(|&f| self.face(f).is_some_and(|face| face.image.is_some()))
     }
 }
 
