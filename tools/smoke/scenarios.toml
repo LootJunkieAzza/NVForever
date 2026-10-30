@@ -13308,3 +13308,27 @@ expect = [
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
 
+[[scenario]]
+name = "mq-fail-old-world-blues-think-tank"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-old-world-blues-think-tank.actions.json (OldWorldBlues.esm): the main chain with the Think Tank side quests begun and left, Mobius fought (NVDLC03MQ05 35) and killed (40), the Think Tank attacked at the confrontation (60: NVDLC03ThinkTankQuest and the six doctors' quests 255) and killed (70), the end slides to NVDLC03MQ05 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-old-world-blues-think-tank.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-old-world-blues-think-tank.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: MQ05 35 (Mobius fought).stage", equals = 35, label = "fail-old-world-blues-think-tank milestone: MQ05 35: stage = 35" },
+  { json = "observations.?label=MQ05 40 (Mobius dead).stage", equals = 40, label = "fail-old-world-blues-think-tank MQ05 40: stage = 40" },
+  { json = "observations.?label=milestone: MQ05 60 (the Think Tank attacked).stage", equals = 60, label = "fail-old-world-blues-think-tank milestone: MQ05 60: stage = 60" },
+  { json = "observations.?label=NVDLC03ThinkTankQuest after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankQuest after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctor0a after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctor0a after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctor0b after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctor0b after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctor8 after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctor8 after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctorBorous after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctorBorous after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctorDala after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctorDala after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctorKlein after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctorKlein after 60: stage = 255" },
+  { json = "observations.?label=milestone: MQ05 70 (the Think Tank killed).stage", equals = 70, label = "fail-old-world-blues-think-tank milestone: MQ05 70: stage = 70" },
+  { json = "observations.?label=final: MQ05 100 (Old World Blues complete).completed", equals = true, label = "fail-old-world-blues-think-tank final: MQ05 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-old-world-blues-think-tank: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-old-world-blues-think-tank: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
