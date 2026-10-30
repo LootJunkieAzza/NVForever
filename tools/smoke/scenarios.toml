@@ -12938,3 +12938,108 @@ expect = [
   { json = "given_errors.*", count = 0, label = "lonesome-road-launch: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the add-ons group report of issue #932 (walk5-addons)"
+
+[[scenario]]
+name = "mq-stocking-up"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/stocking-up.actions.json: Stocking Up (vFreeformForlornHope02): Quartermaster Mayes's holotag collection (stage 10), fifteen tags handed in and camp morale raised"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/stocking-up.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/stocking-up.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: vFreeformForlornHope02 10.running", equals = true, label = "stocking-up, milestone: vFreeformForlornHope02 10: running = true" },
+  { json = "observations.?label=milestone: vFreeformForlornHope02 10.stage", equals = 10, label = "stocking-up, milestone: vFreeformForlornHope02 10: stage = 10" },
+  { json = "observations.?label=milestone: vFreeformForlornHope02 10.done.10", equals = true, label = "stocking-up, milestone: vFreeformForlornHope02 10: done.10 = true" },
+  { json = "observations.?label=final: vFreeformForlornHope02 10.stage", equals = 10, label = "stocking-up, final: vFreeformForlornHope02 10: stage = 10" },
+  { json = "observations.?label=final: vFreeformForlornHope02 10.done.10", equals = true, label = "stocking-up, final: vFreeformForlornHope02 10: done.10 = true" },
+  { json = "observations.?label=final: vFreeformForlornHope02 10.var.NCRDogtagTotal", equals = 15.0, label = "stocking-up, final: vFreeformForlornHope02 10: var.NCRDogtagTotal = 15.0" },
+  { json = "observations.?label=camp morale.var.iForlornHopeMorale", equals = 3.0, label = "stocking-up, camp morale: var.iForlornHopeMorale = 3.0" },
+  { json = "steps.*.error", count = 0, label = "stocking-up: no step fails" },
+  { json = "given_errors.*", count = 0, label = "stocking-up: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-high-times"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/high-times.actions.json: High Times (VFSHighTimes): Bill Ronte and Jacob Hoff sobered up, Julie Farkas's thanks (CompleteQuest)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/high-times.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/high-times.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VFSHighTimes started.running", equals = true, label = "high-times, milestone: VFSHighTimes started: running = true" },
+  { json = "observations.?label=milestone: VFSHighTimes started.objective.5.displayed", equals = true, label = "high-times, milestone: VFSHighTimes started: objective.5.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes started.objective.15.displayed", equals = true, label = "high-times, milestone: VFSHighTimes started: objective.15.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer named.objective.5.completed", equals = true, label = "high-times, milestone: VFSHighTimes dealer named: objective.5.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer named.objective.10.displayed", equals = true, label = "high-times, milestone: VFSHighTimes dealer named: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer named.objective.60.displayed", equals = true, label = "high-times, milestone: VFSHighTimes dealer named: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer dealt with.objective.60.completed", equals = true, label = "high-times, milestone: VFSHighTimes dealer dealt with: objective.60.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Bill helped.objective.10.completed", equals = true, label = "high-times, milestone: VFSHighTimes Bill helped: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Bill helped.objective.70.completed", equals = true, label = "high-times, milestone: VFSHighTimes Bill helped: objective.70.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Jacob helped.objective.20.completed", equals = true, label = "high-times, milestone: VFSHighTimes Jacob helped: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Jacob helped.objective.80.completed", equals = true, label = "high-times, milestone: VFSHighTimes Jacob helped: objective.80.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Jacob helped.objective.90.displayed", equals = true, label = "high-times, milestone: VFSHighTimes Jacob helped: objective.90.displayed = true" },
+  { json = "observations.?label=final: VFSHighTimes completed.completed", equals = true, label = "high-times, final: VFSHighTimes completed: completed = true" },
+  { json = "observations.?label=final: VFSHighTimes completed.objective.90.completed", equals = true, label = "high-times, final: VFSHighTimes completed: objective.90.completed = true" },
+  { json = "steps.*.error", count = 0, label = "high-times: no step fails" },
+  { json = "given_errors.*", count = 0, label = "high-times: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-debt-collector"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/debt-collector.actions.json: Debt Collector (VFSDebtCollector): Grecks, Santiago and Lady Jane's debts, McCaffery's hat (CompleteQuest)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/debt-collector.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/debt-collector.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VFSDebtCollector started.running", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: running = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector started.objective.10.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector started.objective.20.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector started.objective.30.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.10.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.20.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.30.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.30.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.50.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector paid.objective.50.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector paid: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector paid.objective.60.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector paid: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector McCaffery dead.objective.60.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector McCaffery dead: objective.60.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector McCaffery dead.objective.80.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector McCaffery dead: objective.80.displayed = true" },
+  { json = "observations.?label=final: VFSDebtCollector completed.completed", equals = true, label = "debt-collector, final: VFSDebtCollector completed: completed = true" },
+  { json = "observations.?label=final: VFSDebtCollector completed.objective.80.completed", equals = true, label = "debt-collector, final: VFSDebtCollector completed: objective.80.completed = true" },
+  { json = "observations.?label=room key.count", equals = 1, label = "debt-collector, room key: count = 1" },
+  { json = "steps.*.error", count = 0, label = "debt-collector: no step fails" },
+  { json = "given_errors.*", count = 0, label = "debt-collector: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-wang-dang-atomic-tango"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/wang-dang-atomic-tango.actions.json: Wang Dang Atomic Tango (VFSAtomicPimp): Fisto, Santiago and Beatrix recruited and reported (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/wang-dang-atomic-tango.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/wang-dang-atomic-tango.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VFSAtomicPimp started.running", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: running = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp started.objective.10.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp started.objective.20.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp started.objective.30.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.10.completed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.15.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.15.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.20.completed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.25.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.30.completed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.30.completed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.35.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.35.displayed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.stage", equals = 100, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: stage = 100" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.done.100", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: done.100 = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: completed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.objective.15.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: objective.15.completed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.objective.25.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: objective.25.completed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.objective.35.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: objective.35.completed = true" },
+  { json = "observations.?label=santiago's debt settled.objective.20.completed", equals = true, label = "wang-dang-atomic-tango, santiago's debt settled: objective.20.completed = true" },
+  { json = "steps.*.error", count = 0, label = "wang-dang-atomic-tango: no step fails" },
+  { json = "given_errors.*", count = 0, label = "wang-dang-atomic-tango: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
