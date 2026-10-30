@@ -638,16 +638,12 @@ fn talk_since(g: &Game, since: usize) -> Option<FormId> {
 /// (nvf-play script.rs). The REPCONN intercom's trigger (SCPT 0x000CD04E) runs
 /// `<intercom>.Activate player` after SetTalkingActivatorActor: the player is the
 /// activator and the intercom answers Talk [observed: `fnvtool script decompile`
-/// FalloutNV.esm]. An actor with nothing to say opens none. Only activations among
-/// events `since..until` count. Returns who was talked to.
-fn scripted_talk(g: &mut Game, since: usize, until: usize) -> Option<FormId> {
+/// FalloutNV.esm]. An actor with nothing to say opens none. Returns who was talked to.
+fn scripted_talk(g: &mut Game, since: usize) -> Option<FormId> {
     if g.dialogue.is_some() {
         return None;
     }
-    let who = g.events[since..until].iter().find_map(|e| match &e.kind {
-        EventKind::Activated { by, outcome: Some(v), .. } if *by == FormId::PLAYER_REF && v["result"] == "talk" => serde_json::from_value(v["actor"].clone()).ok(),
-        _ => None,
-    })?;
+    let who = talk_since(g, since)?;
     g.start_dialogue(who, None).ok().map(|_| who)
 }
 
@@ -2142,11 +2138,9 @@ fn run_as(
     let mut observations = Vec::new();
     let mut steps = Vec::new();
     let mut st = RunState::default();
-    // The events from which a script's activation may still open a conversation
-    // (`scripted_talk` below).
-    let mut talk_from = g.events.len();
     for (i, a) in input.actions.iter().enumerate() {
         let start_frame = g.frame;
+        let events_from = g.events.len();
         let res = match a {
             Action::GetQuest { quest: q, fields, label: l } => match quest(&g, q) {
                 Ok(q) => {
@@ -2227,25 +2221,18 @@ fn run_as(
             _ => frames_after(a),
         };
         // A script's activation by the player whose default is to talk opens the
-        // conversation, as the play loop's `talk_after` does (`scripted_talk`), but a
-        // frame later: the activated reference's OnActivate runs in the next frame and
-        // may start a conversation itself (the Think Tank's brain bot, a talking
-        // activator, gives the talk to its doctor with StartConversation; opening it with
-        // the bot first refused that). The activation ops answer for their own activation.
+        // conversation, in the frame it happened, as the play loop's `talk_after` does
+        // (`scripted_talk`). The activation ops answer for their own activation.
         let opens = !matches!(a, Action::PlayerActivate { .. } | Action::Activate { .. } | Action::ActivateRead { .. });
-        if !opens {
-            talk_from = g.events.len();
+        if opens {
+            scripted_talk(&mut g, events_from);
         }
         for _ in 0..wait {
             let from = g.events.len();
             g.tick();
             if opens {
-                scripted_talk(&mut g, talk_from, from);
+                scripted_talk(&mut g, from);
             }
-            talk_from = from;
-        }
-        if !opens {
-            talk_from = g.events.len();
         }
         let mut s = json!({"step": i, "frame": start_frame});
         if let Err(e) = res {
