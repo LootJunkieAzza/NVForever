@@ -205,6 +205,12 @@ impl Ui {
         &self.tiles[id.0 as usize]
     }
 
+    /// Whether `id` names a live tile of this tree: false for one unloaded, and for an id
+    /// kept from a tree since replaced (a load builds a new one) [design].
+    pub fn is_live(&self, id: TileId) -> bool {
+        self.tiles.get(id.0 as usize).is_some_and(|t| t.live)
+    }
+
     /// A tile to change (made, unloaded, renamed, its file traits or templates): the tree
     /// is worked out again at the next [`Ui::update`]. Value writes go through `set_at`.
     fn tile_mut(&mut self, id: TileId) -> &mut Tile {
