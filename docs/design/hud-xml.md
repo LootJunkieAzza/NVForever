@@ -236,7 +236,10 @@ player's archives + loose files + mods (VFS)
   frame by `TileId` and updated only when its item changes; `ImageNode` with a rectangle
   for atlas pictures and glyphs; clipping by a clipping parent node; order by
   `GlobalZIndex` from the list's order; `HUDMainMenu`'s depth keeps it behind every menu.
-  Model tiles (`nif`, the breath meter) are drawn to a texture, later.
+  Model tiles (`nif`, the breath meter) are drawn to a texture, later. [design, T12
+  leftovers] For now the breath meter's model, flat textured squares, is drawn as turned
+  pictures by the hand-built meter's reader (`tiles/model.rs`, hud.md §14.12); a model
+  that needs real 3D drawing still waits for the texture.
 - **The adapter keeps the game's rules where they are.** Health, ammo, condition,
   compass marks and messages are worked out where they are now; the adapter only writes
   them into the tree. Places the files leave to code come from §4, as data in the

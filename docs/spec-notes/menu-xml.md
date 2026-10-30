@@ -314,7 +314,8 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   Vanilla UI Plus 5, its `VUI+` outline tiles in the prompt box).
 - [design] A `rect` draws a filled box only when it sets `red`, `green` or `blue`
   itself; otherwise it only places its children. `nif`, `radial` and `window` tiles,
-  and empty pictures and strings, draw nothing in v1.
+  and empty pictures and strings, draw nothing in v1 (the whole HUD's drawing draws
+  `nif` tiles, §3.1.3).
 - [design] An `image` is its `filename` stretched over its box: the piece of
   `interfaceshared.tai` of that file name when the atlas has it, else the file under
   `textures\` (`interface::Pictures`). Another `.tai` named by `texatlas`, and `zoom`,
@@ -450,8 +451,12 @@ stands unchanged: every picture stretched, the shared atlas only.
   as the original's [observed: hud.md §14.10]: the window's part of the strip baked into
   one image with each texel column's alpha on the ramp, as the hand-built HUD's
   (`crate::compass_strip`) [design: one image, no seams between parts].
-- [design] `nif` tiles (the HUD's one, the breath meter) are still not drawn; the
-  hand-built breath meter stays.
+- [design] `nif` tiles (the HUD's one, the breath meter) are drawn with the whole menu:
+  the `filename` under `meshes\`, its flat textured squares as turned pictures in the
+  tile's colour and alpha, the `animation` sequence's vis keys at the time NVForever's
+  own `_NVFSequenceFraction` gives (hud.md §14.12, `tiles/model.rs`). [hypothesis] The
+  model's origin stands at the tile's `x`, `y`, a model unit an interface unit; the
+  tile's `width` and `height` do not scale it.
 
 ## 4. Operators
 

@@ -301,7 +301,8 @@ the compass the eight directions' letters in Bevy's font.
   [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] The filled-bar
   sound and 5 s sound-to-menu wait stay; the original's sound moment is not captured.
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
-- The breath meter is built: drowning.md §3 (`hud_breath.rs`).
+- The breath meter is built: drowning.md §3 (`hud_breath.rs`); from its `nif` tile with
+  `[UI] TileMenus=HUDMainMenu` (§14.12).
 - The messages at the top left with their icons, subtitles,
   the armour-piercing icons. The ammo type's label is built (§4). The crippled-limb
   picture is built (§12), and Hardcore mode's words (§13).
@@ -731,6 +732,9 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   XP drawing, and the message queues, for those children and the ones still to capture;
   subtitles share the drawing's selection. Discovery notices map to `Region_Location`,
   other quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
+  Since §14.11 the tile HUD writes a discovery's copies under both `Region_Location` and
+  `QuestReminder` and draws `QuestReminder`'s, where the owner's screenshot shows them;
+  `Shown::location` still only tells which kind of line shows.
 - [hypothesis] T4a truncates W and W/2 before subtracting offsets: at 16:9,
   `1706.67 - 386` truncates to 1320 (nearest would give 1321); the truncated middle
   853 keeps the reticle's half-unit offset and reproduces its child's x 820.5.
@@ -1037,10 +1041,10 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 | `hud_needs.rs` words | `HardcoreMode` | tiles (§14.8), fixed word places |
 | `xp_meter.rs` | `XPMeter` | tiles (§14.8), independent visual clock |
 | `hud_limbs.rs` | `crippled_limb_indicator` | tiles (§14.8) |
-| `hud_breath.rs` | `BreathMeter` | hand-built: a `nif` tile (`Interface\HUD\AirTimer01.NIF`), not drawn |
-| `corner_messages.rs` | `Messages` | hand-built: its text and icon copies are not built |
-| `quest_messages.rs` | `QuestReminder`, `Region_Location` | hand-built: no texts in the tree |
-| `script_hud.rs` subtitles | `Subtitles` | hand-built: its text copy is not built |
+| `hud_breath.rs` | `BreathMeter` | tiles (§14.12): its `nif` tile drawn with the hand-built meter's model reader; the showing rule and the breath stay the hand-built HUD's |
+| `corner_messages.rs` | `Messages` | tiles (§14.11): the bracket, text and icon copies; the queue stays hand-built |
+| `quest_messages.rs` | `QuestReminder`, discoveries also `Region_Location` | tiles (§14.11): banner and objective copies (a discovery's banner also under `Region_Location`, not drawn there); the queue and sounds stay hand-built |
+| `script_hud.rs` subtitles | `Subtitles` | tiles (§14.11): its text copy; the selection stays hand-built |
 | `sneak_gauges.rs` (NVForever's own, off by default) | none | hand-built |
 
 - [design] The kept pieces' file and code tiles are not drawn (`KEPT_PIECES`), a mod's
@@ -1188,7 +1192,8 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   stays the file's: the health-to-face mapping is unmeasured.
 - [design] Five pieces leave KEPT_PIECES: HardcoreMode, Info, EnemyHealth, XPMeter,
   crippled_limb_indicator. Keep BreathMeter (NIF), Messages (text/icon copies absent),
-  QuestReminder/Region_Location (texts absent), Subtitles (text absent). Only the five
+  QuestReminder/Region_Location (texts absent), Subtitles (text absent) (as of T12b;
+  the texts leave it in §14.11, BreathMeter in §14.12, and it is empty since). Only the five
   visibility marker declarations move from the hand-built files into tiles/vanilla.rs;
   their drawing/timing logic and optional sneak gauges stay untouched. Prompt/enemy
   copies and XP readout widths are measured with the game fonts. Text zoom scales
@@ -1304,3 +1309,146 @@ the hand-built HUD (the default) keeps:
   zoom), `crates/fnv-game/tests/ui_hud.rs`
   `need_words_keep_places_and_use_stage_alpha_and_colour_in_both_modes` (LMB). Smoke
   `tiles-hud-ammo-label` (new), `hud-compass-north` (the strip's log line).
+
+### 14.11 The messages, quest notices and subtitles from tiles (T12 leftovers, 2026-10-29)
+
+[observed: private run hud_traits run1, `*:N` children of each piece, sample 0 (x, y,
+width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
+
+- **`Messages`** has three code-made children from the start, before any message:
+  `*:0` 470 x 192 at y -20, alpha 0, depth 1 (the template `message_bracket`'s size and
+  y); `*:1` a text at x 130, y 5, 281 x 80, alpha 0, depth 2 (the corner message's text,
+  §14.2); `*:2` 160 x 160 at x 0, y -25, alpha 0, depth 2 (`message_icon`'s). All visible
+  1. Which template the text comes from is not read [hypothesis: the left-justified
+  text's, by its x where the hand-built HUD's text starts, `corner_messages::TEXT_X`].
+- **`QuestReminder`**: its `*:0` and `*:1` were the file's `QuestAdded` and
+  `QuestStages` (no code copy under it with no notice showing). **`Region_Location`**
+  had no child. **`Subtitles`**: `*:0` a text at x 400 (the middle of the 800-wide
+  piece), 13 x 42, alpha 255, visible 0, string " ".
+- [design] With `[UI] TileMenus=HUDMainMenu`, `engine/nvf-play/src/tiles/notices.rs`
+  writes these copies before scripts, only while the switch is on (off, nothing is made:
+  the tree stays T4's). What shows, when and how strongly stays the hand-built HUD's:
+  `CornerMessages` (one at a time, the record's Display Time, 0.25 s fades),
+  `QuestMessages` (its order, times, fades, AutoDisplayObjectives hold and sounds), the
+  subtitle selection of `script_hud.rs`, and the hand-built showing rules (hidden and
+  held behind a message box, in dialogue, while an idle holds the camera). The hand-built
+  areas are hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`), their queues
+  still run; the subtitles' area only while the tile renderer draws something (below,
+  "Differences"). `KEPT_PIECES` is empty: `BreathMeter`, the last kept piece, is drawn
+  from its tile since §14.12; `Region_Location` gets a discovery's copies (below).
+- **Messages** [design, places observed]: the icon, text and bracket are made in that
+  order, so `*:0`-`*:2` are as read; the text at its read x 130, y 5, depth 2. Alpha:
+  icon and text 255 × the queue's strength, the bracket 0.65 of that (the hand-built
+  HUD's `BRACKET_STRENGTH`, corner-messages.md §4); with no message all three alpha 0 and
+  the last text held [observed: alpha 0 with a text]. The icon's `filename` is the
+  record's Menu Icon, else the default Vault Boy's [documented: GECK wiki, Message].
+  The text wraps at 330 (`wrapwidth`) [hypothesis: the hand-built HUD's break,
+  corner-messages.md §4; the copy's own `wrapwidth` was not read].
+- **Quest notices** [design]: made at the first notice (none were there before one),
+  directly under `QuestReminder` [hypothesis: whether the original puts them under
+  `QuestStages` (y 40) or `QuestAdded` (y 80) is not read; the first objective's top,
+  39, is next to `QuestStages`' 40]. Places are the hand-built HUD's (quest-messages.md
+  §4, measured on the owner's screenshots) less the piece's place (45, 200) and a text's
+  `TEXT_BASE` 24: the label at (0, 23), the name in font 8 at (-1.5, 87), the first
+  objective at (0, 39), each next one under the lines before it (the font's size + 2 a
+  line), wrapped at 570. Each objective has a box copy of its kind (`template_checkbox`,
+  `template_filled_checkbox`) at x -16, 3 under its text's top, 26 x 26 (the screenshots'
+  square; the file's templates say x -20 and 16 x 16 for the open one) [observed:
+  quest-messages.md §4-§5]. Surplus copies are hidden, not removed. A discovery ("You
+  have discovered" over the name) is a banner here, where the owner's screenshot shows it
+  [observed: quest-messages.md, "Discovered"].
+- **Discoveries under `Region_Location`** [hypothesis: hud.md §14 maps discoveries to
+  Region_Location; the capture saw no copies there, so their layout is the quest
+  banner's]: at the first discovery a label and a name copy (`template_justify_left_text`,
+  no bracket: the hand-built HUD draws a discovery as the label and the name only) are
+  made under `Region_Location` (45, 728), at the quest banner's places moved to its top
+  left, so they stand where the hand-built HUD draws a discovery: the label at (0, -505),
+  the name in font 8 at (-1.5, -441). Their strings and alpha follow the queue as
+  `QuestReminder`'s banner (alpha 0 with the last discovery held while another notice or
+  none shows); their `visible` stays 0 [design]: the same notice is drawn once, from
+  `QuestReminder`'s copies, because the hand-built drawing's place (the label's top 223,
+  the name's 287) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
+  `Region_Location`'s (45, 728, 100 x 100). What the original draws under
+  `Region_Location` on entering a named place (a region or location name) is still not
+  known.
+- **Differences from the hand-built drawing** [design]: the quest's name fades as one
+  tile (the hand-built letters come one after another over 0.6 s); a wrapped line inside
+  one tile stands the font's size under the one before (the hand-built 2 more); the
+  subtitles stand under `Subtitles`' y (660, or raised by a prompt, §14.6), the
+  hand-built ones on a fixed base 633; the tile renderer draws nothing in a menu (the
+  root's `visible` 0, written from `Shown::root`), and while it draws nothing the
+  hand-built subtitles are not hidden (`vanilla::{hide, root_drawn}`, the root live,
+  visible and with an alpha above 0 as the layout passes them down), so a line said
+  while a message box is up shows, drawn by hand.
+- **Subtitles** [design, observed place]: one centre-justified text at x 400, made at the
+  first write with " ", hidden; while lines are drawn its string is the lines (one text a
+  line), `visible` 1, wrapped at 800 [hypothesis: the hand-built HUD's width, its own
+  `wrapwidth` not read]; after them hidden with the last text [hypothesis].
+- **Needs a capture**: the copies' traits while a message, a quest notice, a discovery
+  and a subtitle show (alpha over time, `wrapwidth`, which template, the parents under
+  `QuestReminder`, whether `Region_Location` gets children on entering a named place),
+  read with GetUIFloat/GetUIString as §14.2; the original's fades and times
+  (quest-messages.md §6, corner-messages.md §7).
+- Tests: `tiles::notices::{the_message_copies_are_made_in_the_observed_order_and_fade_with_the_queue,
+  the_renderer_draws_the_message_where_the_hand_built_hud_does,
+  a_quest_banner_and_its_objectives_take_the_hand_built_places,
+  subtitles_are_one_centred_text_there_from_the_start,
+  a_rebuilt_tree_gets_its_copies_again_and_a_tree_without_the_pieces_none,
+  a_discovery_is_written_under_region_location_too_and_drawn_once,
+  the_log_names_what_each_area_shows}`,
+  `tiles::vanilla::the_hand_built_subtitles_stay_while_the_tiles_draw_nothing`. Smoke
+  `tiles-hud-notices`, `tiles-hud-discovered`, `tiles-hud-subtitles`; every `tiles-*`
+  scenario expects the start line to end `hand-built HUD hidden` (no piece kept, since
+  §14.12).
+
+### 14.12 The breath meter from its `nif` tile (T12 leftovers, 2026-10-29)
+
+- **The tile** [documented: `hud_main_menu.xml`, read with `fnvtool ui tree --at
+  HUDMainMenu/BreathMeter`]: `<nif name="BreathMeter">`, `filename`
+  `Interface\HUD\AirTimer01.NIF`, `animation` `Forward`, `visible` `&false;`, `alpha` 0,
+  64 x 64, `systemcolor` `&hudmain;`, no children and no place. [observed: §14] Its place
+  W/2, 110 and `visible` 8192 while playing (T4 writes both). No trait of the file says
+  how far into `Forward` the model stands or when it shows: the code drives both
+  [hypothesis]; neither was read in the original under water.
+- **What the hand-built meter does** (`hud_breath.rs`, drowning.md §3): it reads the
+  model itself (no 3D rendering): each textured square of the model's x–z plane is a
+  picture turned to its angle, the model's bounds fitted in its own 64 box centred at
+  W/2 and 104 down; `Forward`'s vis keys switch `Tick01`…`Tick16` off at the share of the
+  breath used [observed: the keys; hypothesis: the share].
+- [design] **The tile renderer draws `nif` tiles** with the whole menu drawn
+  (`engine/nvf-play/src/tiles/model.rs`): the tile's `filename` under `meshes\`
+  (`model::model_path`) read once by the same reader (`MeterModel::read_sequence`, with
+  the tile's `animation`), its pieces spawned by the hand-built meter's own code
+  (`hud_breath::spawn_pieces`), in the tile's colour and alpha. It is not the design
+  note's "drawn to a texture" (hud-xml.md §5): a model with no flat pieces draws nothing
+  and says so once. The mods' `nif` tiles with the switch off are still not drawn (T5).
+- [hypothesis] **Where**: the model's origin at the tile's `x`, `y`, one model unit an
+  interface unit, its z up the screen: the meter centred across at W/2 with its centre
+  about 110 down (the 16 ticks reach about 30 units round the origin, filling the 64 x
+  64 the file gives). The read x W/2, a left edge for every other piece, would put a box
+  drawn from the tile's top left right of the middle, where the original's meter is not
+  [the owner: "center high", drowning.md §3]. The hand-built meter (the default) keeps
+  the owner's place, centred 104 down, and its bounds-fitted size (about 7% larger).
+- [design] **When and how far** (`vanilla::write_breath`, only while the switch is on):
+  `BreathMeter`'s `alpha` 255 while the hand-built meter would show (`hud_breath::shown`:
+  the head under water, or the breath not yet whole, and the corners shown), 0 otherwise
+  [hypothesis: as the sneak word's and the radiation meter's children, §14.1]; and
+  `_NVFSequenceFraction`, NVForever's own trait, the share of the breath used (0 to 1),
+  which `model::animate` turns into `Forward`'s time each frame and shows the pieces by,
+  without spawning them again. The hand-built meter's root is hidden
+  (`vanilla::BreathRoot`), its model still read. `KEPT_PIECES` is empty; the start line
+  says `hand-built HUD hidden`.
+- **Needs a capture**: `BreathMeter`'s `alpha`, `visible`, `x`, `y` and any new trait
+  read under water (GetUIFloat every half second through a dive, as §14.1), and a
+  screenshot of the meter at 1280 x 720 with about half the breath used: its centre and
+  size against the tile's place, which tick goes first and whether the ticks go one by
+  one or fade.
+- Tests: `tiles::model::{a_nif_tile_names_its_model_under_meshes_and_its_sequence,
+  the_breath_meter_draws_from_its_tile_only_while_written_shown_with_the_switch_on,
+  the_model_stands_on_the_tiles_place_a_unit_a_unit,
+  the_ticks_go_out_as_the_fraction_written_grows}`,
+  `tiles::vanilla::{the_breath_meter_shows_by_alpha_and_stands_in_its_sequence_by_the_breath_used,
+  the_start_line_names_the_kept_pieces_only_when_there_are_any}`, the `hud_breath` tests.
+  Smoke `tiles-hud-breath` (new, shot `tiles_hud_breath.png`); the six other `tiles-*`
+  scenarios that quote the start line now expect `hand-built HUD hidden` with nothing
+  after it.

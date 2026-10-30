@@ -68,6 +68,10 @@ already held (NVForever cuts it), NPCs and creatures drowning.
   until the breath is whole [hypothesis]. Its centre is in the middle across and 104 down
   the 960-high interface: `breath_meter_menu.xml`'s place, and where the owner put it
   (2026-10-25, "needs placing center high").
+- **The tile HUD** (`[UI] TileMenus=HUDMainMenu`, hud.md §14.12): `BreathMeter`'s `nif`
+  tile drawn with this meter's model reader, shown by the same rule at the same share of
+  the breath, the model's origin at the tile's place (W/2, 110) [hypothesis]; this meter
+  hidden.
 - Logged: `drowning: head under water …`, `drowning: out of breath …`,
   `drowning: <n> damage, health …`, `drowning: sound NPCHumanDrowning`,
   `drowning: head above water …`, `hud: breath meter read: …`.
