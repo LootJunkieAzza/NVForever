@@ -261,6 +261,20 @@ said next, without a choice by the player [owner statement 2026-10-10: follow-up
 no player response, as read here from Doc Mitchell's lines; not yet captured;
 hypothesis: the first sayable one when a line lists several].
 
+When the player chooses a topic from a list, its lines that some line names as a
+follow-up are passed over while another line of the topic can be said; only when none
+can is a follow-up line taken [hypothesis, 2026-10-30; observer check 34]. Greetings and
+SayTo keep taking the first sayable line: the rule tried there too changed the Legion's,
+House's, Yes Man's and Dead Money's walkthroughs (greetings whose first line is some
+line's follow-up) [observed: `script cover`, five chains with step errors]. Why: six
+topics of the ten masters store a follow-up line first and a line that is no follow-up
+after it [observed: scratch survey of `fnvtool dialogue lines --all`]. One of them is
+the Think Tank's answer to "Topic001" in Old World Blues: its first line 0x01013555
+starts the five-line chain that Topic000's line 0x0101432E leads into, and the line
+after the chain, 0x01013559, is the only one offering Topic002, whose last line gives
+the Sink's Central Intelligence chip (the start of All My Friends Have Off Switches).
+Taking the first line would make the Sink unreachable.
+
 ### 3.5 Link From (TCLF)
 
 The wiki: "This can be used to allow many topics to link to this topic" [documented:

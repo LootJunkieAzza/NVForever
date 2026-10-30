@@ -216,6 +216,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   begin OnHitWith
     //     set nHit to nHit + 1
     //   end
+    //   begin OnHitWith Q (the quest's form id standing in for a form list in the test)
+    //     set nHit to nHit + 100
+    //   end
     //   begin GameMode
     //     set nFrames to nFrames + 1
     //   end
@@ -239,6 +242,7 @@ fn plugin_bytes() -> Vec<u8> {
                 (2, Some([le16(1), r(1)].concat()), body),
                 (0x08, Some([le16(1), r(1)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("10"), a("+")]))),
                 (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
+                (0x09, Some([le16(1), r(2)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("100"), a("+")]))),
                 (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1)].concat()), set(var(b's', 4), ex(&[var(b's', 4), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
@@ -1558,6 +1562,13 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     assert_eq!(hits(&g), 22.0);
     // The object takes no damage and remembers no hit.
     assert!(g.extra.get(&target).is_none_or(|e| e.last_hit.is_none() && e.damage.is_none()));
+    // A block whose parameter is a form list runs for a weapon in the list (Old World
+    // Blues' force fields: `Begin OnHitWith NVDLC03SonicWeaponList`), not for another.
+    g.form_lists.insert(FormId(QUEST), vec![FormId(NPC_REF)]);
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(NPC_REF)), ..by_player }));
+    assert_eq!(hits(&g), 133.0);
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(MESSAGE)), ..by_player }));
+    assert_eq!(hits(&g), 144.0);
     // A reference whose script has no hit block.
     assert!(!g.hit_object(FormId(NPC_REF), by_player));
 }
