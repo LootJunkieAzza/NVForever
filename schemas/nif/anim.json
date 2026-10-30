@@ -1,6 +1,6 @@
 {
   "format": "fnv.nif.schema/1",
-  "_comment": "Animation: controllers, interpolators, keyframe data and KF sequences, plus the generic keyframe structs (Key, QuatKey, KeyGroup, TBC) shared by other groups. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, GPL-3.0, read as documentation only; no text copied) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11 (old-format KF files with a string palette). Facts cross-checked against nv-rs crates/nif (MIT/Apache) without copying code. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "_comment": "Animation: controllers, interpolators, keyframe data and KF sequences, plus the generic keyframe structs (Key, QuatKey, KeyGroup, TBC) shared by other groups. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, GPL-3.0, read as documentation only; no text copied) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11 (old-format KF files with a string palette). No other project's code or notes are used (an earlier cross-check against nv-rs was dropped on 2026-10-30; docs/design/layer2.md). Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
   "enums": {
     "KeyType": {
       "storage": "u32",

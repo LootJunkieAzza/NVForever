@@ -29,9 +29,12 @@ extender source read): `docs/design/extender-compat.md`, core tasks in
   (`.gitignore` blocks game files).
 - Work in layer order (docs/design/layer1.md … layer5.md; Layers 1–5 are done, Layers 6–7 are
   mostly built; what is complete, partly built and not started: docs/status.md).
-- nv-rs (slaterain/nv-rs) is a source of format facts only: never copy its code (its
-  policy admits leaked Xbox symbols and translated decompiled code; owner decision
-  2026-10-07). nif.xml is documentation only (no codegen) to keep the licence open.
+- nv-rs (slaterain/nv-rs) is not opened, not even for format facts (owner decision
+  2026-10-30; its policy admits leaked Xbox symbols and translated decompiled code). Its
+  one past use, a cross-check of the animation schema, was redone from nif.xml and the
+  data alone (LEGAL.md). nif.xml is documentation only (no codegen) to keep the licence open.
+- Strings the original shows that are not in the data files are not transcribed: the
+  load order's GMST wins, otherwise NVForever writes its own words (LEGAL.md).
 - NVForever never writes into the game folder or `Documents\My Games\FalloutNV`
   (`crates/fnv-install`, docs/design/install-layout.md).
 - Use the Rust ecosystem fully (owner decision); plan in docs/design/dependencies.md.
@@ -123,7 +126,8 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 
 ## Commits
 
-End commit messages with the session's attribution lines. Keep commits focused; write
+End commit messages with the session's attribution lines and sign them off
+(`git commit -s`, the Developer Certificate of Origin; CONTRIBUTING.md). Keep commits focused; write
 what changed and what was verified.
 
 ## Pull requests from other people

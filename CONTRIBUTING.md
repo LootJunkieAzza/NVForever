@@ -40,14 +40,19 @@ These come from [LEGAL.md](LEGAL.md), which has the full reasoning.
    without one is not.
 4. **Copy only from code whose provenance is clean.** Some projects are fine to read as
    documentation but not to copy from:
-   - **nv-rs**: read it for format facts only. Never copy its code.
+   - **nv-rs**: don't open it, not even for format facts. Its own policy admits leaked
+     debug symbols and translated decompiled code.
    - **niftools `nif.xml`** and **xEdit's definitions**: read them as documentation. Don't
      generate code from them.
-5. **Commit no game data.** That means no `.esm`/`.esp`/`.bsa`, meshes, textures, audio,
+5. **Don't transcribe the original's text.** Words the game shows that are not in its
+   data files (built-in labels, a terminal's header) are not copied from the screen or
+   the program. Read them from the load order when it has them; otherwise write
+   NVForever's own wording.
+6. **Commit no game data.** That means no `.esm`/`.esp`/`.bsa`, meshes, textures, audio,
    saves or executables, and no screenshots or frames rendered from game data. Goldens,
    dumps and captures made from your copy stay in a private folder outside the
    repository. CI checks this (`game-data-guard`), but don't rely on it.
-6. **Don't write into the game.** The NVForever program never writes into the game folder
+7. **Don't write into the game.** The NVForever program never writes into the game folder
    or `Documents\My Games\FalloutNV`. See
    [docs/design/install-layout.md](docs/design/install-layout.md).
 
@@ -128,6 +133,15 @@ NVForever is licensed under **GPL-3.0-or-later** ([LICENSE](LICENSE)). By openin
 request you agree that your contribution is licensed under the same terms, that it is
 your own work or you have the right to submit it, and that it follows the clean-room
 rules above.
+
+Sign off every commit (`git commit -s`). The `Signed-off-by:` line certifies the
+[Developer Certificate of Origin](https://developercertificate.org/): that you wrote the
+change or otherwise have the right to submit it under the project's licence.
+
+The capture plugin (`tools/capture/nvf_capture`) carries an extra permission under
+section 7 of the GPL that lets it be loaded into the game and xNVSE
+([its README](tools/capture/nvf_capture/README.md#source-building-and-licence)). Contributions to it are
+made under the same permission.
 
 ## Conduct
 

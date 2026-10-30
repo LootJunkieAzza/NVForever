@@ -64,8 +64,7 @@ splits them into five families (§5).
   logs (documentation), and **captures in the original game** with the extenders loaded.
   `nvf_capture` already runs inside FNV 1.4.0.525 with xNVSE (docs/spec-notes/xnvse-capture.md),
   so it can call any of these functions and record what it returns.
-- **Not read**: the source code of xNVSE (no licence file, treated as all rights reserved,
-  same rule as nv-rs), JIP LN, JohnnyGuitar or any other plugin. The interface header used
+- **Not read**: the source code of xNVSE (no licence file, treated as all rights reserved), JIP LN, JohnnyGuitar or any other plugin. The interface header used
   for `nvf_capture` stays the only extender file read, and only for the capture tool.
 - **Process**: spec note per function family (`docs/spec-notes/ext-*.md`), tagged
   `[documented]` (wiki page), `[observed]` (capture) or `[hypothesis]`. Then implement from
