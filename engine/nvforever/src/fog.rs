@@ -13,9 +13,9 @@ use bevy::shader::Shader;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::fog`.
-const PBR_FOG: &str = "embedded://bevy_pbr/render/fog.wgsl";
+const PBR_FOG: &str = "embedded://bevy_pbr/render/fog.wesl";
 
-/// Bevy's atmospheric fog factors [observed: bevy_pbr 0.19.1 `fog.wgsl`].
+/// Bevy's atmospheric fog factors [observed: bevy_pbr 0.20.1 `fog.wesl`].
 const BEVY_ATMOSPHERIC: &str = "    let extinction_factor = 1.0 - 1.0 / exp(distance * fog_params.be);
     let inscattering_factor = 1.0 - 1.0 / exp(distance * fog_params.bi);
     return vec4<f32>(
@@ -61,22 +61,29 @@ fn patch_fog(mut state: ResMut<FogShader>, mut shaders: ResMut<Assets<Shader>>, 
     }
     let Some(shader) = shaders.get(&state.handle) else { return };
     state.patched = true;
-    let bevy::shader::Source::Wgsl(source) = &shader.source else {
-        warn!("{PBR_FOG}: not WGSL; the fog stays linear");
+    let bevy::shader::Source::Wesl(source) = &shader.source else {
+        warn!("{PBR_FOG}: not WESL; the fog stays linear");
         return;
     };
     if !source.contains(BEVY_ATMOSPHERIC) {
         warn!("{PBR_FOG}: atmospheric fog not found (Bevy changed?); the fog stays linear");
         return;
     }
-    let patched = source.replace(BEVY_ATMOSPHERIC, GAME_FOG);
-    let path = shader.path.clone();
-    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    let patched = with_source(shader, source.replace(BEVY_ATMOSPHERIC, GAME_FOG));
+    let _ = shaders.insert(&state.handle, patched);
     INSTALLED.store(true, Ordering::Relaxed);
     if let Some(mut sky) = sky {
         sky.refresh();
     }
     info!("fog: the game's fog curve installed");
+}
+
+/// `shader` with its source replaced by `source` (a patched copy of it): the import
+/// path, the imports and the shader defs stay, since the patches add no imports.
+pub fn with_source(shader: &Shader, source: String) -> Shader {
+    let mut out = shader.clone();
+    out.source = bevy::shader::Source::Wesl(source.into());
+    out
 }
 
 /// The fog falloff for a near, far and power (a power not above 0 is 1, linear); with

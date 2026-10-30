@@ -65,7 +65,7 @@ pub struct SsaoPlugin;
 
 impl Plugin for SsaoPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "ssao.wgsl");
+        bevy::asset::embedded_asset!(app, "ssao.wesl");
         app.add_plugins((ExtractComponentPlugin::<AmbientOcclusion>::default(), UniformComponentPlugin::<AmbientOcclusion>::default()))
             .add_systems(PostUpdate, follow_projection.after(bevy::camera::CameraUpdateSystems));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
@@ -139,7 +139,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
             ),
         )
     };
-    let shader = assets.load("embedded://nvforever/ssao.wgsl");
+    let shader = assets.load("embedded://nvforever/ssao.wesl");
     let base = |label: &'static str, entry: &'static str| RenderPipelineDescriptor {
         label: Some(label.into()),
         vertex: fullscreen.to_vertex_state(),

@@ -3,7 +3,7 @@
 // screen effects of image space modifiers: double vision and radial blur on the picture
 // read, the fade colour over the graded result (docs/spec-notes/image-modifiers.md §5).
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 struct Grade {
     tint: vec4<f32>,

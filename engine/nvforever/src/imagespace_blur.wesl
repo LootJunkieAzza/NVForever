@@ -3,9 +3,9 @@
 // the depth of field, each pass mixing a point towards a blur of fixed radius by its
 // depth's weight (§8).
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
-// The grade pass's uniform (imagespace.wgsl); the blur radius, the sharp depth and the
+// The grade pass's uniform (imagespace.wesl); the blur radius, the sharp depth and the
 // depth of field are read here.
 struct Grade {
     tint: vec4<f32>,
@@ -34,11 +34,8 @@ struct Grade {
 @group(0) @binding(0) var screen: texture_2d<f32>;
 @group(0) @binding(1) var screen_sampler: sampler;
 @group(0) @binding(2) var<uniform> grade: Grade;
-#ifdef MULTISAMPLED
-@group(0) @binding(3) var depth: texture_depth_multisampled_2d;
-#else
-@group(0) @binding(3) var depth: texture_depth_2d;
-#endif
+@if(MULTISAMPLED) @group(0) @binding(3) var depth: texture_depth_multisampled_2d;
+@if(!MULTISAMPLED) @group(0) @binding(3) var depth: texture_depth_2d;
 
 // Whether the picture at `uv` is nearer than `grade.sharp` (reverse depth: larger is
 // nearer), so neither blurred nor blurred into what is behind it.

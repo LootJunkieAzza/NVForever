@@ -4,8 +4,8 @@
 // pixels its sample pattern repeats over, keeping to pixels at about the same depth, and
 // multiplies the picture by it. An engineering choice, not the original game's.
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
-#import nvf_assets::first_person_depth::unsqueeze
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
+import nvf_assets::first_person_depth::unsqueeze;
 
 struct Ao {
     // x: radius (game units), y: strength, z: the projection's near plane, w: the
@@ -16,11 +16,8 @@ struct Ao {
     proj: vec4<f32>,
 }
 
-#ifdef MULTISAMPLED
-@group(0) @binding(0) var depth: texture_depth_multisampled_2d;
-#else
-@group(0) @binding(0) var depth: texture_depth_2d;
-#endif
+@if(MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
+@if(!MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_2d;
 @group(0) @binding(1) var<uniform> ao: Ao;
 // `apply` only.
 @group(0) @binding(2) var screen: texture_2d<f32>;

@@ -68,7 +68,7 @@ pub struct ShaftsPlugin;
 
 impl Plugin for ShaftsPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "shafts.wgsl");
+        bevy::asset::embedded_asset!(app, "shafts.wesl");
         app.add_plugins((ExtractComponentPlugin::<LightShafts>::default(), UniformComponentPlugin::<LightShafts>::default()))
             .add_systems(PostUpdate, follow_sun.after(bevy::camera::CameraUpdateSystems).after(bevy::transform::TransformSystems::Propagate));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
@@ -187,7 +187,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         label: Some("shafts_pipeline".into()),
         layout: vec![single.clone()],
         vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/shafts.wgsl"), ..default() }),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/shafts.wesl"), ..default() }),
         ..default()
     };
     let radial = ["radial_fine", "radial_coarse"].map(|entry| {

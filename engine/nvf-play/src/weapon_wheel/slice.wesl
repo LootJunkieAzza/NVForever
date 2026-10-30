@@ -1,6 +1,6 @@
 // A slice of the weapon wheel (docs/design/weapon-wheel.md §7): an annular sector,
 // filled and outlined, drawn over a square node whose middle is the wheel's centre.
-#import bevy_ui::ui_vertex_output::UiVertexOutput
+import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 
 struct Slice {
     fill: vec4<f32>,

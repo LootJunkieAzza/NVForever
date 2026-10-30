@@ -17,7 +17,7 @@
 //!   sunlight's hue (`SkyState::cloud_tint`) [hypothesis, fitted].
 //! - The sun: the climate's sun texture and glare texture spread over angular squares
 //!   around the sun, coloured by the weather's "sun" colour and drawn into the dome (the
-//!   disc, behind the clouds) and the clouds (the glare) by sky.wgsl [hypothesis, fitted].
+//!   disc, behind the clouds) and the clouds (the glare) by sky.wesl [hypothesis, fitted].
 //! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive at
 //!   `STAR_STRENGTH`, weighted by the star texture's alpha where its shader flags set
 //!   Alpha_Texture),
@@ -28,7 +28,7 @@
 //!   `sky\masser_<phase>.dds` by the climate's phase length and the days passed, faded in
 //!   as the sun goes from +5° to −6° [hypothesis].
 //!
-//! Every sky part uses `SkyMaterial` (sky.wgsl): its colour is a display value, mapped
+//! Every sky part uses `SkyMaterial` (sky.wesl): its colour is a display value, mapped
 //! through the inverse of the camera's tonemapper so the image-space grade sees the
 //! weather's colours as the game's grade does; by day the sky is dimmed and warmed
 //! (`SkyLight`) [hypothesis, fitted].
@@ -140,7 +140,7 @@ pub(crate) fn light_unit() -> f32 {
 }
 
 /// Material of every sky part: unlit, with the colour mapped through the inverse of the
-/// camera's tonemapper so the display value reaches the image-space grade (sky.wgsl).
+/// camera's tonemapper so the display value reaches the image-space grade (sky.wesl).
 pub type SkyMaterial = ExtendedMaterial<StandardMaterial, SkyDisplay>;
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
@@ -157,7 +157,7 @@ pub struct SkyDisplay {
     pub glare_texture: Option<Handle<Image>>,
 }
 
-/// Daylight on the sky (sky.wgsl). By day the original game's sky and clouds are darker
+/// Daylight on the sky (sky.wesl). By day the original game's sky and clouds are darker
 /// and warmer than the weather colours through the image-space grade would give, while at
 /// dusk and at night they match [observed: screenshots of the original game,
 /// docs/spec-notes/world.md §6 "Sky colours"]. Modelled as: linear colour × `scale` plus
@@ -190,7 +190,7 @@ pub struct SkyLight {
 
 impl MaterialExtension for SkyDisplay {
     fn fragment_shader() -> ShaderRef {
-        "embedded://nvforever/sky.wgsl".into()
+        "embedded://nvforever/sky.wesl".into()
     }
 }
 
@@ -209,7 +209,7 @@ pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "sky.wgsl");
+        bevy::asset::embedded_asset!(app, "sky.wesl");
         app.add_plugins(MaterialPlugin::<SkyMaterial>::default());
     }
 }
@@ -1299,7 +1299,7 @@ pub fn setup_sky(
                         ..default()
                     }, 0.0);
                     // Additive (NiAlphaProperty ONE/ONE): the texture's alpha weighs the
-                    // colour only where the shader flags set Alpha_Texture (sky.wgsl).
+                    // colour only where the shader flags set Alpha_Texture (sky.wesl).
                     m.extension.light.params.y = if shape.alpha_texture { 1.0 } else { 0.0 };
                     m
                 })),

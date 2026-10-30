@@ -5,7 +5,7 @@
 //! - The matte: the companion wheel's soft black disc
 //!   (`interface\companion_wheel\hud_comp_bkg.dds`).
 //! - The eight slices and the hub: annular sectors drawn by a small shader
-//!   ([`SliceMaterial`], `slice.wgsl`), near-black with a dim amber outline, the picked one
+//!   ([`SliceMaterial`], `slice.wesl`), near-black with a dim amber outline, the picked one
 //!   amber with a full outline and a bright arc outside the rim.
 //! - Each slot's picture: its item's own (`ICON`, the Pip-Boy's), tinted with the
 //!   interface colour, else the game's hotkey type icon for its kind
@@ -71,9 +71,9 @@ const MATTE: &str = "Interface\\companion_wheel\\hud_comp_bkg.dds";
 const SWAP: &str = "Interface\\Icons\\typeicons\\hot_keys_icon_ammoswap.dds";
 const FONT_1: &str = "textures\\fonts\\glow_monofonto_large.fnt";
 const FONT_3: &str = "textures\\fonts\\glow_monofonto_medium.fnt";
-const SHADER: &str = "embedded://nvf_play/weapon_wheel/slice.wgsl";
+const SHADER: &str = "embedded://nvf_play/weapon_wheel/slice.wesl";
 
-/// The slice shader's numbers (`slice.wgsl`).
+/// The slice shader's numbers (`slice.wesl`).
 #[derive(ShaderType, Clone, Copy, Debug, Default)]
 pub struct SliceUniform {
     pub fill: Vec4,
@@ -99,7 +99,7 @@ impl UiMaterial for SliceMaterial {
 /// The drawing's systems; the shader only where assets are served (not in headless tests).
 pub fn build(app: &mut App) {
     if app.world().contains_resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>() {
-        bevy::asset::embedded_asset!(app, "slice.wgsl");
+        bevy::asset::embedded_asset!(app, "slice.wesl");
         app.add_plugins(bevy::ui_render::UiMaterialPlugin::<SliceMaterial>::default());
         app.init_resource::<WheelView>().add_systems(Update, draw.in_set(PlaySet::Ui));
     }

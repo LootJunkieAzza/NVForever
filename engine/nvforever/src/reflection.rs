@@ -6,7 +6,7 @@
 //! camera does not draw.
 //!
 //! One plane at a time [hypothesis: enough for the Mojave, where lakes do not overlap
-//! in height on screen]: water at another height reflects only the sky (water.wgsl).
+//! in height on screen]: water at another height reflects only the sky (water.wesl).
 
 use crate::water::{DistantWater, WaterCache, WaterMaterial};
 use crate::world::{bevy_to_game, Streamer, WorldData};

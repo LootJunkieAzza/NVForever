@@ -8,13 +8,13 @@
 // the inverse is piecewise linear between the samples, per channel (Tony McMapface also
 // shifts saturated colours, which this ignores).
 
-#import bevy_pbr::{
-    pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{alpha_discard, premultiply_alpha},
-    forward_io::{VertexOutput, FragmentOutput},
-    pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD},
-    mesh_view_bindings::view,
-}
+import bevy_pbr::{
+    render::pbr_fragment::pbr_input_from_standard_material,
+    render::pbr_functions::{alpha_discard, premultiply_alpha},
+    render::forward_io::{VertexOutput, FragmentOutput},
+    render::pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD},
+    render::mesh_view_bindings::view,
+};
 
 // sky.rs SkyLight: daylight on the sky's colours, and the sun.
 struct SkyLight {
@@ -28,11 +28,11 @@ struct SkyLight {
     glare: vec4<f32>,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> sky: SkyLight;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var sun_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var sun_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(103) var glare_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(104) var glare_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> sky: SkyLight;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var sun_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(102) var sun_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(103) var glare_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(104) var glare_sampler: sampler;
 
 // A texture spread over the angular square of half-size atan(half_tan) around the sun
 // (as on a billboard facing the camera), added as colour × alpha.
@@ -80,7 +80,7 @@ fn tony_inverse(y: f32) -> f32 {
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-    pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+    pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
     var c = pbr_input.material.base_color;
     if sky.params.z > 0.5 {
         c = vec4(c.rgb * sky.params.x + sky.glow.rgb, c.a);
@@ -103,8 +103,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else {
         out.color = vec4(tony_inverse(c.r), tony_inverse(c.g), tony_inverse(c.b), c.a);
     }
-#ifdef PREMULTIPLY_ALPHA
-    out.color = premultiply_alpha(pbr_input.material.flags, out.color);
-#endif
+    @if(PREMULTIPLY_ALPHA) out.color = premultiply_alpha(pbr_input.material.flags, out.color);
     return out;
 }

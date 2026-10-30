@@ -1,7 +1,7 @@
 //! Grass: plants generated on the landscape textures that name grass types (LTEX GNAM →
 //! GRAS), not placed by references. Where they stand is `fnv_world::grass::place`; this
 //! module draws them: per cell quadrant and grass type, every plant's copy of the type's
-//! model merged into one mesh, drawn with [`GrassMaterial`] (grass.wgsl), which sways the
+//! model merged into one mesh, drawn with [`GrassMaterial`] (grass.wesl), which sways the
 //! plants in the wind and lowers them into the ground beyond the grass distance.
 //! Facts, sources and confidence tags: docs/spec-notes/grass.md.
 
@@ -27,14 +27,14 @@ use std::sync::Arc;
 
 pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassSway>;
 
-const SHADER: &str = "embedded://nvforever/grass.wgsl";
+const SHADER: &str = "embedded://nvforever/grass.wesl";
 
 /// How far a vertex with sway weight 1 moves at no wind and at full wind (game units):
 /// the game's `[Grass] fGrassWindMagnitudeMin` and `fGrassWindMagnitudeMax` [documented:
 /// `Fallout_default.ini`; hypothesis: what they scale, grass.md §5].
 const WIND_MAGNITUDE: (f32, f32) = (5.0, 125.0);
 
-/// The `GrassParams` uniform of grass.wgsl.
+/// The `GrassParams` uniform of grass.wesl.
 #[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
 pub struct GrassParams {
     /// xyz: wind direction (Bevy world space, horizontal, unit); w: how far a vertex with
@@ -49,7 +49,7 @@ pub struct GrassParams {
 
 /// The extension part of [`GrassMaterial`]: the vertex shader of the main pass and the
 /// prepass (so the depth matches), and the main pass's fragment shader, which softens
-/// the strands' cut-out edges where the view is multisampled (grass.wgsl, "Edges").
+/// the strands' cut-out edges where the view is multisampled (grass.wesl, "Edges").
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
 pub struct GrassSway {
     #[uniform(100)]
@@ -170,7 +170,7 @@ pub struct GrassPlugin(pub GrassConfig);
 
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "grass.wgsl");
+        embedded_asset!(app, "grass.wesl");
         app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
             .insert_resource(self.0)
             .init_resource::<GrassCache>()
@@ -399,7 +399,7 @@ fn shade_colour(shade: f32) -> f32 {
 /// is lit like the ground it stands on, whichever way its faces point. The models' own
 /// normals are not used: most point sideways or down, which under the sun would leave
 /// the plants nearly unlit, and the game's grass is evenly lit [observed; hypothesis,
-/// grass.md §5]. UV_1 is (sway weight, height above the plant's foot), which grass.wgsl
+/// grass.md §5]. UV_1 is (sway weight, height above the plant's foot), which grass.wesl
 /// uses for the wind and the fade.
 fn merged_mesh(shape: &GrassShape, plants: &[&Plant], fit_to_slope: bool) -> (Mesh, Vec3, Vec3) {
     let n = shape.positions.len() * plants.len();

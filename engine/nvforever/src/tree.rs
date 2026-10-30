@@ -1,7 +1,7 @@
 //! SpeedTree trees (TREE references): geometry generated from the `.spt` parameters by
 //! `fnv_spt` (docs/spec-notes/speedtree.md §5), scaled to the record's billboard size.
 //! Branches use [`BarkMaterial`] with the bark texture; leaf cards use [`LeafMaterial`],
-//! which turns every card towards the camera. Both move in the wind (tree.wgsl).
+//! which turns every card towards the camera. Both move in the wind (tree.wesl).
 
 use bevy::asset::embedded_asset;
 use bevy::camera::primitives::Aabb;
@@ -23,13 +23,13 @@ pub type BarkMaterial = ExtendedMaterial<StandardMaterial, BarkWind>;
 /// Distant tree billboards (treelod.rs).
 pub type BillboardMaterial = ExtendedMaterial<StandardMaterial, TreeBillboards>;
 
-const SHADER: &str = "embedded://nvforever/tree.wgsl";
+const SHADER: &str = "embedded://nvforever/tree.wesl";
 
 /// Wind direction in game space (degrees from +x towards +y). The records give none
 /// [observed: WTHR DATA has a wind speed but no direction], so it is fixed [chosen].
 const WIND_DIRECTION_DEG: f32 = 30.0;
 
-/// The `TreeWind` uniform of tree.wgsl.
+/// The `TreeWind` uniform of tree.wesl.
 #[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
 pub struct WindParams {
     /// xyz: wind direction (Bevy world space, horizontal, unit); w: strength 0-1.
@@ -55,7 +55,7 @@ pub struct BarkWind {
 }
 
 /// Distant tree billboards (treelod.rs): upright cards turned about the vertical towards
-/// the camera by the vertex shader (tree.wgsl `TREE_BILLBOARD`). They stand still: the
+/// the camera by the vertex shader (tree.wesl `TREE_BILLBOARD`). They stand still: the
 /// wind uniform stays zero.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
 pub struct TreeBillboards {
@@ -135,7 +135,7 @@ pub struct TreePlugin;
 
 impl Plugin for TreePlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "tree.wgsl");
+        embedded_asset!(app, "tree.wesl");
         app.add_plugins((
             MaterialPlugin::<LeafMaterial>::default(),
             MaterialPlugin::<BarkMaterial>::default(),
@@ -149,7 +149,7 @@ impl Plugin for TreePlugin {
 /// The CNAM rock and rustle speeds as angular speeds (rad/s) [tuned by eye:
 /// WastelandShrub01 (rock 0.07, rustle 0.35) rocks about every 4 s and rustles about
 /// once a second; trees with 1.0 and 1.0 about twice as fast]. How far trees move is
-/// set in tree.wgsl.
+/// set in tree.wesl.
 fn angular_speeds(rock: f32, rustle: f32) -> (f32, f32) {
     let tau = std::f32::consts::TAU;
     (tau * (0.2 + 0.6 * rock.max(0.0)), tau * (0.5 + 1.5 * rustle.max(0.0)))
@@ -284,7 +284,7 @@ fn build(
     let mut parts = Vec::new();
     let (rock, rustle) = angular_speeds(rec.rock_speed.unwrap_or(1.0), rec.rustle_speed.unwrap_or(1.0));
     let wind = WindParams { wind: Vec4::ZERO, motion: Vec4::new(0.0, rock, rustle, g.top()) };
-    // Room for the swing (tree.wgsl ROCK: a quarter of the height at the top).
+    // Room for the swing (tree.wesl ROCK: a quarter of the height at the top).
     let sway = 0.3 * g.top();
 
     if !g.indices.is_empty() {

@@ -3,16 +3,14 @@
 //
 // Bevy world space: y up. Game space (x, y, z) = Bevy (x, -z, y).
 
-#import bevy_pbr::{
-    forward_io::VertexOutput,
-    mesh_view_bindings::{view, globals, lights, view_transmission_texture, view_transmission_sampler},
-    pbr_types,
-    pbr_functions,
-    view_transformations::{frag_coord_to_ndc, frag_coord_to_uv, ndc_to_uv, position_ndc_to_world},
-}
-#ifdef DEPTH_PREPASS
-#import bevy_pbr::prepass_utils
-#endif
+import bevy_pbr::{
+    render::forward_io::VertexOutput,
+    render::mesh_view_bindings::{view, globals, lights, view_transmission_texture, view_transmission_sampler},
+    render::pbr_types,
+    render::pbr_functions,
+    render::view_transformations::{frag_coord_to_ndc, frag_coord_to_uv, ndc_to_uv, position_ndc_to_world},
+};
+@if(DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
 
 struct WaterParams {
     shallow: vec4<f32>,
@@ -37,12 +35,12 @@ struct WaterParams {
     edge: vec4<f32>,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> water: WaterParams;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var noise_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var noise_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(3) var reflection_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(4) var reflection_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(5) var ripple_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> water: WaterParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var noise_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var noise_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(3) var reflection_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(4) var reflection_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(5) var ripple_texture: texture_2d<f32>;
 
 // Ripple height at grid position `t` (cells), bilinear (the texture is not filterable).
 fn ripple_height(t: vec2<f32>) -> f32 {
@@ -86,13 +84,11 @@ const REFRACTION_DEPTH: f32 = 200.0;
 // The opaque surface behind screen position `fc` (depth prepass): world position, and
 // w = 1 when there is one (0 for the sky or without a prepass).
 fn scene_point(fc: vec2<f32>) -> vec4<f32> {
-#ifdef DEPTH_PREPASS
-    let d = prepass_utils::prepass_depth(vec4(fc, 0.0, 1.0), 0u);
-    if d > 0.0 {
+    @if(DEPTH_PREPASS) let d = prepass_utils::prepass_depth(vec4(fc, 0.0, 1.0), 0u);
+    @if(DEPTH_PREPASS) if d > 0.0 {
         let ndc = frag_coord_to_ndc(vec4(fc, d, 1.0));
         return vec4(position_ndc_to_world(ndc), 1.0);
     }
-#endif
     return vec4(0.0);
 }
 
@@ -107,14 +103,13 @@ const SSR_STEPS: i32 = 28;
 const SSR_FIRST: f32 = 24.0;
 const SSR_GROWTH: f32 = 1.16;
 fn ssr(pos: vec3<f32>, R: vec3<f32>) -> vec4<f32> {
-#ifdef DEPTH_PREPASS
-    let o = (view.view_from_world * vec4(pos, 1.0)).xyz;
-    let d = normalize((view.view_from_world * vec4(R, 0.0)).xyz);
-    let size = view.viewport.zw;
-    var t0 = 0.0;
-    var t = SSR_FIRST;
-    var stride = SSR_FIRST;
-    for (var i = 0; i < SSR_STEPS; i++) {
+    @if(DEPTH_PREPASS) let o = (view.view_from_world * vec4(pos, 1.0)).xyz;
+    @if(DEPTH_PREPASS) let d = normalize((view.view_from_world * vec4(R, 0.0)).xyz);
+    @if(DEPTH_PREPASS) let size = view.viewport.zw;
+    @if(DEPTH_PREPASS) var t0 = 0.0;
+    @if(DEPTH_PREPASS) var t = SSR_FIRST;
+    @if(DEPTH_PREPASS) var stride = SSR_FIRST;
+    @if(DEPTH_PREPASS) for (var i = 0; i < SSR_STEPS; i++) {
         let p = o + d * t;
         if p.z >= -1.0 {
             return vec4(0.0);
@@ -161,7 +156,6 @@ fn ssr(pos: vec3<f32>, R: vec3<f32>) -> vec4<f32> {
         stride *= SSR_GROWTH;
         t += stride;
     }
-#endif
     return vec4(0.0);
 }
 

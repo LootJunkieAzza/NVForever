@@ -73,7 +73,7 @@ pub struct TemporalAa {
     pub params: Vec4,
 }
 
-/// What the GPU gets (`taa.wgsl` `Taa`).
+/// What the GPU gets (`taa.wesl` `Taa`).
 #[derive(Clone, Copy, Default, ShaderType)]
 struct TaaUniform {
     reproject: Mat4,
@@ -87,7 +87,7 @@ pub struct TaaPlugin;
 
 impl Plugin for TaaPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "taa.wgsl");
+        bevy::asset::embedded_asset!(app, "taa.wesl");
         app.add_plugins(ExtractComponentPlugin::<TemporalAa>::default())
             .add_systems(PostUpdate, follow_camera.after(bevy::camera::CameraUpdateSystems).after(bevy::transform::TransformSystems::Propagate));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
@@ -206,7 +206,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         label: Some("taa_pipeline".into()),
         layout: vec![layout.clone()],
         vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/taa.wgsl"), ..default() }),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/taa.wesl"), ..default() }),
         ..default()
     };
     commands.insert_resource(TaaPipelines { layout, sampler, base, by_format: HashMap::default() });

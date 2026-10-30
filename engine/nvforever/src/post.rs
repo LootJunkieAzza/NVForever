@@ -189,7 +189,7 @@ pub struct PostPlugin;
 
 impl Plugin for PostPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "post.wgsl");
+        bevy::asset::embedded_asset!(app, "post.wesl");
         app.add_plugins((
             ExtractComponentPlugin::<PostEffects>::default(),
             UniformComponentPlugin::<PostEffects>::default(),
@@ -267,7 +267,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         label: Some("post_pipeline".into()),
         layout: vec![single.clone()],
         vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/post.wgsl"), ..default() }),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/post.wesl"), ..default() }),
         ..default()
     };
     let queue = |entries: [&str; 3]| {

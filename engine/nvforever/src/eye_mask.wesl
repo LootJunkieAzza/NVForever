@@ -2,7 +2,7 @@
 // depth prepass under it that is the world rather than the sky dome, as a weight between
 // the sky's small weight and 1.
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 struct Meter {
     // x: distance (game units) beyond which the depth is the sky dome's, y: the
@@ -10,11 +10,8 @@ struct Meter {
     params: vec4<f32>,
 }
 
-#ifdef MULTISAMPLED
-@group(0) @binding(0) var depth: texture_depth_multisampled_2d;
-#else
-@group(0) @binding(0) var depth: texture_depth_2d;
-#endif
+@if(MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
+@if(!MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_2d;
 @group(0) @binding(1) var<uniform> meter: Meter;
 
 // Taps per side of each mask pixel.

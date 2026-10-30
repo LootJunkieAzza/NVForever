@@ -119,7 +119,7 @@ impl Default for ImageSpaceGrade {
 
 impl FullscreenMaterial for ImageSpaceGrade {
     fn fragment_shader() -> ShaderRef {
-        "embedded://nvforever/imagespace.wgsl".into()
+        "embedded://nvforever/imagespace.wesl".into()
     }
 
     /// After tonemapping: the game grades the final display colours [hypothesis].
@@ -236,8 +236,8 @@ pub struct ImageSpacePlugin;
 
 impl Plugin for ImageSpacePlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "imagespace.wgsl");
-        bevy::asset::embedded_asset!(app, "imagespace_blur.wgsl");
+        bevy::asset::embedded_asset!(app, "imagespace.wesl");
+        bevy::asset::embedded_asset!(app, "imagespace_blur.wesl");
         app.init_resource::<ScreenModifiers>()
             .add_plugins(FullscreenMaterialPlugin::<ImageSpaceGrade>::default())
             .add_systems(Update, update_grade.after(crate::sky::update_sky))
@@ -670,7 +670,7 @@ fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<Asse
         label: Some("imagespace_blur_pipeline".into()),
         layout: vec![single.clone()],
         vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/imagespace_blur.wgsl"), ..default() }),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/imagespace_blur.wesl"), ..default() }),
         ..default()
     };
     commands.insert_resource(BlurPipelines { layouts: [single, multi], sampler, base, by_format: HashMap::default() });

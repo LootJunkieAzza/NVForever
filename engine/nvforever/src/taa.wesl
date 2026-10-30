@@ -6,7 +6,7 @@
 // blur over the frames. Writes the picture and the next history. Engineering choices, not
 // the original game's.
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 struct Taa {
     // This frame's clip space (unjittered) to the last frame's.

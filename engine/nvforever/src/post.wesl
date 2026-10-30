@@ -4,7 +4,7 @@
 // `blur_down` (a wide Gaussian at that size), `composite` (the picture, sharpened, plus
 // the blurred light). Engineering choices, not the original game's.
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 struct Post {
     // x: threshold, y: knee (softness), z: intensity (0: no bloom), w: sharpening (0..1).

@@ -10,7 +10,7 @@
 //! 1.4) [hypothesis, fitted]. It needs the HDR view, so it goes with the light glow.
 //!
 //! The sky counts for little in the meter ([`SKY_WEIGHT`], a mask drawn each frame from
-//! the depth prepass, `eye_mask.wgsl`) [hypothesis, 2026-10-23: the original's clear
+//! the depth prepass, `eye_mask.wesl`) [hypothesis, 2026-10-23: the original's clear
 //! Mojave night at 23:00, a nearly black sky over most of the picture, is not brightened
 //! (the windmill and buildings match ours without adaptation), while metering the sky
 //! with the world lifted those views by several EV once our night sky was as dark as the
@@ -122,7 +122,7 @@ pub struct EyeAdaptPlugin;
 
 impl Plugin for EyeAdaptPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "eye_mask.wgsl");
+        bevy::asset::embedded_asset!(app, "eye_mask.wesl");
         app.add_plugins(AutoExposurePlugin).init_resource::<EyeCurve>().add_systems(PostUpdate, follow_target_lum);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         // Before the post-processing, where Bevy's auto exposure reads the mask.
@@ -257,7 +257,7 @@ fn init_mask_pipelines(mut commands: Commands, assets: Res<AssetServer>, fullscr
         label: Some("eye_mask_pipeline".into()),
         vertex: fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
-            shader: assets.load("embedded://nvforever/eye_mask.wgsl"),
+            shader: assets.load("embedded://nvforever/eye_mask.wesl"),
             targets: vec![Some(ColorTargetState { format: TextureFormat::R8Unorm, blend: None, write_mask: ColorWrites::ALL })],
             ..default()
         }),
