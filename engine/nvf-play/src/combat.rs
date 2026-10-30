@@ -1976,13 +1976,29 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     }
 }
 
+/// The actor base `actor`'s Model/Animation data comes from: its impact material and a
+/// creature's impact data set are read there, not from the placed base (a leveled list,
+/// or an actor whose template supplies them; docs/spec-notes/actors.md §1.3). The placed
+/// base without the game.
+fn model_base(script: Option<&ScriptState>, sim: &SimState, actor: u32) -> Option<FormId> {
+    let b = sim.base_of(actor)?;
+    let r = FormId(actor);
+    Some(script.and_then(|s| s.rt.as_ref()).map_or(b, |rt| rt.game.data.model_base_at(b, rt.game.pick_seed(r), rt.game.leveled_at(r))))
+}
+
+/// An actor's Impact Material Type (NPC_ / CREA `NAM4`) from its Model/Animation source
+/// ([`model_base`]), organic without one [design].
+fn actor_material(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, actor: u32) -> &'static str {
+    model_base(script, sim, actor).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic")
+}
+
 /// The impact a weapon's impact data set names for what a hit struck, and the material
-/// it was chosen by: an actor's is its base's Impact Material Type (NPC_ / CREA `NAM4`),
-/// organic without one [design]; anything else's its collision material
-/// (docs/spec-notes/audio.md §11). Shots and melee blows alike (item 24).
-fn impact_for(s: &Sfx, sim: &SimState, weapon: FormId, actor: Option<ActorId>, material: Option<u32>) -> (Option<FormId>, &'static str) {
+/// it was chosen by: an actor's is its Impact Material Type ([`actor_material`]);
+/// anything else's its collision material (docs/spec-notes/audio.md §11). Shots and
+/// melee blows alike (item 24).
+fn impact_for(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, weapon: FormId, actor: Option<ActorId>, material: Option<u32>) -> (Option<FormId>, &'static str) {
     let material = match actor {
-        Some(a) => sim.base_of(a as u32).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic"),
+        Some(a) => actor_material(s, script, sim, a as u32),
         None => fnv_combat::fx::impact_material(material),
     };
     let set = s.forms.weapons.get(&weapon).and_then(|w| w.impact_dataset);
@@ -1994,7 +2010,7 @@ fn show_impact(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, mut fx: Im
     // The base from the simulation: the game's world is not attached outside its turn.
     if let (Some(a), Some(rt)) = (fx.actor, script.and_then(|s| s.rt.as_ref())) {
         if let Some(b) = sim.base_of(a) {
-            (fx.no_spray, fx.no_decal) = rt.game.data.no_blood(b, FormId(a));
+            (fx.no_spray, fx.no_decal) = rt.game.data.no_blood(b, rt.game.pick_seed(FormId(a)), rt.game.leveled_at(FormId(a)));
         }
     }
     impacts.write(fx);
@@ -3368,7 +3384,7 @@ fn melee(
                 if h.part == Some(WEAPON_PART) {
                     continue;
                 }
-                let (impact, material) = impact_for(s, &sim, id, actor, h.material);
+                let (impact, material) = impact_for(s, script.as_deref(), &sim, id, actor, h.material);
                 match impact {
                     Some(impact) => {
                         stats.melee_impacts += 1;
@@ -3734,13 +3750,15 @@ fn actor_attacks(
         // Its impact on the one struck, as the player's blows (item 24); a creature's own
         // attack by its CREA CNAM impact data set (docs/spec-notes/actor-fields.md §2).
         if let Some(s) = sfx.as_deref() {
-            let own = b.creature_damage.and(sim.base_of(b.attacker.0)).and_then(|base| s.forms.creature_impact_set(base));
+            // Both from the Model/Animation source [hypothesis: CREA CNAM is in that group
+            // as NAM4 is; docs/spec-notes/actors.md §1.3].
+            let own = b.creature_damage.and(model_base(script.as_deref(), &sim, b.attacker.0)).and_then(|base| s.forms.creature_impact_set(base));
             let picked = match own {
                 Some(set) => {
-                    let material = sim.base_of(b.target.0).and_then(|t| s.forms.actor_material(t)).unwrap_or("organic");
+                    let material = actor_material(s, script.as_deref(), &sim, b.target.0);
                     (s.forms.impact_id(set, material), material)
                 }
-                None => impact_for(s, &sim, id, Some(b.target.0 as ActorId), None),
+                None => impact_for(s, script.as_deref(), &sim, id, Some(b.target.0 as ActorId), None),
             };
             if let (Some(impact), _) = picked {
                 stats.melee_impacts += 1;
@@ -4236,7 +4254,7 @@ fn fly(
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
         // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
         if let Some(s) = sfx.as_deref() {
-            let (impact, material) = impact_for(s, &sim, id, p.actor, p.material);
+            let (impact, material) = impact_for(s, script.as_deref(), &sim, id, p.actor, p.material);
             if let Some(impact) = impact {
                 show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: false, no_decal: false }, &mut effects.0, &mut effects.1);
             }

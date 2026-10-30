@@ -28,7 +28,8 @@ format page (§4).
 - 4,220 NPC_ records [observed]. `TPLT` names an NPC_ in 2,204 and an LVLN in 703.
   Template use by group: none 1,313; a `TPLT` but no group flag 482; Inventory only
   1,295; Traits+Model+Inventory 712; Traits+Model 190; Model only 91; Model+Inventory 48;
-  Traits+Inventory 77; Traits only 12 [observed].
+  Traits+Inventory 77; Traits only 12 [observed]. Every flag, for NPC_ and CREA, and
+  where NVForever resolves each: §1.3.
 - Skeletons named by NPC_ `MODL`: `characters\_male\skeleton.nif` 3,534,
   `marker_creature.nif` 678 (an editor placeholder), none 8 [observed]. Of the 89 NPC_
   with Traits but not Model/Animation from a template, 22 name the placeholder; 21 of
@@ -151,6 +152,83 @@ actor meshes`]:
 - The human idle is `meshes\characters\_male\locomotion\mtidle.kf`. `nvforever` plays
   the idle by default (owner decision 2026-10-09; it was the frozen bind pose before);
   `--actor-pose bind` keeps the bind pose (§7).
+
+### 1.3 Template flags: audit (2026-10-30)
+
+An actor base (NPC_, CREA) with a template (`TPLT`) takes each group of data whose ACBS
+template flag is set from the template, which may itself be a levelled list (LVLN,
+LVLC) [documented: GECK wiki Category:NPC, Template Data, "Each checkbox corresponds to a
+tab on the NPC. If checked, the NPC gets it's data for that tab from the NPC specified";
+flag IDs from GetActorTemplateFlag: 1 Traits, 2 Stats, 4 Factions, 8 Actor Effect List,
+16 AI Data, 32 AI Packages, 64 Model/Animation, 128 Base Data, 256 Inventory, 512
+Script]. Base Data leaves out Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face
+Preset and Can Be All Races; Model/Animation also covers the Blood, Sounds and
+Destruction tabs [documented: same page]. A levelled-list template stands for the one
+actor picked for the reference; every group that reaches the list sees the same pick
+(§2.1). Which fields lie on which tab beyond these pages follows xEdit's grouping (§1.1)
+[documented for NPC_; hypothesis for the CREA-only fields, `CNAM` impact data set and the
+sound lists].
+
+**Records [observed: the ten masters, `cargo run --release -p fnv-actor --example
+template_flag_survey -- schemas/fnv <masters>`].** NPC_ 4,220: `TPLT` an actor 2,204, a
+list 703, none 1,313. CREA 2,235: an actor 1,162, a list 541, none 532. Records with each
+flag set:
+
+| Flag | NPC_, actor template | NPC_, list template | CREA, actor template | CREA, list template |
+|---|---|---|---|---|
+| Traits | 340 | 651 | 932 | 509 |
+| Stats | 1,679 | 625 | 463 | 522 |
+| Factions | 1,811 | 471 | 776 | 470 |
+| Actor Effect List | 1,542 | 636 | 1,061 | 537 |
+| AI Data | 1,468 | 544 | 861 | 480 |
+| AI Packages | 1,127 | 117 | 477 | 150 |
+| Model/Animation | 373 | 668 | 774 | 540 |
+| Base Data | 1,559 | 428 | 480 | 472 |
+| Inventory | 1,562 | 570 | 918 | 512 |
+| Script | 1,387 | 412 | 513 | 380 |
+
+Two CREA set flags with no `TPLT` (they keep their own data). Every placed ACHR has an
+NPC_ base and every placed ACRE a CREA base: in the masters levelled lists are reached
+only through `TPLT` [observed].
+
+**Where reading the wrong record shows [observed, same survey].** Records with the flag
+whose own (hidden) field differs from what one of their template sources gives, actor
+template / list template: Traits — NPC_ `VTCK` voice 40 / 642 (in 631 the list's picks
+disagree among themselves), Female 20 / 432, race 32 / 432; CREA `VTCK` 40 / 491.
+Model/Animation — CREA `NAM4` impact material 52 / 244 (e.g. `LvlTurret1024`), CREA
+`CNAM` impact data set 37 / 464, CREA own sound list (`CSDT`) 21 / 0
+(`FriendshipMetroMetroRoach`), CREA `CSCR` 131 / 538. Script — `SCRI` NPC_ 10 / 97,
+CREA 36 / 214 (`LvlFeralGhoul`). The own field of a list-templated record is mostly a
+placeholder, so reading it instead of the pick's shows in play.
+
+**How NVForever resolves each group.** One rule,
+`fnv_game::templates::GameData::template_source_at`: follow `TPLT` while the current
+record's flag for the group is set; a list stands for its pick, seeded by the reference
+and read at the reference's level. In a game it is reached through `Game::template_source`
+(the level from `Game::leveled_at`, the seed from `Game::pick_seed`, which a
+ResurrectActor re-roll changes). The drawn body uses `fnv_actor::resolve`
+(`template_source`, `creature_source`), which picks with the same seed, level and order:
+every group's chain is a prefix of one path through the same lists, so both name the same
+actor.
+
+| Flag | What NVForever takes from the source | Where | Verdict |
+|---|---|---|---|
+| Traits | race, sex, class, karma, death item (`INAM`), voice type | `Game::traits_def` (appearance, GetIsSex, GetIsClass, GetIsVoiceType, death items, dialogue), crime alignment, `fnv_actor::resolve` | right in `fnv-game`. Voice files: `fnv_voice::VoiceIndex::voice_of` follows `TPLT` only to an actor and the engine passes the placed base, so a list-templated actor speaks with the record's own `VTCK` (#1051, fixed separately) |
+| Stats | level, attributes, skills, health, speed mult, creature type, combat skill, base scale | `Game::stats_def`, `creature_pace`, `fnv_actor::resolve` | right |
+| Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNthFaction / GetBaseFactions read the record's own (#1057, needs a probe) |
+| Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows one step and gives nothing for a list template (#1057) |
+| AI Data | aggression, confidence, …, combat style, services, aggro radius | `def_following(template_ai)` | right |
+| AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetNthPackage / GetBasePackages follow the template only when the own list is empty, one step (#1057) |
+| Model/Animation | skeleton, head parts, FaceGen, creature models and animations, No Blood flags, movement flags, impact material, creature impact data set, creature sounds | `fnv_actor::resolve`, `GameData::no_blood`, `movement_def`, `GameData::model_base_at` | was wrong: impact material and impact data set read from the placed base (#1053), creature sounds took the picked creature's own list first (#1054); fixed |
+| Base Data | name, Essential, Respawn, No Low Level Processing, Invulnerable, Is Ghost, Not Pushable, head and limb flags, Can't Open Doors, Allow PC Dialogue | `base_data_def`, `display_base`, `minor_flags` | right; No VATS Melee is read from the record's own flags, as documented |
+| Inventory | `CNTO` | `inventory_sources_at`, `fnv_actor::resolve` | right (the engine's start-up and restore used level 1, #1055; fixed) |
+| Script | `SCRI` | `Game::ref_script` | right (the `script` an `Activation` of a corpse reports is the placed base's; informational only) |
+
+**Pick and level** (#1055, #1056; fixed): `GameData::no_blood`, `minor_flags` and
+`no_vats_melee`, and the engine's start-up and restore inventory sources, picked lists at
+level 1 rather than at the reference's level; and after a ResurrectActor re-roll only the
+body and the carried items followed the new pick, while sex, voice type, factions, stats
+and the rest kept the first. All now use the reference's level and `Game::pick_seed`.
 
 ## 2. Resolution rules (`fnv_actor::resolve`)
 

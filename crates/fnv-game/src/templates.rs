@@ -138,18 +138,19 @@ impl GameData {
     }
 
     /// Whether `reference`, placed with `base`, is flagged No VATS Melee on its own record
-    /// (docs/spec-notes/actor-flags.md §1; `Game::no_vats_melee`).
-    pub fn no_vats_melee(&self, base: FormId, reference: FormId) -> bool {
-        self.template_source(base, reference, |_| false).is_some_and(|(_, d)| d.no_vats_melee)
+    /// (docs/spec-notes/actor-flags.md §1; `Game::no_vats_melee`), a leveled base read at
+    /// `at` (the reference's level, `Game::leveled_at`: the actor drawn for it).
+    pub fn no_vats_melee(&self, base: FormId, reference: FormId, at: LevelAt) -> bool {
+        self.template_source_at(base, reference, at, |_| false).is_some_and(|(_, d)| d.no_vats_melee)
     }
 
     /// The base data source's (template flag "Base Data") ACBS flags of `reference`,
     /// placed with `base`, for pushing, head tracking and dismemberment (actor-fields.md
     /// §1) [documented: GECK wiki Category:NPC, Template Data: Base Data supplies the
     /// flags but No Knockdowns, No VATS Melee and a few others]. All clear without a
-    /// definition.
-    pub fn minor_flags(&self, base: FormId, reference: FormId) -> MinorFlags {
-        self.template_source(base, reference, |d| d.template_base).map_or(MinorFlags::default(), |(_, d)| MinorFlags {
+    /// definition. Leveled lists are read at `at` (the reference's level).
+    pub fn minor_flags(&self, base: FormId, reference: FormId, at: LevelAt) -> MinorFlags {
+        self.template_source_at(base, reference, at, |d| d.template_base).map_or(MinorFlags::default(), |(_, d)| MinorFlags {
             not_pushable: d.not_pushable,
             no_head_track: d.no_head_track,
             no_head: d.no_head,
@@ -159,9 +160,17 @@ impl GameData {
     }
 
     /// Whether hits on `reference`, placed with `base`, leave no blood spray and no blood
-    /// decal (actor-flags.md §2; `Game::no_blood`).
-    pub fn no_blood(&self, base: FormId, reference: FormId) -> (bool, bool) {
-        self.template_source(base, reference, |d| d.template_model).map_or((false, false), |(_, d)| (d.no_blood_spray, d.no_blood_decal))
+    /// decal (actor-flags.md §2; `Game::no_blood`), leveled lists read at `at`.
+    pub fn no_blood(&self, base: FormId, reference: FormId, at: LevelAt) -> (bool, bool) {
+        self.template_source_at(base, reference, at, |d| d.template_model).map_or((false, false), |(_, d)| (d.no_blood_spray, d.no_blood_decal))
+    }
+
+    /// The actor base whose Model/Animation data `reference` (placed with `base`) has, its
+    /// leveled lists read at `at`: the record its impact material (`NAM4`), a creature's
+    /// impact data set (`CNAM`) and its sounds are read from (docs/spec-notes/actors.md
+    /// §1.3). `base` itself when the chain cannot be followed.
+    pub fn model_base_at(&self, base: FormId, reference: FormId, at: LevelAt) -> FormId {
+        self.template_source_at(base, reference, at, |d| d.template_model).map_or(base, |(id, _)| id)
     }
 
     /// The factions and ranks of `reference`, placed with `base`, as the records give

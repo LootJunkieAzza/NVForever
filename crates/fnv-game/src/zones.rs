@@ -38,16 +38,25 @@ impl<'a> Game<'a> {
         self.world.level_at(r, self.list_player_level())
     }
 
+    /// The reference whose FormID seeds the leveled picks of `r`: itself until
+    /// ResurrectActor rolled them again (`fnv_sim::leveled::roll_seed`, `crate::resurrect`),
+    /// as the engine's drawn actor and the carried items are seeded. Every group of data
+    /// then comes from the same pick (docs/spec-notes/actors.md §1.3).
+    pub fn pick_seed(&self, r: FormId) -> FormId {
+        fnv_sim::leveled::roll_seed(r, self.extra.get(&r).map_or(0, |e| e.rolls))
+    }
+
     /// The actor base that supplies a group of the data of `r` (placed with `base`), its
-    /// leveled lists read at its level ([`crate::data::GameData::template_source_at`]).
+    /// leveled lists read at its level with its pick seed
+    /// ([`crate::data::GameData::template_source_at`]).
     pub fn template_source(&self, base: FormId, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<(FormId, &'a ActorDef)> {
         let data: &'a crate::data::GameData = self.data;
-        data.template_source_at(base, r, self.leveled_at(r), from_template)
+        data.template_source_at(base, self.pick_seed(r), self.leveled_at(r), from_template)
     }
 
     /// The actor base whose name `r` (placed with `base`) is shown by, at its level.
     pub fn display_base(&self, base: FormId, r: FormId) -> FormId {
-        self.data.display_base_at(base, r, self.leveled_at(r))
+        self.data.display_base_at(base, self.pick_seed(r), self.leveled_at(r))
     }
 
     /// `cell` comes into the loaded area: its encounter zone gets its level if it has none,
@@ -89,7 +98,7 @@ impl<'a> Game<'a> {
         }
         // Carried items not rolled yet come from the pick at this level.
         if reroll || self.world.peek(r).is_none() {
-            let source = self.data.template_source_at(p.base, r, at, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != p.base);
+            let source = self.data.template_source_at(p.base, self.pick_seed(r), at, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != p.base);
             self.world.set_inventory_source(r, source);
         }
         let (base, list) = self.chain_end(p.base, crate::templates::Picks::at(r, at));

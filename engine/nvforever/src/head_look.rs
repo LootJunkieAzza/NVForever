@@ -549,7 +549,7 @@ pub(crate) fn track(
         let package_off = forced.is_none() && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.package_has(FormId(rig.reference), fnv_game::package::flags::HEAD_TRACKING_OFF));
         // ACBS "No Rotating To Head-track" (actor-fields.md §1) [hypothesis: as the
         // package flag; a forced look still turns it].
-        let package_off = package_off || (forced.is_none() && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.minor_flags(FormId(rig.base), FormId(rig.reference)).no_head_track));
+        let package_off = package_off || (forced.is_none() && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.minor_flags(FormId(rig.base), rt.game.pick_seed(FormId(rig.reference)), rt.game.leveled_at(FormId(rig.reference))).no_head_track));
         let active = settings.enabled && !off && !package_off && (forced.is_some() || near(g.translation(), ACTIVE_RADIUS));
         if !active && look.ease.at_rest() && !look.holds_bones() {
             (look.target, look.chosen, look.side) = (None, None, None);
