@@ -29,9 +29,12 @@ extender source read): `docs/design/extender-compat.md`, core tasks in
   (`.gitignore` blocks game files).
 - Work in layer order (docs/design/layer1.md … layer5.md; Layers 1–5 are done, Layers 6–7 are
   mostly built; what is complete, partly built and not started: docs/status.md).
-- nv-rs (slaterain/nv-rs) is a source of format facts only: never copy its code (its
-  policy admits leaked Xbox symbols and translated decompiled code; owner decision
-  2026-10-07). nif.xml is documentation only (no codegen) to keep the licence open.
+- nv-rs (slaterain/nv-rs) is not opened, not even for format facts (owner decision
+  2026-10-30; its policy admits leaked Xbox symbols and translated decompiled code). Its
+  one past use, a cross-check of the animation schema, was redone from nif.xml and the
+  data alone (LEGAL.md). nif.xml is documentation only (no codegen) to keep the licence open.
+- Strings the original shows that are not in the data files are not transcribed: the
+  load order's GMST wins, otherwise NVForever writes its own words (LEGAL.md).
 - NVForever never writes into the game folder or `Documents\My Games\FalloutNV`
   (`crates/fnv-install`, docs/design/install-layout.md).
 - Use the Rust ecosystem fully (owner decision); plan in docs/design/dependencies.md.
@@ -108,16 +111,23 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 - **Before starting, look for the same work**: open pull requests (drafts too) and open
   issues on the topic (`gh pr list --search <words>`, `gh issue list --search <words>`).
   If someone else has it, don't start a second copy: build on theirs or pick other work.
-- **Open a draft pull request as soon as the branch has its first commit**, not when it is
-  finished: `gh pr create --draft`, a title saying what it changes, `Fixes #n` for an
-  issue it settles. Mark it ready (`gh pr ready`) when the push checks pass. A pushed
-  branch with no pull request is invisible to contributors.
-- If an issue covers the work, comment on it that a pull request is under way (link it).
-  Leaving work unfinished: say so in the draft's description, or close it.
+- **Open an issue first** (owner decision 2026-10-30, #919): before any pull request,
+  an issue saying what will be added or fixed and what done looks like (`gh issue create`).
+  If an open issue already covers it, use that one and comment that you are taking it.
+  No pull request comes from nothing, except: a release (version bump, notes), a fix that
+  turns a red check on main green again, and a typo or broken link in docs. Those say
+  in their description which exception they are.
+- **Then open a draft pull request as soon as the branch has its first commit**, not when
+  it is finished: `gh pr create --draft`, a title saying what it changes, `Fixes #n` (or
+  `Part of #n`) naming the issue. Mark it ready (`gh pr ready`) when the push checks pass.
+  A pushed branch with no pull request is invisible to contributors.
+- Comment on the issue that a pull request is under way (link it). Leaving work
+  unfinished: say so in the draft's description and on the issue, or close it.
 
 ## Commits
 
-End commit messages with the session's attribution lines. Keep commits focused; write
+End commit messages with the session's attribution lines and sign them off
+(`git commit -s`, the Developer Certificate of Origin; CONTRIBUTING.md). Keep commits focused; write
 what changed and what was verified.
 
 ## Pull requests from other people

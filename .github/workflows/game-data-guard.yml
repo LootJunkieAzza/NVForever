@@ -25,6 +25,7 @@ jobs:
             ':(icase)*.nif' ':(icase)*.kf' ':(icase)*.dds' ':(icase)*.egm' \
             ':(icase)*.egt' ':(icase)*.tri' ':(icase)*.lip' ':(icase)*.ogg' \
             ':(icase)*.wav' ':(icase)*.mp3' ':(icase)*.fos' ':(icase)*.spt' \
+            ':(icase)*.bik' ':(icase)*.fnt' ':(icase)*.sdp' ':(icase)*.nam' \
             ':(icase)*.exe' ':(icase)*.dll' \
             'goldens/*' 'parity-lab/goldens/*' '*lab.local.json')
           if [ -n "$found" ]; then

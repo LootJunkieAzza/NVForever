@@ -107,7 +107,7 @@ class Archive(unittest.TestCase):
         files = pp.plugin_files(b"dll bytes", "licences", "build info")
         self.assertEqual(files["NVSE/Plugins/nvf_capture.dll"], b"dll bytes")
         for name in ["NVSE/Plugins/nvf_capture.ini", "Docs/nvf_capture/README.md", "Docs/nvf_capture/LICENSE.txt",
-                     "Docs/nvf_capture/THIRD-PARTY-LICENSES.txt", "Docs/nvf_capture/BUILD-INFO.txt",
+                     "Docs/nvf_capture/LICENSE-EXCEPTION.txt", "Docs/nvf_capture/THIRD-PARTY-LICENSES.txt", "Docs/nvf_capture/BUILD-INFO.txt",
                      "Docs/nvf_capture/examples/example_read_only.steps.json"]:
             self.assertIn(name, files)
         self.assertTrue(all(n.startswith(("NVSE/Plugins/", "Docs/nvf_capture/")) for n in files))

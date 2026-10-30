@@ -53,7 +53,7 @@ Layer 6 work (§8). Requests 3 and 4 make combat the first system in the project
   closer "classic" rule set later, it becomes a second table.
 - **The clean room is unchanged.** Field meanings come from xEdit's public definitions,
   the GECK wiki (the owner's exports) or observation. No decompiled or leaked code; nv-rs
-  is used for facts only.
+  is not opened.
 
 ## 2. What exists (main, 7e435da)
 
