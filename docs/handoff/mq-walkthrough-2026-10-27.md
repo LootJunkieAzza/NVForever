@@ -482,4 +482,62 @@ Ignacio's ending, Eye for an Eye's other paths, VMS57's peaceful ending) and the
 
 ## 11. Stage coverage (2026-10-30, issue #940)
 
-Under way: which stages anything can set, then branch, fail and ending chains.
+95 new chains (two older ones run further), from four groups, each with its `mq-*` smoke
+scenario, plus a report of which stages anything can set. `script cover` over all 206 chains:
+0 step and 0 given errors; **927 of 1405 stages reached (was 710), and 927 of the 1043 stages
+the data can set (89%)**; 195 of 228 quests touched (191), 166 completed (165), 2435 lines
+said (2249) [observed]. The totals are in tools/smoke/expected/walkthrough-coverage.toml.
+
+**Settable stages** (`coverage.rs`, `stage_setters`; test
+`coverage_reports_which_missing_stages_the_data_can_set`). A stage is settable when some unit
+in the load order calls SetStage on that quest and stage: any script, quest stage result
+(other than the stage's own), INFO begin/end, terminal item, package begin/end/change, perk
+entry or patrol script, as a statement, inside an expression or an extender lambda. Perks'
+Quest + Stage effects count too (the engine sets them in `perks.rs gain_rank`). No condition
+function sets a stage. The summary gains `stages.settable`, `missing_settable`,
+`by_variable` and `reached_unsettable`; `--detail` lists per quest the missing settable and
+unsettable stages and up to three setters for each. In the ten masters, no SetStage takes a
+variable quest or stage, and every reached stage has a setter [observed]. The other 362
+stages are set by nothing: cut content (VCG00 5-85, the cemetery scene stage 0's script skips),
+test quests, and stages only a quest's own stage names.
+
+| group | chains (stages) |
+|---|---|
+| main quest | house runs on through All or Nothing (VHDHouseBattle 20-100); come-fly-with-me on to VMQ01 50; fail-house-boomers/-omertas/-brotherhood/-kimball/-el-dorado/-dam (VMQHouse3-8 fails); tops-ambush, tops-swank, tops-swank-assassin, tops-swank-guns (VMQTops 5-80); new-game (VCG00 0, 90, 95, 100); fail-sunny-killed; fail-kimball-graham; fail-kimball-left; fail-cato-killed; dam-generators (VHDIndependentBattle 25); yesman-vault-destroyed |
+| factions | Camp Golf range and fail; Forlorn Hope's no-medic, patient killed/harmed; Medical Mystery bribe and let-off; I Fought the Law NCR side and fail; fail chains for Talent Pool, Lucky 38, ET Tumor Brute (two), Khans, Volare, Finger of Suspicion, Come Fly With Me, G.I. Blues, Nipton, We Are Legion, Bitter Springs, Pressing Matters, Run Goodsprings Run, Beggar, Nelson and others; hard-luck-blues-survivors; gi-blues-kieran; beggar-expose-tyrone |
+| side quests | fail-killed-givers-1/2/3 (each quest giver killed: about 30 fail stages); Pheeble Will (5 branches), Bye Bye Love (4), North Vegas (3), Camp Searchlight (3); tutorial-hints (CGTutorial 200-218); perk-quests (Generic 10-110, Ferocious Loyalty, Friend of the Night); and single branches of Nellis, Wheel of Fortune, White Wash, Atomic Tango, Cottonwood Cove, Primm, Cass, Lem |
+| add-ons | fail chains for the Think Tank and its six doctors, Honest Hearts' arrival, supply, deliverer, Gathering Storms, Crush and Flight, Dead Money's dog, gala and act 3; honest-hearts-pine-creek; honest-hearts-happy-trails; lonesome-road-launch-ncr/-legion and -camarader-e (NVDLC04GenericPerkQUEST 10, 12, 70, 80) |
+
+New stand-ins (each chain's notes): AddPerk for a perk picked at a level-up, GameHour for the
+wait menu, `enable NellisRaquelREF` for the front gate, `call "...StartCombat player"` for the
+player attacking an actor, trigger_enter with an NPC as the actor for his walk.
+
+**Runner change:** `package {event: done}` now marks the goal met when that package is the
+actor's current one, as `Game::package_goal_met` does, so GetCurrentAIProcedure reads DONE
+after it (Camp Golf's range waits for three misfits to read it). Test:
+`the_runners_package_done_marks_the_current_packages_goal_met` (package_choice.rs); the 17
+chains using the op still pass.
+
+### Stalls
+
+1. **Possibly hard: a talking activator's scripted `Activate player` opens no conversation**
+   (the Tops intercom in Benny's voice; same as the REPCONN intercom, #906). Not fixed here: a
+   change in `default_activation` would double-start conversations with the runner's
+   `talk_since` and play's `talk_after`. Observer check 44.
+2. **Possibly hard (check 37 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
+   completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
+   and Garret's short-handed line unoffered. The chain kills them before the quest starts.
+3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 46); no line of sight
+   (VMS31 60, check 47); Jed and the caravan guards are essential until stage 100, so
+   NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
+4. **Soft:** Oliver's Topic065 has two lines with the same conditions; ours always says
+   0x00159932, so his retreat lines are never offered (check 45). EDEScript logs an
+   empty-reference error every frame because ours does not short-circuit `&&` (check 48).
+
+**Settable, not walked (116 left):** VMS29's nine Kings' Gambit alternatives; VMS20, VMS21,
+VMS23, VMS55 branches; VMQ02 40, VMQ03a 110, VMQ03b 110/115/200, VMQHouse3/4/6 report lines;
+VMS35 110/255; VMS21a 5, VMS43a 19/25, VMS06 31-33, VMS42 50, VMS11 90, VMS47 20;
+CGTutorial 18-24, 62, 72, 92 (a branch of the intro chain); NVDLC01MQ02c 60, MQ03 255, MQ03c
+20; NVDLC02MS02 27/35/40, MQ03a/b/c 20; NVDLC03 HQBuddySamples 20, SonicEmitterQuest 10,
+ThinkTankQuest 35; NVDLC04 GenericPerkQUEST 30, MQ02 30; VMQNCRFail 2 (#931). The --detail
+report lists them all with their setters.
