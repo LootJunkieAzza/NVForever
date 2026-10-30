@@ -155,6 +155,11 @@ paths = [
 ]
 args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
+expect = [
+  { re = 'distant LOD blocks over the run: (\d+) new', range = [50, 100000], label = "object blocks spawned for new squares along the flight" },
+  { re = 'distant LOD blocks over the run: .*, up to (\d+) in one frame', range = [1, 60], label = "new squares wait for the 4 ms rebuild budget: a handful a frame, not a whole row (216 in one frame before #1038)" },
+  { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [1, 100000], label = "squares put off by the budget still get their blocks" },
+]
 
 [[scenario]]
 name = "cell-streaming"
