@@ -6001,6 +6001,102 @@ order = [[
   { re = 'hud: enemy health \S' },
 ]]
 
+# ------------------------------------------------------------------ the enemy bar's show rule (issue #935)
+
+[[scenario]]
+name = "hud-enemy-bar-hurt-neutral"
+source = "issue #935 (docs/spec-notes/hud.md §8, points 2 and 6; private job hud_enemy5 a1-a3): out of combat a hurt neutral under the crosshair, not the activation target and with no prompt up, has the enemy bar, the weapon not drawn"
+note = "Easy Pete held (SetRestrained) and put 350 units north of the player, beyond activation reach (150), then hurt by DamageActorValue; aimnpc turns the view onto him. He stays neutral: the crosshair is never red"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:damage:EasyPeteRef:Health:20", NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_SHOTS = "9:enemy_bar_hurt_neutral.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 11
+expect = [
+  { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto Easy Pete" },
+  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %', label = "the hurt neutral under the crosshair has the bar" },
+]
+forbid = [
+  { re = 'reticle: hostile spread', label = "Easy Pete stays neutral (the bar is not for foes only)" },
+]
+manual = "enemy_bar_hurt_neutral.png: the bar at the bottom middle in the HUD's main colour, part empty, \"Easy Pete\" under it; no prompt under the crosshair"
+
+[[scenario]]
+name = "hud-enemy-bar-picked-neutral"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 3; private jobs hud_enemy4 s2, s3, hud_enemy5 a3a): out of combat a hurt actor that is the activation target, its prompt up, has no bar"
+note = "as hud-enemy-bar-hurt-neutral, Easy Pete put 100 units north, within activation reach, so the prompt names him"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:100:0,4:damage:EasyPeteRef:Health:20", NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_SHOTS = "9:enemy_bar_picked_neutral.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 11
+expect = [
+  { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto Easy Pete" },
+  { re = 'reticle: prompt ".*" on "Easy Pete"', label = "he is the activation target, his prompt up" },
+]
+forbid = [
+  { re = 'hud: enemy health \S', label = "no bar while he is the activation target" },
+]
+manual = "enemy_bar_picked_neutral.png: the prompt under the crosshair names Easy Pete; no enemy bar"
+
+[[scenario]]
+name = "hud-enemy-bar-full-hostile"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 1; private jobs hud_enemy4 g3, hud_enemy3 h1): a hostile in combat with the player, aimed at, at full health has no bar (before the change it had one)"
+note = "the Goodsprings dogs of perk-meltdown-anatomy set on the player (god mode) at 3 s, never hurt; aimactor turns the view onto the nearest actor every second from 6 s. The red crosshair shows a hostile was under it"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_CONTROL = "6:aimactor,7:aimactor,8:aimactor,9:aimactor,10:aimactor", NVF_PLAY_TEST_SHOTS = "8.2:enemy_bar_full_hostile.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { re = 'test aid: aiming at actor [0-9A-F]{8}', label = "the view turned onto a dog" },
+  { re = 'reticle: hostile spread', label = "a hostile under the crosshair (it turns red)" },
+]
+forbid = [
+  { re = 'hud: enemy health \S', label = "no bar for a hostile at full health" },
+]
+manual = "enemy_bar_full_hostile.png: the crosshair red over a dog; no enemy bar"
+
+[[scenario]]
+name = "hud-enemy-bar-combat-unaimed"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 4; private jobs hud_enemy4 g4, hud_enemy3 g2): a hurt actor in combat with the player keeps the bar with the crosshair off it, for longer than the linger"
+note = "the dogs of perk-meltdown-anatomy set on the player (god mode) at 3 s, the player looking up at the sky from 3.5 s and never aimed at one; the Goodsprings dog's (000F573F) Health set to 2 at 4 s. Its bar holds to the end of the run, 9 s on"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,4:set_av:0x000F573F:Health:2", NVF_PLAY_TEST_LOOK = "3.5:0:70", NVF_PLAY_TEST_SHOTS = "11:enemy_bar_combat_unaimed.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--size", "1280x720"]
+run_seconds = 13
+expect = [
+  { re = 'hud: enemy health \S.* 0x000F573F \d+ %', label = "the hurt dog fighting the player has the bar, not aimed at" },
+]
+forbid = [
+  { re = 'hud: enemy health off', label = "the bar stays while it fights" },
+  { re = 'hud: enemy health .* held by the linger', label = "held by the fight, not by a linger" },
+  { re = 'test aid: aiming at', label = "never aimed at" },
+]
+manual = "enemy_bar_combat_unaimed.png: the sky; the enemy bar in red at the bottom middle, almost empty, the dog's name under it"
+
+[[scenario]]
+name = "hud-enemy-bar-linger"
+source = "issue #935 (docs/spec-notes/hud.md §8, point 5; private job hud_enemy5 b2): after the crosshair leaves a hurt actor out of combat its bar stays about 5.5 s, then goes (hud_target::LINGER_SECONDS)"
+note = "as hud-enemy-bar-hurt-neutral (Easy Pete held 350 units north and hurt), the view turned onto him at 6 s and up at the sky at 9 s. The original's neutral lingered at least 16 s [observed]; 5.5 s, the hostile's figure, is the hypothesis built"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:damage:EasyPeteRef:Health:20", NVF_PLAY_TEST_CONTROL = "6:aimnpc", NVF_PLAY_TEST_LOOK = "9:0:60", NVF_PLAY_TEST_SHOTS = "8.5:enemy_bar_linger_on.png,11:enemy_bar_linger_held.png,17:enemy_bar_linger_gone.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %', label = "the hurt neutral under the crosshair has the bar" },
+  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} held by the linger', label = "the bar held after the crosshair left him" },
+  { gap = [{ re = 'hud: enemy health .* held by the linger' }, { text = "hud: enemy health off" }], range = [5.3, 8.0], label = "and gone about 5.5 s later" },
+]
+order = [[
+  { re = 'hud: enemy health Easy Pete 0x[0-9A-F]{8} \d+ %' },
+  { re = 'hud: enemy health .* held by the linger' },
+  { text = "hud: enemy health off" },
+]]
+manual = "enemy_bar_linger_on.png: Easy Pete's bar; enemy_bar_linger_held.png: the sky, the bar still up; enemy_bar_linger_gone.png: no bar"
+
 [[scenario]]
 name = "hud-ammo-label"
 source = "owner 2026-10-25 (screenshot of the original): the ammo type's abbreviation (AMMO QNAM) stands left of the ammo counter, nothing for standard rounds (docs/spec-notes/hud.md §4)"
