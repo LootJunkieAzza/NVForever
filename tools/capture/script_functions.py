@@ -248,6 +248,10 @@ def parse_page(title, text):
     for m in re.finditer(r"\{\{\s*FunctionArgument(.*?)\}\}", f.get("arguments", ""), re.S):
         af = template_fields(m.group(1))
         raw = plain(af.get("Type", "")) or None
+        # `{{FunctionArgument |Name = |Type = }}`: the page's empty placeholder for a
+        # function that takes nothing (GetCallingScript, KillAll2, ...), not an argument.
+        if raw is None and not plain(af.get("Name", "")):
+            continue
         p = {"name": plain(af.get("Name", "")), "type": raw, "kind": arg_kind(raw)}
         if _truthy(af.get("Optional", af.get("optional", ""))):
             p["optional"] = True
