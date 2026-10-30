@@ -157,6 +157,34 @@ args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 
 [[scenario]]
+name = "reflection-off-unseen"
+source = "issue #1042 (Primm frame rate): the water reflection camera renders only while water at its height lies inside the view (engine/nvforever/src/reflection.rs water_on_screen); in Primm the nearest water (cell -16,-15) is out of sight facing north and behind walls to the south-west"
+note = "Facing north (heading 0) the camera never switches on; at heading 225 the water of cell -16,-15 lies inside the view (behind walls: occlusion is not tested) and it switches on, and off again a second after turning back north"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/reflection.rs", "engine/nvforever/src/water.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_LOOK = "4:0:-5,10:225:-5,16:0:-5" }
+args = ["--play", "--cell", "Primm", "--hour", "16", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  "water reflection: on (the water of cell -16,-15 on screen)",
+  "water reflection: off (no water on screen for 1 s)",
+]
+
+[[scenario]]
+name = "reflection-lake"
+source = "issue #1042: at Lake Mead the reflection camera switches on with the lake in view and off looking at the sky, where Bevy's box test of the water planes still passed them (engine/nvforever/src/reflection.rs)"
+note = "Boulder Beach shore (as wade-in-swim), the lakelurks kept unaware (NVF_PLAY_TEST_UNSEEN); looking at the lake, then 70 degrees up"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/reflection.rs", "engine/nvforever/src/water.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_LOOK = "4:90:-10,12:270:70" }
+args = ["--play", "--pos=56992,37536,2745", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  "water reflection: on (the water of cell 13,9 on screen)",
+  "water reflection: off (no water on screen for 1 s)",
+]
+
+[[scenario]]
 name = "cell-streaming"
 source = "docs/design/streaming-hitches.md §2 Cells: cells read ahead on worker threads, spawned over frames, faded in once whole"
 note = "A fast flight over the Mojave without --play: once the start square is in, cells load through the read-ahead and the spawning budget (world.rs CellSpawn, ReadAhead); the summary at the exit counts them. The flight outruns the read-ahead now and then, so cells drawn before theirs was done are allowed, a few"
