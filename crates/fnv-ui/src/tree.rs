@@ -6,7 +6,8 @@
 use crate::expr::{self, Arg, Op, OpKind, Src};
 use crate::value::Value;
 use crate::xml::{self, Element, Node};
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -36,7 +37,8 @@ pub trait Source {
     fn is_loose(&self, _path: &str) -> bool {
         false
     }
-    /// A game setting's string, for `&-sName;` (the GMST `sName`).
+    /// A game setting's string, for `&-sName;` (the GMST `sName`): the engine answers
+    /// from a [`crate::GameStrings`] (the load order's GMSTs, then the built-in table).
     fn game_string(&self, _name: &str) -> Option<String> {
         None
     }
@@ -80,8 +82,9 @@ impl Source for MemSource {
         self.files.get(&norm(path)).cloned()
     }
 
+    /// Without case, as the original [observed: menu-xml.md §2.4].
     fn game_string(&self, name: &str) -> Option<String> {
-        self.strings.get(name).cloned()
+        self.strings.get(name).or_else(|| self.strings.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v)).cloned()
     }
 }
 
@@ -189,6 +192,9 @@ pub struct Ui {
     mod_tiles: HashMap<TileId, usize>,
     /// What loading mended or left out, one line each.
     pub warnings: Vec<String>,
+    /// The game strings (`&-sName;`) read into traits so far, by lower-case name, and
+    /// whether the source had text for it (menu-xml.md §2.4) [design].
+    pub game_strings_read: BTreeMap<String, bool>,
 }
 
 impl Ui {
@@ -483,13 +489,21 @@ impl Ui {
     /// how the original treats a trait written twice is not known; includes that set a
     /// trait the including file set too depend on it].
     fn put_trait(&mut self, src: &dyn Source, tile: TileId, e: &Element) {
-        let string = |n: &str| src.game_string(n);
+        let asked = RefCell::new(Vec::new());
+        let string = |n: &str| {
+            let text = src.game_string(n);
+            asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            text
+        };
         let mut warns = Vec::new();
         let (value, expr) = if expr::has_ops(e) {
             (Value::default(), Some(expr::ops_of(&e.children, &string, &mut |w| warns.push(w))))
         } else {
             (expr::literal(&e.children, &string), None)
         };
+        for (name, found) in asked.into_inner() {
+            *self.game_strings_read.entry(name).or_insert(false) |= found;
+        }
         for w in warns {
             self.warnings.push(format!("<{}>: {w}", e.name));
         }

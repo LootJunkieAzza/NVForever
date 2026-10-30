@@ -28,7 +28,8 @@
 //!   window size (T12d) [design].
 
 use super::layout::{self, Alignment, Kind, Rect as TileRect};
-use super::vanilla::{kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
+use super::model;
+use super::vanilla::{drawn_line, kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
 use crate::compass_strip::{StripNode, StripTexels, StripWindow};
 use crate::hud::{strip_left, HudView, STRIP};
 use crate::interface::{self, at, bc_supported, face, plain_font, set_marked, u, Face, Pictures, SizedPicture, FONT_FILES};
@@ -125,6 +126,17 @@ impl FontKit<'_> {
         self.face(7.0).map_or(0.0, |face| measure(&face.font, text, None).0 as f32)
     }
 
+    /// Font 7's lines for a text at a wrap width, and its line height (the HUD's texts,
+    /// `super::notices`), as [`measure`] sets them.
+    pub(crate) fn hud_lines(&mut self) -> impl Fn(&str, Option<f64>) -> (usize, f64) + '_ {
+        self.load(7.0);
+        let font = self.face(7.0).map(|f| &f.font);
+        move |text: &str, wrap: Option<f64>| match font {
+            Some(f) => (f.lines(text, wrap.filter(|w| *w > 0.0).map(|w| w as f32)).len(), f64::from(f.size)),
+            None => (1, 0.0),
+        }
+    }
+
     /// The measure of the HUD text tiles' widths ([`fnv_game::ui_hud::write_text_widths`]);
     /// only with the game's own fonts, a stand-in font would write made-up widths, so
     /// `None` when a text tile's font is not read [design]. The text tiles' fonts are the
@@ -215,6 +227,10 @@ pub enum Look {
     Picture { name: String, source: Source, fit: Fit },
     /// At the font's own size, whatever the tile's `zoom` ([`layout::Text::zoom`]).
     Text { string: String, font: u8, wrap: Option<f64>, alignment: Alignment },
+    /// A `nif` tile's model, playing its `animation` (`super::model`), with the whole menu
+    /// drawn only. Where it stands in its sequence is read by `super::model::animate`, so
+    /// the piece stays the same as it plays.
+    Model { filename: String, animation: Option<String> },
 }
 
 /// Where a picture's texture stands in its box, in interface units from the box's top
@@ -431,8 +447,11 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
             Kind::Text(text) if !text.string.is_empty() => {
                 Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
             }
-            // Empty rects only place their children; nif, radial and window tiles
-            // are not drawn in v1 [design].
+            // A model with the whole menu drawn (T12 leftovers, `super::model`); the mods'
+            // nif tiles with the switch off are not drawn, as in T5 [design].
+            Kind::Nif(nif) if whole && !nif.filename.trim().is_empty() => Look::Model { filename: nif.filename.trim().to_string(), animation: nif.animation.clone() },
+            // Empty rects only place their children; radial and window tiles are not drawn
+            // [design].
             _ => continue,
         };
         if item.clip.is_some_and(|c| c.width <= 0.0 || c.height <= 0.0) {
@@ -464,10 +483,14 @@ struct TileRoot;
 #[derive(Component)]
 pub(crate) struct TileStrip(StripNode);
 
-/// A node that takes its piece's colour: a box's fill, a picture, a glyph (recoloured in
-/// place, [`Change::InPlace`]).
-#[derive(Component, Clone)]
-struct Ink;
+/// A node that takes its piece's colour (recoloured in place, [`Change::InPlace`]), and
+/// where: a box's fill, or what a picture or a glyph draws. Every UI node carries a
+/// background too, transparent unless it is a box's, so only [`Ink::Fill`] colours one.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ink {
+    Fill,
+    Drawn,
+}
 
 /// A piece's nodes: its slot (over the whole view, stacked by the piece's place in the
 /// list), the clip wrapper in it and the piece's own outer node.
@@ -508,6 +531,8 @@ pub(crate) struct Drawn {
     repeats: Repeats,
     /// The compass strip's first window is told (`crate::compass_strip`).
     strip_told: bool,
+    /// The `nif` tiles' models read so far (`super::model`).
+    models: model::Models,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -520,10 +545,12 @@ type Baked = (Handle<Image>, f32, f32);
 pub enum Change {
     Same,
     /// Moved or recoloured only: the same look, box and clip sizes. Its nodes are moved
-    /// and recoloured in place [design: the compass marks move every frame while the
-    /// player turns or the actors walk (T12d); the fades and flashes change alpha].
+    /// and recoloured in place ([`recolour`]) [design: the compass marks move every frame
+    /// while the player turns or the actors walk (T12d); the fades and flashes change
+    /// alpha].
     InPlace,
-    /// Another look or size: its nodes are spawned again, in its slot alone.
+    /// Another look or size, or a model's colour (its parts take no [`Ink`]): its nodes
+    /// are spawned again, in its slot alone.
     Spawn,
 }
 
@@ -532,9 +559,41 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     if old == new {
         Change::Same
     } else if old.look == new.look && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
-        Change::InPlace
+        // A model's parts take no Ink: spawned again in its new colour.
+        if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
+            Change::Spawn
+        } else {
+            Change::InPlace
+        }
     } else {
         Change::Spawn
+    }
+}
+
+/// Recolour one node of a piece changed in place: only the colour its [`Ink`] names, the
+/// box's fill or what a picture or a glyph draws; a drawn node's background stays
+/// transparent [design: the review of #902, where every node's background took the
+/// colour and drew a box behind each glyph].
+pub(crate) fn recolour<I, B, T>(ink: Ink, image: Option<I>, fill: Option<B>, text: Option<T>, colour: Color)
+where
+    I: std::ops::DerefMut<Target = ImageNode>,
+    B: std::ops::DerefMut<Target = BackgroundColor>,
+    T: std::ops::DerefMut<Target = TextColor>,
+{
+    match ink {
+        Ink::Fill => {
+            if let Some(mut fill) = fill {
+                fill.0 = colour;
+            }
+        }
+        Ink::Drawn => {
+            if let Some(mut image) = image {
+                image.color = colour;
+            }
+            if let Some(mut text) = text {
+                text.0 = colour;
+            }
+        }
     }
 }
 
@@ -550,27 +609,27 @@ struct Ctx<'a> {
     heading: f32,
 }
 
-fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>) -> Option<Entity> {
+fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
     let colour = Color::srgba(cr, cg, cb, ca);
     let node = at(f(r.left - dx), f(r.top - dy), f(r.width), f(r.height));
     match &piece.look {
-        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Ink, Pickable::IGNORE)).id()),
+        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Ink::Fill, Pickable::IGNORE)).id()),
         Look::Picture { fit, .. } => {
             let (image, rect, size) = picture?;
             let picture = |image_mode| ImageNode { color: colour, rect, image_mode, ..ImageNode::new(image.clone()) };
             let mut cut = node.clone();
             cut.overflow = Overflow::clip();
             Some(match placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))) {
-                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE)).id(),
+                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE)).id(),
                 Placed::Repeat { width, .. } => match baked {
                     // One image of the repeats, stretched [design: `crate::repeat`].
                     Some((strip, w, h)) => p
                         .spawn((cut, Pickable::IGNORE))
                         .with_children(|c| {
-                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Ink, Pickable::IGNORE));
+                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Ink::Drawn, Pickable::IGNORE));
                         })
                         .id(),
                     // Without the picture's texels or for a box too large to bake: Bevy's
@@ -579,13 +638,13 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                     None => {
                         let per_texel = if size.x > 0.0 { f(width) / size.x } else { 1.0 };
                         let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale * per_texel };
-                        p.spawn((node, picture(mode), Ink, Pickable::IGNORE)).id()
+                        p.spawn((node, picture(mode), Ink::Drawn, Pickable::IGNORE)).id()
                     }
                 },
                 Placed::At { width, height } => p
                     .spawn((cut, Pickable::IGNORE))
                     .with_children(|c| {
-                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE));
+                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
                     })
                     .id(),
                 // One image of the window's strip, its right end faded as the original's
@@ -597,12 +656,12 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         Some(window) => {
                             let size = window.size();
                             let image = ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(window.image()) };
-                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Ink, Pickable::IGNORE));
+                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Ink::Drawn, Pickable::IGNORE));
                         }
                         None => {
                             c.spawn((TileStrip(StripNode::Moving), at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
                                 for i in 0..2 {
-                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE));
+                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
                                 }
                             });
                         }
@@ -610,13 +669,14 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                     .id(),
             })
         }
+        Look::Model { .. } => Some(model::spawn(p, node, piece.tile, model?, colour)),
         Look::Text { string, font, wrap, alignment } => {
             let face = ctx.fonts.faces.get(font)?;
             let id = p
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
                     for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width) {
-                        set_marked(t, face, &line, x, base, colour, Ink);
+                        set_marked(t, face, &line, x, base, colour, Ink::Drawn);
                     }
                 })
                 .id();
@@ -659,7 +719,7 @@ type InkNodes = (Option<&'static mut ImageNode>, Option<&'static mut BackgroundC
 pub(crate) struct Nodes<'w, 's> {
     place: Query<'w, 's, &'static mut Node>,
     children: Query<'w, 's, &'static Children>,
-    ink: Query<'w, 's, InkNodes, With<Ink>>,
+    ink: Query<'w, 's, (&'static Ink, InkNodes)>,
 }
 
 pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Nodes) {
@@ -684,7 +744,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
             if whole {
                 if !drawn.told {
                     let (file, code) = origins(ui, menu);
-                    info!("tiles: {HUD_MENU} drawn from tiles ({file} file tiles, {code} code tiles); hand-built HUD hidden but for {}", KEPT_PIECES.join(", "));
+                    info!("{}", drawn_line(file, code, &KEPT_PIECES));
                     drawn.told = true;
                 }
                 let kept = kept_pieces(ui);
@@ -765,16 +825,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     let [r, g, b, a] = piece.colour;
                     let colour = Color::srgba(r, g, b, a);
                     for e in nodes.children.iter_descendants(slot.node) {
-                        let Ok((image, fill, text)) = nodes.ink.get_mut(e) else { continue };
-                        if let Some(mut image) = image {
-                            image.color = colour;
-                        }
-                        if let Some(mut fill) = fill {
-                            fill.0 = colour;
-                        }
-                        if let Some(mut text) = text {
-                            text.0 = colour;
-                        }
+                        let Ok((ink, (image, fill, text))) = nodes.ink.get_mut(e) else { continue };
+                        recolour(*ink, image, fill, text, colour);
                     }
                 }
             }
@@ -834,16 +886,24 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 }
                 _ => None,
             };
-            made.push((i, picture, baked, strip));
+            // A `nif` tile's model and its pieces' textures (`super::model`).
+            let model = match (&piece.look, data, menu) {
+                (Look::Model { filename, animation }, Some(data), Some((ui, _))) => drawn.models.get(filename, animation.as_deref(), data).map(|m| {
+                    let textures = m.pieces.iter().map(|p| (p.texture.clone(), pictures.file(&p.texture, data, &mut kit.images, bc))).collect();
+                    model::Prepared { fraction: model::fraction(ui, piece.tile), textures, model: m }
+                }),
+                _ => None,
+            };
+            made.push((i, picture, baked, strip, model));
         }
         let ctx = Ctx { fonts: &kit.fonts, scale, heading };
-        for (i, picture, baked, strip) in made {
+        for (i, picture, baked, strip, model) in made {
             let piece = &pieces[i];
             let key = keys[i];
             match drawn.slots.get_mut(&key) {
                 Some(slot) => {
                     let mut nodes = (None, None);
-                    commands.entity(slot.node).despawn_related::<Children>().with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip));
+                    commands.entity(slot.node).despawn_related::<Children>().with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model));
                     (slot.wrapper, slot.outer) = nodes;
                 }
                 None => {
@@ -851,7 +911,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     let mut slot = None;
                     commands.entity(root).with_children(|r| {
                         let mut nodes = (None, None);
-                        let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip)).id();
+                        let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model)).id();
                         slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1 });
                     });
                     drawn.slots.extend(slot.map(|s| (key, s)));
@@ -864,16 +924,16 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
 
 /// A piece in its slot, in a clip wrapper when it has a clip: the wrapper and the piece's
 /// own outer node.
-fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>) -> (Option<Entity>, Option<Entity>) {
+fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> (Option<Entity>, Option<Entity>) {
     match piece.clip {
         Some(c) => {
             let mut wrapper = at(f(c.left), f(c.top), f(c.width), f(c.height));
             wrapper.overflow = Overflow::clip();
             let mut outer = None;
-            let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip)).id();
+            let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip, model)).id();
             (Some(id), outer)
         }
-        None => (None, spawn_piece(s, piece, ctx, picture, baked, strip)),
+        None => (None, spawn_piece(s, piece, ctx, picture, baked, strip, model)),
     }
 }
 
@@ -1011,7 +1071,7 @@ mod tests {
         // Hardcore words, hud.md §13); right-justified, its x is the box's right end.
         assert_eq!(drawn[1].rect, TileRect { left: -30.0, top: 0.0, width: 30.0, height: 20.0 });
         assert!(matches!(drawn[1].look, Look::Text { .. }));
-        for name in ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator"] {
+        for name in ["EnemyHealth", "Info", "HardcoreMode", "XPMeter", "crippled_limb_indicator", "Messages", "QuestReminder", "Region_Location", "Subtitles"] {
             assert!(!KEPT_PIECES.contains(&name));
         }
     }
@@ -1212,6 +1272,45 @@ mod tests {
             string.push('!');
         }
         assert_eq!(change(text, &other), Change::Spawn);
+    }
+
+    /// The review of #952: #902's bug was every node's background taking the piece's
+    /// colour, a box behind each glyph. A recolour writes only what the node's Ink names.
+    #[test]
+    fn a_recolour_writes_only_the_colour_its_ink_names() {
+        let (was, now) = (Color::srgba(1.0, 0.7, 0.3, 1.0), Color::srgba(0.2, 0.9, 0.4, 0.5));
+        // A picture or glyph (Drawn), its background transparent as spawned.
+        let (mut image, mut text, mut back) = (ImageNode { color: was, ..default() }, TextColor(was), BackgroundColor(Color::NONE));
+        recolour(Ink::Drawn, Some(&mut image), Some(&mut back), Some(&mut text), now);
+        assert_eq!((image.color, text.0), (now, now));
+        assert_eq!(back.0, Color::NONE, "a drawn node's background stays transparent");
+        // A box (Fill): its background takes the colour; nothing else it carries does.
+        let (mut image, mut text, mut fill) = (ImageNode { color: was, ..default() }, TextColor(was), BackgroundColor(was));
+        recolour(Ink::Fill, Some(&mut image), Some(&mut fill), Some(&mut text), now);
+        assert_eq!(fill.0, now);
+        assert_eq!((image.color, text.0), (was, was));
+        // A node with none of the colours a recolour writes is left alone.
+        recolour::<&mut ImageNode, &mut BackgroundColor, &mut TextColor>(Ink::Drawn, None, None, None, now);
+    }
+
+    /// A model's parts take no Ink, so its colour changing spawns it again; only moved, it
+    /// is changed in place.
+    #[test]
+    fn a_models_colour_change_is_answered_by_a_respawn() {
+        let model = Piece {
+            tile: TileId(0),
+            look: Look::Model { filename: r"Interface\HUD\AirTimer01.NIF".into(), animation: Some("Forward".into()) },
+            rect: TileRect { left: 10.0, top: 20.0, width: 64.0, height: 64.0 },
+            clip: None,
+            colour: [1.0, 0.7, 0.3, 1.0],
+            depth: 0.0,
+        };
+        let mut dimmer = model.clone();
+        dimmer.colour[3] = 0.5;
+        assert_eq!(change(&model, &dimmer), Change::Spawn);
+        let mut moved = model.clone();
+        moved.rect.left += 4.0;
+        assert_eq!(change(&model, &moved), Change::InPlace);
     }
 
     #[test]

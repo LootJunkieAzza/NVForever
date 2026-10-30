@@ -381,7 +381,7 @@ fn open(
     let table = Table::new(asked.min_bet, asked.max_bet);
     let earnings = rt.game.player.casino_earnings.get(&asked.casino).copied().unwrap_or(0);
     rt.game.open_menu(MENU_ROULETTE);
-    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help { title, text: crate::lockpick::help::expand_keys(&text, &bindings) });
+    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
     info!(
         "roulette: open {} ({}): bets {} to {}, {chips} chips carried, earnings {earnings} of {max}, table {}{}",
         def.name,

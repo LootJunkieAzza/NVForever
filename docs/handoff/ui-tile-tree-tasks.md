@@ -265,6 +265,32 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    "Close"). Not transcribed from screenshots or read out of the original with
    `GetGameSetting` (LEGAL.md; owner decision 2026-10-30). An observer dump may still
    say *which* names the original fills in, not their text.
+   - **T10a done** 2026-10-29 (`claude/t10-strings`): `fnv_ui::strings::GameStrings`
+     (the load order's string GMSTs, last plugin winning, then `BUILT_IN`, names without
+     case) behind `UiFiles::game_string`; `Ui::game_strings_read` records each name read
+     and whether it had text; `LoadReport::game_strings{,_unresolved}` and the start-up
+     log line `ui: game strings: N read, M without text`. The names: 145 spellings (143
+     without case); only `sMorphine` has a vanilla GMST [observed, menu-xml.md §2.4].
+     Tests: `fnv-ui` `strings::tests` (3) and
+     `tests::game_strings_resolve_from_the_load_order_then_the_built_in_table`;
+     `fnv-game` `ui_loading` (`startup_and_rebuild`, `missing_menu_and_globals_warn`,
+     `vfs_source_owns_strings_and_reads_files`).
+   - **Readings** 2026-10-29: the private observer job `t10_gmst` ran in the original
+     (`GetStringGameSetting`) [observed]: an unknown name reads empty; lookup ignores
+     case (both spellings of `sOK` and `sQuit` read alike); 141 of the 143 names have
+     text (`sMorphine` from its record); `sModffects` and `sReputationSwap` are empty
+     there too. Only which names read text is used; what they read is not recorded and
+     not used (the rule above). NVForever matches: unknown names read empty, lookups
+     (including `MemSource`'s) ignore case.
+   - **T10b done** 2026-10-30 (`claude/t10-strings-table`): `BUILT_IN` holds 140
+     entries (name, label, where the label came from), every name the vanilla files read
+     that the masters leave undefined except `sModffects` and `sReputationSwap` (empty
+     in the original too), plus `sExplosive` (only in a comment); `strings::built_in`
+     and `fnv_game::ui_loading::game_string` read it. The tutorial menu and the lockpick
+     menu and its help take their words from it by the names their files use. Tests:
+     `strings::tests::the_shipped_table_is_one_labelled_entry_per_name`,
+     `the_load_order_wins_over_the_shipped_table`. Smoke `ui-tree-in-game` expects one
+     name without text at start (`sModffects`).
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.
@@ -279,7 +305,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       ammo), sneak word, crosshair and radiation meter (`DrawnByTiles`, one PostUpdate
       system). Kept hand-built, their file/code tiles not drawn (`KEPT_PIECES`): the
       enemy bar, prompt, Hardcore words, XP meter, limbs, breath meter (the one `nif`
-      tile), corner and quest messages, subtitles. The mapping: hud.md §14.7. Off,
+      tile), corner and quest messages, subtitles (the texts and the breath meter since
+      the T12 leftovers below; none is kept now). The mapping: hud.md §14.7. Off,
       T5's mod-only drawing is unchanged.
       - Renderer [menu-xml.md §3.1.3]: `zoom` (a number: texels × zoom/100 from the box's
         top left, cut to the box [documented: GECK wiki Zoom; hypothesis: one texel a
@@ -489,6 +516,66 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       is held at. Smoke: `tiles-hud-ammo-label` (new); `hud-compass-north` logs the
       strip's place. Only `cargo check -p nvf-play --tests` and `cargo check -p fnv-game
       --tests` were run, and `python tools/smoke verify` (644 scenarios, fine).
+    - **T12 leftovers: the texts, done** 2026-10-29 (`claude/tile-hud-texts`): the corner
+      messages, quest and discovery notices and subtitles drawn from tiles (hud.md
+      §14.11; `engine/nvf-play/src/tiles/notices.rs`). `KEPT_PIECES` is empty (the
+      breath meter, the last kept piece, is drawn from its `nif` tile since the entry
+      below). `Region_Location` is no longer kept: at the first discovery a label and a
+      name copy are written under it, at the quest banner's places moved to its top left,
+      holding the banner's strings and alpha but `visible` 0, so a discovery is drawn
+      once, from `QuestReminder`'s copies [hypothesis: hud.md §14 maps discoveries to
+      `Region_Location`; what the original shows there on entering a named place is not
+      known].
+      - Copies [observed: private run hud_traits run1, `*:N` at sample 0]: `Messages`'
+        bracket `*:0`, text `*:1` (x 130, y 5, depth 2) and icon `*:2`, made in that order
+        before any message; `Subtitles`' centred text `*:0` at x 400 with " ", hidden;
+        nothing under `QuestReminder` before a notice, so its copies are made at the first
+        one, directly under the piece [hypothesis: their parent], at the hand-built
+        HUD's places (quest-messages.md §4) less the piece's (45, 200); a discovery is a
+        banner there, where the owner's screenshot shows it [observed].
+      - Rules kept hand-built [design]: the queues, times, fades, AutoDisplayObjectives
+        hold, sounds and the subtitle selection; the tile copies take the lines on screen
+        and their strength each frame (`HudTiles::notices`), the hand-built areas are
+        hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`) and their clocks
+        run. Only while the switch is on: off, nothing is made or written. In a menu the
+        tile renderer draws nothing (the root's `visible` 0), and the hand-built
+        subtitles show instead (`vanilla::{hide, root_drawn}`), so a line said while a
+        message box is up is not lost (maintainer's review of #952).
+      - Wraps 330/570/800 and the box's x -16, 26 x 26 are the hand-built HUD's
+        [hypothesis for the wraps; observed on screenshots for the box]. Differences: the
+        quest name fades as one tile (no letter sweep), wrapped lines inside one tile at
+        the font's size, the subtitles under `Subtitles`' y (660, raised after a prompt)
+        rather than the hand-built fixed base 633 [design].
+      - Tests: `tiles::notices` (7),
+        `tiles::vanilla::the_hand_built_subtitles_stay_while_the_tiles_draw_nothing`.
+        Smoke `tiles-hud-notices`, `tiles-hud-discovered`, `tiles-hud-subtitles` (new,
+        shots `tiles_hud_*.png`); every `tiles-*` start line now ends `hand-built HUD
+        hidden` (no piece kept). **Needs a capture:** the
+        copies' traits while each kind of line shows (alpha over time, `wrapwidth`,
+        template, parents under `QuestReminder`, whether `Region_Location` gets children
+        of its own on entering a named place).
+    - **T12 leftovers: the breath meter, done** 2026-10-29 (`claude/tile-hud-breath`):
+      `BreathMeter`, the HUD's one `nif` tile, drawn from its tile (hud.md §14.12;
+      `engine/nvf-play/src/tiles/model.rs`); `KEPT_PIECES` is empty and the start line
+      ends `hand-built HUD hidden`.
+      - The tile [documented: the menu file]: `Interface\HUD\AirTimer01.NIF`, `animation`
+        `Forward`, 64 x 64, `&hudmain;`, alpha 0, no place (T4 writes W/2, 110 [observed]).
+      - The renderer draws `nif` tiles (whole menu only) by the hand-built meter's reader
+        and spawner (`hud_breath::{MeterModel::read_sequence, spawn_pieces}`): a model's
+        flat textured squares as turned pictures, not a model rendered to a texture (no
+        3D path; a model without flat pieces draws nothing). The model's origin at the
+        tile's x, y, a model unit a unit [hypothesis: the meter centred at W/2, as the
+        original's]; the hand-built meter keeps the owner's place 104 down.
+      - Rules kept hand-built [design]: when it shows (`hud_breath::shown`) and the share
+        of the breath used, written only while the switch is on (`vanilla::write_breath`:
+        `alpha` 255/0 [hypothesis], `_NVFSequenceFraction`, NVForever's own trait), the
+        pieces set each frame by `model::animate` without new nodes; the hand-built root
+        hidden (`vanilla::BreathRoot`).
+      - Tests: `tiles::model` (4), `tiles::vanilla` (2 new). Smoke `tiles-hud-breath`
+        (new, shot `tiles_hud_breath.png`); the six `tiles-*` scenarios that quote the
+        start line expect `hand-built HUD hidden`. **Needs a capture:** `BreathMeter`'s
+        traits through a dive and a screenshot of the original's meter (centre, size,
+        which tick goes first).
 9. **T13. Dependency index**, only if T3–T12 show `Ui::update` in a frame profile.
 10. **T14. Observer captures for menu-xml.md §8**: the constants' numbers, mismatched
     end tags, whether a set trait holds, whether SetUIFloat makes a trait, the

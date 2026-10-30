@@ -318,9 +318,10 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&LockVi
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, INFO.x - FADE, THICK), bright);
                 c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(INFO.x - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
-                // [observed: "Lockpick Skill", the owner's screenshots; the file's title
-                // is the executable's `&-sLockpickSkillText;`]
-                let rows = [("Lockpick Skill".to_string(), format!("{:.0}", s.game.skill)), ("Bobby Pins".into(), s.game.pins.to_string()), ("Lock Level".into(), s.game.level.name().to_string())];
+                // The rows' titles are the file's game settings (`Words`, from the game
+                // strings table) [documented: lockpick_menu.xml].
+                let words = &s.words;
+                let rows = [(&words.skill, format!("{:.0}", s.game.skill)), (&words.picks, s.game.pins.to_string()), (&words.level, s.game.level.name().to_string())];
                 for ((title, value), y) in rows.iter().zip(ROWS_Y) {
                     c.text(b, title, ROW_X, y, false, bright);
                     c.text(b, value, VALUE_X, y, true, bright);
@@ -331,7 +332,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&LockVi
             // documented: tutorial_menu.xml `no_click_past`).
             let usable = s.help.is_none() && s.leaving.is_none();
             let force_on = s.game.phase == Phase::Picking && s.ended.is_none();
-            let buttons = [(s.force_label(), "F)", LockpickInput::Force(None), force_on), ("Exit".to_string(), "E)", LockpickInput::Exit, true)];
+            let buttons = [(s.force_label(), &s.words.force_hint, LockpickInput::Force(None), force_on), (s.words.exit.clone(), &s.words.exit_hint, LockpickInput::Exit, true)];
             let first = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), bottom: u(INFO_IN + INFO.y - BUTTONS_DOWN - 2.0 * BUTTON_H), width: u(0.0), height: u(2.0 * BUTTON_H), ..default() };
             m.spawn(first).with_children(|b| {
                 for (i, (label, hint, cmd, on)) in buttons.into_iter().enumerate() {

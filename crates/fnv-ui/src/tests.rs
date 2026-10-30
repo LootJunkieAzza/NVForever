@@ -416,3 +416,54 @@ fn a_loose_replacement_draws_only_what_the_archived_file_lacks() {
     assert!(!ui.mod_tile_drawn(code, Some(&vanilla)));
     assert!(Ui::file_name_paths(&MemSource::default(), "menus/m.xml").is_none());
 }
+
+#[test]
+fn game_strings_resolve_from_the_load_order_then_the_built_in_table() {
+    // menu-xml.md §2.4 (T10): `&-sName;` reads the load order's GMST, then the built-in
+    // table; a name in neither reads empty. Synthetic names and text only.
+    struct Files {
+        mem: MemSource,
+        strings: crate::GameStrings,
+    }
+    impl Source for Files {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            self.mem.read(path)
+        }
+        fn game_string(&self, name: &str) -> Option<String> {
+            self.strings.get(name)
+        }
+    }
+    const BUILT_IN: &[crate::strings::Entry] = &[("sNvfButton", "built-in button", "test"), ("sNvfTitle", "built-in title", "test")];
+    let mem = MemSource::default().with(
+        "menus/s.xml",
+        r#"<menu name="S">
+  <text name="Title"> <string> &-SNVFTITLE; </string> </text>
+  <text name="Button"> <string> &-sNvfButton; </string> </text>
+  <text name="Missing"> <string> &-sNvfMissing; </string> </text>
+  <text name="Copied"> <string> <copy> &-sNvfButton; </copy> </string> </text>
+</menu>"#,
+    );
+    let src = Files { mem, strings: crate::GameStrings::with_built_in([("sNvfTitle", "first plugin"), ("sNvfTitle", "last plugin")], BUILT_IN) };
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/s.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_string("S/Title/string").as_deref(), Some("last plugin"));
+    assert_eq!(ui.get_string("S/Button/string").as_deref(), Some("built-in button"));
+    assert_eq!(ui.get_string("S/Missing/string").as_deref(), Some(""));
+    assert_eq!(ui.get_string("S/Copied/string").as_deref(), Some("built-in button"));
+    let read: Vec<_> = ui.game_strings_read.iter().map(|(n, &found)| (n.as_str(), found)).collect();
+    assert_eq!(read, [("snvfbutton", true), ("snvfmissing", false), ("snvftitle", true)]);
+}
+
+#[test]
+fn mem_source_game_strings_ignore_case_and_unknown_names_read_empty() {
+    // [observed: menu-xml.md §2.4] lookup ignores case; an unknown name is empty text.
+    let mut src = MemSource::default().with("menus/c.xml", r#"<menu name="C"><text name="A"><string>&-SNVFCASE;</string></text><text name="B"><string>&-sNvfUnknown;</string></text></menu>"#);
+    src.strings.insert("sNvfCase".into(), "case text".into());
+    assert_eq!(src.game_string("snvfcase").as_deref(), Some("case text"));
+    assert_eq!(src.game_string("sNvfUnknown"), None);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/c.xml").unwrap();
+    assert_eq!(ui.get_string("C/A/string").as_deref(), Some("case text"));
+    assert_eq!(ui.get_string("C/B/string").as_deref(), Some(""));
+}

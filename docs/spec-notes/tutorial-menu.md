@@ -57,8 +57,10 @@ The strings are game settings that are not in the masters (the executable's defa
   is open leaves one 1059 menu, and one CloseAllMenus closes it together with the menu that
   was open under it (MenuMode 0 after it) [observed: the same capture]; NVForever's
   `Game::close_all_menus` does the same.
-- Drawn as §2 says, with these choices: the words are "Next", "Previous", "Close", "A)",
-  "S)", "E)" and "VDSG Manual" [hypothesis]; the background as dark as the other menus
+- Drawn as §2 says, with these choices: the words (`sNext`, `sPrevious`, `sCloseButton`,
+  `sPCMenuHintA/S/E`, `sVDSGManual`) are read by name from NVForever's game strings table,
+  the load order's string settings over its own labels (menu-xml.md §2.4; the
+  maintainer's decision 2026-10-30) [design]; the background as dark as the other menus
   (0.75) instead of the file's alpha 32 [design: readable over the Pip-Boy]; the page
   count only with more than one page; a thin scroll mark instead of the scroll-bar
   prefab; the text in font 1 [hypothesis: a text tile without a font]; `<p>` and `<br>`

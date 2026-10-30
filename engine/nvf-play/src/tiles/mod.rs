@@ -2,6 +2,8 @@
 
 pub mod draw;
 pub mod layout;
+pub mod model;
+pub mod notices;
 pub mod vanilla;
 
 use crate::{script::ScriptState, PlaySet, PlayState};
@@ -30,6 +32,8 @@ impl MenuFiles<'_, '_> {
             warn!("ui: {file}: {}", messages.join("; "));
         }
         info!("ui: {} menus loaded ({} tiles), {} warnings", report.menus, report.tiles, report.warning_count());
+        // T10 (menu-xml.md §2.4): names with no GMST record read NVForever's own labels.
+        info!("ui: game strings: {} read, {} without text", report.game_strings, report.game_strings_unresolved);
     }
 
     pub(crate) fn write(&self, game: &mut fnv_game::Game<'_>) {
@@ -114,7 +118,10 @@ impl HudTiles<'_> {
         // corner_messages::draw and quest_messages::draw [design].
         let notices = !driven && *self.state.get() != PlayState::Dialogue && !self.panel.as_ref().is_some_and(|p| p.view.is_some());
         let quest = self.quests.as_ref().and_then(|q| q.showing());
-        // Map discovery to Region_Location [hypothesis: hud.md §14; one queue here].
+        // Map discovery to Region_Location [hypothesis: hud.md §14; one queue here]. The
+        // tile HUD writes it under both: Region_Location's copies hold its traits (not
+        // drawn), QuestReminder's are drawn, where the owner's screenshot shows it
+        // (`notices`, hud.md §14.11).
         let location = matches!(quest, Some(crate::script_events::QuestNotice::Discovered(_)));
         // hud_needs::watch/draw: H20/FOD/SLP in Hardcore, RAD and LMB in every mode
         // [design: hud.md §13; observed words: hud.md §14.2].
@@ -174,6 +181,39 @@ impl HudTiles<'_> {
             ammo_label,
             condition: shown.condition,
         }
+    }
+
+    /// What the tile-drawn messages, quest notices and subtitles show (`notices::write`):
+    /// the hand-built queues' lines on screen with their strengths, and the subtitles the
+    /// hand-built HUD draws, under the same showing rules as [`HudTiles::shown`]'s
+    /// (`messages`, `quests`/`location`, `subtitles`) [design: their rules stay the
+    /// hand-built HUD's].
+    fn notices(&self, game: &fnv_game::Game<'_>, shown: fnv_game::ui_hud::Shown) -> notices::Notices {
+        use crate::script_events::QuestNotice;
+        let message = self.corner.as_ref().filter(|_| shown.messages).and_then(|c| {
+            let note = c.showing()?;
+            Some(notices::Message {
+                text: note.text.clone(),
+                icon: note.icon.clone().unwrap_or_else(|| crate::corner_messages::DEFAULT_ICON.into()),
+                strength: f64::from(c.strength()),
+            })
+        });
+        let quest = self.quests.as_ref().filter(|_| shown.quests || shown.location).and_then(|q| {
+            let n = q.showing()?;
+            let strength = f64::from(q.strength(0.0));
+            Some(match n {
+                QuestNotice::Objectives(list) => notices::Quest::Objectives { list: list.iter().map(|o| (crate::quest_messages::objective_text(o), o.completed)).collect(), strength },
+                QuestNotice::Added(name) | QuestNotice::Completed(name) | QuestNotice::Failed(name) | QuestNotice::Discovered(name) => {
+                    let discovered = matches!(n, QuestNotice::Discovered(_));
+                    notices::Quest::Banner { label: crate::quest_messages::label(n).unwrap_or_default().into(), name: name.clone(), strength, discovered }
+                }
+            })
+        });
+        let subtitles = match &self.hud {
+            Some(h) if shown.subtitles => crate::script_hud::hud_subtitle_texts(h, game, &self.sim, self.player.as_deref()),
+            _ => Vec::new(),
+        };
+        notices::Notices { message, quest, subtitles }
     }
 
     fn texts(&self, game: &mut fnv_game::Game<'_>, shown: fnv_game::ui_hud::Shown) -> fnv_game::ui_hud::Texts {
@@ -256,7 +296,17 @@ impl HudTiles<'_> {
     }
 }
 
-fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut fonts: draw::FontKit, menus: Res<vanilla::TileMenus>, time: Res<Time>, mut animation: Local<fnv_game::ui_hud::Animation>) {
+#[allow(clippy::too_many_arguments)]
+fn write(
+    mut script: ResMut<ScriptState>,
+    files: MenuFiles,
+    hud: HudTiles,
+    mut fonts: draw::FontKit,
+    menus: Res<vanilla::TileMenus>,
+    time: Res<Time>,
+    mut animation: Local<fnv_game::ui_hud::Animation>,
+    mut told: Local<[Option<String>; 4]>,
+) {
     let Some(rt) = script.rt.as_mut() else { return };
     files.write(&mut rt.game);
     let shown = hud.shown(&rt.game, &files);
@@ -291,6 +341,20 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut f
         if menus.hud {
             let corner = hud.corner(shown, &mut fonts);
             vanilla::write_corners(&mut rt.game.ui_tree, &corner);
+            // The messages, quest notices and subtitles, only while the switch is on: off,
+            // nothing is made under their pieces [design].
+            let shows = hud.notices(&rt.game, shown);
+            notices::write(&mut rt.game.ui_tree, &shows, &fonts.hud_lines());
+            for (line, last) in notices::describe(&shows).into_iter().zip(told.iter_mut()) {
+                if line.is_some() && line != *last {
+                    info!("{}", line.as_deref().unwrap_or_default());
+                }
+                *last = line;
+            }
+            // The breath meter: shown under the hand-built meter's rule, at the breath used
+            // (`vanilla::write_breath`, hud.md §14.12).
+            let used = hud.breath.as_ref().map_or(0.0, |b| 1.0 - f64::from(b.share()));
+            vanilla::write_breath(&mut rt.game.ui_tree, shown.breath, used);
         }
     }
 }
@@ -318,7 +382,7 @@ impl Plugin for TilesPlugin {
         app.init_resource::<draw::TileFonts>()
             .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
-            .add_systems(Update, (draw::draw, draw::scroll).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }
