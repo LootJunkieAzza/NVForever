@@ -751,6 +751,11 @@ pub struct MessageBox {
     /// `None` (a box from an older snapshot): the first caller takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// The buttons whose conditions failed when the box was shown ([`Game::hidden_buttons`]):
+    /// not on screen, so the player cannot pick them [documented: GECK wiki
+    /// GetButtonPressed, as [`Game::hidden_buttons`]].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<usize>,
 }
 
 impl MessageBox {
@@ -760,6 +765,17 @@ impl MessageBox {
             Some(k) => k.label(),
             None => unit.to_string(),
         }
+    }
+
+    /// Whether the player can pick `button`: one the box shows. A hidden button is
+    /// refused (the headless runner's `press_button` once pressed it all the same: the
+    /// Lucky 38 mainframe's "Bug the Lucky 38 Network", hidden until Emily Ortal gives the
+    /// bug, set The Moon Comes Over the Tower's stage 20 without it).
+    pub fn can_press(&self, button: i32) -> Result<(), String> {
+        if usize::try_from(button).is_ok_and(|b| self.hidden.contains(&b)) {
+            return Err(format!("button {button} is not shown (its conditions fail)"));
+        }
+        Ok(())
     }
 }
 
@@ -979,6 +995,10 @@ pub struct Game<'a> {
     /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
     /// shares; named by `LAMBDA_BASE + index`.
     lambdas: Vec<LambdaDef<'a>>,
+    /// CompileScript's scripts, named by `COMPILED_BASE + index`, and their files' paths
+    /// (lower case) to them.
+    compiled_files: Vec<&'a Compiled>,
+    compiled_paths: std::collections::HashMap<String, u32>,
     /// A lambda already made, by where its expression is and whose variables it shares.
     lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
     /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
@@ -1627,6 +1647,9 @@ pub const MAX_UDF_DEPTH: usize = 30;
 /// lambda's place to; script-compiler.md §9].
 /// Ids of foreach's temporary inventory references (B5), below the lambdas'.
 pub const TEMP_REF_BASE: u32 = 0xFE40_0000;
+/// Ids of the scripts CompileScript made from text files, below the temporary
+/// references' [decision, as the lambdas'].
+pub const COMPILED_BASE: u32 = 0xFE20_0000;
 pub const LAMBDA_BASE: u32 = 0xFE80_0000;
 
 /// What a script run is attached to.
@@ -1677,6 +1700,8 @@ impl<'a> Game<'a> {
             ext: Default::default(),
             udf: Vec::new(),
             lambdas: Vec::new(),
+            compiled_files: Vec::new(),
+            compiled_paths: std::collections::HashMap::new(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
             handler_seq: 0,
@@ -2232,6 +2257,44 @@ impl<'a> Game<'a> {
         result.map(|_| v)
     }
 
+    /// CompileScript: the script a text file under `Data\NVSE\user_defined_functions`
+    /// compiles to, cached by path unless `force` [documented: CompileScript, "cached for
+    /// performance", forceRecompile]; `None` when the file is missing or does not compile
+    /// [hypothesis: the function then gives no form].
+    pub(crate) fn compile_file(&mut self, path: &str, force: bool) -> Option<u32> {
+        let key = path.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase();
+        if !force {
+            if let Some(&id) = self.compiled_paths.get(&key) {
+                return Some(id);
+            }
+        }
+        let bytes = crate::mod_files::read_data(&format!("nvse\\user_defined_functions\\{key}"))?;
+        let src = String::from_utf8_lossy(&bytes).into_owned();
+        let c = fnv_script::compile::compile(&src, &self.data.table, &GameEnv { g: self }, None);
+        if let Some(e) = c.errors().next() {
+            let what = format!("CompileScript {path}: {}: {}", e.kind.replace('_', " "), e.detail);
+            self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
+            return None;
+        }
+        let d = fnv_script::decode(&c.bytes, &self.data.table);
+        let unit = fnv_script::ScriptUnit {
+            plugin: "CompileScript".into(),
+            owner: fnv_script::UnitOwner::Other { sig: "SCPT".into(), form: 0, ordinal: 0 },
+            kind: fnv_script::ScriptKind::Object,
+            header: Default::default(),
+            variables: c.variables,
+            refs: c.refs,
+            has_scda: true,
+            bytes: c.bytes,
+            source: Some(src),
+        };
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let id = COMPILED_BASE + self.compiled_files.len() as u32;
+        self.compiled_files.push(unit);
+        self.compiled_paths.insert(key, id);
+        Some(id)
+    }
+
     /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
     /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
     /// lambda, over the variables of the script that made it [documented: Call; User
@@ -2260,7 +2323,11 @@ impl<'a> Game<'a> {
             };
             (unit, params, body, value.map(|v| *v), locals)
         } else {
-            let unit = data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?;
+            let compiled = id.checked_sub(COMPILED_BASE).filter(|_| id < TEMP_REF_BASE).and_then(|i| self.compiled_files.get(i as usize).copied());
+            let unit = match compiled {
+                Some(u) => u,
+                None => data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?,
+            };
             let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
             let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
             (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
@@ -2571,7 +2638,11 @@ impl<'a> Game<'a> {
             return menus::answers(want.num() as u16, subject.num() as u16);
         }
         match (want.as_form(), subject.as_form()) {
-            (Some(a), Some(b)) => a == b,
+            // A form list as the parameter accepts any of its members [hypothesis, fit
+            // to the data: Old World Blues' force fields (e.g. SCPT 0x01016AB4) run
+            // `Begin OnHitWith NVDLC03SonicWeaponList`, a list of the five Sonic
+            // Emitters, and no weapon is a list itself; observer check 38].
+            (Some(a), Some(b)) => a == b || crate::functions::refs::list_members(self, FormId(a)).contains(&FormId(b)),
             _ => want.num() == subject.num(),
         }
     }
@@ -3204,6 +3275,7 @@ impl<'a> Game<'a> {
     /// that showed it returns the button once, and the box closes.
     pub fn press_button(&mut self, button: i32) -> Result<(), String> {
         let m = self.message_box.as_mut().ok_or("no message box is open")?;
+        m.can_press(button)?;
         m.pressed = Some(button);
         let message = m.message;
         if self.menu == Some(menus::MESSAGE) && self.boxes.first() == Some(&message) {
@@ -4678,7 +4750,7 @@ impl Host for Exec<'_, '_> {
         let none = FormId(0);
         if !buttons.is_empty() {
             let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
-            self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner });
+            self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner, hidden: Vec::new() });
         }
         let is_box = !buttons.is_empty();
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
@@ -4835,6 +4907,13 @@ impl Host for Exec<'_, '_> {
     fn local_var(&mut self, name: &str) -> Option<VarRef> {
         let index = self.unit.var_index(name)?;
         Some(VarRef { on: None, var: VarSlot::Local { index, letter: fnv_script::ir::VarLetter::Float } })
+    }
+
+    fn var_name(&mut self, var: &VarRef) -> Option<String> {
+        match (&var.on, &var.var) {
+            (None, VarSlot::Local { index, .. }) => self.unit.var_name(*index).map(str::to_string),
+            _ => None,
+        }
     }
 
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {

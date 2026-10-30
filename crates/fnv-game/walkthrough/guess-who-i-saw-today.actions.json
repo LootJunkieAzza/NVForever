@@ -1,0 +1,286 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Guess Who I Saw Today (VMS41): Doctor Henry's Stealth Boy experiment on Lily at Jacobstown, Keene's Nightkin talked down (100)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Doctor Henry at Jacobstown mentions his experiment (HenryMentionedExperiment) and asks for help (10); the chewed Stealth Boy is found (20, its OnAdd); Henry hears of it (30); Lily agrees to take part (40); Henry starts once she is there (50); he walks into his trigger (ExperimentInProgress) and the SayTo exchange between Henry, Lily and Calamity runs (LilyScript's SayToDone blocks; the last sets 60); Keene's Nightkin are talked down (Speech 80, 70, NightkinResolution 3); Henry's greeting after that (80) and his question about the Mark II, answered (100, Complete Quest)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100. Stand-in for the travel to Jacobstown and around the lodge."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "VRemDoctorHenryRef"
+  },
+  {
+   "op": "talk",
+   "actor": "VRemDoctorHenryRef",
+   "label": "henry experiment"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueRemnantsVRemDoctorHenryTopic038",
+   "label": "henry experiment 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vDialogueJacobstown",
+   "fields": [
+    "var.HenryMentionedExperiment"
+   ],
+   "label": "henry mentioned"
+  },
+  {
+   "op": "move_player",
+   "to": "VRemDoctorHenryRef"
+  },
+  {
+   "op": "talk",
+   "actor": "VRemDoctorHenryRef",
+   "label": "henry asks"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueRemnantsVRemDoctorHenryTopic041",
+   "label": "henry asks 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS41 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for searching the nightstalker den: the chewed Stealth Boy is picked up (its OnAdd sets 20)."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "VMS41ChewedStealthBoy",
+   "count": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS41 20"
+  },
+  {
+   "op": "move_player",
+   "to": "VRemDoctorHenryRef"
+  },
+  {
+   "op": "talk",
+   "actor": "VRemDoctorHenryRef",
+   "label": "henry stealth boy"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueRemnantsVRemDoctorHenryTopic031",
+   "label": "henry stealth boy 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueRemnantsVRemDoctorHenryTopic044",
+   "label": "henry stealth boy 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS41 30"
+  },
+  {
+   "op": "move_player",
+   "to": "LilyRef"
+  },
+  {
+   "op": "talk",
+   "actor": "LilyRef",
+   "label": "lily agrees"
+  },
+  {
+   "op": "choose",
+   "topic": "vDialogueLilyLilyTopic003",
+   "label": "lily agrees 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.40"
+   ],
+   "label": "milestone: VMS41 40"
+  },
+  {
+   "op": "move_player",
+   "to": "VRemDoctorHenryRef"
+  },
+  {
+   "op": "talk",
+   "actor": "VRemDoctorHenryRef",
+   "label": "henry proceed"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueRemnantsVRemDoctorHenryTopic028",
+   "label": "henry proceed 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.50"
+   ],
+   "label": "milestone: VMS41 50"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Henry's walk to the experiment: he enters VMS41DoctorHenryTriggerRef (ExperimentInProgress 1); the quest script starts the SayTo exchange, which the speakers' SayToDone blocks carry on (voice lengths waited out)."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "VMS41DoctorHenryTriggerRef",
+   "actor": "VRemDoctorHenryRef"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 180
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.60",
+    "var.ExperimentInProgress"
+   ],
+   "label": "milestone: VMS41 60"
+  },
+  {
+   "op": "move_player",
+   "to": "JacobstownKeeneRef"
+  },
+  {
+   "op": "talk",
+   "actor": "JacobstownKeeneRef",
+   "label": "keene"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS41JacobstownKeeneTopic001",
+   "label": "keene 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.70",
+    "var.NightkinResolution"
+   ],
+   "label": "milestone: VMS41 70"
+  },
+  {
+   "op": "move_player",
+   "to": "VRemDoctorHenryRef"
+  },
+  {
+   "op": "talk",
+   "actor": "VRemDoctorHenryRef",
+   "label": "henry after"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS41VRemDoctorHenryTopic001",
+   "label": "henry after 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS41",
+   "fields": [
+    "stage",
+    "done.80",
+    "done.100",
+    "completed"
+   ],
+   "label": "final: VMS41 100"
+  }
+ ]
+}

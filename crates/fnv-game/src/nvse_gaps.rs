@@ -62,6 +62,8 @@ pub struct GapsState {
     pub air_times: HashMap<FormId, f32>,
     /// The third JIP batch's state (`crate::nvse_jip3`).
     pub jip3: crate::nvse_jip3::Jip3State,
+    /// The fourth JIP batch's state (`crate::nvse_jip4`).
+    pub jip4: crate::nvse_jip4::Jip4State,
     /// The shots in flight, for the projectile functions (`crate::nvse_proj`).
     pub projs: crate::nvse_proj::ProjState,
     /// The sounds scripts played, for the sound functions (`crate::nvse_sound`).
@@ -414,6 +416,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(crate::data::PerkEffect::Ability(_)) => 5.0,
                 Some(crate::data::PerkEffect::QuestStage { .. }) => 6.0,
                 _ => 0.0,
+            })
+        }
+        // The entry's string: an activate choice's button label (EPF2) [documented:
+        // GetNthPerkEntryString, "Activate Prompt" for type 4]; "" for an entry without
+        // one [observed: jip-forms perkentry.0, ""].
+        "getnthperkentrystring" => {
+            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            XVal::Str(match e.map(|e| &e.effect) {
+                Some(crate::data::PerkEffect::EntryPoint(d)) => d.button.clone().unwrap_or_default(),
+                _ => String::new(),
             })
         }
         // The entry point's code [observed: gaps4, Toughness's first 56].

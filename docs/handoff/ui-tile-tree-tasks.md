@@ -260,7 +260,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
      `fnv_game::ui_input` (the step with the JIP mouseover-change and menu-click events),
      the five functions in `ui_functions`, the engine feed `nvf-play/src/tiles/input.rs`
      (no menu takes input in play yet; test aid `NVF_PLAY_TEST_POINTER` for the HUD).
-     What is settled and open: menu-xml.md §3.2, §8 items 7-10; observer check 35.
+     What is settled and open: menu-xml.md §3.2, §8 items 7-10; observer check 42.
      Tests: `fnv_ui::input` unit tests, `crates/fnv-game/tests/ui_functions.rs` (the
      pointer functions, clicks, events), smoke `tiles-hud-pointer`. Not built:
      `wheelable`/`wheelmoved`, `draggable`, `xdefault`, list rows' `:index` in the click

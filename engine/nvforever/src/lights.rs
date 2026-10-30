@@ -195,6 +195,13 @@ pub fn display_clip() -> bool {
     CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Bevy's shader text with Windows line ends made `\n`: the patches' anchors are written
+/// with `\n`, and a checkout with git's `core.autocrlf` gives the vendored bevy_pbr
+/// shaders `\r\n` (issue #946: no patch matched, so grass lost `nvf_apply_pbr_lighting`).
+pub fn unix_lines(source: &str) -> String {
+    source.replace("\r\n", "\n")
+}
+
 pub struct LightsPlugin;
 
 impl Plugin for LightsPlugin {
@@ -232,6 +239,7 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
         error!("{TONEMAPPING_SHARED}: not WGSL; the main view keeps Tony McMapface");
         return;
     };
+    let source = unix_lines(source);
     if !source.contains(BEVY_TONY) {
         error!("{TONEMAPPING_SHARED}: Tony McMapface not found (Bevy changed?); the main view keeps it");
         return;
@@ -264,7 +272,8 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
         error!("{PBR_FUNCTIONS}: not WGSL; surfaces keep Bevy's linear lighting sum");
         return;
     };
-    let Some(patched) = display_patched(source) else {
+    let source = unix_lines(source);
+    let Some(patched) = display_patched(&source) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         return;
     };
@@ -444,6 +453,7 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
         warn!("{PBR_LIGHTING}: not WGSL; lights keep Bevy's inverse-square falloff");
         return;
     };
+    let source = unix_lines(source);
     if !source.contains(BEVY_ATTENUATION) {
         warn!("{PBR_LIGHTING}: distance attenuation not found (Bevy changed?); lights keep Bevy's inverse-square falloff");
         return;
@@ -615,6 +625,18 @@ mod tests {
         assert!(out.starts_with("head\n") && out.ends_with("tail\n"));
         // A missing anchor (Bevy changed) leaves the source alone.
         assert!(display_patched(&source.replace("    // Total light\n", "")).is_none());
+        // Windows line ends (a checkout with core.autocrlf, issue #946) still patch.
+        assert!(display_patched(&unix_lines(&source.replace('\n', "\r\n"))).is_some());
+    }
+
+    #[test]
+    fn vendored_shaders_patch_as_checked_out() {
+        // The vendored bevy_pbr files with whatever line ends this checkout gave them.
+        let functions = include_str!("../../vendor/bevy_pbr/src/render/pbr_functions.wgsl");
+        assert!(display_patched(&unix_lines(functions)).is_some());
+        let lighting = unix_lines(include_str!("../../vendor/bevy_pbr/src/render/pbr_lighting.wgsl"));
+        assert!(lighting.contains(BEVY_ATTENUATION));
+        assert!(SPECULAR_EDITS.iter().all(|(from, _)| lighting.replace(BEVY_ATTENUATION, GAME_ATTENUATION).matches(from).count() == 1));
     }
 
     #[test]
