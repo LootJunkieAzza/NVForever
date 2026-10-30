@@ -6043,14 +6043,14 @@ manual = "hud_bars_partial.png: the health bar at the bottom left lit for 18 of 
 
 [[scenario]]
 name = "hud-crippled-limbs"
-source = "[observed: private job hud_xp_limbs, l1_leg, l2_head; one run] whole pictures fade 0.85 s in, hold 3.3 s, fade 0.85 s out; broken-picture alpha 0-255, hidden after about 4.3 s; [hypothesis] rising sawtooth with about 0.54 s period; owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
+source = "[observed: private job hud_xp_limbs, l1_leg, l2_head; one run] whole pictures fade 0.85 s in, hold 3.3 s, fade 0.85 s out; broken-picture alpha 0-255, negative after about 4.3 s; [hypothesis] rising sawtooth with about 0.54 s period; owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
 note = "the console cripples the player's right leg at 10 s and left arm at 13 s; the second crippling starts the time again and only the arm flashes"
 areas = ["hud", "combat"]
 paths = ["engine/nvf-play/src/hud_limbs.rs", "engine/nvf-play/src/hud.rs"]
 env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV RightMobilityCondition 1000;10.5:close;13:player.DamageAV LeftAttackCondition 1000;13.5:close", NVF_PLAY_TEST_SHOTS = "10.7:limbs_fade_in.png,11.5:limbs_leg.png,14.5:limbs_arm.png,18.1:limbs_fade_out.png,21:limbs_hidden.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 23
-manual = "limbs_fade_in.png: whole pictures partway through the 0.85 s fade-in after the console closes at 10.5 s; limbs_fade_out.png: whole pictures partway through fade-out, newest broken picture hidden after 4.3 s; limbs_leg.png: the Vault Boy at the top right, the right leg (the viewer's left) red and dashed, flashing in alpha; whole pictures use the 0.85/3.3/0.85 s envelope; limbs_arm.png: the left arm red and dashed, the right leg dashed in amber; limbs_hidden.png: no Vault Boy"
+manual = "limbs_fade_in.png: whole pictures partway through the 0.85 s fade-in after the console closes at 10.5 s; limbs_fade_out.png: whole pictures partway through fade-out, the newest broken picture red at the same strength (its flash stops at 4.3 s); limbs_leg.png: the Vault Boy at the top right, the right leg (the viewer's left) red and dashed, flashing in alpha under the pictures' fade-in; whole pictures use the 0.85/3.3/0.85 s envelope; limbs_arm.png: the left arm red and dashed, the right leg dashed in amber; limbs_hidden.png: no Vault Boy"
 expect = [
   "combat: player's right leg crippled",
   { re = 'hud: crippled limbs shown, flashing right_leg \(crippled: right leg\)', label = "the leg's crippling shows the picture" },

@@ -44,6 +44,9 @@ const FADE_SECONDS: f32 = 0.85;
 /// l2_head]; rising sawtooth and period fitted to those samples [hypothesis].
 /// Previously a brightness cosine, low 0.35, period 0.6 s [design].
 const FLASH_SECONDS: f32 = 0.54;
+/// The broken pictures' alpha read negative after about 4.3 s [observed: private job
+/// hud_xp_limbs, l1_leg, l2_head; one run]; what the original draws then is not known.
+const FLASH_STOP: f32 = 4.3;
 
 /// The pieces, as the limb conditions 25–30 (head, torso, left arm, right arm, left leg,
 /// right leg) [documented: the actor value codes]; the brain (31) has no piece.
@@ -136,6 +139,20 @@ pub fn flash(elapsed: f32) -> Color {
     crime_colour().with_alpha((elapsed / FLASH_SECONDS).rem_euclid(1.0))
 }
 
+/// The flashing piece `elapsed` seconds into the picture, under the whole pictures'
+/// envelope (`strength`, [`Indicator::strength`]): the sawtooth while it flashes, then
+/// held red at the envelope, so it fades in and out with the rest of the picture and
+/// leaves no hole in it [design: maintainer's review of #902; previously hidden after
+/// [`FLASH_STOP`], the negative alpha clamped].
+pub fn flashing(elapsed: f32, strength: f32) -> Color {
+    if elapsed < FLASH_STOP {
+        let c = flash(elapsed);
+        c.with_alpha(c.alpha() * strength)
+    } else {
+        crime_colour().with_alpha(strength)
+    }
+}
+
 /// Where a piece's picture stands from the head's top left, and how much of it shows
 /// (its top left part), at zoom 1.
 fn place(piece: usize) -> (Vec2, Vec2) {
@@ -171,8 +188,7 @@ fn watch(time: Res<Time>, state: Res<State<PlayState>>, limbs: Option<Res<Player
     }
 }
 
-/// The picture's root, its pieces (whole and broken pictures) and its face.
-
+/// One of the picture's pieces: a limb's whole or broken picture.
 #[derive(Component)]
 struct Piece {
     index: usize,
@@ -252,10 +268,7 @@ fn draw(
     if !wanted {
         return;
     }
-    let elapsed = SHOW_SECONDS - ind.left;
-    // Broken alpha stopped after about 4.3 s in the single capture; clamp negative
-    // captured alpha to hidden [observed: private job hud_xp_limbs, l1_leg, l2_head; design].
-    let flash = if elapsed < 4.3 { flash(elapsed) } else { crime_colour().with_alpha(0.0) };
+    let flash = flashing(SHOW_SECONDS - ind.left, ind.strength());
     for (piece, mut vis, mut image) in &mut pieces {
         let look = ind.look(piece.index);
         vis.set_if_neq(show((look != Look::Whole) == piece.broken));
@@ -337,6 +350,22 @@ mod tests {
             assert_eq!((c.red, c.green, c.blue), (red.red, red.green, red.blue));
             assert!((c.alpha - alpha).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn the_flashing_piece_follows_the_pictures_envelope() {
+        let alpha = |t: f32| {
+            let ind = Indicator { left: SHOW_SECONDS - t, ..Default::default() };
+            flashing(t, ind.strength()).alpha()
+        };
+        // Fading in: the sawtooth under the envelope (0.5 of a flash, 0.5 of the fade).
+        assert!((alpha(0.27) - 0.5 * 0.27 / FADE_SECONDS).abs() < 1e-5);
+        // Full: the sawtooth alone.
+        assert!((alpha(2.27) - flash(2.27).alpha()).abs() < 1e-5);
+        // After the flash: held at the envelope while the picture fades out, gone at 5 s.
+        assert!((alpha(4.5) - 0.5 / FADE_SECONDS).abs() < 1e-5);
+        assert!(alpha(SHOW_SECONDS) < 1e-5);
+        assert_eq!(flashing(4.5, 1.0).to_srgba().red, crime_colour().to_srgba().red);
     }
 
     #[test]

@@ -494,8 +494,11 @@ menu's (`dialogue_menu.rs`).
   this envelope [design]. History: instant show/hide [design].
 - [observed: private job hud_xp_limbs, l1_leg, l2_head; one run] Broken pictures flash
   in alpha 0-255 for about 4.3 s, then negative alpha. [hypothesis] A rising sawtooth
-  of about 0.54 s fits the samples. [design] Clamp negative alpha to hidden and apply
-  the measured flash to the owner's newest limb only. History: brightness cosine,
+  of about 0.54 s fits the samples. [design] Apply the measured flash to the owner's
+  newest limb only, under the whole pictures' envelope (it fades in with them), and hold
+  that limb red at the envelope after 4.3 s, so it fades out with the picture and leaves
+  no hole in it (maintainer's review of #902; what the original draws at negative alpha
+  is not known). History: negative alpha clamped to hidden [design]; brightness cosine,
   low 0.35, period 0.6 s [design].
 - [design: owner 2026-10-17; maintainer's choice T12b B/M3; needs an issue] Keep only
   the newest limb flashing and earlier broken limbs amber. [observed: private job
