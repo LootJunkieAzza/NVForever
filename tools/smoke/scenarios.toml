@@ -10200,12 +10200,12 @@ manual = "tiles_radiation_meter.png: the radiation meter at the top right from i
 [[scenario]]
 name = "tiles-hud-notices"
 source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): corner-messages and quest-messages with [UI] TileMenus=HUDMainMenu: the hand-built queues' lines drawn from Messages' code-made copies (*:0 bracket, *:1 text at x 130 y 5 depth 2, *:2 icon [observed]) and QuestReminder's (the banner and the objectives with their boxes at the hand-built places), the hand-built areas hidden"
-note = "the corner messages at 1 s as corner-messages, the quest lines as quest-messages; the console's read at 15 s comes after both shots"
+note = "45 s as quest-messages: the add-ons' six quest notices queue before VCG02's completed line, which comes on screen at about 41 s; the corner messages at 1 s as corner-messages, the quest lines as quest-messages; the console's read at 15 s comes after both shots"
 areas = ["ui", "hud", "corner-messages", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg,3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5", NVF_PLAY_TEST_CONSOLE = "15:PrintC \"tiles notices %g %g %g %g\", (GetUIFloat \"HUDMainMenu/Messages/*:1/x\"), (GetUIFloat \"HUDMainMenu/Messages/*:1/depth\"), (GetUIFloat \"HUDMainMenu/Messages/*:0/width\"), (GetUIFloat \"HUDMainMenu/Subtitles/*:0/x\");15.4:close", NVF_PLAY_TEST_SHOTS = "5:tiles_hud_notices_banner.png,12.5:tiles_hud_notices_objectives.png" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
-run_seconds = 20
+run_seconds = 45
 order = [[
   'tiles: Messages text "You are still dressed as a member of the NCR."',
   'tiles: Messages text "You are now Well Rested!"',
