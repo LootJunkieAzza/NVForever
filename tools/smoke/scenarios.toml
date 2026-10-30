@@ -13551,3 +13551,22 @@ expect = [
   { json = "given_errors.*", count = 0, label = "lonesome-road-launch-legion: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-flight"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-flight.actions.json (HonestHearts.esm): Daniel's path, the player starts a fight with Daniel during Flight from Zion (StartCombat stand-in; NVDLC02MQ05 and its three errands 255), Chaos in Zion, the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-flight.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/awareness.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-flight.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-flight milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ05 failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05 failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ05a failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05a failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ05b failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05b failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ05c failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05c failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-flight final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-flight: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-flight: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
