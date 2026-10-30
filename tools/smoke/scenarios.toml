@@ -13354,3 +13354,85 @@ expect = [
   { json = "given_errors.*", count = 0, label = "honest-hearts-pine-creek: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-arrival"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-arrival.actions.json (HonestHearts.esm): Daniel killed during Arrival at Zion (NVDLC02MQ01 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-arrival.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-arrival.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-arrival milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ01 failed (255).stage", equals = 255, label = "fail-honest-hearts-arrival NVDLC02MQ01 failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-arrival final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-arrival: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-arrival: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-supply"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-supply.actions.json (HonestHearts.esm): Daniel killed with Supply Train's errands begun (NVDLC02MQ02a/b/c 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-supply.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-supply.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-supply milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ02a failed (255).stage", equals = 255, label = "fail-honest-hearts-supply NVDLC02MQ02a failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ02b failed (255).stage", equals = 255, label = "fail-honest-hearts-supply NVDLC02MQ02b failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ02c failed (255).stage", equals = 255, label = "fail-honest-hearts-supply NVDLC02MQ02c failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-supply final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-supply: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-supply: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-deliverer"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-deliverer.actions.json (HonestHearts.esm): Daniel killed before the supplies reach him (NVDLC02MQ02d 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-deliverer.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-deliverer.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-deliverer milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ02d failed (255).stage", equals = 255, label = "fail-honest-hearts-deliverer NVDLC02MQ02d failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-deliverer final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-deliverer: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-deliverer: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-gathering-storms"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-gathering-storms.actions.json (HonestHearts.esm): Daniel killed before Gathering Storms' choice (NVDLC02MQ03d 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-gathering-storms.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-gathering-storms.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-gathering-storms milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ03d failed (255).stage", equals = 255, label = "fail-honest-hearts-gathering-storms NVDLC02MQ03d failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-gathering-storms final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-gathering-storms: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-gathering-storms: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-crush"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-crush.actions.json (HonestHearts.esm): Joshua's path, Daniel killed during Crush the White Legs (NVDLC02MQ04 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-crush.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-crush.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-crush milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ04 failed (255).stage", equals = 255, label = "fail-honest-hearts-crush NVDLC02MQ04 failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-crush final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-crush: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-crush: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
