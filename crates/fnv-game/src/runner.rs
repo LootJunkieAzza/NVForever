@@ -284,6 +284,16 @@ pub enum Action {
     /// default action.
     /// With `label`, observation `info` when the activation opened a conversation.
     PlayerActivate { target: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
+    /// The player activates `target` by hand and picks the perks' activate choice whose
+    /// label is `choice` (Robot Compliance's "Deactivate", Cannibal's "Devour"): the
+    /// choice list opens as in play (`Game::open_activate_menu`) and the choice's script
+    /// runs on the target (`Game::pick_activate_choice`). A step error when the list
+    /// does not open or does not offer the choice. Observation `choices`: the labels.
+    PerkChoice { target: String, choice: String, #[serde(default)] label: Option<String> },
+    /// The player crouches (`sneaking` true) or stands up, standing still: the engine's
+    /// measured motion of the player (`Game::set_motion`), as the play loop tells it from
+    /// the sneak control; IsSneaking and the perks' IsSneaking conditions read it.
+    PlayerSneak { sneaking: bool },
     /// A dialogue line (INFO) is said: its result scripts run on the speaker.
     SayInfo { info: String, #[serde(default)] speaker: Option<String>, #[serde(default)] force: bool },
     /// The first of several lines whose conditions pass is said (the speaker picks the
@@ -1364,6 +1374,24 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 obs.insert("opened".into(), json!(c.to_string()));
             }
         }
+        Action::PlayerSneak { sneaking } => {
+            let m = g.senses.motion.get(&FormId::PLAYER_REF).copied().unwrap_or_default();
+            g.set_motion(FormId::PLAYER_REF, crate::functions::senses::Motion { sneaking: *sneaking, moving: false, running: false, ..m });
+        }
+        Action::PerkChoice { target, choice, label: l } => {
+            lab = l.clone();
+            let t = resolve(g, target)?;
+            if !g.open_activate_menu(t) {
+                return Err(format!("activating {} offers no perk choices", g.data.name(t)));
+            }
+            let labels: Vec<String> = g.activate_menu.iter().flat_map(|m| m.choices.iter().map(|c| c.label.clone())).collect();
+            obs.insert("choices".into(), json!(labels));
+            let Some(i) = labels.iter().position(|c| c.eq_ignore_ascii_case(choice)) else {
+                g.pick_activate_choice(labels.len());
+                return Err(format!("{choice:?} is not offered on {} (offered: {labels:?})", g.data.name(t)));
+            };
+            g.pick_activate_choice(i);
+        }
         Action::SayInfo { info, speaker, force } => {
             let i = resolve(g, info)?;
             let s = match speaker {
@@ -2299,6 +2327,7 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAvDamage { label, .. }
         | Action::Talk { label, .. }
         | Action::PlayerActivate { label, .. }
+        | Action::PerkChoice { label, .. }
         | Action::DialoguePackage { label, .. }
         | Action::Hit { label, .. }
         | Action::Choose { label, .. }

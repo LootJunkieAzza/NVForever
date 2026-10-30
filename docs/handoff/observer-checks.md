@@ -465,3 +465,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
 41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
     the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)
+42. **Does a stage result script's reference-less RemoveSpell act on the player?** (P1 if
+    yes: the doctors' addiction cure does nothing headless.) Get addicted to Jet, have Ada
+    Straus cure it (VDoctors 20): is the withdrawal gone from the player's effects? (§10
+    stall 1.)
+43. **Does a newly started quest's script run before its first delay?** (P2.) Old World
+    Blues: wake in the Think Tank and talk to Dr. Klein at once. Do the Big Empty's random
+    encounters (NVDLC03Enc 10) start? (§10 stall 2.)
+44. **What does `RemoveItem <item> 0` do?** (P3.) Fix Nellis' arrays by hand, then take
+    Loyal's Sunshine Boogie reward: any error, anything removed? (§10 stall 3.)
+45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
+    stall 4.)
+46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
+    (P3; §10 stall 5.)

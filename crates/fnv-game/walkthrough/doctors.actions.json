@@ -1,0 +1,298 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless doctors' services (VDoctors, Doctors): Ada Straus at Novac heals the player (VDoctors 10), cures an addiction (20) and his radiation (30); Argyll at Nellis treats him for the Boomers (Doctors 10 and 20)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: at Novac, Ada Straus's doctor topics (VDoctors, by GetIsID): DoctorMedical then the fee line (DoctorMedical66YES, end script: her Variable01 1) and her script (VNovacAdaStrausSCRIPT) fades to black and after 8 s sets 10 (ResetHealth); DoctorAddiction then DoctorAddictionYES (Variable01 2) sets 20 after 8 s (withdrawals removed, Generic.addicted 0, the AddictionRemovalMsg box); DoctorRadiation then DoctorRadiationYES (end script) sets 30 (rads restored). The quest allows repeated stages and has no Complete Quest stage; stage 40 is set by nothing in FalloutNV.esm. Stand-ins: travel by move_player; 500 caps given (add_item); the wounds by damage_av Health 80; the rads by set_av RadiationRads 300; the Jet addiction by add_spell WithdrawalJet (its effect is what Generic's script reads into Generic.addicted)."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Caps001",
+   "count": 500
+  },
+  {
+   "op": "damage_av",
+   "av": "Health",
+   "value": 80
+  },
+  {
+   "op": "set_av",
+   "name": "RadiationRads",
+   "value": 300
+  },
+  {
+   "op": "add_spell",
+   "spell": "WithdrawalJet"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 6
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "var.addicted"
+   ],
+   "label": "addicted"
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:VNovacAdaStrausSCRIPT"
+  },
+  {
+   "op": "talk",
+   "actor": "scripted:VNovacAdaStrausSCRIPT",
+   "label": "ada greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "DoctorMedical",
+   "label": "ada medical"
+  },
+  {
+   "op": "choose",
+   "prompt": "Okay, fix me",
+   "label": "ada fix me"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 10
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDoctors",
+   "fields": [
+    "running",
+    "done.10"
+   ],
+   "label": "milestone: VDoctors 10"
+  },
+  {
+   "op": "call",
+   "line": "player.GetHealthPercentage",
+   "label": "player healed"
+  },
+  {
+   "op": "talk",
+   "actor": "scripted:VNovacAdaStrausSCRIPT",
+   "label": "ada greeting 2"
+  },
+  {
+   "op": "choose",
+   "topic": "DoctorAddiction",
+   "label": "ada addiction"
+  },
+  {
+   "op": "choose",
+   "topic": "DoctorAddictionYES",
+   "label": "ada cure"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 10
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 1,
+   "wait_frames": 60,
+   "label": "addiction removed box"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDoctors",
+   "fields": [
+    "done.20"
+   ],
+   "label": "milestone: VDoctors 20"
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "var.addicted"
+   ],
+   "label": "addiction cured"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 6
+  },
+  {
+   "op": "call",
+   "line": "player.IsSpellTarget WithdrawalJet",
+   "label": "jet withdrawal after the cure"
+  },
+  {
+   "op": "talk",
+   "actor": "scripted:VNovacAdaStrausSCRIPT",
+   "label": "ada greeting 3"
+  },
+  {
+   "op": "choose",
+   "topic": "DoctorRadiation",
+   "label": "ada radiation"
+  },
+  {
+   "op": "choose",
+   "topic": "DoctorRadiationYES",
+   "label": "ada rads"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VDoctors",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "final: VDoctors 30"
+  },
+  {
+   "op": "get_av",
+   "name": "RadiationRads",
+   "label": "rads gone"
+  },
+  {
+   "op": "note",
+   "text": "Doctors (the older doctors' quest): only Argyll's script (NellisArgyllScript) sets its stages 10 and 20 (FFEDoctorSCRIPT and LucySCRIPT are on no placed reference; its stage 30, DoctorRadiationYES 0x000BE417, needs a speaker in DoctorsDialogueFaction without Doc Mitchell's voice, and no doctor reached offers it). Argyll treats the player only once the Boomers accept him and VMS15 objective 25 is done. Stand-ins: the Boomer fame (set_reputation) and VMS15 objective 25 (set_objective) are given; 3 Fixer and 3 RadAway given (add_item); the Jet addiction again by add_spell. Argyll's Topic004 then Topic008 (3 Fixer: his Variable01 1) sets Doctors 10 after 8 s, a stage Doctors does not define; Topic005 then Topic016 (3 RadAway: Variable01 2) sets 20 (withdrawals removed)."
+  },
+  {
+   "op": "set_reputation",
+   "rep": "RepNVBoomer",
+   "axis": "fame",
+   "value": 100
+  },
+  {
+   "op": "set_objective",
+   "quest": "VMS15",
+   "index": 25,
+   "displayed": true,
+   "completed": true
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "NVFixer",
+   "count": 3
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "RadAway",
+   "count": 3
+  },
+  {
+   "op": "add_spell",
+   "spell": "WithdrawalJet"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 6
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:NellisArgyllScript"
+  },
+  {
+   "op": "talk",
+   "actor": "scripted:NellisArgyllScript",
+   "label": "argyll greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisTopic001",
+   "label": "argyll treatment"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisArgyllTopic004",
+   "label": "argyll 004"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisArgyllTopic008",
+   "label": "argyll fixer"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 10
+  },
+  {
+   "op": "get_quest",
+   "quest": "Doctors",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: Doctors 10"
+  },
+  {
+   "op": "talk",
+   "actor": "scripted:NellisArgyllScript",
+   "label": "argyll greeting 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisTopic001",
+   "label": "argyll treatment 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisArgyllTopic005",
+   "label": "argyll 005"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformNellisNellisArgyllTopic016",
+   "label": "argyll radaway"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 12
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 1,
+   "wait_frames": 60,
+   "label": "addiction removed box 2"
+  },
+  {
+   "op": "get_quest",
+   "quest": "Doctors",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "final: Doctors 20"
+  }
+ ]
+}
