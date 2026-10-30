@@ -99,9 +99,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let [b, m, _] = crate::functions::actor::actor_value_parts(g, a, code).unwrap_or([d, 0.0, d]);
             XVal::Num(d.min((b + m).max(0.0)))
         }
-        // `code`: the actor value's name [documented: GetActorValueName, 1 gives
-        // "Confidence"; alias GetAVName].
-        "getactorvaluename" | "getavname" => XVal::Str(args.first().and_then(|v| av(g, v)).and_then(|c| crate::functions::actor::AV_NAMES.get(c as usize)).map(|s| s.to_string()).unwrap_or_default()),
+        // `code`: the actor value's script name [documented: GetActorValueName, 1 gives
+        // "Confidence"; alias GetAVName; observed: showoff2, 25 PerceptionCondition, 76
+        // DamageThreshold, no spaces].
+        "getactorvaluename" | "getavname" => XVal::Str(args.first().and_then(|v| av(g, v)).map(script_av_name).unwrap_or_default()),
         // `[type] [ammo]`: 0 the full name (FULL), 1 the short name (ONAM), 2 the
         // abbreviation (QNAM) [documented: GetAmmoName; the records' subrecords:
         // xEdit wbDefinitionsFNV.pas AMMO]; SetAmmoName `name [type] [ammo]` for the
@@ -218,5 +219,13 @@ fn av(g: &Game, v: &XVal) -> Option<u16> {
         XVal::Num(c) => Some(*c as u16),
         XVal::Str(n) => crate::functions::av_code(g, n).ok(),
         _ => None,
+    }
+}
+
+/// An actor value's script name: the table's exceptions, else its name without spaces.
+fn script_av_name(code: u16) -> String {
+    match fnv_script::table::SCRIPT_AV_NAMES.iter().find(|(c, _)| *c == code) {
+        Some((_, n)) => n.to_string(),
+        None => crate::functions::actor::AV_NAMES.get(code as usize).map(|n| n.replace(' ', "")).unwrap_or_default(),
     }
 }
