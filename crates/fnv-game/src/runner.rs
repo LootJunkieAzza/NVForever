@@ -503,7 +503,9 @@ fn frames_after(a: &Action) -> u64 {
     }
 }
 
-/// Name resolution: `player`, a hex FormID, or an Editor ID (any record).
+/// Name resolution: `player`, a hex FormID, or an Editor ID (any record);
+/// `scripted:<script>[#n]`, `placed:<base>` and `created:<base>` (the newest reference
+/// made at run time from that base, e.g. by PlaceAtMe) name references by what they are.
 pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
     if s.eq_ignore_ascii_case("player") || s.eq_ignore_ascii_case("playerref") {
         return Ok(FormId::PLAYER_REF);
@@ -534,6 +536,12 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
         // The first placed reference (FormID order) of a base form.
         let b = resolve(g, base)?;
         return g.world.placed.refs.values().find(|p| p.base == b).map(|p| p.id).ok_or_else(|| format!("no placed reference of {base}"));
+    }
+    if let Some(base) = s.strip_prefix(fnv_sim::actions::CREATED_PREFIX) {
+        // The newest reference made at run time (PlaceAtMe, a drop) of a base form that
+        // is still there, as the sim runner names it: its FormID is not known in advance.
+        let b = resolve(g, base)?;
+        return g.world.newest_created(b).ok_or_else(|| format!("no reference of {base} was created"));
     }
     if let Some(r) = g.world.placed.by_edid(s) {
         return Ok(r);
@@ -1506,6 +1514,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             // the button is set, one frame runs with the box still open, so MenuMode 1001
             // blocks read it with GetButtonPressed, then the box closes.
             let m = g.message_box.as_mut().ok_or("no message box is open")?;
+            m.can_press(*button)?;
             m.pressed = Some(*button);
             let message = m.message;
             // A box the input left modeless (no `given` menu) is shown without a menu: the

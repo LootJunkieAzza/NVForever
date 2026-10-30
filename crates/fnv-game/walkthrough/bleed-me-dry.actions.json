@@ -1,0 +1,617 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Bleed Me Dry (VMS38): Red Lucy's six egg hunts for the Thorn, from her hire (10) to the deathclaw eggs (130)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Red Lucy at the Thorn hires the player (10) and sends them for six clutches of eggs in turn: giant mantis, radscorpion, fire gecko, night stalker, cazador, deathclaw. Each clutch is the quest nest the stage enables (VPit*EggsREF), whose OnActivate gives the clutch and sets the 'return' stage (20, 40 ... 120); handing it over sets the reward stage (25, 45 ... 125) and the next hire the next egg stage. Deathclaw eggs handed over: 125, then 130 (Complete Quest)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Barter and Speech 100 (Lucy's better-pay checks)."
+  },
+  {
+   "op": "set_av",
+   "name": "Barter",
+   "value": 100
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the Thorn under Westside."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "lucy first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic007",
+   "label": "lucy first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "lucy hires"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic047",
+   "label": "lucy hires 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic048",
+   "label": "lucy hires 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic019",
+   "label": "lucy hires 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic214",
+   "label": "lucy hires 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic216",
+   "label": "lucy hires 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic217",
+   "label": "lucy hires 6"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic219",
+   "label": "lucy hires 7"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "objective.10.displayed"
+   ],
+   "label": "milestone: VMS38 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to the Mantis nest: the player at the quest nest, activated by hand."
+  },
+  {
+   "op": "move_player",
+   "to": "VPitMantisEggsREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VPitMantisEggsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS38 20"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "mantis eggs handed over"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic218",
+   "label": "mantis eggs handed over 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic008",
+   "label": "mantis eggs handed over 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic232",
+   "label": "mantis eggs handed over 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic240",
+   "label": "mantis eggs handed over 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic234",
+   "label": "mantis eggs handed over 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic237",
+   "label": "mantis eggs handed over 6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "done.25"
+   ],
+   "label": "milestone: VMS38 25"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS38 30"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to the Scorpion nest: the player at the quest nest, activated by hand."
+  },
+  {
+   "op": "move_player",
+   "to": "VPitScorpionEggsREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VPitScorpionEggsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.40"
+   ],
+   "label": "milestone: VMS38 40"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "scorpion eggs handed over"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic218",
+   "label": "scorpion eggs handed over 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic017",
+   "label": "scorpion eggs handed over 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic247",
+   "label": "scorpion eggs handed over 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic248",
+   "label": "scorpion eggs handed over 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic251",
+   "label": "scorpion eggs handed over 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic252",
+   "label": "scorpion eggs handed over 6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "done.45"
+   ],
+   "label": "milestone: VMS38 45"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.50"
+   ],
+   "label": "milestone: VMS38 50"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to the FireGecko nest: the player at the quest nest, activated by hand."
+  },
+  {
+   "op": "move_player",
+   "to": "VPitFireGeckoEggsREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VPitFireGeckoEggsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.60"
+   ],
+   "label": "milestone: VMS38 60"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "firegecko eggs handed over"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic218",
+   "label": "firegecko eggs handed over 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic038",
+   "label": "firegecko eggs handed over 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic262",
+   "label": "firegecko eggs handed over 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic256",
+   "label": "firegecko eggs handed over 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic259",
+   "label": "firegecko eggs handed over 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic260",
+   "label": "firegecko eggs handed over 6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "done.65"
+   ],
+   "label": "milestone: VMS38 65"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.70"
+   ],
+   "label": "milestone: VMS38 70"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to the NightStalker nest: the player at the quest nest, activated by hand."
+  },
+  {
+   "op": "move_player",
+   "to": "VPitNightStalkerEggsREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VPitNightStalkerEggsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.80"
+   ],
+   "label": "milestone: VMS38 80"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "nightstalker eggs handed over"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic218",
+   "label": "nightstalker eggs handed over 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic009",
+   "label": "nightstalker eggs handed over 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic265",
+   "label": "nightstalker eggs handed over 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic266",
+   "label": "nightstalker eggs handed over 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic272",
+   "label": "nightstalker eggs handed over 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic273",
+   "label": "nightstalker eggs handed over 6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "done.85"
+   ],
+   "label": "milestone: VMS38 85"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.90"
+   ],
+   "label": "milestone: VMS38 90"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to the Cazador nest: the player at the quest nest, activated by hand."
+  },
+  {
+   "op": "move_player",
+   "to": "VPitCazadorEggsREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VPitCazadorEggsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.100"
+   ],
+   "label": "milestone: VMS38 100"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "cazador eggs handed over"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic218",
+   "label": "cazador eggs handed over 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic274",
+   "label": "cazador eggs handed over 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic275",
+   "label": "cazador eggs handed over 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic277",
+   "label": "cazador eggs handed over 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic282",
+   "label": "cazador eggs handed over 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic283",
+   "label": "cazador eggs handed over 6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "done.105"
+   ],
+   "label": "milestone: VMS38 105"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.110"
+   ],
+   "label": "milestone: VMS38 110"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to the Deathclaw nest: the player at the quest nest, activated by hand."
+  },
+  {
+   "op": "move_player",
+   "to": "VPitDeathclawEggsREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VPitDeathclawEggsREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.120"
+   ],
+   "label": "milestone: VMS38 120"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS38RedLucyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS38RedLucyREF",
+   "label": "deathclaw eggs handed over"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic218",
+   "label": "deathclaw eggs handed over 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS38VMS38RedLucyTopic010",
+   "label": "deathclaw eggs handed over 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.125"
+   ],
+   "label": "milestone: VMS38 125"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS38",
+   "fields": [
+    "stage",
+    "done.125",
+    "done.130",
+    "completed"
+   ],
+   "label": "final: VMS38 130"
+  }
+ ]
+}

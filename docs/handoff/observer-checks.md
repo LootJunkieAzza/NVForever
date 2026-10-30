@@ -432,3 +432,36 @@ The numbers above stay put so links to them hold; each item here gives its own p
     whether a standing turn without combat (a Travel package to a marker behind it)
     takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
 
+## Added 2026-10-30 (add-on walkthroughs, issue #918)
+
+37. **Is a line that another line names as its follow-up (TCFU) said when its topic is
+    chosen?** (P2: Old World Blues' Sink.) Six topics of the ten masters store a
+    follow-up line first and another line after it, e.g. the Think Tank's "Topic001"
+    (`NVDLC03DialogueKleinNVDLC03DoctorOLVLTopic001`): 0x01013555 (the five-line
+    technologies chain that Topic000's line 0x0101432E leads into) and 0x01013559
+    ("FINE. SO... YES."), whose choice Topic002 is the only way to the Sink's chip.
+    Ours now passes over follow-up lines of a topic the player chooses while another line
+    of it can be said (greetings and SayTo not: [dialogue §3.4](../spec-notes/dialogue.md))
+    [hypothesis]. To check: in the first
+    Think Tank talk, after agreeing to help, pick the technologies question and see which
+    line answers, and whether "a place to stay" is offered next. The others: Doc
+    Mitchell's VCG01DocMitchellTopic076 (never chosen), Mr. House's MrHouseTopic154,
+    VMS46 Diane's VRRCDianeTopic003, the Think Tank's OLVLTopic006 (Dala's 0x01011333 now
+    leads into Klein's 0x01011335) and Dr. O's OLVLTopic036.
+
+38. **Does a block whose parameter is a form list run for any member?** (P3: Old World
+    Blues' force fields.) `Begin OnHitWith NVDLC03SonicWeaponList` (SCPT 0x01016AB4,
+    0x01016953, 0x0101571D) names a FLST of the five Sonic Emitters; ours runs the block
+    when the hitting weapon is in the list (game.rs `block_accepts`) [hypothesis, fit to
+    the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
+    field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
+
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
+    thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
+    conversation is still open. In the original, after the line, does the new speaker
+    force-greet? (mq-walkthrough §9 stall 1.)
+40. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
+    stall.) Leave Fort Freeside right after the King completes objective 65 and let Roy's
+    line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
+41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
+    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)

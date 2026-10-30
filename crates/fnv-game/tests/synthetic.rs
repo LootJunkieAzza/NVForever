@@ -216,6 +216,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   begin OnHitWith
     //     set nHit to nHit + 1
     //   end
+    //   begin OnHitWith Q (the quest's form id standing in for a form list in the test)
+    //     set nHit to nHit + 100
+    //   end
     //   begin GameMode
     //     set nFrames to nFrames + 1
     //   end
@@ -239,6 +242,7 @@ fn plugin_bytes() -> Vec<u8> {
                 (2, Some([le16(1), r(1)].concat()), body),
                 (0x08, Some([le16(1), r(1)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("10"), a("+")]))),
                 (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
+                (0x09, Some([le16(1), r(2)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("100"), a("+")]))),
                 (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1)].concat()), set(var(b's', 4), ex(&[var(b's', 4), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
@@ -901,6 +905,25 @@ fn only_the_script_that_showed_a_message_box_gets_its_button() {
 }
 
 #[test]
+fn a_hidden_button_cannot_be_pressed() {
+    // A button whose conditions failed is not on screen (`Game::hidden_buttons`); the
+    // runner once pressed it anyway (the Lucky 38 mainframe's bug button,
+    // walkthrough moon-over-the-tower).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    g.message_box.as_mut().unwrap().hidden = vec![1];
+    assert!(g.press_button(1).unwrap_err().contains("not shown"));
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, None, "the box still waits");
+    g.press_button(0).unwrap();
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, Some(0));
+    // The runner's press_button checks the same (`MessageBox::can_press`).
+    let m = g.message_box.as_ref().unwrap();
+    assert!(m.can_press(1).is_err() && m.can_press(0).is_ok() && m.can_press(-1).is_ok());
+}
+
+#[test]
 fn actors_choose_the_first_package_whose_conditions_pass() {
     let f = fixture();
     let mut g = game(&f);
@@ -1539,6 +1562,13 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     assert_eq!(hits(&g), 22.0);
     // The object takes no damage and remembers no hit.
     assert!(g.extra.get(&target).is_none_or(|e| e.last_hit.is_none() && e.damage.is_none()));
+    // A block whose parameter is a form list runs for a weapon in the list (Old World
+    // Blues' force fields: `Begin OnHitWith NVDLC03SonicWeaponList`), not for another.
+    g.form_lists.insert(FormId(QUEST), vec![FormId(NPC_REF)]);
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(NPC_REF)), ..by_player }));
+    assert_eq!(hits(&g), 133.0);
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(MESSAGE)), ..by_player }));
+    assert_eq!(hits(&g), 144.0);
     // A reference whose script has no hit block.
     assert!(!g.hit_object(FormId(NPC_REF), by_player));
 }
@@ -2205,6 +2235,23 @@ fn player_control_locks_are_kept_per_plugin() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabled)"), XVal::Num(1.0), "the vanilla getter sees them");
     q(&mut g, "EnablePlayerControlsAlt");
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
+}
+
+/// The runner's `created:<base>` names the newest reference made at run time from a
+/// base form (PlaceAtMe, a drop), as the sim runner's actions do: a chain can then
+/// activate a container a quest script placed (Emergency Radio's supply cache).
+#[test]
+fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    assert!(fnv_game::runner::resolve(&g, "created:TestActivator").is_err(), "nothing made yet");
+    let first = g.world.place(FormId(ACTIVATOR), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(fnv_game::runner::resolve(&g, "created:TestActivator"), Ok(first));
+    let second = g.world.place(FormId(ACTIVATOR), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(fnv_game::runner::resolve(&g, "created:TestActivator"), Ok(second), "the newest");
+    // A placed reference of the same base is not one made at run time.
+    assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
 }
 
 /// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a

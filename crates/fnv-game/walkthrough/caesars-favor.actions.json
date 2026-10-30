@@ -1,0 +1,32 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Caesar's Favor (VEFR01LegionGood2CaesarsFavor): a Legion messenger finds a player the Legion likes out in the Mojave and tells of the dropbox; the dropbox opened (stage 50)",
+  "given": [
+    {"kind": "reputation", "rep": "RepNVCaesarsLegion", "fame": 100}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: with Legion fame (given; GetReputationThreshold axis 1 >= 2) and no faction armour on, the quest script, while the player is outdoors in the region vMapCanAttackPCHere and not fighting, moves the reward messenger (VEFR0xLegionRewardNPCRef) near the player and gives him a talk-to-player package; his greeting ({Good 2+}) tells of the dropbox (bMessengerDoneTalking); the script enables the dropboxes and caches by fame (stage 10); opening a dropbox (VEFR0xLegionDropboxSCRIPT OnActivate) sets 50 (completes; the stages repeat, the dropbox refilled after three days)."},
+    {"op": "note", "text": "Stand-in for walking into the region: the player at Nipton's map marker (the Wasteland), then SetPos to a point inside one of the region's polygons (x -24000, y 22000, REGN 0x0015F433)."},
+    {"op": "move_player", "to": "NiptonMapMarker"},
+    {"op": "call", "line": "player.SetPos x -24000"},
+    {"op": "call", "line": "player.SetPos y 22000"},
+    {"op": "call", "line": "player.IsPlayerInRegion vMapCanAttackPCHere", "label": "in the region"},
+    {"op": "advance_seconds", "seconds": 8},
+    {"op": "get_quest", "quest": "VEFR01LegionGood2CaesarsFavor", "fields": ["running", "var.bLegionMsgrPlaced", "var.bMessengerMarathon"], "label": "milestone: messenger sent"},
+    {"op": "note", "text": "Stand-in for his talk-to-player package (VEFR02NCRBad2TalkToPlayer: AddScriptPackage is a stub, dialogue packages start no conversation headless): the messenger starts the conversation."},
+    {"op": "move_player", "to": "VEFR0xLegionRewardNPCRef"},
+    {"op": "talk", "actor": "VEFR0xLegionRewardNPCRef", "label": "messenger greeting"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VEFR01LegionGood2CaesarsFavor", "fields": ["var.bMessengerStartedTalking", "var.bMessengerDoneTalking"], "label": "messenger done"},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "VEFR01LegionGood2CaesarsFavor", "fields": ["stage", "objective.10.displayed", "var.bGoodQuestActive"], "label": "milestone: VEFR01LegionGood2CaesarsFavor 10"},
+    {"op": "get_ref", "ref": "VEFR0xLegionCoinDropbox01Ref", "fields": ["disabled"], "label": "dropbox enabled"},
+    {"op": "note", "text": "Stand-in for the trip to the dropbox."},
+    {"op": "move_player", "to": "VEFR0xLegionCoinDropbox01Ref"},
+    {"op": "player_activate", "target": "VEFR0xLegionCoinDropbox01Ref", "label": "dropbox opened"},
+    {"op": "close_menus"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VEFR01LegionGood2CaesarsFavor", "fields": ["stage", "done.50", "completed", "objective.10.completed"], "label": "final: VEFR01LegionGood2CaesarsFavor 50"}
+  ]
+}

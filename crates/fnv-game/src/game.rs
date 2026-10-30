@@ -751,6 +751,11 @@ pub struct MessageBox {
     /// `None` (a box from an older snapshot): the first caller takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// The buttons whose conditions failed when the box was shown ([`Game::hidden_buttons`]):
+    /// not on screen, so the player cannot pick them [documented: GECK wiki
+    /// GetButtonPressed, as [`Game::hidden_buttons`]].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<usize>,
 }
 
 impl MessageBox {
@@ -760,6 +765,17 @@ impl MessageBox {
             Some(k) => k.label(),
             None => unit.to_string(),
         }
+    }
+
+    /// Whether the player can pick `button`: one the box shows. A hidden button is
+    /// refused (the headless runner's `press_button` once pressed it all the same: the
+    /// Lucky 38 mainframe's "Bug the Lucky 38 Network", hidden until Emily Ortal gives the
+    /// bug, set The Moon Comes Over the Tower's stage 20 without it).
+    pub fn can_press(&self, button: i32) -> Result<(), String> {
+        if usize::try_from(button).is_ok_and(|b| self.hidden.contains(&b)) {
+            return Err(format!("button {button} is not shown (its conditions fail)"));
+        }
+        Ok(())
     }
 }
 
@@ -2618,7 +2634,11 @@ impl<'a> Game<'a> {
             return menus::answers(want.num() as u16, subject.num() as u16);
         }
         match (want.as_form(), subject.as_form()) {
-            (Some(a), Some(b)) => a == b,
+            // A form list as the parameter accepts any of its members [hypothesis, fit
+            // to the data: Old World Blues' force fields (e.g. SCPT 0x01016AB4) run
+            // `Begin OnHitWith NVDLC03SonicWeaponList`, a list of the five Sonic
+            // Emitters, and no weapon is a list itself; observer check 38].
+            (Some(a), Some(b)) => a == b || crate::functions::refs::list_members(self, FormId(a)).contains(&FormId(b)),
             _ => want.num() == subject.num(),
         }
     }
@@ -3251,6 +3271,7 @@ impl<'a> Game<'a> {
     /// that showed it returns the button once, and the box closes.
     pub fn press_button(&mut self, button: i32) -> Result<(), String> {
         let m = self.message_box.as_mut().ok_or("no message box is open")?;
+        m.can_press(button)?;
         m.pressed = Some(button);
         let message = m.message;
         if self.menu == Some(menus::MESSAGE) && self.boxes.first() == Some(&message) {
@@ -4725,7 +4746,7 @@ impl Host for Exec<'_, '_> {
         let none = FormId(0);
         if !buttons.is_empty() {
             let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
-            self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner });
+            self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner, hidden: Vec::new() });
         }
         let is_box = !buttons.is_empty();
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });

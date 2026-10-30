@@ -830,6 +830,10 @@ pub struct GameData {
     /// (`Game::links_after`, dialogue.md §3.5). `ANY`, named by 431 links, has no line,
     /// so nothing follows it.
     pub linked_from: HashMap<FormId, Vec<FormId>>,
+    /// The lines some line names as a follow-up (TCFU, [`InfoDef::follow_ups`]). When a
+    /// topic is said, its lines that are not follow-ups are tried first
+    /// (`Game::select_line`, dialogue.md §3.4).
+    pub follow_up_targets: HashSet<FormId>,
     /// Every topic (DIAL) from its winning record.
     pub topic_defs: HashMap<FormId, TopicDef>,
     /// The top-level topics of type Topic, in the order they are offered: priority,
@@ -1562,6 +1566,7 @@ impl GameData {
             topics: HashMap::new(),
             shared_lines: HashMap::new(),
             linked_from: HashMap::new(),
+            follow_up_targets: HashSet::new(),
             topic_defs: HashMap::new(),
             top_level: Vec::new(),
             greeting: None,
@@ -1951,6 +1956,7 @@ impl GameData {
         }
         d.shared_lines = shared_lines(&d.topics, &d.topic_defs, &d.infos);
         d.linked_from = linked_from(&d.topic_defs, &d.infos);
+        d.follow_up_targets = d.infos.values().flat_map(|i| i.follow_ups.iter().copied()).collect();
         let mut top: Vec<&TopicDef> = d.topic_defs.values().filter(|t| t.top_level() && t.topic_type == topic_type::TOPIC).collect();
         top.sort_by(|a, b| b.priority.total_cmp(&a.priority).then(a.order.cmp(&b.order)));
         d.top_level = top.into_iter().map(|t| t.form).collect();
