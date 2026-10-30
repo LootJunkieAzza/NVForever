@@ -410,6 +410,10 @@ impl<'t, 'h> Vm<'t, 'h> {
             };
             stack.push(v);
         }
+        // Leftover values stop the script, in strict mode or not: the original stops a
+        // script at `if GetStage Q 100 == 1` (GetStage given an extra argument, as three
+        // INFO begin scripts of FalloutNV.esm are compiled), running neither arm
+        // [observed 2026-10-30, capture o4_00_probe; observer-checks.md check 32].
         match stack.len() {
             1 => Ok(stack[0]),
             0 => Err(VmError::Expression("empty".into())),
@@ -2631,6 +2635,19 @@ impl Vm<'_, '_> {
         if let Some(v) = self.quat_function(&lname, c)? {
             return Ok(v);
         }
+        // [documented: the catalogue's parameters (schemas/script/functions.json, from the
+        // pages SetUIStringEx, SetUIStringAlt, InjectUIComponent, AddTileFromTemplate)]:
+        // the first string (AddTileFromTemplate's path) or the one after the path is a
+        // format string with its values, formatted here; the game gets the text in their
+        // place (fnv_game::ui_functions).
+        let format_at = match lname.as_str() {
+            "addtilefromtemplate" => Some(0),
+            "setuistringex" | "setuistringalt" | "injectuicomponent" => Some(1),
+            _ => None,
+        };
+        if let Some(at) = format_at {
+            return self.formatted_host_call(&lname, c, at)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name}")));
+        }
         // [documented: SetFormDescription `form "format" values…`, observed: gaps6,
         // "NVF desc %g" 3 reads "NVF desc 3"; MessageExAlt `seconds "format" values…`,
         // the game reading the icon and sound off the front]: formatted here, done by
@@ -2836,20 +2853,8 @@ impl Vm<'_, '_> {
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
             // `"format" values… faction rank [female]`]: formatted here, set by the game
-            // (SetName's change; the rank title).
-            // [documented: SetUIStringEx `trait "format" values…`; InjectUIComponent `path
-            // "format" values…`]: the format is the second argument.
-            "setuistringex" | "injectuicomponent" => {
-                let first = match c.args.first() {
-                    Some(e) => self.xeval(e)?,
-                    None => XVal::Str(String::new()),
-                };
-                let (t, _) = self.format_arg(c, 1)?;
-                match self.host.ext_call(&lname, None, &[first, XVal::Str(t)]) {
-                    Some(r) => Ok(r.map_err(VmError::Host)?),
-                    None => Ok(XVal::Num(0.0)),
-                }
-            }
+            // (SetName's change; the rank title). SetUIStringEx and InjectUIComponent:
+            // formatted at the top (`format_at`).
             // [documented: SetMCMString `child grandchild setting "format" values…`]: the
             // format is the fourth argument.
             "setmcmstring" => {
@@ -2888,6 +2893,28 @@ impl Vm<'_, '_> {
                 Ok(XVal::Num(0.0))
             }
             _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+        }
+    }
+
+    /// As [`Self::host_function`], with the format string at argument `at` and its values
+    /// handed over as one formatted string.
+    fn formatted_host_call(&mut self, lname: &str, c: &XCall, at: usize) -> Result<Option<XVal>, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for e in c.args.iter().take(at) {
+            args.push(self.xeval(e)?);
+        }
+        let (t, k) = self.format_arg(c, at)?;
+        args.push(XVal::Str(t));
+        for e in c.args.iter().skip(k) {
+            args.push(self.xeval(e)?);
+        }
+        match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map(Some).map_err(VmError::Host),
+            None => Ok(None),
         }
     }
 

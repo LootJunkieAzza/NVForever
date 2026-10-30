@@ -65,6 +65,7 @@ fn patch_fog(mut state: ResMut<FogShader>, mut shaders: ResMut<Assets<Shader>>, 
         warn!("{PBR_FOG}: not WESL; the fog stays linear");
         return;
     };
+    let source = crate::lights::unix_lines(source);
     if !source.contains(BEVY_ATMOSPHERIC) {
         warn!("{PBR_FOG}: atmospheric fog not found (Bevy changed?); the fog stays linear");
         return;

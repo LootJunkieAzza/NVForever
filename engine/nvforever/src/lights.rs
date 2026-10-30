@@ -202,6 +202,14 @@ pub fn display_clip() -> bool {
     CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Bevy's shader text with Windows line ends made `\n`: the patches' anchors are written
+/// with `\n`. A checkout with git's `core.autocrlf` gave the bevy_pbr vendored until #939
+/// `\r\n` (issue #946: no patch matched, so grass lost `nvf_apply_pbr_lighting`); Bevy
+/// now comes from crates.io as published, and this stays as a guard for any patched copy.
+pub fn unix_lines(source: &str) -> String {
+    source.replace("\r\n", "\n")
+}
+
 pub struct LightsPlugin;
 
 impl Plugin for LightsPlugin {
@@ -239,6 +247,7 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
         error!("{TONEMAPPING_SHARED}: not WESL; the main view keeps Tony McMapface");
         return;
     };
+    let source = unix_lines(source);
     if !source.contains(BEVY_TONY) {
         error!("{TONEMAPPING_SHARED}: Tony McMapface not found (Bevy changed?); the main view keeps it");
         return;
@@ -270,7 +279,8 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
         error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
         return;
     };
-    let Some(patched) = display_patched(source) else {
+    let source = unix_lines(source);
+    let Some(patched) = display_patched(&source) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         return;
     };
@@ -450,6 +460,7 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
         warn!("{PBR_LIGHTING}: not WESL; lights keep Bevy's inverse-square falloff");
         return;
     };
+    let source = unix_lines(source);
     if !source.contains(BEVY_ATTENUATION) {
         warn!("{PBR_LIGHTING}: distance attenuation not found (Bevy changed?); lights keep Bevy's inverse-square falloff");
         return;
@@ -621,6 +632,8 @@ mod tests {
         assert!(out.starts_with("head\n") && out.ends_with("tail\n"));
         // A missing anchor (Bevy changed) leaves the source alone.
         assert!(display_patched(&source.replace("    // Total light\n", "")).is_none());
+        // Windows line ends (a checkout with core.autocrlf, issue #946) still patch.
+        assert!(display_patched(&unix_lines(&source.replace('\n', "\r\n"))).is_some());
     }
 
     #[test]

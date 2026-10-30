@@ -8,9 +8,9 @@ Mods then change and add UI the way they do in the original, and the extender's 
 functions act on something real.
 
 The file format is in [menu-xml](../spec-notes/menu-xml.md); the ranked work is in
-[ui-tile-tree-tasks](../handoff/ui-tile-tree-tasks.md). Built so far: task T1, the
-reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui`,
-`fnv_game::ui_functions`, `fnvtool ui`).
+[ui-tile-tree-tasks](../handoff/ui-tile-tree-tasks.md). Built so far: tasks T1 and T2,
+the reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui`,
+`fnv_game::ui_functions`, `fnvtool ui`), reached from scripts through the extender.
 
 ## 1. Why, and what it has to carry
 
@@ -71,6 +71,10 @@ none of the 145 names (menu-xml.md §2.4; task T10).
 `menus\**\*.xml` once at start by the `<menu name>` each holds (49 vanilla files), so a
 mod's renamed or added menu file is found the same way.
 
+The index also maps the menu's own `<class>` constant to its file. MenuMode codes
+reach files through the documented menu class IDs [documented: Hardcoded UI
+Shortcuts, revision 39903, "Menu class ID" rows; GetActiveMenuMode].
+
 - `menus\prefabs\` is never indexed: its files are only included.
 - Loading a menu that is already loaded replaces it.
 
@@ -90,6 +94,12 @@ mod's renamed or added menu file is found the same way.
   `uio\supported.txt` whose target is that menu (or a prefab file it includes) and whose
   condition holds are included at the target tile. The same entries are applied when a
   prefab named `@Prefabs\…` is included.
+  [design] `Source::list(dir)` discovers the lists; `Ui::configure_uio(src, plugin)`
+  parses and evaluates them before menu loading. `Ui::uio` keeps per-entry outcomes,
+  warnings and application counts. Prefab patches happen before template expansion;
+  menu patches happen after ordinary includes. Insertion order, condition assumptions
+  and short data-file excerpts are in menu-xml.md §7 item 3. Explicit loose additions
+  retain File origins and are eligible for drawing even without archived HUD names.
 - **Lifetime**, as the original [documented: InjectUIXML notes]:
   - `HUDMainMenu`, `InventoryMenu`, `MapMenu`, `RepairMenu`, `StatsMenu` and
     `ItemModMenu` are loaded once and stay;
@@ -115,10 +125,18 @@ or holds no `<menu>` is an error for that menu only.
      `_SneakLevel`, …).
    - List rows made from templates (`add_from_template`), with their `user` traits.
    - Pointer state: `mouseover` and `clicked` on hotrects (task T8).
+
+   The HUD's writes (`fnv_game::ui_hud::write`) are made only when something reads
+   them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD, or a
+   script that has called a UI function. Otherwise the frame keeps them
+   (`ui_hud::defer`), and the first UI function call makes them before it reads
+   (`ui_hud::flush`); from then on they are written every frame [design: maintainer's
+   review of #902, so the default game does no tree work a frame].
 2. **Scripts run**, and their Set/Mod/Inject calls land in the tree at once (the
    functions read what they set in the same frame).
 3. **`Ui::update()`** works out every trait whose sources changed, until nothing
-   changes.
+   changes. When no value, tile or file trait changed since it last finished (writes of
+   the same value do not count), it returns at once.
 4. **The engine draws** the visible menus from the traits' values (§6).
 
 ### 4.2 Change tracking
@@ -286,8 +304,8 @@ at the same view size). That is the work of each migration task, not guessed up 
   planned: the files need undeclared entities kept, fragments, mismatched end tags and
   broken tags mended in particular ways, which is most of a reader anyway (~400 lines).
 - **Constants kept by name** (`Value::Sym`) instead of guessed numbers, so
-  comparisons work whatever the original's numbers are; only `&true;`/`&false;` and the
-  platform flags get a number.
+  comparisons work whatever the original's numbers are; the documented menu class IDs,
+  `&true;`/`&false;` and the platform flags get a number (menu-xml.md §2.3).
 - **No dependency graph yet**: change counts give the right answers, and the cost is
   small for the menus open at one time.
 - **The tree is not saved.** Menus are built again after a load, as the original

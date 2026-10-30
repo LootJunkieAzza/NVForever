@@ -1063,10 +1063,21 @@ pub struct Game<'a> {
     /// and draws the menus, the UI script functions (`crate::ui_functions`) read and
     /// change it. Not saved: menus are built again after a load.
     pub ui_tree: fnv_ui::Ui,
+    /// Menu names to files, rebuilt with the tree [design: ui-tile-tree.md §3.2, §9].
+    pub ui_menus: fnv_ui::MenuIndex,
+    /// Menu lifetime's once-only warnings, reset with the tree [design].
+    pub ui_lifetime: crate::ui_loading::MenuLifetime,
     /// Where InjectUIXML and the menus' includes read files: the engine's archives and
     /// loose files. `None` headless: InjectUIXML then fails, InjectUIComponent works
     /// without includes.
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
+    /// This frame's HUD writes, kept back while nothing reads the HUD's traits
+    /// (`crate::ui_hud::defer`); the first UI function call makes them
+    /// (`crate::ui_hud::flush`).
+    pub ui_hud_pending: Option<Box<(crate::ui_hud::Shown, crate::ui_hud::Texts)>>,
+    /// A script called a UI function that reads or changes the tree: the engine writes
+    /// the HUD every frame from then on.
+    pub ui_used: bool,
     /// Keys MenuTapKey pressed (DirectInput scan codes), for the engine to take as one
     /// frame's presses in the open menu.
     pub ui_taps: Vec<u32>,
@@ -1700,7 +1711,11 @@ impl<'a> Game<'a> {
             restarted_seen: BTreeSet::new(),
             toggles: Default::default(),
             ui_tree: fnv_ui::Ui::new(),
+            ui_menus: fnv_ui::MenuIndex::default(),
+            ui_lifetime: crate::ui_loading::MenuLifetime::default(),
             ui_files: None,
+            ui_hud_pending: None,
+            ui_used: false,
             ui_taps: Vec::new(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),

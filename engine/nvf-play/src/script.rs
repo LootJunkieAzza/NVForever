@@ -1634,7 +1634,7 @@ pub(crate) fn run_scripts(
     mut used: MessageReader<ItemUsed>,
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
-    (mut screen, bindings): (ResMut<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>),
+    (mut screen, bindings, tiles): (ResMut<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>, crate::tiles::MenuFiles),
 ) {
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
@@ -1659,6 +1659,7 @@ pub(crate) fn run_scripts(
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            tiles.load(&mut rt.game, &sim.world);
                             loaded_events(&mut rt, &mut sim, &path);
                             // The frames after a load are the loading screen's for the
                             // scripts, as after travel: their `Begin MenuMode 1007`
@@ -1671,6 +1672,9 @@ pub(crate) fn run_scripts(
                         }
                         Err(e) => warn!("load: {}: {e}; the game goes on from the plugins", path.display()),
                     }
+                }
+                if rt.game.ui_files.is_none() {
+                    tiles.load(&mut rt.game, &sim.world);
                 }
                 let from_source = data.issues.count("script_compiled_from_source");
                 let failed = data.issues.count("script_source_does_not_compile");
@@ -1692,6 +1696,11 @@ pub(crate) fn run_scripts(
                 st.rt = Some(rt);
             }
         }
+    }
+    // Activation, menu keys or a new runtime may have opened a menu since tiles' first
+    // write. Build it before this tick's MenuMode blocks [design: ui-tile-tree.md §4.1].
+    if let Some(rt) = st.rt.as_mut() {
+        tiles.write(&mut rt.game);
     }
     // Scripts wait until the player stands in the world (its cell is known), and do not
     // run under the pause menu (`crate::pause`): no MenuMode code of the original's pause

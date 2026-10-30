@@ -22,6 +22,7 @@ pub mod chargen;
 pub mod creator;
 pub mod combat;
 pub mod compass;
+pub mod compass_strip;
 pub mod console;
 pub mod container_anim;
 pub mod control;
@@ -88,6 +89,7 @@ pub mod radiation;
 pub mod radio;
 pub mod reverb;
 pub mod repair;
+pub mod repeat;
 pub mod reputation;
 pub mod reticle;
 pub mod rumble;
@@ -104,6 +106,7 @@ pub mod start_menu;
 pub mod sim;
 pub mod space;
 pub mod terminal;
+pub mod tiles;
 pub mod tutorial_menu;
 pub mod ui_compat;
 pub mod credits;
@@ -313,6 +316,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(perk_marks::PerkMarksPlugin)
+            .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)

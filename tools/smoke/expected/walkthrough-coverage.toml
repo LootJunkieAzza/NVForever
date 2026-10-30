@@ -17,7 +17,7 @@ completed = 77
 
 [summary.stages]
 total = 1405
-reached = 379
+reached = 378
 
 [summary.scripts]
 total = 3488
@@ -25,15 +25,15 @@ touched = 879
 
 [summary.blocks]
 total = 5690
-run = 1193
+run = 1192
 
 [summary.lines]
 total = 28896
-said = 1120
+said = 1126
 
 [summary.actors]
 with_lines = 704
-touched = 97
+touched = 98
 
 [summary.untouched_quests]
 main = 4
@@ -43,7 +43,7 @@ other = 63
 
 [summary.results.info]
 total = 8639
-run = 811
+run = 812
 
 [summary.results.package]
 total = 558
@@ -51,7 +51,7 @@ run = 14
 
 [summary.results.stage]
 total = 1040
-run = 349
+run = 348
 
 [summary.results.terminal]
 total = 384

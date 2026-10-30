@@ -1,7 +1,7 @@
 //! The tree on menu files written for these tests (no game files): loading, includes,
 //! templates, paths, trait expressions, updates, the setters and injection.
 
-use crate::tree::{MemSource, Ui};
+use crate::tree::{MemSource, Origin, Source, Ui};
 use crate::value::Value;
 
 /// A small menu in the shape of the game's: a gauge prefab included twice, a template,
@@ -94,11 +94,11 @@ fn works_traits_out() {
     assert_eq!(ui.get_float("TestMenu/Panel/Gauge/width"), Some(380.0));
     assert_eq!(ui.get_float("TestMenu/Panel/Gauge/Bar/width"), Some(0.0));
     // The second gauge's own `_Fill` (after the include) replaces the prefab's.
-    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/width"), Some(380.0));
-    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/x"), Some(-190.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:0/Bar/width"), Some(380.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:0/Bar/x"), Some(-190.0));
     // A trait name ending in `_` after a number: `_pic_` + 1.
-    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:1/Bar/filename").as_deref(), Some("thick.dds"));
-    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:0/Bar/filename").as_deref(), Some("thin.dds"));
+    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:0/Bar/filename").as_deref(), Some("thick.dds"));
+    assert_eq!(ui.get_string("TestMenu/Panel/Gauge:1/Bar/filename").as_deref(), Some("thin.dds"));
     // sibling(Gauge) 380 + globals() 12.
     assert_eq!(ui.get_float("TestMenu/Panel/Title/x"), Some(392.0));
     // `_Selected` is &false;: the copy is dropped by onlyif, the add goes on.
@@ -111,13 +111,16 @@ fn paths_with_wildcards_and_indexes() {
     let ui = loaded();
     assert_eq!(ui.get_float("TestMenu/*/*:1/_Fill"), Some(1.0));
     assert_eq!(ui.get_float("TestMenu/*/Gauge/_Fill"), Some(0.0));
-    assert_eq!(ui.get_float("TestMenu/*:0/*:2/x"), Some(392.0));
+    assert_eq!(ui.get_float("TestMenu/*:0/*:0/x"), Some(392.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/*:2/_Fill"), Some(0.0));
     assert!(ui.get("TestMenu/Panel/Gauge:2/_Fill").is_none());
+    assert!(ui.get("TestMenu/Panel/*:3/_Fill").is_none());
+    assert!(ui.find_tile("TestMenu/Panel/*:18446744073709551615").is_none());
     assert!(ui.get("NoMenu/x").is_none());
     assert!(ui.is_loaded("TestMenu/Panel/Gauge/Bar"));
     assert!(ui.is_loaded("TestMenu/Panel/width"));
     assert!(!ui.is_loaded("TestMenu/Panel/Nothing"));
-    let bar = ui.find_tile("TestMenu/Panel/Gauge:1/Bar").unwrap();
+    let bar = ui.find_tile("TestMenu/Panel/Gauge:0/Bar").unwrap();
     assert_eq!(ui.path_of(bar), "TestMenu/Panel/Gauge/Bar");
 }
 
@@ -146,6 +149,30 @@ fn a_set_trait_holds_until_its_sources_change() {
     ui.set_float("TestMenu/Panel/Gauge/width", 100.0);
     ui.update();
     assert_eq!(ui.get_float("TestMenu/Panel/Title/x"), Some(112.0));
+}
+
+#[test]
+fn an_update_works_out_only_after_a_change() {
+    let src = files();
+    let mut ui = loaded();
+    assert!(!ui.dirty());
+    // The same value again, as the engine writes the HUD every frame: nothing to do.
+    assert!(ui.set_float("TestMenu/_Fill", 0.5));
+    let s = ui.screen();
+    ui.set_trait(s, "height", Value::Num(960.0));
+    assert!(!ui.dirty());
+    assert_eq!(ui.update(), 0);
+    assert!(ui.set_float("TestMenu/_Selected", 1.0));
+    assert!(ui.dirty());
+    assert!(ui.update() > 0);
+    assert!(!ui.dirty());
+    assert_eq!(ui.get_float("TestMenu/Panel/Title/alpha"), Some(295.0));
+    // New tiles are worked out at the next update.
+    assert!(ui.inject_text(&src, "TestMenu/Panel", r#"<text name="Added"> <x> <copy src="parent()" trait="width"/> </x> </text>"#));
+    assert!(ui.dirty());
+    ui.update();
+    assert_eq!(ui.get_float("TestMenu/Panel/Added/x"), Some(400.0));
+    assert!(!ui.dirty());
 }
 
 #[test]
@@ -214,6 +241,8 @@ fn loops_of_traits_stop() {
     ui.load_menu(&src, "menus\\loop.xml").unwrap();
     ui.update();
     assert!(ui.warnings.iter().any(|w| w.contains("still changing")), "{:?}", ui.warnings);
+    // Still changing: the next update works it out again.
+    assert!(ui.dirty());
 }
 
 #[test]
@@ -226,4 +255,112 @@ fn missing_files_are_reported_not_fatal() {
     assert!(ui.load_menu(&src, "menus\\none.xml").is_err());
     let src = MemSource::default().with("menus\\p.xml", "<rect name=\"NotAMenu\"/>");
     assert!(ui.load_menu(&src, "menus\\p.xml").is_err());
+}
+
+#[test]
+fn file_origins_keep_menu_and_include_paths() {
+    let src = files();
+    let mut ui = Ui::new();
+    let path = "Menus/Test_Menu.XML";
+    let root = ui.load_menu(&src, path).unwrap();
+    assert_eq!(ui.tile(root).origin, Origin::File { path: path.into(), loose: false });
+    let panel = ui.find_tile("TestMenu/Panel").unwrap();
+    assert_eq!(ui.tile(panel).origin, ui.tile(root).origin);
+    let bar = ui.find_tile("TestMenu/Panel/Gauge/Bar").unwrap();
+    assert_eq!(ui.tile(bar).origin, Origin::File { path: "menus\\prefabs\\gauge.xml".into(), loose: false });
+    assert_eq!(ui.tile(ui.screen()).origin, Origin::Code);
+    assert!(ui.mod_added_tiles(root).is_empty());
+    assert!(ui.load_globals(&src));
+    assert_eq!(ui.tile(ui.globals()).origin, Origin::File { path: "menus\\globals.xml".into(), loose: false });
+}
+
+#[test]
+fn mod_roots_cover_injections_templates_and_loose_includes_once() {
+    let src = MemSource::default()
+        .with(
+            "menu.xml",
+            r#"<menu name="M"><rect name="File"><include src="loose.xml"/>
+          <template name="row"><rect name="Row"><include src="child.xml"/></rect><rect name="Second"/></template>
+        </rect><rect name="Other"/></menu>"#,
+        )
+        .with_loose("menus\\prefabs\\loose.xml", r#"<rect name="Loose"><include src="child.xml"/></rect>"#)
+        .with("menus\\prefabs\\child.xml", r#"<text name="Child"><rect name="Grandchild"/></text>"#)
+        .with("inject.xml", r#"<rect name="Injected"><include src="loose.xml"/></rect>"#);
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&src, "menu.xml").unwrap();
+    let loose = ui.find_tile("M/File/Loose").unwrap();
+    assert_eq!(ui.tile(loose).origin, Origin::File { path: "menus\\prefabs\\loose.xml".into(), loose: true });
+    for path in ["M/File/Loose/Child", "M/File/Loose/Child/Grandchild"] {
+        assert_eq!(ui.tile(ui.find_tile(path).unwrap()).origin, Origin::File { path: "menus\\prefabs\\child.xml".into(), loose: false });
+    }
+    assert_eq!(ui.mod_added_tiles(root), [loose]);
+    assert!(ui.inject_file(&src, "M/File", "Data/inject.xml"));
+    let injected = ui.find_tile("M/File/Injected").unwrap();
+    for path in ["M/File/Injected", "M/File/Injected/Loose", "M/File/Injected/Loose/Child/Grandchild"] {
+        assert_eq!(ui.tile(ui.find_tile(path).unwrap()).origin, Origin::Injected);
+    }
+    let template = ui.add_from_template(&src, "M/File", "row", Some("ModRow")).unwrap();
+    let second = ui.find_tile("M/File/Second").unwrap();
+    for path in ["M/File/ModRow", "M/File/ModRow/Child", "M/File/ModRow/Child/Grandchild", "M/File/Second"] {
+        assert_eq!(ui.tile(ui.find_tile(path).unwrap()).origin, Origin::Template);
+    }
+    let code = ui.add_code_tile_from_template(&src, "M/File", "row", Some("CodeRow")).unwrap();
+    let file = ui.find_tile("M/File").unwrap();
+    let code_second = *ui.tile(file).children.last().unwrap();
+    assert_eq!(ui.tile(code_second).origin, Origin::Code);
+    assert_eq!(ui.tile(code).origin, Origin::Code);
+    let child = ui.find_tile("M/File/CodeRow/Child/Grandchild").unwrap();
+    assert_eq!(ui.tile(child).origin, Origin::Code);
+    assert!(ui.inject_text(&src, "M/File/CodeRow", r#"<image name="ModUnderCode"/>"#));
+    let nested = ui.find_tile("M/File/CodeRow/ModUnderCode").unwrap();
+    assert_eq!(ui.mod_added_tiles(root), [loose, injected, template, second, nested]);
+    ui.unload_tile(injected);
+    assert_eq!(ui.mod_added_tiles(root), [loose, template, second, nested]);
+    ui.set_trait(file, "x", Value::Num(5.0));
+    assert_eq!(ui.tile(file).origin, Origin::File { path: "menu.xml".into(), loose: false });
+    ui.unload_tile(root);
+    assert!(ui.mod_added_tiles(root).is_empty());
+}
+
+#[test]
+fn a_loose_menu_is_one_mod_root_and_other_menus_are_excluded() {
+    let src = MemSource::default().with_loose("Menus/M.xml", r#"<menu name="M"><rect name="Child"/></menu>"#).with("n.xml", r#"<menu name="N"/>"#);
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&src, "Menus/M.xml").unwrap();
+    let other = ui.load_menu(&src, "n.xml").unwrap();
+    assert!(ui.inject_text(&src, "M/Child", r#"<image name="Extra"/>"#));
+    assert!(ui.inject_text(&src, "N", r#"<image name="Other"/>"#));
+    assert_eq!(ui.mod_added_tiles(root), [root]);
+    assert_eq!(ui.mod_added_tiles(other), [ui.find_tile("N/Other").unwrap()]);
+    assert!(!MemSource::default().is_loose("absent.xml"));
+}
+
+#[test]
+fn a_loose_replacement_draws_only_what_the_archived_file_lacks() {
+    // [design] The loose file keeps the archived tiles (and includes an archived prefab)
+    // and adds one of its own; an injection and a code copy sit inside it.
+    let archived = MemSource::default()
+        .with("menus/m.xml", r#"<menu name="M"><rect name="Piece"><include src="p.xml"/></rect></menu>"#)
+        .with("menus/prefabs/p.xml", r#"<text name="Label"/>"#);
+    let loose = MemSource::default()
+        .with_loose("menus/m.xml", r#"<menu name="M"><rect name="Piece"><include src="p.xml"/><image name="ModBar"/></rect><rect name="ModPanel"><include src="p.xml"/></rect></menu>"#)
+        .with("menus/prefabs/p.xml", r#"<text name="Label"/>"#);
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&loose, "menus/m.xml").unwrap();
+    assert!(ui.inject_text(&loose, "M/Piece", r#"<rect name="Injected"/>"#));
+    assert!(ui.inject_text(&loose, "M", r#"<template name="row"><rect name="Row"/></template>"#));
+    let code = ui.add_code_tile_from_template(&loose, "M", "row", Some("CodeRow")).unwrap();
+    assert_eq!(ui.mod_added_tiles(root), [root]);
+    let vanilla = Ui::file_name_paths(&archived, "menus/m.xml").unwrap();
+    assert_eq!(vanilla.len(), 3);
+    let drawn = |names: Option<&std::collections::HashSet<String>>| -> Vec<String> {
+        let mut out: Vec<String> = ui.name_paths(root).into_iter().filter(|p| ui.mod_tile_drawn(ui.find_tile(p).unwrap(), names)).collect();
+        out.sort();
+        out
+    };
+    assert_eq!(drawn(Some(&vanilla)), ["m/modpanel", "m/modpanel/label", "m/piece/injected", "m/piece/modbar"]);
+    // Without the archived file's names only the injection is drawn.
+    assert_eq!(drawn(None), ["m/piece/injected"]);
+    assert!(!ui.mod_tile_drawn(code, Some(&vanilla)));
+    assert!(Ui::file_name_paths(&MemSource::default(), "menus/m.xml").is_none());
 }
