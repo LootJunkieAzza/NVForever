@@ -57,4 +57,5 @@ built-in schema defaults point at the build machine's checkout.
 - NVSE plugins (`.dll`) do not run in NVForever; mods that need NVSE may not work yet.
 
 What works and what is not started yet: `docs/status.md` in the repository. Licence:
-GPL-3.0-or-later (`LICENSE`); legal notes in `LEGAL.md`.
+GPL-3.0-or-later (`LICENSE`); legal notes in `LEGAL.md`; the third-party packages the
+programs are built from and their licences in `THIRD-PARTY-LICENSES.txt`.

@@ -86,9 +86,12 @@ Plus folders as `--overlay` when a task touches loading.
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
    SortUIListBox, GetStringUIDimensions (fnv-font metrics), the CacheUI family, the
    HudBar family, the DumpTileInfo family. Each with a headless test.
-9. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files:
-   NVForever's English text for each from the owner's screenshots or an observer dump
-   (`GetGameSetting`/`con_GetGameSetting` in the original), the load order's GMST first.
+9. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files: the
+   load order's GMST first; where the plugins have none, an English label NVForever
+   writes itself from the setting's name and the menu's purpose (`sCloseButton` →
+   "Close"). Not transcribed from screenshots or read out of the original with
+   `GetGameSetting` (LEGAL.md; owner decision 2026-10-30). An observer dump may still
+   say *which* names the original fills in, not their text.
 10. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.
