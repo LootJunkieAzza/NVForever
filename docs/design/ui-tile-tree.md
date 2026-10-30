@@ -43,8 +43,20 @@ the reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui
   expression: the operator list of menu-xml.md §4 (`copy`, `add`, `onlyif`, …), with
   arguments that are literals, other tiles' traits (`src="parent()" trait="width"`) or
   nested lists.
-- **Ids**: tiles live in one arena (`TileId`). Unloading marks a subtree dead; ids are
-  never reused, so the engine can hold one across frames and check `live`.
+- **Ids**: tiles live in one arena of slots (`TileId`: a slot and its generation).
+  Unloading frees a subtree's slots for later tiles and moves each slot's generation on,
+  so opening and closing menus leaves the arena its size (#1039). An id kept past its
+  tile's unloading never names the slot's new tile: `Ui::tile` answers a dead, empty tile
+  (`live` false), `Ui::is_live` false, and writes and unloads through it do nothing, so
+  the engine can hold one across frames and check `live`.
+- **Skipping unchanged traits**: an expression remembers the traits it read when last
+  worked out; while the tree's shape (tiles made, unloaded, renamed, traits added) is
+  unchanged and none of those traits changed since, `Ui::update` skips it without
+  working it out (#1039). A changed shape works every expression out once more. If the
+  shape changed before each of 120 updates in a row (the skip lost), the engine logs one
+  warning naming the last call that changed it and where from (`Ui::take_reshape_warning`,
+  #1061). Each tree also has its own number in its ids, so an id kept from a tree since
+  replaced names no tile of the new one.
 - **Paths**: `Menu/Tile/…/trait`, any case, `/` or `\`, `*` and `name:N` (menu-xml.md
   §5): `Ui::find_tile`, `Ui::find_trait`, `Ui::path_of`.
 
