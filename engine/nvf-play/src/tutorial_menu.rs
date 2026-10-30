@@ -70,14 +70,36 @@ const HINT_GAP: f32 = 5.0;
 
 // ---- NVForever's own -----------------------------------------------------------------------
 
-/// The words the file takes from the game's settings (`sNext`, `sPrevious`,
-/// `sCloseButton`, `sPCMenuHintA/S/E`, `sVDSGManual`), which are not in the masters
-/// [hypothesis: the words; the hints as the level-up menu's "A)", observed there].
-const NEXT: &str = "Next";
-const PREVIOUS: &str = "Previous";
-const CLOSE: &str = "Close";
-const HINTS: [&str; 3] = ["A)", "S)", "E)"];
-const VDSG: &str = "VDSG Manual";
+/// The game settings the file takes its words from [documented: tutorial_menu.xml]: the
+/// buttons Next, Previous and Close, their PC key hints, and the manual's words after the
+/// symbol. None is in the masters; they are read by name from the game strings table
+/// ([`Words`]).
+const BUTTONS: [&str; 3] = ["sNext", "sPrevious", "sCloseButton"];
+const HINTS: [&str; 3] = ["sPCMenuHintA", "sPCMenuHintS", "sPCMenuHintE"];
+const MANUAL: &str = "sVDSGManual";
+
+/// The menu's words: the load order's string settings over NVForever's own labels
+/// (`fnv_game::ui_loading::game_string`, `fnv_ui::strings::BUILT_IN`; menu-xml.md §2.4)
+/// [design].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Words {
+    /// Next, Previous, Close.
+    pub buttons: [String; 3],
+    /// Their PC key hints.
+    pub hints: [String; 3],
+    pub manual: String,
+}
+
+impl Words {
+    /// From the running game's strings, or NVForever's labels alone without one.
+    pub fn read(game: Option<&fnv_game::Game<'_>>) -> Words {
+        let word = |name: &str| match game {
+            Some(g) => fnv_game::ui_loading::game_string(g, name),
+            None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
+        };
+        Words { buttons: BUTTONS.map(word), hints: HINTS.map(word), manual: word(MANUAL) }
+    }
+}
 /// The background's darkness: the menus' (`crate::interface::MENU_BACKING`) [design: the
 /// file's fill alpha of 32 of 255 leaves the text hard to read over the Pip-Boy].
 const SHADE: f32 = crate::interface::MENU_BACKING;
@@ -307,6 +329,7 @@ fn draw(
     mut shown: Local<Shown>,
 ) {
     let pages = pages(&script);
+    let words = Words::read(script.rt.as_ref().map(|rt| &rt.game));
     // The screen in the interface's units: 960 high.
     let screen = windows.single().map_or(Vec2::new(1280.0, 960.0), |w| Vec2::new(960.0 * w.width() / w.height().max(1.0), 960.0));
     let page = view.page.min(pages.len().saturating_sub(1));
@@ -329,7 +352,7 @@ fn draw(
     let kit = view.kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
     let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
     let (w, h) = (screen.x * SCALE, screen.y * SCALE);
-    let widths = [NEXT, PREVIOUS, CLOSE].map(|s| c.width(Which::Body, s));
+    let widths = [0, 1, 2].map(|k| c.width(Which::Body, &words.buttons[k]));
     let l = layout(w, h, widths, crate::chargen::draw::BODY_H);
     let lines = c.face(Which::Glow).font.lines(&p.text, Some(l.column[2] - TEXT_X)).len();
     let text_h = if lines == 0 { 0.0 } else { crate::chargen::draw::BODY_H + LINE_PITCH * (lines - 1) as f32 };
@@ -345,12 +368,12 @@ fn draw(
     };
     let (count, scroll, hover, max) = ((page + 1, pages.len()), view.scroll, view.hover, view.max_scroll);
     commands.spawn((root, GlobalZIndex(109), TutorialRoot)).with_children(|r| {
-        r.spawn(Node { width: u(w), height: u(h), ..default() }).with_children(|b| spawn_page(b, &mut c, &l, p, count, scroll, max, hover));
+        r.spawn(Node { width: u(w), height: u(h), ..default() }).with_children(|b| spawn_page(b, &mut c, &l, p, &words, count, scroll, max, hover));
     });
 }
 
 #[allow(clippy::too_many_arguments)]
-fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, (n, of): (usize, usize), scroll: f32, max: f32, hover: Option<TmButton>) {
+fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, words: &Words, (n, of): (usize, usize), scroll: f32, max: f32, hover: Option<TmButton>) {
     let bright = amber(255.0);
     let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
     if c.image(b, "interface\\shared\\background\\solid_black.dds", at(0.0, 0.0, l.w, l.h), shade, ()).is_none() {
@@ -387,7 +410,7 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, (
     let sy = low - THICK + (THICK - SYMBOL_H) / 2.0;
     c.image(b, SYMBOL, at(sx, sy, sw.max(1.0), SYMBOL_H), bright, ());
     let vx = sx + sw + BUF;
-    let vw = c.text(b, Which::Body, VDSG, vx, low - THICK + (THICK - crate::chargen::draw::BODY_H) / 2.0 + VDSG_DROP, Align::Left, bright);
+    let vw = c.text(b, Which::Body, &words.manual, vx, low - THICK + (THICK - crate::chargen::draw::BODY_H) / 2.0 + VDSG_DROP, Align::Left, bright);
     let from = vx + vw + BUF;
     if right > from {
         c.line(b, from, low - THICK, right - from, THICK, bright);
@@ -411,8 +434,8 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, (
     }
     // The buttons: their words right-aligned in the box, the key hint after it; the box
     // shows under the pointer (text_box.xml).
-    let words = [(TmButton::Next, NEXT), (TmButton::Previous, PREVIOUS), (TmButton::Close, CLOSE)];
-    for (k, (which, word)) in words.into_iter().enumerate() {
+    let buttons = [TmButton::Next, TmButton::Previous, TmButton::Close];
+    for (k, which) in buttons.into_iter().enumerate() {
         let [x, y, bw, bh] = l.buttons[k];
         let usable = match which {
             TmButton::Next => n < of,
@@ -424,8 +447,8 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, (
             c.highlight(b, x, y, bw, bh, 1.0);
         }
         let top = y + VER_BUF / 2.0;
-        c.text(b, Which::Body, word, x + bw - HOR_BUF / 2.0, top, Align::Right, color);
-        c.text(b, Which::Body, HINTS[k], x + bw + HINT_GAP, top, Align::Left, color);
+        c.text(b, Which::Body, &words.buttons[k], x + bw - HOR_BUF / 2.0, top, Align::Right, color);
+        c.text(b, Which::Body, &words.hints[k], x + bw + HINT_GAP, top, Align::Left, color);
         b.spawn((Button, which, at(x, y, bw, bh)));
     }
 }

@@ -263,6 +263,26 @@ fn startup_and_rebuild() {
 }
 
 #[test]
+fn engine_menus_read_game_strings_through_the_tree_source() {
+    // T10 (menu-xml.md §2.4): the engine's own menus ask `ui_loading::game_string`: the
+    // tree's source once loaded (the load order over NVForever's labels), the labels
+    // alone before. Synthetic text for the source.
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    assert_eq!(ui_loading::game_string(&g, "sCloseButton"), fnv_ui::strings::built_in("sCloseButton").unwrap());
+    assert_eq!(ui_loading::game_string(&g, "sNvfNowhere"), "");
+    let mut src = files();
+    src.strings.insert("sCloseButton".into(), "fixture close".into());
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    assert_eq!(ui_loading::game_string(&g, "SCLOSEBUTTON"), "fixture close");
+    assert_eq!(ui_loading::game_string(&g, "sProbe"), "fixture text");
+    // A name the source lacks still reads the shipped label.
+    assert_eq!(ui_loading::game_string(&g, "sNext"), fnv_ui::strings::built_in("sNext").unwrap());
+    assert_eq!(ui_loading::game_string(&g, "sNvfNowhere"), "");
+}
+
+#[test]
 fn missing_menu_and_globals_warn() {
     let f = fixture();
     let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
@@ -307,8 +327,8 @@ fn vfs_source_owns_strings_and_reads_files() {
     assert_eq!(ui.mod_added_tiles(root), [root]);
     let label = ui.find_tile("HUDMainMenu/Label").unwrap();
     assert_eq!(ui.tile(label).get("string"), Some(&Value::Str("plugin text".into())));
-    // T10: the load order's record answers; a name with no record and no built-in text
-    // (the built-in table is empty until the observer readings, menu-xml.md §2.4) reads empty.
+    // T10: the load order's record answers; a name with no record and no built-in label
+    // reads empty (menu-xml.md §2.4).
     assert_eq!(src.game_strings().lookup("sprobe"), Some(("plugin text", fnv_ui::strings::Origin::LoadOrder)));
     assert_eq!(ui.get_string("HUDMainMenu/Gone/string").as_deref(), Some(""));
     assert_eq!(ui.game_strings_read.get("sabsent"), Some(&false));

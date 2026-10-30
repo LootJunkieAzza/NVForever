@@ -154,6 +154,15 @@ impl Source for UiFiles {
     }
 }
 
+/// The text of the game setting `name` for the engine's own menus that stand in for menu
+/// files (the tutorial menu, the lockpick menu): what `&-name;` reads in the tree, the load
+/// order's string setting over NVForever's labels (`fnv_ui::strings::BUILT_IN`), or the
+/// label alone before the menu files are read; empty for a name in neither
+/// (menu-xml.md §2.4, task T10).
+pub fn game_string(game: &Game<'_>, name: &str) -> String {
+    game.ui_files.as_deref().and_then(|f| f.game_string(name)).or_else(|| fnv_ui::strings::built_in(name).map(str::to_owned)).unwrap_or_default()
+}
+
 #[derive(Default)]
 pub struct LoadReport {
     pub menus: usize,

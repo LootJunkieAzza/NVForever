@@ -13,8 +13,8 @@
 //! container's menu opens [observed: owner, playtest list 5 item 64].
 //!
 //! The first time the menu opens the help message `HelpLockpicking` comes up over it, as
-//! the original's tutorial box (`help`); E closes it [observed: the owner's screenshot,
-//! "Close E)"]. Whether it has been shown is kept in the game state
+//! the original's tutorial box (`help`); E closes it [documented: tutorial_menu.xml
+//! `_PCButton_E`; observed: the owner's screenshot]. Whether it has been shown is kept in the game state
 //! (`fnv_game::lockpick::Locks`), as are the locks broken by forcing them. Over the lock
 //! (the menu file's `LPM_DetectArea`) the mouse pointer is hidden ([`PointerOverLock`]).
 //! When the game ends or the player leaves, the menu fades out ([`LEAVE_SECONDS`]); a pin
@@ -148,6 +148,47 @@ pub enum PinClip {
 pub struct Help {
     pub title: String,
     pub text: String,
+    /// The box's own words, from the game strings table (`help::BoxWords`).
+    pub words: help::BoxWords,
+}
+
+impl Help {
+    /// A help message: its title, its text with the keys bound now written in
+    /// ([`help::expand_keys`]) and the box's words read from `game`'s strings.
+    pub fn new(game: &fnv_game::Game<'_>, title: String, text: &str, bindings: &Bindings) -> Help {
+        Help { title, text: help::expand_keys(text, bindings), words: help::BoxWords::read(game) }
+    }
+}
+
+/// The menu file's own words (`menus\lockpick_menu.xml`), read by name from the game
+/// strings table when the menu opens (`fnv_game::ui_loading::game_string`: the load
+/// order's string settings over NVForever's labels; menu-xml.md §2.4) [design].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Words {
+    /// The information rows' titles: `sLockpickSkillText`, `sPicksRemainingText`,
+    /// `sLockLevelText`.
+    pub skill: String,
+    pub picks: String,
+    pub level: String,
+    /// The Exit button (`sExit`).
+    pub exit: String,
+    /// The PC key hints after Force Lock (`sPCMenuHintF`) and Exit (`sPCMenuHintE`).
+    pub force_hint: String,
+    pub exit_hint: String,
+}
+
+impl Words {
+    pub fn read(game: &fnv_game::Game<'_>) -> Words {
+        let word = |name| fnv_game::ui_loading::game_string(game, name);
+        Words {
+            skill: word("sLockpickSkillText"),
+            picks: word("sPicksRemainingText"),
+            level: word("sLockLevelText"),
+            exit: word("sExit"),
+            force_hint: word("sPCMenuHintF"),
+            exit_hint: word("sPCMenuHintE"),
+        }
+    }
 }
 
 pub struct Session {
@@ -166,6 +207,8 @@ pub struct Session {
     pub ended: Option<f32>,
     /// The help message, while it is up (the first time the menu opens).
     pub help: Option<Help>,
+    /// The menu file's words.
+    pub words: Words,
     /// The menu is leaving: since when (aid seconds) and why.
     pub leaving: Option<(f32, &'static str)>,
     /// Degrees the pin moved since its last movement sound.
@@ -418,7 +461,7 @@ fn open(
                 game.force_chance()
             );
             rt.game.open_menu(MENU_LOCKPICK);
-            let help = rules::first_help(&mut rt.game).map(|(title, text)| Help { title, text: help::expand_keys(&text, &bindings) });
+            let help = rules::first_help(&mut rt.game).map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
             if let Some(h) = &help {
                 info!("lockpick: help message {} {:?} shown (first use): {:?}", rules::HELP_MESSAGE, h.title, h.text.lines().next().unwrap_or(""));
             }
@@ -432,6 +475,7 @@ fn open(
                 pin_since: now,
                 ended: None,
                 help,
+                words: Words::read(&rt.game),
                 leaving: None,
                 moved: 0.0,
                 aid_torque_until: None,
