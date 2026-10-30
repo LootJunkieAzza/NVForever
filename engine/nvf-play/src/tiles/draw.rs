@@ -83,6 +83,9 @@ pub struct TileFonts {
     /// The faces' fonts, owned, for the text widths a frame keeps back
     /// ([`fnv_game::ui_hud::defer`]); made again when a face is read.
     measure: Option<fnv_game::ui_hud::Measure>,
+    /// What each notice text copy's width was last measured from
+    /// ([`super::notices::write_widths`]).
+    notice_widths: super::notices::WidthsWritten,
 }
 
 #[derive(SystemParam)]
@@ -166,7 +169,9 @@ impl FontKit<'_> {
         if !self.game_fonts(ui, &super::notices::texts(ui)) {
             return;
         }
-        super::notices::write_widths(ui, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, text, wrap).0));
+        let mut last = std::mem::take(&mut self.fonts.notice_widths);
+        super::notices::write_widths(ui, &mut last, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, text, wrap).0));
+        self.fonts.notice_widths = last;
     }
 
     /// Whether the fonts of `tiles` are all the game's own (read, not stand-ins), loading
