@@ -410,6 +410,10 @@ impl<'t, 'h> Vm<'t, 'h> {
             };
             stack.push(v);
         }
+        // Leftover values stop the script, in strict mode or not: the original stops a
+        // script at `if GetStage Q 100 == 1` (GetStage given an extra argument, as three
+        // INFO begin scripts of FalloutNV.esm are compiled), running neither arm
+        // [observed 2026-10-30, capture o4_00_probe; observer-checks.md check 32].
         match stack.len() {
             1 => Ok(stack[0]),
             0 => Err(VmError::Expression("empty".into())),

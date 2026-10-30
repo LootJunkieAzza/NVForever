@@ -484,7 +484,16 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
 ### 4.2 Expressions and statements
 
 - Postfix evaluation with a stack, left to right (§2.3); the compiler already applied the
-  precedence (§3.3). One value must remain, else the script stops with an error.
+  precedence (§3.3). One value must remain, else the script stops with an error. The
+  original does the same with two left [observed 2026-10-30, capture `o4_00_probe`, issue
+  #908]: three INFO begin scripts of FalloutNV.esm compile GetStage with an extra
+  argument (`GetStage Q 100 == 1`, i.e. GetStage(Q), 100, 1, `==`: 0x001588E5, 0x001588E6
+  of VMQYesMan01a and 0x00160731 of VMQYesMan02, Side Bets). The same text compiled in
+  game (`if GetStage <quest> N == 1` and `!= 1`, N 100 or 1, on five quests at stages 0, 5
+  and 10) failed the script call at the `if` every time: the statement before it had run
+  and neither arm's did, while `if GetStage <quest> == 0` ran its arm. So those lines' own
+  SetStage / SetObjectiveDisplayed never run in the original either. That the in-game
+  compiler makes the same bytes as the GECK for this text is a [hypothesis].
 - Comparisons give 1 or 0; `&&` and `||` test for non-zero; arithmetic is in double
   precision; `/` by 0 gives 0; `%` is the remainder of both operands truncated to
   integers, 0 for a zero divisor [hypothesis, all of this line].
