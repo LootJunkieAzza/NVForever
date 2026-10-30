@@ -139,7 +139,8 @@ Notes [observed]:
 
 ## 4. What is left
 
-- Soft stalls 5-9 (4 is done): small runner ops; each would remove a stand-in (issue #909).
+- Soft stalls 4-9: 4 done here, 5, 6, 7 and 9 in PR #925 (issue #909); 8 (OnOpen in the
+  runner's container menus) is still open.
 - Observer checks 28-32 (docs/handoff/observer-checks.md): the two end-slide fixes are
   hypotheses until the original confirms them.
 - The other endings' slides: all four endings now run every slide to ExitGame (2026-10-27,
