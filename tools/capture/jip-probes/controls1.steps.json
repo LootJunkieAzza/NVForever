@@ -1,0 +1,2188 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "controls1",
+ "title": "controls1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 0 0)\nEnd\n",
+   "label": "controls1.get.key.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 1 0)\nEnd\n",
+   "label": "controls1.get.key.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 2 0)\nEnd\n",
+   "label": "controls1.get.key.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 3 0)\nEnd\n",
+   "label": "controls1.get.key.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 4 0)\nEnd\n",
+   "label": "controls1.get.key.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 5 0)\nEnd\n",
+   "label": "controls1.get.key.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 6 0)\nEnd\n",
+   "label": "controls1.get.key.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 7 0)\nEnd\n",
+   "label": "controls1.get.key.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 8 0)\nEnd\n",
+   "label": "controls1.get.key.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 9 0)\nEnd\n",
+   "label": "controls1.get.key.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 10 0)\nEnd\n",
+   "label": "controls1.get.key.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 11 0)\nEnd\n",
+   "label": "controls1.get.key.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 12 0)\nEnd\n",
+   "label": "controls1.get.key.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 13 0)\nEnd\n",
+   "label": "controls1.get.key.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 14 0)\nEnd\n",
+   "label": "controls1.get.key.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 15 0)\nEnd\n",
+   "label": "controls1.get.key.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 16 0)\nEnd\n",
+   "label": "controls1.get.key.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 4 1)\nEnd\n",
+   "label": "controls1.get.mouse.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 6 1)\nEnd\n",
+   "label": "controls1.get.mouse.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := GetControl 7 0\nrP.AuxVarSetFlt \"*nvfCK\" fRes\nSetControl 7 48 0\nSetFunctionValue (GetControl 7 0)\nEnd\n",
+   "label": "controls1.set.key7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetControl 7 0)\nEnd\n",
+   "label": "controls1.set.key7.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetControl 7 (rP.AuxVarGetFlt \"*nvfCK\") 0\nrP.AuxVarErase \"*nvfCK\"\nSetFunctionValue (GetControl 7 0)\nEnd\n",
+   "label": "controls1.set.key7.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := rP.GetPos X\nrP.AuxVarSetFlt \"*nvfCX\" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt \"*nvfCY\" fRes\nHoldControl 0\nSetFunctionValue (IsControlPressed 0)\nEnd\n",
+   "label": "controls1.hold.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsControlPressed 0)\nEnd\n",
+   "label": "controls1.hold.pressed",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsControlPressed 0 1)\nEnd\n",
+   "label": "controls1.hold.pressed.ignore",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.walk25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fDx := (rP.GetPos X) - (rP.AuxVarGetFlt \"*nvfCX\")\nlet fRes := (rP.GetPos Y) - (rP.AuxVarGetFlt \"*nvfCY\")\nlet fRes := (fDx * fDx) + (fRes * fRes)\nSetFunctionValue (fRes > 100)\nEnd\n",
+   "label": "controls1.hold.moved",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := rP.GetPos X\nrP.AuxVarSetFlt \"*nvfRX\" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt \"*nvfRY\" fRes\nReleaseControl 0\nSetFunctionValue (IsControlPressed 0)\nEnd\n",
+   "label": "controls1.release",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.wait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsControlPressed 0)\nEnd\n",
+   "label": "controls1.release.pressed",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fDx := (rP.GetPos X) - (rP.AuxVarGetFlt \"*nvfRX\")\nlet fRes := (rP.GetPos Y) - (rP.AuxVarGetFlt \"*nvfRY\")\nlet fRes := (fDx * fDx) + (fRes * fRes)\nSetFunctionValue (fRes > 100)\nEnd\n",
+   "label": "controls1.release.moved",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.settle19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fRes := rP.GetPos X\nrP.AuxVarSetFlt \"*nvfRX\" fRes\nlet fRes := rP.GetPos Y\nrP.AuxVarSetFlt \"*nvfRY\" fRes\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.release.still",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fDx := (rP.GetPos X) - (rP.AuxVarGetFlt \"*nvfRX\")\nlet fRes := (rP.GetPos Y) - (rP.AuxVarGetFlt \"*nvfRY\")\nlet fRes := (fDx * fDx) + (fRes * fRes)\nSetFunctionValue (fRes > 1)\nEnd\n",
+   "label": "controls1.release.still.moved",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.SetPos X (rP.AuxVarGetFlt \"*nvfCX\")\nrP.SetPos Y (rP.AuxVarGetFlt \"*nvfCY\")\nrP.AuxVarErase \"*nvfCX\"\nrP.AuxVarErase \"*nvfCY\"\nrP.AuxVarErase \"*nvfRX\"\nrP.AuxVarErase \"*nvfRY\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.hold.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.AddItem rObj 1 1\nrP.EquipItem rObj 0 1\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.addwait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.SetWeaponOut 1\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.out",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait10.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.out.f10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait30.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.out.f30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait60.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.out.f60",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.out.wait90.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.out.f90",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.HolsterWeapon\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait5.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait5.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait5.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait5.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait10.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait10.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait10.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait10.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait15.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait15.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait15.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait15.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait20.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait20.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait20.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait20.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait30.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait60.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f60",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.31",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.33",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.34",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.35",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.36",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.37",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.38",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.39",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.40",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.41",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.42",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.43",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.44",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.45",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.46",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.47",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.48",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.49",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.50",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.51",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.52",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.53",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.54",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.55",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.56",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.57",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.holster.wait120.58",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.holster.f120",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.SetWeaponOut 0\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.setout0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait10.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.setout0.f10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait30.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.setout0.f30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait60.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.setout0.f60",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.31",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.33",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.34",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.35",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.36",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.37",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.38",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.39",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.40",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.41",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.42",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.43",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.44",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.45",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.46",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.47",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.48",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.49",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.50",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.51",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.52",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.53",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.54",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.55",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.56",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.57",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.setout0.wait120.58",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsWeaponOut)\nEnd\n",
+   "label": "controls1.weap.setout0.f120",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fRes\nfloat fDx\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.UnequipItem rObj 0 1\nrP.RemoveItem rObj 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "controls1.weap.cleanup",
+   "field": "value"
+  }
+ ]
+}

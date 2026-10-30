@@ -1,7 +1,7 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "jip_getters",
- "title": "JIP getters, runtime-compiled (read-only)",
+ "title": "jip-getters, runtime-compiled (read-only)",
  "start": "any save (read-only)",
  "steps": [
   {

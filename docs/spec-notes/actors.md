@@ -1160,7 +1160,7 @@ only in the walk test and on the player's body. All rules here are engine choice
   list]; it is not in FalloutNV.esm, so its value is the executable's and unknown.
   Creatures carry their own, CREA `TNAM` "Turning Speed" [documented: xEdit CREA]: 100
   (mole rat), 90 (mantis), 75 (sentry bot), 50 (Protectron), 45 (giant ant), 40
-  (bighorner), 0 on templated ones [observed, a sample of 12 of 1,578 records]. A
+  (bighorner), 0 on templated ones [observed, a sample of 12 of FalloutNV.esm's 1,578 records; every CREA carries TNAM, non-zero on 1,033 of them, and on 1,547 of 2,238 over the base game and add-ons]. A
   creature's steady turn rates are TNAM × 1.25, × 3 or × 0.075 degrees per second
   [observed 2026-10-30, §8.10 "TNAM"]; not used yet. While its heading catches up with the
   way to go the actor slows down: it keeps `0.3 + 0.7 × max(cos off, 0)` of its speed

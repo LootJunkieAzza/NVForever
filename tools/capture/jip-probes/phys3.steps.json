@@ -1,0 +1,3423 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "phys3",
+ "title": "phys3, runtime-compiled",
+ "start": "nvftest (read-only), travels to Goodsprings",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"tgm\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.tgm",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"cow WastelandNV -17 1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait13",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait14",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait17",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait18",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait19",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait21",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait22",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait23",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait24",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait25",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait26",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait27",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait28",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait29",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait30",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait31",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait32",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait33",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait34",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait35",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait36",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait37",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait38",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait39",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait40",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait41",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait42",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait43",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait44",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait45",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait46",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait47",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait48",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait49",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait50",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait51",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait52",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait53",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait54",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait55",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait56",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait57",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait58",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait59",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait60",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait61",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait62",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait63",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait64",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait65",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait66",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait67",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait68",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait69",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait70",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait71",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait72",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait73",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait74",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait75",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait76",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait77",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait78",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait79",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait80",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait81",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait82",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait83",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait84",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait85",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait86",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait87",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait88",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait89",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait90",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait91",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait92",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait93",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait94",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait95",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait96",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait97",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait98",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait99",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait100",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait101",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait102",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait103",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait104",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait105",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait106",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait107",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait108",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait109",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait110",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait111",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait112",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait113",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait114",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait115",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait116",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait117",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait118",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait119",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait120",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait121",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait122",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait123",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait124",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait125",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait126",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait127",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait128",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait129",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait130",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait131",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait132",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait133",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait134",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait135",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait136",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait137",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait138",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait139",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait140",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait141",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait142",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait143",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait144",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait145",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait146",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait147",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait148",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait149",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait150",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait151",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait152",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait153",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait154",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait155",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait156",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait157",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait158",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait159",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait160",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait161",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait162",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait163",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait164",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait165",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait166",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait167",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait168",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait169",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait170",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait171",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait172",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait173",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait174",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait175",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait176",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait177",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait178",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait179",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait180",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait181",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait182",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait183",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait184",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait185",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait186",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait187",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait188",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait189",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait190",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait191",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait192",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait193",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait194",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait195",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait196",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait197",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait198",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait199",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait200",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait201",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait202",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait203",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait204",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait205",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait206",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait207",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait208",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait209",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait210",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait211",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait212",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait213",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait214",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait215",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait216",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait217",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait218",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait219",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait220",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait221",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait222",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait223",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait224",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait225",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait226",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait227",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait228",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait229",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait230",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait231",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait232",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait233",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait234",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait235",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait236",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait237",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait238",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait239",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait240",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait241",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait242",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait243",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait244",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait245",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait246",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait247",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait248",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait249",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait250",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait251",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait252",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait253",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait254",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait255",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait256",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait257",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait258",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait259",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait260",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait261",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait262",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait263",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait264",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait265",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait266",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait267",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait268",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait269",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait270",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait271",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait272",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait273",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait274",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait275",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait276",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait277",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait278",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait279",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait280",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait281",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait282",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait283",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait284",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait285",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait286",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait287",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait288",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait289",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait290",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait291",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait292",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait293",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait294",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait295",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait296",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait297",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait298",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait299",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait300",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait301",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait302",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait303",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait304",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait305",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait306",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait307",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait308",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait309",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait310",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait311",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait312",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait313",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait314",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait315",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait316",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait317",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait318",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait319",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait320",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait321",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait322",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait323",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait324",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait325",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait326",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait327",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait328",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait329",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait330",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait331",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait332",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait333",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait334",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait335",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait336",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait337",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait338",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait339",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait340",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait341",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait342",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait343",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait344",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait345",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait346",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait347",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait348",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait349",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait350",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait351",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait352",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait353",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait354",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait355",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait356",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait357",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait358",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait359",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait360",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait361",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait362",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait363",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait364",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait365",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait366",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait367",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait368",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait369",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait370",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait371",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait372",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait373",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait374",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait375",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait376",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait377",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait378",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait379",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait380",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait381",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait382",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait383",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait384",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait385",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait386",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait387",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait388",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait389",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait390",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait391",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait392",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait393",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait394",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait395",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait396",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait397",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait398",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.travel.wait399",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos X)\nEnd\n",
+   "label": "phys3.pc.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Y)\nEnd\n",
+   "label": "phys3.pc.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.pc.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.IsInInterior)\nEnd\n",
+   "label": "phys3.pc.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nSetFunctionValue (ar_Size aArr)\nEnd\n",
+   "label": "phys3.radio.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[0]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.0.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[0]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.0.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[0]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.0.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[1]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.1.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[1]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.1.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[1]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.1.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[2]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.2.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[2]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.2.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[2]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.2.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[3]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.3.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[3]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.3.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[3]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.3.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[4]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.4.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[4]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.4.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[4]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.4.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[5]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.5.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[5]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.5.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[5]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.5.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[6]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.6.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[6]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.6.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[6]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.6.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[7]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.7.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[7]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.7.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[7]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.7.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[8]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.8.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[8]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.8.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[8]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.8.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[9]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.9.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[9]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.9.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[9]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.9.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[10]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.10.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[10]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.10.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[10]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.10.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[11]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.11.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[11]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.11.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[11]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.11.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[12]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.12.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[12]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.12.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[12]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.12.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[13]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.13.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[13]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.13.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[13]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.13.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[14]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.14.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[14]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.14.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[14]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.14.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[15]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.15.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[15]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.15.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[15]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.15.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[16]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.16.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[16]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.16.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[16]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.16.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[17]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.17.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[17]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.17.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[17]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.17.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[18]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.18.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[18]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.18.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[18]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.18.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[19]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.19.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[19]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.19.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[19]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.19.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[20]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.20.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[20]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.20.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[20]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.20.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[21]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.21.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[21]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.21.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[21]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.21.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[22]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.22.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[22]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.22.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[22]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.22.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[23]\nSetFunctionValue (rOther.GetPos X)\nEnd\n",
+   "label": "phys3.radio.23.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[23]\nSetFunctionValue (rOther.GetPos Y)\nEnd\n",
+   "label": "phys3.radio.23.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aArr := rPlayer.GetAvailableRadios\nlet rOther := aArr[23]\nSetFunctionValue (rOther.IsInInterior)\nEnd\n",
+   "label": "phys3.radio.23.interior",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.ground",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrPlayer.SetPos Z ((rPlayer.GetPos Z) + 600)\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.lift",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f13",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f14",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f17",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f18",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f19",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z20",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f21",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f22",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f23",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f24",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f25",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z25",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f26",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f27",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f28",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f29",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f30",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z30",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f31",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f32",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f33",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f34",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f35",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z35",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f36",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f37",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f38",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f39",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f40",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z40",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f41",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f42",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f43",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f44",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f45",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z45",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f46",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f47",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f48",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f49",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f50",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z50",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f51",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f52",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f53",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f54",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f55",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z55",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f56",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f57",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f58",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f59",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f60",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z60",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f61",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f62",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f63",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f64",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f65",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z65",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f66",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f67",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f68",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f69",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f70",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z70",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f71",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f72",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f73",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f74",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f75",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z75",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f76",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f77",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f78",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f79",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f80",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z80",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f81",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f82",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f83",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f84",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f85",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z85",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f86",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f87",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f88",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f89",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f90",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z90",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f91",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f92",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f93",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f94",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f95",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z95",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f96",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f97",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f98",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f99",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f100",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z100",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f101",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f102",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f103",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f104",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f105",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z105",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f106",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f107",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f108",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f109",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f110",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z110",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f111",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f112",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f113",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f114",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f115",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z115",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f116",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f117",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f118",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f119",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f120",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z120",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f121",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f122",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f123",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f124",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f125",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z125",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f126",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f127",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f128",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f129",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f130",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z130",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f131",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f132",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f133",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f134",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f135",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z135",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f136",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f137",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f138",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f139",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f140",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z140",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f141",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f142",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f143",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f144",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f145",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetPos Z)\nEnd\n",
+   "label": "phys3.fall.z145",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f146",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f147",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f148",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.f149",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle5",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle6",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle9",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle11",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle12",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle13",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle14",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle15",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle16",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle17",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle18",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.fall.settle19",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rPlayer.GetFallTimeElapsed)\nEnd\n",
+   "label": "phys3.fall.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\narray_var aArr\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"tgm\"\nSetFunctionValue 1\nEnd\n",
+   "label": "phys3.tgm.off",
+   "field": "value"
+  }
+ ]
+}

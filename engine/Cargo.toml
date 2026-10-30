@@ -24,6 +24,7 @@ fnv-world = { path = "../crates/fnv-world" }
 fnv-sim = { path = "../crates/fnv-sim" }
 fnv-script = { path = "../crates/fnv-script" }
 fnv-game = { path = "../crates/fnv-game" }
+fnv-ui = { path = "../crates/fnv-ui" }
 fnv-actor = { path = "../crates/fnv-actor" }
 fnv-combat = { path = "../crates/fnv-combat" }
 fnv-phys = { path = "../crates/fnv-phys" }
@@ -55,3 +56,4 @@ opt-level = 3
 # Patched dependencies (engine/vendor/README.md says what was changed and why).
 [patch.crates-io]
 gpu-allocator = { path = "vendor/gpu-allocator" }
+bevy_pbr = { path = "vendor/bevy_pbr" }

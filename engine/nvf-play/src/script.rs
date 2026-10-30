@@ -359,6 +359,12 @@ impl ScriptState {
             }
         });
         source_compile_mode(unattended);
+        // Mods' files are written under NVForever's own mods layer, never the game folder;
+        // an unattended run in the player's home keeps them in memory, as the settings
+        // (fnv_game::mod_files).
+        let own_home = std::env::var_os(fnv_install::HOME_ENV).is_some_and(|h| !h.is_empty());
+        let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
+        fnv_game::mod_files::update_roots(|r| r.write = write);
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
         ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
@@ -500,6 +506,60 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
 }
 
 /// Run `f` with the simulation's world inside the game (and put it back after).
+/// Run `f` with scripts' ray casts going through the physics (`fnv_game::ray`).
+/// Neither the player's own capsule nor the terrain is hit [observed: engine2, a cast
+/// from 500 above the player meets the floor at the feet; engine3, casts from 100 to
+/// 1000 above the ground 200 away read past it with every flag; hypothesis: terrain
+/// is left out].
+/// The speed one unit of PushObject's force gives a body, game units per second
+/// [observed: phys2, a tin can gained about 23 units a frame at 50 frames a second from a
+/// force of 500 and 237 from 5000, up or sideways; hypothesis: the same speed whatever
+/// the body's mass].
+const SCRIPT_PUSH_SPEED: f32 = 2.3;
+/// The most speed one PushObject gives a body, game units per second [design: above the
+/// fastest observed, 11,900 from a force of 5000].
+const SCRIPT_PUSH_MAX_SPEED: f32 = 20_000.0;
+
+/// Scripts' PushObject pushes (`fnv_game::nvse_gaps`): each loose body is pushed along the
+/// line from the push's origin to its centre (straight up from the origin itself).
+fn apply_pushes(g: &mut Game, phys: &mut PhysState) {
+    for (r, origin, force) in std::mem::take(&mut g.gaps.pushes) {
+        let Some(c) = phys.world.ref_center(r.0) else { continue };
+        let d = [c[0] - origin[0], c[1] - origin[1], c[2] - origin[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let dir = if len > 1e-3 { [d[0] / len, d[1] / len, d[2] / len] } else { [0.0, 0.0, 1.0] };
+        let Some(m) = phys.world.ref_mass(r.0) else { continue };
+        let k = force * SCRIPT_PUSH_SPEED * m;
+        let pushed = phys.world.push_ref(r.0, c, [dir[0] * k, dir[1] * k, dir[2] * k], SCRIPT_PUSH_MAX_SPEED);
+        debug!("script: PushObject {r} force {force}: {}", pushed.map_or("no loose body".to_string(), |v| format!("{v:.0} units/s")));
+    }
+}
+
+fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
+    let filter = fnv_phys::world::Filter { exclude: phys.player.as_ref().map(|c| vec![c.key()]).unwrap_or_default(), no_terrain: true, ..Default::default() };
+    let world = std::cell::RefCell::new(&mut phys.world);
+    let caster = |a: [f32; 3], b: [f32; 3], kind: fnv_game::ray::CastKind| {
+        let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let mut w = world.borrow_mut();
+        let hit = match kind {
+            fnv_game::ray::CastKind::Scene => w.queries().ray(a, d, len, &filter),
+            fnv_game::ray::CastKind::World => w.queries().ray(a, d, len, &fnv_phys::world::Filter { no_terrain: false, ..filter.clone() }),
+            // The terrain's own hit, past anything standing on it.
+            fnv_game::ray::CastKind::Terrain => w.queries().ray_all(a, d, len, &fnv_phys::world::Filter::default()).into_iter().find(|h| matches!(h.owner, fnv_phys::world::Owner::Terrain { .. })),
+        };
+        hit.map(|h| {
+            let form = match h.owner {
+                fnv_phys::world::Owner::Ref { form_id, .. } | fnv_phys::world::Owner::Actor { form_id, .. } => Some(form_id),
+                fnv_phys::world::Owner::Character { id } => Some(id),
+                fnv_phys::world::Owner::Terrain { .. } => None,
+            };
+            fnv_game::ray::Hit { distance: h.distance, point: h.point, form, material: h.material }
+        })
+    };
+    fnv_game::ray::with_caster(&caster, f)
+}
+
 pub fn with_world<R>(rt: &mut Runtime, sim: &mut SimState, f: impl FnOnce(&mut Runtime) -> R) -> R {
     std::mem::swap(&mut rt.game.world, &mut sim.world);
     let r = f(rt);
@@ -1561,7 +1621,7 @@ pub(crate) fn start_world_aids(
 pub(crate) fn run_scripts(
     time: crate::pause::AidTime,
     play: Res<PlayWorld>,
-    phys: Res<PhysState>,
+    mut phys: ResMut<PhysState>,
     location: Res<Location>,
     mut sim: ResMut<SimState>,
     mut script: ResMut<ScriptState>,
@@ -1574,7 +1634,7 @@ pub(crate) fn run_scripts(
     mut used: MessageReader<ItemUsed>,
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
-    (mut screen, bindings): (ResMut<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>),
+    (mut screen, bindings, tiles): (ResMut<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>, crate::tiles::MenuFiles),
 ) {
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
@@ -1599,6 +1659,7 @@ pub(crate) fn run_scripts(
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            tiles.load(&mut rt.game, &sim.world);
                             loaded_events(&mut rt, &mut sim, &path);
                             // The frames after a load are the loading screen's for the
                             // scripts, as after travel: their `Begin MenuMode 1007`
@@ -1611,6 +1672,9 @@ pub(crate) fn run_scripts(
                         }
                         Err(e) => warn!("load: {}: {e}; the game goes on from the plugins", path.display()),
                     }
+                }
+                if rt.game.ui_files.is_none() {
+                    tiles.load(&mut rt.game, &sim.world);
                 }
                 let from_source = data.issues.count("script_compiled_from_source");
                 let failed = data.issues.count("script_source_does_not_compile");
@@ -1632,6 +1696,11 @@ pub(crate) fn run_scripts(
                 st.rt = Some(rt);
             }
         }
+    }
+    // Activation, menu keys or a new runtime may have opened a menu since tiles' first
+    // write. Build it before this tick's MenuMode blocks [design: ui-tile-tree.md §4.1].
+    if let Some(rt) = st.rt.as_mut() {
+        tiles.write(&mut rt.game);
     }
     // Scripts wait until the player stands in the world (its cell is known), and do not
     // run under the pause menu (`crate::pause`): no MenuMode code of the original's pause
@@ -1743,9 +1812,11 @@ pub(crate) fn run_scripts(
                 "t": secs(rt.started), "gt": rt.game.time}));
         }
         due.clear();
-        for c in &console {
-            console_out.push(crate::console::run_call(rt, c));
-        }
+        with_ray_caster(&mut phys, || {
+            for c in &console {
+                console_out.push(crate::console::run_call(rt, c));
+            }
+        });
         if let Some(i) = rt.activate_pick.take() {
             rt.pick_activate_choice(i);
         }
@@ -1757,7 +1828,16 @@ pub(crate) fn run_scripts(
         }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
-        rt.game.tick();
+        // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
+        rt.game.gaps.air_times = phys
+            .player
+            .iter()
+            .map(|c| (FormId::PLAYER_REF, c.air_time))
+            .chain(phys.npcs.iter().map(|(&r, b)| (FormId(r), b.ch.air_time)))
+            .filter(|(_, t)| *t > 0.0)
+            .collect();
+        with_ray_caster(&mut phys, || rt.game.tick());
+        apply_pushes(&mut rt.game, &mut phys);
         rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.

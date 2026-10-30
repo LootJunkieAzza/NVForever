@@ -394,14 +394,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
 
-## Added 2026-10-29 (radiation falloff, issue #894)
+## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
 33. **Does a radiation marker fall off linearly with distance, and does Rad Resistance cut
     GetRadiationLevel?** (P2: every irradiated place.) Ours now gives a marker's XRAD ×
     (1 − d ÷ XRDS), d the 3-D distance from GetPos, and GetRadiationLevel and the HUD
     that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
     693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
-    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player.
+    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player,
+    nor did console `player.setpos` steps (hud.md §14.3).
     To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
     marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
     (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours
@@ -409,14 +410,20 @@ The numbers above stay put so links to them hold; each item here gives its own p
     crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
     point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
     at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
+34. **The corner bars' ticks' brightness.** The original's health and action points ticks
+    read about 0.7 of the bracket line's colour at their full rows (`hud_corners2.007`,
+    hud.md §14.9); the tile HUD writes `brightness` 175 to `HitPoints/meter` and
+    `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
+    GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
+    (the paths §14.3 read the widths by) while the bars show.
 
 ## Added 2026-10-30 (issues #907, #915)
 
-34. **A condition with a null form parameter** (GetQuestVariable on INFO 0x0014B595-7,
+35. **A condition with a null form parameter** (GetQuestVariable on INFO 0x0014B595-7,
     GetIsID on 0x000FF5BA) — answered 2026-10-30 (issue #907): the original reads 0 for
     both; ours now does without a failed call. Open: other functions given a null form
     in a condition (ours: a failed call, also 0). ([dialogue §4](../spec-notes/dialogue.md))
-35. **Which of a creature's turn rates applies when** (P3; issue #915). Steady turns are
+36. **Which of a creature's turn rates applies when** (P3; issue #915). Steady turns are
     TNAM × 1.25, × 3 or × 0.075 °/s on every skeleton tried, whatever the base scale
     (actors.md §8.10 "TNAM"); × 0.075 is aim tracking within about 6°, but × 1.25 and × 3
     both came on big turns towards a target. To check: GetAnimAction, the movement

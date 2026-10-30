@@ -152,7 +152,9 @@ does not remove most of the render thread's work here; what does scale is not se
   changed (the character controller is the physics workstream's).
 - The voice limit's numbers (64, 8) are guesses; whether the original limits voices is
   not known.
-- **Heaps of corpses**: corpses of different actors collide with each other; a heap of
-  them is held at rest after 3 s, but for those seconds the solver's cost grows with the
-  heap. Letting small creatures' corpses pass through each other (or fewer bodies for
-  them) would cut it further; not done (the physics workstream's ground).
+- **Heaps of corpses**: done 2026-10-30 (#910): corpses smaller than 64 units (rats,
+  geckos, mantis nymphs, ...) pass through each other and still land on the world and on
+  bigger corpses; bigger ones still collide (ragdoll.md, "Corpse against corpse"). 25
+  small corpses dropped on one spot: 61 touching pairs at the peak and 0.38 ms a physics
+  step before, 0 and 0.09 ms after (fnv-phys test, release). A heap of big corpses still
+  costs the solver for its 3 s before rest.

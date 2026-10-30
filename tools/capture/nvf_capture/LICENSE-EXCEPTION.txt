@@ -1,0 +1,16 @@
+nvf_capture: additional permission under GNU GPL version 3 section 7
+
+nvf_capture is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version (LICENSE.txt), with the
+following additional permission.
+
+If you modify this Program, or any covered work, by linking or combining it with
+Fallout: New Vegas (its executable FalloutNV.exe and the libraries it loads) or with
+the xNVSE script extender (or a modified version of either), containing parts covered
+by the terms of their own licences, the licensors of this Program grant you additional
+permission to convey the resulting work.
+
+This permission covers only nvf_capture (tools/capture/nvf_capture in the NVForever
+repository). It grants no rights in Fallout: New Vegas or xNVSE. You may remove it from
+your own modified copies; if you do, the GNU General Public License applies without it.

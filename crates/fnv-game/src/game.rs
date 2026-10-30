@@ -1019,6 +1019,23 @@ pub struct Game<'a> {
     /// SetPackageTargetReference): the changed copy, kept for the session (leaked, so it
     /// lives as long as the records; a few per session).
     pub(crate) package_overrides: std::collections::HashMap<FormId, &'a crate::package::PackageDef>,
+    /// The N7–N9 functions' session state and what the engine tells them
+    /// (`crate::nvse_jip2`).
+    pub jip2: crate::nvse_jip2::Jip2State,
+    /// The most called functions no earlier set built (`crate::nvse_gaps`).
+    pub gaps: crate::nvse_gaps::GapsState,
+    /// The HUD reads and the scripted weapon draws (`crate::nvse_hud`).
+    pub hud: crate::nvse_hud::HudState,
+    /// ShowOff's events and timer stop handlers (`crate::nvse_showoff`).
+    pub showoff: crate::nvse_showoff::ShowOffState,
+    /// Mods' INI and other files (`crate::mod_files`).
+    pub mod_files: crate::mod_files::ModFiles,
+    /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
+    pub traits: crate::nvse_traits::TraitState,
+    /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
+    pub anim_paths: crate::nvse_anim::AnimPaths,
+    /// The node trees scripts asked about, as the engine tells them (`crate::nif_blocks`).
+    pub scene: crate::nif_blocks::SceneMirror,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
@@ -1046,10 +1063,21 @@ pub struct Game<'a> {
     /// and draws the menus, the UI script functions (`crate::ui_functions`) read and
     /// change it. Not saved: menus are built again after a load.
     pub ui_tree: fnv_ui::Ui,
+    /// Menu names to files, rebuilt with the tree [design: ui-tile-tree.md §3.2, §9].
+    pub ui_menus: fnv_ui::MenuIndex,
+    /// Menu lifetime's once-only warnings, reset with the tree [design].
+    pub ui_lifetime: crate::ui_loading::MenuLifetime,
     /// Where InjectUIXML and the menus' includes read files: the engine's archives and
     /// loose files. `None` headless: InjectUIXML then fails, InjectUIComponent works
     /// without includes.
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
+    /// This frame's HUD writes, kept back while nothing reads the HUD's traits
+    /// (`crate::ui_hud::defer`); the first UI function call makes them
+    /// (`crate::ui_hud::flush`).
+    pub ui_hud_pending: Option<Box<(crate::ui_hud::Shown, crate::ui_hud::Texts)>>,
+    /// A script called a UI function that reads or changes the tree: the engine writes
+    /// the HUD every frame from then on.
+    pub ui_used: bool,
     /// Keys MenuTapKey pressed (DirectInput scan codes), for the engine to take as one
     /// frame's presses in the open menu.
     pub ui_taps: Vec<u32>,
@@ -1558,6 +1586,10 @@ struct LambdaDef<'a> {
 /// What lasts for the session across a load ([`Game::take_session`]).
 pub struct Session {
     handlers: Vec<Handler>,
+    /// SetGameMainLoopCallback's callbacks of function scripts without flag 8
+    /// [documented: SetGameMainLoopCallback, 8 "auto-remove on load game"; observed:
+    /// save-read, runtime lambdas did not run after a load, flag 8 or not].
+    main_loop: Vec<crate::jip_events::MainLoop>,
     restarted_seen: BTreeSet<String>,
     handler_seq: u64,
 }
@@ -1665,13 +1697,25 @@ impl<'a> Game<'a> {
             other: Default::default(),
             ini: Default::default(),
             package_overrides: std::collections::HashMap::new(),
+            jip2: Default::default(),
+            gaps: Default::default(),
+            hud: Default::default(),
+            showoff: Default::default(),
+            mod_files: Default::default(),
+            traits: Default::default(),
+            anim_paths: Default::default(),
+            scene: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
             loaded_seen: BTreeSet::new(),
             restarted_seen: BTreeSet::new(),
             toggles: Default::default(),
             ui_tree: fnv_ui::Ui::new(),
+            ui_menus: fnv_ui::MenuIndex::default(),
+            ui_lifetime: crate::ui_loading::MenuLifetime::default(),
             ui_files: None,
+            ui_hud_pending: None,
+            ui_used: false,
             ui_taps: Vec::new(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
@@ -1872,6 +1916,7 @@ impl<'a> Game<'a> {
             s.since_run = 0.0;
             s.since_menu_run = 0.0;
             self.emit(EventKind::QuestStarted { quest: q });
+            self.quest_event(q, true);
         }
         true
     }
@@ -1884,6 +1929,7 @@ impl<'a> Game<'a> {
         if s.running {
             s.running = false;
             self.emit(EventKind::QuestStopped { quest: q });
+            self.quest_event(q, false);
         }
         true
     }
@@ -2416,12 +2462,24 @@ impl<'a> Game<'a> {
             .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
             .cloned()
             .collect();
-        Session { handlers, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
+        let main_loop = self
+            .jip
+            .main_loop
+            .iter()
+            .filter(|m| m.flags & 8 == 0 && matches!(m.func, fnv_script::vm::XVal::Ref(f) if f < LAMBDA_BASE))
+            .cloned()
+            .map(|mut m| {
+                m.due = 0;
+                m
+            })
+            .collect();
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
     pub fn put_session(&mut self, s: Session) {
         self.handlers = s.handlers;
+        self.jip.main_loop = s.main_loop;
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
     }
@@ -2544,8 +2602,39 @@ impl<'a> Game<'a> {
         ran
     }
 
+    /// The script extender's event of the same name as the block (`OnHit`, `OnEquip` …),
+    /// to the handlers SetEventHandler registered, with the reference and the block's
+    /// parameter as its two arguments [documented: SetEventHandler's event table, "the
+    /// first argument is the reference the event happened to"; observed: nvse-events,
+    /// OnHit (creature, 0), OnActorEquip and OnEquip (player, pistol), OnLoad (the ref
+    /// twice)]. OnDeath and OnActivate are sent where they happen, with their own
+    /// arguments.
+    /// Whether an extender handler is set for `event` (lower case).
+    pub(crate) fn handled(&self, event: &str) -> bool {
+        self.handlers.iter().any(|h| h.event == event)
+    }
+
+    pub(crate) fn ext_event(&mut self, ev: u16, on: FormId, other: Option<Value>) {
+        if self.handlers.is_empty() || matches!(ev, event::GAME_MODE | event::MENU_MODE | event::ON_DEATH | event::ON_ACTIVATE) {
+            return;
+        }
+        let Some(name) = self.data.table.block_name(ev).map(str::to_string) else { return };
+        use fnv_script::vm::XVal;
+        let second = match other {
+            Some(v) => match v.as_form() {
+                Some(f) => XVal::Ref(f),
+                None => XVal::Num(v.num()),
+            },
+            None => XVal::Num(0.0),
+        };
+        // OnLoad gives the reference twice [observed].
+        let second = if ev == event::ON_LOAD { XVal::Ref(on.0) } else { second };
+        self.dispatch_event(&name, vec![XVal::Ref(on.0), second], Some(on));
+    }
+
     /// Run a non-frame event on a reference's script, with a trace line.
     pub fn ref_event(&mut self, r: FormId, event: u16, subject: Option<Value>, action_ref: Option<FormId>) -> bool {
+        self.ext_event(event, r, subject);
         if event == event::ON_LOAD {
             // An OnLoad run by the caller (a cell load, or an engine that runs it
             // itself) settles one queued by Enable: OnLoad runs once per load.
@@ -2624,8 +2713,9 @@ impl<'a> Game<'a> {
     /// it (a weapon's or a blast's object effect on an object it hits, a spell on an
     /// actor), the effect as the block's parameter. Returns whether a block ran.
     pub fn magic_effect_hits(&mut self, target: FormId, items: &[FormId], caster: Option<FormId>) -> bool {
-        let Some(script) = self.ref_script(target) else { return false };
-        if !self.data.script(script).is_some_and(|u| u.has_block(event::ON_MAGIC_EFFECT_HIT)) {
+        // The extender's OnMagicEffectHit handlers hear it on targets without the block.
+        let has_block = self.ref_script(target).is_some_and(|s| self.data.script(s).is_some_and(|u| u.has_block(event::ON_MAGIC_EFFECT_HIT)));
+        if !has_block && self.handlers.is_empty() {
             return false;
         }
         let effects: Vec<FormId> = items.iter().filter_map(|i| self.data.effect_items.get(i)).flatten().map(|e| e.effect).collect();
@@ -2684,6 +2774,15 @@ impl<'a> Game<'a> {
         self.run_main_loop();
         self.run_delayed();
         self.run_box_callback();
+        self.track_velocity();
+        self.run_due_snippets();
+        let (dt, frame) = (self.cfg.frame_seconds, self.frame);
+        self.gaps.sounds.tick(dt, frame);
+        self.projectiles_tick(dt as f32);
+        self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
+        self.hud_tick();
+        self.expire_aux_timers();
+        self.input.next_frame();
         self.turned.clear();
         // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
         // set them again (`functions::navigation::FrameSwitches`).
@@ -2708,7 +2807,8 @@ impl<'a> Game<'a> {
         let dt = self.cfg.frame_seconds;
         // A conversation with the player is menu mode too (`Game::in_menu`).
         let in_menu = self.in_menu();
-        if !in_menu {
+        // FreezeTime holds game time (`nvse_jip3`).
+        if !in_menu && !self.gaps.jip3.time_frozen {
             self.time += dt;
         }
         // `Disable 1` holds that ended (`functions::refs::disable`).
@@ -3379,7 +3479,8 @@ impl<'a> Game<'a> {
     /// jukebox's and the broken radio's OnLoad effects were not there on the line after
     /// Enable and were there one frame later, layer5-captures.md §8.3 d].
     pub fn note_enabled(&mut self, r: FormId) {
-        let has = self.ref_script(r).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD));
+        // The extender's OnLoad handlers hear every reference whose 3D loads, scripted or not.
+        let has = self.ref_script(r).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD)) || self.handled("onload");
         if has && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && !self.pending_onload.contains(&r) {
             self.pending_onload.push(r);
         }
@@ -3477,11 +3578,20 @@ impl<'a> Game<'a> {
         // layer5-captures.md §8.3 d]. Their Enable queues OnLoad again
         // (`Game::note_enabled`). References disabled through an enable parent are
         // treated the same [hypothesis: the plane was disabled by its own flag].
+        let all = self.handled("onload");
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
-            for r in refs {
+            for &r in &refs {
                 if self.world.peek(r).is_none_or(|s| !s.deleted) {
                     self.ref_event(r, event::ON_LOAD, None, None);
+                }
+            }
+            // The extender's OnLoad handlers hear the unscripted references too.
+            if all {
+                for r in self.refs_in_cell(c, false) {
+                    if !refs.contains(&r) {
+                        self.ext_event(event::ON_LOAD, r, None);
+                    }
                 }
             }
         }
@@ -3642,6 +3752,20 @@ impl<'a> Game<'a> {
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
     /// item's script runs in an instance per holder and item [hypothesis].
     pub fn item_event(&mut self, holder: FormId, item: FormId, ev: u16, subject: Option<Value>) -> bool {
+        // The extender's OnEquip and OnUnequip (and OnActorUnequip with it): the holder and
+        // the item [observed: nvse-events, (player, pistol) for all three]. Not OnAdd:
+        // AddItem of a base form did not fire it [observed]; OnDrop is sent by Drop with
+        // the dropped reference.
+        if matches!(ev, event::ON_EQUIP | event::ON_UNEQUIP) {
+            self.ext_event(ev, holder, Some(Value::Ref(item.0)));
+        }
+        if ev == event::ON_ADD {
+            self.showoff_on_add(holder, item);
+        }
+        if ev == event::ON_UNEQUIP {
+            use fnv_script::vm::XVal;
+            self.dispatch_event("OnActorUnequip", vec![XVal::Ref(holder.0), XVal::Ref(item.0)], Some(holder));
+        }
         let Some(script) = self.data.script_of_base(item) else { return false };
         if !self.data.script(script).is_some_and(|u| u.has_block(ev)) {
             return false;
@@ -3784,6 +3908,10 @@ impl<'a> Game<'a> {
         let data = self.data;
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
         let mut started: Vec<crate::aid::Applied> = Vec::new();
+        // The effects that took, kept here: one of duration 0 has finished by the hit check
+        // and is a hit all the same [observed: gaps2, a used stimpak raises OnMagicEffectHit
+        // on the player with its first effect].
+        let mut took_ids: Vec<u32> = Vec::new();
         for (index, e) in items.iter().enumerate() {
             if mods.only.is_some_and(|o| o != index) {
                 continue;
@@ -3862,6 +3990,7 @@ impl<'a> Game<'a> {
                 continue;
             }
             self.start_change(id);
+            took_ids.push(id);
             let change = self.effects.iter().find(|x| x.id == id).and_then(|x| x.change);
             started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false, inactive: false });
             self.effect_archetype_start(id);
@@ -3873,7 +4002,7 @@ impl<'a> Game<'a> {
         // The target's OnMagicEffectHit for each effect that took (not abilities and worn
         // enchantments, which are not hits) [hypothesis: after the effects start].
         if !permanent {
-            let took = |id: u32| self.effects.iter().any(|x| x.id == id && !x.inactive);
+            let took = |id: u32| took_ids.contains(&id) || self.effects.iter().any(|x| x.id == id && !x.inactive);
             let mut hit: Vec<FormId> = started.iter().filter(|a| a.extended || took(a.id)).map(|a| a.effect).collect();
             hit.dedup();
             for e in hit {
@@ -4551,6 +4680,8 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
             self.game.show_box(none);
+        } else {
+            self.game.queue_corner_message();
         }
     }
 
@@ -4634,12 +4765,27 @@ impl Host for Exec<'_, '_> {
 
     fn form_sig(&mut self, form: u32) -> Option<[u8; 4]> {
         let f = FormId(form);
+        // A shot that is over is no form any more [observed: proj1, IsFormValid 0].
+        if self.game.gaps.projs.gone.contains(&f) {
+            return None;
+        }
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
-        self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR"))
+        if let Some(s) = self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR")) {
+            return Some(s);
+        }
+        // A reference made at run time (a dropped item, PlaceAtMe) is a reference too, an
+        // actor's by its base [observed: rgb-ui, OnDrop's dropped stimpak is a reference
+        // in the game].
+        let base = self.game.world.peek(f)?.base;
+        Some(match self.game.data.sig(base) {
+            Some(s) if &s == b"NPC_" => *b"ACHR",
+            Some(s) if &s == b"CREA" => *b"ACRE",
+            _ => *b"REFR",
+        })
     }
 
     fn base_form(&mut self, form: u32) -> Option<u32> {
@@ -4648,9 +4794,13 @@ impl Host for Exec<'_, '_> {
 
     fn record_field(&mut self, form: u32, sub: &str, path: &str) -> Option<fnv_script::vm::XVal> {
         use fnv_script::vm::XVal;
+        // A script's change of the field for the session first (SetFormDescription …).
+        if let Some(v) = self.game.field_overrides.get(&(FormId(form), format!("{sub}/{path}"))) {
+            return Some(v.clone());
+        }
         let v = self.game.data.record_field(FormId(form), sub, path)?;
         Some(match v {
-            serde_json::Value::Number(n) => XVal::Num(n.as_f64()?),
+            serde_json::Value::Number(n) => XVal::Num(crate::nvse::record_float(n.as_f64()?)),
             // Form IDs decode as "0x0007EA31"; the null form is no form.
             serde_json::Value::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
             serde_json::Value::String(s) => XVal::Str(s.clone()),

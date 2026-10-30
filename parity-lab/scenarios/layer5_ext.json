@@ -63,10 +63,12 @@
   {
    "id": "L5.ext.jip.getters",
    "layer": 5,
-   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<job>.steps.json) as headless runner queries.",
+   "description": "JIP LN NVSE runtime-query probes, set jip-getters: numbers, strings, mod and version queries (docs/spec-notes/jip-math-utility.md); keyed by probe id. Oracle: the original game with JIP 57.30, each step compiled and run inside the game by nvf_capture (tools/capture/jip_probes.py with capture_run.py; private golden). Candidate: fnvtool ext queries, the same steps (tools/capture/jip-probes/<job>.steps.json) as headless runner queries. The load order is the one the game ran with: FalloutNV.esm, the nine DLC masters and NVFExtProbe.esp (GetNthModName 0-10 in the owner's game, 2026-10-26).",
    "oracle": {"golden": "jip/jip-getters.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_getters.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -78,7 +80,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-forms: getters on vanilla forms and the regex functions (docs/spec-notes/jip-strings.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-forms.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_forms.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -90,7 +94,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-stores: auxiliary variables and RefMap arrays (docs/spec-notes/jip-variable-stores.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-stores.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_stores.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -102,7 +108,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-events: event handlers registered as lambdas around one DamageAV (docs/spec-notes/jip-events.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-events.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_events.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -114,7 +122,9 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-hits: hit information read in OnHit handlers during a placed explosion (docs/spec-notes/jip-hit-info.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-hits.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
@@ -126,11 +136,702 @@
    "description": "JIP LN NVSE runtime-query probes, set jip-records: trait, flag and form getters of record fields (docs/spec-notes/jip-records.md); keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jip-records.json"},
    "candidate": {
-    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "--schema", "{schema_dir}",
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
              "--steps", "{lab_root}/../tools/capture/jip-probes/jip_records.steps.json"]
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "records"]
+  },
+  {
+   "id": "L5.ext.nvse.forms",
+   "layer": 5,
+   "description": "Core NVSE/FOSE form and reference getters (GetType, GetBaseObject, GetName, item, weapon and armor getters, form lists, mod queries) on vanilla forms, set nvse-forms of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters. Doc Mitchell's cell comes from the loaded save in the oracle.",
+   "oracle": {"golden": "jip/nvse-forms.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_forms.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "forms"]
+  },
+  {
+   "id": "L5.ext.nvse.vars",
+   "layer": 5,
+   "description": "NVSE variables by name (HasVariable, Get/SetVariable, Get/SetRefVariable) on a quest of NVFExtProbe.esp, the vanilla VCG02 and Doc Mitchell, set nvse-vars of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-vars.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_vars.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "vars"]
+  },
+  {
+   "id": "L5.ext.nvse.refs",
+   "layer": 5,
+   "description": "Reference walking in named, unloaded cells (GetNumRefsInCell, GetFirstRefInCell for Doc Mitchell's house and the Prospector Saloon), set nvse-refs of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters; the candidate first moves the player to exterior cell 000DEB16, where the oracle's save stands (GetParentCell in the owner's game), so both cells are unloaded as in the oracle.",
+   "oracle": {"golden": "jip/nvse-refs.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_refs.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "refs"]
+  },
+  {
+   "id": "L5.ext.nvse.controls",
+   "layer": 5,
+   "description": "Control bindings (GetControl for the 28 control codes, keyboard and mouse, GetAltControl); they read the owner's key bindings, set nvse-controls of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-controls.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_controls.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "controls"]
+  },
+  {
+   "id": "L5.ext.nvse.actors",
+   "layer": 5,
+   "description": "Doors (GetLinkedDoor, GetTeleportCell, IsLoadDoor), base factions and ranks, faction rank names, NPC hair, eyes, hair colour, height, weight and base flags on vanilla forms, set nvse-actors of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-actors.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_actors.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "actors"]
+  },
+  {
+   "id": "L5.ext.nvse.setters",
+   "layer": 5,
+   "description": "Base-form setters read back in the same session (SetWeaponClipRounds, SetWeight, SetBaseItemValue, SetObjectHealth, SetName through GetName, LNGetName and a reference), set nvse-setters of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-setters.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_setters.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "setters"]
+  },
+  {
+   "id": "L5.ext.nvse.misc",
+   "layer": 5,
+   "description": "Packages, quest objectives, ownership, biped model and texture paths and raw form flags on vanilla forms, set nvse-misc of tools/capture/jip_probes.py; keyed by probe id. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save (Doc Mitchell's current package, equipment, the player's perks).",
+   "oracle": {"golden": "jip/nvse-misc.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_misc.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "misc"]
+  },
+  {
+   "id": "L5.ext.nvse.math",
+   "layer": 5,
+   "description": "Quaternion and vector functions (legacy forms writing to named variables; the 6.4.8 Ex forms do not compile at run time in the game), results as \"%.4f\" text; set nvse-math of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-math.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_math.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "math"]
+  },
+  {
+   "id": "L5.ext.nvse.data",
+   "layer": 5,
+   "description": "Mod local data (number, string, form keys, case, removal, GetAllModLocalData) and the keys of GetUserTime; set nvse-data of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-data.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_data.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "data"]
+  },
+  {
+   "id": "L5.ext.nvse.inv",
+   "layer": 5,
+   "description": "Inventory references (a 10mm pistol added, equipped, looked at through foreach, unequipped, removed, one step each) and TempCloneForm/IsClonedForm; set nvse-inv of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-inv.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_inv.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "inv"]
+  },
+  {
+   "id": "L5.ext.nvse.second",
+   "layer": 5,
+   "description": "Second-pass families: weapon mods, faction and rank arrays, race name/hairs/eyes, ownership, key names and controls, disabled keys, perks added and removed, inventory-ref walking; set nvse-second of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save.",
+   "oracle": {"golden": "jip/nvse-second.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_second.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "second"]
+  },
+  {
+   "id": "L5.ext.nvse.keynames",
+   "layer": 5,
+   "description": "GetKeyName for every code 0-265 (keyboard scancodes and mouse buttons), set nvse-keynames of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-keynames.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_keynames.steps.json"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "keynames"]
+  },
+  {
+   "id": "L5.ext.nvse.third",
+   "layer": 5,
+   "description": "Base packages and spells, equipment slot and biped masks, object effects, class names, swimming and the dialogue getters outside a conversation; set nvse-third of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-third.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_third.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "third"]
+  },
+  {
+   "id": "L5.ext.nvse.fourth",
+   "layer": 5,
+   "description": "The extender core's other group: BuildRef, local indexes, GetSelfAlt/GetCurrentScript in a runtime query, grids, age class, head parts, leveled characters, FOSE versions, CompareScripts, ResetAllVariables, playable and quest-item setters, ammo and condition of an equipped pistol, inventory-reference actions (CopyIR, CopyIRAlt, RemoveMeIR, EquipMe, UnequipMe, EquipItem2) and CreateTempRef; set nvse-fourth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save or start position.",
+   "oracle": {"golden": "jip/nvse-fourth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_fourth.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "fourth"]
+  },
+  {
+   "id": "L5.ext.jip.fifth",
+   "layer": 5,
+   "description": "The owner's mod list's most used unbuilt functions (docs/handoff/modlist-scan-2026-10-26.md): JohnnyGuitar EditorIDToFormID/GetEditorID/Clamp, LU GetDistance3D, JIP IsInAir, IsSpellTargetAlt, GetPerkModifier, GetGameDaysPassed, StopIdle, MessageExAlt, SetGameHour (guarded by TimeScale 30, put back), AddItemAlt, GetWeaponRefModFlags, EquipItemAlt, RemoveItemTarget; set jip-fifth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save.",
+   "oracle": {"golden": "jip/jip-fifth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_fifth.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "fifth"]
+  },
+  {
+   "id": "L5.ext.nvse.fifth",
+   "layer": 5,
+   "description": "The xNVSE other group and the player-control locks: DisablePlayerControlsAlt/AltEx bits, console echo, default forms, door teleports, explicit refs and script commands, permanent flags, RemoveScript/SetScript, RunScript, SetEditorID, SetNameEx, rank names, Sv_Set, power armour and control flags, hotkeys, owned items, open keys, the fly camera and the clip; set nvse-fifth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; ids ending in .save read the owner's save.",
+   "oracle": {"golden": "jip/nvse-fifth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_fifth.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "fifth"]
+  },
+  {
+   "id": "L5.ext.nvse.sixth",
+   "layer": 5,
+   "description": "Tokens, INI settings (read, set and put back), event-handler lists around one SetEventHandler lambda, GetCommandOpcode and the debug functions; set nvse-sixth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters; the INI rows read the owner's install, the candidate the game's Fallout_default.ini.",
+   "oracle": {"golden": "jip/nvse-sixth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_sixth.steps.json", "--start-cell", "0x000DEB16",
+             "--ini", "{data_dir}/../Fallout_default.ini"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "sixth"]
+  },
+  {
+   "id": "L5.ext.nvse.seventh",
+   "layer": 5,
+   "description": "Packages on Doc Mitchell (AddPackageAt, RemoveAllPackages, location radius and references), scope, biped icon and model paths (SetModelPathEx, SetBipedModelPathEx with a format value), form flags, hair and eyes flags, the equipped weapon's mod flags; set nvse-seventh of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-seventh.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_seventh.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "seventh"]
+  },
+  {
+   "id": "L5.ext.nvse.eighth",
+   "layer": 5,
+   "description": "Animations (AddAnimation, DelAnimation, DelAnimations, GetNthAnimation) and the generic form lists (GenericGetForm, GenericAddForm, GenericDeleteForm, GenericReplaceForm) on Doc Mitchell, con_ console functions (con_SetGameSetting, Con_TFC, con_Get/SetINISetting), UI traits, and form flags of references around the player and in Doc's house; set nvse-eighth of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters, with the default INI as L5.ext.nvse.sixth.",
+   "oracle": {"golden": "jip/nvse-eighth.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_eighth.steps.json", "--start-cell", "0x000DEB16",
+             "--ini", "{data_dir}/../Fallout_default.ini"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "eighth"]
+  },
+  {
+   "id": "L5.ext.lu.leveled",
+   "layer": 5,
+   "description": "LU leveled-list functions (LeveledListAddForm, RemoveForm, ReplaceForm, Clear, Get/SetNthLevItem*, GetLevItemIndexBy*, chance none, flags) on an LVLI, an LVLN and an LVLC, AddItem of a rebuilt list, and the versions the extender plugins report; set lu-leveled of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/lu-leveled.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/lu_leveled.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "lu", "probes", "leveled"]
+  },
+  {
+   "id": "L5.ext.nvse.flags",
+   "layer": 5,
+   "description": "GetFlagsLow of references (persistent and placed actors, the player, an ACRE, REFRs with Hidden From Local Map, dead actors, Doc with his cell loaded) beside GetTalkedToPC and GetDead: which references carry flag 64; set nvse-flags of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-flags.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_flags.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "nvse", "probes", "flags"]
+  },
+  {
+   "id": "L5.ext.jip.n7",
+   "layer": 5,
+   "description": "JIP and LU actor and game odds (keywords, hardcore stage thresholds and tracking, voice type, base karma, perk entry values and modifiers, LNSetName, IsInWater/IsInAir, GetKiller, SetSpeedMult, SetLinkedReference, UnequipItemAlt, reference flags, CastImmediate, MoveToEditorPosition, MoveToCell); set jip-n7 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-n7.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_n7.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "n7"]
+  },
+  {
+   "id": "L5.ext.jip.playerstate",
+   "layer": 5,
+   "description": "Player-state getters the runtime sweep ranks first (GetWaterImmersionPerc, IsInKillCam, GetPCUsingScope/IronSights, GetAutoMove, GetActorVelocity, IsIdlePlayingEx) and LU's controller functions with no pad connected; set player-state of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/player-state.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/player_state.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "playerstate"]
+  },
+  {
+   "id": "L5.ext.mcm",
+   "layer": 5,
+   "description": "MCM's script functions (GetModINISetting on MCM.ini, GetMCMFloat, SetMCMFloat, SetMCMString, StartMenu tiles) outside the menu, in a load order of its own with The Mod Configuration Menu.esp last; set mcm of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/mcm.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "The Mod Configuration Menu.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/mcm.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "mcm"]
+  },
+  {
+   "id": "L5.ext.plugin.odds",
+   "layer": 5,
+   "description": "JohnnyGuitar, ShowOff and ITR leftovers (GetPipBoyMode, Lerp, extra misc stats, camera shake, armor alt textures, 1st-person weapon models, ActorHasBaseFlag, aux timers, ClearFileCacheShowOff, FileExists, GetFilesInFolder, ForceCrouch, ForceCombatTarget); set plugin-odds of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/plugin-odds.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugin_odds.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "n9"]
+  },
+  {
+   "id": "L5.ext.lu.leveled2",
+   "layer": 5,
+   "description": "LeveledListAddForm by entry kind and level, and edited lists reaching AddItem (player and container), a placed container and ResetInventory; set lu-leveled2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/lu-leveled2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/lu_leveled2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "leveled2"]
+  },
+  {
+   "id": "L5.ext.jip.projectile",
+   "layer": 5,
+   "description": "JIP live-projectile functions (GetProjectileRefImpactRef, Source, Weapon, Damage) inside SetOnProjectileImpactEventHandler lambdas, the player firing the 10mm pistol with FireWeapon while looking down; set projectile of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/projectile.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/projectile.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "projectile"]
+  },
+  {
+   "id": "L5.ext.jip.skysound",
+   "layer": 5,
+   "description": "JIP sound, weather and image-space traits (Get/SetSoundTraitNumeric, Get/SetSoundSourceFile, IsSoundPlaying, Get/SetWeatherTraitNumeric, Get/SetWeatherRGBColor, GetWeatherImageSpaceMod, Get/SetImageSpaceTrait, Get/SetImageSpaceModTrait) with read-back and restore; set sky-sound of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/sky-sound.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/sky_sound.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "skysound"]
+  },
+  {
+   "id": "L5.ext.knvse.anim",
+   "layer": 5,
+   "description": "kNVSE animation functions on a placed copy of Doc's NPC and on the player (GetPlayingAnimSequencePaths, GetActiveAnims, IsAnimPlayingAlt, IsAnimSequencePlaying, GetAnimationsByAnimGroup, SetActorAnimationPath, PlayAnimationPath, GetAnimationAttributes, ActivateAnim, DeactivateAnim, ForcePlayIdle, ForceStopIdle, SetWeaponAnimationPath); set knvse-anim of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/knvse-anim.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/knvse_anim.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "knvse"]
+  },
+  {
+   "id": "L5.ext.jip.nifblocks",
+   "layer": 5,
+   "description": "JIP NIF block functions by node name on a placed copy of Doc's NPC (GetChildBlocks, GetNifBlockParentNodes, Get/SetNifBlockTranslation/Rotation/Scale/Flag, RenameNifBlock, InsertNode, AttachModel, RemoveNifBlock) and ModelHasBlock on a weapon model; set nif-blocks of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nif-blocks.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nif_blocks.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "nifblocks"]
+  },
+  {
+   "id": "L5.ext.ini.files",
+   "layer": 5,
+   "description": "INI files under Data\\Config read and written by LU (GetINIFloat, GetINIString, SetINIFloat), ShowOff (GetINI...OrDefault_Cached, GetINI...OrCreate_Cached) and MCM (Get/SetModINISetting), with the test INIs of tools/capture/jip-probes/config standing for Data\\Config; set ini-files of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/ini-files.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/ini_files.steps.json", "--start-cell", "0x000DEB16",
+             "--config", "{lab_root}/../tools/capture/jip-probes/config"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "inifiles"]
+  },
+  {
+   "id": "L5.ext.nvse.events",
+   "layer": 5,
+   "description": "Which xNVSE events fire (SetEventHandler lambdas) and their first firing's two arguments, caused through the player's inventory, a placed creature and NPC, and a stimpak cast; set nvse-events of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-events.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_events.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "events"]
+  },
+  {
+   "id": "L5.ext.jip.events2",
+   "layer": 5,
+   "description": "JIP and JohnnyGuitar SetOn...EventHandler events caused without menus or input (FireWeapon, UseAidItem, CrippledLimb, PlayGroup, Ragdoll, NoteAdded, ActorValueChange): whether each fires and its arguments; set jip-events2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jip-events2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip_events2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "events2"]
+  },
+  {
+   "id": "L5.ext.nvse.leftovers",
+   "layer": 5,
+   "description": "xNVSE and JIP leftovers (GetPaired, TestExpr, GetFalloutDirectory, GetCalculatedWeaponDamage, GetCurrentQuestObjectiveTeleportLinks, PrintVar, DebugPrintVar, GetSoldItemInvRef outside OnSell); set nvse-leftovers of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/nvse-leftovers.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/nvse_leftovers.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "leftovers"]
+  },
+  {
+   "id": "L5.ext.jip.rgbui",
+   "layer": 5,
+   "description": "SetWeatherRGBColor with out-of-range parts from a fixed start, and SetUIFloat / GetUIFloat on HUDMainMenu's traits over frames; set rgb-ui of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/rgb-ui.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rgb_ui.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rgbui"]
+  },
+  {
+   "id": "L5.ext.gaps1",
+   "layer": 5,
+   "description": "The most used functions of the mod-list scan no other set called: SetUIString, SetUIStringAlt, SetUIFloatAlt, GetUIString on the HUD, GetLoadedTypeArray, GetCrosshairRef, StopSound; set gaps1 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps1.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps2",
+   "layer": 5,
+   "description": "The most used unbuilt functions of modlist-function-counts.json no other set called (effects, ammo effects, globals, perk flags, creature type, pickup sound, inventory weight and items, DPS, BaseRemoveItem, actor value modifiers, teammates, distance, SetFullNameAlt, Pip-Boy light, SetCombatDisabled, HasScriptBlock, IsAnimPlayingEx) and a stimpak's OnMagicEffectHit on the player; set gaps2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps3",
+   "layer": 5,
+   "description": "The next unbuilt, unprobed functions of modlist-function-counts.json (menu mode, time multiplier, actors by processing level, folders, ground material, ragdoll, perk entries, base effect archetype/AV/flags, effect and cell flags, keyword forms, Set/GetGlobalVariable, Get/SetCombatDisabled, effect shader, destruction stages, cursor, biped slot visibility, ReloadEquippedModels, SetWeaponOut, DropAlt); set gaps3 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps3.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps4",
+   "layer": 5,
+   "description": "The next unbuilt, unprobed functions of modlist-function-counts.json (LAA, climates by name, body part data, form refs, fall time, combat and crime states, run speed, active quest, perk entry function, cell image space, recipe outputs, music, weapon flags and sounds, sound flags, StopSoundAlt, SetRefName, gravity, optional patches); set gaps4 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps4.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps4.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps5",
+   "layer": 5,
+   "description": "The extender core's questions after building gaps2-4: the save's Guns, hardcore state and level, weapon sound IDs 0-11 on three weapons, perk entry types, functions and counts on six perks, GetActorValueModifier by filter after damage, GetRunSpeed sneaking and armoured; set gaps5 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps5.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps5.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps6",
+   "layer": 5,
+   "description": "GetCalculatedWeaponDPS on the skill curve (pistol at three Guns values, combat knife at two Melee values) and the next unprobed JIP functions (effect traits, form descriptions, SetValueAlt, object effects, projectile flags and explosions, aux variables as arrays, ref-map refs, poison, detection, processing level, SetPersistent, CrippleLimb, SetStickDisabled, IsComponentLoaded); set gaps6 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/gaps6.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps6.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps"]
+  },
+  {
+   "id": "L5.ext.gaps7",
+   "layer": 5,
+   "description": "gaps7: DPS critical part (crit damage 0, crit chance 0, CritChance +10, Luck +5), explosion flags and forms, perk level and flags, package flags, object dimensions, terrain height, item kinds, actor states",
+   "oracle": {"golden": "jip/gaps7.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps7.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps7"]
+  },
+  {
+   "id": "L5.ext.gaps8",
+   "layer": 5,
+   "description": "gaps8: worldspace climate and flags, climate textures, armour audio templates and model paths, destruction health, container respawns, package flags, interaction",
+   "oracle": {"golden": "jip/gaps8.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps8.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps8"]
+  },
+  {
+   "id": "L5.ext.gaps9",
+   "layer": 5,
+   "description": "gaps9: melee and unarmed DPS (knife, machete, sledgehammer, fists, brass knuckles) at the save's skills, crit damage 0, CritChance +10 and skill +16",
+   "oracle": {"golden": "jip/gaps9.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps9.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps9"]
+  },
+  {
+   "id": "L5.ext.gaps10",
+   "layer": 5,
+   "description": "gaps10: ref map strings, RunScriptSnippet, arrays to and from a file, impact data sets and models, shell casings, ray casts, SetPosEx, tilt, effect bases, sneaking and first person",
+   "oracle": {"golden": "jip/gaps10.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps10.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps10"]
+  },
+  {
+   "id": "L5.ext.gaps11",
+   "layer": 5,
+   "description": "gaps11: SetPosEx translate frame on Doc and on the player at headings 90 and 0; equipped weapon inventory ref health, mod flags and ammo rounds",
+   "oracle": {"golden": "jip/gaps11.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/gaps11.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "gaps11"]
+  },
+  {
+   "id": "L5.ext.plugins1",
+   "layer": 5,
+   "description": "plugins1: the most used unprobed LU, JohnnyGuitar and ShowOff functions (idle paths, perk entry value 2, recipes, base item counts, ingestible, template and race flags, always run, remap, easing, DLL checks)",
+   "oracle": {"golden": "jip/plugins1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugins1.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "plugins1"]
+  },
+  {
+   "id": "L5.ext.plugins2",
+   "layer": 5,
+   "description": "plugins2: GetIngestibleFlag on food, drink and poison, ApplyEasing's other curves, IsDLLLoaded names, map marker reputation, pickup and putdown sounds, recipe subcategory, RemoveFormFromFormList",
+   "oracle": {"golden": "jip/plugins2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugins2.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "plugins2"]
+  },
+  {
+   "id": "L5.ext.plugins3",
+   "layer": 5,
+   "description": "plugins3: GetName on references near the player against their bases, JohnnyGuitar add/remove perk events, LU SetGlobalValue, GetAvailableRadios",
+   "oracle": {"golden": "jip/plugins3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/plugins3.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "plugins3"]
   }
  ]
 }

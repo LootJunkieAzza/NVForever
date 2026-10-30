@@ -64,8 +64,7 @@ splits them into five families (§5).
   logs (documentation), and **captures in the original game** with the extenders loaded.
   `nvf_capture` already runs inside FNV 1.4.0.525 with xNVSE (docs/spec-notes/xnvse-capture.md),
   so it can call any of these functions and record what it returns.
-- **Not read**: the source code of xNVSE (no licence file, treated as all rights reserved,
-  same rule as nv-rs), JIP LN, JohnnyGuitar or any other plugin. The interface header used
+- **Not read**: the source code of xNVSE (no licence file, treated as all rights reserved), JIP LN, JohnnyGuitar or any other plugin. The interface header used
   for `nvf_capture` stays the only extender file read, and only for the capture tool.
 - **Process**: spec note per function family (`docs/spec-notes/ext-*.md`), tagged
   `[documented]` (wiki page), `[observed]` (capture) or `[hypothesis]`. Then implement from
@@ -363,3 +362,15 @@ so it parallelises well across sessions.
   measures how many.
 - **Licence of the wiki pages.** The function pages are documentation, used the same way as
   for vanilla functions. Wiki text is not copied into the repo, only re-expressed facts.
+
+### T12b indexed UI paths (2026-10-29)
+
+[observed: private jobs hud_hardcore hc0, hud_xp_limbs all, hud_prompt2 p0-p8;
+menu-xml.md §5/§8, hud.md §14.8] `*:N` and `name:N` count from the last matching
+child, zero-based. [design] fnv-ui applies this to all indexed UI function paths;
+the HUD copies are created in reverse order to preserve their captured paths.
+Unindexed lookup and draw traversal keep file order [hypothesis: unindexed lookup].
+The captures used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat parity and other
+menus/scripts remain untested [hypothesis]. No dependence on first-child indexing
+was established in vanilla data by these captures; absence of such a dependency
+is not claimed.

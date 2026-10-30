@@ -26,6 +26,8 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if !was {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
+        // The extender's OnEnable: the reference, then 0 [observed: nvse-events].
+        g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }
@@ -65,6 +67,8 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
         g.emit(EventKind::RefDisabled { reference: r, fade });
+        // The extender's OnDisable: the reference, then 0 [observed: nvse-events].
+        g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }
@@ -196,7 +200,7 @@ pub fn get_self(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// condition a null form (FormID 0, as on INFO 0x000FF5BA) is no one's: 0 [observed
 /// 2026-10-30, capture o4_00_probe: a placed copy of Papa Khan told to SayTo GREETING
 /// passed over 0x000FF5BA, `GetIsID <null> == 1` its only condition, for a line 308
-/// places further on; observer-checks.md check 34].
+/// places further on; observer-checks.md check 35].
 pub fn get_is_id(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.in_condition && a.is_null_form(0) {
         return yes(false);
@@ -318,15 +322,24 @@ fn placed_by_script(g: &mut Game, r: FormId, moved: bool) {
 /// GetAngle/SetAngle take degrees]. The player's X angle is its view's pitch, -89 looking
 /// up and 89 looking at its feet [documented: GECK wiki GetAngle], written by the engine
 /// (nvf-play `player::sync_sim`).
+/// A SetAngle shows from the next frame [observed: gaps11, GetAngle Z read the old
+/// heading in SetAngle's frame].
 pub fn get_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
+    if let Some(v) = g.gaps.angles_shown.get(&(r, i)) {
+        return Ok(Value::Num(*v));
+    }
     Ok(Value::Num((place(g, r)?.2[i] as f64).to_degrees()))
 }
 
 pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
+    if !g.gaps.angles_shown.contains_key(&(r, i)) {
+        let old = (place(g, r)?.2[i] as f64).to_degrees();
+        g.gaps.angles_shown.insert((r, i), old);
+    }
     let v = a.num(1)?.to_radians() as f32;
     g.world.get(r).map_err(|e| e.to_string())?.rot[i] = v;
     placed_by_script(g, r, false);
@@ -335,7 +348,8 @@ pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(g.world.placed.get(r).and_then(|p| p.linked).map(|l| Value::Ref(l.0)).unwrap_or(Value::NONE))
+    // SetLinkedReference's link first [observed: jip-n7].
+    Ok(g.linked_ref(r).map(|l| Value::Ref(l.0)).unwrap_or(Value::NONE))
 }
 
 pub fn get_parent_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

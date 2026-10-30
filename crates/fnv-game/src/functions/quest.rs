@@ -96,7 +96,7 @@ pub fn get_objective_completed(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 /// Conditions only: quest and variable index (xEdit `ptVariableName`). A null quest
 /// (FormID 0, as on Papa Khan's goodbyes INFO 0x0014B595-7) reads 0 [observed
 /// 2026-10-30, capture o4_00_probe: a placed copy of Papa Khan told to SayTo GOODBYE chose
-/// 0x0014B595, whose `GetQuestVariable <null> 1 == 0` passed; observer-checks.md check 34].
+/// 0x0014B595, whose `GetQuestVariable <null> 1 == 0` passed; observer-checks.md check 35].
 pub fn get_quest_variable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.in_condition && a.is_null_form(0) {
         return Ok(Value::ZERO);

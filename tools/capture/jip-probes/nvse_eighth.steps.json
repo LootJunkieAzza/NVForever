@@ -1,0 +1,331 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_eighth",
+ "title": "nvse-eighth, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFlagsLow rPlayer)\nEnd\n",
+   "label": "flags.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFlagsLow rDoc)\nEnd\n",
+   "label": "flags.docref",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C79\"\nSetFunctionValue (GetFlagsLow rObj)\nEnd\n",
+   "label": "flags.chet",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10618E\"\nSetFunctionValue (GetFlagsLow rObj)\nEnd\n",
+   "label": "flags.saloondoor",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nlet rItem := GetFirstRefInCell rF 0 0 0\nlet fRes := 0\nlet sText := \"\"\nwhile IsFormValid rItem && fRes < 40\n  let sText += (GetFormIDString rItem) + (sv_Construct \":%g:%g \" (GetFlagsLow rItem) (GetType (rItem.GetBaseObject)))\n  let fRes += 1\n  let rItem := GetNextRef\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "walk.doccell",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rItem := GetFirstRef 200 0 0\nlet fRes := 0\nlet sText := \"\"\nwhile IsFormValid rItem && fRes < 40\n  let sText += (GetFormIDString rItem) + (sv_Construct \":%g:%g \" (GetFlagsLow rItem) (GetType (rItem.GetBaseObject)))\n  let fRes += 1\n  let rItem := GetNextRef\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "walk.here.actors",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rItem := GetFirstRef 0 0 0\nlet fRes := 0\nlet sText := \"\"\nwhile IsFormValid rItem && fRes < 40\n  let sText += (GetFormIDString rItem) + (sv_Construct \":%g:%g \" (GetFlagsLow rItem) (GetType (rItem.GetBaseObject)))\n  let fRes += 1\n  let rItem := GetNextRef\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "walk.here",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNthAnimation 0 rBase)\nEnd\n",
+   "label": "anim.base.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rDoc.GetNthAnimation 0)\nEnd\n",
+   "label": "anim.ref.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (AddAnimation \"nvf\\test.kf\" rBase)\nEnd\n",
+   "label": "anim.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNthAnimation 0 rBase)\nEnd\n",
+   "label": "anim.add.base.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rDoc.GetNthAnimation 0)\nEnd\n",
+   "label": "anim.add.ref.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (AddAnimation \"nvf\\second.kf\" rBase)\nEnd\n",
+   "label": "anim.add2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNthAnimation 1 rBase)\nEnd\n",
+   "label": "anim.add2.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (DelAnimation \"nvf\\test.kf\" rBase)\nEnd\n",
+   "label": "anim.del",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNthAnimation 0 rBase)\nEnd\n",
+   "label": "anim.del.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (DelAnimation \"nvf\\none.kf\" rBase)\nEnd\n",
+   "label": "anim.del.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (DelAnimations rBase)\nEnd\n",
+   "label": "anim.delall",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNthAnimation 0 rBase)\nEnd\n",
+   "label": "anim.delall.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericGetForm 10 rDoc 0))\nEnd\n",
+   "label": "generic.10.ref.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericGetForm 10 rBase 0))\nEnd\n",
+   "label": "generic.10.base.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericGetForm 10 rDoc 1))\nEnd\n",
+   "label": "generic.10.ref.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericGetForm 5 rDoc 0))\nEnd\n",
+   "label": "generic.5.ref.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericGetForm 5 rBase 0))\nEnd\n",
+   "label": "generic.5.base.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"42C3\"\nSetFunctionValue (GetFormIDString (GenericGetForm 0 rObj 0))\nEnd\n",
+   "label": "generic.race.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"42C3\"\nSetFunctionValue (GetFormIDString (GenericGetForm 1 rObj 0))\nEnd\n",
+   "label": "generic.race.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (GetFormIDString (GenericGetForm 13 rObj 0))\nEnd\n",
+   "label": "generic.list.13.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1613D5\"\nSetFunctionValue (GetFormIDString (GenericGetForm 13 rObj 1))\nEnd\n",
+   "label": "generic.list.13.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"7B47B\"\nlet rItem := GenericGetForm 10 rDoc 0\nrPlayer.AuxVarSetRef \"*nvfHP\" rItem\nSetFunctionValue (GetFormIDString (GenericReplaceForm 10 rDoc rObj 0))\nEnd\n",
+   "label": "generic.10.replace",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericGetForm 10 rDoc 0))\nEnd\n",
+   "label": "generic.10.after.replace",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rItem := rPlayer.AuxVarGetRef \"*nvfHP\"\nlet rOther := GenericReplaceForm 10 rDoc rItem 0\nrPlayer.AuxVarErase \"*nvfHP\"\nSetFunctionValue (GetFormIDString (GenericGetForm 10 rDoc 0))\nEnd\n",
+   "label": "generic.10.restore",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"200D5\"\nSetFunctionValue (GenericAddForm 5 rDoc rObj 0)\nEnd\n",
+   "label": "generic.5.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (rDoc.GetNthPackage 0))\nEnd\n",
+   "label": "generic.5.after.add",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GenericDeleteForm 5 rDoc 0))\nEnd\n",
+   "label": "generic.5.delete",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (rDoc.GetNthPackage 0))\nEnd\n",
+   "label": "generic.5.after.delete",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"200D5\"\nSetFunctionValue (GenericAddForm 5 rDoc rObj -2)\nEnd\n",
+   "label": "generic.5.add.minus2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (rDoc.GetPackageCount)\nEnd\n",
+   "label": "generic.5.count.minus2",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (rDoc.GetNthPackage ((rDoc.GetPackageCount) - 1)))\nEnd\n",
+   "label": "generic.5.last.minus2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetConsoleEcho 1\nSetFunctionValue (GetConsoleEcho)\nEnd\n",
+   "label": "con.echo",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNumericGameSetting \"fJumpFallHeightMin\")\nEnd\n",
+   "label": "con.gmst.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\ncon_SetGameSetting \"fJumpFallHeightMin\" \"100\"\nSetFunctionValue (GetNumericGameSetting \"fJumpFallHeightMin\")\nEnd\n",
+   "label": "con.gmst.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\ncon_SetGameSetting \"fJumpFallHeightMin\" \"600\"\nSetFunctionValue (GetNumericGameSetting \"fJumpFallHeightMin\")\nEnd\n",
+   "label": "con.gmst.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetConsoleOutputFilename)\nEnd\n",
+   "label": "con.scof.name",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (HasConsoleOutputFilename)\nEnd\n",
+   "label": "con.scof.has",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetTFC)\nEnd\n",
+   "label": "con.tfc.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nCon_TFC\nSetFunctionValue (GetTFC)\nEnd\n",
+   "label": "con.tfc.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetTFC)\nEnd\n",
+   "label": "con.tfc.on.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nCon_TFC\nSetFunctionValue (GetTFC)\nEnd\n",
+   "label": "con.tfc.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetTFC)\nEnd\n",
+   "label": "con.tfc.off.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (con_GetINISetting \"fDefaultFOV:Display\")\nEnd\n",
+   "label": "con.ini.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\ncon_SetINISetting \"fDefaultFOV:Display\" \"80\"\nSetFunctionValue (GetNumericINISetting \"fDefaultFOV:Display\")\nEnd\n",
+   "label": "con.ini.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\ncon_SetINISetting \"fDefaultFOV:Display\" \"75\"\nSetFunctionValue (GetNumericINISetting \"fDefaultFOV:Display\")\nEnd\n",
+   "label": "con.ini.restore",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetConsoleEcho 0\nSetFunctionValue (GetConsoleEcho)\nEnd\n",
+   "label": "con.echo.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/_X\")\nEnd\n",
+   "label": "ui.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/visible\")\nEnd\n",
+   "label": "ui.visible",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetUIFloat \"NVFNoMenu/_nvf\")\nEnd\n",
+   "label": "ui.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetUIFloat \"HUDMainMenu/_nvfprobe\" 5\nSetFunctionValue (GetUIFloat \"HUDMainMenu/_nvfprobe\")\nEnd\n",
+   "label": "ui.user.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetUIFloat \"HUDMainMenu/_nvfprobe\")\nEnd\n",
+   "label": "ui.user.next",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nref rDoc\nref rBase\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rBase := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetUIStringEx \"HUDMainMenu/_nvfstr\" \"n%g\" 3\nSetFunctionValue (GetUIString \"HUDMainMenu/_nvfstr\")\nEnd\n",
+   "label": "ui.stringex",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

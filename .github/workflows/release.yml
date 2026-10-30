@@ -5,7 +5,8 @@ name: release
 # or by hand (Actions tab > release > Run workflow, naming the tag): a hand run builds
 # the chosen branch's head and creates the tag there if it does not exist yet.
 # No game data is packaged: the archives hold our programs, the schemas they read and
-# the licence files only (CLAUDE.md charter).
+# the licence files only (CLAUDE.md charter), with THIRD-PARTY-LICENSES.txt listing the
+# notices of every package the programs are built from (tools/release/third_party_licenses.py).
 on:
   push:
     tags: ["v*"]
@@ -65,6 +66,8 @@ jobs:
           cp "engine/target/release/nvf-viewer${{ matrix.exe }}" "dist/$name/"
           cp -r schemas "dist/$name/schemas"
           cp README.md LICENSE LEGAL.md tools/release/README-release.md "dist/$name/"
+          # The notices of every third-party package the programs are built from.
+          python tools/release/third_party_licenses.py --target "${{ matrix.target }}" --out "dist/$name/THIRD-PARTY-LICENSES.txt"
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp tools/release/nvforever.cmd tools/release/nvf-viewer.cmd "dist/$name/"
             (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
