@@ -357,6 +357,31 @@ fn write_subtitles(ui: &mut Ui, subtitles: &[String]) {
     num(ui, t, "visible", f64::from(!text.is_empty()));
 }
 
+/// The text copies [`write`] makes, in every area: their widths are written after it
+/// ([`write_widths`]).
+pub fn texts(ui: &Ui) -> Vec<TileId> {
+    [("Messages", "text"), ("QuestReminder", "label"), ("QuestReminder", "title"), ("QuestReminder", "objective"), ("Region_Location", "label"), ("Region_Location", "title"), ("Subtitles", "text")]
+        .into_iter()
+        .flat_map(|(piece, role)| copies(ui, piece, role))
+        .collect()
+}
+
+/// Write each text copy's `width` from its string just written, before scripts read it, as
+/// the HUD's other text tiles get theirs (`fnv_game::ui_hud::write_text_widths`) [design:
+/// ui-tile-tree.md §4.1]. `measure` gives a text's width in a font at a wrap width: a
+/// wrapped text is as wide as its widest line [hypothesis: hud.md §14.11 read `Messages/*:1`
+/// 281 wide, under the 330 the hand-built HUD wraps at; the width of a copy holding a
+/// wrapped string was not read].
+pub fn write_widths(ui: &mut Ui, measure: &dyn Fn(f64, &str, Option<f64>) -> f64) {
+    for tile in texts(ui) {
+        let t = ui.tile(tile);
+        let Some(string) = t.get("string").map(Value::text) else { continue };
+        let font = t.get("font").map_or(0.0, Value::num);
+        let wrap = t.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+        ui.set_trait(tile, "width", Value::Num(measure(font, &string, wrap)));
+    }
+}
+
 /// A line for the log when what an area shows changes (smoke reads these).
 pub fn describe(n: &Notices) -> [Option<String>; 4] {
     [
@@ -623,6 +648,32 @@ mod tests {
         let mut none = Ui::new();
         write(&mut none, &message("c", 1.0), &lines);
         assert!(none.find_tile("HUDMainMenu").is_none());
+    }
+
+    /// The review of #952: the copies' widths were never written, unlike the HUD's other
+    /// text tiles'. Each text copy gets one from its string, its font and its wrap width.
+    #[test]
+    fn every_text_copy_gets_its_width_from_its_string_font_and_wrap() {
+        let mut ui = hud();
+        let list = vec![("x".repeat(69), false), ("Meet Sunny.".to_string(), false)];
+        write(&mut ui, &message("Bomb disarmed.", 1.0), &lines);
+        write(&mut ui, &Notices { quest: Some(Quest::Objectives { list, strength: 1.0 }), subtitles: vec!["Hi.".into()], ..message("Bomb disarmed.", 1.0) }, &lines);
+        // The measure echoes what it was given: ten units a character, held to the wrap,
+        // plus the font as a hundred.
+        let measure = |font: f64, text: &str, wrap: Option<f64>| (10.0 * text.chars().count() as f64).min(wrap.unwrap_or(f64::MAX)) + 100.0 * font;
+        write_widths(&mut ui, &measure);
+        let width = |t: TileId| ui.tile(t).get("width").map(Value::num);
+        assert_eq!(width(copies(&ui, "Messages", "text")[0]), Some(140.0 + 700.0));
+        let objectives = copies(&ui, "QuestReminder", "objective");
+        assert_eq!((width(objectives[0]), width(objectives[1])), (Some(570.0 + 700.0), Some(110.0 + 700.0)));
+        // The subtitle in its template's font, wrapped at 800.
+        assert_eq!(width(copies(&ui, "Subtitles", "text")[0]), Some(30.0 + 700.0));
+        // The message, the banner's label and name (made with the objectives, no string yet,
+        // so no width), the two objectives and the subtitle.
+        assert_eq!(texts(&ui).len(), 1 + 2 + 2 + 1);
+        assert!(copies(&ui, "QuestReminder", "label").iter().all(|&t| width(t).is_none()));
+        // Pictures are not texts: the boxes, the icon and the bracket get no width written.
+        assert!(copies(&ui, "QuestReminder", "open_box").iter().all(|&b| ui.tile(b).get("width").map(Value::num) == Some(26.0)));
     }
 
     #[test]

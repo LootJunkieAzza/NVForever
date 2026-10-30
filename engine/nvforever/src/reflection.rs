@@ -162,9 +162,9 @@ const SAME_HEIGHT: f32 = 1.0;
 /// camera's view (`clip_from_world`, Bevy space): the part of every loaded cell and every
 /// distant-water cell where the water stands above the land ([`DistantWater::wet_area`],
 /// so planes under the ground never count), and placed water
-/// objects whose bounds reach that height ([`placed_water_on_screen`]). Water at another
-/// height reflects only the sky and does not need the camera. What hides it from view (a
-/// hill, a wall) is not taken into account.
+/// objects whose bounds reach that height. Water at another height reflects only the sky
+/// and does not need the camera. What hides it from view (a hill, a wall) is not taken
+/// into account.
 fn water_on_screen(
     world: &WorldData,
     streamer: &Streamer,
@@ -172,8 +172,11 @@ fn water_on_screen(
     placed: &PlacedWater,
     clip_from_world: Mat4,
     h: f32,
+    cam: Vec3,
 ) -> Option<SeenWater> {
-    let cells: Vec<(i32, i32)> = streamer.loaded.keys().copied().chain(dw.plane_cells()).collect();
+    // Nearest first, so the water named is the same every run (the maps' order is not).
+    let g = bevy_to_game(cam);
+    let cells = nearest_first(streamer.loaded.keys().copied().chain(dw.plane_cells()), cell_of(g.x, g.y));
     for c in cells {
         let Some((height, _)) = dw.surface(world, c) else { continue };
         if (height - h).abs() > SAME_HEIGHT {
@@ -184,17 +187,20 @@ fn water_on_screen(
             return Some(SeenWater::Cell(c));
         }
     }
-    placed_water_on_screen(placed.iter().map(|(t, aabb, r, v)| (t.affine(), aabb, r.0, v.get())), clip_from_world, h)
+    placed_water_on_screen(placed.iter().map(|(t, aabb, r, v)| (t.affine(), aabb, r.0, v.get())), clip_from_world, h, cam)
 }
 
-/// The first placed water object that is drawn, reaches height `h` and lies partly inside
-/// the view: each as its transform, bounds, reference and whether it is visible (an
-/// object hidden or on a disabled reference never counts, #1059).
+/// The nearest placed water object (to `cam`, Bevy space; the lower FormID on a tie) that
+/// is drawn, reaches height `h` and lies partly inside the view: each as its transform,
+/// bounds, reference and whether it is visible (an object hidden or on a disabled
+/// reference never counts, #1059).
 fn placed_water_on_screen<'a>(
     placed: impl Iterator<Item = (bevy::math::Affine3A, &'a Aabb, u32, bool)>,
     clip_from_world: Mat4,
     h: f32,
+    cam: Vec3,
 ) -> Option<SeenWater> {
+    let mut best: Option<(f32, u32)> = None;
     for (m, aabb, r, visible) in placed {
         if !visible {
             continue;
@@ -214,10 +220,23 @@ fn placed_water_on_screen<'a>(
             continue;
         }
         if box_in_view(clip_from_world, &corners) {
-            return Some(SeenWater::Placed(r));
+            // The nearest one seen, the lower FormID on a tie.
+            let d = m.transform_point3(c).distance_squared(cam);
+            if best.is_none_or(|(bd, bf)| (d, r) < (bd, bf)) {
+                best = Some((d, r));
+            }
         }
     }
-    None
+    best.map(|(_, f)| SeenWater::Placed(f))
+}
+
+/// `cells` without repeats, nearest `centre` first (by grid steps both ways, then the
+/// cell's own coordinates), so the order does not depend on the maps they came from.
+fn nearest_first(cells: impl Iterator<Item = (i32, i32)>, centre: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut v: Vec<(i32, i32)> = cells.collect();
+    v.sort_unstable_by_key(|&(x, y)| ((x - centre.0).abs().max((y - centre.1).abs()), (x - centre.0).abs() + (y - centre.1).abs(), x, y));
+    v.dedup();
+    v
 }
 
 /// The wet part of a cell (`[x0, y0, x1, y1]`, game units) at game height `height`, its
@@ -334,7 +353,7 @@ fn update_reflection(
     let water_drawn = !hidden.is_some_and(|h| h.water);
     let seen = near_water.filter(|_| water_drawn).and_then(|h| {
         let clip_from_world = main_proj.get_clip_from_view() * main_gt.to_matrix().inverse();
-        water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h)
+        water_on_screen(&world, &streamer, &mut dw, &placed, clip_from_world, h, cam)
     });
     if seen.is_some() {
         *unseen_for = 0.0;
@@ -445,18 +464,33 @@ mod tests {
         assert!(!box_in_view(view(Vec3::ZERO, 0.0), &far));
     }
 
+    #[test]
+    fn cells_come_nearest_first_whatever_their_order() {
+        let a = nearest_first([(5, 5), (0, 1), (2, 0), (0, 0), (1, 1), (0, 1)].into_iter(), (0, 0));
+        let b = nearest_first([(1, 1), (0, 1), (5, 5), (2, 0), (0, 0)].into_iter(), (0, 0));
+        assert_eq!(a, vec![(0, 0), (0, 1), (1, 1), (2, 0), (5, 5)]);
+        assert_eq!(a, b);
+    }
+
     /// #1059: placed water that is not drawn (a disabled reference, a hidden model) never
-    /// switches the camera on; the same object drawn does.
+    /// switches the camera on; the same object drawn does. Of two drawn, the nearer one is
+    /// named (eb618878's choice).
     #[test]
     fn hidden_placed_water_is_not_seen() {
-        let v = view(Vec3::new(0.0, 100.0, 0.0), -10.0);
+        let eye = Vec3::new(0.0, 100.0, 0.0);
+        let v = view(eye, -10.0);
         let aabb = Aabb::from_min_max(Vec3::new(-500.0, -10.0, -500.0), Vec3::new(500.0, 0.0, 500.0));
-        let at = bevy::math::Affine3A::from_translation(Vec3::new(0.0, 0.0, -3000.0));
-        let one = |visible| placed_water_on_screen(std::iter::once((at, &aabb, 0x1234, visible)), v, 0.0);
+        let near = bevy::math::Affine3A::from_translation(Vec3::new(0.0, 0.0, -3000.0));
+        let far = bevy::math::Affine3A::from_translation(Vec3::new(0.0, 0.0, -6000.0));
+        let one = |visible| placed_water_on_screen(std::iter::once((near, &aabb, 0x1234, visible)), v, 0.0, eye);
         assert_eq!(one(true), Some(SeenWater::Placed(0x1234)));
         assert_eq!(one(false), None);
         // At another height: not the reflected plane's water.
-        assert_eq!(placed_water_on_screen(std::iter::once((at, &aabb, 0x1234, true)), v, 200.0), None);
+        assert_eq!(placed_water_on_screen(std::iter::once((near, &aabb, 0x1234, true)), v, 200.0, eye), None);
+        // The nearer of two drawn; a hidden nearer one is passed over for the farther.
+        let two = |near_visible| placed_water_on_screen([(far, &aabb, 0x1, true), (near, &aabb, 0x2, near_visible)].into_iter(), v, 0.0, eye);
+        assert_eq!(two(true), Some(SeenWater::Placed(0x2)));
+        assert_eq!(two(false), Some(SeenWater::Placed(0x1)));
     }
 
     #[test]

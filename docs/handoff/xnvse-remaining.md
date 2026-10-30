@@ -82,6 +82,9 @@ owner's mod lists call 40 (`ToggleHUDCursor` 20 calls, `SetMaterialPropertyValue
 materials, menus); the next record families are destruction data, body-part data, land
 textures, water traits and the texture sets' decal traits (DODT, not decoded yet).
 
+Built since: Anh 31 of 34 (#1015, ext-anh.md; not installed in the probe game, so from the
+pages alone) and ShowOff 28 (#1010, ext-showoff.md §5, probe set showoff2 49/50).
+
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
 Anh 34, vheyes 21, NX 18, kNVSE 16, JIPPPLN 10, Command Extender 8, Overcharge 6, and 19
