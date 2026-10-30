@@ -92,6 +92,8 @@ pub mod nvse_settings;
 pub mod nvse_tokens;
 pub mod nvse_handler_lists;
 pub mod nvse_debug;
+pub mod nvse_console;
+pub mod nvse_lists;
 pub mod text_codes;
 pub mod script_input;
 pub mod levelup;

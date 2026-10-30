@@ -205,7 +205,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // [documented: GetBaseSpellListLevSpells] the base's leveled spells; "leveled
         // spells may be unused in vanilla" and NVForever reads none [hypothesis].
-        "getbasespelllistlevspells" => XVal::Array(g.ext.new_array(ArrayKind::List, Vec::new())),
+        // GenericAddForm's list 7 when a script made one (`crate::nvse_lists`).
+        "getbasespelllistlevspells" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let items = g.changed_list(7, b).into_iter().flatten().enumerate().map(|(i, f)| (XKey::Num(i as f64), XVal::Ref(f.0))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, items))
+        }
         // [documented: GetConsoleEcho; SetConsoleEcho, which gives the state before]
         // [hypothesis: echo is on at the start].
         "getconsoleecho" => yes(g.other.echo),

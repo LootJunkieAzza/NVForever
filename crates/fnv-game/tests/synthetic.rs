@@ -2206,3 +2206,65 @@ fn player_control_locks_are_kept_per_plugin() {
     q(&mut g, "EnablePlayerControlsAlt");
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
 }
+
+#[test]
+fn console_functions_run_their_commands() {
+    // #913 [documented: the Con_ pages, "Runs the console command … via a script"].
+    use fnv_game::functions::console::ConsoleRequest;
+    use fnv_game::functions::toggles::Toggle;
+    use fnv_script::vm::XVal;
+    let mut f = udf_fixture();
+    f.data.ini_texts = vec!["[Display]\nfDefaultFOV=75.0000\n".into()];
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx());
+    assert_eq!(q(&mut g, "Con_TFC\nSetFunctionValue GetTFC"), Ok(XVal::Num(1.0)), "Con_TFC is ToggleFlyCam");
+    q(&mut g, "con_SetCameraFOV 90 60").unwrap();
+    assert_eq!(g.ui.camera.fov, Some((Some(90.0), Some(60.0))));
+    q(&mut g, "Con_TFIK\nCon_TCL").unwrap();
+    assert_eq!(g.toggles.asked, [Toggle::FootIk, Toggle::Collision]);
+    q(&mut g, "con_QuitGame\ncon_Save \"nvfq\" 1").unwrap();
+    assert_eq!(g.console_requests, [ConsoleRequest::Quit, ConsoleRequest::Save("nvfq".into())]);
+    // The INI the extender reads: con_SetINISetting changes it, con_RefreshINI reads the
+    // files again.
+    let num = |g: &mut fnv_game::Game| q(g, "SetFunctionValue (GetNumericINISetting \"fDefaultFOV:Display\")");
+    q(&mut g, "con_SetINISetting \"fDefaultFOV:Display\" \"80\"").unwrap();
+    assert_eq!(num(&mut g), Ok(XVal::Num(80.0)));
+    // Lines only with the echo on [documented: Con_SQV, Con_Inv "Requires Console Echo"].
+    q(&mut g, "con_GetINISetting \"fDefaultFOV:Display\"").unwrap();
+    assert!(g.console_out.is_empty(), "no echo");
+    q(&mut g, "SetConsoleEcho 1\ncon_GetINISetting \"fDefaultFOV:Display\"").unwrap();
+    assert_eq!(g.console_out, ["fDefaultFOV:Display = 80"]);
+    q(&mut g, "con_RefreshINI\ncon_SaveINI").unwrap();
+    assert_eq!(num(&mut g), Ok(XVal::Num(75.0)), "the files' value again");
+}
+
+#[test]
+fn generic_form_lists_and_animation_lists_change_for_the_session() {
+    // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
+    // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,
+    // DelAnimations, GetNthAnimation].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let glob = XVal::Ref(0x0000_0901);
+    let player = XVal::Ref(FormId::PLAYER_REF.0);
+    q(&mut g, "GenericAddForm 7, PlayerREF, TestAdd, -2\nGenericAddForm 7, PlayerREF, PlayerREF, 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 0)"), player, "index 0 put first");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 1)"), glob);
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 2)"), XVal::Ref(0), "outside the list");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 7, PlayerREF, TestAdd, 0)"), player);
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 7, PlayerREF, 1)"), glob);
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "the getter sees it");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 99, PlayerREF, 0)"), XVal::Ref(0), "no such list");
+
+    q(&mut g, "AddAnimation \"a.kf\" PlayerREF\nAddAnimation \"B.kf\" PlayerREF\nAddAnimation \"A.KF\" PlayerREF");
+    let nth = |g: &mut fnv_game::Game, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.GetNthAnimation {i})\nEnd\n"), ctx()).unwrap();
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1), nth(&mut g, 2)), (XVal::Str("a.kf".into()), XVal::Str("B.kf".into()), XVal::Str(String::new())));
+    q(&mut g, "PlayerREF.DelAnimation \"b.kf\"");
+    assert_eq!(nth(&mut g, 1), XVal::Str(String::new()));
+    q(&mut g, "PlayerREF.DelAnimations");
+    assert_eq!(nth(&mut g, 0), XVal::Str(String::new()));
+}

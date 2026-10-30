@@ -247,17 +247,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // NPC's PNAM head parts, from the last back.
         "getheadparts" => {
             let a = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            let items: Vec<XVal> = g
-                .data
-                .record_fields
-                .get(&a)
-                .into_iter()
-                .flatten()
-                .filter(|(s, _)| s == b"PNAM")
-                .filter_map(|(_, v)| v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()))
-                .map(XVal::Ref)
-                .rev()
-                .collect();
+            // GenericAddForm's and the others' changes first (`crate::nvse_lists`).
+            let changed = g.changed_list(10, a).map(|l| l.iter().map(|f| XVal::Ref(f.0)).collect::<Vec<_>>());
+            let items: Vec<XVal> = match changed {
+                Some(c) => c,
+                None => g
+                    .data
+                    .record_fields
+                    .get(&a)
+                    .into_iter()
+                    .flatten()
+                    .filter(|(s, _)| s == b"PNAM")
+                    .filter_map(|(_, v)| v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()))
+                    .map(XVal::Ref)
+                    .rev()
+                    .collect(),
+            };
             let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))
         }

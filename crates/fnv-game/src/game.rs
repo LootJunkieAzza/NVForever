@@ -1023,6 +1023,9 @@ pub struct Game<'a> {
     pub other: crate::nvse_other::OtherState,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
     pub ini: crate::nvse_settings::IniState,
+    /// The extender's embedded form lists and animation lists, as scripts changed them
+    /// (`crate::nvse_lists`).
+    pub lists: crate::nvse_lists::ListState,
     /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
     pub(crate) box_callback: Option<fnv_script::vm::XVal>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
@@ -1664,6 +1667,7 @@ impl<'a> Game<'a> {
             box_callback: None,
             other: Default::default(),
             ini: Default::default(),
+            lists: Default::default(),
             package_overrides: std::collections::HashMap::new(),
             input: Default::default(),
             event_names: Vec::new(),

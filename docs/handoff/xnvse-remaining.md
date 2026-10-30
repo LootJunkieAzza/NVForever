@@ -40,7 +40,7 @@ GetBaseObject, ListGetCount, GetNumItems, IsFormValid, IsReference, the D1–D5 
 
 ## 3. Not built, by family (catalogue origins NVSE and FOSE1), recounted 2026-10-26
 
-198 left, counted from `schemas/script/functions.json` against the names the VM and the
+198 left (172 after §6), counted from `schemas/script/functions.json` against the names the VM and the
 fnv-game nvse*.rs files handle (a setter counts as built when its getter is). Every
 family built so far was checked against the peer session's in-game probe sets (#828,
 L5.ext.nvse.*); all match except rows that depend on the owner's save.
@@ -48,7 +48,7 @@ L5.ext.nvse.*); all match except rows that depend on the owner's save.
 | Family | Count | Functions |
 |---|---|---|
 | other | 76 | AddItemHealthPercentOwner, AddItemOwnership, AddSpellNS, BuildRef, CompareScripts, CopyIR, CopyIRAlt, CreateTempRef, EndVATScam, EquipItem2, EquipMe, ForEachInList, GetAgeClass, GetBaseSpellListLevSpells, GetConsoleEcho, GetConsoleOutputFilename, GetCrosshairRef, GetCurrentHealth, GetCurrentObjective, GetCurrentQuestObjectiveTeleportLinks, GetCurrentScript, GetDefaultForms, GetDoorTeleportX/Y/Z/Rot, GetEquippedCurrentHealth, GetEquippedWeaponCanUseAmmo, GetEquippedWeaponUsesAmmoList, GetFOSEBeta, GetFOSERevision, GetFOSEVersion, GetFalloutDirectory, GetGridsToLoad, GetHeadParts, GetHeadingAngleX, GetInGrid, GetInGridInCell, GetLevCharacterRefs, GetLevCreatureRefs, GetLocalRefIndex, GetNthDefaultForm, GetNthExplicitRef, GetNumExplicitRefs, GetPaired, GetParentCellOwningFactionRequiredRank, GetPermanent, GetPlayerCurrentAmmo, GetPlayerCurrentAmmoRounds, GetSelfAlt, GetSoldItemInvRef, GetTFC, GetWeaponCanUseAmmo, HasAmmoEquipped, HasConsoleOutputFileName, HasScriptCommand, IsEquippedAmmoInList, OutputLocalMapPicturesOverride, RemoveMeIR, RemoveScript, ResetAllVariables, RunScript, SetConsoleEcho, SetCurrentHealth, SetDoorTeleport, SetEditorID, SetEquippedCurrentHealth, SetIsPlayable, SetIsPowerArmor, SetNameEx, SetNthDefaultForm, SetNthFactionRankNameEx, SetOutputLocalMapPicturesGrids, SetPermanent, SetPlayerCurrentAmmoRounds, SetQuestItem, Sv_Set, UnequipMe, Update3D |
-| console | 21 | Con_Inv, Con_SCOF, Con_SQV, Con_SetUFOCamSpeedMult, Con_ShowVars, Con_TCL, Con_TDT, Con_TFC, Con_TFIK, Con_ToggleMenus, con_CloseAllMenus, con_GetINISetting, con_LoadGame, con_QuitGame, con_RefreshINI, con_Save, con_SaveINI, con_SetCameraFOV, con_SetGameSetting, con_SetINISetting, con_SetVel |
+| console | 3 | Con_SCOF, Con_TDT, con_SetVel (the other 18 built 2026-10-30, §6) |
 | debug and docs | 15 | Ar_DumpF, Ar_DumpID, Assert, CompileScript, DebugPrintVar, DecompileScript, DumpCommandWikiDoc, DumpDocs, GetCommandOpcode, GetDebugMode, GetDebugSelection, PrintDebug, PrintDebugF, PrintF, PrintVar |
 | UI (owner decision) | 15 | GetUIFloat, GetUIFloatAlt, GetUIFloatInherited, MenuHoldKey, MenuReleaseKey, MenuTapKey, ModUIFloat, PrintActiveTile, SetUIFloat, SetUIFloatAlt, SetUIString, SetUIStringAlt, SetUIStringEx, ShowLevelUpMenu, SortUIListBox |
 | input | 12 | ClearHotkey, DisablePlayerControlsAlt, DisablePlayerControlsAltEx, EnablePlayerControlsAlt, EnablePlayerControlsAltEx, GetHotkeyItem, GetOpenKey, GetPlayerControlsDisabledAlt, GetPlayerControlsDisabledAltEx, SetHotkeyItem, SetIsControl, SetOpenKey |
@@ -59,8 +59,6 @@ L5.ext.nvse.*); all match except rows that depend on the owner's save.
 | event-handler lists | 6 | DumpEventHandlers, GetEventHandlers, GetHigherPriorityEventHandlers, GetLowerPriorityEventHandlers, IsEventHandlerFirst, IsEventHandlerLast |
 | settings and INI | 6 | GetNumericINISetting, GetNumericIniSetting, GetStringIniSetting, SetNumericINISetting, SetStringGameSettingEx, SetStringIniSetting |
 | tokens | 5 | GetTokenRef, GetTokenValue, SetTokenRef, SetTokenValue, SetTokenValueAndRef |
-| animations | 4 | AddAnimation, DelAnimation, DelAnimations, GetNthAnimation |
-| generic forms | 4 | GenericAddForm, GenericDeleteForm, GenericGetForm, GenericReplaceForm |
 
 ## 4. Order
 
@@ -108,3 +106,22 @@ Probed first in the original game (set nvse-sixth of tools/capture/jip_probes.py
   DumpCommandWikiDoc: owner decision J9), CompileScript, PrintVar/DebugPrintVar (need the
   variable's name from the compiler).
 - **Quaternion Ex forms** (vm/quat.rs): the nine, writing the variables given.
+
+## 6. Built 2026-10-30 (claude/nvse-con-anim, #913, #914)
+
+- **Console** (`nvse_console.rs`, docs/spec-notes/ext-console.md): 18 of the 21 `Con_*`
+  functions run the console's commands (ShowInventory, ShowVars, ShowQuestVars,
+  SetGameSetting, QuitGame, CloseAllMenus, SaveGame, LoadGame, ToggleCollision,
+  ToggleFlyCam, ToggleMenus, SetUFOCamSpeedMult, SetCameraFOV, the engine's foot IK), the
+  INI four on `nvse_settings`' store (con_SaveINI writes nothing: NVForever never writes
+  the game's INI files). Their lines print only with SetConsoleEcho on. The engine now
+  takes the console requests a script makes every frame. Not built: Con_SCOF (a file in
+  the game folder), Con_TDT (no debug text display), con_SetVel (no velocity setter).
+- **Generic forms and animations** (`nvse_lists.rs`, ext-forms.md §6–§7): the eight
+  functions; list codes 0, 1, 5, 6, 7, 10, 13; the getters (GetRaceHairs/Eyes,
+  GetBasePackages, GetBaseSpellListSpells/LevSpells, GetHeadParts, the form lists) read
+  the changes; the animation list is the actor's KFFZ (kept in `record_fields` now). Checked
+  headless on FalloutNV.esm (`fnvtool script run`, query actions): Doc Mitchell's head
+  parts 0B5BEA / 066FCF as GetHeadParts gives them, his 9 packages (GenericGetForm 5 index
+  0 = GetBasePackages[0] 15ED62, one more after GenericAddForm), Caucasian's first hair
+  014B90 as GetRaceHairs, CrMisterHandy's KFFZ 1hmaim.kf, 1hmattackleft_chop.kf.

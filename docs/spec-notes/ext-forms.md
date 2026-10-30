@@ -255,3 +255,54 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | GetModIndex | — | plugin file name string | int | the plugin's load-order index | 255 when not loaded; name matching rules: open |
 | GetSourceModIndex | — | form? (or calling reference) | int | load-order index of the plugin the form belongs to | run-time (FF) forms: open |
 | TypeOf | — | expression | string | "Number", "Form", "String", "Array", "Map" or "StringMap" | all forms are "Form" |
+
+## 6. Embedded form lists (Generic…Form)
+
+Issue #914. Sources: the GenericAddForm, GenericDeleteForm, GenericGetForm and
+GenericReplaceForm pages of the wiki export; no extender source. Code:
+`crates/fnv-game/src/nvse_lists.rs`.
+
+- Arguments: `ListCode, Target, [form,] Index` (`GenericGetForm code target index`,
+  `GenericDeleteForm code target index`, `GenericAddForm code target form index`,
+  `GenericReplaceForm code target new index`) [documented].
+- List codes: 0 race hairs (GetRaceHairs), 1 race eyes (GetRaceEyes), 5 actor base
+  packages (GetBasePackages), 6 actor base spells (GetBaseSpellListSpells), 7 actor base
+  leveled spells (GetBaseSpellListLevSpells), 10 NPC head parts (GetHeadParts), 13 form
+  list members [documented: "Embedded List Codes"]. Another code names no list: Get,
+  Delete and Replace give none, Add does nothing [hypothesis].
+- GenericGetForm returns the form at the index; GenericDeleteForm removes it and returns
+  it; GenericReplaceForm puts the new form there and returns the old one; GenericAddForm
+  adds the form at the index, "-2 will add to the end of the list" [documented]. An index
+  outside the list: none and no change for Get/Delete/Replace; Add adds at the end for
+  any index past the end or below 0 [hypothesis].
+- "Changes to an actor's 3D are not visible until it reloads" (Update3D) [documented].
+  NVForever draws the record's hair, eyes and head parts: a script's change of lists 0, 1
+  and 10 is seen by the getters only, not drawn [observed: the appearance code reads the
+  records; open: drawing the change after Update3D].
+- Each index counts as the matching getter's array does: GetHeadParts gives the PNAM list
+  from the record's last back [observed: nvse-fifth, Doc Mitchell], so GenericGetForm 10
+  index 0 is GetHeadParts' first [hypothesis].
+- Where a change lives: packages (5) in the AddPackageAt list the AI reads
+  (`Game::package_list`); form lists (13) in ListAddForm's edits; the rest
+  (`ListState::forms`) read back by GetRaceHairs/Eyes, GetBaseSpellListSpells,
+  GetBaseSpellListLevSpells and GetHeadParts. The base spells' change does not reach the
+  actor's abilities [hypothesis: the original's would on the actor's next load]. A
+  reference as the target stands for its base form for codes 5, 6, 7, 10 [hypothesis].
+  Changes last for the session [hypothesis].
+
+## 7. Animation lists (AddAnimation, DelAnimation, DelAnimations, GetNthAnimation)
+
+Sources: their pages (all marked Incomplete in the export); no extender source.
+
+- "the base actor's or creature's animation list" [documented]: the actor record's KFFZ
+  "Animations", `.kf` file names [documented: schemas/fnv/gameplay.json, xEdit]. With the
+  template flag "Model/Animation" the template's list [hypothesis: one template step].
+- `AddAnimation animName [baseActor]`, `ref.DelAnimation animName [baseActor]`,
+  `ref.DelAnimations [baseActor]`, `ref.GetNthAnimation index [baseActor]` (string_var)
+  [documented]. The base actor argument, else the calling reference's base form.
+- AddAnimation adds at the end, not again when the name is there; DelAnimation removes
+  the name; names compare without case [hypothesis: file names]. GetNthAnimation outside
+  the list: an empty string [hypothesis].
+- The changed list is read back by GetNthAnimation only: the engine's animation loader
+  reads KFFZ from the record (`fnv_actor::anims`) [open: whether the original loads an
+  added file on the actor's next load].

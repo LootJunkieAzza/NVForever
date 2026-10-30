@@ -528,7 +528,12 @@ fn replies(
             }
         }
     }
-    let out = std::mem::take(&mut st.console_out);
+    let mut out = std::mem::take(&mut st.console_out);
+    // What scripts asked of the engine through the console's commands (xNVSE's
+    // con_QuitGame, con_Save, … in `fnv_game::nvse_console`), taken as a console line's.
+    if let Some(rt) = st.rt.as_mut().filter(|rt| !rt.game.console_requests.is_empty()) {
+        out.push(ConsoleReply { requests: std::mem::take(&mut rt.game.console_requests), ..Default::default() });
+    }
     for r in out {
         for l in r.lines {
             c.print(l);

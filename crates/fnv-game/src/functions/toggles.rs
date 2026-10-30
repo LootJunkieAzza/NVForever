@@ -33,6 +33,8 @@ pub enum Toggle {
     Trees,
     LodLand,
     Navmesh,
+    /// Con_TFIK (ToggleFootIK): feet placed on the ground, as the settings page switches.
+    FootIk,
 }
 
 /// The console toggles' state on the game's side, and those asked of the engine.

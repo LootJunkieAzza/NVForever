@@ -45,6 +45,35 @@ impl IniState {
             m
         })
     }
+
+    /// The files are read again on the next use: the session's changes go (con_RefreshINI).
+    pub(crate) fn reload(&mut self) {
+        self.values = None;
+    }
+}
+
+impl Game<'_> {
+    /// An INI setting by "Name:Category" (any case), as the files and the session's
+    /// changes have it; `None` without a ":" or when no file has it.
+    pub(crate) fn ini_value(&mut self, name: &str) -> Option<String> {
+        let k = key(&[XVal::Str(name.to_string())])?;
+        let texts = self.data.ini_texts.clone();
+        self.ini.values(&texts).get(&k).cloned()
+    }
+
+    /// Change an INI setting the files have, for the session [hypothesis: a setting no
+    /// file has is left alone, as SetStringIniSetting leaves it]. Whether it was there.
+    pub(crate) fn set_ini_value(&mut self, name: &str, value: &str) -> bool {
+        let Some(k) = key(&[XVal::Str(name.to_string())]) else { return false };
+        let texts = self.data.ini_texts.clone();
+        match self.ini.values(&texts).get_mut(&k) {
+            Some(slot) => {
+                *slot = value.to_string();
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// The setting a name argument names: lower case, with its category. A name without
