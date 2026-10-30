@@ -5,8 +5,10 @@
 //! refs drawn <n>, meshes <n>, images <n>, materials <n>, models cached <n>, textures
 //! cached <n>, audio <n>, cells <n>,
 //! bodies <fixed>/<kinematic>/<dynamic>, actors <n>, nan actors <n>, ragdolls <n>,
-//! projectiles <n>, at <place>` with what the engine holds now and where the camera is
-//! (the crash report's place text). At the exit, `stress frames: <n> frames, mean <m> ms,
+//! projectiles <n>[, gpu allocated <MB>, gpu reserved <MB>, gpu blocks <n>], at <place>`
+//! with what the engine holds now and where the camera is (the crash report's place text),
+//! and `stress gpu labels: <label> <MB> in <n>; …` (the GPU allocator's report, where the
+//! backend gives one: [`gpu_memory`]). At the exit, `stress frames: <n> frames, mean <m> ms,
 //! 1% low <l> ms (<fps> fps), worst <w> ms` over the run after its start-up ([`frame_stats`]),
 //! and `stress actors: <n> drawn in <f> frames (<ms> ms, most in a frame <m> ms); those
 //! frames mean <m> ms, worst <w> ms, <k> over 100 ms`.
@@ -29,6 +31,7 @@ use crate::limbs::ActorRig;
 use bevy::audio::AudioSink;
 use bevy::prelude::*;
 use nvf_play::phys::PhysState;
+use std::collections::HashMap;
 use nvf_play::RefVisual;
 
 pub struct StressSamplePlugin;
@@ -45,6 +48,36 @@ impl Plugin for StressSamplePlugin {
         let Some(every) = Self::interval() else { return };
         info!("test aid NVF_PLAY_TEST_SAMPLE: a stress sample every {every} s");
         app.insert_resource(Samples { every, ..default() }).add_systems(Last, ((sample, report).chain(), census));
+        if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render.add_systems(bevy::render::Render, render_census.in_set(bevy::render::RenderSystems::Cleanup));
+        }
+    }
+}
+
+/// Every [`CENSUS_SECS`], `stress render: gpu images <n>`: the images the render world
+/// holds, to set against the main world's `images` and the GPU allocator's textures
+/// (issue #903: allocator textures doubling over a tour while `images` stayed flat).
+fn render_census(
+    images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    allocators: Option<Res<bevy::pbr::MaterialBindGroupAllocators>>,
+    mut last: Local<Option<std::time::Instant>>,
+) {
+    // The render world has no clock of its own: real time.
+    let now = std::time::Instant::now();
+    if last.is_some_and(|t| now.duration_since(t).as_secs_f32() < CENSUS_SECS) {
+        return;
+    }
+    *last = Some(now);
+    let mut by_label: HashMap<&str, usize> = HashMap::new();
+    for (_, g) in images.iter() {
+        *by_label.entry(g.texture_descriptor.label.unwrap_or("(no label)")).or_default() += 1;
+    }
+    let mut labels: Vec<_> = by_label.into_iter().collect();
+    labels.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+    let listed: Vec<String> = labels.iter().map(|(l, n)| format!("{l} {n}")).collect();
+    info!("stress render: gpu images {}; {}", images.iter().count(), listed.join("; "));
+    if let Some(a) = allocators.as_deref().and_then(|a| a.get(&std::any::TypeId::of::<nvf_assets::NifMaterial>())) {
+        info!("stress render: nif material slabs {}, resources in them {}", a.slab_count(), a.allocations());
     }
 }
 
@@ -132,6 +165,9 @@ pub fn frame_stats(ms: &[f32]) -> (f32, f32, f32) {
     (mean, low, sorted[0])
 }
 
+/// The caches a sample counts, and the device whose allocator it reports.
+type Cached<'w> = (Option<Res<'w, nvf_assets::ModelCache>>, Option<Res<'w, nvf_assets::TextureCache>>, Option<Res<'w, bevy::render::renderer::RenderDevice>>);
+
 #[allow(clippy::too_many_arguments)]
 fn sample(
     real: Res<Time<Real>>,
@@ -143,8 +179,8 @@ fn sample(
     audio: Query<(), With<AudioSink>>,
     meshes: Res<Assets<Mesh>>,
     images: Res<Assets<Image>>,
-    materials: Res<Assets<StandardMaterial>>,
-    cached: (Option<Res<nvf_assets::ModelCache>>, Option<Res<nvf_assets::TextureCache>>),
+    materials: Res<Assets<nvf_assets::NifMaterial>>,
+    cached: Cached,
     phys: Option<Res<PhysState>>,
     combat: Option<Res<nvf_play::combat::Combat>>,
     streamer: Option<Res<crate::world::Streamer>>,
@@ -200,8 +236,9 @@ fn sample(
         let st = p.world.stats();
         (p.cells.len(), format!("{}/{}/{}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
     });
+    let gpu = cached.2.as_deref().map_or(String::new(), gpu_memory);
     info!(
-        "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, models cached {}, textures cached {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}, at {}",
+        "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, models cached {}, textures cached {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}{gpu}, at {}",
         real.elapsed_secs(),
         entities.iter().count(),
         refs.iter().count(),
@@ -215,6 +252,32 @@ fn sample(
         combat.as_deref().map_or(0, |c| c.in_flight()),
         crate::crash::place_text(),
     );
+}
+
+/// The GPU allocator's totals as sample fields (`, gpu allocated <MB>, gpu reserved <MB>,
+/// gpu blocks <n>`), and its allocations by label, largest first, on a line of their own:
+/// reserved beyond allocated is room in blocks kept, allocated growing with the asset
+/// counts flat is something still holding GPU memory (issue #903). Empty where the
+/// backend gives no report.
+fn gpu_memory(device: &bevy::render::renderer::RenderDevice) -> String {
+    const MB: f64 = 1024.0 * 1024.0;
+    let Some(r) = device.wgpu_device().generate_allocator_report() else { return String::new() };
+    let mut by_label: HashMap<&str, (u64, usize)> = HashMap::new();
+    for a in &r.allocations {
+        let e = by_label.entry(if a.name.is_empty() { "(no label)" } else { &a.name }).or_default();
+        e.0 += a.size;
+        e.1 += 1;
+    }
+    let mut labels: Vec<_> = by_label.into_iter().collect();
+    labels.sort_by_key(|&(_, (bytes, _))| std::cmp::Reverse(bytes));
+    let listed: Vec<String> = labels.iter().take(40).map(|(l, (b, n))| format!("{l} {:.0} MB in {n}", *b as f64 / MB)).collect();
+    info!("stress gpu labels: {}", listed.join("; "));
+    format!(
+        ", gpu allocated {:.0}, gpu reserved {:.0}, gpu blocks {}",
+        r.total_allocated_bytes as f64 / MB,
+        r.total_reserved_bytes as f64 / MB,
+        r.blocks.len()
+    )
 }
 
 fn report(mut exit: MessageReader<AppExit>, s: Res<Samples>) {

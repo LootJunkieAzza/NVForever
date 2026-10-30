@@ -885,6 +885,7 @@ fn poll_generated(lod: &mut LodState, models: &mut ModelCtx) {
                     anisotropy_clamp: 8,
                     ..ImageSamplerDescriptor::linear()
                 });
+                img.texture_descriptor.label = Some("generated lod");
                 img
             })
         };
