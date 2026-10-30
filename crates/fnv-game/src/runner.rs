@@ -1418,6 +1418,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             // the button is set, one frame runs with the box still open, so MenuMode 1001
             // blocks read it with GetButtonPressed, then the box closes.
             let m = g.message_box.as_mut().ok_or("no message box is open")?;
+            m.can_press(*button)?;
             m.pressed = Some(*button);
             let message = m.message;
             // A box the input left modeless (no `given` menu) is shown without a menu: the

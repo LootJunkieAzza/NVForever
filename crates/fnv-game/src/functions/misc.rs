@@ -25,7 +25,7 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let hidden = g.hidden_buttons(m, ctx.self_ref);
     if !buttons.is_empty() {
         let owner = Some(MessageBox::owner_of(ctx.inst, &ctx.unit));
-        g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None, owner });
+        g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None, owner, hidden: hidden.clone() });
     }
     // Player character string codes (`&PCName;` …) [documented: ext-format.md §6].
     let text = text.map(|t| g.expand_codes(&t));

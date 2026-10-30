@@ -901,6 +901,25 @@ fn only_the_script_that_showed_a_message_box_gets_its_button() {
 }
 
 #[test]
+fn a_hidden_button_cannot_be_pressed() {
+    // A button whose conditions failed is not on screen (`Game::hidden_buttons`); the
+    // runner once pressed it anyway (the Lucky 38 mainframe's bug button,
+    // walkthrough moon-over-the-tower).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    g.message_box.as_mut().unwrap().hidden = vec![1];
+    assert!(g.press_button(1).unwrap_err().contains("not shown"));
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, None, "the box still waits");
+    g.press_button(0).unwrap();
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, Some(0));
+    // The runner's press_button checks the same (`MessageBox::can_press`).
+    let m = g.message_box.as_ref().unwrap();
+    assert!(m.can_press(1).is_err() && m.can_press(0).is_ok() && m.can_press(-1).is_ok());
+}
+
+#[test]
 fn actors_choose_the_first_package_whose_conditions_pass() {
     let f = fixture();
     let mut g = game(&f);
