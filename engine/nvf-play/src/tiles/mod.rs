@@ -322,11 +322,14 @@ fn write(
     // Who reads the HUD's traits: the tile-drawn HUD, mod tiles in it (their traits may
     // copy the HUD's), or a script that called a UI function. With none (the default
     // game), the writes wait for the first UI call (`ui_hud::flush`) and the frame does
-    // no tree work [design: maintainer's review of #902].
+    // no tree work [design: maintainer's review of #902]. The widths are kept back with
+    // the strings (their measure), so the first UI call reads them as a frame writes
+    // them. The corners are written only with the tile-drawn HUD, and nothing waits then.
     let ui = &rt.game.ui_tree;
-    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| !ui.mod_added_tiles(m).is_empty());
+    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| ui.has_mod_added_tiles(m));
     if !(menus.hud || mod_tiles || rt.game.ui_used) {
-        fnv_game::ui_hud::defer(&mut rt.game, shown, texts);
+        let widths = if rt.game.ui_files.is_some() { fonts.widths(&rt.game.ui_tree) } else { None };
+        fnv_game::ui_hud::defer(&mut rt.game, shown, texts, widths);
         return;
     }
     rt.game.ui_hud_pending = None;

@@ -44,13 +44,25 @@ fn yes(b: bool) -> XVal {
 }
 
 /// The functions [`call`] takes that may read or change the HUD's traits, in lower case:
-/// their first call makes the HUD's kept-back writes (`crate::ui_hud::flush`). Not
-/// MenuTapKey, and not MCM's shorthands, which reach `StartMenu/MCM/...` only, so a mod's
-/// settings menu does not start the HUD's per-frame tree writes [design].
+/// their first call on the HUD ([`on_hud`]) makes the HUD's kept-back writes
+/// (`crate::ui_hud::flush`). Not MenuTapKey, and not MCM's shorthands, which reach
+/// `StartMenu/MCM/...` only, so a mod's settings menu does not start the HUD's per-frame
+/// tree writes [design].
 const TREE_FUNCTIONS: [&str; 15] = [
     "getuifloat", "getuifloatalt", "getuifloatinherited", "getuistring", "setuifloat", "setuifloatalt", "setuistring", "setuistringalt", "setuistringex", "moduifloat",
     "iscomponentloaded", "injectuixml", "injectuicomponent", "unloaduicomponent", "addtilefromtemplate",
 ];
+
+/// The menu whose writes wait while nothing reads them (`crate::ui_hud::defer`).
+const HUD_MENU: &str = "HUDMainMenu";
+
+/// Whether a path is in the HUD: its first segment, the menu, is `HUDMainMenu` (any case;
+/// segments split on `/` or `\` as `fnv_ui` splits them). A call on another menu neither
+/// reads nor changes the HUD's traits, so it leaves the HUD's writes waiting [design:
+/// maintainer's review of #902, #937].
+fn on_hud(path: &str) -> bool {
+    path.split(['/', '\\']).map(str::trim).find(|s| !s.is_empty()).is_some_and(|menu| menu.eq_ignore_ascii_case(HUD_MENU))
+}
 
 /// The trait path MCM's functions stand for: `StartMenu/MCM/*:child/*:grandchild/setting`.
 fn mcm_path(args: &[XVal]) -> String {
@@ -91,13 +103,17 @@ fn inherited(ui: &fnv_ui::Ui, path: &str, exclude_root: bool) -> Option<f64> {
 /// these.
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     let lname = name.to_ascii_lowercase();
-    if TREE_FUNCTIONS.contains(&lname.as_str()) {
-        // The HUD's writes kept back while nothing read the tree, made now; the engine
+    let path = text(args, 0);
+    // The path names the trait or tile read or changed, the tile injected into or
+    // unloaded; AddTileFromTemplate's is before its first `|` [documented:
+    // AddTileFromTemplate].
+    let target = if lname == "addtilefromtemplate" { path.split('|').next().unwrap_or("") } else { path.as_str() };
+    if TREE_FUNCTIONS.contains(&lname.as_str()) && on_hud(target) {
+        // The HUD's writes kept back while nothing read the HUD, made now; the engine
         // writes them every frame from here on (`crate::ui_hud::defer`) [design].
         g.ui_used = true;
         crate::ui_hud::flush(g);
     }
-    let path = text(args, 0);
     Some(Ok(match lname.as_str() {
         "getuifloat" | "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
         "getuifloatinherited" => XVal::Num(inherited(&g.ui_tree, &path, num(args, 1) != 0.0).unwrap_or(NOT_FOUND)),
