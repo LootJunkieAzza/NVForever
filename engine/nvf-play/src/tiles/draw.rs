@@ -469,10 +469,14 @@ struct TileRoot;
 #[derive(Component)]
 pub(crate) struct TileStrip(StripNode);
 
-/// A node that takes its piece's colour: a box's fill, a picture, a glyph (recoloured in
-/// place, [`Change::InPlace`]).
-#[derive(Component, Clone)]
-struct Ink;
+/// A node that takes its piece's colour (recoloured in place, [`Change::InPlace`]), and
+/// where: a box's fill, or what a picture or a glyph draws. Every UI node carries a
+/// background too, transparent unless it is a box's, so only [`Ink::Fill`] colours one.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Ink {
+    Fill,
+    Drawn,
+}
 
 /// A piece's nodes: its slot (over the whole view, stacked by the piece's place in the
 /// list), the clip wrapper in it and the piece's own outer node.
@@ -564,20 +568,20 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
     let colour = Color::srgba(cr, cg, cb, ca);
     let node = at(f(r.left - dx), f(r.top - dy), f(r.width), f(r.height));
     match &piece.look {
-        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Ink, Pickable::IGNORE)).id()),
+        Look::Box => Some(p.spawn((node, BackgroundColor(colour), Ink::Fill, Pickable::IGNORE)).id()),
         Look::Picture { fit, .. } => {
             let (image, rect, size) = picture?;
             let picture = |image_mode| ImageNode { color: colour, rect, image_mode, ..ImageNode::new(image.clone()) };
             let mut cut = node.clone();
             cut.overflow = Overflow::clip();
             Some(match placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))) {
-                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE)).id(),
+                Placed::Fill => p.spawn((node, picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE)).id(),
                 Placed::Repeat { width, .. } => match baked {
                     // One image of the repeats, stretched [design: `crate::repeat`].
                     Some((strip, w, h)) => p
                         .spawn((cut, Pickable::IGNORE))
                         .with_children(|c| {
-                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Ink, Pickable::IGNORE));
+                            c.spawn((at(0.0, 0.0, w, h), ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(strip) }, Ink::Drawn, Pickable::IGNORE));
                         })
                         .id(),
                     // Without the picture's texels or for a box too large to bake: Bevy's
@@ -586,13 +590,13 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                     None => {
                         let per_texel = if size.x > 0.0 { f(width) / size.x } else { 1.0 };
                         let mode = NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: ctx.scale * per_texel };
-                        p.spawn((node, picture(mode), Ink, Pickable::IGNORE)).id()
+                        p.spawn((node, picture(mode), Ink::Drawn, Pickable::IGNORE)).id()
                     }
                 },
                 Placed::At { width, height } => p
                     .spawn((cut, Pickable::IGNORE))
                     .with_children(|c| {
-                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE));
+                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
                     })
                     .id(),
                 // One image of the window's strip, its right end faded as the original's
@@ -604,12 +608,12 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         Some(window) => {
                             let size = window.size();
                             let image = ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(window.image()) };
-                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Ink, Pickable::IGNORE));
+                            c.spawn((TileStrip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image, Ink::Drawn, Pickable::IGNORE));
                         }
                         None => {
                             c.spawn((TileStrip(StripNode::Moving), at(strip_left(ctx.heading), 0.0, 2.0 * STRIP.x, STRIP.y), Pickable::IGNORE)).with_children(|s| {
                                 for i in 0..2 {
-                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Ink, Pickable::IGNORE));
+                                    s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
                                 }
                             });
                         }
@@ -624,7 +628,7 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
                     for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width) {
-                        set_marked(t, face, &line, x, base, colour, Ink);
+                        set_marked(t, face, &line, x, base, colour, Ink::Drawn);
                     }
                 })
                 .id();
@@ -667,7 +671,7 @@ type InkNodes = (Option<&'static mut ImageNode>, Option<&'static mut BackgroundC
 pub(crate) struct Nodes<'w, 's> {
     place: Query<'w, 's, &'static mut Node>,
     children: Query<'w, 's, &'static Children>,
-    ink: Query<'w, 's, InkNodes, With<Ink>>,
+    ink: Query<'w, 's, (&'static Ink, InkNodes)>,
 }
 
 pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Nodes) {
@@ -773,15 +777,21 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     let [r, g, b, a] = piece.colour;
                     let colour = Color::srgba(r, g, b, a);
                     for e in nodes.children.iter_descendants(slot.node) {
-                        let Ok((image, fill, text)) = nodes.ink.get_mut(e) else { continue };
-                        if let Some(mut image) = image {
-                            image.color = colour;
-                        }
-                        if let Some(mut fill) = fill {
-                            fill.0 = colour;
-                        }
-                        if let Some(mut text) = text {
-                            text.0 = colour;
+                        let Ok((ink, (image, fill, text))) = nodes.ink.get_mut(e) else { continue };
+                        match ink {
+                            Ink::Fill => {
+                                if let Some(mut fill) = fill {
+                                    fill.0 = colour;
+                                }
+                            }
+                            Ink::Drawn => {
+                                if let Some(mut image) = image {
+                                    image.color = colour;
+                                }
+                                if let Some(mut text) = text {
+                                    text.0 = colour;
+                                }
+                            }
                         }
                     }
                 }
