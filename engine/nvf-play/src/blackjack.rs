@@ -40,6 +40,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlayState;
 use crate::PlaySet;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::blackjack::{self as rules, Action, BlackjackRequest, CasinoDef, Card, Closed, Event, Outcome, Phase, Refusal, Rules, Seat, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;

@@ -59,6 +59,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use bevy::window::PrimaryWindow;
 use fnv_game::lockpick::{self as rules, Opening, Phase, Picking, Refusal, Settings, PIN_RANGE};
 use fnv_sim::FormId;

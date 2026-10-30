@@ -463,9 +463,9 @@ mod tests {
 
     /// A camera at the origin looking along +x (game space), 90° wide.
     fn camera() -> Mat4 {
-        let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 1.0, 10_000.0);
+        let proj = bevy::math::proj::perspective(std::f32::consts::FRAC_PI_2, 1.0, 1.0, 10_000.0);
         // View: game +x forward, +z up.
-        let view = Mat4::look_at_rh(Vec3::ZERO, Vec3::X, Vec3::Z);
+        let view = Mat4::from_quat(Transform::IDENTITY.looking_at(Vec3::X, Vec3::Z).rotation).inverse();
         proj * view
     }
 

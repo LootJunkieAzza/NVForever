@@ -6,7 +6,7 @@
 //! camera does not draw.
 //!
 //! One plane at a time [hypothesis: enough for the Mojave, where lakes do not overlap
-//! in height on screen]: water at another height reflects only the sky (water.wgsl).
+//! in height on screen]: water at another height reflects only the sky (water.wesl).
 
 use crate::water::{DistantWater, WaterCache, WaterMaterial};
 use crate::world::{bevy_to_game, Streamer, WorldData};
@@ -88,7 +88,7 @@ fn setup_reflection(mut commands: Commands, mut images: ResMut<Assets<Image>>, w
         Camera { order: -1, invert_culling: true, is_active: false, ..default() },
         RenderTarget::Image(image.clone().into()),
         Hdr,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         Projection::Perspective(PerspectiveProjection::default()),
         crate::sky::initial_fog(),

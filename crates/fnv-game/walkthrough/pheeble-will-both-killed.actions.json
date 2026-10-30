@@ -1,0 +1,267 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Pheeble Will, Heck and Ted both killed for Walter (VMS25 50, 80, 130)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Walter hires the player (10) and Heck says Ted is missing (20), as pheeble-will does; Walter is offered both Gundersons' deaths (Topic033, then Topic048: 50); Heck dies, then Ted (their OnDeath blocks: objective 65, then 80); Walter hears it (Topic056, Topic055) and pays (Topic086: 130, Complete Quest). Copied from pheeble-will.actions.json up to Heck's line. Stand-ins: travel by move_player; the fights by kill."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the Strip's street event script (VStreetEventStarterScript), which enables Walter and Ethel one by one while the player is on the Strip (VStreetFluffNPC.iPlayerInArea 2)."
+  },
+  {
+   "op": "enable",
+   "target": "WalterPhebusREF"
+  },
+  {
+   "op": "enable",
+   "target": "EthelPhebusREF"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Speech 100."
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter hires"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic001",
+   "label": "walter hires 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic007",
+   "label": "walter hires 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic021",
+   "label": "walter hires 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic024",
+   "label": "walter hires 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic030",
+   "label": "walter hires 5"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS25 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk into the Ultra-Luxe's dining room: the player at Heck Gunderson."
+  },
+  {
+   "op": "move_player",
+   "to": "VMS18HeckGundersonREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VMS18HeckGundersonREF",
+   "label": "heck"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS18VMS18HeckGundersonTopic000",
+   "label": "heck 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS18VMS18HeckGundersonTopic003",
+   "label": "heck 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.20",
+    "var.TedDisappeared"
+   ],
+   "label": "milestone: VMS25 20"
+  },
+  {
+   "op": "note",
+   "text": "Walter hears Ted is missing (Topic016, Topic040) and the player offers to settle it for pay (Topic050, Topic049)."
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter deal"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic016"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic040"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic050"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic049"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic033"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic048"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.50"
+   ],
+   "label": "milestone: VMS25 50"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS18HeckGundersonREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS18HeckGundersonREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS18HeckGundersonREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS18HeckGundersonREF dead"
+  },
+  {
+   "op": "move_player",
+   "to": "VMS18TedGundersonREF"
+  },
+  {
+   "op": "kill",
+   "target": "VMS18TedGundersonREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VMS18TedGundersonREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VMS18TedGundersonREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.80"
+   ],
+   "label": "milestone: VMS25 80"
+  },
+  {
+   "op": "move_player",
+   "to": "WalterPhebusREF"
+  },
+  {
+   "op": "talk",
+   "actor": "WalterPhebusREF",
+   "label": "walter pays"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic056"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic055"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS25WalterPhebusTopic086"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 3
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS25",
+   "fields": [
+    "stage",
+    "done.130",
+    "completed"
+   ],
+   "label": "final: VMS25 130"
+  }
+ ]
+}

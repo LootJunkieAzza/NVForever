@@ -1,0 +1,18 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless G.I. Blues (VMS19), the fail: the King's first job (stage 10), the King killed (102)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path, the fail: the King's first job as in gi-blues (stage 10); then the player kills the King (kill stands in for the fight: VFSTheKingScript's OnDeath sets 102 before stage 100). Travel is move_player."},
+    {"op": "move_player", "to": "VFSTheKingREF"},
+    {"op": "talk", "actor": "VFSTheKingREF", "label": "king greeting"},
+    {"op": "choose", "topic": "VFreeformFreesideVFSTheKingTopic039", "label": "king 039"},
+    {"op": "choose", "topic": "VFreeformFreesideVFSTheKingTopic042", "label": "king 042"},
+    {"op": "choose", "topic": "VFreeformFreesideVFSTheKingTopic008", "label": "king 008"},
+    {"op": "choose", "topic": "VFreeformFreesideVFSTheKingTopic011", "label": "king 011"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS19", "fields": ["stage", "done.10", "objective.10.displayed"], "label": "milestone: VMS19 10"},
+    {"op": "kill", "actor": "VFSTheKingREF", "killer": "player"},
+    {"op": "get_quest", "quest": "VMS19", "fields": ["stage", "done.102"], "label": "final: VMS19 102"}
+  ]
+}

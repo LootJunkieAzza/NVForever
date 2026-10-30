@@ -11,7 +11,7 @@
 //! Each cell whose closest point lies within the distance gets one mesh per TREE base:
 //! a card per reference at its foot, BNAM width × height × the reference's scale, lit
 //! with an up normal like the near billboards (world.rs). The cards turn in the vertex
-//! shader (tree.wgsl `TREE_BILLBOARD`), so the meshes never change. A loaded cell draws
+//! shader (tree.wesl `TREE_BILLBOARD`), so the meshes never change. A loaded cell draws
 //! its own trees; its billboards crossfade with it (fade.rs, the complementary pattern,
 //! culled once the cell is fully drawn). Billboards cast and receive no shadows.
 
@@ -119,7 +119,7 @@ fn cell_trees(world: &WorldData, g: Grid) -> Vec<Placed> {
     out
 }
 
-/// One mesh of upright cards (tree.wgsl `TREE_BILLBOARD`) for `trees`, positions relative
+/// One mesh of upright cards (tree.wesl `TREE_BILLBOARD`) for `trees`, positions relative
 /// to `origin`: per card four vertices at the foot, UV_1 = corner offset (x right, y
 /// up), UV_0 = the billboard picture (v = 1 at the bottom). Returns the mesh and its
 /// bounds in the same space.

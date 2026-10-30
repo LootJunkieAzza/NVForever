@@ -8,6 +8,7 @@ use crate::interface::{amber, at, face, plain_font, set_line, Face};
 use crate::pause::AidTime;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::Button;
 use bevy::window::PrimaryWindow;
 use fnv_font::Line;
 use fnv_game::poker::Street;
