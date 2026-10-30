@@ -226,13 +226,20 @@ def parse_wiki(path):
     return out
 
 
-# Parameters of functions whose page gives none, as the original game took them
-# [observed: the probe named with each].
-OBSERVED_PARAMS = {
-    # jip-probes rules1/rules2 (#1021): `let x := ref.SetNthPackage package index` compiled
-    # in the game and replaced the package at the index; the statement forms did not.
+# Parameters where a page's argument table is missing or short: what the game took
+# [observed: the probe named] or what the page's own example passes [documented].
+PARAM_FIXES = {
+    # [observed: jip-probes rules1/rules2 (#1021): `let x := ref.SetNthPackage package
+    # index` compiled in the game and replaced the package at the index].
     "SetNthPackage": [{"name": "package", "type": "form", "kind": "form"},
                       {"name": "index", "type": "int", "kind": "int"}],
+    # [documented: GetCellEncounterZone's example "GetCellEncounterZone VikkiAndVance";
+    # observed: showoff2, Doc Mitchell's house].
+    "GetCellEncounterZone": [{"name": "cell", "type": "form", "kind": "form"}],
+    # [documented: SetZoneMinLevel's example "SetZoneMinLevel YaoGauiDen01 10"; the table
+    # lists the zone only].
+    "SetZoneMinLevel": [{"name": "encounterZone", "type": "form", "kind": "form"},
+                        {"name": "level", "type": "int", "kind": "int"}],
 }
 
 
@@ -266,8 +273,8 @@ def parse_page(title, text):
         if _truthy(af.get("Optional", af.get("optional", ""))):
             p["optional"] = True
         params.append(p)
-    if not params and name in OBSERVED_PARAMS:
-        params = [dict(x) for x in OBSERVED_PARAMS[name]]
+    if name in PARAM_FIXES:
+        params = [dict(x) for x in PARAM_FIXES[name]]
     if params:
         rec["params"] = params
     cond = plain(f.get("conditionFunc", "")).split()

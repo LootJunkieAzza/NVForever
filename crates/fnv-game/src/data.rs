@@ -1430,7 +1430,7 @@ pub const FIELD_SIGS: [[u8; 4]; 41] = [
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
 /// getters read.
-const ACTOR_SUBS: [[u8; 4]; 13] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL"];
+const ACTOR_SUBS: [[u8; 4]; 16] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL", *b"TNAM", *b"BNAM", *b"WNAM"];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
