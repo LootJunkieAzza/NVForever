@@ -45,19 +45,6 @@ use std::collections::HashMap;
 /// How fast the credits roll, interface units (the screen is 960 high) a second [design].
 pub const SPEED: f32 = 60.0;
 
-/// The INI's fonts by number [documented: Fallout_default.ini `sFontFile_1` … `_9`].
-const FONT_FILES: [&str; 9] = [
-    "textures\\fonts\\glow_monofonto_large.fnt",
-    "textures\\fonts\\monofonto_large.fnt",
-    "textures\\fonts\\glow_monofonto_medium.fnt",
-    "textures\\fonts\\monofonto_verylarge02_dialogs2.fnt",
-    "textures\\fonts\\fixedsys_comp_uniform_width.fnt",
-    "textures\\fonts\\glow_monofonto_vl_dialogs.fnt",
-    "textures\\fonts\\baked-in_monofonto_large.fnt",
-    "textures\\fonts\\glow_futura_caps_large.fnt",
-    "textures\\fonts\\nvfont_test.fnt",
-];
-
 /// The menu's background colour [documented: credits_menu.xml].
 const BACKGROUND: [u8; 3] = [8, 8, 20];
 
@@ -263,7 +250,7 @@ pub fn start(credits: &mut Credits, data: Option<&GameData>, images: &mut Assets
     let Some(src) = data.and_then(|d| std::fs::read(d.vfs.data_dir().join("Credits.txt")).ok()) else { return false };
     let src: String = src.iter().map(|&b| b as char).collect();
     for n in 1..=9u8 {
-        credits.faces.entry(n).or_insert_with(|| face(FONT_FILES[n as usize - 1], plain_font(24.0, 12.0), data, images, bc));
+        credits.faces.entry(n).or_insert_with(|| face(crate::interface::FONT_FILES[n as usize - 1], plain_font(24.0, 12.0), data, images, bc));
     }
     let faces = &credits.faces;
     let (items, total) = parse(&src, |f| faces.get(&f).map_or(24.0, |x| x.font.size));

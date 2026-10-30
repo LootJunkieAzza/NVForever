@@ -1,7 +1,8 @@
 //! Play-wide test aids for unattended in-game checks (`--play` only; no effect unless set;
 //! docs/design/layer4-play.md §6), next to `NVF_PLAY_TEST_ACTIVATE` (activate.rs),
 //! `NVF_PLAY_TEST_NEAR` (player.rs), `NVF_PLAY_TEST_MENU` and `NVF_PLAY_TEST_DROP`
-//! (menu/test_aid.rs). Times are seconds after the start.
+//! (menu/test_aid.rs), `NVF_PLAY_TEST_TILE_MENUS` (tiles/vanilla.rs: `[UI] TileMenus=` for
+//! the run, read at start). Times are seconds after the start.
 //!
 //! **Which clock.** With `NVF_PLAY_AIDS_FROM_SCRIPTS=1` (the smoke runner sets it for
 //! `--play` runs) the aids that act on the world wait until the scripts first run and
