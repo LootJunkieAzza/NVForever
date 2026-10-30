@@ -128,7 +128,7 @@ fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
         frame: Default::default(),
     };
     // Nothing read the tree: the frame's writes wait, the tree keeps the file's text.
-    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts);
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
     assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("file"));
     assert!(!g.ui_used);
     // MenuTapKey reads no tree: still waiting.
@@ -137,6 +137,93 @@ fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
     // A script's read makes them first, and the engine writes every frame from then on.
     assert_eq!(run(&mut g, "GetUIString", &[s("HUDMainMenu/RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
     assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+#[test]
+fn deferred_hud_writes_carry_the_measured_text_widths() {
+    use fnv_game::ui_hud::{self, Measure, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    // The prompt's verb tile as the file has it: "Button Text", 156 wide [observed:
+    // hud.md §14.1].
+    let hud = MemSource::default().with(
+        "menus\\hud_main_menu.xml",
+        r#"<menu name="HUDMainMenu"> <rect name="Info"> <rect name="justify_center_hotrect"> <text name="button_text"> <string> Button Text </string> <font> 7 </font> <width> 156 </width> </text> </rect> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&hud, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: Some("Talk".into()),
+        frame: Default::default(),
+    };
+    // A stand-in for the engine's fonts: 13.5 units a letter in font 7, so "Talk" is 54
+    // as the original measured it [observed: hud.md §14.1].
+    let measure: Measure = std::sync::Arc::new(|font: f64, text: &str| if font == 7.0 { 13.5 * text.chars().count() as f64 } else { 0.0 });
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, Some(measure));
+    let path = "HUDMainMenu/Info/justify_center_hotrect/button_text/width";
+    assert_eq!(g.ui_tree.get_float(path), Some(156.0));
+    // The script's first read makes the strings and then the widths measured from them,
+    // as a frame writes them: the measured width, not the file's.
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s(path)])), 54.0);
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/Info/justify_center_hotrect/button_text/string").as_deref(), Some("Talk"));
+}
+
+/// A game with a small HUD and start menu, and a frame's HUD writes kept back.
+fn deferred(f: &Fixture) -> Game<'_> {
+    use fnv_game::ui_hud::{self, Shown, Texts};
+    let mut g = game(f);
+    let menus = MemSource::default()
+        .with("menus\\hud_main_menu.xml", r#"<menu name="HUDMainMenu"> <rect name="RadiationMeter"> <text name="radiation_text"> <string> file </string> </text> </rect> </menu>"#)
+        .with("menus\\start_menu.xml", r#"<menu name="StartMenu"> <rect name="Panel"> <x> 5 </x> <template name="row"> <rect name="Row"> <x> 1 </x> </rect> </template> </rect> </menu>"#);
+    g.ui_tree.load_menu(&menus, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.load_menu(&menus, "menus\\start_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+        frame: Default::default(),
+    };
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
+    g
+}
+
+#[test]
+fn only_hud_paths_make_the_deferred_hud_writes() {
+    let f = fixture();
+    let mut g = deferred(&f);
+    // Calls on another menu read and change it, and leave the HUD's writes waiting.
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/Panel/x")])), 5.0);
+    assert_eq!(n(run(&mut g, "SetUIFloat", &[s("StartMenu\\Panel\\x"), XVal::Num(6.0)])), 1.0);
+    assert_eq!(n(run(&mut g, "AddTileFromTemplate", &[s("StartMenu/Panel|row|Row0")])), 1.0);
+    assert_eq!(n(run(&mut g, "InjectUIComponent", &[s("StartMenu/Panel"), s("<rect name=\"Added\"/>")])), 1.0);
+    assert_eq!(n(run(&mut g, "UnloadUIComponent", &[s("StartMenu/Panel/Added")])), 1.0);
+    assert_eq!(n(run(&mut g, "IsComponentLoaded", &[s("StartMenu/Panel")])), 1.0);
+    assert!(!g.ui_used && g.ui_hud_pending.is_some());
+    // A read of the HUD (any case, either slash) makes them first.
+    assert_eq!(run(&mut g, "GetUIString", &[s(" hudmainmenu\\RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+#[test]
+fn a_change_to_the_hud_makes_the_deferred_hud_writes() {
+    let f = fixture();
+    let mut g = deferred(&f);
+    assert_eq!(n(run(&mut g, "InjectUIComponent", &[s("HUDMainMenu"), s("<rect name=\"ModGauge\"> <x> 3 </x> </rect>")])), 1.0);
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("RAD/SEC"));
 }
 
 /// A query script compiled from source and run by the VM, as a mod's script runs: the
