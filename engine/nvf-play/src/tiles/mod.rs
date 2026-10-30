@@ -269,6 +269,17 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut f
         }
         texts.frame.animation = animation.step(f64::from(time.delta_secs()), shown.root && shown.corners, fnv_game::experience::standing(&rt.game), texts.frame.crippled);
     }
+    // Who reads the HUD's traits: the tile-drawn HUD, mod tiles in it (their traits may
+    // copy the HUD's), or a script that called a UI function. With none (the default
+    // game), the writes wait for the first UI call (`ui_hud::flush`) and the frame does
+    // no tree work [design: maintainer's review of #902].
+    let ui = &rt.game.ui_tree;
+    let mod_tiles = ui.menu(draw::HUD_MENU).is_some_and(|m| !ui.mod_added_tiles(m).is_empty());
+    if !(menus.hud || mod_tiles || rt.game.ui_used) {
+        fnv_game::ui_hud::defer(&mut rt.game, shown, texts);
+        return;
+    }
+    rt.game.ui_hud_pending = None;
     fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
     // The text tiles' widths from the strings just written, before scripts read them
     // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
@@ -281,6 +292,8 @@ fn write(mut script: ResMut<ScriptState>, files: MenuFiles, hud: HudTiles, mut f
     }
 }
 
+/// Works the tree out after the scripts; nothing to do on a frame where nothing changed
+/// it (`fnv_ui::Ui::update`).
 fn update(mut script: ResMut<ScriptState>) {
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_some() {

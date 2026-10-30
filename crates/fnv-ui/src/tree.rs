@@ -178,6 +178,10 @@ pub struct Ui {
     /// Counts value changes: a trait whose sources changed after it was last worked out
     /// is worked out again.
     gen: u64,
+    /// A tile, a file trait or a value changed since [`Ui::update`] last finished: with
+    /// none, it has nothing to work out [design: writes of the same value, as the
+    /// engine's every frame, leave the tree clean].
+    dirty: bool,
     /// What loading mended or left out, one line each.
     pub warnings: Vec<String>,
 }
@@ -201,7 +205,10 @@ impl Ui {
         &self.tiles[id.0 as usize]
     }
 
+    /// A tile to change (made, unloaded, renamed, its file traits or templates): the tree
+    /// is worked out again at the next [`Ui::update`]. Value writes go through `set_at`.
     fn tile_mut(&mut self, id: TileId) -> &mut Tile {
+        self.dirty = true;
         &mut self.tiles[id.0 as usize]
     }
 
@@ -228,6 +235,7 @@ impl Ui {
     }
 
     fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
+        self.dirty = true;
         let id = TileId(self.tiles.len() as u32);
         self.tiles.push(Tile {
             origin,
@@ -592,9 +600,10 @@ impl Ui {
     fn set_at(&mut self, t: TileId, k: usize, v: Value) {
         self.gen += 1;
         let gen = self.gen;
-        let tr = &mut self.tile_mut(t).traits[k];
+        let tr = &mut self.tiles[t.0 as usize].traits[k];
         if v.differs(&tr.value) {
             tr.changed = gen;
+            self.dirty = true;
         }
         tr.value = v;
         // A trait set from outside keeps its value until a source changes again.
@@ -736,8 +745,12 @@ impl Ui {
 
     /// Works out every trait with an expression whose sources changed since it was last
     /// worked out (all of them the first time), again and again until nothing changes.
-    /// Returns how many trait values changed.
+    /// Returns how many trait values changed. Nothing to do when nothing changed since it
+    /// last finished.
     pub fn update(&mut self) -> usize {
+        if !self.dirty {
+            return 0;
+        }
         let mut changed = 0;
         for _ in 0..MAX_PASSES {
             let mut this_pass = 0;
@@ -769,11 +782,18 @@ impl Ui {
             }
             changed += this_pass;
             if this_pass == 0 {
+                self.dirty = false;
                 return changed;
             }
         }
         self.warnings.push(format!("update: traits still changing after {MAX_PASSES} passes (a loop?)"));
         changed
+    }
+
+    /// Whether [`Ui::update`] has something to work out.
+    #[cfg(test)]
+    pub(crate) fn dirty(&self) -> bool {
+        self.dirty
     }
 
     /// The tile a source names, seen from `me`.

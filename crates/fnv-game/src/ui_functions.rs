@@ -43,10 +43,23 @@ fn yes(b: bool) -> XVal {
     XVal::Num(if b { 1.0 } else { 0.0 })
 }
 
+/// The functions [`call`] takes that read or change the tree (all but MenuTapKey), in
+/// lower case.
+const TREE_FUNCTIONS: [&str; 14] = [
+    "getuifloat", "getuifloatalt", "getuistring", "setuifloat", "setuifloatalt", "setuistring", "setuistringalt", "setuistringex", "moduifloat",
+    "iscomponentloaded", "injectuixml", "injectuicomponent", "unloaduicomponent", "addtilefromtemplate",
+];
+
 /// The UI function `name` (any case) with its arguments; `None` when it is not one of
 /// these.
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     let lname = name.to_ascii_lowercase();
+    if TREE_FUNCTIONS.contains(&lname.as_str()) {
+        // The HUD's writes kept back while nothing read the tree, made now; the engine
+        // writes them every frame from here on (`crate::ui_hud::defer`) [design].
+        g.ui_used = true;
+        crate::ui_hud::flush(g);
+    }
     let path = text(args, 0);
     Some(Ok(match lname.as_str() {
         "getuifloat" | "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),

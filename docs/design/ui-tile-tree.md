@@ -125,10 +125,18 @@ or holds no `<menu>` is an error for that menu only.
      `_SneakLevel`, …).
    - List rows made from templates (`add_from_template`), with their `user` traits.
    - Pointer state: `mouseover` and `clicked` on hotrects (task T8).
+
+   The HUD's writes (`fnv_game::ui_hud::write`) are made only when something reads
+   them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD, or a
+   script that has called a UI function. Otherwise the frame keeps them
+   (`ui_hud::defer`), and the first UI function call makes them before it reads
+   (`ui_hud::flush`); from then on they are written every frame [design: maintainer's
+   review of #902, so the default game does no tree work a frame].
 2. **Scripts run**, and their Set/Mod/Inject calls land in the tree at once (the
    functions read what they set in the same frame).
 3. **`Ui::update()`** works out every trait whose sources changed, until nothing
-   changes.
+   changes. When no value, tile or file trait changed since it last finished (writes of
+   the same value do not count), it returns at once.
 4. **The engine draws** the visible menus from the traits' values (§6).
 
 ### 4.2 Change tracking

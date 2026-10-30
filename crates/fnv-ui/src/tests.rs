@@ -152,6 +152,30 @@ fn a_set_trait_holds_until_its_sources_change() {
 }
 
 #[test]
+fn an_update_works_out_only_after_a_change() {
+    let src = files();
+    let mut ui = loaded();
+    assert!(!ui.dirty());
+    // The same value again, as the engine writes the HUD every frame: nothing to do.
+    assert!(ui.set_float("TestMenu/_Fill", 0.5));
+    let s = ui.screen();
+    ui.set_trait(s, "height", Value::Num(960.0));
+    assert!(!ui.dirty());
+    assert_eq!(ui.update(), 0);
+    assert!(ui.set_float("TestMenu/_Selected", 1.0));
+    assert!(ui.dirty());
+    assert!(ui.update() > 0);
+    assert!(!ui.dirty());
+    assert_eq!(ui.get_float("TestMenu/Panel/Title/alpha"), Some(295.0));
+    // New tiles are worked out at the next update.
+    assert!(ui.inject_text(&src, "TestMenu/Panel", r#"<text name="Added"> <x> <copy src="parent()" trait="width"/> </x> </text>"#));
+    assert!(ui.dirty());
+    ui.update();
+    assert_eq!(ui.get_float("TestMenu/Panel/Added/x"), Some(400.0));
+    assert!(!ui.dirty());
+}
+
+#[test]
 fn setters_make_no_trait() {
     let mut ui = loaded();
     assert!(!ui.set_float("TestMenu/Panel/_New", 1.0));
@@ -217,6 +241,8 @@ fn loops_of_traits_stop() {
     ui.load_menu(&src, "menus\\loop.xml").unwrap();
     ui.update();
     assert!(ui.warnings.iter().any(|w| w.contains("still changing")), "{:?}", ui.warnings);
+    // Still changing: the next update works it out again.
+    assert!(ui.dirty());
 }
 
 #[test]

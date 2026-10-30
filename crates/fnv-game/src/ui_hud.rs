@@ -1,5 +1,6 @@
 //! HUD places, visibility and texts beside the current drawing [design: ui-tile-tree.md §6.2].
 
+use crate::game::Game;
 use fnv_ui::{Ui, Value};
 
 mod copies;
@@ -181,6 +182,22 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         }
     }
     copies::write(ui, shown, texts);
+}
+
+/// Keeps this frame's writes for [`flush`] instead of making them, for a frame where
+/// nothing reads the HUD's traits (no tile-drawn HUD, no mod tiles, no script has called
+/// a UI function): such a frame does no tree work [design: maintainer's review of #902].
+pub fn defer(game: &mut Game, shown: Shown, texts: Texts) {
+    game.ui_hud_pending = Some(Box::new((shown, texts)));
+}
+
+/// Makes the writes [`defer`] kept, before a UI function reads or changes the tree, so a
+/// script reads this frame's values as it would had they been written [design].
+pub fn flush(game: &mut Game) {
+    if let Some(pending) = game.ui_hud_pending.take() {
+        let (shown, texts) = *pending;
+        write(&mut game.ui_tree, shown, &texts);
+    }
 }
 
 /// The HUD's file text tiles whose `width` the original's code sets to the drawn text's

@@ -108,6 +108,37 @@ fn injection_and_loading() {
     assert_eq!(n(run(&mut g, "InjectUIXML", &[s("HUDMenu"), s("data\\menus\\prefabs\\mod\\gauge.xml")])), 0.0);
 }
 
+#[test]
+fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
+    use fnv_game::ui_hud::{self, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    let hud = MemSource::default().with("menus\\hud_main_menu.xml", r#"<menu name="HUDMainMenu"> <rect name="RadiationMeter"> <text name="radiation_text"> <string> file </string> </text> </rect> </menu>"#);
+    g.ui_tree.load_menu(&hud, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+        frame: Default::default(),
+    };
+    // Nothing read the tree: the frame's writes wait, the tree keeps the file's text.
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts);
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("file"));
+    assert!(!g.ui_used);
+    // MenuTapKey reads no tree: still waiting.
+    run(&mut g, "MenuTapKey", &[XVal::Num(28.0)]);
+    assert!(g.ui_hud_pending.is_some());
+    // A script's read makes them first, and the engine writes every frame from then on.
+    assert_eq!(run(&mut g, "GetUIString", &[s("HUDMainMenu/RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
 /// A query script compiled from source and run by the VM, as a mod's script runs: the
 /// value it sets with SetFunctionValue.
 fn query(g: &mut Game, body: &str) -> XVal {
