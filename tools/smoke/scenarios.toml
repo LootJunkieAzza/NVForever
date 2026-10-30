@@ -16105,3 +16105,15 @@ expect = [
   { re = 'console: (fDefaultFOV:Display = \S+|No INI setting fDefaultFOV:Display)', label = "con_GetINISetting prints" },
   "console: close",
 ]
+
+[[scenario]]
+name = "hud-need-word-script-string"
+source = "#1026 (hud.md §14 open list) [observed: jip-probes gaps1]: a script's SetUIString on a HUD need word lasts across frames; the HUD writes the word only when its own word changes"
+areas = ["ui", "hud", "scripts"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-ui/src/tree.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "9:SetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\" \"NVF one\";11:PrintC \"nvf need %z\", (GetUIString \"HUDMainMenu/HardcoreMode/Dehydration/string\");11.4:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'script: print "nvf need NVF one"', label = "two seconds of HUD frames later the script's word is still there" },
+]

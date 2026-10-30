@@ -697,9 +697,10 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   `SetUIString "HUDMainMenu/HardcoreMode/Dehydration/string" "NVF one"`, then
   `SetUIStringAlt … "NVF %g" 2` read "NVF 2" in a later step (frames later), and "H20" only
   after the probe wrote it back], out of Hardcore at least. So the original does not write
-  the need words every frame, or writes them only when they change [hypothesis]; T4a
-  writes them every frame and loses the script's string at the next frame. Open for the
-  HUD tasks (ui-tile-tree-tasks.md).
+  the need words every frame, or writes them only when they change [hypothesis]. Since
+  #1026 `ui_hud::write` writes a need word only when the HUD's own word changes
+  (`Ui::write_changed`), so a script's string lasts until then. Open: whether a stage
+  change or a mode change rewrites it in the original (not probed yet).
 
 ### 14.1 States: drawn, aiming, moving, sneaking, a prompt, radiation (2026-10-29)
 
