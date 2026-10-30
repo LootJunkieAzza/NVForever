@@ -9,50 +9,49 @@
 # run the command again on the merge and write what it prints, never keep both lines.
 # Each chain's own mq-* scenario checks its milestones; this file only counts.
 
-
 [summary.quests]
 total = 228
-touched = 113
-completed = 77
+touched = 191
+completed = 165
 
 [summary.stages]
 total = 1405
-reached = 379
+reached = 711
 
 [summary.scripts]
 total = 3488
-touched = 879
+touched = 1136
 
 [summary.blocks]
 total = 5690
-run = 1193
+run = 1545
 
 [summary.lines]
 total = 28896
-said = 1120
+said = 2258
 
 [summary.actors]
 with_lines = 704
-touched = 97
+touched = 248
 
 [summary.untouched_quests]
 main = 4
-faction = 24
-add-on = 24
-other = 63
+faction = 1
+add-on = 6
+other = 26
 
 [summary.results.info]
 total = 8639
-run = 811
+run = 1489
 
 [summary.results.package]
 total = 558
-run = 14
+run = 20
 
 [summary.results.stage]
 total = 1040
-run = 349
+run = 656
 
 [summary.results.terminal]
 total = 384
-run = 24
+run = 45

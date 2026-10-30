@@ -1,0 +1,31 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Geckoman encounter (VES02DialogueGeckoman): the man's plea (50), the player agrees (60), the trap at the ridge (70) and his attack",
+ "given": [],
+ "actions": [
+  {"op": "note", "text": "Path: the man by the road (VESGSGeckomanNPC) greets the player (GREETING 0x00158341: 50); the player hears him out (Topic000, 006) and agrees (Topic008, begin script: 60); walking into the ridge trigger (VES02GeckomanGSScript, OnTriggerEnter while 60) moves him there, adds his wait package and sets 70; leaving it adds his talk-to-player package, whose greeting (0x0015866A, at 70) has him start combat. Stages 10 and 100 are set by nothing in FalloutNV.esm; no stage completes the quest. Stand-ins: travel by move_player; the walks in and out of the trigger by trigger_enter; the geckos on the ridge are not fought; the talk-to-player package (AddScriptPackage, a stub headless) by talk; the fight by kill."},
+  {"op": "move_player", "to": "VESGSGeckomanNPC"},
+  {"op": "talk", "actor": "VESGSGeckomanNPC", "label": "geckoman plea"},
+  {"op": "choose", "topic": "VES02DialogueGeckomanTopic000", "label": "geckoman 000"},
+  {"op": "choose", "topic": "VES02DialogueGeckomanTopic006", "label": "geckoman 006"},
+  {"op": "choose", "topic": "VES02DialogueGeckomanTopic008", "label": "geckoman 008"},
+  {"op": "wait_talk"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_quest", "quest": "VES02DialogueGeckoman", "fields": ["running", "stage", "done.50", "done.60"], "label": "milestone: VES02DialogueGeckoman 60"},
+  {"op": "note", "text": "Stand-in for the climb to the ridge."},
+  {"op": "move_player", "to": "scripted:VES02GeckomanGSScript"},
+  {"op": "trigger_enter", "trigger": "scripted:VES02GeckomanGSScript", "actor": "player", "event": "enter"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_quest", "quest": "VES02DialogueGeckoman", "fields": ["stage", "done.70"], "label": "final: VES02DialogueGeckoman 70"},
+  {"op": "trigger_enter", "trigger": "scripted:VES02GeckomanGSScript", "actor": "player", "event": "leave"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "note", "text": "Stand-in for his talk-to-player package (VES02GeckomanTalkToPCPackage) walking up and greeting."},
+  {"op": "talk", "actor": "VESGSGeckomanNPC", "label": "geckoman trap"},
+  {"op": "wait_talk"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "note", "text": "Stand-in for the fight."},
+  {"op": "kill", "actor": "VESGSGeckomanNPC", "killer": "player"},
+  {"op": "advance_seconds", "seconds": 1},
+  {"op": "get_ref", "ref": "VESGSGeckomanNPC", "fields": ["dead"], "label": "geckoman dead"}
+ ]
+}

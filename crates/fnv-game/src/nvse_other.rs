@@ -53,6 +53,8 @@ pub struct OtherState {
     pub lev_actors: HashMap<FormId, crate::nvse_leveled::LevList>,
     /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
     pub generic: HashMap<(i64, FormId), Vec<FormId>>,
+    /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK).
+    pub owner_ranks: HashMap<FormId, i32>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -102,7 +104,7 @@ fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7], short: [bool; 7]) -> [bo
 impl<'a> Game<'a> {
     /// Change a package for the session: a copy of its definition, changed, takes its
     /// place for every reader (`Game::package_def`).
-    fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
+    pub(crate) fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
         let Some(def) = self.package_def(&p) else { return };
         let mut new = def.clone();
         change(&mut new);
@@ -242,8 +244,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // [documented: GetBaseSpellListLevSpells] the base's leveled spells; "leveled
-        // spells may be unused in vanilla" and NVForever reads none [hypothesis].
-        "getbasespelllistlevspells" => XVal::Array(g.ext.new_array(ArrayKind::List, Vec::new())),
+        // spells may be unused in vanilla" and NVForever reads none [hypothesis]; a list
+        // GenericAddForm (code 7) made is kept (`crate::nvse_lists`).
+        "getbasespelllistlevspells" => {
+            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let items = g.other.generic.get(&(7, b)).into_iter().flatten().enumerate().map(|(i, f)| (XKey::Num(i as f64), XVal::Ref(f.0))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, items))
+        }
         // [documented: GetConsoleEcho; SetConsoleEcho, which gives the state before]
         // [hypothesis: echo is on at the start].
         "getconsoleecho" => yes(g.other.echo),

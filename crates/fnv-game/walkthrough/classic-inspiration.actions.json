@@ -1,0 +1,243 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Classic Inspiration (VMS22): Michael Angelo's five photographs taken with his camera, the reward (90)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Michael Angelo on the Strip gives the player his camera (10); five photographs, each a camera shot landing on a photo target's OnHit (the dinosaur, the bison statue, the McCarran field, HELIOS One, the Sunset Sarsaparilla sign: 20-60); back with five (VMS22PicturesTaken 5), his reward line sets 70, whose script sets 90 (Complete Quest)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Michael Angelo's workshop."
+  },
+  {
+   "op": "move_player",
+   "to": "MichaelAngeloREF"
+  },
+  {
+   "op": "talk",
+   "actor": "MichaelAngeloREF",
+   "label": "angelo camera"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic000",
+   "label": "angelo camera 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic006",
+   "label": "angelo camera 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic024",
+   "label": "angelo camera 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic023",
+   "label": "angelo camera 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic034",
+   "label": "angelo camera 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic035",
+   "label": "angelo camera 6"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic036",
+   "label": "angelo camera 7"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic039",
+   "label": "angelo camera 8"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS22 10"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "NVWeapMS22Camera",
+   "label": "camera"
+  },
+  {
+   "op": "call",
+   "line": "player.EquipItem NVWeapMS22Camera"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip and the photograph: the camera's shot lands on DinoCamTargetREF (OnHit; GetWeaponAnimType 4 and the camera equipped)."
+  },
+  {
+   "op": "move_player",
+   "to": "DinoCamTargetREF"
+  },
+  {
+   "op": "hit",
+   "target": "DinoCamTargetREF",
+   "weapon": "NVWeapMS22Camera",
+   "label": "photo 20"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "done.20",
+    "var.VMS22PicturesTaken"
+   ],
+   "label": "milestone: VMS22 20"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip and the photograph: the camera's shot lands on BisonCamTargetREF (OnHit; GetWeaponAnimType 4 and the camera equipped)."
+  },
+  {
+   "op": "move_player",
+   "to": "BisonCamTargetREF"
+  },
+  {
+   "op": "hit",
+   "target": "BisonCamTargetREF",
+   "weapon": "NVWeapMS22Camera",
+   "label": "photo 30"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "done.30",
+    "var.VMS22PicturesTaken"
+   ],
+   "label": "milestone: VMS22 30"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip and the photograph: the camera's shot lands on MCFieldCamTargetREF (OnHit; GetWeaponAnimType 4 and the camera equipped)."
+  },
+  {
+   "op": "move_player",
+   "to": "MCFieldCamTargetREF"
+  },
+  {
+   "op": "hit",
+   "target": "MCFieldCamTargetREF",
+   "weapon": "NVWeapMS22Camera",
+   "label": "photo 40"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "done.40",
+    "var.VMS22PicturesTaken"
+   ],
+   "label": "milestone: VMS22 40"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip and the photograph: the camera's shot lands on HeliosCamTarget01REF (OnHit; GetWeaponAnimType 4 and the camera equipped)."
+  },
+  {
+   "op": "move_player",
+   "to": "HeliosCamTarget01REF"
+  },
+  {
+   "op": "hit",
+   "target": "HeliosCamTarget01REF",
+   "weapon": "NVWeapMS22Camera",
+   "label": "photo 50"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "done.50",
+    "var.VMS22PicturesTaken"
+   ],
+   "label": "milestone: VMS22 50"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip and the photograph: the camera's shot lands on SunsetSCamTarget01REF (OnHit; GetWeaponAnimType 4 and the camera equipped)."
+  },
+  {
+   "op": "move_player",
+   "to": "SunsetSCamTarget01REF"
+  },
+  {
+   "op": "hit",
+   "target": "SunsetSCamTarget01REF",
+   "weapon": "NVWeapMS22Camera",
+   "label": "photo 60"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "done.60",
+    "var.VMS22PicturesTaken"
+   ],
+   "label": "milestone: VMS22 60"
+  },
+  {
+   "op": "move_player",
+   "to": "MichaelAngeloREF"
+  },
+  {
+   "op": "talk",
+   "actor": "MichaelAngeloREF",
+   "label": "angelo reward"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic040",
+   "label": "angelo reward 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS22MichaelAngeloTopic050",
+   "label": "angelo reward 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS22",
+   "fields": [
+    "stage",
+    "done.70",
+    "done.90",
+    "completed"
+   ],
+   "label": "final: VMS22 90"
+  }
+ ]
+}

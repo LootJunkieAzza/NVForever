@@ -1,5 +1,6 @@
 //! The console's render toggles (docs/design/console.md): `tg`, `ts`, `tws`, `tt`,
-//! `ToggleLODLand` and `ToggleNavmesh` asked through `nvf_play::console::RenderToggles`,
+//! `ToggleLODLand`, `ToggleNavmesh` and xNVSE's Con_TFIK (foot IK) asked through
+//! `nvf_play::console::RenderToggles`,
 //! switched here and reported in the console.
 //!
 //! - Grass, distant land and the navmesh drawing switch what the settings page
@@ -88,6 +89,14 @@ fn apply(world: &mut World) {
                     format!("Navmesh drawing {}", state(!n.show))
                 }
                 None => "No navmesh is loaded in this run".to_string(),
+            },
+            // Con_TFIK: as the settings page's switch (`--no-foot-ik`).
+            Toggle::FootIk => match world.get_resource_mut::<crate::foot_ik::FootIkSettings>() {
+                Some(mut f) => {
+                    f.enabled = !f.enabled;
+                    format!("Foot IK {}", state(!f.enabled))
+                }
+                None => "No foot IK in this run".to_string(),
             },
             other => format!("{other:?}: not a render toggle"),
         };

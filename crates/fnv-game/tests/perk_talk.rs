@@ -30,16 +30,23 @@ const INTERCOM: u32 = 0x600;
 const INTERCOM_REF: u32 = 0x601;
 const CANNIBAL: u32 = 0x700;
 const SANDMAN: u32 = 0x701;
+const SHUTDOWN: u32 = 0x702;
 const QUEST: u32 = 0x800;
 const GREETING: u32 = 0x900;
 const LINE_BENNY: u32 = 0x910;
 const LINE_INTERCOM: u32 = 0x911;
 const LINE_CHRIS_BYE: u32 = 0x912;
+const TRIGGER: u32 = 0xA00;
+const TRIGGER_REF: u32 = 0xA01;
+const TRIGGER_SCRIPT: u32 = 0xA02;
+const TALK_PACKAGE: u32 = 0xB00;
+const LINE_SETTLER: u32 = 0x913;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_DEAD: u16 = 46;
 const HAS_BEEN_EATEN: u16 = 127;
 const GET_IS_ID: u16 = 72;
+const IS_SNEAKING: u16 = 286;
 const TALKING_THROUGH: u16 = 430;
 const EQ: u8 = 0x00;
 
@@ -70,11 +77,19 @@ fn on_player(op: u16) -> Vec<u8> {
 
 /// A PERK with one Activate entry: tab 1 conditions, the button, the fragment.
 fn perk(fid: u32, edid: &str, button: &str, target_conds: Vec<Subrecord>, fragment: Vec<u8>) -> Vec<u8> {
+    perk_tabs(fid, edid, button, vec![(1, target_conds)], fragment)
+}
+
+/// A PERK with one Activate entry and conditions on several tabs (0 the player, 1 the
+/// activated reference), as Robot Compliance's (OldWorldBlues.esm).
+fn perk_tabs(fid: u32, edid: &str, button: &str, tabs: Vec<(u8, Vec<Subrecord>)>, fragment: Vec<u8>) -> Vec<u8> {
     let mut s = vec![sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"DATA", vec![0, 1, 1, 1, 0])];
     s.push(sub(b"PRKE", vec![2, 0, 0]));
     s.push(sub(b"DATA", vec![27, 9, 2]));
-    s.push(sub(b"PRKC", vec![1]));
-    s.extend(target_conds);
+    for (tab, conds) in tabs {
+        s.push(sub(b"PRKC", vec![tab]));
+        s.extend(conds);
+    }
     s.push(sub(b"EPFT", vec![4]));
     s.push(sub(b"EPF2", z(button)));
     s.push(sub(b"EPF3", vec![0, 0]));
@@ -104,6 +119,7 @@ fn plugin_bytes() -> Vec<u8> {
     let perks = [
         perk(CANNIBAL, "Cannibal", "Devour", vec![ctda(EQ, 0.0, HAS_BEEN_EATEN, 0), ctda(EQ, 1.0, GET_DEAD, 0)], on_player(0x107E)),
         perk(SANDMAN, "MisterSandman", "Murder", vec![ctda(EQ, 0.0, GET_DEAD, 0)], on_player(0x107C)),
+        perk_tabs(SHUTDOWN, "Shutdown", "Deactivate", vec![(0, vec![ctda(EQ, 1.0, IS_SNEAKING, 0)]), (1, vec![ctda(EQ, 0.0, GET_DEAD, 0)])], on_player(0x107C)),
     ]
     .concat();
     let npcs = [
@@ -120,6 +136,8 @@ fn plugin_bytes() -> Vec<u8> {
         info(LINE_BENNY, BENNY, "Hey there, pallie.", vec![ctda(EQ, 1.0, TALKING_THROUGH, 0)]),
         // The intercom's own line.
         info(LINE_INTERCOM, INTERCOM, "Static.", vec![ctda(EQ, 1.0, GET_IS_ID, INTERCOM)]),
+        // The settler's greeting face to face.
+        info(LINE_SETTLER, NPC, "Howdy.", vec![ctda(EQ, 1.0, GET_IS_ID, NPC), ctda(EQ, 0.0, TALKING_THROUGH, 0)]),
         // Chris's Goodbye greeting through an activator (the REPCONN intercom's).
         info_flagged(LINE_CHRIS_BYE, CHRIS, 0x01, "I'm letting you in.", vec![ctda(EQ, 1.0, TALKING_THROUGH, 0)]),
     ]
@@ -131,13 +149,48 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     let achr = |id: u32, base: u32| record(b"ACHR", 0, id, &[sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
     let refr = record(b"REFR", 0, INTERCOM_REF, &[sub(b"NAME", u32b(INTERCOM)), sub(b"DATA", vec![0; 24])]);
+    // A trigger whose OnTriggerEnter runs `<intercom>.Activate player`, as the REPCONN
+    // intercom's trigger does (SCPT 0x000CD04E): reference 1 the player, 2 the intercom.
+    let activate = [le16(0x1C), le16(2), st(0x100D, &[le16(1), vec![b'r'], le16(1)].concat())].concat();
+    // OnTrigger counts the frames inside in its variable 1, `nInside`.
+    let count = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let trigger_script = record(
+        b"SCPT",
+        0,
+        TRIGGER_SCRIPT,
+        &[
+            vec![sub(b"EDID", z("IntercomTriggerScript"))],
+            unit(0, &script(&[(0x1A, None, activate), (0x18, None, count)]), &[(1, "nInside", 1)], &[0x14, INTERCOM_REF]),
+        ]
+        .concat(),
+    );
+    // A Dialogue package: talk to the player, no topic (the greeting).
+    let pkdd = [0f32.to_le_bytes().to_vec(), u32b(0), u32b(0), vec![0; 4], u32b(0), vec![0; 4]].concat();
+    let ptdt = [0i32.to_le_bytes(), 0x14u32.to_le_bytes(), 0i32.to_le_bytes(), 0f32.to_le_bytes()].concat();
+    let pack = record(
+        b"PACK",
+        0,
+        TALK_PACKAGE,
+        &[
+            sub(b"EDID", z("SettlerTalkToPlayer")),
+            sub(b"PKDT", [&0u32.to_le_bytes()[..], &[15, 0], &0u16.to_le_bytes(), &0u16.to_le_bytes(), &[0, 0]].concat()),
+            sub(b"PSDT", [&[0xFFu8, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+            sub(b"PTDT", ptdt),
+            sub(b"PKDD", pkdd),
+        ],
+    );
+    let trigger = record(b"ACTI", 0, TRIGGER, &[sub(b"EDID", z("IntercomTrigger")), sub(b"SCRI", u32b(TRIGGER_SCRIPT))]);
+    let trigger_ref = record(b"REFR", 0, TRIGGER_REF, &[sub(b"EDID", z("IntercomTriggerREF")), sub(b"NAME", u32b(TRIGGER)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr].concat();
+    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr, trigger_ref].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
         top(b"PERK", &perks),
         top(b"NPC_", &npcs),
+        top(b"SCPT", &trigger_script),
+        top(b"PACK", &pack),
+        top(b"ACTI", &trigger),
         top(b"TACT", &tact),
         top(b"QUST", &quest),
         top(b"DIAL", &dial),
@@ -330,4 +383,123 @@ fn a_goodbye_greeting_through_an_activator_opens_a_conversation() {
     assert!(g.dialogue.is_none(), "the Goodbye line ends the conversation");
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(LINE_CHRIS_BYE))));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", .. })));
+}
+
+/// The runner's `perk_choice` opens the perks' choice list on the target and picks the
+/// named choice, as the play loop's activation by hand does; `player_sneak` crouches the
+/// player for a choice whose tab-0 condition is IsSneaking (Robot Compliance's
+/// "Deactivate", OldWorldBlues.esm). A choice not offered is a step error.
+#[test]
+fn the_runner_picks_a_perks_activate_choice() {
+    let f = fixture();
+    let victim = format!("0x{VICTIM_REF:08X}");
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": format!("player.AddPerk 0x{SHUTDOWN:08X}")},
+            {"op": "perk_choice", "target": victim, "choice": "Deactivate", "label": "standing"},
+            {"op": "player_sneak", "sneaking": true},
+            {"op": "call", "line": "player.IsSneaking", "label": "sneaking"},
+            {"op": "perk_choice", "target": victim, "choice": "Devour", "label": "not offered"},
+            {"op": "perk_choice", "target": victim, "choice": "deactivate", "label": "crouched"},
+            {"op": "get_menus", "menus": [1001], "label": "menus after"},
+            {"op": "player_sneak", "sneaking": false},
+            {"op": "call", "line": "player.IsSneaking", "label": "standing up"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap_or_else(|| panic!("no {l}")).clone();
+    let err = |i: usize| out["steps"][i]["error"].as_str().map(str::to_owned);
+    assert!(err(1).is_some_and(|e| e.contains("offers no perk choices")), "not sneaking: no list ({:?})", err(1));
+    assert_eq!(by("sneaking")["value"], 1.0);
+    assert!(err(4).is_some_and(|e| e.contains("not offered")), "{:?}", err(4));
+    assert_eq!(err(5), None);
+    assert_eq!(by("crouched")["choices"], serde_json::json!(["Deactivate"]));
+    assert!(out["events"].as_array().unwrap().iter().any(|e| e["kind"] == "result_script" && e["on"] == victim), "the choice's script ran on the target");
+    assert_eq!(by("menus after")["menu.1001"], false, "the list closed");
+    assert_eq!(by("standing up")["value"], 0.0);
+}
+
+/// A script's `<talking activator>.Activate player` (the REPCONN intercom's trigger, SCPT
+/// 0x000CD04E, runs it after SetTalkingActivatorActor): the player activates it, the
+/// default action is Talk, and the headless runner opens the conversation as the play
+/// loop does (nvf-play `talk_after`), here from a trigger's OnTriggerEnter (issue #906).
+#[test]
+fn a_scripted_activate_player_of_a_talking_activator_opens_the_conversation() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "trigger_enter", "trigger": "IntercomTriggerREF"},
+            {"op": "wait_talk", "label": "talk"}
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = t["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{steps:?}");
+    let events = t["events"].as_array().unwrap();
+    let activated = events.iter().find(|e| e["kind"] == "activated").expect("the intercom is activated");
+    assert_eq!(activated["by"], P.to_string(), "the player is the activator");
+    let said = FormId(LINE_INTERCOM).to_string();
+    assert!(events.iter().any(|e| e.to_string().contains(&said)), "the intercom's line is said in a conversation: {events:?}");
+    let talk = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "talk").cloned().unwrap();
+    assert!(talk["state"].is_string(), "a conversation is open: {talk}");
+}
+
+/// The runner's stand-ins for the AI (issue #909): `package {event: done}` on the
+/// actor's current package marks its goal met (`Game::package_goal_met`), and
+/// `dialogue_package` carries out a Dialogue package aimed at the player as the AI does:
+/// the actor force-greets the player, and the goal is met.
+#[test]
+fn the_runner_finishes_packages_and_force_greets_for_dialogue_packages() {
+    let f = fixture();
+    let run = |actions: serde_json::Value| {
+        let input: fnv_game::runner::Input =
+            serde_json::from_value(serde_json::json!({"format": "fnv.script.actions/1", "actions": actions, "report": ["0x00000500"]})).unwrap();
+        let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+        let steps = t["steps"].as_array().unwrap().clone();
+        assert!(steps.iter().all(|s| s.get("error").is_none()), "{steps:?}");
+        t
+    };
+    let settler = "0x00000500";
+    let pkg = "SettlerTalkToPlayer";
+    let t = run(serde_json::json!([
+        {"op": "package", "actor": settler, "package": pkg, "event": "start"},
+        {"op": "package", "actor": settler, "package": pkg, "event": "done"},
+    ]));
+    let x = &t["final"]["references"]["0x00000500"]["layer5"];
+    assert_eq!((x["current_package"].as_str(), x["package_goal_met"].as_bool()), (Some("0x00000B00"), Some(true)), "{x}");
+
+    let t = run(serde_json::json!([
+        {"op": "package", "actor": settler, "package": pkg, "event": "start"},
+        {"op": "dialogue_package", "actor": settler, "label": "greet"},
+    ]));
+    let greet = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "greet").cloned().unwrap();
+    assert_eq!(greet["info"], FormId(LINE_SETTLER).to_string());
+    assert!(!t["final"]["dialogue"].is_null(), "the conversation is open");
+    assert_eq!(t["final"]["references"]["0x00000500"]["layer5"]["package_goal_met"], true);
+}
+
+/// `trigger_enter` with `event: inside` and `frames: N` keeps the actor in the trigger N
+/// frames: OnTrigger runs in each (issue #909 item 7).
+#[test]
+fn the_runner_stays_in_a_trigger_for_frames() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "trigger_enter", "trigger": "IntercomTriggerREF", "event": "inside", "frames": 30},
+            {"op": "get_var", "of": "IntercomTriggerREF", "var": "nInside", "label": "inside"},
+            {"op": "trigger_enter", "trigger": "IntercomTriggerREF", "event": "enter", "frames": 3},
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let inside = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "inside").cloned().unwrap();
+    assert_eq!(inside["value"], 30.0);
+    let steps = t["steps"].as_array().unwrap();
+    assert!(steps[0].get("error").is_none() && steps[2]["error"].as_str().is_some_and(|e| e.contains("inside")), "{steps:?}");
 }

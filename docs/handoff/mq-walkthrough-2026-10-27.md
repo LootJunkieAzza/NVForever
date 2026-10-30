@@ -85,22 +85,27 @@ Notes [observed]:
 4. Done: the runner's `patrol_point {actor, point}` op calls
    `Game::patrol_point_reached` (runner.rs). Was hit by: Moore at Kimball's podium (REFR
    0x00130C75 gives him 0x00145EC3); Yes Man's and Oliver's markers.
-5. `package {event: done}` does not mark the goal met, so a script package stays current:
-   Kimball's walk back to the vertibird (0x001377CC, then 0x00130C7A). Fix: `done` calls
-   `package_goal_met` when the package is the actor's current one (small).
-6. Dialogue packages start no conversation headless (fnv-ai's `talk` goal is not in
-   fnv-game). Hit by: the Lucky 38 elevator, Cato, Oliver, Lanius. Stand-in:
-   `StartConversation` / `talk`. Fix: the runner force-greets with the package's topic
-   (small to medium).
-7. `trigger_enter` with `inside` is one frame; the Hidden Valley bunker's escape trigger
-   counts 1 s inside. Stand-in: the trigger's timer is set. Fix: a `frames: N` field
-   (small).
+5. **Done** (2026-10-30, issue #909): `package {event: done}` on the actor's current
+   package now calls `package_goal_met`, so a script package is dropped at the next choice
+   (Kimball's walk back to the vertibird, 0x001377CC, then 0x00130C7A). Test:
+   perk_talk.rs `the_runner_finishes_packages_and_force_greets_for_dialogue_packages`.
+6. **Done** (2026-10-30, issue #909): a `dialogue_package {actor, package?}` op carries
+   out a Dialogue package reaching its target as fnv-ai's `carry.rs` does: a Say To
+   package says its topic, any other force-greets the player with the package's topic
+   (`Game::force_greet`), and the goal is met. The Lucky 38 elevator uses it (house
+   chain); Cato, Oliver and Lanius still use `talk` with the topic (their packages were not
+   looked up).
+7. **Done** (2026-10-30, issue #909): `trigger_enter` takes `frames: N` with `inside`:
+   OnTrigger runs N frames, the game going on between them. The Hidden Valley escort
+   trigger now runs 180 frames instead of having its timer set (brotherhood chain).
 8. Opening a container headless runs no OnOpen (the engine queues it from the container
    menu). Not on any main path (see the storage note in §1). Fix: queue OnOpen/OnClose in
    the runner's container menus (small).
-9. `ai reach` reports `VMQYesMan01MoveToTerminal` unreachable (§1). Fix: start the check
-   also from the places scripts MoveTo the actor, as its own verdict (about 50-100 lines
-   in fnv-ai).
+9. **Done** (2026-10-30, issue #909): `fnvtool ai reach` (the code is in
+   crates/fnvtool/src/ai_run.rs, not fnv-ai) also tries, when a package is unreachable
+   from the editor placement, the places scripts `MoveTo` the actor (`<actor>.MoveTo
+   <marker>` with both in the unit's reference list); reached from one of them, the pair
+   gets its own verdict, "reachable from where a script moves it (MoveTo)".
 
 **Possibly hard, unverified** (not on the canonical paths; observer checks 30-32):
 
@@ -120,6 +125,7 @@ Notes [observed]:
     greeting (0x001164F1, shared by GetIsID OR) once (dialogue.md question 13).
 12. `GetStage Q N == 1` compiled with an extra argument leaves two values on the stack.
     Three begin scripts (e.g. INFO 0x00160731) stop there; ours gives a script error.
+    Settled 2026-10-30: the original stops them too (scripts.md §4.2, issue #908).
 13. A line with both a follow-up and choices (0x00158A3D, Topic056) plays the follow-up and
     never offers Topic068 [observed in the runner; the original's order is not known].
 
@@ -232,7 +238,8 @@ Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
   was refused; fixed by the companions walkthrough (perks kept per actor), which brought
   the totals to 386 failed calls in 54 causes and 114 line scripts with a problem.
 - **`GetStage Q N == 1` with an extra argument** (3 lines, e.g. INFO 0x001588E5): a script
-  error stops the begin script before its SetStage; item 12 of §2, observer check 32.
+  error stops the begin script before its SetStage; item 12 of §2. The original stops it
+  the same way [observed 2026-10-30; scripts.md §4.2].
 
 The commonest call failures:
 
@@ -287,13 +294,20 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
 1. Possibly hard: two Dead Money narrator lines name Elijah as fixed speaker with no GetIsID
    condition (INFO 0x01013C60, 0x01011DE9), so `can_say_as` refuses them and their slides are
    skipped [observed]; what the original does is an observer question.
-2. Possibly hard: a script making a talking activator activate the player (REPCONN's
-   intercom, SCPT 0x000CD04E) gives a "talk" outcome no one opens, in the runner and in play
-   (nvf-play `talk_after` takes the player's own activations only) [observed]; about 30-60
-   lines in `Game`, plus an observer check.
+2. **Done** (2026-10-30, issue #906): the REPCONN intercom's trigger (SCPT 0x000CD04E)
+   runs `<intercom>.Activate player`, so the player is the activator, not the intercom
+   [observed: `fnvtool script decompile`], and the play loop's `talk_after` (player's
+   activations) already opened it. Only the runner lost it: `talk_since` ran for
+   `player_activate` alone. The runner now opens the conversation for a script's Talk
+   activation by the player after any other op and in every frame it waits (`scripted_talk`);
+   the come-fly-with-me chain no longer activates the intercom by hand. Test: perk_talk.rs
+   `a_scripted_activate_player_of_a_talking_activator_opens_the_conversation`; smoke
+   `intercom-trigger-activate`.
 3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
    (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
-   says those lines they are lost.
+   says those lines they are lost. Settled 2026-10-30: the original reads 0 for both
+   (dialogue.md §4, issue #907); ours now gives 0 without a failed call, which keeps the
+   lines chosen as before.
 4. Soft: AddScriptPackage is built (`functions/actor.rs`, one slot per actor); whether ED-E's
    Lonesome Road packages then run headless is unchecked;
    dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
@@ -315,3 +329,168 @@ nearby; the World Map now reads its markers on an ask from the test aid).
 Not done in this batch: the companion quests and the Gun Runners' Arsenal / Hardcore chains
 (helpers stopped by the usage limit, resumed), the three scenes as real game runs (a helper
 is on it), and a full markers or cells sweep (hours of game time).
+
+## 9. Fourth batch (2026-10-30, issue #918)
+
+46 new chains from four groups (main quest and factions, more factions and the half-walked
+quests, add-ons, base-game side quests), each with its `mq-*` smoke scenario. `script cover`
+over all 87 chains: 0 step and 0 given errors; **166 of 228 quests touched (was 113), 132
+completed (77), 639 of 1405 stages (378), 1966 lines said (1120), 209 actors (97)**
+[observed]. The totals are in tools/smoke/expected/walkthrough-coverage.toml.
+
+| group | chains (quests) |
+|---|---|
+| main quest, factions | gi-blues (VMS19), forlorn-hope (VMS30, VMS31), i-fought-the-law (VMS02), anywhere-i-wander (VTechatticup), beggar (VMS04), talent-pool (VMSTopsTalentPool, stage 60), moon-over-the-tower (vfreeformlucky38, 25), flags-of-our-foul-ups (VFreeformCampGolf, camaraderie path), birds-of-a-feather (VMS29a) |
+| factions, half walked | aba-daba-honeymoon (VMS46), hard-luck-blues (VES34Vault), forgot-to-remember (VMS39), why-cant-we-be-friends (VMS42), finger-of-suspicion (VMS33), i-hear-you-knocking (VMS32), i-dont-hurt-anymore (VMS56), find-it-in-your-heart (vMojave), no-not-much (VMS36), bitter-springs-mountain (VMS37, VMS40), pressing-matters (VMS51), nipton (vMojaveGhost, VNipton), back-in-your-own-backyard (VNelson), we-are-legion (VDeadSea), team-spirit (vFreeformForlornHope03), caesars-favor / caesars-hire (VEFR01/00 Legion), emergency-radio (VEFR01NCRGood2EmergencyRadio) |
+| add-ons | honest-hearts-side (NVDLC02MS01-04), honest-hearts-joshua (NVDLC02MQ04), fail-honest-hearts-chaos (NVDLC02MQ06), old-world-blues-think-tank (the Think Tank quest and its six doctors), old-world-blues-sink (HQBuddy, Upgrade, Samples), old-world-blues-sonic-emitter |
+| side quests | bye-bye-love (VMS21a), bleed-me-dry (VMS38), return-to-sender (VMS52, the ranger stations' lines), pheeble-will (VMS25), white-wash (VMS11, VMS08's objectives), three-card-bounty (VMS12), camp-searchlight (VMS43, VMS43a), you-can-depend-on-me (VMS05), classic-inspiration (VMS22), guess-who-i-saw-today (VMS41), wheel-of-fortune (VMS44), there-stands-the-grass (VMS06), vault-21-tour (VVault21Tour) |
+
+Each chain's notes name its stand-ins (travel, kills, skill values given, dialogue packages
+replaced by `talk`, AI arrivals by `package done`, as in §3).
+
+**Not walkable** (no script, line or stage sets their stages, or they only start themselves)
+[observed, decompiled scripts and INFO/QUST result scripts]: VMQ04 (orphan; VMQ02 owns the
+regulators), VMQ06 and VMQHouse (old stubs), VMQHouseLockdown, VDialogueCaesar (dialogue
+holder), VEFR02NCRBad2MostWanted, VEFR00NCRMixed2LimitedAccess, VEFR02LegionBad2CaesarsFoe
+(only started; their scripts stand down hit squads), NVDLC01MQ01d, MQ03d,
+FountainStartSequence, ElijahBarkTown, NVDLC03GenericPerkQUEST, NVDLC01EnemyTest (test),
+NVDLC02MQ02 (never started), NVDLC03Enc (starts itself), VMS10 (every stage script commented
+out), VMSRSGlobalCommBreakdown (a test script only; VMS52 replaced it), the three ranger
+station dialogue quests, VMS26, VFreeformTheStreet01, the VES01/01a/01b/03/04/05 bark quests,
+vDialogueSL, VFactionSquad, VMS01REPCONGhouls, WaterBeggars, PerkWildWasteland,
+FriendOfTheNightQuest, FerociousLoyaltyQuest.
+
+**Walked but not counted as completed** (they end by CompleteQuest, or their last stage has
+no Complete Quest flag): VMS39, vFreeformForlornHope03, VMS11, VMS05, VMS44, VVault21Tour,
+VMS43a.
+
+**Left, walkable** (they have setters; out of time): VDialogueVegasNorth (25 stages, not
+dialogue-only), VMS13, VMS50, VMS24 (behind the King's first greeting), VES02DialogueGeckoman,
+VNellisInfestation, VFSAtomicPimp, vNiptonVulpes, VDoctors, Doctors, VMS03, VMS09, VMS09a,
+vCCEyeforaneye, vCCLeftMyHeart, VT74, VMS57, nvNelsonExplorerBark, VMS18, VFSHighTimes,
+VFSDebtCollector, vFreeformForlornHope02, VMS55a, VMS55b, NellisSunshineBoogie, and the Old
+World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ04).
+
+### Engine and runner changes (each with a test)
+
+1. **Hard: a chosen topic said the wrong line, so the Sink was unreachable.** The Think
+   Tank's Topic001 gave 0x01013555, the first line of a follow-up chain, never the chip line
+   0x01013559. `Game::select_choice_line` (dialogue.rs) passes over lines another line names
+   as its follow-up (TCFU) while another line can be said; greetings and SayTo keep the old
+   choice (applying it there broke five chains). [hypothesis; observer check 37;
+   dialogue.md §3.4]
+2. **Hard: `Begin OnHitWith <form list>` never ran** (the Sonic Emitter's force fields).
+   `block_accepts` (game.rs) accepts a member of the list. [hypothesis; observer check 38]
+3. **Runner: hidden message-box buttons could be pressed.** It pressed the Lucky 38
+   mainframe's bug button before Emily gave the bug. Buttons whose conditions fail at
+   ShowMessage are kept (`MessageBox.hidden`) and refused by `press_button`, in play and in
+   the runner. This caught one chain (emergency-radio pressed a call button outside the
+   support region) [observed].
+4. **Runner: `created:<base>`** names the newest reference made at run time from a base
+   (PlaceAtMe), as the sim runner does (the Emergency Radio's supply cache).
+
+### Stalls, ranked
+
+**Possibly hard** (observer checks 39-41):
+1. StartConversation from a Goodbye line's end script is refused: the old conversation is
+   still open when the end script runs (`finish_line` runs it before `end_dialogue_as`).
+   8 INFO end scripts in FalloutNV.esm do this (0x00116C36, 0x00129351, 0x00142A9C,
+   0x001596F2, 0x001598B4, 0x001598AF, 0x0015D0AA, 0x0015D0AB); Anders' thanks in VMS46 is
+   lost (not blocking). Fix: queue the force-greet and start it in `end_dialogue_as`.
+2. Re-displaying a completed objective un-completes it (`Game::set_objective`). In G.I.
+   Blues, Roy's chained line 0x0015C410 re-displays objective 65; if it plays after the King
+   completes 65, his greeting 0x00113634 holds and stage 100 cannot be reached.
+3. ResetQuest drops a SetQuestDelay override (`reset_quest` replaces the QuestState): the
+   Emergency Radio's drop then waits 5 s of menu mode instead of 0.1 s.
+4. Still open from §8: a talking activator's bare `Activate` in GameMode opens no
+   conversation; all of the Sink's appliances (SCPT 0x0100F075, 0x0100F071, 0x0100F05D,
+   0x0100F05A, ...) hit it, in play too.
+
+**Soft** (headless only, stood in): `wait_talk` returns before a Goodbye greeting's line
+ends, so a following conversation cuts it and its end script never runs (Carlitos INFO
+0x0011F861, Joana 0x00127A55; fix: wait for `line_ended`); `end_talk` on an ended
+conversation is a step error; AddScriptPackage is a stub (Joana, the Omertas, Sarah's tour,
+Logan, Boone's BSArrive, the VEFR messengers); SayTo ping-pong with no line runs every frame
+until a condition passes (VFSPacerGreetsSimon, SCPT 0x001205B7 / 0x001251C6); StartConversation
+starts at any distance, so Nelson's explorers pull the player in from about 4000 units
+(nvNelsonExplorerBarkSCRIPT 0x0014EA06); no detection headless, so combat does not end when
+the target dies (Simon after the bomber).
+
+**Data notes** [observed]: Billy Knight is enabled only by the Strip code box
+(VStreetEventStarterScript 0x00163E9B), which needs its `Bot05` filled by the Freeside gate
+or monorail door; arriving another way, the box stops every frame at `Bot05.Disable`. Talent
+Pool's stages 20-50 and VMS12's 10-60 are set by nothing. VMS43a 30 can be set by its trigger
+while the quest is not running. Honest Hearts' four side quests must be done before Gathering
+Storms' choice (MQ04/MQ05 fail any still running).
+
+**Found on main, not from this batch:** VMQNCRFail stage 2 is no longer reached by the legion
+chain (379 stages at db11b046, 378 on main 1e9a14c7). Its script (SCPT 0x0016829F) sets stage
+2 one second after VMQ02 objective 25 or 30 completes; on main the legion chain reaches that
+point about 12000 frames later and the script takes its stage-5 branch instead. One of the
+two fnv-game changes since db11b046 (4449628f radiation falloff, cd93d5c7 aid effects) moved
+it; not bisected.
+
+## 10. Fifth batch (2026-10-30, issue #932)
+
+24 new chains (one older chain runs further), from four groups, each with its `mq-*` smoke
+scenario, plus a coverage change. `script cover` over all chains: 0 step and 0 given errors;
+**191 of 228 quests touched (was 166), 165 completed (132), 710 of 1405 stages (639), 2249 lines said (1966), 246 actors (209)** [observed]. The totals are in tools/smoke/expected/walkthrough-coverage.toml.
+
+| group | chains (quests: stages reached) |
+|---|---|
+| larger base-game | someone-to-watch-over-me (VDialogueVegasNorth 10-100, Alice goes home), nothin-but-a-hound-dog (VMS24 100), the-coyotes (VMS13 100), unfriendly-persuasion (VMS50 100, bought off), eyesight-to-the-blind (VMS55b 100), tend-to-your-business (VMS55a 100, VMS55 101), ant-misbehavin (VNellisInfestation 20, completed), sunshine-boogie (NellisSunshineBoogie 100) |
+| add-ons | old-world-blues-setups (NVDLC03X8Setup 100, NVDLC03X13Setup 100, NVDLC03Enc 10, NVDLC03GenericPerkQUEST 10/11), lonesome-road-launch (NVDLC04MQ04 100, launch at both) |
+| small side | exploring-vault-74 (VT74 100), nelson-explorer (nvNelsonExplorerBark 100), geckoman (VES02DialogueGeckoman 50-70), legend-of-the-star (VMS09 30 fail, VMS09a 100), crazy-crazy-crazy (VMS57 100), cold-cold-heart (vNiptonVulpes 100), doctors (VDoctors 10-30, Doctors 20), that-lucky-old-sun (VMS03, by CompleteQuest), cottonwood-cove (vCCLeftMyHeart by CompleteQuest, vCCEyeforaneye 100), fail-beyond-the-beef (VMS18 255); beyond-the-beef now runs on to Heck's reward |
+| freeform | stocking-up (vFreeformForlornHope02 10), high-times (VFSHighTimes, CompleteQuest), debt-collector (VFSDebtCollector, CompleteQuest), wang-dang-atomic-tango (VFSAtomicPimp 100) |
+
+New stand-ins beyond §3's: skill values and items given (each chain's notes), `add_spell
+WithdrawalJet` for an addiction, ShowMap for a marker found on arrival, Ibsen's datastore
+virus hunt replaced by its result (`VirusWiped 1`: its infected hosts are drawn at random),
+Rex moved to Doctor Henry by MoveTo, and two new runner ops (below).
+
+**Coverage change.** A quest the run completes (`Game::quest_completed`, which CompleteQuest
+and a Complete Quest stage both go through) now counts as completed, and as touched even with
+no stage reached; `given` state does not count. Of §9's seven "walked but not counted", VMS39,
+VMS11 and VMS05 now count. VVault21Tour and vFreeformForlornHope03 are completed by nothing in
+the ESM, VMS43a ends by StopQuest, and VMS44's CompleteQuest is only on the Logan-dead branch
+[observed, decompiled scripts]. Test: `coverage_counts_a_quest_completed_by_complete_quest`.
+
+**Runner ops** (test: `the_runner_picks_a_perks_activate_choice`, perk_talk.rs):
+`perk_choice {target, choice}` opens the perks' activate choice list on a reference and picks
+one (Robot Compliance's "Deactivate"); `player_sneak {sneaking}` sets the player's measured
+crouch, which IsSneaking reads (SetForceSneak does nothing for the player).
+
+**Set by nothing** [observed, ESM]: VES02DialogueGeckoman 10 and 100, VMS09 10, vNiptonVulpes
+15, VNellisInfestation 10, VMS55b objective 20, Doctors 10 (Argyll's script sets a stage the
+quest does not define), vCCLeftMyHeart 0 and 100, NVDLC03Enc 20. Not walkable, as §9 said:
+NVDLC01ElijahBarkTown, NVDLC01FountainStartSequence, NVDLC01MQ01d/MQ03d, NVDLC01EnemyTest,
+NVDLC02MQ02.
+
+**Data notes** [observed]: VMS24 is offered only from the King's plain greeting, after G.I.
+Blues; Raquel and the Nellis gate guard start disabled and are enabled by the front gate
+script and the guard's greeting; Greasy Johnny is WatchFiend2REF; Mrs Hostetler's Topic034 and
+Jules' Topic007 borrow another topic's line (INFC/INFX).
+
+### Stalls
+
+1. **Possibly hard: the doctors' addiction cure does nothing.** VDoctors and Doctors stage
+   20 call RemoveSpell with no reference; a stage result script has no calling reference
+   (script-language.md), so all 13 calls fail and the withdrawal stays [observed]. Observer
+   check 42.
+2. **Soft: Old World Blues' first quest script never runs in the older chains.**
+   old-world-blues and the chains that copy its start talk to Dr. Klein in the same second
+   the quest starts; MQ01 reaches 100 before its 5 s script has run, so the Act XP values and
+   NVDLC03Enc 10 are never set there. old-world-blues-setups spends 6 s first and reaches
+   them [observed]. Observer check 43.
+3. **Soft: `RemoveItem x 0` is refused** (Loyal's reward line, INFO 0x0010A1BF, when the
+   arrays were fixed by hand). Not blocking. Observer check 44.
+4. **Soft:** a second Nelson explorer force-greets at once (the any-distance
+   StartConversation stall, check 45); the HELIOS One west-terminal password lands on
+   Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
+   vNiptonVulpes; Doctors 30's line (0x000BE417) is offered by none of the doctors tried;
+   VNellisInfestation's iInfestation stays 0 when the emitter is used before the power.
+5. **Not from this batch:** `GetQuestVariable` "parameter 1 is not a form" in every Hidden
+   Valley/Freeside run (INFO 0x0014B595-97); issue #907.
+
+**Not walked:** other branches (VDialogueVegasNorth 72-89, VMS03's other power targets and
+Ignacio's ending, Eye for an Eye's other paths, VMS57's peaceful ending) and the fail stages.

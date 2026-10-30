@@ -321,8 +321,37 @@ impl<'a> Game<'a> {
     pub(crate) fn select_line_as(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool, says: Says) -> Option<FormId> {
         let data = self.data;
         let lines = data.lines_tried(topic);
+        self.select_among(speaker, listener, &lines, &keep, false, says)
+    }
+
+    /// [`Game::select_line_where`] for a topic the player chooses from a list: lines that
+    /// another line names as its follow-up (TCFU) are passed over while a line of the
+    /// topic that is not one can be said (they count as lines the speaker cannot say, so
+    /// Random pools keep their bounds); they are said after the line that leads to them
+    /// (§3.4). Only when no other line can be said is a follow-up line taken
+    /// [hypothesis: Old World Blues' Think Tank answers the chosen "Topic001" with its
+    /// chip line 0x01013559, stored after the five-line chain that Topic000's line leads
+    /// into; that chip line is the only way to the Sink; dialogue.md §3.4, observer check
+    /// 34]. Greetings and SayTo keep the plain rule: there the stored first line is said
+    /// (the Legion's and Yes Man's chains need it).
+    pub(crate) fn select_choice_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool) -> Option<FormId> {
+        let data = self.data;
+        let lines = data.lines_tried(topic);
+        if lines.iter().any(|i| data.follow_up_targets.contains(i)) {
+            if let Some(i) = self.select_among(speaker, listener, &lines, &keep, true, Says::Actor) {
+                return Some(i);
+            }
+        }
+        self.select_among(speaker, listener, &lines, &keep, false, Says::Actor)
+    }
+
+    /// Steps 2 and 3 of [`Game::select_line`] over `lines` in their order; with
+    /// `lead_only`, follow-up lines ([`GameData::follow_up_targets`]) count as lines the
+    /// speaker cannot say.
+    fn select_among(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says) -> Option<FormId> {
+        let data = self.data;
         let flag = |i: &FormId, f: u16| data.infos.get(i).is_some_and(|d| d.has(f));
-        let kept = |i: &FormId| data.infos.get(i).is_some_and(&keep);
+        let kept = |i: &FormId| !(lead_only && data.follow_up_targets.contains(i)) && data.infos.get(i).is_some_and(keep);
         let mut at = 0;
         while at < lines.len() {
             if !flag(&lines[at], info_flag::RANDOM) {
@@ -767,7 +796,11 @@ impl<'a> Game<'a> {
                 continue;
             }
             let player_line = |d: &InfoDef| link.from.is_none() || d.info_type == crate::data::topic_type::TOPIC;
-            let Some(info) = self.link_line_where(actor, listener, link, player_line, Says::Actor) else { continue };
+            let found = match link.from {
+                None => self.select_choice_line(actor, listener, topic, player_line),
+                Some(_) => self.link_line_where(actor, listener, link, player_line, Says::Actor),
+            };
+            let Some(info) = found else { continue };
             let def = &data.infos[&info];
             let challenge = def.challenge_form.map(|form| {
                 let (needed, have) = self.challenge_levels(def);

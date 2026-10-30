@@ -1,0 +1,31 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless The Moon Comes Over the Tower (vfreeformlucky38): Emily Ortal of the Followers gives the player a bug for the Lucky 38's network (stage 10), the bug planted at the Lucky 38 mainframe through its message box (20), Emily rewards the player (stage 25)",
+  "given": [
+    {"kind": "global", "name": "VStoryEventBennyKilledCasino", "value": 1},
+    {"kind": "global", "name": "VStoryEventVisitsLucky38", "value": 1},
+    {"kind": "quest", "quest": "VMQTops", "running": true, "done": [70]},
+    {"kind": "disabled", "of": "FollowerEmily", "disabled": false}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: Emily on the Strip (GREETING after Benny's fate is known: given VStoryEventBennyKilledCasino 1, the Tops chain's end, with VMQTops 70's result given: Emily enabled after a visit to the Lucky 38; Topic001, 003, 006: stage 10 and the bug given); the Lucky 38 mainframe activated, its message box's button 1 sets bBuggedTower and stage 20; Emily (008: 25, complete). Stand-ins: travel by move_player; the Lucky 38's access (House's invitation) is not walked here, the mainframe is reached directly."},
+    {"op": "move_player", "to": "FollowerEmily"},
+    {"op": "talk", "actor": "FollowerEmily", "label": "emily greeting"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic001", "label": "emily 001"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic003", "label": "emily 003"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic006", "label": "emily gives the bug"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.10", "var.bGivenBug"], "label": "milestone: vfreeformlucky38 10"},
+    {"op": "move_player", "to": "scripted:Lucky38MainframeSCRIPT"},
+    {"op": "player_activate", "target": "scripted:Lucky38MainframeSCRIPT"},
+    {"op": "advance_seconds", "seconds": 0.1},
+    {"op": "press_button", "button": 1},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.20", "var.bBuggedTower"], "label": "milestone: vfreeformlucky38 20"},
+    {"op": "move_player", "to": "FollowerEmily"},
+    {"op": "talk", "actor": "FollowerEmily", "label": "emily again"},
+    {"op": "choose", "topic": "vfreeformlucky38Lucky38FollowerEmilyTopic008", "label": "emily 008"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vfreeformlucky38", "fields": ["stage", "done.25", "completed"], "label": "final: vfreeformlucky38 25"}
+  ]
+}
