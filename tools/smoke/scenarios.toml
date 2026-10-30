@@ -159,15 +159,14 @@ run_seconds = 40
 [[scenario]]
 name = "reflection-off-unseen"
 source = "issue #1042 (Primm frame rate): the water reflection camera renders only while water at its height lies inside the view (engine/nvforever/src/reflection.rs water_on_screen); in Primm the nearest water (cell -16,-15) is out of sight facing north and behind walls to the south-west"
-note = "Facing north (heading 0) the camera never switches on; at heading 225 the water of cell -16,-15 lies inside the view (behind walls: occlusion is not tested) and it switches on, and off again a second after turning back north"
+note = "Facing north (heading 0) the camera never switches on; at heading 225 the water of cell -16,-15 lies inside the view but behind the walls, and since #1060 (the GPU counts the water pixels drawn) it stays off there too. Before #1060 it switched on at 225, which this scenario expected"
 areas = ["renderer", "graphics"]
 paths = ["engine/nvforever/src/reflection.rs", "engine/nvforever/src/water.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_LOOK = "4:0:-5,10:225:-5,16:0:-5" }
 args = ["--play", "--cell", "Primm", "--hour", "16", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
-  "water reflection: on (the water of cell -16,-15 on screen)",
-  "water reflection: off (no water on screen for 1 s)",
+  { text = "water reflection: on", count = 0, label = "camera stays off: the water is behind the walls (#1060)" },
 ]
 
 [[scenario]]
