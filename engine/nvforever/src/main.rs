@@ -57,6 +57,7 @@ mod eye_adapt;
 mod fog;
 mod fly;
 mod foot_ik;
+mod fps_counter;
 mod frame_pace;
 mod blit_warm;
 mod handoff;
@@ -385,6 +386,10 @@ struct Args {
     /// --overlay is given).
     #[arg(long)]
     no_overlay: bool,
+    /// Show the frame rate counter in the top-right corner (fps_counter.rs; a switch on the
+    /// settings page too).
+    #[arg(long)]
+    fps: bool,
     /// With --play: draw the text overlay (the developer's position, loading counts and
     /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
     /// Developer group turns it on and off too.
@@ -1195,6 +1200,7 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
+    .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
     .add_plugins(blit_warm::BlitWarmPlugin)
