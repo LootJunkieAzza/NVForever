@@ -538,6 +538,8 @@ pub fn update_lod(
             .flat_map(|dx| (-r..=r).map(move |dy| ((centre_chunk.0 + dx) * LEVEL, (centre_chunk.1 + dy) * LEVEL)))
             .filter(|&sq| square_distance(p, sq, LEVEL) < s.far)
             .collect();
+        // Nearest first, so squares put off by the rebuild budget are the far ones.
+        lod.squares.sort_by(|&a, &b| square_distance(p, a, LEVEL).total_cmp(&square_distance(p, b, LEVEL)));
         let finest: Vec<Grid> = lod.chosen.iter().filter(|ch| ch.0 == LEVEL).map(|ch| (ch.1, ch.2)).filter(near_gen).collect();
         schedule_generated(&mut lod, centre_chunk, &finest);
         let chosen: HashSet<Chunk> = lod.chosen.iter().copied().collect();
@@ -616,8 +618,13 @@ pub fn update_lod(
                 }
                 b.steps = steps;
             }
-            // Over the budget: the old block stays as it is until a later frame.
-            Some(_) if over_budget(rebuilt) => lod.block_stats.put_off += 1,
+            // Over the budget: a changed block stays as it is, and a new square stays
+            // empty, until a later frame (nothing marks it done, so it is tried again
+            // next frame). New squares used to skip the budget and load every model of a
+            // row coming into range in one frame (#1038); waiting costs a little more
+            // pop-in at the view's edge, nearest squares first (`squares` is sorted).
+            // One slow block can still overrun the budget: the check runs between blocks.
+            _ if over_budget(rebuilt) => lod.block_stats.put_off += 1,
             b => {
                 if b.is_some() {
                     lod.block_stats.rebuilt += 1;
