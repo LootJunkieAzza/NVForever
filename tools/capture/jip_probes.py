@@ -4549,6 +4549,35 @@ SHOWOFF1_PROBES = (
             + "".join(f'rP.AuxVarErase "*nvfS1.{n}"\n' for n in _SO1_ALL) + "SetFunctionValue 1")]
 )
 
+
+# atk1 (writes, session only): GetAttackDamage on a creature base (VStreetCrBrahmin2, CREA
+# 17B587; the page says it works on weapons, water and creatures [documented]),
+# SetAttackDamage 50 read back and put back; SetWeaponSightFOV 40 and SetWeaponAmmo on the
+# 10mm pistol (434F) read back and put back.
+def _at1(pid, body, text=False):
+    return (f"atk1.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+_AT1C = _form("rObj", "17B587")
+_AT1W = _form("rObj", NF["pistol10"])
+
+ATK1_PROBES = (
+    [_at1("crea.get", _AT1C + "SetFunctionValue (GetAttackDamage rObj)"),
+     _at1("crea.set", _AT1C + 'let fRes := GetAttackDamage rObj\nrP.AuxVarSetFlt "*nvfAD" fRes\nSetAttackDamage 50 rObj\n'
+          "SetFunctionValue (GetAttackDamage rObj)"),
+     _at1("crea.set.next", _AT1C + "SetFunctionValue (GetAttackDamage rObj)"),
+     _at1("crea.restore", _AT1C + 'SetAttackDamage (rP.AuxVarGetFlt "*nvfAD") rObj\nrP.AuxVarErase "*nvfAD"\nSetFunctionValue (GetAttackDamage rObj)'),
+     _at1("fov.get", _AT1W + "SetFunctionValue (GetWeaponSightFOV rObj)"),
+     _at1("fov.set", _AT1W + 'let fRes := GetWeaponSightFOV rObj\nrP.AuxVarSetFlt "*nvfAF" fRes\nSetWeaponSightFOV 40 rObj\n'
+          "SetFunctionValue (GetWeaponSightFOV rObj)"),
+     _at1("fov.restore", _AT1W + 'SetWeaponSightFOV (rP.AuxVarGetFlt "*nvfAF") rObj\nrP.AuxVarErase "*nvfAF"\nSetFunctionValue (GetWeaponSightFOV rObj)'),
+     _at1("ammo.get", _AT1W + "SetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))", True),
+     _at1("ammo.set", _AT1W + _form("rOther", NF["ammo10"]) + "let rOther := GetWeaponAmmo rObj\nrP.AuxVarSetRef \"*nvfAA\" rOther\n"
+          + _form("rOther", "4240") + "SetWeaponAmmo rOther rObj\nSetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))", True),
+     _at1("ammo.restore", _AT1W + 'let rOther := rP.AuxVarGetRef "*nvfAA"\nSetWeaponAmmo rOther rObj\nrP.AuxVarErase "*nvfAA"\n'
+          "SetFunctionValue (GetFormIDString (GetWeaponAmmo rObj))", True)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4604,11 +4633,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "proj1": PROJ1_PROBES,
         "controls1": CONTROLS1_PROBES,
         "hud1": HUD1_PROBES,
-        "showoff1": SHOWOFF1_PROBES}
+        "showoff1": SHOWOFF1_PROBES,
+        "atk1": ATK1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1"}
 
 
 def script(body):
