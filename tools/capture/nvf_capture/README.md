@@ -302,7 +302,9 @@ NVForever's repository has a launcher that does all of this and reports the outc
 ## Source, building and licence
 
 `nvf_capture` is free software under the GNU General Public License, version 3 or (at
-your option) any later version; see `LICENSE.txt`. There is no warranty. The licences of
+your option) any later version; see `LICENSE.txt`. It carries an additional permission
+under section 7 of that licence, so that it may be loaded into the game and xNVSE and
+conveyed with them; see `LICENSE-EXCEPTION.txt`. There is no warranty. The licences of
 the Rust libraries built into the DLL are in `THIRD-PARTY-LICENSES.txt`.
 
 The source is in the NVForever repository under `tools/capture/nvf_capture`

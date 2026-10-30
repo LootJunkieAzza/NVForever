@@ -7,7 +7,8 @@ Writes into DIR (default: tools/capture/nvf_capture/target/package, which git ig
 
     nvf_capture-v<N>.zip           the plugin, laid out relative to the game's Data folder
       NVSE/Plugins/nvf_capture.dll, nvf_capture.ini
-      Docs/nvf_capture/README.md, LICENSE.txt, THIRD-PARTY-LICENSES.txt, BUILD-INFO.txt,
+      Docs/nvf_capture/README.md, LICENSE.txt, LICENSE-EXCEPTION.txt,
+      THIRD-PARTY-LICENSES.txt, BUILD-INFO.txt,
       Docs/nvf_capture/examples/
     nvf_capture-v<N>-source.zip    the plugin's source at the commit it was built from
     nexus-description.bbcode       text for the mod page
@@ -244,6 +245,7 @@ def plugin_files(dll: bytes, licenses: str, build_info: str) -> dict[str, bytes]
         "NVSE/Plugins/nvf_capture.ini": (pkg / "nvf_capture.ini").read_bytes(),
         docs + "README.md": (PLUGIN / "README.md").read_bytes(),
         docs + "LICENSE.txt": (REPO / "LICENSE").read_bytes(),
+        docs + "LICENSE-EXCEPTION.txt": (PLUGIN / "LICENSE-EXCEPTION.txt").read_bytes(),
         docs + "THIRD-PARTY-LICENSES.txt": licenses.encode("utf-8"),
         docs + "BUILD-INFO.txt": build_info.encode("utf-8"),
     }
