@@ -10271,6 +10271,19 @@ expect = [
   { json = "observations.?label=milestone: VMQHouse8 80.stage", equals = 80, label = "milestone: VMQHouse8 80: stage = 80" },
   { json = "observations.?label=final: VHDHouseBattle 10.done.10", equals = true, label = "final: VHDHouseBattle 10: done.10 = true" },
   { json = "observations.?label=final: VHDHouseBattle 10.stage", equals = 10, label = "final: VHDHouseBattle 10: stage = 10" },
+  { json = "observations.?label=milestone: VHDHouseBattle 20.stage", equals = 20, label = "house, milestone: VHDHouseBattle 20: stage = 20" },
+  { json = "observations.?label=milestone: VHDHouseBattle 20.done.20", equals = true, label = "house, milestone: VHDHouseBattle 20: done.20 = true" },
+  { json = "observations.?label=milestone: VHDHouseBattle 30.stage", equals = 30, label = "house, milestone: VHDHouseBattle 30: stage = 30" },
+  { json = "observations.?label=milestone: VHDHouseBattle 30.done.30", equals = true, label = "house, milestone: VHDHouseBattle 30: done.30 = true" },
+  { json = "observations.?label=milestone: VHDHouseBattle 40.stage", equals = 40, label = "house, milestone: VHDHouseBattle 40: stage = 40" },
+  { json = "observations.?label=milestone: VHDHouseBattle 40.done.40", equals = true, label = "house, milestone: VHDHouseBattle 40: done.40 = true" },
+  { json = "observations.?label=milestone: VHDHouseBattle 50.stage", equals = 50, label = "house, milestone: VHDHouseBattle 50: stage = 50" },
+  { json = "observations.?label=milestone: VHDHouseBattle 50.done.50", equals = true, label = "house, milestone: VHDHouseBattle 50: done.50 = true" },
+  { json = "observations.?label=milestone: VHDHouseBattle 90.stage", equals = 90, label = "house, milestone: VHDHouseBattle 90: stage = 90" },
+  { json = "observations.?label=milestone: VHDHouseBattle 90.done.90", equals = true, label = "house, milestone: VHDHouseBattle 90: done.90 = true" },
+  { json = "observations.?label=final: VHDHouseBattle 100.completed", equals = true, label = "house, final: VHDHouseBattle 100: completed = true" },
+  { json = "observations.?label=final: VHDHouseBattle 100.stage", equals = 100, label = "house, final: VHDHouseBattle 100: stage = 100" },
+  { json = "observations.?label=final: VHDHouseBattle 100.done.100", equals = true, label = "house, final: VHDHouseBattle 100: done.100 = true" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
 
@@ -11068,6 +11081,8 @@ expect = [
   { json = "observations.?label=milestone: VMS01 50.stage", equals = 50, label = "come-fly-with-me, milestone: VMS01 50: stage = 50" },
   { json = "observations.?label=final: VMS01 100.done.100", equals = true, label = "come-fly-with-me, final: VMS01 100: done.100 = true" },
   { json = "observations.?label=final: VMS01 100.completed", equals = true, label = "come-fly-with-me, final: VMS01 100: completed = true" },
+  { json = "observations.?label=final: VMQ01 50 (Manny's tip: Boulder City).stage", equals = 50, label = "come-fly-with-me, final: VMQ01 50 (Manny's tip: Boulder City): stage = 50" },
+  { json = "observations.?label=final: VMQ01 50 (Manny's tip: Boulder City).done.50", equals = true, label = "come-fly-with-me, final: VMQ01 50 (Manny's tip: Boulder City): done.50 = true" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the early side-quest walkthrough report"
 
@@ -13308,3 +13323,415 @@ expect = [
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
 
+[[scenario]]
+name = "mq-fail-house-boomers"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-house-boomers.actions.json: fail path: a Lucky 38 Securitron destroyed by the player during The House Always Wins III (the Boomers); VMQHouse3 fails at stage 200"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-boomers.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-boomers.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMQHouse3 200 (failed).failed", equals = true, label = "fail-house-boomers, final: VMQHouse3 200 (failed): failed = true" },
+  { json = "observations.?label=final: VMQHouse3 200 (failed).stage", equals = 200, label = "fail-house-boomers, final: VMQHouse3 200 (failed): stage = 200" },
+  { json = "observations.?label=final: VMQHouse3 200 (failed).done.200", equals = true, label = "fail-house-boomers, final: VMQHouse3 200 (failed): done.200 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-house-boomers: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-house-boomers: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-house-omertas"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-house-omertas.actions.json: fail path: a Lucky 38 Securitron destroyed by the player during The House Always Wins IV (the Omertas); VMQHouse4 fails at stage 110"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-omertas.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-omertas.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMQHouse4 110 (failed).failed", equals = true, label = "fail-house-omertas, final: VMQHouse4 110 (failed): failed = true" },
+  { json = "observations.?label=final: VMQHouse4 110 (failed).stage", equals = 110, label = "fail-house-omertas, final: VMQHouse4 110 (failed): stage = 110" },
+  { json = "observations.?label=final: VMQHouse4 110 (failed).done.110", equals = true, label = "fail-house-omertas, final: VMQHouse4 110 (failed): done.110 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-house-omertas: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-house-omertas: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-house-brotherhood"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-house-brotherhood.actions.json: fail path: a Lucky 38 Securitron destroyed by the player during The House Always Wins V (the Brotherhood); VMQHouse5 fails at stage 200"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-brotherhood.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-brotherhood.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMQHouse5 200 (failed).failed", equals = true, label = "fail-house-brotherhood, final: VMQHouse5 200 (failed): failed = true" },
+  { json = "observations.?label=final: VMQHouse5 200 (failed).stage", equals = 200, label = "fail-house-brotherhood, final: VMQHouse5 200 (failed): stage = 200" },
+  { json = "observations.?label=final: VMQHouse5 200 (failed).done.200", equals = true, label = "fail-house-brotherhood, final: VMQHouse5 200 (failed): done.200 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-house-brotherhood: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-house-brotherhood: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-house-kimball"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-house-kimball.actions.json: fail path: a Lucky 38 Securitron destroyed by the player during The House Always Wins VI (Kimball's visit); VMQHouse6 fails at stage 200"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-kimball.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-kimball.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMQHouse6 200 (failed).failed", equals = true, label = "fail-house-kimball, final: VMQHouse6 200 (failed): failed = true" },
+  { json = "observations.?label=final: VMQHouse6 200 (failed).stage", equals = 200, label = "fail-house-kimball, final: VMQHouse6 200 (failed): stage = 200" },
+  { json = "observations.?label=final: VMQHouse6 200 (failed).done.200", equals = true, label = "fail-house-kimball, final: VMQHouse6 200 (failed): done.200 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-house-kimball: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-house-kimball: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-house-el-dorado"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-house-el-dorado.actions.json: fail path: a Lucky 38 Securitron destroyed by the player during The House Always Wins VII (El Dorado substation); VMQHouse7 fails at stage 200"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-el-dorado.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-el-dorado.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMQHouse7 200 (failed).failed", equals = true, label = "fail-house-el-dorado, final: VMQHouse7 200 (failed): failed = true" },
+  { json = "observations.?label=final: VMQHouse7 200 (failed).stage", equals = 200, label = "fail-house-el-dorado, final: VMQHouse7 200 (failed): stage = 200" },
+  { json = "observations.?label=final: VMQHouse7 200 (failed).done.200", equals = true, label = "fail-house-el-dorado, final: VMQHouse7 200 (failed): done.200 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-house-el-dorado: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-house-el-dorado: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-house-dam"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-house-dam.actions.json: fail path: Mr. House killed at his life-support chamber during The House Always Wins VIII; VMQHouse8 fails at stage 200 and House's line goes bust (VMQHouseFail)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-house-dam.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-house-dam.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: House neutralized.value", equals = 1.0, label = "fail-house-dam, milestone: House neutralized: value = 1.0" },
+  { json = "observations.?label=final: VMQHouse8 200 (failed).failed", equals = true, label = "fail-house-dam, final: VMQHouse8 200 (failed): failed = true" },
+  { json = "observations.?label=final: VMQHouse8 200 (failed).stage", equals = 200, label = "fail-house-dam, final: VMQHouse8 200 (failed): stage = 200" },
+  { json = "observations.?label=final: VMQHouse8 200 (failed).done.200", equals = true, label = "fail-house-dam, final: VMQHouse8 200 (failed): done.200 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-house-dam: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-house-dam: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-tops-ambush"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/tops-ambush.actions.json: branch: Ring-a-Ding-Ding's ambush (VMQTops 20 -> 30 -> 40): Benny's suite is a trap, he talks over the intercom and flees, his goons attack"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/tops-ambush.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/tops-ambush.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQTops 5 (House has word of Benny).stage", equals = 10, label = "tops-ambush, milestone: VMQTops 5 (House has word of Benny): stage = 10" },
+  { json = "observations.?label=milestone: VMQTops 5 (House has word of Benny).done.5", equals = true, label = "tops-ambush, milestone: VMQTops 5 (House has word of Benny): done.5 = true" },
+  { json = "observations.?label=milestone: VMQTops 20 (invited, the trap set).stage", equals = 20, label = "tops-ambush, milestone: VMQTops 20 (invited, the trap set): stage = 20" },
+  { json = "observations.?label=milestone: VMQTops 20 (invited, the trap set).done.20", equals = true, label = "tops-ambush, milestone: VMQTops 20 (invited, the trap set): done.20 = true" },
+  { json = "observations.?label=milestone: VMQTops 30 (the ambush).stage", equals = 30, label = "tops-ambush, milestone: VMQTops 30 (the ambush): stage = 30" },
+  { json = "observations.?label=milestone: VMQTops 30 (the ambush).done.30", equals = true, label = "tops-ambush, milestone: VMQTops 30 (the ambush): done.30 = true" },
+  { json = "observations.?label=milestone: VMQTops 30 (the ambush).objective.30.displayed", equals = true, label = "tops-ambush, milestone: VMQTops 30 (the ambush): objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMQTops 40 (ambush survived).stage", equals = 40, label = "tops-ambush, milestone: VMQTops 40 (ambush survived): stage = 40" },
+  { json = "observations.?label=milestone: VMQTops 40 (ambush survived).done.40", equals = true, label = "tops-ambush, milestone: VMQTops 40 (ambush survived): done.40 = true" },
+  { json = "observations.?label=milestone: VMQTops 40 (ambush survived).objective.30.completed", equals = true, label = "tops-ambush, milestone: VMQTops 40 (ambush survived): objective.30.completed = true" },
+  { json = "observations.?label=final: VMQTops 80 (Benny fled after the ambush).completed", equals = true, label = "tops-ambush, final: VMQTops 80 (Benny fled after the ambush): completed = true" },
+  { json = "observations.?label=final: VMQTops 80 (Benny fled after the ambush).stage", equals = 80, label = "tops-ambush, final: VMQTops 80 (Benny fled after the ambush): stage = 80" },
+  { json = "observations.?label=final: VMQTops 80 (Benny fled after the ambush).done.80", equals = true, label = "tops-ambush, final: VMQTops 80 (Benny fled after the ambush): done.80 = true" },
+  { json = "observations.?label=final: VMQTops 80 (Benny fled after the ambush).objective.40.completed", equals = true, label = "tops-ambush, final: VMQTops 80 (Benny fled after the ambush): objective.40.completed = true" },
+  { json = "steps.*.error", count = 0, label = "tops-ambush: no step fails" },
+  { json = "given_errors.*", count = 0, label = "tops-ambush: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-tops-swank"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/tops-swank.actions.json: branch of Ring-a-Ding-Ding: Swank talked round about Benny and asked to distract him while the player searches the suite (VMQTops 15)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/tops-swank.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/tops-swank.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQTops 15.stage", equals = 15, label = "tops-swank, milestone: VMQTops 15: stage = 15" },
+  { json = "observations.?label=milestone: VMQTops 15.done.15", equals = true, label = "tops-swank, milestone: VMQTops 15: done.15 = true" },
+  { json = "observations.?label=final: VMQTops 15 (search the suite while Swank distracts Benny).objective.40.displayed", equals = true, label = "tops-swank, final: VMQTops 15 (search the suite while Swank distracts Benny): objective.40.displayed = true" },
+  { json = "observations.?label=final: VMQTops 15 (search the suite while Swank distracts Benny).var.SwankHelp", equals = 4.0, label = "tops-swank, final: VMQTops 15 (search the suite while Swank distracts Benny): var.SwankHelp = 4.0" },
+  { json = "steps.*.error", count = 0, label = "tops-swank: no step fails" },
+  { json = "given_errors.*", count = 0, label = "tops-swank: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-tops-swank-assassin"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/tops-swank-assassin.actions.json: branch of Ring-a-Ding-Ding: Swank talked round, Benny sent to his suite and assassinated there (VMQTops 18 -> 43 -> 80)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/tops-swank-assassin.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/tops-swank-assassin.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQTops 18.stage", equals = 18, label = "tops-swank-assassin, milestone: VMQTops 18: stage = 18" },
+  { json = "observations.?label=milestone: VMQTops 18.done.18", equals = true, label = "tops-swank-assassin, milestone: VMQTops 18: done.18 = true" },
+  { json = "observations.?label=milestone: VMQTops 18.objective.18.displayed", equals = true, label = "tops-swank-assassin, milestone: VMQTops 18: objective.18.displayed = true" },
+  { json = "observations.?label=milestone: VMQTops 43 (Benny dead).stage", equals = 43, label = "tops-swank-assassin, milestone: VMQTops 43 (Benny dead): stage = 43" },
+  { json = "observations.?label=milestone: VMQTops 43 (Benny dead).done.43", equals = true, label = "tops-swank-assassin, milestone: VMQTops 43 (Benny dead): done.43 = true" },
+  { json = "observations.?label=final: VMQTops 80 (Benny assassinated).stage", equals = 80, label = "tops-swank-assassin, final: VMQTops 80 (Benny assassinated): stage = 80" },
+  { json = "observations.?label=final: VMQTops 80 (Benny assassinated).done.80", equals = true, label = "tops-swank-assassin, final: VMQTops 80 (Benny assassinated): done.80 = true" },
+  { json = "steps.*.error", count = 0, label = "tops-swank-assassin: no step fails" },
+  { json = "given_errors.*", count = 0, label = "tops-swank-assassin: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-tops-swank-guns"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/tops-swank-guns.actions.json: branch of Ring-a-Ding-Ding: Swank talked round gives the player's guns back (VMQTops 40), Benny fought in his suite (42 -> 43 -> 80)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/tops-swank-guns.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/tops-swank-guns.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQTops 40 (gear back, find Benny).stage", equals = 40, label = "tops-swank-guns, milestone: VMQTops 40 (gear back, find Benny): stage = 40" },
+  { json = "observations.?label=milestone: VMQTops 40 (gear back, find Benny).done.40", equals = true, label = "tops-swank-guns, milestone: VMQTops 40 (gear back, find Benny): done.40 = true" },
+  { json = "observations.?label=milestone: VMQTops 42 (kill Benny).stage", equals = 42, label = "tops-swank-guns, milestone: VMQTops 42 (kill Benny): stage = 42" },
+  { json = "observations.?label=milestone: VMQTops 42 (kill Benny).done.42", equals = true, label = "tops-swank-guns, milestone: VMQTops 42 (kill Benny): done.42 = true" },
+  { json = "observations.?label=milestone: VMQTops 42 (kill Benny).objective.42.displayed", equals = true, label = "tops-swank-guns, milestone: VMQTops 42 (kill Benny): objective.42.displayed = true" },
+  { json = "observations.?label=milestone: VMQTops 43 (Benny dead).stage", equals = 43, label = "tops-swank-guns, milestone: VMQTops 43 (Benny dead): stage = 43" },
+  { json = "observations.?label=milestone: VMQTops 43 (Benny dead).done.43", equals = true, label = "tops-swank-guns, milestone: VMQTops 43 (Benny dead): done.43 = true" },
+  { json = "observations.?label=final: VMQTops 80 (Benny killed in his suite).stage", equals = 80, label = "tops-swank-guns, final: VMQTops 80 (Benny killed in his suite): stage = 80" },
+  { json = "observations.?label=final: VMQTops 80 (Benny killed in his suite).done.80", equals = true, label = "tops-swank-guns, final: VMQTops 80 (Benny killed in his suite): done.80 = true" },
+  { json = "steps.*.error", count = 0, label = "tops-swank-guns: no step fails" },
+  { json = "given_errors.*", count = 0, label = "tops-swank-guns: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-new-game"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/new-game.actions.json: new-game opening: VCG00's MenuMode block sets stage 0, whose script plays the intro film and jumps to the wake-up (stage 90); the countdown to 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/new-game.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/new-game.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VCG00 0 -> 90 (the opening).stage", equals = 90, label = "new-game, milestone: VCG00 0 -> 90 (the opening): stage = 90" },
+  { json = "observations.?label=milestone: VCG00 0 -> 90 (the opening).done.0", equals = true, label = "new-game, milestone: VCG00 0 -> 90 (the opening): done.0 = true" },
+  { json = "observations.?label=milestone: VCG00 0 -> 90 (the opening).done.90", equals = true, label = "new-game, milestone: VCG00 0 -> 90 (the opening): done.90 = true" },
+  { json = "observations.?label=final: VCG00 after the countdown.stage", equals = 100, label = "new-game, final: VCG00 after the countdown: stage = 100" },
+  { json = "observations.?label=final: VCG00 after the countdown.done.95", equals = true, label = "new-game, final: VCG00 after the countdown: done.95 = true" },
+  { json = "observations.?label=final: VCG00 after the countdown.done.100", equals = true, label = "new-game, final: VCG00 after the countdown: done.100 = true" },
+  { json = "steps.*.error", count = 0, label = "new-game: no step fails" },
+  { json = "given_errors.*", count = 0, label = "new-game: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-sunny-killed"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-sunny-killed.actions.json: fail path: Sunny Smiles killed by the player during Back in the Saddle (VCG02 100) and Ain't That a Kick in the Head (VCG03 255)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-sunny-killed.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-sunny-killed.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VCG02 100 (failed, Sunny dead).failed", equals = true, label = "fail-sunny-killed, final: VCG02 100 (failed, Sunny dead): failed = true" },
+  { json = "observations.?label=final: VCG02 100 (failed, Sunny dead).stage", equals = 100, label = "fail-sunny-killed, final: VCG02 100 (failed, Sunny dead): stage = 100" },
+  { json = "observations.?label=final: VCG02 100 (failed, Sunny dead).done.100", equals = true, label = "fail-sunny-killed, final: VCG02 100 (failed, Sunny dead): done.100 = true" },
+  { json = "observations.?label=final: VCG03 255 (failed, Sunny dead).failed", equals = true, label = "fail-sunny-killed, final: VCG03 255 (failed, Sunny dead): failed = true" },
+  { json = "observations.?label=final: VCG03 255 (failed, Sunny dead).stage", equals = 255, label = "fail-sunny-killed, final: VCG03 255 (failed, Sunny dead): stage = 255" },
+  { json = "observations.?label=final: VCG03 255 (failed, Sunny dead).done.255", equals = true, label = "fail-sunny-killed, final: VCG03 255 (failed, Sunny dead): done.255 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-sunny-killed: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-sunny-killed: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-kimball-graham"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-kimball-graham.actions.json: fail path: Captain Graham killed by the player before Kimball's visit; You'll Know It When It Happens (VMQ03a) and For the Republic, Part 2 (VMQ05) fail at 200"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-kimball-graham.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-kimball-graham.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS23 1.stage", equals = 1, label = "fail-kimball-graham, milestone: VMS23 1: stage = 1" },
+  { json = "observations.?label=milestone: VMS23 1.done.1", equals = true, label = "fail-kimball-graham, milestone: VMS23 1: done.1 = true" },
+  { json = "observations.?label=milestone: VMS23 10.stage", equals = 10, label = "fail-kimball-graham, milestone: VMS23 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS23 10.done.5", equals = true, label = "fail-kimball-graham, milestone: VMS23 10: done.5 = true" },
+  { json = "observations.?label=milestone: VMS23 10.done.10", equals = true, label = "fail-kimball-graham, milestone: VMS23 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS23 10.objective.10.displayed", equals = true, label = "fail-kimball-graham, milestone: VMS23 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS23 100.completed", equals = true, label = "fail-kimball-graham, final: VMS23 100: completed = true" },
+  { json = "observations.?label=final: VMS23 100.stage", equals = 100, label = "fail-kimball-graham, final: VMS23 100: stage = 100" },
+  { json = "observations.?label=final: VMS23 100.done.100", equals = true, label = "fail-kimball-graham, final: VMS23 100: done.100 = true" },
+  { json = "observations.?label=milestone: VMS29 10.stage", equals = 10, label = "fail-kimball-graham, milestone: VMS29 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS29 10.done.10", equals = true, label = "fail-kimball-graham, milestone: VMS29 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS29 10.objective.10.displayed", equals = true, label = "fail-kimball-graham, milestone: VMS29 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS29 105.completed", equals = true, label = "fail-kimball-graham, final: VMS29 105: completed = true" },
+  { json = "observations.?label=final: VMS29 105.stage", equals = 105, label = "fail-kimball-graham, final: VMS29 105: stage = 105" },
+  { json = "observations.?label=final: VMS29 105.done.105", equals = true, label = "fail-kimball-graham, final: VMS29 105: done.105 = true" },
+  { json = "observations.?label=milestone: VMQ05 10.stage", equals = 10, label = "fail-kimball-graham, milestone: VMQ05 10: stage = 10" },
+  { json = "observations.?label=milestone: VMQ05 10.done.10", equals = true, label = "fail-kimball-graham, milestone: VMQ05 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMQ05 10.objective.10.displayed", equals = true, label = "fail-kimball-graham, milestone: VMQ05 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 20.stage", equals = 20, label = "fail-kimball-graham, milestone: VMQ05 20: stage = 20" },
+  { json = "observations.?label=milestone: VMQ05 20.done.20", equals = true, label = "fail-kimball-graham, milestone: VMQ05 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMQ05 20.objective.20.displayed", equals = true, label = "fail-kimball-graham, milestone: VMQ05 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 30.stage", equals = 30, label = "fail-kimball-graham, milestone: VMQ05 30: stage = 30" },
+  { json = "observations.?label=milestone: VMQ05 30.done.30", equals = true, label = "fail-kimball-graham, milestone: VMQ05 30: done.30 = true" },
+  { json = "observations.?label=milestone: VMQ05 30.objective.27.displayed", equals = true, label = "fail-kimball-graham, milestone: VMQ05 30: objective.27.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 40.stage", equals = 40, label = "fail-kimball-graham, milestone: VMQ05 40: stage = 40" },
+  { json = "observations.?label=milestone: VMQ05 40.done.40", equals = true, label = "fail-kimball-graham, milestone: VMQ05 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMQ05 40.objective.35.completed", equals = true, label = "fail-kimball-graham, milestone: VMQ05 40: objective.35.completed = true" },
+  { json = "observations.?label=milestone: VMQ05 40.objective.40.displayed", equals = true, label = "fail-kimball-graham, milestone: VMQ05 40: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 50.stage", equals = 50, label = "fail-kimball-graham, milestone: VMQ05 50: stage = 50" },
+  { json = "observations.?label=milestone: VMQ05 50.done.50", equals = true, label = "fail-kimball-graham, milestone: VMQ05 50: done.50 = true" },
+  { json = "observations.?label=milestone: VMQ05 60.stage", equals = 60, label = "fail-kimball-graham, milestone: VMQ05 60: stage = 60" },
+  { json = "observations.?label=milestone: VMQ05 60.done.60", equals = true, label = "fail-kimball-graham, milestone: VMQ05 60: done.60 = true" },
+  { json = "observations.?label=milestone: VMQ05 60.objective.56.completed", equals = true, label = "fail-kimball-graham, milestone: VMQ05 60: objective.56.completed = true" },
+  { json = "observations.?label=milestone: VMQ03a 10.stage", equals = 10, label = "fail-kimball-graham, milestone: VMQ03a 10: stage = 10" },
+  { json = "observations.?label=milestone: VMQ03a 10.done.10", equals = true, label = "fail-kimball-graham, milestone: VMQ03a 10: done.10 = true" },
+  { json = "observations.?label=final: VMQ03a 200 (failed, Graham killed).failed", equals = true, label = "fail-kimball-graham, final: VMQ03a 200 (failed, Graham killed): failed = true" },
+  { json = "observations.?label=final: VMQ03a 200 (failed, Graham killed).stage", equals = 200, label = "fail-kimball-graham, final: VMQ03a 200 (failed, Graham killed): stage = 200" },
+  { json = "observations.?label=final: VMQ03a 200 (failed, Graham killed).done.200", equals = true, label = "fail-kimball-graham, final: VMQ03a 200 (failed, Graham killed): done.200 = true" },
+  { json = "observations.?label=final: VMQ05 200 (failed).failed", equals = true, label = "fail-kimball-graham, final: VMQ05 200 (failed): failed = true" },
+  { json = "observations.?label=final: VMQ05 200 (failed).stage", equals = 200, label = "fail-kimball-graham, final: VMQ05 200 (failed): stage = 200" },
+  { json = "observations.?label=final: VMQ05 200 (failed).done.200", equals = true, label = "fail-kimball-graham, final: VMQ05 200 (failed): done.200 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-kimball-graham: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-kimball-graham: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-kimball-left"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-kimball-left.actions.json: fail path: the player leaves Hoover Dam during Kimball's visit; You'll Know It When It Happens (VMQ03a) fails at 120"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-kimball-left.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-kimball-left.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS23 1.stage", equals = 1, label = "fail-kimball-left, milestone: VMS23 1: stage = 1" },
+  { json = "observations.?label=milestone: VMS23 1.done.1", equals = true, label = "fail-kimball-left, milestone: VMS23 1: done.1 = true" },
+  { json = "observations.?label=milestone: VMS23 10.stage", equals = 10, label = "fail-kimball-left, milestone: VMS23 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS23 10.done.5", equals = true, label = "fail-kimball-left, milestone: VMS23 10: done.5 = true" },
+  { json = "observations.?label=milestone: VMS23 10.done.10", equals = true, label = "fail-kimball-left, milestone: VMS23 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS23 10.objective.10.displayed", equals = true, label = "fail-kimball-left, milestone: VMS23 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS23 100.completed", equals = true, label = "fail-kimball-left, final: VMS23 100: completed = true" },
+  { json = "observations.?label=final: VMS23 100.stage", equals = 100, label = "fail-kimball-left, final: VMS23 100: stage = 100" },
+  { json = "observations.?label=final: VMS23 100.done.100", equals = true, label = "fail-kimball-left, final: VMS23 100: done.100 = true" },
+  { json = "observations.?label=milestone: VMS29 10.stage", equals = 10, label = "fail-kimball-left, milestone: VMS29 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS29 10.done.10", equals = true, label = "fail-kimball-left, milestone: VMS29 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS29 10.objective.10.displayed", equals = true, label = "fail-kimball-left, milestone: VMS29 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS29 105.completed", equals = true, label = "fail-kimball-left, final: VMS29 105: completed = true" },
+  { json = "observations.?label=final: VMS29 105.stage", equals = 105, label = "fail-kimball-left, final: VMS29 105: stage = 105" },
+  { json = "observations.?label=final: VMS29 105.done.105", equals = true, label = "fail-kimball-left, final: VMS29 105: done.105 = true" },
+  { json = "observations.?label=milestone: VMQ05 10.stage", equals = 10, label = "fail-kimball-left, milestone: VMQ05 10: stage = 10" },
+  { json = "observations.?label=milestone: VMQ05 10.done.10", equals = true, label = "fail-kimball-left, milestone: VMQ05 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMQ05 10.objective.10.displayed", equals = true, label = "fail-kimball-left, milestone: VMQ05 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 20.stage", equals = 20, label = "fail-kimball-left, milestone: VMQ05 20: stage = 20" },
+  { json = "observations.?label=milestone: VMQ05 20.done.20", equals = true, label = "fail-kimball-left, milestone: VMQ05 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMQ05 20.objective.20.displayed", equals = true, label = "fail-kimball-left, milestone: VMQ05 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 30.stage", equals = 30, label = "fail-kimball-left, milestone: VMQ05 30: stage = 30" },
+  { json = "observations.?label=milestone: VMQ05 30.done.30", equals = true, label = "fail-kimball-left, milestone: VMQ05 30: done.30 = true" },
+  { json = "observations.?label=milestone: VMQ05 30.objective.27.displayed", equals = true, label = "fail-kimball-left, milestone: VMQ05 30: objective.27.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 40.stage", equals = 40, label = "fail-kimball-left, milestone: VMQ05 40: stage = 40" },
+  { json = "observations.?label=milestone: VMQ05 40.done.40", equals = true, label = "fail-kimball-left, milestone: VMQ05 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMQ05 40.objective.35.completed", equals = true, label = "fail-kimball-left, milestone: VMQ05 40: objective.35.completed = true" },
+  { json = "observations.?label=milestone: VMQ05 40.objective.40.displayed", equals = true, label = "fail-kimball-left, milestone: VMQ05 40: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: VMQ05 50.stage", equals = 50, label = "fail-kimball-left, milestone: VMQ05 50: stage = 50" },
+  { json = "observations.?label=milestone: VMQ05 50.done.50", equals = true, label = "fail-kimball-left, milestone: VMQ05 50: done.50 = true" },
+  { json = "observations.?label=milestone: VMQ05 60.stage", equals = 60, label = "fail-kimball-left, milestone: VMQ05 60: stage = 60" },
+  { json = "observations.?label=milestone: VMQ05 60.done.60", equals = true, label = "fail-kimball-left, milestone: VMQ05 60: done.60 = true" },
+  { json = "observations.?label=milestone: VMQ05 60.objective.56.completed", equals = true, label = "fail-kimball-left, milestone: VMQ05 60: objective.56.completed = true" },
+  { json = "observations.?label=milestone: VMQ03a 10.stage", equals = 10, label = "fail-kimball-left, milestone: VMQ03a 10: stage = 10" },
+  { json = "observations.?label=milestone: VMQ03a 10.done.10", equals = true, label = "fail-kimball-left, milestone: VMQ03a 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMQ03a 20.stage", equals = 20, label = "fail-kimball-left, milestone: VMQ03a 20: stage = 20" },
+  { json = "observations.?label=milestone: VMQ03a 20.done.20", equals = true, label = "fail-kimball-left, milestone: VMQ03a 20: done.20 = true" },
+  { json = "observations.?label=final: VMQ03a 120 (failed, the player left).failed", equals = true, label = "fail-kimball-left, final: VMQ03a 120 (failed, the player left): failed = true" },
+  { json = "observations.?label=final: VMQ03a 120 (failed, the player left).stage", equals = 120, label = "fail-kimball-left, final: VMQ03a 120 (failed, the player left): stage = 120" },
+  { json = "observations.?label=final: VMQ03a 120 (failed, the player left).done.120", equals = true, label = "fail-kimball-left, final: VMQ03a 120 (failed, the player left): done.120 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-kimball-left: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-kimball-left: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-fail-cato-killed"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-cato-killed.actions.json: fail path: Cato Hostilius killed by the player where he waits west of Hoover Dam, before Kimball arrives; Arizona Killer (VMQ03b) fails at 120"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-cato-killed.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-cato-killed.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQ02 1 (sent to the Fort).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 1 (sent to the Fort): found = true" },
+  { json = "observations.?label=milestone: VMQ02 2 (at the Fort).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 2 (at the Fort): found = true" },
+  { json = "observations.?label=milestone: VMQ02 3 (met Caesar).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 3 (met Caesar): found = true" },
+  { json = "observations.?label=milestone: VMQ02 5 (chip handed back, bunker task).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 5 (chip handed back, bunker task): found = true" },
+  { json = "observations.?label=milestone: VMQ02 7 (vault destroyed).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 7 (vault destroyed): found = true" },
+  { json = "observations.?label=milestone: VMQ02 10 (House task).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 10 (House task): found = true" },
+  { json = "observations.?label=milestone: VMQ02 15 (House dead).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 15 (House dead): found = true" },
+  { json = "observations.?label=milestone: VMQ02 20 (Boomers task).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 20 (Boomers task): found = true" },
+  { json = "observations.?label=milestone: VMQ02 70 (Brotherhood task).found", equals = true, label = "fail-cato-killed, milestone: VMQ02 70 (Brotherhood task): found = true" },
+  { json = "observations.?label=milestone: Brotherhood resolved, private talk.objective.85.displayed", equals = true, label = "fail-cato-killed, milestone: Brotherhood resolved, private talk: objective.85.displayed = true" },
+  { json = "observations.?label=milestone: VMS35 10 (Et Tumor, Brute? started).found", equals = true, label = "fail-cato-killed, milestone: VMS35 10 (Et Tumor, Brute? started): found = true" },
+  { json = "observations.?label=milestone: VMS35 20 (tools).found", equals = true, label = "fail-cato-killed, milestone: VMS35 20 (tools): found = true" },
+  { json = "observations.?label=milestone: VMS35 100 (Caesar cured).found", equals = true, label = "fail-cato-killed, milestone: VMS35 100 (Caesar cured): found = true" },
+  { json = "observations.?label=final: VMS35 100.completed", equals = true, label = "fail-cato-killed, final: VMS35 100: completed = true" },
+  { json = "observations.?label=final: VMS35 100.stage", equals = 100, label = "fail-cato-killed, final: VMS35 100: stage = 100" },
+  { json = "observations.?label=milestone: VMQ03b 10 (Arizona Killer started).found", equals = true, label = "fail-cato-killed, milestone: VMQ03b 10 (Arizona Killer started): found = true" },
+  { json = "observations.?label=final: VMQ03b 120 (failed, Cato dead outside the dam's region).failed", equals = true, label = "fail-cato-killed, final: VMQ03b 120 (failed, Cato dead outside the dam's region): failed = true" },
+  { json = "observations.?label=final: VMQ03b 120 (failed, Cato dead outside the dam's region).stage", equals = 120, label = "fail-cato-killed, final: VMQ03b 120 (failed, Cato dead outside the dam's region): stage = 120" },
+  { json = "observations.?label=final: VMQ03b 120 (failed, Cato dead outside the dam's region).done.120", equals = true, label = "fail-cato-killed, final: VMQ03b 120 (failed, Cato dead outside the dam's region): done.120 = true" },
+  { json = "steps.*.error", count = 0, label = "fail-cato-killed: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-cato-killed: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-dam-generators"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/dam-generators.actions.json: branch of No Gods, No Masters (VHDIndependentBattle): no Securitron army at the Fort, so the dam's generators are to be blown (stage 25)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/dam-generators.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/dam-generators.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQYesMan03 100.completed", equals = true, label = "dam-generators, milestone: VMQYesMan03 100: completed = true" },
+  { json = "observations.?label=milestone: VMQYesMan03 100.stage", equals = 100, label = "dam-generators, milestone: VMQYesMan03 100: stage = 100" },
+  { json = "observations.?label=milestone: VMQYesMan03 100.done.100", equals = true, label = "dam-generators, milestone: VMQYesMan03 100: done.100 = true" },
+  { json = "observations.?label=milestone: VHDIndependentBattle 10.stage", equals = 10, label = "dam-generators, milestone: VHDIndependentBattle 10: stage = 10" },
+  { json = "observations.?label=milestone: VHDIndependentBattle 10.done.10", equals = true, label = "dam-generators, milestone: VHDIndependentBattle 10: done.10 = true" },
+  { json = "observations.?label=final: VHDIndependentBattle 25 (destroy the generators).stage", equals = 25, label = "dam-generators, final: VHDIndependentBattle 25 (destroy the generators): stage = 25" },
+  { json = "observations.?label=final: VHDIndependentBattle 25 (destroy the generators).done.25", equals = true, label = "dam-generators, final: VHDIndependentBattle 25 (destroy the generators): done.25 = true" },
+  { json = "observations.?label=final: VHDIndependentBattle 25 (destroy the generators).done.20", equals = false, label = "dam-generators, final: VHDIndependentBattle 25 (destroy the generators): done.20 = false" },
+  { json = "steps.*.error", count = 0, label = "dam-generators: no step fails" },
+  { json = "given_errors.*", count = 0, label = "dam-generators: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+
+[[scenario]]
+name = "mq-yesman-vault-destroyed"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/yesman-vault-destroyed.actions.json: branch of Yes Man's line: the Fort's Securitron vault destroyed instead of activated (VMQYesMan01a 110)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/yesman-vault-destroyed.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/yesman-vault-destroyed.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMQYesMan01 started.stage", equals = 0, label = "yesman-vault-destroyed, milestone: VMQYesMan01 started: stage = 0" },
+  { json = "observations.?label=milestone: VMQYesMan01 started.objective.50.displayed", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 started: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VMQYesMan02 started.objective.20.displayed", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan02 started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: House neutralized.value", equals = 1.0, label = "yesman-vault-destroyed, milestone: House neutralized: value = 1.0" },
+  { json = "observations.?label=milestone: VMQYesMan01 objective 60.objective.60.displayed", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 objective 60: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VMQYesMan01 70.stage", equals = 70, label = "yesman-vault-destroyed, milestone: VMQYesMan01 70: stage = 70" },
+  { json = "observations.?label=milestone: VMQYesMan01 70.done.70", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 70: done.70 = true" },
+  { json = "observations.?label=milestone: VMQYesMan01 75.stage", equals = 75, label = "yesman-vault-destroyed, milestone: VMQYesMan01 75: stage = 75" },
+  { json = "observations.?label=milestone: VMQYesMan01 75.done.75", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 75: done.75 = true" },
+  { json = "observations.?label=milestone: VMQYesMan01 100.completed", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 100: completed = true" },
+  { json = "observations.?label=milestone: VMQYesMan01 100.stage", equals = 100, label = "yesman-vault-destroyed, milestone: VMQYesMan01 100: stage = 100" },
+  { json = "observations.?label=milestone: VMQYesMan01 100.done.80", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 100: done.80 = true" },
+  { json = "observations.?label=milestone: VMQYesMan01 100.done.100", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01 100: done.100 = true" },
+  { json = "observations.?label=milestone: VMQYesMan01a started.objective.40.displayed", equals = true, label = "yesman-vault-destroyed, milestone: VMQYesMan01a started: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: the vault blown (VMQYesMan01a 110).found", equals = true, label = "yesman-vault-destroyed, milestone: the vault blown (VMQYesMan01a 110): found = true" },
+  { json = "observations.?label=final: VMQYesMan01a 110 (the army destroyed).completed", equals = true, label = "yesman-vault-destroyed, final: VMQYesMan01a 110 (the army destroyed): completed = true" },
+  { json = "observations.?label=final: VMQYesMan01a 110 (the army destroyed).stage", equals = 110, label = "yesman-vault-destroyed, final: VMQYesMan01a 110 (the army destroyed): stage = 110" },
+  { json = "observations.?label=final: VMQYesMan01a 110 (the army destroyed).done.110", equals = true, label = "yesman-vault-destroyed, final: VMQYesMan01a 110 (the army destroyed): done.110 = true" },
+  { json = "observations.?label=final: VMQYesMan01a 110 (the army destroyed).objective.48.completed", equals = true, label = "yesman-vault-destroyed, final: VMQYesMan01a 110 (the army destroyed): objective.48.completed = true" },
+  { json = "steps.*.error", count = 0, label = "yesman-vault-destroyed: no step fails" },
+  { json = "given_errors.*", count = 0, label = "yesman-vault-destroyed: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
