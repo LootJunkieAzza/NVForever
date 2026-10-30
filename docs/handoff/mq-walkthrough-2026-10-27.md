@@ -429,3 +429,68 @@ chain (379 stages at db11b046, 378 on main 1e9a14c7). Its script (SCPT 0x0016829
 point about 12000 frames later and the script takes its stage-5 branch instead. One of the
 two fnv-game changes since db11b046 (4449628f radiation falloff, cd93d5c7 aid effects) moved
 it; not bisected.
+
+## 10. Fifth batch (2026-10-30, issue #932)
+
+24 new chains (one older chain runs further), from four groups, each with its `mq-*` smoke
+scenario, plus a coverage change. `script cover` over all chains: 0 step and 0 given errors;
+**191 of 228 quests touched (was 166), 165 completed (132), 710 of 1405 stages (639), 2249 lines said (1966), 246 actors (209)** [observed]. The totals are in tools/smoke/expected/walkthrough-coverage.toml.
+
+| group | chains (quests: stages reached) |
+|---|---|
+| larger base-game | someone-to-watch-over-me (VDialogueVegasNorth 10-100, Alice goes home), nothin-but-a-hound-dog (VMS24 100), the-coyotes (VMS13 100), unfriendly-persuasion (VMS50 100, bought off), eyesight-to-the-blind (VMS55b 100), tend-to-your-business (VMS55a 100, VMS55 101), ant-misbehavin (VNellisInfestation 20, completed), sunshine-boogie (NellisSunshineBoogie 100) |
+| add-ons | old-world-blues-setups (NVDLC03X8Setup 100, NVDLC03X13Setup 100, NVDLC03Enc 10, NVDLC03GenericPerkQUEST 10/11), lonesome-road-launch (NVDLC04MQ04 100, launch at both) |
+| small side | exploring-vault-74 (VT74 100), nelson-explorer (nvNelsonExplorerBark 100), geckoman (VES02DialogueGeckoman 50-70), legend-of-the-star (VMS09 30 fail, VMS09a 100), crazy-crazy-crazy (VMS57 100), cold-cold-heart (vNiptonVulpes 100), doctors (VDoctors 10-30, Doctors 20), that-lucky-old-sun (VMS03, by CompleteQuest), cottonwood-cove (vCCLeftMyHeart by CompleteQuest, vCCEyeforaneye 100), fail-beyond-the-beef (VMS18 255); beyond-the-beef now runs on to Heck's reward |
+| freeform | stocking-up (vFreeformForlornHope02 10), high-times (VFSHighTimes, CompleteQuest), debt-collector (VFSDebtCollector, CompleteQuest), wang-dang-atomic-tango (VFSAtomicPimp 100) |
+
+New stand-ins beyond §3's: skill values and items given (each chain's notes), `add_spell
+WithdrawalJet` for an addiction, ShowMap for a marker found on arrival, Ibsen's datastore
+virus hunt replaced by its result (`VirusWiped 1`: its infected hosts are drawn at random),
+Rex moved to Doctor Henry by MoveTo, and two new runner ops (below).
+
+**Coverage change.** A quest the run completes (`Game::quest_completed`, which CompleteQuest
+and a Complete Quest stage both go through) now counts as completed, and as touched even with
+no stage reached; `given` state does not count. Of §9's seven "walked but not counted", VMS39,
+VMS11 and VMS05 now count. VVault21Tour and vFreeformForlornHope03 are completed by nothing in
+the ESM, VMS43a ends by StopQuest, and VMS44's CompleteQuest is only on the Logan-dead branch
+[observed, decompiled scripts]. Test: `coverage_counts_a_quest_completed_by_complete_quest`.
+
+**Runner ops** (test: `the_runner_picks_a_perks_activate_choice`, perk_talk.rs):
+`perk_choice {target, choice}` opens the perks' activate choice list on a reference and picks
+one (Robot Compliance's "Deactivate"); `player_sneak {sneaking}` sets the player's measured
+crouch, which IsSneaking reads (SetForceSneak does nothing for the player).
+
+**Set by nothing** [observed, ESM]: VES02DialogueGeckoman 10 and 100, VMS09 10, vNiptonVulpes
+15, VNellisInfestation 10, VMS55b objective 20, Doctors 10 (Argyll's script sets a stage the
+quest does not define), vCCLeftMyHeart 0 and 100, NVDLC03Enc 20. Not walkable, as §9 said:
+NVDLC01ElijahBarkTown, NVDLC01FountainStartSequence, NVDLC01MQ01d/MQ03d, NVDLC01EnemyTest,
+NVDLC02MQ02.
+
+**Data notes** [observed]: VMS24 is offered only from the King's plain greeting, after G.I.
+Blues; Raquel and the Nellis gate guard start disabled and are enabled by the front gate
+script and the guard's greeting; Greasy Johnny is WatchFiend2REF; Mrs Hostetler's Topic034 and
+Jules' Topic007 borrow another topic's line (INFC/INFX).
+
+### Stalls
+
+1. **Possibly hard: the doctors' addiction cure does nothing.** VDoctors and Doctors stage
+   20 call RemoveSpell with no reference; a stage result script has no calling reference
+   (script-language.md), so all 13 calls fail and the withdrawal stays [observed]. Observer
+   check 42.
+2. **Soft: Old World Blues' first quest script never runs in the older chains.**
+   old-world-blues and the chains that copy its start talk to Dr. Klein in the same second
+   the quest starts; MQ01 reaches 100 before its 5 s script has run, so the Act XP values and
+   NVDLC03Enc 10 are never set there. old-world-blues-setups spends 6 s first and reaches
+   them [observed]. Observer check 43.
+3. **Soft: `RemoveItem x 0` is refused** (Loyal's reward line, INFO 0x0010A1BF, when the
+   arrays were fixed by hand). Not blocking. Observer check 44.
+4. **Soft:** a second Nelson explorer force-greets at once (the any-distance
+   StartConversation stall, check 45); the HELIOS One west-terminal password lands on
+   Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
+   vNiptonVulpes; Doctors 30's line (0x000BE417) is offered by none of the doctors tried;
+   VNellisInfestation's iInfestation stays 0 when the emitter is used before the power.
+5. **Not from this batch:** `GetQuestVariable` "parameter 1 is not a form" in every Hidden
+   Valley/Freeside run (INFO 0x0014B595-97); issue #907.
+
+**Not walked:** other branches (VDialogueVegasNorth 72-89, VMS03's other power targets and
+Ignacio's ending, Eye for an Eye's other paths, VMS57's peaceful ending) and the fail stages.

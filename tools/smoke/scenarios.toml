@@ -1694,21 +1694,6 @@ expect = [
 ]
 
 [[scenario]]
-name = "intercom-trigger-activate"
-source = "issue #906 (docs/spec-notes/talking-activators.md §2): the REPCONN intercom's trigger (SCPT 0x000CD04E, OnTriggerEnter player) sets Chris as the intercom's talking actor and runs `<intercom>.Activate player`; the player is the activator, the default action is Talk, and the conversation opens through the intercom with no hand activation [observed: fnvtool script decompile FalloutNV.esm]"
-note = "The player stands by the intercom 0x000CD67C (RocketLabMid) and is put in its trigger 0x000CD051 at 8 s; Chris's Say Once greeting \"Hey! Over here!\" (INFO 000CD87D) is said through the intercom"
-areas = ["dialogue", "scripts", "activation"]
-paths = ["crates/fnv-game/src/talking_activators.rs", "engine/nvf-play/src/script_trigger.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "000CD67C", NVF_PLAY_TEST_SCRIPT = "8:walk:0x000CD051" }
-args = ["--cell", "RocketLabMid", "--play", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 24
-expect = [
-  { re = 'script: \S+ activated by .*"result":"talk"', label = "the trigger's script has the player activate the intercom: Talk" },
-  { re = 'dialogue: .* says \[GREETING\] .*000CD87D', label = "Chris's \"Hey! Over here!\" through the intercom, in a conversation" },
-  { re = 'dialogue look: the view turns to .*\(the talking activator itself\)', label = "the view turns to the intercom" },
-]
-
-[[scenario]]
 name = "talk-gestures-npcs"
 source = "docs/spec-notes/idles.md §12: two NPCs in a conversation between actors (Joe Cobb and Trudy, started by the test aid) play the tree's NPC-to-NPC gestures"
 note = "Trudy, Joe Cobb and the quest are enabled and started by the aid (in a game they come from INFO 0015F8B6 and the saloon trigger, dialogue.md §5.1)"
@@ -5048,7 +5033,6 @@ order = [[
 ]]
 expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<m>\d+) attacks', label = "the aggro radius in the provocation summary" }]
 
-
 [[scenario]]
 name = "aggro-warning-look"
 source = "owner's playtest 2026-10-24, \"baby geckos were not showing the aggressive stay away from me warnings\" (crates/fnv-game/src/aggro.rs \"The look\", crates/fnv-ai/src/alert.rs Warnings, engine/nvforever/src/idles.rs creatures' combat idles): a young gecko warning the player stops and faces the player and draws its unarmed stance and holds it (owner 2026-10-25; the original drew and put it away every 2 s, capture `warnings`), not alerted, then attacks 15 s after its first warning; standing in the fight it plays its idle tree's combat idles (hiss, side hops)"
@@ -5072,7 +5056,6 @@ expect = [
   { re = 'npc combat: VERGSGecko6REF 0x00157B3C holds its attacks while its idle 0011E73F plays \(No attacking\)', label = "its hiss (IDLE flag No attacking) holds its attacks until it has played (docs/spec-notes/idles.md §9)" },
 ]
 
-
 [[scenario]]
 name = "warning-guard-draws"
 source = "owner 2026-10-25 (crates/fnv-game/src/aggro.rs, engine/nvforever/src/alert.rs Warning, crates/fnv-game/src/awareness.rs detection_bark): a person warning the player draws its weapon and holds it (the original drew and holstered in turn; owner: draw and hold), says a GuardTrespass line at each warning (no bark cooldown between them), then attacks"
@@ -5091,7 +5074,6 @@ order = [[
   { re = 'provocation: .*0x00127950 attacks the player, who stayed inside its aggro radius', label = "then he attacks" },
 ]]
 forbid = [{ re = 'alert: .*00127950 holsters its weapon', label = "no holstering while he warns" }]
-
 
 [[scenario]]
 name = "package-duration-geckos"
@@ -6036,36 +6018,6 @@ expect = [
 manual = "hud_ammo_label.png: \"HP\" just right of the divider at the bottom right, \"13/37\" at the upright"
 
 [[scenario]]
-name = "hud-compass-north"
-source = "[observed: hud.md §14.5] the original's compass puts the heading at x 148 of the 345-wide window (a bearing-0 tick's x 139 plus its bar at texel 9; N under the bracket's triangle), not the window's middle; 1024 strip units to the turn"
-note = "facing due north outdoors in Goodsprings: N stands under the bracket's downward triangle"
-areas = ["hud"]
-paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/repeat.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:hud_compass_north.png" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
-run_seconds = 16
-expect = [
-  { re = 'compass: heading at x 148(\.0)? of 345', label = "the heading stands at the bracket's triangle, not the window's middle" },
-  { re = 'compass: heading at x 148(\.0)? of 345, the strip.s N at 154(\.0)?, fading from 273(\.0)?', label = "T12e: the strip's N 6 units right of the marks' heading point, as the original's at heading 0, and the strip fading out from x 273 of the window (hud.md §4)" },
-  { re = 'compass: the strip baked into one window image of 345 x \d+ texels, faded from 273(\.0)? to 341(\.0)?', label = "the window's strip is one image, its fade in the texels' alpha, no slices (crate::compass_strip, hud.md §4)" },
-]
-manual = "hud_compass_north.png: N just right of the downward triangle of the compass's bracket line (its middle about 4 pixels right of the tip at 1280 x 720, as the original's), the strip fading out over its last 70 units on the right (the original's from x 250 to 300 pixels), the step-shaped end caps and thick bars between the letters of the atlas pieces"
-
-[[scenario]]
-name = "hud-bars-partial"
-source = "[observed: hud.md §14.3] the original's health and action points bars light floor(share x 37) ticks (100 of 200 health: 18 ticks, not 19); its condition fill is round(59 x condition) inside the 60-wide ground"
-note = "health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol of hud-ammo-label"
-areas = ["hud"]
-paths = ["engine/nvf-play/src/hud.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:hud_bars_partial.png" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
-run_seconds = 24
-expect = [
-  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health lights 18 ticks, rounded down" },
-]
-manual = "hud_bars_partial.png: the health bar at the bottom left lit for 18 of its 37 ticks, ending just before the middle"
-
-[[scenario]]
 name = "hud-crippled-limbs"
 source = "[observed: private job hud_xp_limbs, l1_leg, l2_head; one run] whole pictures fade 0.85 s in, hold 3.3 s, fade 0.85 s out; broken-picture alpha 0-255, negative after about 4.3 s; [hypothesis] rising sawtooth with about 0.54 s period; owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
 note = "the console cripples the player's right leg at 10 s and left arm at 13 s; the second crippling starts the time again and only the arm flashes"
@@ -6416,6 +6368,7 @@ expect = [
   { re = 'npc combat: .*(0x)?FF[0-9A-F]{6} fights the player', label = "it fights the player" },
   { re = 'hit effect: CazadorPoison on the player by ', label = "its sting poisons the player" },
 ]
+
 [[scenario]]
 name = "crippled-limp"
 source = "owner 2026-10-16: a crippled leg plays the limping walk and run (locomotion/hurt/) for NPCs and the player (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
@@ -10058,413 +10011,6 @@ expect = [
 ]
 
 [[scenario]]
-name = "ui-tree-in-game"
-source = "[design] ui-tile-tree.md §3, §4.1, §6.2 step 1 (T3a): the running game's VFS loads the six persistent menus; scripts read and write an existing HUD trait"
-areas = ["ui", "scripts", "console"]
-paths = [
-  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/lib.rs",
-  "crates/fnv-game/Cargo.toml", "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/game.rs",
-  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-game/tests/ui_loading.rs",
-  "engine/Cargo.toml", "engine/nvf-play/Cargo.toml", "engine/nvf-play/src/lib.rs",
-  "engine/nvf-play/src/script.rs", "engine/nvf-play/src/tiles/mod.rs",
-]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud depth %g\", (GetUIFloat \"HUDMainMenu/depth\");11:SetUIFloat \"HUDMainMenu/depth\" 37;11.5:PrintC \"nvf hud set %g\", (GetUIFloat \"HUDMainMenu/depth\")" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 16
-expect = [
-  { re = 'ui: 6 menus loaded \(\d+ tiles\), \d+ warnings', label = "the six menus load from the VFS" },
-  { re = 'script: print "nvf hud depth -?\d+(?:\.\d+)?"', label = "GetUIFloat prints the HUD file's depth" },
-  { re = 'script: print "nvf hud depth -999(?:\.0+)?"', count = 0, label = "the HUD depth exists" },
-  { re = 'console: SetUIFloat "HUDMainMenu/depth" 37 >> ran', label = "the console compiles and runs SetUIFloat" },
-  { re = 'script: print "nvf hud set 37"', label = "GetUIFloat reads the written depth on a later frame" },
-]
-
-[[scenario]]
-name = "ui-hud-code-traits"
-source = "[observed: hud.md §14] T4a: HUD places at 16:10 (visibility is in the unit tests: the console line runs with the console open, a PlayState::Menu that hides NVForever's HUD); [design] GetUIFloat through the console beside the current drawing"
-areas = ["ui", "scripts", "console"]
-paths = [
-  "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/ui_hud.rs",
-  "crates/fnv-game/tests/ui_hud.rs",
-  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script_hud.rs",
-]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\")" }
-# Fix the view explicitly; nvforever's --size default is also 1280x800 [design].
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
-run_seconds = 16
-expect = [
-  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree matches the observed 16:10 places" },
-]
-
-[[scenario]]
-name = "ui-mod-tile-drawn"
-source = "[design] ui-tile-tree.md §6.1 (T5 part C): a tile a script injects into HUDMainMenu (InjectUIComponent, a box with a picture from the interface atlas and a text) is drawn over NVForever's HUD; the HUD's own file tiles and code-made copies are not"
-note = "the console injects the tile at 10 s and closes at 10.4 s (the open console is a PlayState::Menu, which hides the HUD and so the tile); the shot at 14 s"
-areas = ["ui", "hud", "console"]
-paths = [
-  "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs",
-  "engine/nvf-play/src/interface.rs", "crates/fnv-ui/src/tree.rs",
-]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<rect name=%qNVFSmokeTile%q><x>80</x><y>320</y><width>360</width><height>90</height><red>20</red><green>60</green><blue>120</blue><alpha>220</alpha><image name=%qNVFSmokeBar%q><x>10</x><y>62</y><width>340</width><height>16</height><filename>solid.dds</filename><red>255</red><green>182</green><blue>66</blue></image><text name=%qNVFSmokeText%q><x>12</x><y>10</y><font>7</font><string>NVF MOD TILE</string></text></rect>\";10.4:close", NVF_PLAY_TEST_SHOTS = "14:ui_mod_tile.png" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
-run_seconds = 16
-expect = [
-  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes" },
-]
-forbid = [
-  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws" },
-]
-manual = "ui_mod_tile.png: at the left, about a third down, a dark blue box with 'NVF MOD TILE' in white (font 7) and an amber bar along its bottom; NVForever's HUD as on main"
-
-[[scenario]]
-name = "ui-mod-tiles-vanilla"
-kind = "tool"
-source = "[design] ui-tile-tree.md §6.1 (T5 part C): the vanilla HUD file has no mod tiles, so the tile renderer draws nothing of it (Ui::mod_added_tiles, Ui::mod_tile_drawn)"
-areas = ["ui"]
-paths = ["crates/fnv-ui/src/tree.rs", "crates/fnvtool/src/ui_cmd.rs"]
-commands = [["ui", "mod-tiles", "--data", "{data}", "--menu", "menus/main/hud_main_menu.xml"]]
-expect = [
-  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 0, label = "no tile of the vanilla HUD would draw" },
-]
-
-[[scenario]]
-name = "ui-uio-includes"
-kind = "tool"
-source = "[design] menu-xml.md §7 item 3 (T6): synthetic UIO data over vanilla, plugin and VFS file conditions, loose additions drawn without a menu replacement"
-areas = ["ui"]
-paths = ["crates/fnv-ui/", "crates/fnv-game/src/ui_loading.rs", "crates/fnvtool/src/ui_cmd.rs", "tools/smoke/fixtures/uio/"]
-commands = [["ui", "mod-tiles", "--data", "{data}", "--overlay", "{repo}/tools/smoke/fixtures/uio", "--plugin", "NVFSmoke.esp", "--menu", "menus/main/hud_main_menu.xml"]]
-expect = [
-  { json = "uio.applied", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "synthetic UIO entry applied" },
-  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "only the loose UIO probe draws" },
-]
-
-[[scenario]]
-name = "tiles-hud-bars-partial"
-source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-bars-partial with [UI] TileMenus=HUDMainMenu (the test aid): the corners drawn from HUDMainMenu's tiles, the meters' tick picture tiled over the widths the tree holds (hud.md §14.3, floor(share x 37) x 8), the hand-built corners hidden"
-note = "as hud-bars-partial: health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol; the shot at 22 s"
-areas = ["ui", "hud"]
-paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_bars_partial.png" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
-run_seconds = 24
-expect = [
-  { re = 'tiles: \[UI\] TileMenus=HUDMainMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): HUDMainMenu drawn from tiles', label = "the switch is read from the test aid" },
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws, its code-made copies with it" },
-  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health: the tree's bar is 18 ticks wide, as the hand-built one's" },
-]
-manual = "tiles_hud_bars_partial.png: the HUD's corners drawn from tiles: the health bar lit for 18 of its 37 ticks, HP above it, the brackets, the compass strip; AP, CND, the ammo counter at the right; compare with hud_bars_partial.png"
-
-[[scenario]]
-name = "tiles-hud-compass-north"
-source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-compass-north with [UI] TileMenus=HUDMainMenu: the compass window's strip drawn from its tile and moved by the heading (no trait moves it, hud.md §14.4; 1024 units a turn, the heading at x 148 of the window, §14.5)"
-note = "as hud-compass-north: facing due north outdoors in Goodsprings, N under the bracket's downward triangle"
-areas = ["ui", "hud"]
-paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/compass_strip.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:tiles_hud_compass_north.png" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
-run_seconds = 16
-expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
-  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the tile-drawn strip is one baked image with its fade, as the hand-built HUD's (crate::compass_strip)" },
-]
-manual = "tiles_hud_compass_north.png: N just right of the downward triangle of the tile-drawn compass bracket (about 4 pixels at 1280 x 720, as the original's), the strip fading out at its right end with no hard end tick; compare with hud_compass_north.png"
-
-[[scenario]]
-name = "tiles-hud-ammo-label"
-source = "[observed: hud_compare hud-ammo-label, 1280 x 720, T12e] hud-ammo-label with [UI] TileMenus=HUDMainMenu: the original draws the ammo type's abbreviation right-justified at AmmoTypeLabel's captured W - 236 (just left of the divider) and moves the condition row left by the abbreviation's width + 20 (\"HP\", 30 wide: 50); the hand-built HUD keeps the owner's place right of the divider (docs/spec-notes/hud.md §4, §14.7)"
-note = "the 9mm pistol with only 9mm hollow points (QNAM HP); at 1280 x 720 W is 1706.67, ActionPoints at 1320"
-areas = ["ui", "hud", "combat"]
-paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"tiles ammo %g %g %g %g\", (GetUIFloat \"HUDMainMenu/ActionPoints/MeterBackground/x\"), (GetUIFloat \"HUDMainMenu/ActionPoints/meter:0/x\"), (GetUIFloat \"HUDMainMenu/CNDArrows/x\"), (GetUIFloat \"HUDMainMenu/AmmoTypeLabel/x\");10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_ammo_label.png" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
-run_seconds = 24
-expect = [
-  { re = 'hud: ammo label HP\s*$', label = "the pistol's hollow points have the abbreviation HP" },
-  { re = 'script: print "tiles ammo 40 40 1403 1470"', label = "the condition ground, fill and arrows 50 left (90 - 30 - 20), the label at W - 236" },
-]
-manual = "tiles_hud_ammo_label.png: \"HP\" just left of the divider, \"CND\" and its bar moved left to make room, \"13/37\" alone right of the divider; compare with the original's hud-ammo-label shot"
-
-[[scenario]]
-name = "tiles-ui-hud-code-traits"
-source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): ui-hud-code-traits with [UI] TileMenus=HUDMainMenu: the pieces' places read through GetUIFloat stay the observed 16:10 ones (hud.md §14) while the tree is drawn; the console closes at 10.4 s for a shot of the tile-drawn HUD"
-areas = ["ui", "hud", "scripts", "console"]
-paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\");10.4:close", NVF_PLAY_TEST_SHOTS = "14:tiles_ui_hud_code_traits.png" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
-run_seconds = 16
-expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
-  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree keeps the observed 16:10 places with the switch on" },
-]
-manual = "tiles_ui_hud_code_traits.png: the HUD drawn from tiles at 1280 x 800: the corners at the bottom, the crosshair in the middle, nothing doubled"
-
-[[scenario]]
-name = "tiles-environment-radiation"
-source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): environment-radiation with [UI] TileMenus=HUDMainMenu: the radiation meter drawn from RadiationMeter's four tiles in the alt colour (hud.md §14.1-§14.2: alpha 255 in radiation, \"RAD/SEC\", the value, the pointer's x), the hand-built meter hidden"
-note = "as environment-radiation: the player in the nuclear test site's shack; the shot at 27 s, as environment-radiation's, so the two shots compare"
-areas = ["ui", "hud", "radiation"]
-paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/radiation.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "27:tiles_radiation_meter.png" }
-args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
-run_seconds = 30
-expect = [
-  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
-  { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "in radiation (the marker's level falling off with distance, issue #894), so the meter's tiles show" },
-]
-manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
-
-[[scenario]]
-name = "tiles-hud-pointer"
-source = "[design] ui-tile-tree.md §4.1 step 1 (T8, menu-xml.md §3.2): with [UI] TileMenus=HUDMainMenu and the test aid NVF_PLAY_TEST_POINTER making the HUD take tile input, a target hotrect injected into it gets mouseover under the pointer and 0 when it leaves, clicked from a press and from the menu's injected _PCButton_O key (a real O press); the tile's own expressions latch what they saw (an or of mouseover, the documented count of clicked)"
-note = "the console injects the button at 10 s and closes at 10.4 s; the pointer at 12 s, a click at 13 s, O at 14 s, the pointer away at 16 s; the console reads the latched traits at 20 s (the open console hides the HUD, so the live mouseover is no longer readable then)"
-areas = ["ui", "hud", "console"]
-paths = [
-  "crates/fnv-ui/src/input.rs", "crates/fnv-ui/src/tree.rs",
-  "crates/fnv-game/src/ui_input.rs", "crates/fnv-game/src/ui_functions.rs", "crates/fnv-game/src/jip_events.rs",
-  "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs",
-]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_POINTER = "12:150:330,13:150:330:click,16:20:20", NVF_PLAY_TEST_KEYS = "14:o", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<hotrect name=%qNVFSmokeButton%q><id>7</id><target>1</target><x>100</x><y>300</y><width>200</width><height>60</height><_seen><copy src=%qme()%q trait=%q_seen%q/><or src=%qme()%q trait=%qmouseover%q/></_seen><_clicks><copy src=%qme()%q trait=%q_clicks%q/><add src=%qme()%q trait=%qclicked%q/></_clicks></hotrect><_PCButton_O>NVFSmokeButton</_PCButton_O>\";10.4:close;20:PrintC \"nvf t8 %g %g %g %g\", (GetUIFloat \"HUDMainMenu/NVFSmokeButton/_seen\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/_clicks\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/clicked\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/mouseover\")" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
-run_seconds = 22
-expect = [
-  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
-  { re = 'tiles: pointer over HUDMainMenu/NVFSmokeButton \(id 7\), mouseover 1', count = 1, label = "the pointer finds the target hotrect and writes its mouseover" },
-  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by the pointer, clicked 1', count = 1, label = "a press clicks it" },
-  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by key O, clicked 1', count = 1, label = "the O key clicks the tile the menu's _PCButton_O names" },
-  { re = 'tiles: pointer over nothing', label = "the pointer leaves" },
-  { re = 'script: print "nvf t8 1 2 0 0"', label = "the tile's expressions saw mouseover 1 and two one-frame clicks; both back to 0" },
-]
-forbid = [
-  { re = 'tiles: key not followed', label = "no key trait left unfollowed" },
-]
-order = [[
-  { re = 'test aid: tile pointer at 150 330$' },
-  { re = 'tiles: pointer over HUDMainMenu/NVFSmokeButton' },
-  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by the pointer' },
-  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by key O' },
-  "tiles: pointer over nothing",
-  { re = 'script: print "nvf t8 ' },
-]]
-
-[[scenario]]
-name = "ui-menu-lifetime"
-source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
-areas = ["ui", "scripts", "console"]
-paths = [
-  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/value.rs",
-  "crates/fnv-game/src/game.rs", "crates/fnv-game/src/ui_loading.rs",
-  "crates/fnv-game/tests/ui_loading.rs",
-  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script.rs",
-]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf lifetime|Ok\";24.2:PrintC \"nvf message width %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\");26:PrintC \"nvf message closed %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\")" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 29
-expect = [
-  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the message menu builds from its indexed file" },
-  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"', label = "GetUIFloat reads a trait of the open menu's root" },
-  { re = 'script: print "nvf message width -999(?:\.0+)?"', count = 0, label = "the open menu's trait exists" },
-  { re = 'ui: dropped MessageMenu', label = "closing the message drops its tiles" },
-  { re = 'script: print "nvf message closed -999"', label = "the closed menu is absent" },
-]
-order = [[
-  { re = 'console: MessageBoxEx "nvf lifetime\|Ok" >> ran' },
-  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)' },
-  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"' },
-  "ui: dropped MessageMenu",
-  { re = 'script: print "nvf message closed -999"' },
-]]
-
-[[scenario]]
-name = "nvse-engine-events"
-source = "The extender's events that only the running engine raises (docs/handoff/nvse-next-batch.md §6): OnLoad of a placed unscripted item, OnHit/OnHitWith of a hit, OnMagicEffectHit of a stimpak, OnPackageStart, OnCombatEnd; handlers set from the console as one-line lambdas"
-areas = ["scripts", "actors"]
-paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/objects.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_HIT = "11:RingoRef:1:WeapNV9mmPistol", NVF_PLAY_TEST_CONSOLE = "8:SetEventHandler \"OnLoad\" ({ref rT, ref rB} => PrintC \"nvf ev onload\");SetEventHandler \"OnHit\" ({ref rT, ref rB} => PrintC \"nvf ev onhit\");SetEventHandler \"OnHitWith\" ({ref rT, ref rB} => PrintC \"nvf ev onhitwith\");SetEventHandler \"OnMagicEffectHit\" ({ref rT, ref rB} => PrintC \"nvf ev onmagiceffecthit\");SetEventHandler \"OnPackageStart\" ({ref rT, ref rB} => PrintC \"nvf ev onpackagestart\");SetEventHandler \"OnCombatEnd\" ({ref rT, ref rB} => PrintC \"nvf ev oncombatend\");9:RingoRef.MoveTo player 0 200 0;10:player.PlaceAtMe WeapNV9mmPistol 1;10.5:close;12:RingoRef.AddItem Stimpak 1;RingoRef.EquipItem Stimpak;13:RingoRef.AddScriptPackage GSTrudyEveningPackage20x2;14:RingoRef.StartCombat player;17:RingoRef.StopCombat;18:MessageExAlt 4 \"#0|NVF note %g\" 7" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 20
-expect = [
-  { re = 'script: print "nvf ev onload"', label = "OnLoad: the placed pistol's 3D loads (no script of its own)" },
-  { re = 'script: print "nvf ev onhit"', label = "OnHit: Ringo is hit" },
-  { re = 'script: print "nvf ev onhitwith"', label = "OnHitWith: the hit's weapon" },
-  { re = 'script: print "nvf ev onmagiceffecthit"', label = "OnMagicEffectHit: Ringo's stimpak" },
-  { re = 'script: print "nvf ev onpackagestart"', label = "OnPackageStart: the added package starts" },
-  { re = 'script: print "nvf ev oncombatend"', label = "OnCombatEnd: StopCombat ends Ringo's fight" },
-  { re = 'on screen: NVF note 7', label = "MessageExAlt: a formatted corner message (queued behind the VATS tutorial note)" },
-]
-
-[[scenario]]
-name = "jip-raycast-sneak"
-source = "JIP's GetP2PRayCastRange through the engine's physics (fnv_game::ray), the player's capsule not hit; a zero-length cast 0; TogglePlayerSneaking reads in its own frame; IsMusicPlaying after PlayMusic [observed: engine1, engine2]"
-areas = ["scripts", "physics"]
-paths = ["crates/fnv-game/src/ray.rs", "crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/script.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 300 0;10:PrintC \"nvf ray actor %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 60) (player.GetPos X) ((player.GetPos Y) + 600) ((player.GetPos Z) + 60));10.2:PrintC \"nvf ray down %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) - 1000));10.4:PrintC \"nvf ray none %.0f\", (GetP2PRayCastRange 0 0 0 0 0 0);10.5:PrintC \"nvf terrain below feet %.0f\", ((player.GetPos Z) - (GetTerrainHeight (player.GetPos X) (player.GetPos Y)));10.6:PlayMusic musDocMitchellHouse;PrintC \"nvf music %g\", (IsMusicPlaying musDocMitchellHouse);11:TogglePlayerSneaking 1;PrintC \"nvf sneak now %g\", (player.IsSneaking);12:TogglePlayerSneaking 0;12.5:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 14
-expect = [
-  { re = 'script: print "nvf ray actor [23][0-9][0-9]"', label = "a cast toward Ringo, moved 300 ahead, stops at him, not at the 600 end" },
-  { re = 'script: print "nvf ray down 0"', label = "a cast straight down past the ground hits nothing: terrain is left out [observed: engine3]" },
-  { re = 'script: print "nvf ray none 0"', label = "a zero-length cast hits nothing" },
-  { re = 'script: print "nvf terrain below feet -?[0-9]"', label = "GetTerrainHeight under the player standing on the ground is within 10 of the feet" },
-  { re = 'script: print "nvf music 2"', label = "IsMusicPlaying gives 2 for the type PlayMusic just asked for [observed: engine2]" },
-  { re = 'script: print "nvf sneak now 1"', label = "IsSneaking reads the toggle in its own frame" },
-]
-
-[[scenario]]
-name = "jip-radios-fall"
-source = "JohnnyGuitar GetAvailableRadios: the enabled Pip-Boy stations that broadcast everywhere, from the engine's placed stations [observed: radio1]; JIP GetFallTimeElapsed from the engine's character physics, 0 on the ground"
-areas = ["scripts", "physics"]
-paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/script.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf radios %g\", (ar_Size (player.GetAvailableRadios));9.0:PrintC \"nvf st 0 %n\", ((player.GetAvailableRadios)[0]);9.5:PrintC \"nvf fall ground %g\", (player.GetFallTimeElapsed);10:player.MoveTo player 0 0 600;10.05:close;10.6:PrintC \"nvf fall air %.2f\", (player.GetFallTimeElapsed);11:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 13
-expect = [
-  { re = 'script: print "nvf radios 3"', label = "a new game at Goodsprings: Mojave Music Radio and two add-on broadcasts (Radio New Vegas starts disabled)" },
-  { re = 'script: print "nvf st 0 Mojave Music Radio"', label = "the first, in FormID order, is Mojave Music Radio" },
-  { re = 'script: print "nvf fall ground 0"', label = "standing on the ground, no fall time" },
-  { re = 'script: print "nvf fall air (0\.[1-9]|[1-9])', label = "half a second after MoveTo lifts the player 600 units, the fall time counts" },
-]
-
-[[scenario]]
-name = "nvse-sounds"
-source = "IsSoundPlaying, StopSound, GetSoundPlayers over the sounds scripts play: from the frame after PlaySound, a Loop SOUN until StopSound, still 1 in StopSound's frame, PlaySound3D's source [observed: sound1]"
-areas = ["scripts", "audio"]
-paths = ["crates/fnv-game/src/nvse_sound.rs", "crates/fnv-game/src/sound.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/world_sounds.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PlaySound EMTMedicalBeep01;PrintC \"nvf snd same %g\", (IsSoundPlaying EMTMedicalBeep01);9.2:close;9.5:PrintC \"nvf snd next %g\", (IsSoundPlaying EMTMedicalBeep01);9.7:close;11.5:PrintC \"nvf snd later %g\", (IsSoundPlaying EMTMedicalBeep01);11.6:StopSound EMTMedicalBeep01;PrintC \"nvf snd stop frame %g\", (IsSoundPlaying EMTMedicalBeep01);11.8:close;12.2:PrintC \"nvf snd stopped %g\", (IsSoundPlaying EMTMedicalBeep01);12.4:player.PlaySound3D EMTMedicalBeep01;12.6:close;13:PrintC \"nvf snd3d %g %g %g %g\", (IsSoundPlaying EMTMedicalBeep01 player), (IsSoundPlaying EMTMedicalBeep01 00104C0C), (IsSoundPlaying EMTMedicalBeep01), (ar_Size (GetSoundPlayers EMTMedicalBeep01));13.2:StopSound EMTMedicalBeep01;PlaySound UIVATSLoop;13.4:close;14.5:PrintC \"nvf vats %g\", (IsSoundPlaying UIVATSLoop);14.7:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 16
-expect = [
-  { re = 'script: print "nvf snd same 0"', label = "not playing in PlaySound's own frame" },
-  { re = 'script: print "nvf snd next 1"', label = "playing from the next frame" },
-  { re = 'script: print "nvf snd later 1"', label = "a Loop SOUN still plays 2 s on" },
-  { re = 'script: print "nvf snd stop frame 1"', label = "still 1 in StopSound's frame" },
-  { re = 'script: print "nvf snd stopped 0"', label = "0 after StopSound" },
-  { re = 'script: print "nvf snd3d 1 0 1 1"', label = "PlaySound3D on the player: 1 with the player, 0 with another, 1 with none; one player" },
-  { re = 'script: print "nvf vats 0"', label = "the one-shot UIVATSLoop is over a second later" },
-]
-
-[[scenario]]
-name = "jip-projectiles"
-source = "JIP's live-projectile functions over the engine's shots (fnv_game::nvse_proj): a FireWeapon shot is a reference of type 51 while in flight, and gone after; a player's FireWeapon does not hit the player [observed: proj1]"
-areas = ["scripts", "combat"]
-paths = ["crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:player.SetAngle X -60;9.3:player.FireWeapon 0000434F;9.32:close;9.45:PrintC \"nvf proj n %g\", (GetNumRefs 51 3);9.5:close;11:PrintC \"nvf proj later %g\", (GetNumRefs 51 3);11.2:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 13
-expect = [
-  { re = 'script: print "nvf proj n 1"', label = "the shot, aimed up, is one projectile reference in flight" },
-  { re = 'script: print "nvf proj later 0"', label = "gone once its flight is over" },
-]
-
-[[scenario]]
-name = "jip-raycast-points"
-source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
-areas = ["scripts", "physics"]
-paths = ["crates/fnv-game/src/nvse_jip3.rs", "crates/fnv-game/src/ray.rs", "crates/fnv-script/src/vm.rs", "engine/nvf-play/src/script.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RunScriptSnippet 0 \"float fA%rfloat fX%rfloat fY%rfloat fZ%rlet fA := GetPointRayCastPos (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) 90 0 fX fY fZ%rPrintC %qnvf ray down %%g %%.0f%q, fA, (((player.GetPos Z) + 100) - fZ)\";9.5:RunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 100 0 0 fA fB%rPrintC %qnvf between %%g %%g%q, fA, fB\";10:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 12
-expect = [
-  { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
-  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
-]
-
-[[scenario]]
-name = "knvse-idle-stop"
-source = "kNVSE ForcePlayIdle and ForceStopIdle on an NPC through the engine's idle player; GetPlayedIdle keeps the idle after the stop [observed: anim1]"
-areas = ["scripts", "actors"]
-paths = ["crates/fnv-game/src/nvse_plugins.rs", "engine/nvforever/src/idles.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;10:RingoRef.ForcePlayIdle LooseCheeringClappingNoArmsUp;10.5:close;11:PrintC \"nvf idle playing %g\", (RingoRef.IsIdlePlaying);12:RingoRef.ForceStopIdle;12.5:close;14:PrintC \"nvf idle after stop %g kept %g\", (RingoRef.IsIdlePlaying), ((RingoRef.GetPlayedIdle) == LooseCheeringClappingNoArmsUp);14.5:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 16
-expect = [
-  { re = 'script: print "nvf idle playing 1"', label = "the engine plays the forced idle" },
-  { re = 'script: print "nvf idle after stop 0 kept 1"', label = "ForceStopIdle ends it; GetPlayedIdle still names it" },
-]
-
-[[scenario]]
-name = "jip-view-sneak"
-source = "JIP's ToggleFirstPerson and TogglePlayerSneaking (fnv_game::nvse_gaps): the engine takes the ask a frame later and IsPC1stPerson / IsSneaking read it [observed: gaps10, two frames]"
-areas = ["scripts", "player"]
-paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:ToggleFirstPerson 0;TogglePlayerSneaking 1;8.5:close;10:PrintC \"nvf view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking);11:ToggleFirstPerson 1;TogglePlayerSneaking 0;11.5:close;13:PrintC \"nvf back view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking)" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 15
-expect = [
-  { re = 'script: print "nvf view 0 sneak 1"', label = "third person and sneaking after the toggles" },
-  { re = 'script: print "nvf back view 1 sneak 0"', label = "back to first person, standing" },
-]
-
-[[scenario]]
-name = "hud-controls"
-source = "nvse_hud and script_input (docs/spec-notes/ext-hud.md): SetWeaponOut draws and holsters the player's weapon through the engine, HoldControl holds a control from the next frame, SetControl rebinds and reads back, MessageEx joins the corner queue [observed: controls1, hud1]"
-areas = ["scripts", "player"]
-paths = ["crates/fnv-game/src/nvse_hud.rs", "crates/fnv-game/src/script_input.rs", "engine/nvf-play/src/script_input.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem WeapNV10mmPistol 1;player.EquipItem WeapNV10mmPistol;9:player.SetWeaponOut 1;HoldControl 2;SetControl 15 48;MessageEx \"nvf corner\";PrintC \"nvf queued %g\", (GetNumQueuedCornerMessages);9.5:close;11:PrintC \"nvf out %g held %g bind %g\", (player.IsWeaponOut), (IsControlPressed 2), (GetControl 15);ReleaseControl 2;SetControl 15 20;player.SetWeaponOut 0;11.5:close;13:PrintC \"nvf away %g held %g bind %g\", (player.IsWeaponOut), (IsControlPressed 2), (GetControl 15);13.5:player.RemoveItem WeapNV10mmPistol 1" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 15
-expect = [
-  { re = 'script: print "nvf queued [1-9]', label = "MessageEx joins the corner-message queue" },
-  { re = 'script: print "nvf out 1 held 1 bind 48"', label = "the weapon is drawn, Left is held, Rest is rebound" },
-  { re = 'script: print "nvf away 0 held 0 bind 20"', label = "holstered, released and the binding put back" },
-]
-
-[[scenario]]
-name = "showoff-events"
-source = "nvse_showoff (docs/spec-notes/ext-showoff.md): ShowOff:OnAdd gets the item's base and the container, ShowOff:OnExplosionHit reads the blast's damage in the engine's blast loop, an aux timer that runs out fires its stop handler [observed: showoff1]"
-areas = ["scripts", "combat"]
-paths = ["crates/fnv-game/src/nvse_showoff.rs", "crates/fnv-game/src/nvse_jip2.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:SetEventHandler \"ShowOff:OnAdd\" ({ref rA, ref rB} => PrintC \"nvf showoff add %g\", (GetType rA));SetEventHandler \"ShowOff:OnExplosionHit\" ({ref rA, ref rB} => PrintC \"nvf showoff blast %g\", (GetExplosionHitDamage));SetOnAuxTimerStopHandler 1 ({string_var sN, ref rO} => PrintC \"nvf showoff timer %z\", sN) \"nvfst\";9.5:player.AddItem Stimpak 1;player.AuxTimerStart \"nvfst\" 0.5;10:close;11:player.PlaceAtMe MineFragExplosion 1;11.5:close;13:player.RemoveItem Stimpak 1" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 16
-expect = [
-  { re = 'script: print "nvf showoff add 47"', label = "ShowOff:OnAdd gives the stimpak's base" },
-  { re = 'script: print "nvf showoff timer nvfst"', label = "the aux timer's stop handler runs when it runs out" },
-  { re = 'script: print "nvf showoff blast [1-9]', label = "ShowOff:OnExplosionHit reads the blast's damage" },
-]
-
-[[scenario]]
-name = "jip-play-anim-sequence"
-source = "JIP's PlayAnimSequence (fnv_game::anims::call_ext): a named sequence of an object's model plays through the PlayGroup path (nvforever object_anims.rs); vMEGoodSpringsRef (which plays Backward when Goodsprings loads) plays its Forward sequence by name [documented: PlayAnimSequence]; doors, drawn by nvf_play doors.rs, do not take it yet"
-areas = ["scripts", "world"]
-paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:vMEGoodSpringsRef.PlayAnimSequence \"Forward\";9.5:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 13
-expect = [
-  { re = 'playgroup: vMEGoodSpringsRef plays Forward \(once', label = "the object's Forward sequence plays by name" },
-]
-
-[[scenario]]
-name = "nif-blocks-mirror"
-source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
-areas = ["scripts", "actors"]
-paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf blocks first %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12:PrintC \"nvf blocks %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12.5:PrintC \"nvf parents %g\", (Ar_Size (RingoRef.GetNifBlockParentNodes \"Bip01 Head\"));13:RingoRef.SetNifBlockScale \"Bip01 Head\" 1.5;14:PrintC \"nvf scale %.2f\", (RingoRef.GetNifBlockScale \"Bip01 Head\")" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 17
-expect = [
-  { re = 'script: print "nvf blocks [1-9][0-9]*"', label = "the second call reads Ringo's Bip01 children from the mirror" },
-  { re = 'script: print "nvf parents [1-9]"', label = "the head has parent nodes" },
-  { re = 'script: print "nvf scale 1.50"', label = "a set scale holds over the animation and reads back" },
-]
-
-[[scenario]]
-name = "knvse-anim-replace"
-source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
-areas = ["scripts", "actors"]
-paths = ["crates/fnv-game/src/nvse_anim.rs", "engine/nvforever/src/anim_paths.rs", "engine/nvforever/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf set %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters\\_male\\locomotion\\mtidle.kf\");13:PrintC \"nvf unset %g\", (RingoRef.SetActorAnimationPath 0 0 \"characters\\_male\\locomotion\\mtidle.kf\")" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 16
-expect = [
-  { re = 'script: print "nvf set 1"', label = "the file is there: the setter gives 1" },
-  { re = 'anim paths: 00104C7D plays 1 replaced move', label = "Ringo plays from his own set with Idle replaced" },
-  { re = 'script: print "nvf unset 1"', label = "taking it back gives 1" },
-]
-
-[[scenario]]
 name = "script-input-keys"
 source = "extender task D6 (docs/spec-notes/ext-input.md): IsKeyPressed sees a real key held; DisableKey hides it from IsKeyPressed (and the game) but not with ignoreStatus 2; IsKeyDisabled reports it"
 areas = ["console", "scripts", "input"]
@@ -10921,7 +10467,6 @@ expect = [
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in docs/handoff/mq-walkthrough-2026-10-27.md"
 
-
 [[scenario]]
 name = "fire-barrel-light"
 source = "owner report 2026-10-27: the Abandoned Shack's fire barrel (GSAbandonedShack, Barrel02Fire128, radius 128) gave off very little light. Its light now sits on barrel02firelight.nif's AttachLight node (102 units up, docs/spec-notes/model-lights.md §4) and flickering lights reach 1.5x their radius and dim to 0.8 (lights.rs FLAME_REACH, FLICKER_LOW), fitted to the owner's frames of the original"
@@ -11102,7 +10647,7 @@ manual = "on a failure, the chain's notes say what each step stands for; the sta
 [[scenario]]
 name = "mq-beyond-the-beef"
 kind = "tool"
-source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/beyond-the-beef.actions.json (a tribe outcome the Yes Man / House chains give as done), Beyond the Beef (VMS18), Heck's side: Marjorie, Mortimer's key, the investigator, Chauncey in the steam room (objective 50), Ted found and walked back to his father (objective 80)"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/beyond-the-beef.actions.json (a tribe outcome the Yes Man / House chains give as done), Beyond the Beef (VMS18), Heck's side: Marjorie, Mortimer's key, the investigator, Chauncey in the steam room (objective 50), Ted found and walked back to his father (objective 80), Heck's reward (quest completed)"
 areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/beyond-the-beef.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/beyond-the-beef.actions.json"]]
@@ -11114,6 +10659,10 @@ expect = [
   { json = "observations.?label=milestone: Ted follows.var.bTedFollowing", equals = 1.0, label = "milestone: Ted follows: var.bTedFollowing = 1.0" },
   { json = "observations.?label=final: VMS18 objective 80.objective.80.completed", equals = true, label = "final: VMS18 objective 80: objective.80.completed = true" },
   { json = "observations.?label=final: VMS18 objective 80.objective.90.displayed", equals = true, label = "final: VMS18 objective 80: objective.90.displayed = true" },
+  { json = "observations.?label=final: VMS18 completed.completed", equals = true, label = "final: VMS18 completed: completed = true (Heck's reward, CompleteQuest)" },
+  { json = "observations.?label=final: VMS18 completed.objective.90.completed", equals = true, label = "final: VMS18 completed: objective.90.completed = true" },
+  { json = "steps.*.error", count = 0, label = "beyond-the-beef: no step fails" },
+  { json = "given_errors.*", count = 0, label = "beyond-the-beef: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls and their causes are in the tribes walkthrough report (side-session notes addon-tribes-report.md)"
 
@@ -11762,6 +11311,7 @@ expect = [
 manual = "on a failure, the chain's notes say what each step stands for; the findings are in the Gun Runners' Arsenal / Hardcore walkthrough report (addon-gra-report.md)"
 
 # ---- walk4 mainfac chains (issue #918) ----
+
 [[scenario]]
 name = "mq-gi-blues"
 kind = "tool"
@@ -13127,6 +12677,1098 @@ forbid = [
   { re = 'VHDColonelMooreREF: cannot reach', label = "Moore finds no way to the podium" },
   { re = 'script: VMQ03a stage (110|120|200) set', label = "the visit fails or is cancelled" },
   { re = 'combat group: .* alarms VHDKimballREF 0x0012FCD2 about the player', label = "the NCR turn on the player" },
+]
+
+[[scenario]]
+name = "mq-exploring-vault-74"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/exploring-vault-74.actions.json: Exploring Vault 74 (VT74): the vault trigger (10) and the overseer's note carried out (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/exploring-vault-74.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/exploring-vault-74.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VT74 10.running", equals = true, label = "exploring-vault-74, milestone: VT74 10: running = true" },
+  { json = "observations.?label=milestone: VT74 10.stage", equals = 10, label = "exploring-vault-74, milestone: VT74 10: stage = 10" },
+  { json = "observations.?label=milestone: VT74 10.done.10", equals = true, label = "exploring-vault-74, milestone: VT74 10: done.10 = true" },
+  { json = "observations.?label=milestone: VT74 10.objective.10.displayed", equals = true, label = "exploring-vault-74, milestone: VT74 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VT74 100.stage", equals = 100, label = "exploring-vault-74, final: VT74 100: stage = 100" },
+  { json = "observations.?label=final: VT74 100.done.100", equals = true, label = "exploring-vault-74, final: VT74 100: done.100 = true" },
+  { json = "observations.?label=final: VT74 100.completed", equals = true, label = "exploring-vault-74, final: VT74 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "exploring-vault-74: no step fails" },
+  { json = "given_errors.*", count = 0, label = "exploring-vault-74: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-nelson-explorer"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/nelson-explorer.actions.json: Nelson explorer challenge (nvNelsonExplorerBark): the explorer's stop (10) and the Decanus (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/nelson-explorer.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/nelson-explorer.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: nvNelsonExplorerBark 10.running", equals = false, label = "nelson-explorer, milestone: nvNelsonExplorerBark 10: running = false" },
+  { json = "observations.?label=milestone: nvNelsonExplorerBark 10.done.10", equals = true, label = "nelson-explorer, milestone: nvNelsonExplorerBark 10: done.10 = true" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.stage", equals = 100, label = "nelson-explorer, final: nvNelsonExplorerBark 100: stage = 100" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.done.100", equals = true, label = "nelson-explorer, final: nvNelsonExplorerBark 100: done.100 = true" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.completed", equals = true, label = "nelson-explorer, final: nvNelsonExplorerBark 100: completed = true" },
+  { json = "observations.?label=final: nvNelsonExplorerBark 100.var.talkedto", equals = 0.0, label = "nelson-explorer, final: nvNelsonExplorerBark 100: var.talkedto = 0.0" },
+  { json = "steps.*.error", count = 0, label = "nelson-explorer: no step fails" },
+  { json = "given_errors.*", count = 0, label = "nelson-explorer: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-geckoman"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/geckoman.actions.json: Geckoman encounter (VES02DialogueGeckoman): his plea (50), the player agrees (60), the ridge trap (70)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/geckoman.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/geckoman.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.running", equals = true, label = "geckoman, milestone: VES02DialogueGeckoman 60: running = true" },
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.stage", equals = 60, label = "geckoman, milestone: VES02DialogueGeckoman 60: stage = 60" },
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.done.50", equals = true, label = "geckoman, milestone: VES02DialogueGeckoman 60: done.50 = true" },
+  { json = "observations.?label=milestone: VES02DialogueGeckoman 60.done.60", equals = true, label = "geckoman, milestone: VES02DialogueGeckoman 60: done.60 = true" },
+  { json = "observations.?label=final: VES02DialogueGeckoman 70.stage", equals = 70, label = "geckoman, final: VES02DialogueGeckoman 70: stage = 70" },
+  { json = "observations.?label=final: VES02DialogueGeckoman 70.done.70", equals = true, label = "geckoman, final: VES02DialogueGeckoman 70: done.70 = true" },
+  { json = "steps.*.error", count = 0, label = "geckoman: no step fails" },
+  { json = "given_errors.*", count = 0, label = "geckoman: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-legend-of-the-star"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/legend-of-the-star.actions.json: The Legend of the Star (VMS09 20, 30) and A Valuable Lesson (VMS09a 10, 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/legend-of-the-star.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/legend-of-the-star.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS09 20.running", equals = true, label = "legend-of-the-star, milestone: VMS09 20: running = true" },
+  { json = "observations.?label=milestone: VMS09 20.stage", equals = 20, label = "legend-of-the-star, milestone: VMS09 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS09 20.done.20", equals = true, label = "legend-of-the-star, milestone: VMS09 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS09 20.objective.20.displayed", equals = true, label = "legend-of-the-star, milestone: VMS09 20: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMS09 30.stage", equals = 30, label = "legend-of-the-star, final: VMS09 30: stage = 30" },
+  { json = "observations.?label=final: VMS09 30.done.30", equals = true, label = "legend-of-the-star, final: VMS09 30: done.30 = true" },
+  { json = "observations.?label=final: VMS09 30.failed", equals = true, label = "legend-of-the-star, final: VMS09 30: failed = true" },
+  { json = "observations.?label=final: VMS09 30.objective.20.completed", equals = true, label = "legend-of-the-star, final: VMS09 30: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS09a 10.running", equals = true, label = "legend-of-the-star, milestone: VMS09a 10: running = true" },
+  { json = "observations.?label=milestone: VMS09a 10.stage", equals = 10, label = "legend-of-the-star, milestone: VMS09a 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS09a 10.done.10", equals = true, label = "legend-of-the-star, milestone: VMS09a 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS09a 10.objective.10.displayed", equals = true, label = "legend-of-the-star, milestone: VMS09a 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS09a 100.stage", equals = 100, label = "legend-of-the-star, final: VMS09a 100: stage = 100" },
+  { json = "observations.?label=final: VMS09a 100.done.100", equals = true, label = "legend-of-the-star, final: VMS09a 100: done.100 = true" },
+  { json = "observations.?label=final: VMS09a 100.completed", equals = true, label = "legend-of-the-star, final: VMS09a 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "legend-of-the-star: no step fails" },
+  { json = "given_errors.*", count = 0, label = "legend-of-the-star: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-crazy-crazy-crazy"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/crazy-crazy-crazy.actions.json: Crazy, Crazy, Crazy (VMS57): Neil's warning (10) to Tabitha's death (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/crazy-crazy-crazy.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/crazy-crazy-crazy.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS57 10.running", equals = true, label = "crazy-crazy-crazy, milestone: VMS57 10: running = true" },
+  { json = "observations.?label=milestone: VMS57 10.stage", equals = 10, label = "crazy-crazy-crazy, milestone: VMS57 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS57 10.done.10", equals = true, label = "crazy-crazy-crazy, milestone: VMS57 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS57 10.objective.10.displayed", equals = true, label = "crazy-crazy-crazy, milestone: VMS57 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: VMS57 100.stage", equals = 100, label = "crazy-crazy-crazy, final: VMS57 100: stage = 100" },
+  { json = "observations.?label=final: VMS57 100.done.100", equals = true, label = "crazy-crazy-crazy, final: VMS57 100: done.100 = true" },
+  { json = "observations.?label=final: VMS57 100.completed", equals = true, label = "crazy-crazy-crazy, final: VMS57 100: completed = true" },
+  { json = "observations.?label=final: VMS57 100.objective.10.completed", equals = true, label = "crazy-crazy-crazy, final: VMS57 100: objective.10.completed = true" },
+  { json = "steps.*.error", count = 0, label = "crazy-crazy-crazy: no step fails" },
+  { json = "given_errors.*", count = 0, label = "crazy-crazy-crazy: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-cold-cold-heart"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/cold-cold-heart.actions.json: Cold, Cold Heart (vNiptonVulpes): Vulpes's lesson (10) to the word brought to Kilborn (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/cold-cold-heart.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/cold-cold-heart.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: vNiptonVulpes 10.running", equals = true, label = "cold-cold-heart, milestone: vNiptonVulpes 10: running = true" },
+  { json = "observations.?label=milestone: vNiptonVulpes 10.stage", equals = 10, label = "cold-cold-heart, milestone: vNiptonVulpes 10: stage = 10" },
+  { json = "observations.?label=milestone: vNiptonVulpes 10.done.10", equals = true, label = "cold-cold-heart, milestone: vNiptonVulpes 10: done.10 = true" },
+  { json = "observations.?label=milestone: vNiptonVulpes 10.objective.10.displayed", equals = true, label = "cold-cold-heart, milestone: vNiptonVulpes 10: objective.10.displayed = true" },
+  { json = "observations.?label=final: vNiptonVulpes 100.stage", equals = 100, label = "cold-cold-heart, final: vNiptonVulpes 100: stage = 100" },
+  { json = "observations.?label=final: vNiptonVulpes 100.done.100", equals = true, label = "cold-cold-heart, final: vNiptonVulpes 100: done.100 = true" },
+  { json = "observations.?label=final: vNiptonVulpes 100.completed", equals = true, label = "cold-cold-heart, final: vNiptonVulpes 100: completed = true" },
+  { json = "observations.?label=final: vNiptonVulpes 100.objective.10.completed", equals = true, label = "cold-cold-heart, final: vNiptonVulpes 100: objective.10.completed = true" },
+  { json = "steps.*.error", count = 0, label = "cold-cold-heart: no step fails" },
+  { json = "given_errors.*", count = 0, label = "cold-cold-heart: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-doctors"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/doctors.actions.json: doctors' services (VDoctors 10, 20, 30 at Ada Straus; Doctors 20 at Argyll)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/doctors.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/doctors.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VDoctors 10.running", equals = true, label = "doctors, milestone: VDoctors 10: running = true" },
+  { json = "observations.?label=milestone: VDoctors 10.done.10", equals = true, label = "doctors, milestone: VDoctors 10: done.10 = true" },
+  { json = "observations.?label=milestone: VDoctors 20.done.20", equals = true, label = "doctors, milestone: VDoctors 20: done.20 = true" },
+  { json = "observations.?label=final: VDoctors 30.stage", equals = 30, label = "doctors, final: VDoctors 30: stage = 30" },
+  { json = "observations.?label=final: VDoctors 30.done.30", equals = true, label = "doctors, final: VDoctors 30: done.30 = true" },
+  { json = "observations.?label=milestone: Doctors 10.running", equals = true, label = "doctors, milestone: Doctors 10: running = true" },
+  { json = "observations.?label=milestone: Doctors 10.stage", equals = 0, label = "doctors, milestone: Doctors 10: stage = 0" },
+  { json = "observations.?label=milestone: Doctors 10.done.10", equals = false, label = "doctors, milestone: Doctors 10: done.10 = false" },
+  { json = "observations.?label=final: Doctors 20.stage", equals = 20, label = "doctors, final: Doctors 20: stage = 20" },
+  { json = "observations.?label=final: Doctors 20.done.20", equals = true, label = "doctors, final: Doctors 20: done.20 = true" },
+  { json = "steps.*.error", count = 0, label = "doctors: no step fails" },
+  { json = "given_errors.*", count = 0, label = "doctors: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-that-lucky-old-sun"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json: That Lucky Old Sun (VMS03): Haggerty (5), Fantastic (10), terminals, generator, tower console, Fantastic thanked (completed)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS03 5.running", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: running = true" },
+  { json = "observations.?label=milestone: VMS03 5.stage", equals = 5, label = "that-lucky-old-sun, milestone: VMS03 5: stage = 5" },
+  { json = "observations.?label=milestone: VMS03 5.done.5", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: done.5 = true" },
+  { json = "observations.?label=milestone: VMS03 5.objective.5.displayed", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: objective.5.displayed = true" },
+  { json = "observations.?label=final: VMS03 10.stage", equals = 10, label = "that-lucky-old-sun, final: VMS03 10: stage = 10" },
+  { json = "observations.?label=final: VMS03 10.done.10", equals = true, label = "that-lucky-old-sun, final: VMS03 10: done.10 = true" },
+  { json = "observations.?label=final: VMS03 10.objective.20.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMS03 10.objective.30.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.30.displayed = true" },
+  { json = "observations.?label=final: VMS03 completed.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: completed = true" },
+  { json = "observations.?label=final: VMS03 completed.objective.80.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: objective.80.completed = true" },
+  { json = "steps.*.error", count = 0, label = "that-lucky-old-sun: no step fails" },
+  { json = "given_errors.*", count = 0, label = "that-lucky-old-sun: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-cottonwood-cove"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/cottonwood-cove.actions.json: Left My Heart (vCCLeftMyHeart, completed) and Eye for an Eye (vCCEyeforaneye 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/cottonwood-cove.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/cottonwood-cove.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: vCCLeftMyHeart objective 10.running", equals = true, label = "cottonwood-cove, milestone: vCCLeftMyHeart objective 10: running = true" },
+  { json = "observations.?label=milestone: vCCLeftMyHeart objective 10.objective.10.displayed", equals = true, label = "cottonwood-cove, milestone: vCCLeftMyHeart objective 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: vCCLeftMyHeart objective 10.var.iMetFrank", equals = 1.0, label = "cottonwood-cove, milestone: vCCLeftMyHeart objective 10: var.iMetFrank = 1.0" },
+  { json = "observations.?label=milestone: family freed.objective.50.completed", equals = true, label = "cottonwood-cove, milestone: family freed: objective.50.completed = true" },
+  { json = "observations.?label=milestone: family freed.objective.100.displayed", equals = true, label = "cottonwood-cove, milestone: family freed: objective.100.displayed = true" },
+  { json = "observations.?label=milestone: family freed.var.iBuySlaves", equals = 3.0, label = "cottonwood-cove, milestone: family freed: var.iBuySlaves = 3.0" },
+  { json = "observations.?label=final: vCCLeftMyHeart completed.completed", equals = true, label = "cottonwood-cove, final: vCCLeftMyHeart completed: completed = true" },
+  { json = "observations.?label=final: vCCLeftMyHeart completed.objective.100.completed", equals = true, label = "cottonwood-cove, final: vCCLeftMyHeart completed: objective.100.completed = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.running", equals = true, label = "cottonwood-cove, milestone: vCCEyeforaneye started: running = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.objective.10.displayed", equals = true, label = "cottonwood-cove, milestone: vCCEyeforaneye started: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.objective.30.displayed", equals = true, label = "cottonwood-cove, milestone: vCCEyeforaneye started: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: vCCEyeforaneye started.var.iAstorAsked", equals = 2.0, label = "cottonwood-cove, milestone: vCCEyeforaneye started: var.iAstorAsked = 2.0" },
+  { json = "observations.?label=milestone: intel and bug.objective.10.completed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.10.completed = true" },
+  { json = "observations.?label=milestone: intel and bug.objective.20.completed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.20.completed = true" },
+  { json = "observations.?label=milestone: intel and bug.objective.30.completed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.30.completed = true" },
+  { json = "observations.?label=milestone: intel and bug.objective.40.displayed", equals = true, label = "cottonwood-cove, milestone: intel and bug: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: clear the cove.objective.40.completed", equals = true, label = "cottonwood-cove, milestone: clear the cove: objective.40.completed = true" },
+  { json = "observations.?label=milestone: clear the cove.objective.90.displayed", equals = true, label = "cottonwood-cove, milestone: clear the cove: objective.90.displayed = true" },
+  { json = "observations.?label=milestone: cove poisoned.var.iRadiationKill", equals = 1.0, label = "cottonwood-cove, milestone: cove poisoned: var.iRadiationKill = 1.0" },
+  { json = "observations.?label=milestone: cove poisoned.objective.90.completed", equals = true, label = "cottonwood-cove, milestone: cove poisoned: objective.90.completed = true" },
+  { json = "observations.?label=milestone: cove poisoned.objective.95.completed", equals = true, label = "cottonwood-cove, milestone: cove poisoned: objective.95.completed = true" },
+  { json = "observations.?label=milestone: cove poisoned.objective.100.displayed", equals = true, label = "cottonwood-cove, milestone: cove poisoned: objective.100.displayed = true" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.stage", equals = 100, label = "cottonwood-cove, final: vCCEyeforaneye 100: stage = 100" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.done.100", equals = true, label = "cottonwood-cove, final: vCCEyeforaneye 100: done.100 = true" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.completed", equals = true, label = "cottonwood-cove, final: vCCEyeforaneye 100: completed = true" },
+  { json = "observations.?label=final: vCCEyeforaneye 100.objective.100.completed", equals = true, label = "cottonwood-cove, final: vCCEyeforaneye 100: objective.100.completed = true" },
+  { json = "steps.*.error", count = 0, label = "cottonwood-cove: no step fails" },
+  { json = "given_errors.*", count = 0, label = "cottonwood-cove: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-fail-beyond-the-beef"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/fail-beyond-the-beef.actions.json: Beyond the Beef failed (VMS18 255): Ted killed first"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-beyond-the-beef.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-beyond-the-beef.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMS18 255.stage", equals = 255, label = "fail-beyond-the-beef, final: VMS18 255: stage = 255" },
+  { json = "observations.?label=final: VMS18 255.done.255", equals = true, label = "fail-beyond-the-beef, final: VMS18 255: done.255 = true" },
+  { json = "observations.?label=final: VMS18 255.failed", equals = true, label = "fail-beyond-the-beef, final: VMS18 255: failed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-beyond-the-beef: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-beyond-the-beef: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-old-world-blues-setups"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues-setups.actions.json (OldWorldBlues.esm): the Sonic Emitter chain's X-8 and the main chain's X-13, then X-8's set-up (both tests replayed with the unusual specimen released, the specimen results: NVDLC03X8Setup 100), X-13's (advanced, expert and robot compliance tests, the robobrains deactivated with Robot Compliance's activate choice: NVDLC03X13Setup 100), NVDLC03Enc 10 and Implant GRX's two ranks (NVDLC03GenericPerkQUEST 10, 11)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/old-world-blues-setups.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/functions/senses.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/old-world-blues-setups.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Sonic Emitter Upgrade done.completed", equals = true, label = "old-world-blues-setups milestone: Sonic Emitter Upgrade done: completed = true" },
+  { json = "observations.?label=NVDLC03Enc 10 (encounters on).stage", equals = 10, label = "old-world-blues-setups NVDLC03Enc 10: stage = 10" },
+  { json = "observations.?label=research count after the advanced replay.var.nResearchCompleted", equals = 2, label = "old-world-blues-setups research count after the advanced replay: var.nResearchCompleted = 2" },
+  { json = "observations.?label=milestone: X-8 setup done (unusual specimen results).stage", equals = 100, label = "old-world-blues-setups milestone: X-8 setup done: stage = 100" },
+  { json = "observations.?label=milestone: X-8 setup done (unusual specimen results).completed", equals = true, label = "old-world-blues-setups milestone: X-8 setup done: completed = true" },
+  { json = "observations.?label=milestone: MQ04 done (X-13 stealth suit).completed", equals = true, label = "old-world-blues-setups milestone: MQ04 done: completed = true" },
+  { json = "observations.?label=milestone: X-13 setup done (robot compliance).stage", equals = 100, label = "old-world-blues-setups milestone: X-13 setup done: stage = 100" },
+  { json = "observations.?label=milestone: X-13 setup done (robot compliance).completed", equals = true, label = "old-world-blues-setups milestone: X-13 setup done: completed = true" },
+  { json = "observations.?label=GenericPerkQUEST 11 (Implant GRX rank 2).stage", equals = 11, label = "old-world-blues-setups GenericPerkQUEST 11: stage = 11" },
+  { json = "steps.*.error", count = 0, label = "old-world-blues-setups: no step fails" },
+  { json = "given_errors.*", count = 0, label = "old-world-blues-setups: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the add-ons group report of issue #932 (walk5-addons)"
+
+[[scenario]]
+name = "mq-lonesome-road-launch"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-launch.actions.json (LonesomeRoad.esm): the Lonesome Road chain to the Temple of the Union, then the missiles launched at both (the launch terminal's message boxes), the temple exit, the end slides and the completion trigger at the Canyon Wreckage: NVDLC04MQ04 100 and Dead Man's Burden"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-launch.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/voice.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-launch.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: MQ03a done (The Courier).completed", equals = true, label = "lonesome-road-launch milestone: MQ03a done: completed = true" },
+  { json = "observations.?label=MQ04 10 (missiles launched at both).stage", equals = 10, label = "lonesome-road-launch MQ04 10: stage = 10" },
+  { json = "observations.?label=MQ03b 255, target 3.var.nMissileTarget", equals = 3, label = "lonesome-road-launch MQ03b 255: var.nMissileTarget = 3" },
+  { json = "observations.?label=milestone: end slides said, player back at the Canyon Wreckage.frames", min = 1, label = "lonesome-road-launch end slides said: the call passed" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at both).stage", equals = 100, label = "lonesome-road-launch final: MQ04 100: stage = 100" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at both).completed", equals = true, label = "lonesome-road-launch final: MQ04 100: completed = true" },
+  { json = "observations.?label=Dead Man's Burden.value", equals = 1, label = "lonesome-road-launch Dead Man's Burden: value = 1" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-launch: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-launch: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the add-ons group report of issue #932 (walk5-addons)"
+
+[[scenario]]
+name = "mq-stocking-up"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/stocking-up.actions.json: Stocking Up (vFreeformForlornHope02): Quartermaster Mayes's holotag collection (stage 10), fifteen tags handed in and camp morale raised"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/stocking-up.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/stocking-up.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: vFreeformForlornHope02 10.running", equals = true, label = "stocking-up, milestone: vFreeformForlornHope02 10: running = true" },
+  { json = "observations.?label=milestone: vFreeformForlornHope02 10.stage", equals = 10, label = "stocking-up, milestone: vFreeformForlornHope02 10: stage = 10" },
+  { json = "observations.?label=milestone: vFreeformForlornHope02 10.done.10", equals = true, label = "stocking-up, milestone: vFreeformForlornHope02 10: done.10 = true" },
+  { json = "observations.?label=final: vFreeformForlornHope02 10.stage", equals = 10, label = "stocking-up, final: vFreeformForlornHope02 10: stage = 10" },
+  { json = "observations.?label=final: vFreeformForlornHope02 10.done.10", equals = true, label = "stocking-up, final: vFreeformForlornHope02 10: done.10 = true" },
+  { json = "observations.?label=final: vFreeformForlornHope02 10.var.NCRDogtagTotal", equals = 15.0, label = "stocking-up, final: vFreeformForlornHope02 10: var.NCRDogtagTotal = 15.0" },
+  { json = "observations.?label=camp morale.var.iForlornHopeMorale", equals = 3.0, label = "stocking-up, camp morale: var.iForlornHopeMorale = 3.0" },
+  { json = "steps.*.error", count = 0, label = "stocking-up: no step fails" },
+  { json = "given_errors.*", count = 0, label = "stocking-up: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-high-times"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/high-times.actions.json: High Times (VFSHighTimes): Bill Ronte and Jacob Hoff sobered up, Julie Farkas's thanks (CompleteQuest)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/high-times.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/high-times.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VFSHighTimes started.running", equals = true, label = "high-times, milestone: VFSHighTimes started: running = true" },
+  { json = "observations.?label=milestone: VFSHighTimes started.objective.5.displayed", equals = true, label = "high-times, milestone: VFSHighTimes started: objective.5.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes started.objective.15.displayed", equals = true, label = "high-times, milestone: VFSHighTimes started: objective.15.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer named.objective.5.completed", equals = true, label = "high-times, milestone: VFSHighTimes dealer named: objective.5.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer named.objective.10.displayed", equals = true, label = "high-times, milestone: VFSHighTimes dealer named: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer named.objective.60.displayed", equals = true, label = "high-times, milestone: VFSHighTimes dealer named: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes dealer dealt with.objective.60.completed", equals = true, label = "high-times, milestone: VFSHighTimes dealer dealt with: objective.60.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Bill helped.objective.10.completed", equals = true, label = "high-times, milestone: VFSHighTimes Bill helped: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Bill helped.objective.70.completed", equals = true, label = "high-times, milestone: VFSHighTimes Bill helped: objective.70.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Jacob helped.objective.20.completed", equals = true, label = "high-times, milestone: VFSHighTimes Jacob helped: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Jacob helped.objective.80.completed", equals = true, label = "high-times, milestone: VFSHighTimes Jacob helped: objective.80.completed = true" },
+  { json = "observations.?label=milestone: VFSHighTimes Jacob helped.objective.90.displayed", equals = true, label = "high-times, milestone: VFSHighTimes Jacob helped: objective.90.displayed = true" },
+  { json = "observations.?label=final: VFSHighTimes completed.completed", equals = true, label = "high-times, final: VFSHighTimes completed: completed = true" },
+  { json = "observations.?label=final: VFSHighTimes completed.objective.90.completed", equals = true, label = "high-times, final: VFSHighTimes completed: objective.90.completed = true" },
+  { json = "steps.*.error", count = 0, label = "high-times: no step fails" },
+  { json = "given_errors.*", count = 0, label = "high-times: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-debt-collector"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/debt-collector.actions.json: Debt Collector (VFSDebtCollector): Grecks, Santiago and Lady Jane's debts, McCaffery's hat (CompleteQuest)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/debt-collector.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/debt-collector.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VFSDebtCollector started.running", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: running = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector started.objective.10.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector started.objective.20.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector started.objective.30.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector started: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.10.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.20.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.30.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.30.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector debts collected.objective.50.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector debts collected: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector paid.objective.50.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector paid: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector paid.objective.60.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector paid: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector McCaffery dead.objective.60.completed", equals = true, label = "debt-collector, milestone: VFSDebtCollector McCaffery dead: objective.60.completed = true" },
+  { json = "observations.?label=milestone: VFSDebtCollector McCaffery dead.objective.80.displayed", equals = true, label = "debt-collector, milestone: VFSDebtCollector McCaffery dead: objective.80.displayed = true" },
+  { json = "observations.?label=final: VFSDebtCollector completed.completed", equals = true, label = "debt-collector, final: VFSDebtCollector completed: completed = true" },
+  { json = "observations.?label=final: VFSDebtCollector completed.objective.80.completed", equals = true, label = "debt-collector, final: VFSDebtCollector completed: objective.80.completed = true" },
+  { json = "observations.?label=room key.count", equals = 1, label = "debt-collector, room key: count = 1" },
+  { json = "steps.*.error", count = 0, label = "debt-collector: no step fails" },
+  { json = "given_errors.*", count = 0, label = "debt-collector: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-wang-dang-atomic-tango"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/wang-dang-atomic-tango.actions.json: Wang Dang Atomic Tango (VFSAtomicPimp): Fisto, Santiago and Beatrix recruited and reported (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/wang-dang-atomic-tango.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/wang-dang-atomic-tango.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VFSAtomicPimp started.running", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: running = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp started.objective.10.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp started.objective.20.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp started.objective.30.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp started: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.10.completed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.15.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.15.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.20.completed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.25.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.30.completed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.30.completed = true" },
+  { json = "observations.?label=milestone: VFSAtomicPimp three recruited.objective.35.displayed", equals = true, label = "wang-dang-atomic-tango, milestone: VFSAtomicPimp three recruited: objective.35.displayed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.stage", equals = 100, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: stage = 100" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.done.100", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: done.100 = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: completed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.objective.15.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: objective.15.completed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.objective.25.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: objective.25.completed = true" },
+  { json = "observations.?label=final: VFSAtomicPimp 100.objective.35.completed", equals = true, label = "wang-dang-atomic-tango, final: VFSAtomicPimp 100: objective.35.completed = true" },
+  { json = "observations.?label=santiago's debt settled.objective.20.completed", equals = true, label = "wang-dang-atomic-tango, santiago's debt settled: objective.20.completed = true" },
+  { json = "steps.*.error", count = 0, label = "wang-dang-atomic-tango: no step fails" },
+  { json = "given_errors.*", count = 0, label = "wang-dang-atomic-tango: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-someone-to-watch-over-me"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/someone-to-watch-over-me.actions.json: Someone to Watch Over Me (VDialogueVegasNorth): Crandon's watch, the squatters and the Fiends talked off, Alice talked into going home from Andy Scabb's (stage 87, then 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/someone-to-watch-over-me.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/someone-to-watch-over-me.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VDialogueVegasNorth 10.stage", equals = 10, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 10: stage = 10" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 10.done.10", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 10: done.10 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 10.objective.10.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.stage", equals = 20, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: stage = 20" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.done.20", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: done.20 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.objective.15.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: objective.15.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 20.objective.20.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.stage", equals = 25, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: stage = 25" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.done.25", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: done.25 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.objective.20.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.objective.25.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 25.var.FiendsDealtWith", equals = 1.0, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 25: var.FiendsDealtWith = 1.0" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.stage", equals = 30, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: stage = 30" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.done.30", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: done.30 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.objective.25.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: objective.25.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 30.objective.30.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 30: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.stage", equals = 40, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: stage = 40" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.done.40", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: done.40 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.objective.30.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: objective.30.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.objective.40.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 40.var.BeckyHiresPlayer", equals = 1.0, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 40: var.BeckyHiresPlayer = 1.0" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.stage", equals = 45, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: stage = 45" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.done.45", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: done.45 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.objective.40.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: objective.40.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 45.objective.45.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 45: objective.45.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.stage", equals = 50, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: stage = 50" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.done.50", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: done.50 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.objective.45.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: objective.45.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 50.objective.50.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 50: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.stage", equals = 60, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: stage = 60" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.done.60", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: done.60 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.objective.50.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 60.objective.60.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 60: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 63.stage", equals = 63, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 63: stage = 63" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 63.done.63", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 63: done.63 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 63.objective.63.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 63: objective.63.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.stage", equals = 82, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: stage = 82" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.done.70", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: done.70 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.done.82", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: done.82 = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.objective.70.completed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: objective.70.completed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.objective.82.displayed", equals = true, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: objective.82.displayed = true" },
+  { json = "observations.?label=milestone: VDialogueVegasNorth 70.var.AliceStaysHome", equals = 1.0, label = "someone-to-watch-over-me, milestone: VDialogueVegasNorth 70: var.AliceStaysHome = 1.0" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.stage", equals = 100, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: stage = 100" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.done.87", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: done.87 = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.done.100", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: done.100 = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.completed", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: completed = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.objective.82.completed", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: objective.82.completed = true" },
+  { json = "observations.?label=final: VDialogueVegasNorth 100.objective.87.completed", equals = true, label = "someone-to-watch-over-me, final: VDialogueVegasNorth 100: objective.87.completed = true" },
+  { json = "steps.*.error", count = 0, label = "someone-to-watch-over-me: no step fails" },
+  { json = "given_errors.*", count = 0, label = "someone-to-watch-over-me: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-nothin-but-a-hound-dog"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/nothin-but-a-hound-dog.actions.json: Nothin' But a Hound Dog (VMS24): after G.I. Blues to 40, the King's Rex, Julie Farkas, Rey's brain from Old Lady Gibson, Doctor Henry's transplant (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/nothin-but-a-hound-dog.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/nothin-but-a-hound-dog.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS24 1.running", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 1: running = true" },
+  { json = "observations.?label=milestone: VMS24 1.stage", equals = 1, label = "nothin-but-a-hound-dog, milestone: VMS24 1: stage = 1" },
+  { json = "observations.?label=milestone: VMS24 1.done.1", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 1: done.1 = true" },
+  { json = "observations.?label=milestone: VMS24 1.objective.1.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 1: objective.1.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 10.stage", equals = 10, label = "nothin-but-a-hound-dog, milestone: VMS24 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS24 10.done.10", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS24 10.objective.2.completed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 10: objective.2.completed = true" },
+  { json = "observations.?label=milestone: VMS24 10.objective.10.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 20.stage", equals = 20, label = "nothin-but-a-hound-dog, milestone: VMS24 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS24 20.done.20", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.10.completed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.20.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.25.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 20.objective.30.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 20: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 50.stage", equals = 50, label = "nothin-but-a-hound-dog, milestone: VMS24 50: stage = 50" },
+  { json = "observations.?label=milestone: VMS24 50.done.50", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 50: done.50 = true" },
+  { json = "observations.?label=milestone: VMS24 50.objective.20.completed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 50: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS24 50.objective.50.displayed", equals = true, label = "nothin-but-a-hound-dog, milestone: VMS24 50: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VMS24 50.var.bGotDogBrain", equals = 1.0, label = "nothin-but-a-hound-dog, milestone: VMS24 50: var.bGotDogBrain = 1.0" },
+  { json = "observations.?label=final: VMS24 100.stage", equals = 100, label = "nothin-but-a-hound-dog, final: VMS24 100: stage = 100" },
+  { json = "observations.?label=final: VMS24 100.done.100", equals = true, label = "nothin-but-a-hound-dog, final: VMS24 100: done.100 = true" },
+  { json = "observations.?label=final: VMS24 100.completed", equals = true, label = "nothin-but-a-hound-dog, final: VMS24 100: completed = true" },
+  { json = "observations.?label=final: VMS24 100.objective.50.completed", equals = true, label = "nothin-but-a-hound-dog, final: VMS24 100: objective.50.completed = true" },
+  { json = "observations.?label=final: VMS24 100.var.nTransplantResult", equals = 1.0, label = "nothin-but-a-hound-dog, final: VMS24 100: var.nTransplantResult = 1.0" },
+  { json = "steps.*.error", count = 0, label = "nothin-but-a-hound-dog: no step fails" },
+  { json = "given_errors.*", count = 0, label = "nothin-but-a-hound-dog: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-the-coyotes"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/the-coyotes.actions.json: The Coyotes (VMS13): Captain Parker's missing refugees, the teddy bear and Dermot's ledger, Saint James and Dermot killed, Parker told (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/the-coyotes.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/the-coyotes.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS13 10.running", equals = true, label = "the-coyotes, milestone: VMS13 10: running = true" },
+  { json = "observations.?label=milestone: VMS13 10.stage", equals = 10, label = "the-coyotes, milestone: VMS13 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS13 10.done.10", equals = true, label = "the-coyotes, milestone: VMS13 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS13 10.objective.10.displayed", equals = true, label = "the-coyotes, milestone: VMS13 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 20.stage", equals = 20, label = "the-coyotes, milestone: VMS13 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS13 20.done.20", equals = true, label = "the-coyotes, milestone: VMS13 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS13 20.objective.20.displayed", equals = true, label = "the-coyotes, milestone: VMS13 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 20.objective.30.displayed", equals = true, label = "the-coyotes, milestone: VMS13 20: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 40.stage", equals = 40, label = "the-coyotes, milestone: VMS13 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS13 40.done.40", equals = true, label = "the-coyotes, milestone: VMS13 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMS13 40.objective.20.completed", equals = true, label = "the-coyotes, milestone: VMS13 40: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS13 40.objective.40.displayed", equals = true, label = "the-coyotes, milestone: VMS13 40: objective.40.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 40.objective.60.displayed", equals = true, label = "the-coyotes, milestone: VMS13 40: objective.60.displayed = true" },
+  { json = "observations.?label=milestone: VMS13 50.stage", equals = 50, label = "the-coyotes, milestone: VMS13 50: stage = 50" },
+  { json = "observations.?label=milestone: VMS13 50.done.50", equals = true, label = "the-coyotes, milestone: VMS13 50: done.50 = true" },
+  { json = "observations.?label=milestone: VMS13 60.stage", equals = 60, label = "the-coyotes, milestone: VMS13 60: stage = 60" },
+  { json = "observations.?label=milestone: VMS13 60.done.60", equals = true, label = "the-coyotes, milestone: VMS13 60: done.60 = true" },
+  { json = "observations.?label=final: VMS13 100.stage", equals = 100, label = "the-coyotes, final: VMS13 100: stage = 100" },
+  { json = "observations.?label=final: VMS13 100.done.100", equals = true, label = "the-coyotes, final: VMS13 100: done.100 = true" },
+  { json = "observations.?label=final: VMS13 100.completed", equals = true, label = "the-coyotes, final: VMS13 100: completed = true" },
+  { json = "observations.?label=final: VMS13 100.objective.60.completed", equals = true, label = "the-coyotes, final: VMS13 100: objective.60.completed = true" },
+  { json = "steps.*.error", count = 0, label = "the-coyotes: no step fails" },
+  { json = "given_errors.*", count = 0, label = "the-coyotes: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-unfriendly-persuasion"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/unfriendly-persuasion.actions.json: Unfriendly Persuasion (VMS50): Jacobstown's mercenaries bought off with Marcus' caps (stage 40), Marcus told (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/unfriendly-persuasion.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/unfriendly-persuasion.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS50 10.running", equals = true, label = "unfriendly-persuasion, milestone: VMS50 10: running = true" },
+  { json = "observations.?label=milestone: VMS50 10.stage", equals = 10, label = "unfriendly-persuasion, milestone: VMS50 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS50 10.done.10", equals = true, label = "unfriendly-persuasion, milestone: VMS50 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS50 10.objective.10.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS50 20.stage", equals = 20, label = "unfriendly-persuasion, milestone: VMS50 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS50 20.done.20", equals = true, label = "unfriendly-persuasion, milestone: VMS50 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS50 20.objective.20.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 20: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VMS50 20.objective.30.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 20: objective.30.displayed = true" },
+  { json = "observations.?label=milestone: VMS50 20.var.NortonBuyout", equals = 1.0, label = "unfriendly-persuasion, milestone: VMS50 20: var.NortonBuyout = 1.0" },
+  { json = "observations.?label=milestone: VMS50 40.stage", equals = 40, label = "unfriendly-persuasion, milestone: VMS50 40: stage = 40" },
+  { json = "observations.?label=milestone: VMS50 40.done.40", equals = true, label = "unfriendly-persuasion, milestone: VMS50 40: done.40 = true" },
+  { json = "observations.?label=milestone: VMS50 40.objective.20.completed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 40: objective.20.completed = true" },
+  { json = "observations.?label=milestone: VMS50 40.objective.40.displayed", equals = true, label = "unfriendly-persuasion, milestone: VMS50 40: objective.40.displayed = true" },
+  { json = "observations.?label=final: VMS50 100.stage", equals = 100, label = "unfriendly-persuasion, final: VMS50 100: stage = 100" },
+  { json = "observations.?label=final: VMS50 100.done.100", equals = true, label = "unfriendly-persuasion, final: VMS50 100: done.100 = true" },
+  { json = "observations.?label=final: VMS50 100.running", equals = false, label = "unfriendly-persuasion, final: VMS50 100: running = false" },
+  { json = "steps.*.error", count = 0, label = "unfriendly-persuasion: no step fails" },
+  { json = "given_errors.*", count = 0, label = "unfriendly-persuasion: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-eyesight-to-the-blind"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/eyesight-to-the-blind.actions.json: Eyesight to the Blind (VMS55b): after Still in the Dark, McNamara's transmitter installed at Black Mountain (20), the power armour training (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/eyesight-to-the-blind.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/eyesight-to-the-blind.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS55b 10.running", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 10: running = true" },
+  { json = "observations.?label=milestone: VMS55b 10.stage", equals = 10, label = "eyesight-to-the-blind, milestone: VMS55b 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS55b 10.done.10", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS55b 10.objective.10.displayed", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS55b 20.stage", equals = 20, label = "eyesight-to-the-blind, milestone: VMS55b 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS55b 20.done.20", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS55b 20.objective.10.completed", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 20: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VMS55b 20.objective.20.displayed", equals = true, label = "eyesight-to-the-blind, milestone: VMS55b 20: objective.20.displayed = true" },
+  { json = "observations.?label=final: VMS55b 100.stage", equals = 100, label = "eyesight-to-the-blind, final: VMS55b 100: stage = 100" },
+  { json = "observations.?label=final: VMS55b 100.done.100", equals = true, label = "eyesight-to-the-blind, final: VMS55b 100: done.100 = true" },
+  { json = "observations.?label=final: VMS55b 100.completed", equals = true, label = "eyesight-to-the-blind, final: VMS55b 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "eyesight-to-the-blind: no step fails" },
+  { json = "given_errors.*", count = 0, label = "eyesight-to-the-blind: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-ant-misbehavin"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/ant-misbehavin.actions.json: Ant Misbehavin' (VNellisInfestation): the Nellis front gate, Raquel's ants, Loyal's sonic emitter on the nest, the generators back on (stage 20)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/ant-misbehavin.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/ant-misbehavin.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VNellisInfestation started.running", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: running = true" },
+  { json = "observations.?label=milestone: VNellisInfestation started.objective.15.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: objective.15.displayed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation started.objective.20.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: objective.20.displayed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation started.objective.35.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation started: objective.35.displayed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation power on.objective.15.completed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation power on: objective.15.completed = true" },
+  { json = "observations.?label=milestone: VNellisInfestation power on.objective.45.displayed", equals = true, label = "ant-misbehavin, milestone: VNellisInfestation power on: objective.45.displayed = true" },
+  { json = "observations.?label=final: VNellisInfestation 20.stage", equals = 20, label = "ant-misbehavin, final: VNellisInfestation 20: stage = 20" },
+  { json = "observations.?label=final: VNellisInfestation 20.done.20", equals = true, label = "ant-misbehavin, final: VNellisInfestation 20: done.20 = true" },
+  { json = "observations.?label=final: VNellisInfestation 20.completed", equals = true, label = "ant-misbehavin, final: VNellisInfestation 20: completed = true" },
+  { json = "observations.?label=final: VNellisInfestation 20.objective.45.completed", equals = true, label = "ant-misbehavin, final: VNellisInfestation 20: objective.45.completed = true" },
+  { json = "steps.*.error", count = 0, label = "ant-misbehavin: no step fails" },
+  { json = "given_errors.*", count = 0, label = "ant-misbehavin: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-sunshine-boogie"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/sunshine-boogie.actions.json: Sunshine Boogie (NellisSunshineBoogie): after Ant Misbehavin', Loyal's five broken solar arrays repaired by hand (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/sunshine-boogie.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/sunshine-boogie.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: NellisSunshineBoogie started.running", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie started: running = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie started.objective.25.displayed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie started: objective.25.displayed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie started.objective.50.displayed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie started: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie arrays fixed.objective.50.completed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie arrays fixed: objective.50.completed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie arrays fixed.objective.75.completed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie arrays fixed: objective.75.completed = true" },
+  { json = "observations.?label=milestone: NellisSunshineBoogie arrays fixed.objective.100.displayed", equals = true, label = "sunshine-boogie, milestone: NellisSunshineBoogie arrays fixed: objective.100.displayed = true" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.stage", equals = 100, label = "sunshine-boogie, final: NellisSunshineBoogie 100: stage = 100" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.done.100", equals = true, label = "sunshine-boogie, final: NellisSunshineBoogie 100: done.100 = true" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.completed", equals = true, label = "sunshine-boogie, final: NellisSunshineBoogie 100: completed = true" },
+  { json = "observations.?label=final: NellisSunshineBoogie 100.objective.100.completed", equals = true, label = "sunshine-boogie, final: NellisSunshineBoogie 100: objective.100.completed = true" },
+  { json = "steps.*.error", count = 0, label = "sunshine-boogie: no step fails" },
+  { json = "given_errors.*", count = 0, label = "sunshine-boogie: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "mq-tend-to-your-business"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/tend-to-your-business.actions.json: Tend to Your Business (VMS55a): Hardin's vote of no confidence (VMS55 101) on the datastore's evidence (the virus hunt stood in), the Van Graffs killed (20), the power armour training (stage 100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/tend-to-your-business.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/tend-to-your-business.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: VMS55 Hardin's objectives.objective.50.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 Hardin's objectives: objective.50.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 Hardin's objectives.objective.51.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 Hardin's objectives: objective.51.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 Hardin's objectives.objective.52.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 Hardin's objectives: objective.52.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 chain found.objective.54.completed", equals = true, label = "tend-to-your-business, milestone: VMS55 chain found: objective.54.completed = true" },
+  { json = "observations.?label=milestone: VMS55 chain found.objective.61.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55 chain found: objective.61.displayed = true" },
+  { json = "observations.?label=milestone: VMS55 101.stage", equals = 101, label = "tend-to-your-business, milestone: VMS55 101: stage = 101" },
+  { json = "observations.?label=milestone: VMS55 101.done.101", equals = true, label = "tend-to-your-business, milestone: VMS55 101: done.101 = true" },
+  { json = "observations.?label=milestone: VMS55 101.completed", equals = true, label = "tend-to-your-business, milestone: VMS55 101: completed = true" },
+  { json = "observations.?label=milestone: VMS55 101.objective.50.completed", equals = true, label = "tend-to-your-business, milestone: VMS55 101: objective.50.completed = true" },
+  { json = "observations.?label=milestone: VMS55a 10.running", equals = true, label = "tend-to-your-business, milestone: VMS55a 10: running = true" },
+  { json = "observations.?label=milestone: VMS55a 10.stage", equals = 10, label = "tend-to-your-business, milestone: VMS55a 10: stage = 10" },
+  { json = "observations.?label=milestone: VMS55a 10.done.10", equals = true, label = "tend-to-your-business, milestone: VMS55a 10: done.10 = true" },
+  { json = "observations.?label=milestone: VMS55a 10.objective.10.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55a 10: objective.10.displayed = true" },
+  { json = "observations.?label=milestone: VMS55a 20.stage", equals = 20, label = "tend-to-your-business, milestone: VMS55a 20: stage = 20" },
+  { json = "observations.?label=milestone: VMS55a 20.done.20", equals = true, label = "tend-to-your-business, milestone: VMS55a 20: done.20 = true" },
+  { json = "observations.?label=milestone: VMS55a 20.objective.10.completed", equals = true, label = "tend-to-your-business, milestone: VMS55a 20: objective.10.completed = true" },
+  { json = "observations.?label=milestone: VMS55a 20.objective.19.displayed", equals = true, label = "tend-to-your-business, milestone: VMS55a 20: objective.19.displayed = true" },
+  { json = "observations.?label=final: VMS55a 100.stage", equals = 100, label = "tend-to-your-business, final: VMS55a 100: stage = 100" },
+  { json = "observations.?label=final: VMS55a 100.done.100", equals = true, label = "tend-to-your-business, final: VMS55a 100: done.100 = true" },
+  { json = "observations.?label=final: VMS55a 100.completed", equals = true, label = "tend-to-your-business, final: VMS55a 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "tend-to-your-business: no step fails" },
+  { json = "given_errors.*", count = 0, label = "tend-to-your-business: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the fifth batch's walkthrough report (issue #932)"
+
+[[scenario]]
+name = "intercom-trigger-activate"
+source = "issue #906 (docs/spec-notes/talking-activators.md §2): the REPCONN intercom's trigger (SCPT 0x000CD04E, OnTriggerEnter player) sets Chris as the intercom's talking actor and runs `<intercom>.Activate player`; the player is the activator, the default action is Talk, and the conversation opens through the intercom with no hand activation [observed: fnvtool script decompile FalloutNV.esm]"
+note = "The player stands by the intercom 0x000CD67C (RocketLabMid) and is put in its trigger 0x000CD051 at 8 s; Chris's Say Once greeting \"Hey! Over here!\" (INFO 000CD87D) is said through the intercom"
+areas = ["dialogue", "scripts", "activation"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "000CD67C", NVF_PLAY_TEST_SCRIPT = "8:walk:0x000CD051" }
+args = ["--cell", "RocketLabMid", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'script: \S+ activated by .*"result":"talk"', label = "the trigger's script has the player activate the intercom: Talk" },
+  { re = 'dialogue: .* says \[GREETING\] .*000CD87D', label = "Chris's \"Hey! Over here!\" through the intercom, in a conversation" },
+  { re = 'dialogue look: the view turns to .*\(the talking activator itself\)', label = "the view turns to the intercom" },
+]
+
+[[scenario]]
+name = "hud-compass-north"
+source = "[observed: hud.md §14.5] the original's compass puts the heading at x 148 of the 345-wide window (a bearing-0 tick's x 139 plus its bar at texel 9; N under the bracket's triangle), not the window's middle; 1024 strip units to the turn"
+note = "facing due north outdoors in Goodsprings: N stands under the bracket's downward triangle"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/repeat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:hud_compass_north.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'compass: heading at x 148(\.0)? of 345', label = "the heading stands at the bracket's triangle, not the window's middle" },
+  { re = 'compass: heading at x 148(\.0)? of 345, the strip.s N at 154(\.0)?, fading from 273(\.0)?', label = "T12e: the strip's N 6 units right of the marks' heading point, as the original's at heading 0, and the strip fading out from x 273 of the window (hud.md §4)" },
+  { re = 'compass: the strip baked into one window image of 345 x \d+ texels, faded from 273(\.0)? to 341(\.0)?', label = "the window's strip is one image, its fade in the texels' alpha, no slices (crate::compass_strip, hud.md §4)" },
+]
+manual = "hud_compass_north.png: N just right of the downward triangle of the compass's bracket line (its middle about 4 pixels right of the tip at 1280 x 720, as the original's), the strip fading out over its last 70 units on the right (the original's from x 250 to 300 pixels), the step-shaped end caps and thick bars between the letters of the atlas pieces"
+
+[[scenario]]
+name = "hud-bars-partial"
+source = "[observed: hud.md §14.3] the original's health and action points bars light floor(share x 37) ticks (100 of 200 health: 18 ticks, not 19); its condition fill is round(59 x condition) inside the 60-wide ground"
+note = "health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol of hud-ammo-label"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:hud_bars_partial.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health lights 18 ticks, rounded down" },
+]
+manual = "hud_bars_partial.png: the health bar at the bottom left lit for 18 of its 37 ticks, ending just before the middle"
+
+[[scenario]]
+name = "ui-tree-in-game"
+source = "[design] ui-tile-tree.md §3, §4.1, §6.2 step 1 (T3a): the running game's VFS loads the six persistent menus; scripts read and write an existing HUD trait"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/lib.rs",
+  "crates/fnv-game/Cargo.toml", "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/game.rs",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-game/tests/ui_loading.rs",
+  "engine/Cargo.toml", "engine/nvf-play/Cargo.toml", "engine/nvf-play/src/lib.rs",
+  "engine/nvf-play/src/script.rs", "engine/nvf-play/src/tiles/mod.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud depth %g\", (GetUIFloat \"HUDMainMenu/depth\");11:SetUIFloat \"HUDMainMenu/depth\" 37;11.5:PrintC \"nvf hud set %g\", (GetUIFloat \"HUDMainMenu/depth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'ui: 6 menus loaded \(\d+ tiles\), \d+ warnings', label = "the six menus load from the VFS" },
+  { re = 'script: print "nvf hud depth -?\d+(?:\.\d+)?"', label = "GetUIFloat prints the HUD file's depth" },
+  { re = 'script: print "nvf hud depth -999(?:\.0+)?"', count = 0, label = "the HUD depth exists" },
+  { re = 'console: SetUIFloat "HUDMainMenu/depth" 37 >> ran', label = "the console compiles and runs SetUIFloat" },
+  { re = 'script: print "nvf hud set 37"', label = "GetUIFloat reads the written depth on a later frame" },
+]
+
+[[scenario]]
+name = "ui-hud-code-traits"
+source = "[observed: hud.md §14] T4a: HUD places at 16:10 (visibility is in the unit tests: the console line runs with the console open, a PlayState::Menu that hides NVForever's HUD); [design] GetUIFloat through the console beside the current drawing"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/ui_hud.rs",
+  "crates/fnv-game/tests/ui_hud.rs",
+  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script_hud.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\")" }
+# Fix the view explicitly; nvforever's --size default is also 1280x800 [design].
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree matches the observed 16:10 places" },
+]
+
+[[scenario]]
+name = "ui-mod-tile-drawn"
+source = "[design] ui-tile-tree.md §6.1 (T5 part C): a tile a script injects into HUDMainMenu (InjectUIComponent, a box with a picture from the interface atlas and a text) is drawn over NVForever's HUD; the HUD's own file tiles and code-made copies are not"
+note = "the console injects the tile at 10 s and closes at 10.4 s (the open console is a PlayState::Menu, which hides the HUD and so the tile); the shot at 14 s"
+areas = ["ui", "hud", "console"]
+paths = [
+  "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs",
+  "engine/nvf-play/src/interface.rs", "crates/fnv-ui/src/tree.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<rect name=%qNVFSmokeTile%q><x>80</x><y>320</y><width>360</width><height>90</height><red>20</red><green>60</green><blue>120</blue><alpha>220</alpha><image name=%qNVFSmokeBar%q><x>10</x><y>62</y><width>340</width><height>16</height><filename>solid.dds</filename><red>255</red><green>182</green><blue>66</blue></image><text name=%qNVFSmokeText%q><x>12</x><y>10</y><font>7</font><string>NVF MOD TILE</string></text></rect>\";10.4:close", NVF_PLAY_TEST_SHOTS = "14:ui_mod_tile.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes" },
+]
+forbid = [
+  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws" },
+]
+manual = "ui_mod_tile.png: at the left, about a third down, a dark blue box with 'NVF MOD TILE' in white (font 7) and an amber bar along its bottom; NVForever's HUD as on main"
+
+[[scenario]]
+name = "ui-mod-tiles-vanilla"
+kind = "tool"
+source = "[design] ui-tile-tree.md §6.1 (T5 part C): the vanilla HUD file has no mod tiles, so the tile renderer draws nothing of it (Ui::mod_added_tiles, Ui::mod_tile_drawn)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/src/tree.rs", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "mod-tiles", "--data", "{data}", "--menu", "menus/main/hud_main_menu.xml"]]
+expect = [
+  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 0, label = "no tile of the vanilla HUD would draw" },
+]
+
+[[scenario]]
+name = "ui-uio-includes"
+kind = "tool"
+source = "[design] menu-xml.md §7 item 3 (T6): synthetic UIO data over vanilla, plugin and VFS file conditions, loose additions drawn without a menu replacement"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnv-game/src/ui_loading.rs", "crates/fnvtool/src/ui_cmd.rs", "tools/smoke/fixtures/uio/"]
+commands = [["ui", "mod-tiles", "--data", "{data}", "--overlay", "{repo}/tools/smoke/fixtures/uio", "--plugin", "NVFSmoke.esp", "--menu", "menus/main/hud_main_menu.xml"]]
+expect = [
+  { json = "uio.applied", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "synthetic UIO entry applied" },
+  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "only the loose UIO probe draws" },
+]
+
+[[scenario]]
+name = "tiles-hud-bars-partial"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-bars-partial with [UI] TileMenus=HUDMainMenu (the test aid): the corners drawn from HUDMainMenu's tiles, the meters' tick picture tiled over the widths the tree holds (hud.md §14.3, floor(share x 37) x 8), the hand-built corners hidden"
+note = "as hud-bars-partial: health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol; the shot at 22 s"
+areas = ["ui", "hud"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_bars_partial.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=HUDMainMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): HUDMainMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws, its code-made copies with it" },
+  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health: the tree's bar is 18 ticks wide, as the hand-built one's" },
+]
+manual = "tiles_hud_bars_partial.png: the HUD's corners drawn from tiles: the health bar lit for 18 of its 37 ticks, HP above it, the brackets, the compass strip; AP, CND, the ammo counter at the right; compare with hud_bars_partial.png"
+
+[[scenario]]
+name = "tiles-hud-compass-north"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-compass-north with [UI] TileMenus=HUDMainMenu: the compass window's strip drawn from its tile and moved by the heading (no trait moves it, hud.md §14.4; 1024 units a turn, the heading at x 148 of the window, §14.5)"
+note = "as hud-compass-north: facing due north outdoors in Goodsprings, N under the bracket's downward triangle"
+areas = ["ui", "hud"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/compass_strip.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:tiles_hud_compass_north.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the tile-drawn strip is one baked image with its fade, as the hand-built HUD's (crate::compass_strip)" },
+]
+manual = "tiles_hud_compass_north.png: N just right of the downward triangle of the tile-drawn compass bracket (about 4 pixels at 1280 x 720, as the original's), the strip fading out at its right end with no hard end tick; compare with hud_compass_north.png"
+
+[[scenario]]
+name = "tiles-hud-ammo-label"
+source = "[observed: hud_compare hud-ammo-label, 1280 x 720, T12e] hud-ammo-label with [UI] TileMenus=HUDMainMenu: the original draws the ammo type's abbreviation right-justified at AmmoTypeLabel's captured W - 236 (just left of the divider) and moves the condition row left by the abbreviation's width + 20 (\"HP\", 30 wide: 50); the hand-built HUD keeps the owner's place right of the divider (docs/spec-notes/hud.md §4, §14.7)"
+note = "the 9mm pistol with only 9mm hollow points (QNAM HP); at 1280 x 720 W is 1706.67, ActionPoints at 1320"
+areas = ["ui", "hud", "combat"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"tiles ammo %g %g %g %g\", (GetUIFloat \"HUDMainMenu/ActionPoints/MeterBackground/x\"), (GetUIFloat \"HUDMainMenu/ActionPoints/meter:0/x\"), (GetUIFloat \"HUDMainMenu/CNDArrows/x\"), (GetUIFloat \"HUDMainMenu/AmmoTypeLabel/x\");10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_ammo_label.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { re = 'hud: ammo label HP\s*$', label = "the pistol's hollow points have the abbreviation HP" },
+  { re = 'script: print "tiles ammo 40 40 1403 1470"', label = "the condition ground, fill and arrows 50 left (90 - 30 - 20), the label at W - 236" },
+]
+manual = "tiles_hud_ammo_label.png: \"HP\" just left of the divider, \"CND\" and its bar moved left to make room, \"13/37\" alone right of the divider; compare with the original's hud-ammo-label shot"
+
+[[scenario]]
+name = "tiles-ui-hud-code-traits"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): ui-hud-code-traits with [UI] TileMenus=HUDMainMenu: the pieces' places read through GetUIFloat stay the observed 16:10 ones (hud.md §14) while the tree is drawn; the console closes at 10.4 s for a shot of the tile-drawn HUD"
+areas = ["ui", "hud", "scripts", "console"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\");10.4:close", NVF_PLAY_TEST_SHOTS = "14:tiles_ui_hud_code_traits.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree keeps the observed 16:10 places with the switch on" },
+]
+manual = "tiles_ui_hud_code_traits.png: the HUD drawn from tiles at 1280 x 800: the corners at the bottom, the crosshair in the middle, nothing doubled"
+
+[[scenario]]
+name = "tiles-environment-radiation"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): environment-radiation with [UI] TileMenus=HUDMainMenu: the radiation meter drawn from RadiationMeter's four tiles in the alt colour (hud.md §14.1-§14.2: alpha 255 in radiation, \"RAD/SEC\", the value, the pointer's x), the hand-built meter hidden"
+note = "as environment-radiation: the player in the nuclear test site's shack; the shot at 27 s, as environment-radiation's, so the two shots compare"
+areas = ["ui", "hud", "radiation"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/radiation.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "27:tiles_radiation_meter.png" }
+args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "in radiation (the marker's level falling off with distance, issue #894), so the meter's tiles show" },
+]
+manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
+
+[[scenario]]
+name = "tiles-hud-pointer"
+source = "[design] ui-tile-tree.md §4.1 step 1 (T8, menu-xml.md §3.2): with [UI] TileMenus=HUDMainMenu and the test aid NVF_PLAY_TEST_POINTER making the HUD take tile input, a target hotrect injected into it gets mouseover under the pointer and 0 when it leaves, clicked from a press and from the menu's injected _PCButton_O key (a real O press); the tile's own expressions latch what they saw (an or of mouseover, the documented count of clicked)"
+note = "the console injects the button at 10 s and closes at 10.4 s; the pointer at 12 s, a click at 13 s, O at 14 s, the pointer away at 16 s; the console reads the latched traits at 20 s (the open console hides the HUD, so the live mouseover is no longer readable then)"
+areas = ["ui", "hud", "console"]
+paths = [
+  "crates/fnv-ui/src/input.rs", "crates/fnv-ui/src/tree.rs",
+  "crates/fnv-game/src/ui_input.rs", "crates/fnv-game/src/ui_functions.rs", "crates/fnv-game/src/jip_events.rs",
+  "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_POINTER = "12:150:330,13:150:330:click,16:20:20", NVF_PLAY_TEST_KEYS = "14:o", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<hotrect name=%qNVFSmokeButton%q><id>7</id><target>1</target><x>100</x><y>300</y><width>200</width><height>60</height><_seen><copy src=%qme()%q trait=%q_seen%q/><or src=%qme()%q trait=%qmouseover%q/></_seen><_clicks><copy src=%qme()%q trait=%q_clicks%q/><add src=%qme()%q trait=%qclicked%q/></_clicks></hotrect><_PCButton_O>NVFSmokeButton</_PCButton_O>\";10.4:close;20:PrintC \"nvf t8 %g %g %g %g\", (GetUIFloat \"HUDMainMenu/NVFSmokeButton/_seen\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/_clicks\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/clicked\"), (GetUIFloat \"HUDMainMenu/NVFSmokeButton/mouseover\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 22
+expect = [
+  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
+  { re = 'tiles: pointer over HUDMainMenu/NVFSmokeButton \(id 7\), mouseover 1', count = 1, label = "the pointer finds the target hotrect and writes its mouseover" },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by the pointer, clicked 1', count = 1, label = "a press clicks it" },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by key O, clicked 1', count = 1, label = "the O key clicks the tile the menu's _PCButton_O names" },
+  { re = 'tiles: pointer over nothing', label = "the pointer leaves" },
+  { re = 'script: print "nvf t8 1 2 0 0"', label = "the tile's expressions saw mouseover 1 and two one-frame clicks; both back to 0" },
+]
+forbid = [
+  { re = 'tiles: key not followed', label = "no key trait left unfollowed" },
+]
+order = [[
+  { re = 'test aid: tile pointer at 150 330$' },
+  { re = 'tiles: pointer over HUDMainMenu/NVFSmokeButton' },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by the pointer' },
+  { re = 'tiles: clicked HUDMainMenu/NVFSmokeButton \(id 7\) by key O' },
+  "tiles: pointer over nothing",
+  { re = 'script: print "nvf t8 ' },
+]]
+
+[[scenario]]
+name = "ui-menu-lifetime"
+source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/value.rs",
+  "crates/fnv-game/src/game.rs", "crates/fnv-game/src/ui_loading.rs",
+  "crates/fnv-game/tests/ui_loading.rs",
+  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf lifetime|Ok\";24.2:PrintC \"nvf message width %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\");26:PrintC \"nvf message closed %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 29
+expect = [
+  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the message menu builds from its indexed file" },
+  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"', label = "GetUIFloat reads a trait of the open menu's root" },
+  { re = 'script: print "nvf message width -999(?:\.0+)?"', count = 0, label = "the open menu's trait exists" },
+  { re = 'ui: dropped MessageMenu', label = "closing the message drops its tiles" },
+  { re = 'script: print "nvf message closed -999"', label = "the closed menu is absent" },
+]
+order = [[
+  { re = 'console: MessageBoxEx "nvf lifetime\|Ok" >> ran' },
+  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)' },
+  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"' },
+  "ui: dropped MessageMenu",
+  { re = 'script: print "nvf message closed -999"' },
+]]
+
+[[scenario]]
+name = "nvse-engine-events"
+source = "The extender's events that only the running engine raises (docs/handoff/nvse-next-batch.md §6): OnLoad of a placed unscripted item, OnHit/OnHitWith of a hit, OnMagicEffectHit of a stimpak, OnPackageStart, OnCombatEnd; handlers set from the console as one-line lambdas"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/objects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_HIT = "11:RingoRef:1:WeapNV9mmPistol", NVF_PLAY_TEST_CONSOLE = "8:SetEventHandler \"OnLoad\" ({ref rT, ref rB} => PrintC \"nvf ev onload\");SetEventHandler \"OnHit\" ({ref rT, ref rB} => PrintC \"nvf ev onhit\");SetEventHandler \"OnHitWith\" ({ref rT, ref rB} => PrintC \"nvf ev onhitwith\");SetEventHandler \"OnMagicEffectHit\" ({ref rT, ref rB} => PrintC \"nvf ev onmagiceffecthit\");SetEventHandler \"OnPackageStart\" ({ref rT, ref rB} => PrintC \"nvf ev onpackagestart\");SetEventHandler \"OnCombatEnd\" ({ref rT, ref rB} => PrintC \"nvf ev oncombatend\");9:RingoRef.MoveTo player 0 200 0;10:player.PlaceAtMe WeapNV9mmPistol 1;10.5:close;12:RingoRef.AddItem Stimpak 1;RingoRef.EquipItem Stimpak;13:RingoRef.AddScriptPackage GSTrudyEveningPackage20x2;14:RingoRef.StartCombat player;17:RingoRef.StopCombat;18:MessageExAlt 4 \"#0|NVF note %g\" 7" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'script: print "nvf ev onload"', label = "OnLoad: the placed pistol's 3D loads (no script of its own)" },
+  { re = 'script: print "nvf ev onhit"', label = "OnHit: Ringo is hit" },
+  { re = 'script: print "nvf ev onhitwith"', label = "OnHitWith: the hit's weapon" },
+  { re = 'script: print "nvf ev onmagiceffecthit"', label = "OnMagicEffectHit: Ringo's stimpak" },
+  { re = 'script: print "nvf ev onpackagestart"', label = "OnPackageStart: the added package starts" },
+  { re = 'script: print "nvf ev oncombatend"', label = "OnCombatEnd: StopCombat ends Ringo's fight" },
+  { re = 'on screen: NVF note 7', label = "MessageExAlt: a formatted corner message (queued behind the VATS tutorial note)" },
+]
+
+[[scenario]]
+name = "jip-raycast-sneak"
+source = "JIP's GetP2PRayCastRange through the engine's physics (fnv_game::ray), the player's capsule not hit; a zero-length cast 0; TogglePlayerSneaking reads in its own frame; IsMusicPlaying after PlayMusic [observed: engine1, engine2]"
+areas = ["scripts", "physics"]
+paths = ["crates/fnv-game/src/ray.rs", "crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 300 0;10:PrintC \"nvf ray actor %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 60) (player.GetPos X) ((player.GetPos Y) + 600) ((player.GetPos Z) + 60));10.2:PrintC \"nvf ray down %.0f\", (GetP2PRayCastRange (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) - 1000));10.4:PrintC \"nvf ray none %.0f\", (GetP2PRayCastRange 0 0 0 0 0 0);10.5:PrintC \"nvf terrain below feet %.0f\", ((player.GetPos Z) - (GetTerrainHeight (player.GetPos X) (player.GetPos Y)));10.6:PlayMusic musDocMitchellHouse;PrintC \"nvf music %g\", (IsMusicPlaying musDocMitchellHouse);11:TogglePlayerSneaking 1;PrintC \"nvf sneak now %g\", (player.IsSneaking);12:TogglePlayerSneaking 0;12.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'script: print "nvf ray actor [23][0-9][0-9]"', label = "a cast toward Ringo, moved 300 ahead, stops at him, not at the 600 end" },
+  { re = 'script: print "nvf ray down 0"', label = "a cast straight down past the ground hits nothing: terrain is left out [observed: engine3]" },
+  { re = 'script: print "nvf ray none 0"', label = "a zero-length cast hits nothing" },
+  { re = 'script: print "nvf terrain below feet -?[0-9]"', label = "GetTerrainHeight under the player standing on the ground is within 10 of the feet" },
+  { re = 'script: print "nvf music 2"', label = "IsMusicPlaying gives 2 for the type PlayMusic just asked for [observed: engine2]" },
+  { re = 'script: print "nvf sneak now 1"', label = "IsSneaking reads the toggle in its own frame" },
+]
+
+[[scenario]]
+name = "jip-radios-fall"
+source = "JohnnyGuitar GetAvailableRadios: the enabled Pip-Boy stations that broadcast everywhere, from the engine's placed stations [observed: radio1]; JIP GetFallTimeElapsed from the engine's character physics, 0 on the ground"
+areas = ["scripts", "physics"]
+paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf radios %g\", (ar_Size (player.GetAvailableRadios));9.0:PrintC \"nvf st 0 %n\", ((player.GetAvailableRadios)[0]);9.5:PrintC \"nvf fall ground %g\", (player.GetFallTimeElapsed);10:player.MoveTo player 0 0 600;10.05:close;10.6:PrintC \"nvf fall air %.2f\", (player.GetFallTimeElapsed);11:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 13
+expect = [
+  { re = 'script: print "nvf radios 3"', label = "a new game at Goodsprings: Mojave Music Radio and two add-on broadcasts (Radio New Vegas starts disabled)" },
+  { re = 'script: print "nvf st 0 Mojave Music Radio"', label = "the first, in FormID order, is Mojave Music Radio" },
+  { re = 'script: print "nvf fall ground 0"', label = "standing on the ground, no fall time" },
+  { re = 'script: print "nvf fall air (0\.[1-9]|[1-9])', label = "half a second after MoveTo lifts the player 600 units, the fall time counts" },
+]
+
+[[scenario]]
+name = "nvse-sounds"
+source = "IsSoundPlaying, StopSound, GetSoundPlayers over the sounds scripts play: from the frame after PlaySound, a Loop SOUN until StopSound, still 1 in StopSound's frame, PlaySound3D's source [observed: sound1]"
+areas = ["scripts", "audio"]
+paths = ["crates/fnv-game/src/nvse_sound.rs", "crates/fnv-game/src/sound.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:PlaySound EMTMedicalBeep01;PrintC \"nvf snd same %g\", (IsSoundPlaying EMTMedicalBeep01);9.2:close;9.5:PrintC \"nvf snd next %g\", (IsSoundPlaying EMTMedicalBeep01);9.7:close;11.5:PrintC \"nvf snd later %g\", (IsSoundPlaying EMTMedicalBeep01);11.6:StopSound EMTMedicalBeep01;PrintC \"nvf snd stop frame %g\", (IsSoundPlaying EMTMedicalBeep01);11.8:close;12.2:PrintC \"nvf snd stopped %g\", (IsSoundPlaying EMTMedicalBeep01);12.4:player.PlaySound3D EMTMedicalBeep01;12.6:close;13:PrintC \"nvf snd3d %g %g %g %g\", (IsSoundPlaying EMTMedicalBeep01 player), (IsSoundPlaying EMTMedicalBeep01 00104C0C), (IsSoundPlaying EMTMedicalBeep01), (ar_Size (GetSoundPlayers EMTMedicalBeep01));13.2:StopSound EMTMedicalBeep01;PlaySound UIVATSLoop;13.4:close;14.5:PrintC \"nvf vats %g\", (IsSoundPlaying UIVATSLoop);14.7:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf snd same 0"', label = "not playing in PlaySound's own frame" },
+  { re = 'script: print "nvf snd next 1"', label = "playing from the next frame" },
+  { re = 'script: print "nvf snd later 1"', label = "a Loop SOUN still plays 2 s on" },
+  { re = 'script: print "nvf snd stop frame 1"', label = "still 1 in StopSound's frame" },
+  { re = 'script: print "nvf snd stopped 0"', label = "0 after StopSound" },
+  { re = 'script: print "nvf snd3d 1 0 1 1"', label = "PlaySound3D on the player: 1 with the player, 0 with another, 1 with none; one player" },
+  { re = 'script: print "nvf vats 0"', label = "the one-shot UIVATSLoop is over a second later" },
+]
+
+[[scenario]]
+name = "jip-projectiles"
+source = "JIP's live-projectile functions over the engine's shots (fnv_game::nvse_proj): a FireWeapon shot is a reference of type 51 while in flight, and gone after; a player's FireWeapon does not hit the player [observed: proj1]"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:player.SetAngle X -60;9.3:player.FireWeapon 0000434F;9.32:close;9.45:PrintC \"nvf proj n %g\", (GetNumRefs 51 3);9.5:close;11:PrintC \"nvf proj later %g\", (GetNumRefs 51 3);11.2:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 13
+expect = [
+  { re = 'script: print "nvf proj n 1"', label = "the shot, aimed up, is one projectile reference in flight" },
+  { re = 'script: print "nvf proj later 0"', label = "gone once its flight is over" },
+]
+
+[[scenario]]
+name = "jip-raycast-points"
+source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
+areas = ["scripts", "physics"]
+paths = ["crates/fnv-game/src/nvse_jip3.rs", "crates/fnv-game/src/ray.rs", "crates/fnv-script/src/vm.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RunScriptSnippet 0 \"float fA%rfloat fX%rfloat fY%rfloat fZ%rlet fA := GetPointRayCastPos (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) 90 0 fX fY fZ%rPrintC %qnvf ray down %%g %%.0f%q, fA, (((player.GetPos Z) + 100) - fZ)\";9.5:RunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 100 0 0 fA fB%rPrintC %qnvf between %%g %%g%q, fA, fB\";10:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 12
+expect = [
+  { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
+  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
+]
+
+[[scenario]]
+name = "knvse-idle-stop"
+source = "kNVSE ForcePlayIdle and ForceStopIdle on an NPC through the engine's idle player; GetPlayedIdle keeps the idle after the stop [observed: anim1]"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_plugins.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;10:RingoRef.ForcePlayIdle LooseCheeringClappingNoArmsUp;10.5:close;11:PrintC \"nvf idle playing %g\", (RingoRef.IsIdlePlaying);12:RingoRef.ForceStopIdle;12.5:close;14:PrintC \"nvf idle after stop %g kept %g\", (RingoRef.IsIdlePlaying), ((RingoRef.GetPlayedIdle) == LooseCheeringClappingNoArmsUp);14.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf idle playing 1"', label = "the engine plays the forced idle" },
+  { re = 'script: print "nvf idle after stop 0 kept 1"', label = "ForceStopIdle ends it; GetPlayedIdle still names it" },
+]
+
+[[scenario]]
+name = "jip-view-sneak"
+source = "JIP's ToggleFirstPerson and TogglePlayerSneaking (fnv_game::nvse_gaps): the engine takes the ask a frame later and IsPC1stPerson / IsSneaking read it [observed: gaps10, two frames]"
+areas = ["scripts", "player"]
+paths = ["crates/fnv-game/src/nvse_gaps.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:ToggleFirstPerson 0;TogglePlayerSneaking 1;8.5:close;10:PrintC \"nvf view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking);11:ToggleFirstPerson 1;TogglePlayerSneaking 0;11.5:close;13:PrintC \"nvf back view %g sneak %g\", (IsPC1stPerson), (player.IsSneaking)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf view 0 sneak 1"', label = "third person and sneaking after the toggles" },
+  { re = 'script: print "nvf back view 1 sneak 0"', label = "back to first person, standing" },
+]
+
+[[scenario]]
+name = "hud-controls"
+source = "nvse_hud and script_input (docs/spec-notes/ext-hud.md): SetWeaponOut draws and holsters the player's weapon through the engine, HoldControl holds a control from the next frame, SetControl rebinds and reads back, MessageEx joins the corner queue [observed: controls1, hud1]"
+areas = ["scripts", "player"]
+paths = ["crates/fnv-game/src/nvse_hud.rs", "crates/fnv-game/src/script_input.rs", "engine/nvf-play/src/script_input.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem WeapNV10mmPistol 1;player.EquipItem WeapNV10mmPistol;9:player.SetWeaponOut 1;HoldControl 2;SetControl 15 48;MessageEx \"nvf corner\";PrintC \"nvf queued %g\", (GetNumQueuedCornerMessages);9.5:close;11:PrintC \"nvf out %g held %g bind %g\", (player.IsWeaponOut), (IsControlPressed 2), (GetControl 15);ReleaseControl 2;SetControl 15 20;player.SetWeaponOut 0;11.5:close;13:PrintC \"nvf away %g held %g bind %g\", (player.IsWeaponOut), (IsControlPressed 2), (GetControl 15);13.5:player.RemoveItem WeapNV10mmPistol 1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf queued [1-9]', label = "MessageEx joins the corner-message queue" },
+  { re = 'script: print "nvf out 1 held 1 bind 48"', label = "the weapon is drawn, Left is held, Rest is rebound" },
+  { re = 'script: print "nvf away 0 held 0 bind 20"', label = "holstered, released and the binding put back" },
+]
+
+[[scenario]]
+name = "showoff-events"
+source = "nvse_showoff (docs/spec-notes/ext-showoff.md): ShowOff:OnAdd gets the item's base and the container, ShowOff:OnExplosionHit reads the blast's damage in the engine's blast loop, an aux timer that runs out fires its stop handler [observed: showoff1]"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/nvse_showoff.rs", "crates/fnv-game/src/nvse_jip2.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:SetEventHandler \"ShowOff:OnAdd\" ({ref rA, ref rB} => PrintC \"nvf showoff add %g\", (GetType rA));SetEventHandler \"ShowOff:OnExplosionHit\" ({ref rA, ref rB} => PrintC \"nvf showoff blast %g\", (GetExplosionHitDamage));SetOnAuxTimerStopHandler 1 ({string_var sN, ref rO} => PrintC \"nvf showoff timer %z\", sN) \"nvfst\";9.5:player.AddItem Stimpak 1;player.AuxTimerStart \"nvfst\" 0.5;10:close;11:player.PlaceAtMe MineFragExplosion 1;11.5:close;13:player.RemoveItem Stimpak 1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf showoff add 47"', label = "ShowOff:OnAdd gives the stimpak's base" },
+  { re = 'script: print "nvf showoff timer nvfst"', label = "the aux timer's stop handler runs when it runs out" },
+  { re = 'script: print "nvf showoff blast [1-9]', label = "ShowOff:OnExplosionHit reads the blast's damage" },
+]
+
+[[scenario]]
+name = "jip-play-anim-sequence"
+source = "JIP's PlayAnimSequence (fnv_game::anims::call_ext): a named sequence of an object's model plays through the PlayGroup path (nvforever object_anims.rs); vMEGoodSpringsRef (which plays Backward when Goodsprings loads) plays its Forward sequence by name [documented: PlayAnimSequence]; doors, drawn by nvf_play doors.rs, do not take it yet"
+areas = ["scripts", "world"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:vMEGoodSpringsRef.PlayAnimSequence \"Forward\";9.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 13
+expect = [
+  { re = 'playgroup: vMEGoodSpringsRef plays Forward \(once', label = "the object's Forward sequence plays by name" },
+]
+
+[[scenario]]
+name = "nif-blocks-mirror"
+source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf blocks first %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12:PrintC \"nvf blocks %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01\"));12.5:PrintC \"nvf parents %g\", (Ar_Size (RingoRef.GetNifBlockParentNodes \"Bip01 Head\"));13:RingoRef.SetNifBlockScale \"Bip01 Head\" 1.5;14:PrintC \"nvf scale %.2f\", (RingoRef.GetNifBlockScale \"Bip01 Head\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'script: print "nvf blocks [1-9][0-9]*"', label = "the second call reads Ringo's Bip01 children from the mirror" },
+  { re = 'script: print "nvf parents [1-9]"', label = "the head has parent nodes" },
+  { re = 'script: print "nvf scale 1.50"', label = "a set scale holds over the animation and reads back" },
+]
+
+[[scenario]]
+name = "knvse-anim-replace"
+source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_anim.rs", "engine/nvforever/src/anim_paths.rs", "engine/nvforever/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf set %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters\\_male\\locomotion\\mtidle.kf\");13:PrintC \"nvf unset %g\", (RingoRef.SetActorAnimationPath 0 0 \"characters\\_male\\locomotion\\mtidle.kf\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf set 1"', label = "the file is there: the setter gives 1" },
+  { re = 'anim paths: 00104C7D plays 1 replaced move', label = "Ringo plays from his own set with Idle replaced" },
+  { re = 'script: print "nvf unset 1"', label = "taking it back gives 1" },
 ]
 
 [[scenario]]

@@ -1,0 +1,270 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless That Lucky Old Sun (VMS03): Lt. Haggerty's referral (5), Fantastic's retargeting job (10), the reflector terminals, generator and mainframe, the tower console, and Fantastic thanked (quest completed)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: at HELIOS One Lt. Haggerty hears why the player came (VMS03HaggertyInvestigate) and his offer to help with the solar tower (VMS03HaggertySolarTower, Science 30: 5); Fantastic, in the back, is talked round (SettleDown, Job, TryingToAccomplish, Retarget) and the player agrees to retarget the plant (VMS03FantasticIAmNow, begin script: 10, objectives 20/30/40, the west terminal's password); the west and east reflector terminals connect to the mainframe (VHeliosFarmTerminal1/2 item 0: objectives 20, 30); the auxiliary generator is mended (VHeliosAuxGeneratorSCRIPT, its box's button 1, shown with Repair 40 and a scrap of spare parts: objective 50); the mainframe terminal's power menu sends the power to the Strip and McCarran (VHeliosMainframeTerminalSub1 item 0: nPowerConfiguration 1, objective 60, 70 shown); the tower console (VHeliosArchimedesSCRIPT on ControlPanelHeliosTowerREF, 9:00-15:00) completes 70 and shows 80; Fantastic's DivertedPower line completes 80 and the quest (CompleteQuest; VMS03 has no Complete Quest stage, its only stages are 5, 10 and 255). Stand-ins: travel by move_player; Science 30 and Repair 40 given (set_av), one Spare Parts given (add_item); the hour set to 10:00 (GameHour) for the console; the plant's turrets and doors are not walked; the terminals' locks (password, hacking) are not modelled by the terminal op. Data note: Fantastic's IAmNow begin script adds the west terminal's password with no reference, so it goes to Fantastic, the speaker (a dialogue result runs on the speaker)."
+  },
+  {
+   "op": "set_av",
+   "name": "Science",
+   "value": 30
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "SpareParts",
+   "count": 1
+  },
+  {
+   "op": "set_av",
+   "name": "Repair",
+   "value": 40
+  },
+  {
+   "op": "move_player",
+   "to": "placed:LtHaggerty"
+  },
+  {
+   "op": "talk",
+   "actor": "placed:LtHaggerty",
+   "label": "haggerty greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03HaggertyInvestigate",
+   "label": "haggerty investigate"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03HaggertySolarTower",
+   "label": "haggerty solar tower"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "running",
+    "stage",
+    "done.5",
+    "objective.5.displayed"
+   ],
+   "label": "milestone: VMS03 5"
+  },
+  {
+   "op": "move_player",
+   "to": "FantasticREF"
+  },
+  {
+   "op": "talk",
+   "actor": "FantasticREF",
+   "label": "fantastic greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03FantasticSettleDown",
+   "label": "fantastic settle down"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03FantasticJob",
+   "label": "fantastic job"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03FantasticTryingToAccomplish",
+   "label": "fantastic accomplish"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03FantasticRetarget",
+   "label": "fantastic retarget"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03FantasticIAmNow",
+   "label": "fantastic i am now"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "stage",
+    "done.10",
+    "objective.20.displayed",
+    "objective.30.displayed"
+   ],
+   "label": "final: VMS03 10"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "VMS03HeliosTerminalWestPassword",
+   "label": "west password"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk out to the west reflector field."
+  },
+  {
+   "op": "move_player",
+   "to": "placed:VHeliosFarmTerminal1"
+  },
+  {
+   "op": "terminal",
+   "target": "placed:VHeliosFarmTerminal1",
+   "item": 0,
+   "label": "west terminal"
+  },
+  {
+   "op": "move_player",
+   "to": "placed:VHeliosFarmTerminal2"
+  },
+  {
+   "op": "terminal",
+   "target": "placed:VHeliosFarmTerminal2",
+   "item": 0,
+   "label": "east terminal"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "objective.20.completed",
+    "objective.30.completed"
+   ],
+   "label": "reflectors connected"
+  },
+  {
+   "op": "move_player",
+   "to": "VHeliosAuxGeneratorREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "VHeliosAuxGeneratorREF"
+  },
+  {
+   "op": "press_button",
+   "button": 1
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 1,
+   "wait_frames": 60,
+   "label": "generator fixed box"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "var.bMainframeHasPower",
+    "objective.50.completed",
+    "objective.60.displayed"
+   ],
+   "label": "mainframe powered"
+  },
+  {
+   "op": "move_player",
+   "to": "VHeliosMainframeREF"
+  },
+  {
+   "op": "terminal",
+   "target": "placed:VHeliosMainframeTerminal",
+   "menu": "VHeliosMainframeTerminalSub1",
+   "item": 0,
+   "label": "power to the strip and mccarran"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "var.nPowerConfiguration",
+    "objective.60.completed",
+    "objective.70.displayed"
+   ],
+   "label": "power sent"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the climb to the tower observation deck and waiting until morning: the hour is 10:00."
+  },
+  {
+   "op": "set_global",
+   "name": "GameHour",
+   "value": 10
+  },
+  {
+   "op": "move_player",
+   "to": "ControlPanelHeliosTowerREF"
+  },
+  {
+   "op": "player_activate",
+   "target": "ControlPanelHeliosTowerREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 30
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "var.bRetargeted",
+    "var.bRetargetComplete",
+    "objective.70.completed",
+    "objective.80.displayed"
+   ],
+   "label": "tower retargeted"
+  },
+  {
+   "op": "move_player",
+   "to": "FantasticREF"
+  },
+  {
+   "op": "talk",
+   "actor": "FantasticREF",
+   "label": "fantastic diverted"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS03FantasticDivertedPower",
+   "label": "fantastic thanks"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS03",
+   "fields": [
+    "completed",
+    "objective.80.completed"
+   ],
+   "label": "final: VMS03 completed"
+  }
+ ]
+}
