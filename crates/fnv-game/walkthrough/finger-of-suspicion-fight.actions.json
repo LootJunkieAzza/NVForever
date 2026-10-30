@@ -1,0 +1,30 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless The Finger of Suspicion (VMS33), the fight: Vulpes's task (stage 10), the Omerta thugs fought (20) and killed (30)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 50},
+    {"kind": "quest", "quest": "VDialogueCaesar", "vars": {"FirstTalk": 1}}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: Vulpes Inculta's task as in finger-of-suspicion (stage 10); the first Omerta thug answered with a fight (Topic000: stage 20, combat); the three thugs killed by the player (kill stands in for the fight; the quest script sets 30 once all three are dead and Martina lives). Travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to the Fort and the walk to Vulpes Inculta."},
+    {"op": "move_player", "to": "FortVulpesIncultaRef"},
+    {"op": "talk", "actor": "FortVulpesIncultaRef", "label": "vulpes greeting"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpeIncultaTopic009", "label": "a task for the legion"},
+    {"op": "choose", "topic": "VFreeformTheFortFortVulpesIncultaTopic007", "label": "task taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS33 10"},
+    {"op": "get_ref", "ref": "MartinaGroesbeckREF", "fields": ["disabled"], "label": "martina enabled"},
+    {"op": "note", "text": "Stand-in for the trip to the Strip's Vault 21 gift shop, where the thugs corner Martina."},
+    {"op": "move_player", "to": "VMS33OmertaThug01Ref"},
+    {"op": "talk", "actor": "VMS33OmertaThug01Ref", "label": "thug greeting"},
+    {"op": "choose", "topic": "VMS33VMS33OmertaThug01Topic000", "label": "thug fight"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["stage", "done.20"], "label": "milestone: VMS33 20"},
+    {"op": "kill", "actor": "VMS33OmertaThug01Ref", "killer": "player"},
+    {"op": "kill", "actor": "VMS33OmertaThug02Ref", "killer": "player"},
+    {"op": "kill", "actor": "VMS33OmertaThug03Ref", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "VMS33", "fields": ["stage", "done.30", "var.thugsdead"], "label": "final: VMS33 30"}
+  ]
+}

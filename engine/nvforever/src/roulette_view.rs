@@ -273,7 +273,7 @@ fn show(
                 Camera { order: -3, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
                 RenderTarget::Image(ImageRenderTarget::from(image.clone())),
                 Projection::Perspective(PerspectiveProjection { fov: VFOV_DEG.to_radians(), near: 1.0, far: 4000.0, ..default() }),
-                Tonemapping::None,
+                Tonemapping::Linear,
                 Msaa::Sample4,
                 AmbientLight { color: Color::WHITE, brightness: 350.0, ..default() },
                 Transform::from_translation(PLACE),

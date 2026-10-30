@@ -1,0 +1,35 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Back in Your Own Backyard (VNelson), the fail: Ranger Milo's request (stage 10), the hostages killed (15), Milo killed (20)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 25}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path, the fail: Ranger Milo's request as in back-in-your-own-backyard (stage 10); the three hostages killed instead of freed (kill stands in for the player's shots; their death script counts HostagesKilled and sets 15 at three while Milo lives); then Milo killed (MiloScript's OnDeath sets 20 at stage 15). Travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to the ranger checkpoint."},
+    {"op": "move_player", "to": "NVNelsonRangerMiloREF"},
+    {"op": "note", "text": "Near Nelson the Legion explorers each stop the player once (two here) when his script first runs (nvNelsonExplorerBarkSCRIPT: StartConversation while We Are Legion has not started); the player walks off from each."},
+    {"op": "wait_talk", "start": true, "label": "explorer 1 stops the player"},
+    {"op": "end_talk"},
+    {"op": "wait_talk", "start": true, "label": "explorer 2 stops the player"},
+    {"op": "end_talk"},
+    {"op": "talk", "actor": "NVNelsonRangerMiloREF", "label": "milo greeting"},
+    {"op": "choose", "topic": "VNelsonNVNelsonRangerMiloTopic000", "label": "milo 000"},
+    {"op": "choose", "topic": "VNelsonNVNelsonRangerMiloTopic020", "label": "no friend of the legion (Speech 25; follow-up: his Topic006 line)"},
+    {"op": "choose", "topic": "VNelsonNVNelsonRangerMiloTopic010", "label": "hostages job taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VNelson", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VNelson 10"},
+    {"op": "move_player", "to": "NelsonNCRHostage01REF"},
+    {"op": "kill", "actor": "NelsonNCRHostage01REF", "killer": "player"},
+    {"op": "move_player", "to": "NelsonNCRHostage02REF"},
+    {"op": "kill", "actor": "NelsonNCRHostage02REF", "killer": "player"},
+    {"op": "move_player", "to": "NelsonNCRHostage03REF"},
+    {"op": "kill", "actor": "NelsonNCRHostage03REF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VNelson", "fields": ["stage", "done.15", "var.HostagesKilled"], "label": "milestone: VNelson 15"},
+    {"op": "move_player", "to": "NVNelsonRangerMiloREF"},
+    {"op": "kill", "actor": "NVNelsonRangerMiloREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VNelson", "fields": ["stage", "done.20"], "label": "final: VNelson 20"}
+  ]
+}

@@ -66,7 +66,7 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "water.wgsl");
+        embedded_asset!(app, "water.wesl");
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<WaterCache>()
             .init_resource::<DistantWater>()
@@ -118,7 +118,7 @@ pub struct WaterMaterial {
 
 impl Material for WaterMaterial {
     fn fragment_shader() -> ShaderRef {
-        "embedded://nvforever/water.wgsl".into()
+        "embedded://nvforever/water.wesl".into()
     }
 
     // Opaque, drawn after the opaque pass with a copy of it (the view transmission

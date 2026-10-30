@@ -383,14 +383,14 @@ fn tab_line(p: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page, current: usiz
 #[derive(Component, Clone, Copy)]
 pub struct TabHoverBox(pub usize);
 
-fn on_tab_over(over: On<Pointer<Over>>, nodes: Query<&Clickable>, mut pip: ResMut<PipBoy>, mut out: MessageWriter<super::sounds::TabHovered>) {
+fn on_tab_over(over: On<PointerOver>, nodes: Query<&Clickable>, mut pip: ResMut<PipBoy>, mut out: MessageWriter<super::sounds::TabHovered>) {
     if let Ok(Clickable(PipBoyInput::Tab(i))) = nodes.get(over.entity) {
         pip.hover_tab = Some(*i);
         out.write(super::sounds::TabHovered(*i));
     }
 }
 
-fn on_tab_out(out: On<Pointer<Out>>, nodes: Query<&Clickable>, mut pip: ResMut<PipBoy>) {
+fn on_tab_out(out: On<PointerOut>, nodes: Query<&Clickable>, mut pip: ResMut<PipBoy>) {
     if let Ok(Clickable(PipBoyInput::Tab(i))) = nodes.get(out.entity) {
         if pip.hover_tab == Some(*i) {
             pip.hover_tab = None;

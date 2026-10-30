@@ -16,9 +16,9 @@ use std::f32::consts::PI;
 use crate::world::WorldData;
 
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::lighting`.
-const PBR_LIGHTING: &str = "embedded://bevy_pbr/render/pbr_lighting.wgsl";
+const PBR_LIGHTING: &str = "embedded://bevy_pbr/render/pbr_lighting.wesl";
 
-/// Bevy's attenuation: windowed inverse square [observed: bevy_pbr 0.19.1].
+/// Bevy's attenuation: windowed inverse square [observed: bevy_pbr 0.20.1].
 const BEVY_ATTENUATION: &str = "return getRangeFalloff(distanceSquare, inverseRangeSquared) * 1.0 / max(distanceSquare, 0.0001);";
 
 /// The game's attenuation: 1 − (d / radius)², clamped [hypothesis: shape to calibrate
@@ -26,7 +26,7 @@ const BEVY_ATTENUATION: &str = "return getRangeFalloff(distanceSquare, inverseRa
 const GAME_ATTENUATION: &str = "return saturate(1.0 - distanceSquare * inverseRangeSquared);";
 
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::pbr_functions`.
-const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wgsl";
+const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 
 /// The display-value lighting sum (docs/spec-notes/world.md §8 "Light on surfaces in
 /// display values") [hypothesis, fitted to the original's frames]: the game adds its
@@ -38,9 +38,11 @@ const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wgsl";
 /// the same lights' colours, which hold display values there ([`display_color`]), and
 /// adds diffuse colour × sum^2.2 (the display gamma) as light. Views without the mark
 /// (the minigame views) keep Bevy's sum. `nvf_apply_pbr_lighting` takes weights for the
-/// ambient and the direct part of the sum (grass.wgsl); `apply_pbr_lighting` is it with
-/// weights 1.
+/// ambient and the direct part of the sum (grass.wesl); `apply_pbr_lighting` is it with
+/// weights 1. Each helper carries the condition Bevy puts on `apply_pbr_lighting`
+/// (`@if(!PREPASS_FRAGMENT)`), whose line the first edit takes in.
 const DISPLAY_HELPERS: &str = "// NVForever (nvforever lights.rs DISPLAY_HELPERS): the game's lighting sum in display values.
+@if(!PREPASS_FRAGMENT)
 fn nvf_display_lighting() -> bool {
     return view_bindings::lights.ambient_color.a < 0.0;
 }
@@ -48,6 +50,7 @@ fn nvf_display_lighting() -> bool {
 // A clustered point or spot light's diffuse light on a surface at P facing N, as display
 // values: colour × fade × attenuation × N.L (the uniform holds colour × fade × pi × light
 // unit, nvforever lights.rs `lumens`).
+@if(!PREPASS_FRAGMENT)
 fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     let light = &view_bindings::clustered_lights.data[light_id];
     let to_light = (*light).position_radius.xyz - P;
@@ -58,6 +61,7 @@ fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
 }
 
 // The same for a spot light, with Bevy's cone falloff (bevy_pbr::lighting::spot_light).
+@if(!PREPASS_FRAGMENT)
 fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     let light = &view_bindings::clustered_lights.data[light_id];
     var spot_dir = vec3<f32>((*light).light_custom_data.x, 0.0, (*light).light_custom_data.y);
@@ -72,31 +76,35 @@ fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
 
 // What is left of Bevy's ambient light in a world view, its highlight, takes the ambient
 // colour as linear light: the factor from the display value to it (a^2.2 / a).
+@if(!PREPASS_FRAGMENT)
 fn nvf_ambient_ratio() -> vec3<f32> {
     return pow(max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(1e-6)), vec3(1.2));
 }
 
 // A directional light's diffuse light on a surface facing N, as display values.
+@if(!PREPASS_FRAGMENT)
 fn nvf_directional_display(i: u32, N: vec3<f32>) -> vec3<f32> {
     let light = &view_bindings::lights.directional_lights[i];
     return (*light).color.rgb * (saturate(dot(N, (*light).direction_to_light.xyz)) * view_bindings::view.exposure / 3.14159265);
 }
 
+@if(!PREPASS_FRAGMENT)
 fn apply_pbr_lighting(
     in: pbr_types::PbrInput,
 ) -> vec4<f32> {
     return nvf_apply_pbr_lighting(in, vec2(1.0));
 }
 
+@if(!PREPASS_FRAGMENT)
 fn nvf_apply_pbr_lighting(
     in: pbr_types::PbrInput,
     nvf_weights: vec2<f32>,
 ) -> vec4<f32> {";
 
-/// Replacements in `apply_pbr_lighting` [observed: bevy_pbr 0.19.1 `pbr_functions.wgsl`],
+/// Replacements in `apply_pbr_lighting` [observed: bevy_pbr 0.20.1 `pbr_functions.wesl`],
 /// in order; the light loops' line occurs three times (point, spot, directional).
 const DISPLAY_EDITS: [(&str, &str); 7] = [
-    ("fn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {", DISPLAY_HELPERS),
+    ("@if(!PREPASS_FRAGMENT)\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {", DISPLAY_HELPERS),
     (
         "    lighting_input.diffuse_color = diffuse_color;",
         "    let nvf_display = nvf_display_lighting();
@@ -171,12 +179,11 @@ pub fn display_ambient(c: [f32; 3]) -> Color {
 
 /// The embedded asset path under which bevy_core_pipeline registers its tonemapping
 /// functions (`bevy_core_pipeline::tonemapping`).
-const TONEMAPPING_SHARED: &str = "embedded://bevy_core_pipeline/tonemapping/tonemapping_shared.wgsl";
+const TONEMAPPING_SHARED: &str = "embedded://bevy_core_pipeline/tonemapping.wesl";
 
-/// Bevy's Tony McMapface curve [observed: bevy_core_pipeline 0.19.1
-/// `tonemapping_shared.wgsl`], the main view's tonemapper (every other view here has
-/// none).
-const BEVY_TONY: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color = sample_tony_mc_mapface_lut(color);";
+/// Bevy's Tony McMapface curve [observed: bevy_core_pipeline 0.20.1 `tonemapping.wesl`],
+/// the main view's tonemapper (every other view here has none).
+const BEVY_TONY: &str = "} @elif(TONEMAP_METHOD_TONY_MC_MAPFACE) {\n    color = sample_tony_mc_mapface_lut(color);";
 
 /// The original's display: its lit colour, a display value, is shown as it is and held to
 /// 1 per channel (world.md §8 "Light on surfaces in display values") [hypothesis, from the
@@ -184,7 +191,7 @@ const BEVY_TONY: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color =
 /// Dead Money's weather, to (255, 255, 101), saturated, where Tony McMapface turns bright
 /// light pale and never reaches white]. The tonemapping pass keeps running, and with it
 /// the eye adaptation's exposure (eye_adapt.rs), which Bevy applies in that pass.
-const GAME_CLIP: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color = min(color, vec3(1.0));";
+const GAME_CLIP: &str = "} @elif(TONEMAP_METHOD_TONY_MC_MAPFACE) {\n    color = min(color, vec3(1.0));";
 
 /// Set once the clip is in place (`NVF_TONEMAP=tony` keeps Bevy's curve, a test aid);
 /// sky.rs then leaves out its inverse of Tony McMapface.
@@ -196,8 +203,9 @@ pub fn display_clip() -> bool {
 }
 
 /// Bevy's shader text with Windows line ends made `\n`: the patches' anchors are written
-/// with `\n`, and a checkout with git's `core.autocrlf` gives the vendored bevy_pbr
-/// shaders `\r\n` (issue #946: no patch matched, so grass lost `nvf_apply_pbr_lighting`).
+/// with `\n`. A checkout with git's `core.autocrlf` gave the bevy_pbr vendored until #939
+/// `\r\n` (issue #946: no patch matched, so grass lost `nvf_apply_pbr_lighting`); Bevy
+/// now comes from crates.io as published, and this stays as a guard for any patched copy.
 pub fn unix_lines(source: &str) -> String {
     source.replace("\r\n", "\n")
 }
@@ -235,8 +243,8 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
         info!("lights: NVF_TONEMAP=tony, the main view keeps Tony McMapface");
         return;
     }
-    let bevy::shader::Source::Wgsl(source) = &shader.source else {
-        error!("{TONEMAPPING_SHARED}: not WGSL; the main view keeps Tony McMapface");
+    let bevy::shader::Source::Wesl(source) = &shader.source else {
+        error!("{TONEMAPPING_SHARED}: not WESL; the main view keeps Tony McMapface");
         return;
     };
     let source = unix_lines(source);
@@ -244,9 +252,8 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
         error!("{TONEMAPPING_SHARED}: Tony McMapface not found (Bevy changed?); the main view keeps it");
         return;
     }
-    let patched = source.replace(BEVY_TONY, GAME_CLIP);
-    let path = shader.path.clone();
-    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    let patched = crate::fog::with_source(shader, source.replace(BEVY_TONY, GAME_CLIP));
+    let _ = shaders.insert(&state.handle, patched);
     CLIP_INSTALLED.store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(mut sky) = sky {
         sky.refresh();
@@ -268,8 +275,8 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     }
     let Some(shader) = shaders.get(&state.handle) else { return };
     state.patched = true;
-    let bevy::shader::Source::Wgsl(source) = &shader.source else {
-        error!("{PBR_FUNCTIONS}: not WGSL; surfaces keep Bevy's linear lighting sum");
+    let bevy::shader::Source::Wesl(source) = &shader.source else {
+        error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
         return;
     };
     let source = unix_lines(source);
@@ -277,8 +284,8 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         return;
     };
-    let path = shader.path.clone();
-    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    let patched = crate::fog::with_source(shader, patched);
+    let _ = shaders.insert(&state.handle, patched);
     info!("lights: display-value lighting sum installed");
 }
 
@@ -449,8 +456,8 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
     }
     let Some(shader) = shaders.get(&state.handle) else { return };
     state.patched = true;
-    let bevy::shader::Source::Wgsl(source) = &shader.source else {
-        warn!("{PBR_LIGHTING}: not WGSL; lights keep Bevy's inverse-square falloff");
+    let bevy::shader::Source::Wesl(source) = &shader.source else {
+        warn!("{PBR_LIGHTING}: not WESL; lights keep Bevy's inverse-square falloff");
         return;
     };
     let source = unix_lines(source);
@@ -466,8 +473,8 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
     } else {
         error!("{PBR_LIGHTING}: light colour lines not found (Bevy changed?); highlights take display colours as light");
     }
-    let path = shader.path.clone();
-    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    let patched = crate::fog::with_source(shader, patched);
+    let _ = shaders.insert(&state.handle, patched);
     info!("lights: game attenuation installed");
 }
 
@@ -475,7 +482,7 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
 /// in a world view, the specular highlight ([`DISPLAY_HELPERS`]: the diffuse part is
 /// summed apart). There the colour holds display values: the highlight takes its linear
 /// light, the display value raised to the display gamma, as before the display-value sum
-/// [observed: bevy_pbr 0.19.1 `pbr_lighting.wgsl`; the helper goes in front of
+/// [observed: bevy_pbr 0.20.1 `pbr_lighting.wesl`; the helper goes in front of
 /// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
 /// Jacobstown's lodge that the original does not show.
 const SPECULAR_EDITS: [(&str, &str); 3] = [
@@ -613,8 +620,8 @@ mod tests {
 
     #[test]
     fn display_sum_patch_goes_in_order() {
-        // The anchors as bevy_pbr 0.19.1 has them, in its order, with stand-in text between.
-        let source = "head\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {\n    lighting_input.diffuse_color = diffuse_color;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);\n    // Total light\n    tail\n";
+        // The anchors as bevy_pbr 0.20.1 has them, in its order, with stand-in text between.
+        let source = "head\n@if(!PREPASS_FRAGMENT)\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {\n    lighting_input.diffuse_color = diffuse_color;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);\n    // Total light\n    tail\n";
         let out = display_patched(source).expect("all anchors found");
         let at = |s: &str| out.find(s).unwrap_or_else(|| panic!("{s} missing"));
         assert!(at("nvf_point_display(light_id") < at("nvf_spot_display(light_id"));
@@ -627,16 +634,6 @@ mod tests {
         assert!(display_patched(&source.replace("    // Total light\n", "")).is_none());
         // Windows line ends (a checkout with core.autocrlf, issue #946) still patch.
         assert!(display_patched(&unix_lines(&source.replace('\n', "\r\n"))).is_some());
-    }
-
-    #[test]
-    fn vendored_shaders_patch_as_checked_out() {
-        // The vendored bevy_pbr files with whatever line ends this checkout gave them.
-        let functions = include_str!("../../vendor/bevy_pbr/src/render/pbr_functions.wgsl");
-        assert!(display_patched(&unix_lines(functions)).is_some());
-        let lighting = unix_lines(include_str!("../../vendor/bevy_pbr/src/render/pbr_lighting.wgsl"));
-        assert!(lighting.contains(BEVY_ATTENUATION));
-        assert!(SPECULAR_EDITS.iter().all(|(from, _)| lighting.replace(BEVY_ATTENUATION, GAME_ATTENUATION).matches(from).count() == 1));
     }
 
     #[test]

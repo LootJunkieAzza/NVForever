@@ -32,6 +32,7 @@ use crate::bindings::{Bindings, Control, GAME_CONTROLS};
 use crate::interface::{amber, at, u};
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::ui::RelativeCursorPosition;
 
 const BOX_PART: f32 = 0.8;

@@ -40,6 +40,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use fnv_game::casino;
 use fnv_game::roulette::{self as rules, Refusal, Table};
 use fnv_sim::FormId;

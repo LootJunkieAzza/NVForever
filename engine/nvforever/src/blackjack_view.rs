@@ -311,7 +311,7 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
             Camera { order: -3, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
             RenderTarget::Image(ImageRenderTarget::from(image.clone())),
             Projection::Perspective(PerspectiveProjection { fov: FOV_DEG.to_radians(), near: 1.0, far: 3000.0, ..default() }),
-            Tonemapping::None,
+            Tonemapping::Linear,
             Msaa::Sample4,
             AmbientLight { color: Color::WHITE, brightness: 120.0, ..default() },
             Transform::from_translation(to(eye)).looking_at(to(aim), Vec3::Y),

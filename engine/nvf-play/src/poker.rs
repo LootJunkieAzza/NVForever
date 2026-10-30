@@ -29,6 +29,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::poker::{self as rules, Action, Event, Seat, Street, Style, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;

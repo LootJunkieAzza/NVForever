@@ -1,6 +1,6 @@
 {
   "format": "fnv.script.actions/1",
-  "title": "Headless Come Fly With Me (VMS01): from Manny Vargas's tip in Novac to the ghouls' rockets launched (stage 100)",
+  "title": "Headless Come Fly With Me (VMS01): from Manny Vargas's tip in Novac to the ghouls' rockets launched (stage 100), then Manny's tip about Benny (VMQ01 50)",
   "given": [],
   "actions": [
     {"op": "note", "text": "Path (the rockets fly, no sabotage): Manny Vargas, asked about the man in the checkered coat, sends the player to the REPCONN ghouls (stage 10); the facility's entrance trigger and the intercom (15); Chris Haversam upstairs (20); Jason Bright asks the player to drive out the Nightkin (30); the six Nightkin die (NightkinQuest 2) and Jason is told; Jason in the basement (40); Chris asks for fuel, the isotope is picked up and handed in, then the thrust control modules; Chris says the rockets are ready and tells Jason over the intercom (50); the launch button on the observation deck runs its 33 s sequence and sets 100. Harland, Davison's Stealth Boys and the sabotage (101) are not run."},
@@ -98,6 +98,15 @@
     {"op": "get_quest", "quest": "VMS01", "fields": ["var.bOnPlatform"], "label": "on the deck"},
     {"op": "player_activate", "target": "scripted:RepconLaunchSCRIPT"},
     {"op": "advance_seconds", "seconds": 40},
-    {"op": "get_quest", "quest": "VMS01", "fields": ["stage", "done.100", "completed", "objective.100.completed", "var.JasonExodusSpeech"], "label": "final: VMS01 100"}
+    {"op": "get_quest", "quest": "VMS01", "fields": ["stage", "done.100", "completed", "objective.100.completed", "var.JasonExodusSpeech"], "label": "final: VMS01 100"},
+    {"op": "note", "text": "Back in Novac (travel stand-in): with the ghouls' business settled, the player tells Manny the job is done (MannyVargasVMQ01TurnIn) and asks him to keep his side of the deal (Topic023); his follow-up line (MannyVargasMVQ01Answer) says Benny travelled with Khans to Boulder City and sets VMQ01 50."},
+    {"op": "move_player", "to": "placed:MannyVargas"},
+    {"op": "talk", "actor": "placed:MannyVargas", "label": "manny after the rockets"},
+    {"op": "wait_talk", "label": "manny after the rockets choices"},
+    {"op": "choose", "topic": "MannyVargasVMQ01TurnIn", "label": "manny: the job's done"},
+    {"op": "wait_talk", "label": "manny turn-in after"},
+    {"op": "choose", "topic": "VDialogueNovacMannyVargasTopic023", "label": "manny 023: tell me"},
+    {"op": "wait_talk", "label": "manny tells"},
+    {"op": "get_quest", "quest": "VMQ01", "fields": ["running", "stage", "done.50"], "label": "final: VMQ01 50 (Manny's tip: Boulder City)"}
   ]
 }

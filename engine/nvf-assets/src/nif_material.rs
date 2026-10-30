@@ -1,5 +1,5 @@
 //! The material of NIF shapes: Bevy's StandardMaterial with changes in the fragment shader
-//! (`nif_material.wgsl`):
+//! (`nif_material.wesl`):
 //! - the emissive light is multiplied by the surface colour (diffuse texture × vertex
 //!   colour), as NIF emissive light is modulated by the texture [hypothesis,
 //!   docs/spec-notes/nif.md §6 "Emissive light"];
@@ -46,7 +46,7 @@
 //!
 //! Vertex alpha: the main pass tests material alpha × texture alpha × vertex alpha, while
 //! Bevy's depth-only prepass leaves the vertex alpha out. NIF shapes get a prepass
-//! fragment that tests what the main pass tests ([`nif_prepass`], `nif_prepass.wgsl`), for
+//! fragment that tests what the main pass tests ([`nif_prepass`], `nif_prepass.wesl`), for
 //! the same reason as the dither.
 //!
 //! Blend and test together: a blended shape can carry the threshold of its alpha test as
@@ -78,7 +78,7 @@
 //! [`NifSurface::holes`]`.x` nothing is drawn, in every pass, and the band of `.y` units
 //! below it is drawn in [`NifSurface::holes_edge`]; `.x` negative (every other shape): no
 //! holes. A shape with holes is drawn alpha-tested, so the depth-only passes run the
-//! same test (`nif_prepass.wgsl`).
+//! same test (`nif_prepass.wesl`).
 //!
 //! Depth of blended hair: hair-shader shapes (hair, beards, brows) are blended
 //! ([`NifSurface::depth_write`]). Bevy writes no depth for blended shapes, so a blended
@@ -116,12 +116,12 @@
 //! ([`NifSurface::first_person`], set by nvforever `player_body.rs` and `shot_fx.rs`) are
 //! drawn against the same depth buffer as the world, but with their depth squeezed into
 //! the nearest [`FIRST_PERSON_DEPTH_SHARE`] of the depth range (the fragment shaders write
-//! it, `first_person_depth.wgsl`): no wall, door or actor the camera stands against hides
+//! it, `first_person_depth.wesl`): no wall, door or actor the camera stands against hides
 //! them, they still hide each other in their own order, and they keep the one camera's
 //! lighting, shadows, fog, multisampling and image space; their nodes stay where they are
 //! (muzzle, shell ejection, the weapon-lowering rays). The depth prepass holds the squeezed
 //! depth too, so water and blended world shapes are not drawn over them; the passes that
-//! read the prepass as distances undo it (soft intersections here, nvforever `ssao.wgsl`)
+//! read the prepass as distances undo it (soft intersections here, nvforever `ssao.wesl`)
 //! [engineering choice, docs/design/first-person-depth.md].
 //!
 //! Bindless [engineering choice, docs/design/graphics-enhanced.md §5.6]: where the device
@@ -130,7 +130,7 @@
 //! materials share a batch set instead of each binding a bind group of its own: the
 //! alpha-tested shapes in every shadow cascade above all. The shaders reach the values,
 //! the holes and the FaceGen offset through `nif_surface`, `holes_alpha` and
-//! `facegen_texel` (nif_material.wgsl, nif_prepass.wgsl), which read either binding.
+//! `facegen_texel` (nif_material.wesl, nif_prepass.wesl), which read either binding.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -139,16 +139,16 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType, CompareFunction, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
-/// fade_prepass.wgsl.
+/// fade_prepass.wesl.
 const FADE_PREPASS_SHADER: Handle<Shader> = uuid_handle!("6f0c9b51-2a7e-4f43-9d0e-5b8c1e7a4d21");
 
-/// nif_prepass.wgsl.
+/// nif_prepass.wesl.
 const NIF_PREPASS_SHADER: Handle<Shader> = uuid_handle!("b1d6a2f4-7c35-4e0a-8f29-3a5d9c0e6b17");
 
-/// nif_surface_bindings.wgsl (imported by the two above).
+/// nif_surface_bindings.wesl (imported by the two above).
 const NIF_SURFACE_BINDINGS_SHADER: Handle<Shader> = uuid_handle!("3c8e1f60-9a4d-4b27-b5e2-7d0f6a91c348");
 
-/// first_person_depth.wgsl.
+/// first_person_depth.wesl.
 const FIRST_PERSON_DEPTH_SHADER: Handle<Shader> = uuid_handle!("9e4a7c12-58d3-4f6b-a0e1-2c7b5d8f3a64");
 
 /// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
@@ -176,7 +176,7 @@ fn nif_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipeline
 /// fragment stage; other pipelines are left alone.
 fn depth_prepass_fragment(descriptor: &mut RenderPipelineDescriptor, shader: Handle<Shader>) {
     let defs = &descriptor.vertex.shader_defs;
-    let has = |d: &str| defs.contains(&ShaderDefVal::from(d));
+    let has = |d: &'static str| defs.contains(&ShaderDefVal::from(d));
     // Prepasses with colour targets (or unclipped depth) run Bevy's full prepass
     // fragment, which already dithers (and tests without the vertex alpha: the
     // renderers use no such prepass).
@@ -214,7 +214,7 @@ fn first_person_depth(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshP
 }
 
 /// The share of the depth range the depth of first-person shapes is squeezed into
-/// (module notes, "First-person depth"; first_person_depth.wgsl, the same value). Reverse
+/// (module notes, "First-person depth"; first_person_depth.wesl, the same value). Reverse
 /// z puts the near plane at 1, so they lie in [1 − share, 1]: a world surface hides them
 /// only nearer than near ÷ (1 − share) (5.08 units at the main camera's near plane of 5,
 /// which clips everything nearer than 5), and a share of 1/64 still leaves their own
@@ -222,7 +222,7 @@ fn first_person_depth(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshP
 /// float depth buffer near 1 [engineering choice].
 pub const FIRST_PERSON_DEPTH_SHARE: f32 = 1.0 / 64.0;
 
-/// The depth a first-person fragment at depth `z` writes (first_person_depth.wgsl
+/// The depth a first-person fragment at depth `z` writes (first_person_depth.wesl
 /// `squeeze`).
 pub fn first_person_squeeze(z: f32) -> f32 {
     1.0 - FIRST_PERSON_DEPTH_SHARE * (1.0 - z)
@@ -332,8 +332,8 @@ pub struct NifSurface {
     pub facegen_offset: Option<Handle<Image>>,
 }
 
-/// The values of a [`NifSurface`] the shaders read (nif_material.wgsl and
-/// nif_prepass.wgsl `NifSurface`, the same fields in the same order).
+/// The values of a [`NifSurface`] the shaders read (nif_material.wesl and
+/// nif_prepass.wesl `NifSurface`, the same fields in the same order).
 #[derive(Clone, Default, ShaderType)]
 pub struct NifSurfaceUniform {
     pub falloff: Vec4,
@@ -451,11 +451,11 @@ impl From<&NifSurface> for NifSurfaceKey {
 
 impl MaterialExtension for NifSurface {
     fn fragment_shader() -> ShaderRef {
-        "embedded://nvf_assets/nif_material.wgsl".into()
+        "embedded://nvf_assets/nif_material.wesl".into()
     }
 
     fn deferred_fragment_shader() -> ShaderRef {
-        "embedded://nvf_assets/nif_material.wgsl".into()
+        "embedded://nvf_assets/nif_material.wesl".into()
     }
 
     fn specialize(
@@ -594,7 +594,7 @@ impl Falloff {
     }
 
     /// Opacity at the cosine `c` of the view angle: linear in the cosine between the
-    /// start and stop angles, held beyond them (CPU mirror of nif_material.wgsl).
+    /// start and stop angles, held beyond them (CPU mirror of nif_material.wesl).
     pub fn opacity(&self, c: f32) -> f32 {
         let p = self.params;
         let t = ((c - p.y) / (p.x - p.y)).clamp(0.0, 1.0);
@@ -609,7 +609,7 @@ pub const MULTIPLY_GAMMA: f32 = 2.2;
 /// The factor a multiply-blended shape (NiAlphaProperty source factor ZERO, destination
 /// factor SRC_COLOR: result = destination × source colour [documented: nif.xml
 /// AlphaFlags]) puts on what lies behind it, for the shape's lit colour and emissive
-/// light, both linear (CPU mirror of nif_material.wgsl).
+/// light, both linear (CPU mirror of nif_material.wesl).
 ///
 /// The game's shader output is taken as texture × (light + emissive colour × emissive
 /// multiplier) in display values, held to 0..1 when written to the frame [hypothesis,
@@ -648,7 +648,7 @@ pub const ADD_DISPLAY_MAX: f32 = 2.0;
 /// The linear light an additive shape (NiAlphaProperty destination factor ONE, drawn as
 /// `AlphaMode::Add`) adds to a pixel whose opaque frame is `behind` (linear), for its
 /// linear colour `colour` and its alpha `alpha` (1 for a ONE / ONE shape; CPU mirror of
-/// nif_material.wgsl).
+/// nif_material.wesl).
 ///
 /// The game adds colour × alpha to the frame's display values [hypothesis,
 /// docs/spec-notes/nif.md §6 "Additive blend"]. Bevy adds linear light, so the shader
@@ -665,13 +665,13 @@ pub fn add_display(colour: Vec3, alpha: f32, behind: Vec3) -> Vec3 {
 }
 
 /// Power on the alpha in the colour term of unlit alpha-blended shapes
-/// ([`blend_colour_scale`]; nif_material.wgsl has the same number) [hypothesis, fitted:
+/// ([`blend_colour_scale`]; nif_material.wesl has the same number) [hypothesis, fitted:
 /// docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"].
 pub const BLEND_ALPHA_POWER: f32 = 1.5;
 
 /// The factor on the colour of an unlit alpha-blended shape (smoke, mist, dust, every
 /// particle system; NiAlphaProperty SRC_ALPHA / INV_SRC_ALPHA) of alpha `a` (CPU mirror
-/// of nif_material.wgsl).
+/// of nif_material.wesl).
 ///
 /// The game blends colour × alpha + behind × (1 − alpha) in display values
 /// [hypothesis, docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"]; Bevy does it
@@ -687,11 +687,17 @@ pub struct NifMaterialPlugin;
 
 impl Plugin for NifMaterialPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "nif_material.wgsl");
-        load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, NIF_SURFACE_BINDINGS_SHADER, "nif_surface_bindings.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, FIRST_PERSON_DEPTH_SHADER, "first_person_depth.wgsl", Shader::from_wgsl);
+        bevy::asset::embedded_asset!(app, "nif_material.wesl");
+        // WESL modules named by their embedded path, so the other shaders import them as
+        // `nvf_assets::<file>` (Bevy 0.20 takes the import path from it).
+        load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/fade_prepass.wesl"));
+        load_internal_asset!(app, NIF_SURFACE_BINDINGS_SHADER, "nif_surface_bindings.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/nif_surface_bindings.wesl"));
+        load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/nif_prepass.wesl"));
+        load_internal_asset!(app, FIRST_PERSON_DEPTH_SHADER, "first_person_depth.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/first_person_depth.wesl"));
+        // Every 3D camera gets the view transmission texture, as each one had before Bevy
+        // 0.20 made `ScreenSpaceTransmission` opt-in: the refraction here and the water
+        // (nvforever water.rs) read it, and their shaders bind it unconditionally.
+        app.register_required_components::<Camera3d, bevy::pbr::ScreenSpaceTransmission>();
         app.add_plugins(MaterialPlugin::<NifMaterial>::default())
             .add_systems(Startup, spawn_transmission_anchor)
             .add_systems(PostUpdate, see_through_casts_no_shadow);
@@ -757,7 +763,7 @@ pub struct SeeThroughNoShadow;
 /// (owner, playtest 2026-10-11: "anything see-through should not be generating a
 /// shadow"; the Prospector Saloon's window rays and lit lanterns threw the flashlight's
 /// shadows). Their depth-only shadow pass drew every fragment with alpha above 0.05
-/// (`nif_prepass.wgsl`), so a light ray stood in the light like a wall. Checked whenever
+/// (`nif_prepass.wesl`), so a light ray stood in the light like a wall. Checked whenever
 /// a mesh gets its material (docs/spec-notes/nif.md §6 "Shadows of see-through shapes").
 #[allow(clippy::type_complexity)]
 fn see_through_casts_no_shadow(
@@ -893,11 +899,11 @@ mod tests {
         assert!(hand > barrel && barrel > wall);
         // Two units apart at 60 units still differ by many steps of an f32 near 1.
         assert!(first_person_squeeze(z(60.0)) - first_person_squeeze(z(62.0)) > 100.0 * f32::EPSILON);
-        assert!(include_str!("first_person_depth.wgsl").contains("const FIRST_PERSON_DEPTH_SHARE: f32 = 0.015625;"));
+        assert!(include_str!("first_person_depth.wesl").contains("const FIRST_PERSON_DEPTH_SHARE: f32 = 0.015625;"));
         assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);
     }
 
-    /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).
+    /// CPU mirror of the shaders' edge formula (nif_material.wesl, tree.wesl).
     fn edge(alpha: f32, cutoff: f32, width: f32) -> f32 {
         ((alpha - cutoff) / width.max(0.0001) + 1.0).clamp(0.0, 1.0)
     }

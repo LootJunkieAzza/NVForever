@@ -90,6 +90,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayWorld};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::dialogue::{Challenge, Choice};
 use fnv_game::trace::{Event, EventKind};
 use fnv_game::{Game, GameData};
