@@ -687,3 +687,32 @@ fn navmesh_switches_are_kept_and_saved() {
     let fresh = game(&f, None);
     assert!(serde_json::to_value(fresh.snapshot()).unwrap().get("nav_switches").is_none());
 }
+
+/// The runner's `package {event: done}` stands in for the AI reaching the goal of the
+/// actor's current package: GetCurrentAIProcedure then reads 17 DONE, as after
+/// `Game::package_goal_met`; a package the actor is not running is not marked. Camp
+/// Golf's range packages (FalloutNV.esm PACK 0x0012FEED end) wait for the other three
+/// misfits to read DONE before the range opens.
+#[test]
+fn the_runners_package_done_marks_the_current_packages_goal_met() {
+    let f = fixture();
+    let (a, morning, night) = (format!("0x{REF_A:08X}"), format!("0x{P_MORNING:08X}"), format!("0x{P_NIGHT:08X}"));
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": format!("{a}.AddScriptPackage {morning}")},
+            {"op": "call", "line": format!("{a}.GetCurrentAIProcedure"), "label": "travelling"},
+            {"op": "package", "actor": a, "package": night, "event": "done"},
+            {"op": "call", "line": format!("{a}.GetCurrentAIProcedure"), "label": "another package done"},
+            {"op": "package", "actor": a, "package": morning, "event": "done"},
+            {"op": "call", "line": format!("{a}.GetCurrentAIProcedure"), "label": "arrived"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap_or_else(|| panic!("no {l}"))["value"].clone();
+    assert_eq!(by("travelling"), 0.0);
+    assert_eq!(by("another package done"), 0.0);
+    assert_eq!(by("arrived"), 17.0);
+}

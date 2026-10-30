@@ -1,0 +1,20 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless We Are Legion (VDeadSea), the fail: VDeadSea 10 as in we-are-legion, then Dead Sea killed (VDeadSea 66)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: as we-are-legion to 'VDeadSea 10'; then Dead Sea killed (LegionaryDeadSeaDialogueSCRIPT, once the quest has started: VDeadSea 66). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to Nelson."},
+    {"op": "move_player", "to": "LegionaryDeadSeaREF"},
+    {"op": "talk", "actor": "LegionaryDeadSeaREF", "label": "dead sea greeting"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic001", "label": "dead sea 001"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic003", "label": "dead sea 003"},
+    {"op": "choose", "topic": "VDeadSeaLegionaryDeadSeaTopic014", "label": "job taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VDeadSea", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VDeadSea 10"},
+    {"op": "move_player", "to": "LegionaryDeadSeaREF"},
+    {"op": "kill", "actor": "LegionaryDeadSeaREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VDeadSea", "fields": ["stage", "done.66"], "label": "final: VDeadSea 66"}
+  ]
+}

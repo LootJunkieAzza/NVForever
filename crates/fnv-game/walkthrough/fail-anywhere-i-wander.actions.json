@@ -1,0 +1,23 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Anywhere I Wander (VTechatticup), the fail: VTechatticup 10 as in anywhere-i-wander, then Renolds killed (VTechatticup 110)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: as anywhere-i-wander to 'VTechatticup 10'; then Renolds killed (the quest script sets VTechatticup 110 once he is dead). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "move_player", "to": "NVTecNCRRenoldsREF"},
+    {"op": "note", "text": "A Legion explorer from Nelson calls StartConversation on the player as its cell loads (nvNelsonExplorerBarkSCRIPT; the engine starts it at once, StartConversation's walk-up is a stand-in). The player answers peacefully (Topic009, then 010: go before the Decanus)."},
+    {"op": "wait_talk", "start": true, "label": "explorer"},
+    {"op": "choose", "topic": "nvNelsonExplorerBarknvNelsonLegionaryExplorerTopic009", "label": "explorer passing"},
+    {"op": "choose", "topic": "nvNelsonExplorerBarknvNelsonLegionaryExplorerTopic010", "label": "explorer decanus"},
+    {"op": "wait_talk"},
+    {"op": "talk", "actor": "NVTecNCRRenoldsREF", "label": "renolds greeting"},
+    {"op": "choose", "topic": "VTechatticupNVTechatticupNCRRenoldsTopic000", "label": "renolds 000"},
+    {"op": "choose", "topic": "VTechatticupNVTechatticupNCRRenoldsTopic002", "label": "renolds 002"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VTechatticup", "fields": ["stage", "done.10"], "label": "milestone: VTechatticup 10"},
+    {"op": "move_player", "to": "NVTecNCRRenoldsREF"},
+    {"op": "kill", "actor": "NVTecNCRRenoldsREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "VTechatticup", "fields": ["stage", "done.110"], "label": "final: VTechatticup 110"}
+  ]
+}

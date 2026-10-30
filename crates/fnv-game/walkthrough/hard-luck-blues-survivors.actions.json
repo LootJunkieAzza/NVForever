@@ -1,0 +1,30 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Hard Luck Blues (VES34Vault), the survivors saved: the readings (10-25), Vault 34's survivors saved at the master override (40, 60), Morgan Blake killed (70, 80)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: as hard-luck-blues to the reactor terminal (stage 25); the master override's other entry, the vault's survivors saved (item 2: stage 40, whose script sets 60); then Morgan Blake killed by the player (kill stands in for the fight: V34MorganBlakeScript's OnDeath sets 70 while 50 or 60 is not done; 70's script sets 80). Travel is move_player."},
+    {"op": "note", "text": "Stand-in for the trip to the sharecropper farms."},
+    {"op": "move_player", "to": "placed:1ESharecropperMorganBlake"},
+    {"op": "talk", "actor": "placed:1ESharecropperMorganBlake", "label": "morgan blake greeting"},
+    {"op": "choose", "topic": "VES34Vault1ESharecropperMorganBlakeTopic000", "label": "the crops"},
+    {"op": "choose", "topic": "VES34Vault1ESharecropperMorganBlakeTopic002", "label": "help offered"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "var.hasquest", "objective.10.displayed"], "label": "milestone: VES34Vault 10"},
+    {"op": "note", "text": "Stand-in for the trip to the East Pump Station."},
+    {"op": "move_player", "to": "placed:EastPumpStationTerminal"},
+    {"op": "terminal", "target": "placed:EastPumpStationTerminal", "item": 0, "label": "pump readings"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "var.foundrads", "objective.20.displayed"], "label": "milestone: VES34Vault 20"},
+    {"op": "note", "text": "Stand-in for the trip through Vault 34's flooded, irradiated halls to the reactor."},
+    {"op": "move_player", "to": "placed:V34ReactorTerminal"},
+    {"op": "terminal", "target": "placed:V34ReactorTerminal", "item": 0, "label": "reactor terminal"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "objective.30.displayed", "objective.40.displayed", "var.blearnssurvivors"], "label": "milestone: VES34Vault 25"},
+    {"op": "move_player", "to": "placed:V34MasterOverrideTerminal"},
+    {"op": "terminal", "target": "placed:V34MasterOverrideTerminal", "item": 2, "label": "survivors saved"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "done.40", "done.60", "var.savedsurvivors"], "label": "milestone: VES34Vault 60"},
+    {"op": "move_player", "to": "placed:1ESharecropperMorganBlake"},
+    {"op": "kill", "actor": "placed:1ESharecropperMorganBlake", "killer": "player"},
+    {"op": "get_quest", "quest": "VES34Vault", "fields": ["stage", "done.70", "done.80"], "label": "final: VES34Vault 80"}
+  ]
+}
