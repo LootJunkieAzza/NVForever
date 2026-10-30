@@ -237,6 +237,38 @@ pub struct LodState {
     pub blocks: usize,
     /// Terrain chunks spawned anew since the start (shadow_probe.rs).
     pub terrain_rebuilds: usize,
+    /// What the object-block loop did since the start (logged at the exit).
+    pub block_stats: BlockStats,
+}
+
+/// Object-block work over a run, for the exit log (stress runs and smoke read it).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct BlockStats {
+    /// Squares that got their first block, and blocks rebuilt for changed cells.
+    pub spawned: usize,
+    pub rebuilt: usize,
+    /// Most blocks spawned or rebuilt in one frame.
+    pub most_in_frame: usize,
+    /// Squares put off to a later frame because the frame's budget was spent (one per
+    /// square and frame).
+    pub put_off: usize,
+    /// Slowest frames of the whole LOD update and of its block loop alone (ms), and the
+    /// frames the update took longer than [`SLOW_UPDATE_MS`].
+    pub update_slowest_ms: f32,
+    pub blocks_slowest_ms: f32,
+    pub slow_updates: usize,
+}
+
+/// An LOD update this long (ms) counts as slow in [`BlockStats`]: twice the budget.
+const SLOW_UPDATE_MS: f32 = 2.0 * REBUILD_BUDGET_MS;
+
+impl BlockStats {
+    pub fn describe(&self) -> String {
+        format!(
+            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms",
+            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS
+        )
+    }
 }
 
 impl LodState {
@@ -317,6 +349,7 @@ impl LodState {
             generated: 0,
             blocks: 0,
             terrain_rebuilds: 0,
+            block_stats: BlockStats::default(),
         }
     }
 
@@ -488,6 +521,7 @@ pub fn update_lod(
         return;
     }
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    let update_started = std::time::Instant::now();
     let g = bevy_to_game(cam.translation());
     let c = cell_of(g.x, g.y);
     let centre_chunk = (c.0.div_euclid(LEVEL), c.1.div_euclid(LEVEL));
@@ -563,6 +597,8 @@ pub fn update_lod(
     }
     lod.chosen = chosen;
     let squares = std::mem::take(&mut lod.squares);
+    let blocks_started = std::time::Instant::now();
+    let mut blocks_this_frame = 0usize;
     for &sq in &squares {
         let (full_mask, present) = masks.get(&sq).copied().unwrap_or_default();
         let key = BlockKey { full: full_mask, present };
@@ -581,9 +617,15 @@ pub fn update_lod(
                 b.steps = steps;
             }
             // Over the budget: the old block stays as it is until a later frame.
-            Some(_) if over_budget(rebuilt) => {}
-            _ => {
+            Some(_) if over_budget(rebuilt) => lod.block_stats.put_off += 1,
+            b => {
+                if b.is_some() {
+                    lod.block_stats.rebuilt += 1;
+                } else {
+                    lod.block_stats.spawned += 1;
+                }
                 rebuilt += 1;
+                blocks_this_frame += 1;
                 if let Some(old) = lod.block_entities.remove(&sq) {
                     despawn_all(&mut commands, old.entities.into_iter().chain(old.pieces.into_iter().map(|(_, e)| e)));
                 }
@@ -594,6 +636,13 @@ pub fn update_lod(
         }
     }
     lod.squares = squares;
+    let ms = |t: std::time::Instant| t.elapsed().as_secs_f32() * 1000.0;
+    let (blocks_ms, update_ms) = (ms(blocks_started), ms(update_started));
+    let st = &mut lod.block_stats;
+    st.most_in_frame = st.most_in_frame.max(blocks_this_frame);
+    st.blocks_slowest_ms = st.blocks_slowest_ms.max(blocks_ms);
+    st.update_slowest_ms = st.update_slowest_ms.max(update_ms);
+    st.slow_updates += usize::from(update_ms > SLOW_UPDATE_MS);
     if changed {
         let game = |t: &&TerrainEntities| t.drawn == Some(false);
         lod.chunks = lod.terrain.values().filter(game).count();
