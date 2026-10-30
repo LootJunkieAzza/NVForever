@@ -36,7 +36,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 2 | DDS / BCn textures | **done**: own header/layout parser (`fnv-dds`); GPU upload as BCn directly; CPU BCn decoders deferred (ADR-0001) |
 | — | first-start dialogs (game folder) | **chosen**: `rfd` 0.15 (MIT), engine workspace, Windows only, no default features: the system's message boxes and folder picker before the game window opens (install-layout.md, "First start") |
 | 3 | CPU BCn encode/decode (generated LOD) | **chosen**: `texpresso` 2.0 (pure Rust, MIT), engine workspace only: decodes terrain textures and encodes the generated LOD's BC1 textures (docs/design/generated-lod.md) |
-| 2 | math, viewer | **done**: Bevy 0.19.1 (its `glam`), viewer in its own workspace (ADR-0001) |
+| 2 | math, viewer | **done**: Bevy 0.20.1 (its `glam`; 0.19.1 until #934), viewer in its own workspace (ADR-0001) |
 | 3 | rendering | `wgpu` (Vulkan/Metal/DX12), `winit` for windows/input |
 | 4 | physics / character controller | **chosen**: `rapier3d` 0.36 with `enhanced-determinism` (pure Rust, Apache-2.0, no Bevy coupling; Jolt bindings rejected for the C++ build and FFI, `avian3d` for its Bevy coupling; layer4.md §2.8). Used by `fnv-phys` only, which runs rapier in metres internally and exposes game units; terrain as triangle meshes (rapier's heightfield missed rays along grid lines). Pinned to `=0.36.0` (traces are compared bit for bit; licence Apache-2.0, its new dependencies `glamx`/`glam`/`parry3d` MIT/Apache-2.0, within deny.toml). docs/spec-notes/physics.md |
 | 4 | entity model | **decided**: plain ordered maps in `fnv-sim`, no ECS in the core (layer4.md §2.2); `rand_chacha` for the seeded, reproducible RNG |

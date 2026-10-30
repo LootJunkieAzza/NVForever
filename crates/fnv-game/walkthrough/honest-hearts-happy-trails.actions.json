@@ -1,0 +1,36 @@
+{
+  "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm", "HonestHearts.esm"],
+  "title": "Headless Honest Hearts start (HonestHearts.esm): the broadcast (NVDLC02MQ00 10), Jed met at the Northern Passage (20), the caravan's terms (30), the departure and the intro slides (100); docs/handoff/mq-walkthrough-2026-10-27.md",
+  "given": [
+    {"kind": "menu", "menu": 1001, "open": false},
+    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [200]}
+  ],
+  "actions": [
+    {"op": "note", "text": "New game, the player out of Doc Mitchell's house (VCG01 done). Once the player is out of the house cell the add-on's quest script (NVDLC02MQ00Script) waits 5 s, then sets Happy Trails Expedition (NVDLC02MQ00) 10 and shows its two loaded messages (closed as the player's OK would). Travel stand-in: move_player to Jed at the Northern Passage."},
+    {"op": "move_player", "to": "NVDLC02JedREF"},
+    {"op": "advance_seconds", "seconds": 8},
+    {"op": "dismiss_message_boxes", "max": 4, "wait_frames": 60, "label": "loaded messages closed"},
+    {"op": "get_quest", "quest": "NVDLC02MQ00", "fields": ["running", "stage", "var.nEnableDLC"], "label": "milestone: Happy Trails Expedition 10 (the broadcast)"},
+    {"op": "note", "text": "Jed's first greeting ('Heard my little broadcast'): its end script sets 20. Then 'let's do it' (CaravanMasterTopic000), 'ready to go' (JedTopic026, the alone-and-light answer) and 'why the weight limit?' (JedTopic002), whose end script sets 30: the player knows the terms."},
+    {"op": "talk", "actor": "NVDLC02JedREF", "label": "Jed greets (first time)"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "NVDLC02MQ00", "fields": ["stage"], "label": "milestone: Happy Trails Expedition 20 (Jed met)"},
+    {"op": "choose", "topic": "NVDLC02DialogueCaravanMasterNVDLC02CaravanMasterTopic000", "label": "Jed: let's do it (alone and light)"},
+    {"op": "choose", "topic": "NVDLC02DialogueCaravanMasterNVDLC02JedTopic026", "label": "Jed: ready to go"},
+    {"op": "choose", "topic": "NVDLC02DialogueCaravanMasterNVDLC02JedTopic002", "label": "Jed: why the weight limit"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "NVDLC02MQ00", "fields": ["stage"], "label": "milestone: Happy Trails Expedition 30 (the terms)"},
+    {"op": "note", "text": "Jed is essential until stage 100 (its result clears it), so a fight before the departure knocks him out and his script's fail branch (255 when dead below 100) cannot run; the caravan guards' scripts likewise [observed: NVDLC02JedSCRIPT, MQ00 stage 100]. This chain leaves with the caravan instead: the main chain's departure."},
+    {"op": "choose", "topic": "NVDLC02DialogueCaravanMasterNVDLC02CaravanMasterTopic000", "label": "Jed: let's do it (again)"},
+    {"op": "choose", "topic": "NVDLC02DialogueCaravanMasterNVDLC02JedTopic000", "label": "Jed: leave for Zion"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 2},
+    {"op": "note", "text": "The line starts NVDLC02IntroSlides, whose script moves the player into the slide room; the room's trigger (OnTriggerEnter, physics sensors stand in) starts the narrator's SayTo chain, whose last SayToDone sets MQ00 100 (the arrival in Zion)."},
+    {"op": "trigger_enter", "trigger": "scripted:0x01010131"},
+    {"op": "wait_quest", "quest": "NVDLC02MQ00", "field": "stage", "value": 100, "max_frames": 108000, "label": "milestone: Happy Trails Expedition done (intro slides said)"},
+    {"op": "advance_seconds", "seconds": 3},
+    {"op": "get_quest", "quest": "NVDLC02MQ00", "fields": ["running", "stage", "completed"], "label": "final: Happy Trails Expedition done"}
+  ]
+}

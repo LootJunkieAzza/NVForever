@@ -1,0 +1,59 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Why Can't We Be Friends? (VMS42), Philip Lem's side: the player takes his job to blow up the sulfur (11)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: in Vault 19 Philip Lem greets the player; asked about the vault (Topic031, which shares Topic007's line 0x00146E1D), he asks the player to blow up Cooke's sulfur and the player agrees (Topic142: 11, LemGoDestroySulfur, the blue keycard). The sulfur's explosion and the stages after it (12, 13) are set by nothing in FalloutNV.esm. Stand-in: the trip to Vault 19 by move_player."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the trip to Vault 19."
+  },
+  {
+   "op": "move_player",
+   "to": "VPhilipLemREF"
+  },
+  {
+   "op": "talk",
+   "actor": "VPhilipLemREF",
+   "label": "lem greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS42VVault19PhilipLemTopic031"
+  },
+  {
+   "op": "choose",
+   "topic": "VMS42VVault19PhilipLemTopic142"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS42",
+   "fields": [
+    "running",
+    "stage",
+    "done.11",
+    "var.LemGoDestroySulfur"
+   ],
+   "label": "final: VMS42 11"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "BlueKeyCard",
+   "label": "blue keycard"
+  }
+ ]
+}

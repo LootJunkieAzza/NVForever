@@ -66,6 +66,7 @@ use crate::{space, ItemUsed, Location, OpenContainer, PlaySet, PlayState, Player
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use fnv_sim::forms::BaseData;

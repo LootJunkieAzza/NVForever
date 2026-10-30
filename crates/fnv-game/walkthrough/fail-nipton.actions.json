@@ -1,0 +1,33 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Nipton (vMojaveGhost, VNipton), the deaths: vMojaveGhost 10 as in nipton, then Vulpes Inculta at Nipton, Ranger Ghost, Nipton's survivor, Boxcars killed (vMojaveGhost 20, vMojaveGhost 66, VNipton 35, VNipton 70)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: as nipton to 'vMojaveGhost 10'; then Vulpes Inculta at Nipton killed (VulpesIncultaNiptonSCRIPT, while vMojaveGhost is at 10: vMojaveGhost 20); Ranger Ghost killed (vMORangerGhostSCRIPT: vMojaveGhost 66); Nipton's survivor killed (NiptonSurvivorDeathScript: VNipton 35); Boxcars killed (boxcarscrippledSCRIPT: VNipton 70). Kill stands in for each fight, by the player; travel is move_player."},
+    {"op": "move_player", "to": "vMORangerGhostREF"},
+    {"op": "talk", "actor": "vMORangerGhostREF", "label": "ghost greeting"},
+    {"op": "choose", "topic": "vMojaveGhostvMORangerGhostTopic005", "label": "ghost 005"},
+    {"op": "choose", "topic": "vMojaveGhostvMORangerGhostTopic015", "label": "ghost 015"},
+    {"op": "choose", "topic": "vMojaveGhostvMORangerGhostTopic013", "label": "ghost 013"},
+    {"op": "choose", "topic": "vMojaveGhostvMORangerGhostTopic011", "label": "recon nipton"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "vMojaveGhost", "fields": ["running", "stage", "objective.10.displayed", "var.bMetGhost"], "label": "milestone: vMojaveGhost 10"},
+    {"op": "move_player", "to": "vLegionaryVulpesIncultaREF"},
+    {"op": "kill", "actor": "vLegionaryVulpesIncultaREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vMojaveGhost", "fields": ["stage", "done.20"], "label": "milestone: vMojaveGhost 20"},
+    {"op": "move_player", "to": "vMORangerGhostREF"},
+    {"op": "kill", "actor": "vMORangerGhostREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vMojaveGhost", "fields": ["stage", "done.66"], "label": "milestone: vMojaveGhost 66"},
+    {"op": "move_player", "to": "scripted:NiptonSurvivorDeathScript"},
+    {"op": "kill", "actor": "scripted:NiptonSurvivorDeathScript", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VNipton", "fields": ["stage", "done.35"], "label": "milestone: VNipton 35"},
+    {"op": "move_player", "to": "vNiptonBoxcarsREF"},
+    {"op": "kill", "actor": "vNiptonBoxcarsREF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VNipton", "fields": ["stage", "done.70"], "label": "final: VNipton 70"}
+  ]
+}

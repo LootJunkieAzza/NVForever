@@ -478,10 +478,25 @@ The numbers above stay put so links to them hold; each item here gives its own p
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
     (P3; §10 stall 5.)
+47. **Does a talking activator's scripted `Activate player` start its conversation?** (P1:
+    Ring-a-Ding-Ding's ambush at the Tops, and the REPCONN intercom, #906.) Take Benny's
+    cash-up-front invitation and enter the presidential suite: does the intercom start
+    Benny's conversation by itself about 15 s later? (§11 stall 1.)
+48. **Can Oliver be talked into retreating on House's path?** (P3.) After "You will because
+    the alternative is worse", which reply does he give (Topic065 has two lines with the same
+    conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.)
+49. **Does attacking Daniel during Flight from Zion start Chaos in Zion at once?** (P3; a hit
+    starts no AI combat headless.) Also: attacked at the Northern Passage, does Jed go down
+    unconscious, and does Happy Trails fail? (§11 stall 3.)
+50. **Does walking behind Stone on his night route set VMS31 60 as soon as he is in view?**
+    (P3; no line of sight headless.) (§11 stall 3.)
+51. **Does the script language short-circuit `&&`?** (P2.) EDEScript checks
+    `rLogBlocker.GetInSameCell` inside an `&&`; ours evaluates both sides and logs an
+    empty-reference error each frame near ED-E in Primm. (§11 stall 4.)
 
 ## Added 2026-10-30 (UI tile tree T8: the pointer and keys)
 
-47. **The pointer on menu tiles** (P2: every menu drawn from its file, MCM's page, 16
+52. **The pointer on menu tiles** (P2: every menu drawn from its file, MCM's page, 16
     plugins of the modlist scan). Ours (fnv-ui `input`):
     - where two targets overlap, the highest summed `depth` takes the pointer (a tie to
       the one drawn later), and a menu opened later is over an earlier one;

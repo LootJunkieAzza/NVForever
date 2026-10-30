@@ -23,6 +23,7 @@ use crate::lockpick::screen::{Ctx, FontKind, Kit};
 use crate::pause::AidTime;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::Button;
 use bevy::window::PrimaryWindow;
 use fnv_game::slots::{self as rules, REELS};
 use nvf_assets::GameData;

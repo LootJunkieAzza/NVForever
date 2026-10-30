@@ -135,7 +135,7 @@ Counts [observed, this rule]: cell (−16, −1), where two textures with grass 
 GrassWasteland06, 94 GrassWasteland05nv, 67 GrassWasteland07). The engine prints the
 plants of the loaded cells in its overlay and in the `--run-seconds` summary.
 
-## 5. Drawing (`engine/nvforever/src/grass.rs`, `grass.wgsl`)
+## 5. Drawing (`engine/nvforever/src/grass.rs`, `grass.wesl`)
 
 Checked against two owner screenshots of the game at the Goodsprings sign, at game hour 8
 and 12 (2026-10-10; kept privately with NVForever's frames from the same camera). The
@@ -146,7 +146,7 @@ region of the 1280 × 720 frames): its brightest tenth, which is grass in the li
   for every plant; one material per type (texture, both faces drawn).
 - **Edges.** The texture is cut at the model's alpha-test threshold, but texels below
   the threshold cover a share of the pixel's samples (alpha / threshold) instead of
-  being dropped, where the view is multisampled (alpha to coverage; grass.wgsl). The
+  being dropped, where the view is multisampled (alpha to coverage; grass.wesl). The
   owner's game runs with `iMultiSample=8` and `bTransparencyMultisampling=1` [observed:
   `FalloutPrefs.ini`], and its grass has soft, feathered strands [observed: the
   screenshots]. With a plain alpha test NVForever's strands ended in hard steps and the

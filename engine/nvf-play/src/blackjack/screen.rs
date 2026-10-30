@@ -20,6 +20,7 @@ use crate::lockpick::screen::{Ctx, FontKind, Kit};
 use crate::pause::AidTime;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::Button;
 use bevy::window::PrimaryWindow;
 use nvf_assets::GameData;
 

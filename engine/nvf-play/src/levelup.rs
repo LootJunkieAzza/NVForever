@@ -39,6 +39,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::game::menus;
 use fnv_game::levelup as rules;
 use fnv_game::Game;
