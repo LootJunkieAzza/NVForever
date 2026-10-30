@@ -219,6 +219,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1007, "SetPos", Impl(refs::set_pos)),
             (0x1008, "GetAngle", Impl(refs::get_angle)),
             (0x1009, "SetAngle", Impl(refs::set_angle)),
+            (0x100A, "GetStartingPos", Impl(refs::get_starting_pos)),
+            (0x100B, "GetStartingAngle", Impl(refs::get_starting_angle)),
             (0x116B, "GetLinkedRef", Impl(refs::get_linked_ref)),
             (0x1113, "GetParentRef", Impl(refs::get_parent_ref)),
             (0x11BB, "MarkForDelete", Impl(refs::mark_for_delete)),

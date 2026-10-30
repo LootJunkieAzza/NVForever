@@ -10,9 +10,11 @@ properties, the menus. So this batch takes the families that already have built 
 
 Wiki statements are `[documented: <page>]` (the private export
 `C:\fnv-private\geckwiki\functions.xml`). Field names are the Layer 1 schema's
-(`schemas/fnv`). No probe was run in the original game for this batch. Each value below
-is NVForever's reading of FalloutNV.esm through `fnvtool script run` (2026-10-30), not a
-value from the game.
+(`schemas/fnv`). The probe set `jip4` (tools/capture/jip_probes.py, 281 rows, golden
+`jip/jip4.json`, lab scenario `L5.ext.jip4`) ran these functions in the original game
+with JIP 57.30 from the `nvftest` save on 2026-10-30, three times; the rows that two runs
+share came back the same but for one GetDelayElapsed row (§10). Values marked [observed]
+are from it. The example values in §2–§9 are the game's and NVForever's alike.
 
 ## 1. Rules shared by every setter
 
@@ -56,12 +58,13 @@ schema names the same way (bit 3 has no name on either side).
 - 0–14 are CSSD in order: cover search radius … semi-auto firing delay mult max, with
   9 the weapon restrictions.
 - 15–42 are CSTD in order: dodge chance … rushing attack distance mult.
-- 43–63 are CSAD: dodge fatigue mod base, then mult, and so on.
+- 43–63 are CSAD in the record's field order.
 
-The page lists each base/mult pair base first while CSAD keeps some pairs mult first, so
-each ID maps to the field of the same name, not to the same place [hypothesis: the
-mapping by name; no probe]. FollowersCombatStyleRanged: cover search radius 2048, combat
-radius 10000, dodge chance 50.
+The page lists the dodge fatigue, block skill and attack skill pairs base first, but CSAD
+keeps them mult first, and the IDs follow CSAD, not the page's names [observed: jip4,
+FollowersCombatStyleRanged 43 reads -20, CSAD's first field; 44 reads 0; the same for
+53/54 and 57/58]. FollowersCombatStyleRanged: cover search radius 2048, combat radius
+10000, dodge chance 50.
 
 ## 4. Lights (LIGH)
 
@@ -97,8 +100,8 @@ not decode yet.
   sunset begin 960, sunrise begin 300.
 - 4 is volatility (TNAM).
 - 5 (moons) and 6 (phase length) share TNAM's last byte: the moons are its top two
-  bits, the phase length its low six [hypothesis: the bit split; WastelandClimate's byte
-  reads moons 2 and phase length 3]. The setter keeps the other half of the byte.
+  bits, the phase length its low six [observed: jip4, WastelandClimate reads moons 2
+  and phase length 3; SetClimateTraitNumeric 6 7 reads back 7 and leaves the moons 2].
 
 ## 8. Quests
 
@@ -109,7 +112,9 @@ not decode yet.
 - 4 (set running on reset) is DATA bit 0, Start Game Enabled [documented: the page's note,
   Start Game Enabled "equals flags 0 and 4"].
 - 5 (shown in the Pip-Boy) reads 1 for a named quest that runs or ran, or after a script
-  sets it [hypothesis].
+  sets it [observed: jip4, 1 on VCG01 and VCG02, which the save has run, 0 on VMS01 and
+  VMS20, which it has not, and 0 on VDeadSea, which runs from the start with no name;
+  SetQuestFlag 5 1 reads back 1; hypothesis: the rule].
 - 7 is unknown and reads as a script set it.
 
 ## 9. Factions, cells, waters, sounds
@@ -135,7 +140,8 @@ not decode yet.
 - `GetPCDetectionState` [documented: -1 n/a, 0 hidden, 1 caution, 2 detected, 3 danger]:
   the highest band any actor has the player in (`detection::Detections::highest`): hidden 0,
   noticed 1, detected 2, and 3 when that actor's combat target is the player
-  [hypothesis: the split of 2 and 3]. With no measure it reads 0. NVForever never reads
+  [observed: jip4, 2 in the `nvftest` save, where Ringo, not hostile, stands near the
+  player; hypothesis: 3 in combat, not probed]. With no measure it reads 0. NVForever never reads
   -1, because the function runs only in a game.
 - `GetRefType` [documented: the type code of the reference, not its base]: the
   reference's own record type. The player is an ACHR; an inventory reference or one made
@@ -143,20 +149,30 @@ not decode yet.
 - `GetTeleportDoor` [documented]: the door at the other end, SetDoorTeleport's change
   first (the same reading as GetLinkedDoor).
 - `GetDelayElapsed quest` [documented: "the time remaining until the next iteration of
-  the quest's script"]: the script delay minus the seconds since it last ran, at least 0.
+  the quest's script"]: the script delay minus the seconds since it last ran. It goes
+  below 0 for a moment before the script runs, so there is no floor [observed: a scratch
+  capture read VDeadSea 1.397, 1.381, 1.365 … s, 15.6 ms less each frame; one jip4 run
+  read VCG01 below 0 and the next above]. It stays within the delay (5 s here).
 - `GetGlobalRef global`, `SetGlobalRef global [form]` [documented: their pages; on a
-  reference with no form, the reference]. The form is kept beside the global; the
-  global's number is left as it was [hypothesis].
+  reference with no form, the reference]. The form ID is written into the global's own
+  value as the bits of its float, and GetGlobalRef reads the bits back, 0 when they name
+  no form [observed: jip4, GameYear 2281 reads GetGlobalRef 0; after SetGlobalRef of
+  00104C0F it reads GetGlobalValue 1.49665e-39, which is those bits].
 - `GetEditorPosition` [documented: returns the cell and writes the six output variables;
   0 for a reference not placed in the editor]. The angles are in degrees [hypothesis: as
-  GetAngle reads them].
+  GetStartingAngle reads them]. Not probed: none of six forms of the call (let or set,
+  to a ref or a float, three outputs or six, or no result) compiled through the capture
+  plugin's run-time compiler [observed, 2026-10-30].
+- `GetStartingPos axis`, `GetStartingAngle axis` (vanilla, built with this batch in
+  `functions/refs.rs`): the reference's placement in the plugins, the angle in degrees;
+  the player reads 0 on every axis [observed: jip4, DocMitchellRef 2288, 2244, 7360 and
+  angle Z 22.918; his door 2430, 1536, 7359].
 - `GetIsPoisoned` [documented: "under the influence of a poison-type effect"]: an effect
   on the actor whose source is an ingestible that GetIsPoison counts, all its effects
   hostile and detrimental [hypothesis: the rule].
 
-## 11. Next
+## 11. Still open
 
-A probe set for the original game would turn the hypotheses above into observations:
-combat style IDs 43–63, the climate's moons byte, quest flag 5, the detection state's
-2 and 3, the editor angles. Write it in `tools/capture/jip_probes.py` as the other sets,
-with the pages' example forms.
+The detection state 3 (needs a fight), GetEditorPosition (does not compile at run time,
+§10), and GetIsPoisoned on a poisoned actor. The quest flag 5 rule and flag 7 are read
+from five quests only.
