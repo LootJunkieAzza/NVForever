@@ -51,6 +51,7 @@ pub const SHARPENING: f32 = 0.5;
 /// Bloom and sharpening on a camera: x threshold, y knee, z bloom intensity (0 none),
 /// w sharpening (0 none).
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct PostEffects {
     pub params: Vec4,
 }
@@ -125,6 +126,7 @@ pub fn bright_pass(scale: f32) -> f32 {
 /// over white still throws a halo. Same layout as [`PostEffects`]: x threshold, y knee,
 /// z strength (0 none), w the blur's step in quarter-size texels ([`BRIGHT_PASS_STEP`]).
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct BrightPass {
     pub params: Vec4,
 }

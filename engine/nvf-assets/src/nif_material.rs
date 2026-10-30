@@ -176,7 +176,7 @@ fn nif_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipeline
 /// fragment stage; other pipelines are left alone.
 fn depth_prepass_fragment(descriptor: &mut RenderPipelineDescriptor, shader: Handle<Shader>) {
     let defs = &descriptor.vertex.shader_defs;
-    let has = |d: &str| defs.contains(&ShaderDefVal::from(d));
+    let has = |d: &'static str| defs.contains(&ShaderDefVal::from(d));
     // Prepasses with colour targets (or unclipped depth) run Bevy's full prepass
     // fragment, which already dithers (and tests without the vertex alpha: the
     // renderers use no such prepass).

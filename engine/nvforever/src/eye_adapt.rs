@@ -24,7 +24,7 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
-use bevy::math::cubic_splines::LinearSpline;
+use bevy::curve::cubic_splines::LinearSpline;
 use bevy::platform::collections::HashMap;
 use bevy::post_process::auto_exposure::{AutoExposure, AutoExposureCompensationCurve, AutoExposurePlugin};
 use bevy::prelude::*;
@@ -278,7 +278,7 @@ fn mask_pass(
 ) {
     let (exposure, prepass, extracted) = view.into_inner();
     let Some(multi) = crate::ssao::depth_multisampled(prepass) else { return };
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let Some(mask) = images.get(&exposure.metering_mask) else { return };
     let id = match pipelines.ids.get(&multi) {
         Some(id) => *id,

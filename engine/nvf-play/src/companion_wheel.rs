@@ -42,6 +42,7 @@ use crate::PlayState;
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::window::PrimaryWindow;
 use fnv_game::companion_wheel::{Command, Outcome, State as WheelButton};
 use fnv_sim::FormId;

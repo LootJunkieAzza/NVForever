@@ -105,6 +105,7 @@ pub mod sim;
 pub mod space;
 pub mod terminal;
 pub mod tutorial_menu;
+pub mod ui_compat;
 pub mod credits;
 mod test_aid;
 pub use test_aid::{drives_run, MEASURING_AIDS};

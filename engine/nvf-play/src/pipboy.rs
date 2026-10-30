@@ -618,7 +618,7 @@ fn drive_pointer(
 pub struct Clickable(pub PipBoyInput);
 
 /// Send a [`Clickable`]'s input when it is clicked.
-pub fn on_click(click: On<Pointer<Click>>, nodes: Query<&Clickable>, mut out: MessageWriter<PipBoyInput>) {
+pub fn on_click(click: On<PointerClick>, nodes: Query<&Clickable>, mut out: MessageWriter<PipBoyInput>) {
     if let Ok(c) = nodes.get(click.entity) {
         out.write(c.0);
     }

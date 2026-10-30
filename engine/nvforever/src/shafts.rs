@@ -52,6 +52,7 @@ const SOURCE_RADIUS: f32 = 0.3;
 
 /// Sun shafts on a camera, kept up to date by [`follow_sun`].
 #[derive(Component, ExtractComponent, Clone, Copy, Default, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct LightShafts {
     /// x, y: the sun on the screen (uv, may lie outside 0..1), z: strength (0: none this
     /// frame), w: the picture's width / height.
@@ -305,7 +306,7 @@ pub(crate) fn shafts_pass(
     if crate::ssao::depth_multisampled(prepass) != Some(sv.multi) || !crate::ssao::format_matches(target, sv.format) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let (Some(source), Some(composite)) = (cache.get_render_pipeline(sv.source), cache.get_render_pipeline(sv.composite)) else { return };
     let radial: Option<Vec<_>> = pipelines.radial.iter().map(|id| cache.get_render_pipeline(*id)).collect();
     let Some(radial) = radial else { return };

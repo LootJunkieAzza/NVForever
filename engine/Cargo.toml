@@ -13,7 +13,7 @@ license = "GPL-3.0-or-later"
 # Pinned exactly: upgrade deliberately, in its own commit, with a full parity-lab run.
 # pbr_specular_textures: normal-map alpha as the specular mask (docs/spec-notes/nif.md §6).
 # `debug`: errors name the command or system that failed (stray_commands.rs in nvforever).
-bevy = { version = "=0.19.1", features = ["pbr_specular_textures", "debug"] }
+bevy = { version = "=0.20.1", features = ["pbr_specular_textures", "debug"] }
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
 fnv-spt = { path = "../crates/fnv-spt" }
@@ -55,4 +55,3 @@ opt-level = 3
 # Patched dependencies (engine/vendor/README.md says what was changed and why).
 [patch.crates-io]
 gpu-allocator = { path = "vendor/gpu-allocator" }
-bevy_pbr = { path = "vendor/bevy_pbr" }

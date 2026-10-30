@@ -64,6 +64,7 @@ const CUT_DISTANCE: f64 = 400.0;
 /// Temporal anti-aliasing on a camera. The fields are kept up to date by
 /// [`follow_camera`]; only the camera that also has [`TemporalJitter`] is jittered.
 #[derive(Component, ExtractComponent, Clone, Copy, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TemporalAa {
     /// This frame's clip space (unjittered) to the last frame's.
     pub reproject: Mat4,
@@ -289,7 +290,7 @@ pub(crate) fn taa_pass(
     if *msaa != Msaa::Off || crate::ssao::depth_multisampled(prepass) != Some(false) || !crate::ssao::format_matches(target, taa.format) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let Some(pipeline) = cache.get_render_pipeline(taa.pipeline) else { return };
     let Some(uniform) = taa.uniform.binding() else { return };
     // GPU time of the pass (recorded with --log-frame-times, graphics.rs).

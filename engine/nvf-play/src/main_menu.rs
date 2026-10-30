@@ -53,6 +53,7 @@ use crate::{PlaySet, PlayState, PlayWorld};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use nvf_assets::{GameData, TextureCache};

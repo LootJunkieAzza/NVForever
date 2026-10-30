@@ -16,6 +16,7 @@ use super::{AmountMeter, CmdButton, RowButton};
 use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use fnv_font::{Font, Line};
 use fnv_sim::forms::ItemKind;
 use nvf_assets::GameData;

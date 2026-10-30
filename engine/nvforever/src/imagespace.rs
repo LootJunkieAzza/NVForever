@@ -55,6 +55,7 @@ use fnv_world::imagespace::Hdr;
 
 /// Grade parameters on the main camera.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ImageSpaceGrade {
     /// Tint colour (rgb) and amount (a).
     pub tint: Vec4,
@@ -723,7 +724,7 @@ pub(crate) fn blur_pass(
     if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let (Some(motion), Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1]), cache.get_render_pipeline(ids.0[2])) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[ids.1 as usize]);

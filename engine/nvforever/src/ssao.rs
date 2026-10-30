@@ -47,6 +47,7 @@ const FADE_END: f32 = 7000.0;
 /// Ambient occlusion on a camera; the projection part is kept up to date by
 /// [`follow_projection`].
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct AmbientOcclusion {
     /// Radius, strength, near plane, fade end.
     pub params: Vec4,
@@ -247,7 +248,7 @@ pub(crate) fn ao_pass(
     if depth_multisampled(prepass) != Some(ao.multi) || !format_matches(target, ao.format) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let (Some(occlusion), Some(apply)) = (cache.get_render_pipeline(ao.occlusion), cache.get_render_pipeline(ao.apply)) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     // GPU time of the pass (recorded with --log-frame-times, graphics.rs).

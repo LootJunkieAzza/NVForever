@@ -17,6 +17,7 @@ use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, text
 use crate::script_hud::BoxButton;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use fnv_font::{Font, Line};
 use nvf_assets::GameData;
 
