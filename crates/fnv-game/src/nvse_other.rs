@@ -55,6 +55,8 @@ pub struct OtherState {
     pub generic: HashMap<(i64, FormId), Vec<FormId>>,
     /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK).
     pub owner_ranks: HashMap<FormId, i32>,
+    /// SetZoneMinLevel's and SetZoneOwner's changes, by encounter zone (`nvse_anh`).
+    pub zone_changes: HashMap<FormId, crate::nvse_anh::ZoneChange>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

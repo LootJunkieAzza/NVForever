@@ -887,6 +887,51 @@ end",
 }
 
 #[test]
+fn anh_functions_follow_their_pages() {
+    // [documented: Ar_Max, Ar_Min, Ar_RangeMath ((6,2,10,7): 10, 2, 8); V3Mult ((1,2,3),
+    // (4,5,6): (4,10,18)); V3MultByScalar ((1,2,3) by 2: (2,4,6)); Sv_Capitalize
+    // ("pepeglare": "Pepeglare"); GetAngleQuadrant (0.785: 1); Sv_PadStart; DegToRad].
+    let h = run(
+        "float a
+float b
+float c
+float d
+float e
+float f
+float g
+float q
+string_var s
+string_var t
+array_var aA
+array_var aB
+array_var aOut
+begin GameMode
+let aA := ar_List 6, 2, 10, 7
+let a := Ar_Max aA
+let b := Ar_Min aA
+let c := Ar_RangeMath aA
+let aA := ar_List 1, 2, 3
+let aB := ar_List 4, 5, 6
+let aOut := V3Mult aA aB
+let d := aOut[2]
+let aOut := V3MultByScalar aA 2
+let e := aOut[1]
+let f := V3Dotproduct aA aB
+let g := DegToRad 180
+let q := GetAngleQuadrant 0.785
+let s := Sv_Capitalize \"pepeglare snig\"
+let t := Sv_PadStart \"5\" 3 \"0\"
+end",
+    );
+    assert_eq!((h.0[&1], h.0[&2], h.0[&3]), (Value::Num(10.0), Value::Num(2.0), Value::Num(8.0)));
+    assert_eq!((h.0[&4], h.0[&5], h.0[&6]), (Value::Num(18.0), Value::Num(4.0), Value::Num(32.0)));
+    assert!(matches!(h.0[&7], Value::Num(x) if (x - std::f64::consts::PI).abs() < 1e-6));
+    assert_eq!(h.0[&8], Value::Num(1.0));
+    assert_eq!(h.text(9), "Pepeglare snig");
+    assert_eq!(h.text(10), "005");
+}
+
+#[test]
 fn jip_aux_variables_and_refmaps_follow_the_probes() {
     // [observed: jip-stores rows, jip-variable-stores.md] on the calling reference.
     let src = [

@@ -90,6 +90,7 @@ pub mod nvse_jip;
 pub mod nvse_other;
 pub mod nvse_console;
 pub mod nvse_lists;
+pub mod nvse_anh;
 pub mod nvse_rest;
 pub mod nvse_leveled;
 pub mod nvse_jip2;
