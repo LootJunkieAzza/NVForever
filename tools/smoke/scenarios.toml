@@ -260,7 +260,7 @@ manual = "motion_turning.png against motion_still.png: the street and hills smea
 name = "shadows-sun"
 source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 3 cascades and the arms' shade light draws only what is near the arms"
 areas = ["renderer", "graphics", "sky"]
-paths = ["engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvforever/src/player_body.rs"]
+paths = ["engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wesl", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--hour", "14", "--sun-shadows", "--log-frame-times", "4", "--graphics-cycle", "vanilla;no-sun-shadows"]
 run_seconds = 30
@@ -279,7 +279,7 @@ name = "nif-bindless-batches"
 source = "docs/design/graphics-enhanced.md §5.6 (2026-10-23): NIF materials are bindless, so shapes of different materials share batch sets: at the Goodsprings start with sun shadows about 49 shadow sets (830 before) and 9 opaque sets (169 before) in the profile aid's batch line"
 note = "fails on a device Bevy runs without bindless (the counts go back to hundreds); this machine's RTX 4070 has it"
 areas = ["renderer", "graphics"]
-paths = ["engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvf-assets/src/nif_surface_bindings.wgsl", "engine/nvforever/src/profile.rs"]
+paths = ["engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvforever/src/profile.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PROFILE = "5" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--sun-shadows"]
 run_seconds = 22
@@ -490,7 +490,7 @@ expect = [
 name = "first-person-depth"
 source = "owner report 2026-10-27 (weapon lowering, PR #858): a rifle pushed against a door in first person sank into it. The arms and weapon now draw their depth squeezed in front of the world (nvf_assets nif_material.rs \"First-person depth\", docs/design/first-person-depth.md): the varmint rifle drawn nose to the Prospector Saloon's east wall (it lowers for the wall), a frame, then aimed and fired into the wall, its flash drawn with the weapon. A build from before the change (and before weapon lowering) drew only the stock there, the rest hidden in the wall (checked 2026-10-27)"
 areas = ["player-body", "rendering"]
-paths = ["engine/nvf-assets/src/first_person_depth.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvforever/src/ssao.wgsl"]
+paths = ["engine/nvf-assets/src/first_person_depth.wesl", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/ssao.wesl"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_GIVE = "00004240:20", NVF_PLAY_TEST_GOTO = "2:469:244:3457", NVF_PLAY_TEST_LOOK = "2.5:80:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:aim,10:fire", NVF_PLAY_TEST_SHOTS = "7.5:fp_depth_wall.png,9.5:fp_depth_aim.png" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
 run_seconds = 12
@@ -3342,7 +3342,7 @@ source = "docs/spec-notes/effect-shaders.md §7-§8: PlayMagicShaderVisuals GooS
 areas = ["scripts", "effect-shaders"]
 paths = [
   "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs", "schemas/fnv/effects.json",
-  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvforever/src/shot_fx.rs",
+  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/shot_fx.rs",
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:PlayMagicShaderVisuals:0x0009BA49:3,10:call:SunnyRef:PlayMagicShaderVisuals:0x0008AA59:4", NVF_PLAY_TEST_SHOTS = "7:effect_holes.png,12:effect_addons.png" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
@@ -3441,7 +3441,7 @@ expect = [
 name = "smoke-blend-bison-steve"
 source = "docs/spec-notes/nif.md §6 \"Alpha blend of unlit shapes\" (owner 2026-10-23, screenshots of the Bison Steve Hotel's main entrance: ours drew far more smoke than the game): unlit alpha-blended shapes put colour × alpha^1.5 on the frame; the lobby (BisonSteve01) from the entrance marker, looking east over FXMistLow01 00172699 and FXSmokeWisps01 0017209E; one frame in target/smoke (bison_steve_smoke.png) to judge against the owner's game screenshot"
 areas = ["particles", "effects", "rendering"]
-paths = ["engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_material.rs"]
+paths = ["engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:bison_steve_smoke.png" }
 args = ["--play", "--cell", "BisonSteve01", "--pos=-1408,-896,0", "--heading", "90", "--no-voice", "--no-messages"]
 run_seconds = 8
@@ -3589,7 +3589,7 @@ expect = [
 name = "lantern-display-light"
 source = "docs/spec-notes/world.md §8 \"Light on surfaces in display values\": Dead Money's Puesta del Sol wall lantern (light NVDLC01ExtSconceKeyWT) at 22:00; the display-value lighting sum and the clipped display are patched into Bevy's shaders (a Bevy upgrade that moves the patched lines fails here); a frame in target/smoke (lantern_display_light.png) to compare with the original's dm_lamp_front.png"
 areas = ["renderer", "lights"]
-paths = ["engine/nvforever/src/lights.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvf-assets/src/nif_material.wgsl", "engine/vendor/bevy_pbr/"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wesl", "engine/nvf-assets/src/nif_material.wesl", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:lantern_display_light.png" }
 args = ["--world", "NVDLC01WestTownN", "--play", "--pos=3177,592,1028", "--heading", "270", "--pitch", "15", "--hour", "22", "--no-voice", "--no-messages"]
 run_seconds = 10
@@ -3632,7 +3632,7 @@ name = "strip-lamp-glow"
 source = "docs/spec-notes/nif.md §6 \"Soft intersections\", \"Emissive multiplier of unlit shapes\"; docs/design/graphics-enhanced.md §3.11: the Strip at night with scripts: the light glow is on (HDR view), the street lamp beams the scripts enable are drawn and take their stripStreetLight colour (0x0012762B) instead of white; a frame in target/smoke (strip_lamp_glow.png)"
 areas = ["renderer", "effects", "lights"]
 paths = [
-  "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvforever/src/emittance.rs",
+  "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/emittance.rs",
   "engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/post.rs", "crates/fnv-world/src/imagespace.rs",
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "12:strip_lamp_glow.png" }
@@ -3804,7 +3804,7 @@ name = "stealth-boy-refraction"
 source = "queue item 18 (docs/spec-notes/refraction.md §5): the Stealth Boy's field draws the player's body refracting, what lies behind it bent by the body's normals with a scrolling normal map (the shimmer), instead of a faint blended copy"
 note = "aid-stealth-boy's set-up without the sneaking settler: third person from 6 s, the Stealth Boy used at 12 s; one frame at 14 s for the eye"
 areas = ["aid"]
-paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/refraction.rs", "engine/nvf-assets/src/nif_material.wgsl"]
+paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/refraction.rs", "engine/nvf-assets/src/nif_material.wesl"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_CONTROL = "6:view", NVF_PLAY_TEST_DROP = "12:00043E94:use", NVF_PLAY_TEST_SHOTS = "14:stealth_refraction.png" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 18
@@ -5958,7 +5958,7 @@ name = "incinerator-heat-haze"
 source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
 note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; steps from 9 s so a slow start does not run the draw and the shots in one frame; frames at 0.3-2 s after the shots for the eye (the shell shows only for its first 0.3 s)"
 areas = ["combat", "particles"]
-paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/refraction.rs"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/refraction.rs"]
 env = { NVF_PLAY_TEST_EQUIP = "000906DA", NVF_PLAY_TEST_GIVE = "00029371:60", NVF_PLAY_TEST_LOOK = "9:46:-8", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "12.5:incinerator_0.png,12.7:incinerator_1.png,12.9:incinerator_2.png,13.3:incinerator_3.png,14:incinerator_4.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 20
@@ -8217,7 +8217,7 @@ name = "facegen-tint-shader"
 source = "docs/design/streaming-hitches.md §3: the FaceGen face and skin tint is added in the material shader from a small per-NPC offset texture (nvf-assets nif_material.rs \"FaceGen tint\"); no tinted texture copies are made"
 note = "the saloon's NPCs (Sunny Smiles, Easy Pete, Trudy) are drawn at the start: faces and skins get offset images and their materials the FACEGEN_TINT shader, which must compile"
 areas = ["actors"]
-paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl"]
+paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl"]
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [
@@ -9911,7 +9911,7 @@ name = "hair-under-fire"
 source = "owner's playtest 2026-10-24: in third person, the player's hair vanished (the head showed bald) while the player burned or stood in a dust devil. Burning: Flames01's edge overlay covered the hair's cards whole (docs/spec-notes/effect-shaders.md §4); behind blended fire or dust the hair wrote no depth (nif.md §6 'Hair and depth'). PlayMagicShaderVisuals Flames01 (0005F9B6) on the player, frames from behind at 7 s (no fire) and 11 s (burning) in target/smoke; the hair must show in both"
 areas = ["effect-shaders", "render"]
 paths = [
-  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material.wgsl",
+  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material.wesl",
   "engine/nvforever/src/effect_shaders.rs",
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_SCRIPT = "8:call:player:PlayMagicShaderVisuals:0x0005F9B6", NVF_PLAY_TEST_SHOTS = "7:hair_no_fire.png,11:hair_on_fire.png" }

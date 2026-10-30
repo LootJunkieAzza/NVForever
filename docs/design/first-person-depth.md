@@ -25,7 +25,7 @@ capture (observer check 27).
 
 The depth of everything drawn as a first-person shape is squeezed into the nearest share
 of the depth range, `FIRST_PERSON_DEPTH_SHARE` = 1/64 (`nvf_assets::nif_material`,
-module notes "First-person depth"; `first_person_depth.wgsl`):
+module notes "First-person depth"; `first_person_depth.wesl`):
 
 - Bevy uses reverse z (1 at the near plane), so a fragment at depth z writes
   `1 − share × (1 − z)`. The squeeze is affine in z, so the shapes keep their own order
@@ -42,8 +42,8 @@ module notes "First-person depth"; `first_person_depth.wgsl`):
   are NIF materials with the switch: at world depth the squeezed scope tube around them
   hid them and the lens drew black [observed: scope-3d-lens-interior, 2026-10-27].
 - The fragment shaders write the depth (`@builtin(frag_depth)`): the main pass
-  (nif_material.wgsl, `FIRST_PERSON_DEPTH`) and the depth prepass, which gets the NIF
-  prepass fragment for these shapes whatever their alpha (nif_prepass.wgsl). Writing the
+  (nif_material.wesl, `FIRST_PERSON_DEPTH`) and the depth prepass, which gets the NIF
+  prepass fragment for these shapes whatever their alpha (nif_prepass.wesl). Writing the
   depth in the fragment turns off early depth testing for these shapes only, a few
   hundred thousand pixels at most. It was chosen over a vertex-stage squeeze, which needs
   copies of Bevy's mesh and prepass vertex shaders (skinning, morphs, motion vectors) to
@@ -71,10 +71,10 @@ cards) are not drawn over the arms. The passes that turn the prepass into distan
 
 | Pass | Effect of the squeeze | Done |
 |---|---|---|
-| Soft intersections (nif_material.wgsl `soft_fade`) | a soft shape in front of the arms (the first-person flash) faded as if the arms were at the near plane | undone (`unsqueeze`) |
-| SSAO (ssao.wgsl) | the arms flat at the near plane, no occlusion of their own | undone in `depth_at` |
-| TAA (taa.wgsl) | the arms read as nearer than `CAMERA_LOCKED` (48 units): all of them now count as moving with the camera, also a barrel reaching past 48 units | kept (as intended there) |
-| Motion blur and Pip-Boy sharpness (imagespace_blur.wgsl) | the arms nearer than the sharp depth: kept sharp | kept |
+| Soft intersections (nif_material.wesl `soft_fade`) | a soft shape in front of the arms (the first-person flash) faded as if the arms were at the near plane | undone (`unsqueeze`) |
+| SSAO (ssao.wesl) | the arms flat at the near plane, no occlusion of their own | undone in `depth_at` |
+| TAA (taa.wesl) | the arms read as nearer than `CAMERA_LOCKED` (48 units): all of them now count as moving with the camera, also a barrel reaching past 48 units | kept (as intended there) |
+| Motion blur and Pip-Boy sharpness (imagespace_blur.wesl) | the arms nearer than the sharp depth: kept sharp | kept |
 | Light shafts, eye mask | the arms are not sky | unchanged |
 | Water's screen-space reflection | rays hit the arms as before (they are in front either way) | unchanged |
 | Forward decals | a decal box behind the arms fails the depth test there, as before | unchanged |

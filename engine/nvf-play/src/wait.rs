@@ -58,6 +58,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::ui::RelativeCursorPosition;
 use fnv_game::rest::RestRequest;
 use fnv_sim::FormId;

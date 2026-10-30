@@ -55,6 +55,7 @@ use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use fnv_game::crafting::{missing, skill_name, RecipeDef, RECIPE_MENU};
 use fnv_sim::FormId;
 use nvf_assets::GameData;

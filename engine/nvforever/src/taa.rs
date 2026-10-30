@@ -64,6 +64,7 @@ const CUT_DISTANCE: f64 = 400.0;
 /// Temporal anti-aliasing on a camera. The fields are kept up to date by
 /// [`follow_camera`]; only the camera that also has [`TemporalJitter`] is jittered.
 #[derive(Component, ExtractComponent, Clone, Copy, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TemporalAa {
     /// This frame's clip space (unjittered) to the last frame's.
     pub reproject: Mat4,
@@ -72,7 +73,7 @@ pub struct TemporalAa {
     pub params: Vec4,
 }
 
-/// What the GPU gets (`taa.wgsl` `Taa`).
+/// What the GPU gets (`taa.wesl` `Taa`).
 #[derive(Clone, Copy, Default, ShaderType)]
 struct TaaUniform {
     reproject: Mat4,
@@ -86,7 +87,7 @@ pub struct TaaPlugin;
 
 impl Plugin for TaaPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "taa.wgsl");
+        bevy::asset::embedded_asset!(app, "taa.wesl");
         app.add_plugins(ExtractComponentPlugin::<TemporalAa>::default())
             .add_systems(PostUpdate, follow_camera.after(bevy::camera::CameraUpdateSystems).after(bevy::transform::TransformSystems::Propagate));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
@@ -205,7 +206,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         label: Some("taa_pipeline".into()),
         layout: vec![layout.clone()],
         vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/taa.wgsl"), ..default() }),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/taa.wesl"), ..default() }),
         ..default()
     };
     commands.insert_resource(TaaPipelines { layout, sampler, base, by_format: HashMap::default() });
@@ -289,7 +290,7 @@ pub(crate) fn taa_pass(
     if *msaa != Msaa::Off || crate::ssao::depth_multisampled(prepass) != Some(false) || !crate::ssao::format_matches(target, taa.format) {
         return;
     }
-    let Some(depth) = prepass.depth_view() else { return };
+    let Some(depth) = prepass.depth_only_view() else { return };
     let Some(pipeline) = cache.get_render_pipeline(taa.pipeline) else { return };
     let Some(uniform) = taa.uniform.binding() else { return };
     // GPU time of the pass (recorded with --log-frame-times, graphics.rs).

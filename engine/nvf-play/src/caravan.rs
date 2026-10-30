@@ -41,6 +41,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::caravan::{self as rules, Bet, Card, CaravanRequest, End, Event, Game, Move, Phase, Record, CAPS, MIN_DECK, OPPONENT, PLAYER};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;

@@ -122,6 +122,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::ui::RelativeCursorPosition;
 use fnv_save::{SaveHeader, SaveKind};
 use nvf_assets::GameData;
