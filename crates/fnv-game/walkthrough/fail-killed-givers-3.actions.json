@@ -1,0 +1,175 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless fail paths, quest givers killed before their quests (3): Francine Garret, Julie Farkas, Captain Curtis and Frank Weathers",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: from a new game the player kills four more people before taking their quests [observed, decompiled scripts]. Francine Garret (VFSFrancineGarretSCRIPT, VFSDebtCollector not completed): VFSDebtCollector 0. Julie Farkas (VFSJulieFarkasSCRIPT): VFSHighTimes 0, VMS47 30 and VMS24 110. Captain Curtis (VMcCarranCurtisSCRIPT, VMS08 objective 30 not completed): VMS08 255. Frank Weathers (1EFrankWeathersSCRIPT, no condition): vCCLeftMyHeart 0."
+  },
+  {
+   "op": "note",
+   "text": "Stand-ins: travel by move_player to each person; each fight by kill with the player as killer (the OnDeath blocks named run as in play)."
+  },
+  {
+   "op": "note",
+   "text": "Francine Garret at the Atomic Wrangler."
+  },
+  {
+   "op": "move_player",
+   "to": "VFSFrancineGarretREF"
+  },
+  {
+   "op": "kill",
+   "target": "VFSFrancineGarretREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSFrancineGarretREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VFSFrancineGarretREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFSDebtCollector",
+   "fields": [
+    "stage",
+    "done.0",
+    "failed"
+   ],
+   "label": "fail: VFSDebtCollector 0"
+  },
+  {
+   "op": "note",
+   "text": "Julie Farkas at the Old Mormon Fort."
+  },
+  {
+   "op": "move_player",
+   "to": "VFSJulieFarkasREF"
+  },
+  {
+   "op": "kill",
+   "target": "VFSJulieFarkasREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "VFSJulieFarkasREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "VFSJulieFarkasREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFSHighTimes",
+   "fields": [
+    "stage",
+    "done.0",
+    "failed"
+   ],
+   "label": "fail: VFSHighTimes 0"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS47",
+   "fields": [
+    "stage",
+    "done.30",
+    "failed"
+   ],
+   "label": "fail: VMS47 30"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS24",
+   "fields": [
+    "stage",
+    "done.110",
+    "failed"
+   ],
+   "label": "fail: VMS24 110"
+  },
+  {
+   "op": "note",
+   "text": "Captain Curtis at Camp McCarran."
+  },
+  {
+   "op": "move_player",
+   "to": "CaptainCurtisREF"
+  },
+  {
+   "op": "kill",
+   "target": "CaptainCurtisREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "CaptainCurtisREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "CaptainCurtisREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS08",
+   "fields": [
+    "stage",
+    "done.255",
+    "failed"
+   ],
+   "label": "fail: VMS08 255"
+  },
+  {
+   "op": "note",
+   "text": "Frank Weathers in Vegas."
+  },
+  {
+   "op": "move_player",
+   "to": "FrankWeathersREF"
+  },
+  {
+   "op": "kill",
+   "target": "FrankWeathersREF",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_ref",
+   "ref": "FrankWeathersREF",
+   "fields": [
+    "dead"
+   ],
+   "label": "FrankWeathersREF dead"
+  },
+  {
+   "op": "get_quest",
+   "quest": "vCCLeftMyHeart",
+   "fields": [
+    "stage",
+    "done.0",
+    "failed"
+   ],
+   "label": "fail: vCCLeftMyHeart 0"
+  }
+ ]
+}

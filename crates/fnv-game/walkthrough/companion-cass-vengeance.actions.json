@@ -1,0 +1,292 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Heartache by the Number (VCassCompanion), the revenge path: Cass chooses vengeance (40)",
+ "given": [
+  {
+   "kind": "quest",
+   "quest": "VDialogueCass",
+   "running": true,
+   "vars": {
+    "bBoughtCaravan": 1
+   }
+  }
+ ],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: as companion-cass does up to Cass's choice at Durable Dunn's caravan; the player sides with revenge (Topic186: 40, objectives 80 and 90 shown, against Alice McLafferty and Gloria Van Graff). The killings and Cass's Hand of Vengeance line (Topic218: 100, reached by companion-cass's own path) are not run. Copied from companion-cass.actions.json up to her choice. Stand-ins: as that chain's."
+  },
+  {
+   "op": "move_player",
+   "to": "RoseofSharonCassidyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass first meeting"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassCassTopic000",
+   "label": "only looking around"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic091",
+   "label": "are you all right"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass again"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic038",
+   "label": "caravan sold"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic080",
+   "label": "come with me"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic068",
+   "label": "cass joins"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VNPCFollowers",
+   "fields": [
+    "var.bCassHired",
+    "var.bHumanoidInParty",
+    "var.nCurrentFollowers"
+   ],
+   "label": "milestone: Cass hired"
+  },
+  {
+   "op": "call",
+   "line": "player.HasPerk WhiskeyRose",
+   "label": "whiskey rose (companion perk)"
+  },
+  {
+   "op": "call",
+   "line": "RoseofSharonCassidyREF.HasPerk CompanionSuite",
+   "label": "cass holds Companion Suite"
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass on her caravan"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCassCompanion",
+   "fields": [
+    "stage",
+    "var.iCaravanQuestStages",
+    "objective.10.displayed"
+   ],
+   "label": "milestone: Heartache by the Number started (stage 10)"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the caravan's grave with Cass along (the first of the three caravan triggers)."
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:0x001618C4#0"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:0x001618C4#0",
+   "actor": "player",
+   "event": "enter"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCassCompanion",
+   "fields": [
+    "var.iCaravanQuestStages",
+    "objective.10.completed"
+   ],
+   "label": "grave found"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for Cass's dialogue package after each site (AddScriptPackage of her talk package): the player talks to her."
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass at the grave"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass names the griffin wares wreck"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCassCompanion",
+   "fields": [
+    "var.iCaravanQuestStages",
+    "objective.20.displayed"
+   ],
+   "label": "objective 20"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to the Griffin Wares wreckage."
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:0x001618C4#1"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:0x001618C4#1",
+   "actor": "player",
+   "event": "enter"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "note",
+   "text": "Her line at the wreck is a Goodbye greeting, said outside a conversation, and her bark timer (VCassTimer's SayTo to herself) cuts it before its end script runs (a stall, see the report); stand-in: the line said whole."
+  },
+  {
+   "op": "say_info",
+   "info": "0x0015DC0E",
+   "speaker": "RoseofSharonCassidyREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 10
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass names dunn's caravan"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCassCompanion",
+   "fields": [
+    "var.iCaravanQuestStages",
+    "objective.20.completed",
+    "objective.30.displayed"
+   ],
+   "label": "objective 30"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to Durable Dunn's caravan."
+  },
+  {
+   "op": "move_player",
+   "to": "scripted:0x001618C4#2"
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:0x001618C4#2",
+   "actor": "player",
+   "event": "enter"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "note",
+   "text": "The same Goodbye greeting at Dunn's caravan, said whole."
+  },
+  {
+   "op": "say_info",
+   "info": "0x0015DC10",
+   "speaker": "RoseofSharonCassidyREF"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 13
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass decides"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic186"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCassCompanion",
+   "fields": [
+    "stage",
+    "done.40",
+    "objective.80.displayed",
+    "objective.90.displayed"
+   ],
+   "label": "final: VCassCompanion 40"
+  }
+ ]
+}

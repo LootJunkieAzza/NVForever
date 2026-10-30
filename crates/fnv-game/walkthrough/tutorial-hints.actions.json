@@ -1,0 +1,160 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless tutorial hints (CGTutorial): the hint stages for low health, a crippled limb, an addiction and a worn-out weapon (200, 210, 212, 216, 218)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: from a new game, VCGTutorialSCRIPT's GameMode block sets a hint stage the first time the player's state meets it [observed, decompiled script]: health below half (200), a limb condition at 0 (210), and in its MenuMode 1 block (the Pip-Boy open) the same (212), Times Addicted above 0 (216), the equipped weapon's health below 25% (218). 220 (200 rads) is reached by other chains. Not reached here: 52 (needs 50, which nothing sets), 214 (Locations Discovered 4: map-marker discovery is the play engine's, not headless; ShowMap does not count), 72 and 92 (need the tutorial's VATS and sneak steps). Stand-ins: the damage by damage_av (a fall or a fight); the Jet bought and taken six times (consume; the addiction roll is the engine's seeded one); the worn weapon given at 10% health by AddItemHealthPercent and equipped."
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "running"
+   ],
+   "label": "tutorial running"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for a hard fight: 150 health lost of 200."
+  },
+  {
+   "op": "damage_av",
+   "av": "Health",
+   "value": 150
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "stage",
+    "done.200"
+   ],
+   "label": "milestone: CGTutorial 200"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for a crippling blow to the head."
+  },
+  {
+   "op": "damage_av",
+   "av": "PerceptionCondition",
+   "value": 100
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "done.210"
+   ],
+   "label": "milestone: CGTutorial 210"
+  },
+  {
+   "op": "note",
+   "text": "The player opens the Pip-Boy (its inventory, a MenuMode 1 menu) with the limb still crippled: the MenuMode 1 block sets 212."
+  },
+  {
+   "op": "menu",
+   "menu": 1002
+  },
+  {
+   "op": "wait_frames",
+   "frames": 600
+  },
+  {
+   "op": "menu",
+   "menu": null
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "done.212"
+   ],
+   "label": "milestone: CGTutorial 212"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for chems bought and taken until the player is hooked."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Jet",
+   "count": 6
+  },
+  {
+   "op": "consume",
+   "item": "Jet"
+  },
+  {
+   "op": "consume",
+   "item": "Jet"
+  },
+  {
+   "op": "consume",
+   "item": "Jet"
+  },
+  {
+   "op": "consume",
+   "item": "Jet"
+  },
+  {
+   "op": "consume",
+   "item": "Jet"
+  },
+  {
+   "op": "consume",
+   "item": "Jet"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "done.216"
+   ],
+   "label": "milestone: CGTutorial 216"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for a weapon worn down by use: a 9mm pistol at 10% health, equipped."
+  },
+  {
+   "op": "call",
+   "line": "player.AddItemHealthPercent WeapNV9mmPistol 1 0.1"
+  },
+  {
+   "op": "call",
+   "line": "player.EquipItem WeapNV9mmPistol"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 2
+  },
+  {
+   "op": "get_quest",
+   "quest": "CGTutorial",
+   "fields": [
+    "done.218"
+   ],
+   "label": "final: CGTutorial 218"
+  }
+ ]
+}
