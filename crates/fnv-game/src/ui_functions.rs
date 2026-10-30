@@ -53,6 +53,11 @@ const TREE_FUNCTIONS: [&str; 15] = [
     "iscomponentloaded", "injectuixml", "injectuicomponent", "unloaduicomponent", "addtilefromtemplate",
 ];
 
+/// The most clicks one ClickMenuButton makes: a larger `clickTimes` makes this many, so a
+/// huge count (`1e9`) cannot hang the frame [design: the maintainer's review of #957; the
+/// page gives no limit].
+pub const MAX_CLICK_TIMES: usize = 16;
+
 /// ClickMenuButton's and ClickMenuTile's clicks. A click on the HUD changes its traits, so
 /// it makes the HUD's kept-back writes first, as the tree functions do; one on another
 /// menu leaves them waiting [design: #937's rule, by the tile's menu].
@@ -192,9 +197,10 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // `"Menu\Tile\…" [clickTimes]` or `"Menu#<id>"`; the tile must be a target and
         // have an `<id>` [documented: ClickMenuButton, its notes]. Clicks as a press does
         // (`fnv_ui::input::Pointer::script_click`), as many times as asked (1 when not
-        // given, none for 0 or less) [hypothesis]; 1 when it clicked.
+        // given, none for 0 or less) [hypothesis], at most [`MAX_CLICK_TIMES`] [design]; 1
+        // when it clicked.
         "clickmenubutton" => {
-            let times = if args.len() > 1 { num(args, 1).max(0.0) as usize } else { 1 };
+            let times = if args.len() > 1 { num(args, 1).clamp(0.0, MAX_CLICK_TIMES as f64) as usize } else { 1 };
             let tile = fnv_ui::input::find(&g.ui_tree, &path).filter(|&t| fnv_ui::input::targets(&g.ui_tree, t) && g.ui_tree.tile(t).get("id").is_some());
             yes(click(g, tile, times))
         }

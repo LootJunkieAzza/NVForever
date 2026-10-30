@@ -390,3 +390,23 @@ End) 1 "TestMenu#2""#,
     assert!(ui_input::idle(&mut g).is_none());
     assert_eq!(fired(&g), 3.0);
 }
+
+#[test]
+fn a_huge_click_count_is_capped() {
+    use fnv_game::ui_functions::MAX_CLICK_TIMES;
+    use fnv_game::ui_input;
+    let f = fixture();
+    let mut g = game(&f);
+    pointer_menu(&mut g);
+    // `1e9` clicks would hang the frame; it makes MAX_CLICK_TIMES [design: the
+    // maintainer's review of #957]. An infinite count too; a count that is no number, none.
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(1e9)])), 1.0);
+    assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), MAX_CLICK_TIMES);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(f64::INFINITY)])), 1.0);
+    assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), MAX_CLICK_TIMES);
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(f64::NAN)])), 0.0);
+    assert!(!g.ui_pointer.pending());
+    // Under the cap the count is kept.
+    assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(5.0)])), 1.0);
+    assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), 5);
+}
