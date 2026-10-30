@@ -503,6 +503,8 @@ pub struct MusicCues {
     pub dead: bool,
     /// GetFactionRelation of each conditional faction towards the player.
     pub relations: HashMap<u32, i64>,
+    /// Some music plays (the place's or a script's), for IsMusicPlaying.
+    pub playing: bool,
     requests: Vec<FormId>,
     next: f32,
 }
@@ -553,6 +555,7 @@ fn cues(
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     cues.requests.append(&mut rt.game.music_requests);
+    rt.game.gaps.music_any = cues.playing;
     cues.dead = rt.game.is_dead(FormId::PLAYER_REF);
     let now = time.elapsed_secs();
     if now < cues.next || *state.get() != PlayState::Playing {
@@ -728,6 +731,7 @@ fn play(
 ) {
     let (Some(mut music), Some(places), Some(player), Some(data)) = (music, places, player, data) else { return };
     let music = &mut *music;
+    cues.playing = music.current.is_some() || music.script.is_some();
     let now = time.elapsed_secs();
     let eye = player.eye();
     let hour = game_hour(&sim);

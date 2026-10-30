@@ -21,7 +21,7 @@ Plus folders as `--overlay` when a task touches loading.
 
 ## Next, in order
 
-1. **T2. Wire the UI functions into the extender** (extender coordinator,
+1. *Done 2026-10-26 (dc19c50e, claude/ext-compiler):* **T2. Wire the UI functions into the extender** (extender coordinator,
    claude/ext-compiler):
    - one line in `nvse::call` hands names to `ui_functions::call` (design §5.1);
    - check that the VM formats SetUIStringEx's and InjectUIComponent's format strings

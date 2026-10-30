@@ -2558,8 +2558,13 @@ impl Vm<'_, '_> {
                     "log" => x.ln(),
                     "log10" => x.log10(),
                     "exp" => x.exp(),
-                    "floor" => x.floor(),
-                    "ceil" => x.ceil(),
+                    // A whole number as a 32-bit integer: out of its range (or not a
+                    // number) it reads -2147483648 [observed: gaps2, Floor of
+                    // GetDistance2D to a reference in another cell].
+                    "floor" | "ceil" => {
+                        let r = if n == "floor" { x.floor() } else { x.ceil() };
+                        if r.is_nan() || r < f64::from(i32::MIN) || r > f64::from(i32::MAX) { f64::from(i32::MIN) } else { r }
+                    }
                     _ => x.sqrt(),
                 })
             }
@@ -2596,15 +2601,15 @@ impl Vm<'_, '_> {
             // [observed: GetNVSEBeta 9 under 6.4.9, the third number; owner 2026-10-26:
             // target 6.4.9].
             "getnvsebeta" => XVal::Num(9.0),
-            // JIP LN is NVForever's own module (task J4): reported installed at the version
-            // its functions follow.
+            // JIP LN and the other plugins whose functions NVForever builds
+            // (`jip::PLUGINS`): reported installed at the version their functions follow.
             "isplugininstalled" | "getpluginversion" => {
                 let p = text(val(self, 0)?).unwrap_or_default();
-                let jip = JIP_NAMES.iter().any(|j| j.eq_ignore_ascii_case(&p));
-                XVal::Num(match (n, jip) {
-                    ("isplugininstalled", j) => f64::from(u8::from(j)),
-                    (_, true) => JIP_VERSION,
-                    (_, false) => -1.0,
+                let found = jip::PLUGINS.iter().find(|(name, _)| name.eq_ignore_ascii_case(&p)).map(|(_, v)| *v);
+                XVal::Num(match (n, found) {
+                    ("isplugininstalled", f) => f64::from(u8::from(f.is_some())),
+                    (_, Some(v)) => v,
+                    (_, None) => -1.0,
                 })
             }
             _ => return Ok(None),
@@ -2625,6 +2630,31 @@ impl Vm<'_, '_> {
         }
         if let Some(v) = self.quat_function(&lname, c)? {
             return Ok(v);
+        }
+        // [documented: SetFormDescription `form "format" values…`, observed: gaps6,
+        // "NVF desc %g" 3 reads "NVF desc 3"; MessageExAlt `seconds "format" values…`,
+        // the game reading the icon and sound off the front]: formatted here, done by
+        // the game.
+        // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
+        // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
+        // RunScriptSnippet `delay "format" values…` likewise [documented].
+        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" || lname == "runscriptsnippet" {
+            let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
+            let mut first = Vec::new();
+            for e in c.args.iter().take(at) {
+                first.push(self.xeval(e)?);
+            }
+            let (t, _) = self.format_arg(c, at)?;
+            first.push(XVal::Str(t));
+            return match self.host.ext_call(&lname, None, &first) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Ok(XVal::Num(0.0)),
+            };
+        }
+        // Functions that give their results in script variables: the host answers with an
+        // array of the return value and then each output, written to the variables here.
+        if let Some(outs) = out_params(&lname) {
+            return self.out_call(&lname, c, outs);
         }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
@@ -2792,11 +2822,48 @@ impl Vm<'_, '_> {
             }
             // [documented: GetCurrentScript; observed: none in a runtime query].
             "getcurrentscript" => Ok(XVal::Ref(self.host.current_script().unwrap_or(0))),
+            // [documented: TestExpr; observed: nvse-leftovers, (1 + 1) 1, an element past
+            // the end 0, an unset reference's GetName 0, ar_Size of an unassigned array 1]
+            // 1 when the expression evaluates without an error.
+            "testexpr" => {
+                let ok = match c.args.first() {
+                    Some(e) => self.xeval(e).and_then(|v| v.value().map(|_| ())).is_ok(),
+                    None => false,
+                };
+                Ok(XVal::Num(f64::from(u8::from(ok))))
+            }
             // [documented: GetCallingScript] 0 from a dialogue or stage result.
             "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             // [documented: SetNameEx `"format" values… form`; SetNthFactionRankNameEx
             // `"format" values… faction rank [female]`]: formatted here, set by the game
             // (SetName's change; the rank title).
+            // [documented: SetUIStringEx `trait "format" values…`; InjectUIComponent `path
+            // "format" values…`]: the format is the second argument.
+            "setuistringex" | "injectuicomponent" => {
+                let first = match c.args.first() {
+                    Some(e) => self.xeval(e)?,
+                    None => XVal::Str(String::new()),
+                };
+                let (t, _) = self.format_arg(c, 1)?;
+                match self.host.ext_call(&lname, None, &[first, XVal::Str(t)]) {
+                    Some(r) => Ok(r.map_err(VmError::Host)?),
+                    None => Ok(XVal::Num(0.0)),
+                }
+            }
+            // [documented: SetMCMString `child grandchild setting "format" values…`]: the
+            // format is the fourth argument.
+            "setmcmstring" => {
+                let mut args = Vec::new();
+                for e in c.args.iter().take(3) {
+                    args.push(self.xeval(e)?);
+                }
+                let (t, _) = self.format_arg(c, 3)?;
+                args.push(XVal::Str(t));
+                match self.host.ext_call(&lname, None, &args) {
+                    Some(r) => Ok(r.map_err(VmError::Host)?),
+                    None => Ok(XVal::Num(0.0)),
+                }
+            }
             // [documented: SetModelPathEx; SetIconPathEx; SetBipedModelPathEx;
             // SetBipedIconPathEx] likewise, then the plain setter.
             "setnameex" | "setnthfactionranknameex" | "setmodelpathex" | "seticonpathex" | "setbipedmodelpathex" | "setbipediconpathex" => {
@@ -2825,6 +2892,34 @@ impl Vm<'_, '_> {
     }
 
     /// An extender function the host builds (`Host::ext_call`); `None` when it does not.
+    /// A function whose arguments at `outs` are script variables it writes: the other
+    /// arguments go to the host, whose answer is an array of the return value followed by
+    /// one value per output.
+    fn out_call(&mut self, lname: &str, c: &XCall, outs: &[usize]) -> Result<XVal, VmError> {
+        let on = match &c.on {
+            Some(e) => Some(self.xeval(e)?.value()?),
+            None => None,
+        };
+        let mut args = Vec::with_capacity(c.args.len());
+        for (k, a) in c.args.iter().enumerate() {
+            if !outs.contains(&k) {
+                args.push(self.xeval(a)?);
+            }
+        }
+        let r = match self.host.ext_call(lname, on, &args) {
+            Some(r) => r.map_err(VmError::Host)?,
+            None => return Err(VmError::NotBuilt(format!("the extender function {lname}"))),
+        };
+        let XVal::Array(id) = r else { return Ok(r) };
+        let vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
+        for (i, &k) in outs.iter().enumerate() {
+            if let (Some(XExpr::Var { var, .. }), Some(v)) = (c.args.get(k), vals.get(i + 1)) {
+                self.write_var(var, v.clone())?;
+            }
+        }
+        Ok(vals.first().cloned().unwrap_or(XVal::Num(0.0)))
+    }
+
     fn host_function(&mut self, lname: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
         let on = match &c.on {
             Some(e) => Some(self.xeval(e)?.value()?),
@@ -2847,6 +2942,17 @@ impl Vm<'_, '_> {
             None => Ok(None),
         }
     }
+}
+
+/// The argument positions a function writes its results into, for [`Vm::out_call`]
+/// [documented: the functions' pages, "outputs … into the specified script variables"].
+fn out_params(lname: &str) -> Option<&'static [usize]> {
+    Some(match lname {
+        "getangleex" => &[0, 1, 2],
+        "getanglesbetweenpoints" => &[6, 7],
+        "getpointraycastpos" => &[5, 6, 7],
+        _ => return None,
+    })
 }
 
 /// Where `Label n` stands in a statement list.

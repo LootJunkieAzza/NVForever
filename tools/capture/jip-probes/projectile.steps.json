@@ -1,0 +1,174 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "projectile",
+ "title": "projectile, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetWeaponProjectile rGun))\nEnd\n",
+   "label": "proj.form",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rProj := GetWeaponProjectile rGun\nSetOnProjectileImpactEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfPJ.first\" 1 -1\nEnd) 1 rProj\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.reg.first",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rProj := GetWeaponProjectile rGun\nSetOnProjectileImpactEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfPJ.count\" (1) -1\n  rP.AuxVarSetFlt \"*nvfPJ.impact.isref\" (IsReference (GetSelf.GetProjectileRefImpactRef)) -1\n  rP.AuxVarSetFlt \"*nvfPJ.source.player\" ((GetSelf.GetProjectileRefSource) == rP) -1\n  rP.AuxVarSetFlt \"*nvfPJ.self.type\" (GetType (GetSelf.GetBaseObject)) -1\nEnd) 1 rProj\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.reg",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rProj := GetWeaponProjectile rGun\nSetOnProjectileImpactEventHandler (Begin Function { }\n  rP.AuxVarSetFlt \"*nvfPJ.impact.type\" (GetType ((GetSelf.GetProjectileRefImpactRef).GetBaseObject)) -1\n  rP.AuxVarSetFlt \"*nvfPJ.weapon.ispistol\" ((GetSelf.GetProjectileRefWeapon) == rGun) -1\n  rP.AuxVarSetFlt \"*nvfPJ.damage\" (GetSelf.GetProjectileRefDamage) -1\nEnd) 1 rProj\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.reg2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.SetAngle X 80\nSetFunctionValue (rP.GetAngle X)\nEnd\n",
+   "label": "proj.aim",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.FireWeapon rGun\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.fire",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.settle9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.first\")\nEnd\n",
+   "label": "proj.first.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.first\" 0)\nEnd\n",
+   "label": "proj.first.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.count\")\nEnd\n",
+   "label": "proj.count.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.count\" 0)\nEnd\n",
+   "label": "proj.count.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.impact.isref\")\nEnd\n",
+   "label": "proj.impact.isref.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.impact.isref\" 0)\nEnd\n",
+   "label": "proj.impact.isref.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.impact.type\")\nEnd\n",
+   "label": "proj.impact.type.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.impact.type\" 0)\nEnd\n",
+   "label": "proj.impact.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.source.player\")\nEnd\n",
+   "label": "proj.source.player.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.source.player\" 0)\nEnd\n",
+   "label": "proj.source.player.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.weapon.ispistol\")\nEnd\n",
+   "label": "proj.weapon.ispistol.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.weapon.ispistol\" 0)\nEnd\n",
+   "label": "proj.weapon.ispistol.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.damage\")\nEnd\n",
+   "label": "proj.damage.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.damage\" 0)\nEnd\n",
+   "label": "proj.damage.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarSize \"*nvfPJ.self.type\")\nEnd\n",
+   "label": "proj.self.type.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfPJ.self.type\" 0)\nEnd\n",
+   "label": "proj.self.type.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rGun\nref rProj\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rGun := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrP.AuxVarErase \"*nvfPJ.first\"\nrP.AuxVarErase \"*nvfPJ.count\"\nrP.AuxVarErase \"*nvfPJ.impact.isref\"\nrP.AuxVarErase \"*nvfPJ.impact.type\"\nrP.AuxVarErase \"*nvfPJ.source.player\"\nrP.AuxVarErase \"*nvfPJ.weapon.ispistol\"\nrP.AuxVarErase \"*nvfPJ.damage\"\nrP.AuxVarErase \"*nvfPJ.self.type\"\nSetFunctionValue 1\nEnd\n",
+   "label": "proj.cleanup",
+   "field": "value"
+  }
+ ]
+}

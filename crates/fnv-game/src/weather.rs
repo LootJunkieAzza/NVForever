@@ -102,3 +102,29 @@ pub fn get_is_current_weather(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
     let current = g.weather.request.map(|r| r.weather).or(g.weather.shown);
     yes(current == Some(w))
 }
+
+/// The host's first weather for an exterior place: (worldspace, position) -> weather.
+pub type StartWeather = std::sync::Arc<dyn Fn(FormId, [f32; 3]) -> Option<FormId> + Send + Sync>;
+
+static START: std::sync::Mutex<Option<StartWeather>> = std::sync::Mutex::new(None);
+
+/// Set the first-weather hook for a run without the engine's sky (fnvtool).
+pub fn set_start_weather(f: StartWeather) {
+    if let Ok(mut g) = START.lock() {
+        *g = Some(f);
+    }
+}
+
+impl Game<'_> {
+    /// Without the engine's sky, the weather of the exterior the player is now in, from
+    /// the host's hook (the runner's go_to_cell) [hypothesis: the sky's first weather
+    /// there]. Nothing when the sky tells the weather itself or no hook is set.
+    pub fn settle_start_weather(&mut self) {
+        let Some(hook) = START.lock().ok().and_then(|g| g.clone()) else { return };
+        let Some(ws) = self.world.worldspace_of(FormId::PLAYER_REF) else { return };
+        let Some(pos) = self.world.peek(FormId::PLAYER_REF).map(|p| p.pos) else { return };
+        if let Some(w) = hook(ws, pos) {
+            self.weather.shown = Some(w);
+        }
+    }
+}

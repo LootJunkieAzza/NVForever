@@ -1,0 +1,2168 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "ray2",
+ "title": "ray2",
+ "start": "nvftest (read-only), travels to Goodsprings",
+ "steps": [
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rlet fA := 7%rplayer.AuxVarSetFlt %q*nvfRfA%q fA\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.probe.snip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.probe.read",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 100 0 0 fA fB%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfB%q fB\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.between.east",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.between.east.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfB\")\nEnd\n",
+   "label": "ray2.between.east.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 0 100 0 fA fB%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfB%q fB\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.between.north",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.between.north.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfB\")\nEnd\n",
+   "label": "ray2.between.north.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 0 0 100 fA fB%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfB%q fB\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.between.up",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.between.up.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfB\")\nEnd\n",
+   "label": "ray2.between.up.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 100 100 100 fA fB%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfB%q fB\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.between.diag",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.between.diag.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfB\")\nEnd\n",
+   "label": "ray2.between.diag.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fB%rGetAnglesBetweenPoints 0 0 0 -100 0 0 fA fB%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfB%q fB\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.between.west",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.between.west.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfB\")\nEnd\n",
+   "label": "ray2.between.west.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.SetAngle Z 45\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.angle.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.angle.w",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fB%rfloat fC%rplayer.GetAngleEx fA fB fC%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfB%q fB%rplayer.AuxVarSetFlt %q*nvfRfC%q fC\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.angleex",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.angleex.fA",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfB\")\nEnd\n",
+   "label": "ray2.angleex.fB",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfC\")\nEnd\n",
+   "label": "ray2.angleex.fC",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"cow WastelandNV -17 1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.travel",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w31",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w33",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w34",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w35",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w36",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w37",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w38",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w39",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w40",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w41",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w42",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w43",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w44",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w45",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w46",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w47",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w48",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w49",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w50",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w51",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w52",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w53",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w54",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w55",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w56",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w57",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w58",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w59",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w60",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w61",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w62",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w63",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w64",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w65",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w66",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w67",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w68",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w69",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w70",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w71",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w72",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w73",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w74",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w75",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w76",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w77",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w78",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w79",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w80",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w81",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w82",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w83",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w84",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w85",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w86",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w87",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w88",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w89",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w90",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w91",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w92",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w93",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w94",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w95",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w96",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w97",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w98",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w99",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w100",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w101",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w102",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w103",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w104",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w105",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w106",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w107",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w108",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w109",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w110",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w111",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w112",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w113",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w114",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w115",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w116",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w117",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w118",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w119",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w120",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w121",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w122",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w123",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w124",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w125",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w126",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w127",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w128",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w129",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w130",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w131",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w132",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w133",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w134",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w135",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w136",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w137",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w138",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w139",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w140",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w141",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w142",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w143",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w144",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w145",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w146",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w147",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w148",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w149",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w150",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w151",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w152",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w153",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w154",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w155",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w156",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w157",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w158",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w159",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w160",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w161",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w162",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w163",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w164",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w165",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w166",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w167",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w168",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w169",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w170",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w171",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w172",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w173",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w174",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w175",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w176",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w177",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w178",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w179",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w180",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w181",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w182",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w183",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w184",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w185",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w186",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w187",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w188",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w189",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w190",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w191",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w192",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w193",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w194",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w195",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w196",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w197",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w198",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w199",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w200",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w201",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w202",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w203",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w204",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w205",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w206",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w207",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w208",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w209",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w210",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w211",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w212",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w213",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w214",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w215",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w216",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w217",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w218",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w219",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w220",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w221",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w222",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w223",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w224",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w225",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w226",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w227",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w228",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w229",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w230",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w231",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w232",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w233",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w234",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w235",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w236",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w237",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w238",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w239",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w240",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w241",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w242",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w243",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w244",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w245",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w246",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w247",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w248",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w249",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w250",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w251",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w252",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w253",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w254",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w255",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w256",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w257",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w258",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w259",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w260",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w261",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w262",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w263",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w264",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w265",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w266",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w267",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w268",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w269",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w270",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w271",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w272",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w273",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w274",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w275",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w276",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w277",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w278",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w279",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w280",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w281",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w282",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w283",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w284",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w285",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w286",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w287",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w288",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w289",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w290",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w291",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w292",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w293",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w294",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w295",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w296",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w297",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w298",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w299",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w300",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w301",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w302",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w303",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w304",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w305",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w306",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w307",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w308",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w309",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w310",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w311",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w312",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w313",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w314",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w315",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w316",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w317",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w318",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w319",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w320",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w321",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w322",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w323",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w324",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w325",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w326",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w327",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w328",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w329",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w330",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w331",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w332",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w333",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w334",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w335",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w336",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w337",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w338",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w339",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w340",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w341",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w342",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w343",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w344",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w345",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w346",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w347",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w348",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w349",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w350",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w351",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w352",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w353",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w354",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w355",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w356",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w357",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w358",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w359",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w360",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w361",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w362",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w363",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w364",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w365",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w366",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w367",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w368",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w369",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w370",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w371",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w372",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w373",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w374",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w375",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w376",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w377",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w378",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w379",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w380",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w381",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w382",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w383",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w384",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w385",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w386",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w387",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w388",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w389",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w390",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w391",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w392",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w393",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w394",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w395",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w396",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w397",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w398",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.w399",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetPos Z)\nEnd\n",
+   "label": "ray2.pc.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nRunScriptSnippet 0 \"float fA%rfloat fX%rfloat fY%rfloat fZ%rlet fA := GetPointRayCastPos (player.GetPos X) (player.GetPos Y) ((player.GetPos Z) + 100) 90 0 fX fY fZ%rplayer.AuxVarSetFlt %q*nvfRfA%q fA%rplayer.AuxVarSetFlt %q*nvfRfX%q fX%rplayer.AuxVarSetFlt %q*nvfRfY%q fY%rplayer.AuxVarSetFlt %q*nvfRfZ%q fZ\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray2.pointdown",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfA\")\nEnd\n",
+   "label": "ray2.pointdown.fA",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfX\")\nEnd\n",
+   "label": "ray2.pointdown.fX",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfY\")\nEnd\n",
+   "label": "ray2.pointdown.fY",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxVarGetFlt \"*nvfRfZ\")\nEnd\n",
+   "label": "ray2.pointdown.fZ",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetPos X)\nEnd\n",
+   "label": "ray2.pc.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nfloat fRes\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetPos Y)\nEnd\n",
+   "label": "ray2.pc.y",
+   "field": "value"
+  }
+ ]
+}

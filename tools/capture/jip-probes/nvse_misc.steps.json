@@ -1,0 +1,196 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_misc",
+ "title": "nvse-misc, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rD.GetPackageCount)\nEnd\n",
+   "label": "pkg.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rD.GetNthPackage 0))\nEnd\n",
+   "label": "pkg.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rD.GetNthPackage 1))\nEnd\n",
+   "label": "pkg.nth1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rG := rD.GetNthPackage 0\nSetFunctionValue (GetFormIDString (GetPackageLocation rG))\nEnd\n",
+   "label": "pkg.nth0.location",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rG := rD.GetNthPackage 0\nSetFunctionValue (GetPackageTargetDistance rG)\nEnd\n",
+   "label": "pkg.nth0.distance",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rD.GetCurrentPackage))\nEnd\n",
+   "label": "pkg.current.save",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetQuestObjectiveCount rF)\nEnd\n",
+   "label": "obj.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetNthQuestObjective rF 0)\nEnd\n",
+   "label": "obj.nth0",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetNthQuestObjective rF 1)\nEnd\n",
+   "label": "obj.nth1",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetNthQuestObjective rF 2)\nEnd\n",
+   "label": "obj.nth2",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetNthQuestObjective rF 3)\nEnd\n",
+   "label": "obj.nth3",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rD.GetParentCellOwner))\nEnd\n",
+   "label": "owner.cell.docref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rD.GetOwningFactionRequiredRank)\nEnd\n",
+   "label": "owner.rank.docref",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rD.GetEquippedCurrentHealth 5)\nEnd\n",
+   "label": "equip.health.doc.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rD.GetEquippedWeaponModFlags)\nEnd\n",
+   "label": "equip.modflags.doc.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"31DBA\"\nSetFunctionValue (rP.GetPerkRank rF)\nEnd\n",
+   "label": "perk.player.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"31DBA\"\nSetFunctionValue (rP.GetAltPerkRank rF)\nEnd\n",
+   "label": "altperk.player.save",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetBipedModelPath 0 rF)\nEnd\n",
+   "label": "biped.leather.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetBipedModelPath 1 rF)\nEnd\n",
+   "label": "biped.leather.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetBipedModelPath 2 rF)\nEnd\n",
+   "label": "biped.leather.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetBipedModelPath 3 rF)\nEnd\n",
+   "label": "biped.leather.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetTexturePath rF)\nEnd\n",
+   "label": "texture.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetTexturePath rF)\nEnd\n",
+   "label": "texture.stimpak",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"31DBA\"\nSetFunctionValue (GetTexturePath rF)\nEnd\n",
+   "label": "texture.actionboy",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetTexturePath rF)\nEnd\n",
+   "label": "texture.caps",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFlagsLow rF)\nEnd\n",
+   "label": "flags.pistol10.low",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFlagsHigh rF)\nEnd\n",
+   "label": "flags.pistol10.high",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetFlagsLow rF)\nEnd\n",
+   "label": "flags.caps.low",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetFlagsHigh rF)\nEnd\n",
+   "label": "flags.caps.high",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFlagsLow rF)\nEnd\n",
+   "label": "flags.doc.low",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFlagsHigh rF)\nEnd\n",
+   "label": "flags.doc.high",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetFlagsLow rF)\nEnd\n",
+   "label": "flags.leather.low",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetFlagsHigh rF)\nEnd\n",
+   "label": "flags.leather.high",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetFlagsLow rF)\nEnd\n",
+   "label": "flags.vcg02.low",
+   "field": "value"
+  },
+  {
+   "query": "ref rD\nref rF\nref rP\nref rG\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"10A214\"\nSetFunctionValue (GetFlagsHigh rF)\nEnd\n",
+   "label": "flags.vcg02.high",
+   "field": "value"
+  }
+ ]
+}

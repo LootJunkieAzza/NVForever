@@ -322,6 +322,18 @@ pub fn default_weather(c: &Climate, global_value: impl Fn(u32) -> Option<f32>) -
     eligible(&c.weathers, global_value).into_iter().reduce(|a, b| if b.chance > a.chance { b } else { a }).map(|w| w.weather)
 }
 
+/// The weather a game starting at (`x`, `y`) of `world` shows first: the most likely of
+/// the overriding region there (the highest priority when several), else the climate's
+/// most likely ([`default_weather`]), as the engine's sky starts (`nvforever` sky.rs)
+/// [hypothesis: the original's first weather].
+pub fn start_weather(regions: &[RegionWeather], climate: Option<&Climate>, world: u32, x: f32, y: f32, global_value: impl Fn(u32) -> Option<f32> + Copy) -> Option<u32> {
+    let region = regions.iter().filter(|r| r.overrides() && r.world == Some(world) && r.contains(x, y)).max_by_key(|r| r.priority);
+    if let Some(w) = region.and_then(|r| eligible(&r.weathers, global_value).into_iter().reduce(|a, b| if b.chance > a.chance { b } else { a })) {
+        return Some(w.weather);
+    }
+    default_weather(climate?, global_value)
+}
+
 /// The entries of a weather list (CLMT WLST, REGN RDWT) a roll draws from now
 /// (docs/spec-notes/world.md §6 "Choosing a weather"): an entry with a global counts
 /// only while that global is non-zero, and entries whose global is set and non-zero

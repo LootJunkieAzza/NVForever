@@ -35,22 +35,8 @@ fn special(code: u16) -> Option<&'static str> {
     (5..=11).contains(&code).then(|| SPECIAL[(code - 5) as usize])
 }
 
-/// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
-/// `schemas/fnv/common.json`].
-pub const AV_NAMES: [&str; 77] = [
-    "Aggression", "Confidence", "Energy", "Responsibility", "Mood", "Strength", "Perception", "Endurance",
-    "Charisma", "Intelligence", "Agility", "Luck", "Action Points", "Carry Weight", "Critical Chance",
-    "Heal Rate", "Health", "Melee Damage", "Damage Resistance", "Poison Resistance", "Rad Resistance",
-    "Speed Multiplier", "Fatigue", "Karma", "XP", "Perception Condition", "Endurance Condition",
-    "Left Attack Condition", "Right Attack Condition", "Left Mobility Condition", "Right Mobility Condition",
-    "Brain Condition", "Barter", "Big Guns", "Energy Weapons", "Explosives", "Lockpick", "Medicine",
-    "Melee Weapons", "Repair", "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed",
-    "Inventory Weight", "Paralysis", "Invisibility", "Chameleon", "Night Eye", "Turbo", "Fire Resistance",
-    "Water Breathing", "Rad Level", "Bloody Mess", "Unarmed Damage", "Assistance", "Electric Resistance",
-    "Frost Resistance", "Energy Resistance", "EMP Resistance", "Variable01", "Variable02", "Variable03",
-    "Variable04", "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
-    "Ignore Crippled Limbs", "Dehydration", "Hunger", "Sleep Deprivation", "Damage Threshold",
-];
+/// The names of the actor value codes 0–76 ([`fnv_script::table::AV_NAMES`]).
+pub use fnv_script::table::AV_NAMES;
 
 fn squash(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace() && *c != '_').flat_map(char::to_lowercase).collect()
@@ -63,26 +49,7 @@ pub fn av_by_name(name: &str) -> Option<u16> {
     AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16)
 }
 
-/// Script names of actor values that shipped source never spells (so `encodings.json`
-/// has none) and whose xEdit name squashes to something else. Each is its AVIF record's
-/// Editor ID without the `AV` prefix [observed: FalloutNV.esm AVIF `AVCritChance`
-/// 0x44E, `AVPoisonResist` 0x453, `AVDetectLifeRange` 0x5E1, `AVFireResist` 0x5E2,
-/// `AVEnergyResist` 0x5EA; the masters' AVIF FormIDs run in code order]. The original
-/// compiler takes that name [observed: `GetAV PoisonResist` compiled and answered 125 in
-/// the game, capture abilities-1; hypothesis for the others: every spelling of shipped
-/// source is its AVIF Editor ID without `AV`, except Guns (AVSmallGuns) and Survival
-/// (AVThrowing)]. Electric, Frost and EMP resistance have no AVIF record in the masters;
-/// their names follow the pattern [hypothesis].
-const SCRIPT_AV_NAMES: [(u16, &str); 8] = [
-    (14, "CritChance"),
-    (19, "PoisonResist"),
-    (51, "DetectLifeRange"),
-    (52, "FireResist"),
-    (58, "ElectricResist"),
-    (59, "FrostResist"),
-    (60, "EnergyResist"),
-    (61, "EMPResist"),
-];
+use fnv_script::table::SCRIPT_AV_NAMES;
 
 /// An actor value code from its name: the script name (the decoder's, `encodings.json`,
 /// e.g. `NightEye`, `PerceptionCondition`, else [`SCRIPT_AV_NAMES`], e.g. `PoisonResist`)
@@ -208,7 +175,12 @@ pub fn restore(g: &mut Game, actor: FormId, code: u16, amount: f64) {
 }
 
 /// The current value: the permanent value and the temporary modifier, minus the damage.
+/// The player's XP is the experience the game keeps [observed: data3, GetActorValue XP
+/// reads RewardXPExact's 5 at once].
 pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+    if actor == FormId::PLAYER_REF && code == crate::actor_values::XP {
+        return Ok(g.player.xp);
+    }
     Ok(permanent(g, actor, code)? + temporary(g, actor, code) - damage(g, actor, code))
 }
 
@@ -309,8 +281,46 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (the Vigor Tester moves points)", AV_NAMES[code as usize])) {
         return none();
     }
-    set_base(g, r, code, a.num(1)?)?;
+    // The player's skill keeps its part from the attributes: SetActorValue sets the rest
+    // [observed: gaps6, Guns 17 (all from the attributes at level 1, untagged) reads 67
+    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same].
+    let v = a.num(1)?;
+    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) } else { v };
+    set_base(g, r, code, v)?;
     none()
+}
+
+/// The actor value functions with JohnnyGuitar's actor value change handlers told of a
+/// change: (code, old value, new value) [observed: data3, ModAV Luck +1 gave (11, 10,
+/// 11), -1 (11, 11, 10)].
+fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> Result<Value, String>) -> Result<Value, String> {
+    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty());
+    let before = target.and_then(|(r, c)| actor_value(g, r, c).ok());
+    let out = f(g, ctx, a)?;
+    if let (Some((r, c)), Some(old)) = (target, before) {
+        if let Ok(new) = actor_value(g, r, c) {
+            if new != old {
+                g.av_event(r, c, old, new);
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn set_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, set_actor_value)
+}
+pub fn mod_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, mod_actor_value)
+}
+pub fn force_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, force_actor_value)
+}
+pub fn damage_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, damage_actor_value)
+}
+pub fn restore_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    watched(g, ctx, a, restore_actor_value)
 }
 
 /// `ForceActorValue`: the current value becomes the given number, by changing the
