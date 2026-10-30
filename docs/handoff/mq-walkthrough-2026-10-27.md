@@ -479,3 +479,7 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
 
 **Not walked:** other branches (VDialogueVegasNorth 72-89, VMS03's other power targets and
 Ignacio's ending, Eye for an Eye's other paths, VMS57's peaceful ending) and the fail stages.
+
+## 11. Stage coverage (2026-10-30, issue #940)
+
+Under way: which stages anything can set, then branch, fail and ending chains.
