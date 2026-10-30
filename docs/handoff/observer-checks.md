@@ -428,3 +428,21 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
     GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
     (the paths §14.3 read the widths by) while the bars show.
+
+## Added 2026-10-30 (UI tile tree T8: the pointer and keys)
+
+35. **The pointer on menu tiles** (P2: every menu drawn from its file, MCM's page, 16
+    plugins of the modlist scan). Ours (fnv-ui `input`):
+    - where two targets overlap, the highest summed `depth` takes the pointer (a tie to
+      the one drawn later), and a menu opened later is over an earlier one;
+    - `clicked` is 1 for the frame of the press, then 0 (the tutorial), not a count (the
+      Clicked page);
+    - `mouseover` is written on the tile taking the event only, not on the tiles above;
+    - GetActiveUIComponentName/FullName/ID with no menu open give "", "" and -1.
+
+    To check: GetActiveUIComponentName over an overlap of two tiles injected with
+    InjectUIComponent at different depths; two injected tiles, one copying `clicked` and
+    one adding it to itself, clicked twice with GetUIFloat after each click; GetUIFloat on
+    a text_box button's hotrect, text and parent `mouseover` with the cursor on the text;
+    the three functions in game mode and over a target without an `<id>`.
+    ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))

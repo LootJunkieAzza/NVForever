@@ -124,7 +124,10 @@ or holds no `<menu>` is an error for that menu only.
    - The open menu's `io()` traits (`user0`…, `_IsContainerListSelected`, the HUD's
      `_SneakLevel`, …).
    - List rows made from templates (`add_from_template`), with their `user` traits.
-   - Pointer state: `mouseover` and `clicked` on hotrects (task T8).
+   - Pointer state: `mouseover` and `clicked` on targets, the keys' clicks and the menu
+     events (task T8, `tiles::input::feed` → `fnv_game::ui_input::step`; menu-xml.md
+     §3.2), only for the menus drawn from tiles that take input, so the default game
+     does no tree work for it.
 
    The HUD's writes (`fnv_game::ui_hud::write`) are made only when something reads
    them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD, or a
@@ -185,7 +188,9 @@ these functions by name:
 | `InjectUIXML`, `InjectUIComponent` | XML into the named tile; 1 on success |
 | `UnloadUIComponent` | removes a tile |
 | `AddTileFromTemplate` | `"path\|template\|name"` |
-| `MenuTapKey` | queues a key in `ui_taps` |
+| `MenuTapKey` | queues a key in `ui_taps` (a menu taking tile input reads them as presses) |
+| `GetActiveUIComponentName`, `…FullName`, `…ID` | the highlighted tile's name, path, `<id>`; "" / -1 with none |
+| `ClickMenuButton`, `ClickMenuTile` | click a tile (path or `Menu#id`) as a press does; 1 when clicked |
 
 Wiring it is one line in `crate::nvse::call` on claude/ext-compiler (task T2):
 
