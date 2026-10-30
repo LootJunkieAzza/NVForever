@@ -346,6 +346,9 @@ fn write(
             // nothing is made under their pieces [design].
             let shows = hud.notices(&rt.game, shown);
             notices::write(&mut rt.game.ui_tree, &shows, &fonts.hud_lines());
+            // Their widths from the strings just written, before scripts read them, as
+            // the other HUD texts' above.
+            fonts.write_notice_widths(&mut rt.game.ui_tree);
             for (line, last) in notices::describe(&shows).into_iter().zip(told.iter_mut()) {
                 if line.is_some() && line != *last {
                     info!("{}", line.as_deref().unwrap_or_default());

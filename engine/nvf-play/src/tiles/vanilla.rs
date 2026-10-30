@@ -185,15 +185,26 @@ pub(crate) fn hide_hand_built(
 ) {
     let menu = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).and_then(|rt| rt.game.ui_tree.menu(super::draw::HUD_MENU).map(|m| (&rt.game.ui_tree, m)));
     let hide = hide(*menus, menu.is_some(), menu.is_some_and(|(ui, m)| root_drawn(ui, m)));
+    // Before any early return: the area has no drawer of its own to show it again, so
+    // it would stay hidden once the tree lost the menu (a load's rebuild).
+    subtitles.iter_mut().for_each(|mut v| {
+        v.set_if_neq(subtitles_visibility(hide));
+    });
     if !hide.pieces {
         return;
     }
     for mut v in &mut nodes {
         v.set_if_neq(Visibility::Hidden);
     }
-    let subtitles_now = if hide.subtitles { Visibility::Hidden } else { Visibility::Inherited };
-    for mut v in &mut subtitles {
-        v.set_if_neq(subtitles_now);
+}
+
+/// The hand-built subtitles' area's visibility for a [`Hide`]: given back (`Inherited`)
+/// whenever it is not hidden, the switch off or the menu gone included.
+pub fn subtitles_visibility(hide: Hide) -> Visibility {
+    if hide.subtitles {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
     }
 }
 
@@ -371,6 +382,11 @@ mod tests {
             assert_eq!(hide(TileMenus::default(), true, drawn), Hide { pieces: false, subtitles: false });
             assert_eq!(hide(on, false, drawn), Hide { pieces: false, subtitles: false });
         }
+        // Hidden only while the tiles draw them; given back otherwise, the menu gone (a
+        // load's rebuild) included, where nothing else would show the area again.
+        assert_eq!(subtitles_visibility(hide(on, true, true)), Visibility::Hidden);
+        assert_eq!(subtitles_visibility(hide(on, false, true)), Visibility::Inherited);
+        assert_eq!(subtitles_visibility(hide(on, true, false)), Visibility::Inherited);
         // The root's `visible` (written from `Shown::root`) and alpha decide whether
         // anything of the menu is drawn.
         let src = MemSource::default().with("hud.xml", r#"<menu name="HUDMainMenu"><text name="Subtitles"><string>Line</string></text></menu>"#);
