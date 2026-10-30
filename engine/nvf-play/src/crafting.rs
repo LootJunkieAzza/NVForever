@@ -3,7 +3,11 @@
 //!
 //! A script opens it (`station.ShowRecipeMenu category`, the activators' own scripts);
 //! it lists the recipes of that category or subcategory whose visibility conditions pass
-//! for the player, by name. The left/right arrows over the list filter it by subcategory
+//! for the player: the ones the player can make now first, then the rest, each part by
+//! name (owner's request 2026-10-26). Seven rows show at once with a scroll bar right of
+//! them when there are more; the keys and the wheel move the choice and scroll to keep it
+//! in view, the pointer only chooses the row under it (the list never moves under it,
+//! as in every menu). The left/right arrows over the list filter it by subcategory
 //! (all, then each subcategory the list holds, by name) [hypothesis: the arrows of the
 //! original's `RM_Items_LeftFilterArrow` / `RightFilterArrow` cycle the subcategories;
 //! not captured]. At the right, for the chosen recipe: where it is made (its category's
@@ -16,7 +20,8 @@
 //! it. Exit (X, Esc, Tab) closes the menu.
 //!
 //! Making several at once (2026-10-19): when the player has what it takes to make the
-//! recipe more than once, Accept opens the "How many?" prompt of the other menus
+//! recipe, Accept opens the "How many?" prompt, even when only one can be made (owner
+//! 2026-10-26: Sunny's healing powder asked nothing) of the other menus
 //! (`menus\quantity_menu.xml`, drawn by `menu::look::spawn_quantity`), from 1 up to the
 //! most the ingredients allow ([`times_possible`]); Left/Right (or the wheel, the arrows,
 //! a press on the meter) set the amount, Enter or A makes that many, E or Esc goes back
@@ -39,6 +44,8 @@
 //! WorkbenchRecipes`.
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
+use crate::menu::look::ROWS_BAR_W;
+use crate::menu::model::keep_in_view;
 use crate::pause::AidTime;
 use crate::script::ScriptState;
 use crate::sim::SimState;
@@ -127,6 +134,9 @@ pub struct Open {
     /// 0: all; else the subcategory at this place of the view's filters, less one.
     filter: usize,
     selected: usize,
+    /// The list's first row shown: the keys and the wheel move it to keep the choice in
+    /// view, the pointer never does.
+    first: usize,
     drawn: Option<View>,
     /// The "How many?" prompt: the amount and the most that can be made.
     quantity: Option<(i32, i32)>,
@@ -167,6 +177,8 @@ struct View {
     /// The subcategories the arrows go through, by name.
     filters: usize,
     selected: usize,
+    /// The first row shown.
+    first: usize,
     made_at: String,
     /// Skill name, the player's value, the level needed.
     skill: Option<(String, u32, u32)>,
@@ -221,13 +233,13 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> Vie
         subs.sort();
         subs.dedup();
         let filter = subs.get(open.filter.wrapping_sub(1)).map(|s| s.1);
-        let shown: Vec<&RecipeDef> = all.into_iter().filter(|r| filter.is_none_or(|f| r.subcategory == Some(f))).collect();
         let have = |rt: &mut crate::script::Runtime, item: FormId| rt.game.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0) as i64;
-        let mut rows = Vec::new();
-        for r in &shown {
-            let lack = lacks(rt, r);
-            rows.push(RowView { recipe: r.form, label: label(r), ready: lack.is_empty() });
-        }
+        // The recipes that can be made now come first, each part by name (owner's
+        // request 2026-10-26).
+        let mut listed: Vec<(&RecipeDef, bool)> = all.into_iter().filter(|r| filter.is_none_or(|f| r.subcategory == Some(f))).map(|r| (r, lacks(rt, r).is_empty())).collect();
+        listed.sort_by_key(|&(_, ready)| !ready);
+        let shown: Vec<&RecipeDef> = listed.iter().map(|l| l.0).collect();
+        let rows: Vec<RowView> = listed.iter().map(|&(r, ready)| RowView { recipe: r.form, label: label(r), ready }).collect();
         let selected = open.selected.min(rows.len().saturating_sub(1));
         let title = match filter {
             None => "RECIPES".to_string(),
@@ -243,7 +255,8 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> Vie
             _ => None,
         });
         let (weight, value, icon) = item.map_or((None, None, None), |i| (i.0, i.1, i.2));
-        View { title, rows, filters: subs.len(), selected, made_at, skill, ingredients, weight, value, icon, effects: None, quantity: open.quantity }
+        let first = keep_in_view(open.first, selected, rows.len(), ROWS);
+        View { title, rows, filters: subs.len(), selected, first, made_at, skill, ingredients, weight, value, icon, effects: None, quantity: open.quantity }
     })
 }
 
@@ -264,7 +277,7 @@ fn scripts_open(
     }
     let Some(r) = rt.game.recipe_requests.pop() else { return };
     rt.game.recipe_requests.clear();
-    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, drawn: None, quantity: None };
+    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None };
     let v = view(rt, &mut sim, &open);
     let name = rt.game.data.recipe_categories.get(&r.category).map_or_else(|| r.category.to_string(), |c| c.name.clone());
     let first: Vec<&str> = v.rows.iter().take(6).map(|r| r.label.as_str()).collect();
@@ -366,6 +379,7 @@ fn keys(
             let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
             if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
                 make_recipe(rt, &mut sim, recipe, to as u32, &mut sounds, corner.as_deref_mut());
+                follow_made(rt, &mut sim, open, recipe.form);
             }
             open.drawn = None;
         }
@@ -400,6 +414,7 @@ fn keys(
     if let Some(RecipeButton::Row(r)) = clicked {
         open.selected = r;
     }
+    open.first = keep_in_view(open.first, open.selected, n, ROWS);
     if (open.selected, open.filter) != before {
         sounds.write(UiSound { menu: UiMenu::Recipe, event: if open.filter != before.1 { UiEvent::Switch } else { UiEvent::Focus } });
     }
@@ -412,7 +427,7 @@ fn keys(
     if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {
         let chosen = v.rows.get(open.selected.min(n.saturating_sub(1))).map(|r| r.recipe);
         let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) else { return };
-        // More than one can be made: how many? (module notes)
+        // Any can be made: how many? (module notes)
         let most = crate::script::with_world(rt, &mut sim, |rt| {
             if !lacks(rt, recipe).is_empty() {
                 return 0;
@@ -420,15 +435,26 @@ fn keys(
             let counts: Vec<(FormId, i64)> = recipe.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
             times_possible(recipe, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
         });
-        if most > 1 {
+        if most >= 1 {
             info!("recipe menu: how many? 1 of {most} ({:?})", recipe.name);
             open.quantity = Some((1, most.min(i32::MAX as u32) as i32));
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Opened });
             return;
         }
         make_recipe(rt, &mut sim, recipe, 1, &mut sounds, corner.as_deref_mut());
+        follow_made(rt, &mut sim, open, recipe.form);
         // What the player has changed: draw it again.
         open.drawn = None;
+    }
+}
+
+/// After making `recipe` the ready recipes may have moved (they are listed first): the
+/// choice stays on it, kept in view.
+fn follow_made(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &mut Open, recipe: FormId) {
+    let v = view(rt, sim, open);
+    if let Some(i) = v.rows.iter().position(|r| r.recipe == recipe) {
+        open.selected = i;
+        open.first = keep_in_view(open.first, i, v.rows.len(), ROWS);
     }
 }
 
@@ -538,16 +564,19 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, kit: &mut crate::
                 m.spawn((Button, RecipeButton::Right, at(ITEMS_AT.x + 55.0 + tw, ITEMS_AT.y - 17.0, 17.5, 35.0), ImageNode { color: amber(255.0), ..ImageNode::new(r.clone()) }));
             }
             m.spawn(at(ITEMS_AT.x + 50.0, ITEMS_AT.y - 28.0, tw + 4.0, 56.0)).with_children(|t| text(t, &look.title, &v.title, 0.0, 0.0, bright));
-            // The rows, a window round the chosen one.
-            let first = v.selected.saturating_sub(ROWS - 1).min(v.rows.len().saturating_sub(ROWS));
-            for (k, (i, r)) in v.rows.iter().enumerate().skip(first).take(ROWS).enumerate() {
+            // The rows from the first shown.
+            for (k, (i, r)) in v.rows.iter().enumerate().skip(v.first).take(ROWS).enumerate() {
                 let (line, fill) = highlight_colors();
                 let chosen = i == v.selected;
-                let node = Node { border: UiRect::all(u(LINE)), ..at(ITEMS_AT.x + 5.0, LIST_TOP + k as f32 * ROW, BOX_WIDTH - 30.0, ROW) };
+                let node = Node { border: UiRect::all(u(LINE)), ..at(ITEMS_AT.x + 5.0, LIST_TOP + k as f32 * ROW, BOX_WIDTH - 15.0 - ROWS_BAR_W, ROW) };
                 m.spawn((Button, RecipeButton::Row(i), node, BorderColor::all(if chosen { line } else { Color::NONE }), BackgroundColor(if chosen { fill } else { Color::NONE }))).with_children(|row| {
                     text(row, &look.row, &r.label, 40.0, 6.0, if r.ready { bright } else { amber(NOT_READY) });
                 });
             }
+            // The scroll bar, right of the rows, when they do not all fit (owner's request
+            // 2026-10-26; drawn as the container menu's).
+            let bar = (ITEMS_AT.x + BOX_WIDTH - 5.0 - ROWS_BAR_W, LIST_TOP, ROWS as f32 * ROW);
+            crate::menu::look::spawn_rows_bar(m, kit, data, images, bc, bar, v.rows.len(), v.first, ROWS);
             if v.rows.is_empty() {
                 m.spawn(at(ITEMS_AT.x + 5.0, LIST_TOP, BOX_WIDTH, ROW)).with_children(|t| text(t, &look.row, "No recipes", 40.0, 6.0, color(Shade::Dim)));
             }

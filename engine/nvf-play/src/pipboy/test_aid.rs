@@ -23,6 +23,8 @@
 //!   answer (Yes at first), `key=down` moves to No.
 //! - `note=<note FormID>`: on the DATA page's Notes tab, select that note and use it as a
 //!   click on its row would (a holotape plays or stops, `crate::holotape`).
+//! - `hotkey=<1-8>`: hold that hotkey's key on the ITEMS page (its panel shows and a
+//!   click assigns, `super::hotkey_panel`) until `hotkey=off`.
 //!
 //! Each step is logged. Screenshots are `NVF_PLAY_TEST_SHOTS`'.
 
@@ -46,6 +48,8 @@ enum Step {
     Note(u32),
     Repair(super::repair::RepairInput),
     Mod(super::item_mod::ModInput),
+    /// Hold a hotkey's key (its slot), or let go.
+    Hotkey(Option<usize>),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -94,6 +98,8 @@ fn step(s: &str) -> Option<Step> {
                 "cancel" => super::item_mod::ModInput::Cancel,
                 _ => return None,
             }),
+            ("hotkey", "off") => Step::Hotkey(None),
+            ("hotkey", n) => Step::Hotkey(Some(n.trim().parse::<usize>().ok().filter(|n| (1..=8).contains(n))? - 1)),
             ("tab", t) => Step::Tab(t.trim().parse().ok().filter(|t| *t < 5)?),
             ("key", k) => Step::Key(match k.trim() {
                 "down" => Command::Down,
@@ -130,6 +136,7 @@ pub(super) fn setup(app: &mut App) {
     app.insert_resource(Script(parse(&v))).add_systems(Update, run.in_set(crate::PlaySet::Input));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     time: crate::pause::AidTime,
     mut script: ResMut<Script>,
@@ -138,6 +145,7 @@ fn run(
     mut pip: MessageWriter<PipBoyInput>,
     mut aid: ResMut<PipBoyAid>,
     (mut ask, mut repair, mut modding): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>, MessageWriter<super::item_mod::ModInput>),
+    mut hold: ResMut<super::hotkey_panel::HotkeyHold>,
 ) {
     let Some(now) = time.world_secs() else { return };
     while let Some(&(t, s)) = script.0.first() {
@@ -189,6 +197,9 @@ fn run(
             Step::Mod(m) => {
                 modding.write(m);
             }
+            Step::Hotkey(n) => {
+                hold.aid = n;
+            }
         }
     }
 }
@@ -199,7 +210,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9");
         assert_eq!(
             s,
             vec![
@@ -216,6 +227,8 @@ mod tests {
                 (8.96, Step::Note(0x0016_18BF)),
                 (8.97, Step::Repair(super::super::repair::RepairInput::Use)),
                 (8.98, Step::Mod(super::super::item_mod::ModInput::Open)),
+                (8.99, Step::Hotkey(Some(2))),
+                (8.995, Step::Hotkey(None)),
                 (9.0, Step::Close)
             ]
         );

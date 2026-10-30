@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use fnv_font::{Font, Glyph, Line};
 use nvf_assets::GameData;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The interface's colour [observed: the brightest text of the owner's screenshot,
 /// message-menu.md §3].
@@ -51,10 +52,56 @@ pub fn top_menu_backing() -> BackgroundColor {
 /// docs/spec-notes/repair.md §3].
 pub const BACKGROUND_FILL_ALPHA: f32 = 32.0 / 255.0;
 
-/// The interface's colour at a brightness (0 to 255, as the interface files give it).
-pub fn amber(brightness: f32) -> Color {
+/// [`AMBER`] as 0 to 255 per channel: the default of both interface colours.
+pub const AMBER_RGB: [u8; 3] = [255, 182, 66];
+
+/// The colour the HUD and the menus are drawn in, and the one of the Pip-Boy's screens
+/// (`crate::ui_colour` sets them from the settings page), packed as `0xRRGGBB`. Global,
+/// not a resource: [`amber`] is called from drawing code that has no world at hand.
+static HUD_RGB: AtomicU32 = AtomicU32::new(pack(AMBER_RGB));
+static PIPBOY_RGB: AtomicU32 = AtomicU32::new(pack(AMBER_RGB));
+
+const fn pack([r, g, b]: [u8; 3]) -> u32 {
+    (r as u32) << 16 | (g as u32) << 8 | b as u32
+}
+
+fn unpack(v: u32) -> [u8; 3] {
+    [(v >> 16) as u8, (v >> 8) as u8, v as u8]
+}
+
+/// The HUD's and the menus' colour.
+pub fn hud_rgb() -> [u8; 3] {
+    unpack(HUD_RGB.load(Ordering::Relaxed))
+}
+
+pub fn set_hud_rgb(rgb: [u8; 3]) {
+    HUD_RGB.store(pack(rgb), Ordering::Relaxed);
+}
+
+/// The Pip-Boy screens' colour.
+pub fn pipboy_rgb() -> [u8; 3] {
+    unpack(PIPBOY_RGB.load(Ordering::Relaxed))
+}
+
+pub fn set_pipboy_rgb(rgb: [u8; 3]) {
+    PIPBOY_RGB.store(pack(rgb), Ordering::Relaxed);
+}
+
+/// `rgb` at a brightness (0 to 255).
+pub fn tint(rgb: [u8; 3], brightness: f32) -> Color {
     let b = brightness / 255.0;
-    Color::srgb(AMBER[0] * b, AMBER[1] * b, AMBER[2] * b)
+    Color::srgb(f32::from(rgb[0]) / 255.0 * b, f32::from(rgb[1]) / 255.0 * b, f32::from(rgb[2]) / 255.0 * b)
+}
+
+/// The interface's colour (the HUD's, [`hud_rgb`]) at a brightness (0 to 255, as the
+/// interface files give it).
+pub fn amber(brightness: f32) -> Color {
+    tint(hud_rgb(), brightness)
+}
+
+/// The Pip-Boy screens' colour ([`pipboy_rgb`]) at a brightness, as [`amber`].
+pub fn pipboy_amber(brightness: f32) -> Color {
+    tint(pipboy_rgb(), brightness)
 }
 
 /// A length of the interface (960 units high) as a part of the view's height.

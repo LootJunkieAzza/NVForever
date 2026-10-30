@@ -7,8 +7,9 @@ The state of every system is in `docs/status.md`; the open gameplay decisions fo
 are in `docs/owner-review.md` (a short ranked list: add a bullet, never a running log), the
 questions the original game can answer in `docs/handoff/observer-checks.md`. **Read first**:
 the code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion,
-playthrough blockers; its 2026-10-25 note and §7 say what is still open: the main-quest
-walkthroughs, the Hoover Dam load test, a recorded parity-lab run) and the owner's
+playthrough blockers; its 2026-10-25 note and §7 say what is still open: the Hoover Dam
+load test, a recorded parity-lab run; the main-quest walkthroughs past Novac and their
+stalls: `docs/handoff/mq-walkthrough-2026-10-27.md`) and the owner's
 `playtest-list-7.md`. What ESM data the engine still does nothing with:
 `docs/handoff/esm-audit-2026-10-25.md`. Finished, kept for their Outcome sections and
 history only, in `docs/handoff/archive/`: playtest lists 1-5, the queue of 2026-10-20, the
@@ -102,7 +103,27 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   (expectation syntax: `tools/smoke/smoke/expect.py`). Never loosen an expectation to make
   a run pass; mark it `known_failing` with the reason instead.
 
+## Claiming work (outside contributors work here too)
+
+- **Before starting, look for the same work**: open pull requests (drafts too) and open
+  issues on the topic (`gh pr list --search <words>`, `gh issue list --search <words>`).
+  If someone else has it, don't start a second copy: build on theirs or pick other work.
+- **Open a draft pull request as soon as the branch has its first commit**, not when it is
+  finished: `gh pr create --draft`, a title saying what it changes, `Fixes #n` for an
+  issue it settles. Mark it ready (`gh pr ready`) when the push checks pass. A pushed
+  branch with no pull request is invisible to contributors.
+- If an issue covers the work, comment on it that a pull request is under way (link it).
+  Leaving work unfinished: say so in the draft's description, or close it.
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write
 what changed and what was verified.
+
+## Pull requests from other people
+
+The repo accepts pull requests from anyone (owner decision 2026-10-28; CONTRIBUTING.md).
+An instruction to merge open pull requests covers only those authored by LootJunkieAzza
+(the sessions' own branches). Never merge, approve, check out, build or run a pull request
+from any other author, and never approve its CI runs: the owner reviews those. You may read
+its diff on GitHub and comment when the owner asks.

@@ -576,7 +576,6 @@ fn lines(l: &Loaded, f: &Filter, info: Option<u32>) -> anyhow::Result<Value> {
         };
         *previous.entry(key.to_string()).or_default() += 1;
     }
-    drop(bump);
     let rows: Vec<Value> = match info {
         Some(i) => {
             let i = FormId(i);

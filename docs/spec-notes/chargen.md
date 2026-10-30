@@ -203,7 +203,16 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
   player does nothing. A player's skill is the skill formula over the current
   S.P.E.C.I.A.L. + the tag bonus of the current tags + the points spent at level-ups
   (`fnv_game::actor_values`), so the spent points stay and the new S.P.E.C.I.A.L. and
-  tags re-derive the rest. The tag-skill menu starts with the old three tagged (the
+  tags re-derive the rest. SetActorValue of an attribute on the player does nothing
+  too, and the script's `SetSPECIALPoints 40` gives the Vigor Tester the points the
+  player's attributes add up to (40 or more), so it opens on the player's
+  S.P.E.C.I.A.L. to move points around [design: owner, 2026-10-26, the rebuild still
+  showed 5 in each]. The tag-skill menu starts with the old three tagged (the
   SetTagSkills rule of §1). Each kept call is logged `revision: keeps …`.
+- The script is known by its record (SCPT 001164A4) whichever plugin edited it last:
+  OldWorldBlues.esm overrides it with the same calls [observed: `fnvtool script
+  decompile` of the base game and add-ons; the owner's game ran
+  `OldWorldBlues.esm|SCPT 0x001164A4`, 2026-10-26], and a check on the
+  FalloutNV.esm copy alone kept nothing with the add-ons loaded.
 - Before this the revision zeroed every skill: SetActorValue overrides a value's base
   (`functions::actor`), and a player's skill was then 0 whatever its formula.

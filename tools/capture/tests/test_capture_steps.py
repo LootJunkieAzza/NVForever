@@ -20,7 +20,8 @@ EDIDS = {e.lower(): 0x00010000 + i for i, e in enumerate([
     "OutfitWasteland01", "Ammo9mm", "LootChemsStimpak50", "LL0NPCWastelandCaps35", "VFactionSquadStimpaks",
     "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV", "AmmoMissilelauncherScrounger", "Ammo10mmScrounger",
     "Ammo20GaScrounger", "CapsFortuneFinder", "NVDLC01ChipsChangeFortuneFinder", "VendorFlakShrapnelMiniNukes",
-    "VendorArmorRare75", "VendorBasicMedicalSupplies100", "LootChemsNVAll50", "LL2Tier4ExplosivesMixed50", "VZKeyDirtyGSHome2SafeKey"])}
+    "VendorArmorRare75", "VendorBasicMedicalSupplies100", "LootChemsNVAll50", "LL2Tier4ExplosivesMixed50", "VZKeyDirtyGSHome2SafeKey",
+    "LootAmmo10mm", "WithAmmo10mmPistolLoot"])}
 
 
 def actions(*acts):

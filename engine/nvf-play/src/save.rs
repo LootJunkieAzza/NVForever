@@ -8,8 +8,10 @@
 //!   the console; not in a conversation, another menu, a script's message box or under a
 //!   loading screen. Requests: [`SaveRequest`] (the console's `save <name>`), the
 //!   QuickSave key (F5, slot `quicksave`) and autosaves (slot `autosave`): after each
-//!   travel behind a loading screen and when a script calls `Autosave` [documented: GECK
-//!   wiki Autosave], each behind a switch on the settings page. A script's `SystemSave`
+//!   travel behind a loading screen (a fast travel has its own switch), after a wait and
+//!   after a sleep that passed at least an hour (`crate::wait::RestEnded`), and when a
+//!   script calls `Autosave` [documented: GECK wiki Autosave], each behind a switch on the
+//!   settings page. A script's `SystemSave`
 //!   writes the one system slot (`systemsave`), overwritten by each later call; it waits
 //!   for a moment saving is allowed, as autosaves do [documented: GECK wiki SystemSave;
 //!   the waiting is a hypothesis]. A script's `ForceSave` is a save by hand under a new
@@ -85,17 +87,24 @@ pub struct SaveConfig {
     /// `fnv_install::EngineHome::saves` (`Documents\My Games\NVForever\saves`).
     pub dir: Option<PathBuf>,
     pub autosave_travel: bool,
+    pub autosave_fast_travel: bool,
+    pub autosave_wait: bool,
+    pub autosave_sleep: bool,
     pub autosave_scripts: bool,
 }
 
 impl Default for SaveConfig {
     fn default() -> Self {
-        let dir = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).saves());
-        SaveConfig { dir, autosave_travel: true, autosave_scripts: true }
+        SaveConfig::with_dir(fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).saves()))
     }
 }
 
 impl SaveConfig {
+    /// Saves in `dir`, every autosave switch on.
+    pub fn with_dir(dir: Option<PathBuf>) -> SaveConfig {
+        SaveConfig { dir, autosave_travel: true, autosave_fast_travel: true, autosave_wait: true, autosave_sleep: true, autosave_scripts: true }
+    }
+
     /// The file of a save by name, or a path given as is (it has a folder or the
     /// extension).
     pub fn path_of(&self, name: &str) -> Result<PathBuf, String> {
@@ -154,7 +163,37 @@ pub struct EngineSnapshot {
     /// Parts kept by other crates ([`SaveHook`]).
     #[serde(default)]
     pub extra: BTreeMap<String, serde_json::Value>,
+    /// The same part of players 2–4 of a co-op game (docs/design/coop-save.md); absent
+    /// for one player.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coop: Vec<CoopEngine>,
 }
+
+/// The engine's part of one of players 2–4 (docs/design/coop-save.md): the fields of
+/// [`EngineSnapshot`] that belong to one player. The Pip-Boy's active quest and the other
+/// crates' parts stay shared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CoopEngine {
+    /// The player's number, 2–4 (`fnv_game::coop::CoopPlayer::slot`).
+    pub slot: u8,
+    #[serde(default)]
+    pub third_person: bool,
+    #[serde(default)]
+    pub distance: f32,
+    #[serde(default)]
+    pub sneak: bool,
+    #[serde(default)]
+    pub always_run: bool,
+    #[serde(default)]
+    pub flashlight: bool,
+    #[serde(default)]
+    pub magazine: Option<(u32, u32)>,
+}
+
+/// Players 2–4's engine part: kept from the save loaded and written into the next one
+/// (nothing plays them yet; the game layer keeps the rest, `fnv_game::Game::coop`).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct CoopEngineState(pub Vec<CoopEngine>);
 
 /// A save's body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +237,11 @@ impl Restoring<'_> {
         self.engine.is_some() && self.script.as_ref().is_none_or(|s| s.off.is_none())
     }
 }
+
+/// The loading screen up now is a fast travel's (`crate::pipboy` sets it as the trip
+/// leaves): the autosave after it follows the fast-travel switch.
+#[derive(Resource, Default)]
+pub struct FastTravelLanding(pub bool);
 
 /// Saves asked for and not yet written (one waits while saving is not allowed).
 #[derive(Resource, Default)]
@@ -282,6 +326,9 @@ impl Plugin for SavePlugin {
             .init_resource::<SaveQueue>()
             .init_resource::<SaveLog>()
             .init_resource::<SaveWrites>()
+            .init_resource::<CoopEngineState>()
+            .init_resource::<FastTravelLanding>()
+            .add_message::<crate::wait::RestEnded>()
             .add_message::<SaveRequest>()
             .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
@@ -296,7 +343,19 @@ impl Plugin for SavePlugin {
         let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set, slider: None };
         crate::settings::add_setting(
             app,
-            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player).", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
+            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player); fast travel has its own switch.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
+        );
+        crate::settings::add_setting(
+            app,
+            setting("autosave-fast-travel", "Save on fast travel", "On: the game saves to the autosave slot when a fast travel arrives.", |w| w.resource::<SaveConfig>().autosave_fast_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_fast_travel = on),
+        );
+        crate::settings::add_setting(
+            app,
+            setting("autosave-wait", "Save on wait", "On: the game saves to the autosave slot when a wait ends with at least one hour passed.", |w| w.resource::<SaveConfig>().autosave_wait, |w, on| w.resource_mut::<SaveConfig>().autosave_wait = on),
+        );
+        crate::settings::add_setting(
+            app,
+            setting("autosave-sleep", "Save on sleep", "On: the game saves to the autosave slot when the player wakes from a sleep of at least one hour.", |w| w.resource::<SaveConfig>().autosave_sleep, |w, on| w.resource_mut::<SaveConfig>().autosave_sleep = on),
         );
         crate::settings::add_setting(
             app,
@@ -329,18 +388,40 @@ fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, 
     }
 }
 
-/// Autosaves: after a loading screen comes down, and on a script's `Autosave`; a script's
-/// `SystemSave` and `ForceSave`.
-fn autosaves(loading: Res<crate::loading::Loading>, mut was: Local<bool>, script: Option<ResMut<ScriptState>>, cfg: Res<SaveConfig>, mut queue: ResMut<SaveQueue>, pending: Option<Res<PendingEngine>>) {
+/// Autosaves: after a loading screen comes down, after a wait or a sleep, and on a
+/// script's `Autosave`; a script's `SystemSave` and `ForceSave`.
+#[allow(clippy::too_many_arguments)]
+fn autosaves(
+    loading: Res<crate::loading::Loading>,
+    mut was: Local<bool>,
+    mut fast: ResMut<FastTravelLanding>,
+    mut rested: MessageReader<crate::wait::RestEnded>,
+    script: Option<ResMut<ScriptState>>,
+    cfg: Res<SaveConfig>,
+    mut queue: ResMut<SaveQueue>,
+    pending: Option<Res<PendingEngine>>,
+) {
     let auto = || SaveRequest { name: fnv_save::AUTO_NAME.into(), kind: SaveKind::Auto };
     let active = loading.travelling();
     // A loading screen comes up only for travel (the start has none); not while a save
     // is still being put back.
-    if *was && !active && cfg.autosave_travel && pending.is_none() {
-        info!("save: autosave after travel");
-        queue.0.push(auto());
+    if *was && !active && pending.is_none() {
+        let fast_travel = std::mem::take(&mut fast.0);
+        if fast_travel && cfg.autosave_fast_travel {
+            info!("save: autosave after fast travel");
+            queue.0.push(auto());
+        } else if !fast_travel && cfg.autosave_travel {
+            info!("save: autosave after travel");
+            queue.0.push(auto());
+        }
     }
     *was = active;
+    for r in rested.read() {
+        if (r.sleep && cfg.autosave_sleep) || (!r.sleep && cfg.autosave_wait) {
+            info!("save: autosave after {} ({} hour(s))", if r.sleep { "sleep" } else { "wait" }, r.hours);
+            queue.0.push(auto());
+        }
+    }
     let Some(mut st) = script else { return };
     let Some(rt) = st.rt.as_mut() else { return };
     let n = std::mem::take(&mut rt.game.ui.autosaves);
@@ -663,6 +744,7 @@ fn engine_snapshot(world: &World) -> EngineSnapshot {
     e.flashlight = world.get_resource::<crate::flashlight::Flashlight>().is_some_and(|f| f.on);
     e.magazine = world.get_resource::<crate::combat::Combat>().and_then(|c| c.magazine_for_save());
     e.active_quest = world.get_resource::<crate::pipboy::data::DataState>().and_then(|d| d.active_quest());
+    e.coop = world.get_resource::<CoopEngineState>().map(|c| c.0.clone()).unwrap_or_default();
     let hooks = world.resource::<SaveHooks>().0.clone();
     for h in hooks {
         if let Some(v) = (h.save)(world) {
@@ -697,6 +779,11 @@ fn header(world: &World, kind: SaveKind, game: &fnv_game::game::GameSnapshot, en
     };
     let cell = loc.and_then(|l| l.interior).or_else(|| sim.world.peek(fnv_sim::FormId::PLAYER_REF).and_then(|s| s.cell).map(|c| c.0));
     h.location = cell.map(|c| crate::console::place_name(d, c)).unwrap_or_default();
+    h.coop = game
+        .coop
+        .iter()
+        .map(|p| fnv_save::CoopEntry { slot: p.slot, name: p.character.name.clone().unwrap_or_else(|| format!("Player {}", p.slot)), level: p.character.level.unwrap_or(game.sim.config.player_level as i32).max(1) as u32 })
+        .collect();
     h.weather = engine.extra.get("sky").and_then(|v| v.get("weather")).and_then(|w| w.as_str()).map(str::to_string);
     h
 }
@@ -710,6 +797,7 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    world.insert_resource(CoopEngineState(e.coop.clone()));
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
         c.pov = if e.third_person { crate::control::Pov::Third } else { crate::control::Pov::First };
         if e.distance > 0.0 {
@@ -792,6 +880,9 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let e = &mut body.engine;
     e.magazine = e.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
     e.active_quest = e.active_quest.and_then(|q| remap.map(q));
+    for c in &mut e.coop {
+        c.magazine = c.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
+    }
     eprintln!(
         "load: {} was made with another load order: moved {:?}, missing now {:?}, added {:?}; {} FormIDs remapped, {} entries of missing plugins dropped ({:?}), {} fields named a missing plugin's form, {} entries holding them dropped by the game layer",
         path.display(),
@@ -818,9 +909,11 @@ mod tests {
     fn an_engine_snapshot_without_new_fields_still_reads() {
         let e: EngineSnapshot = serde_json::from_str(r#"{"format":"nvf.engine.state/1"}"#).unwrap();
         assert_eq!(e, EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() });
-        let full = EngineSnapshot { format: ENGINE_FORMAT.into(), third_person: true, distance: 150.0, sneak: true, always_run: true, flashlight: true, magazine: Some((0x1234, 7)), active_quest: Some(0x104C1C), extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into() };
+        let full = EngineSnapshot { format: ENGINE_FORMAT.into(), third_person: true, distance: 150.0, sneak: true, always_run: true, flashlight: true, magazine: Some((0x1234, 7)), active_quest: Some(0x104C1C), extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into(), coop: vec![CoopEngine { slot: 3, third_person: true, distance: 90.0, sneak: true, always_run: false, flashlight: true, magazine: Some((0x1235, 2)) }] };
         let back: EngineSnapshot = serde_json::from_str(&serde_json::to_string(&full).unwrap()).unwrap();
         assert_eq!(back, full);
+        // One player writes no `coop`.
+        assert!(!serde_json::to_string(&EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() }).unwrap().contains("coop"));
     }
 
     #[test]
@@ -852,7 +945,7 @@ mod tests {
 
     #[test]
     fn a_save_name_or_a_path_is_taken() {
-        let cfg = SaveConfig { dir: Some(PathBuf::from("saves")), autosave_travel: true, autosave_scripts: true };
+        let cfg = SaveConfig::with_dir(Some(PathBuf::from("saves")));
         assert_eq!(cfg.path_of("Before Primm").unwrap(), PathBuf::from("saves").join("Before Primm.nvfsave"));
         assert_eq!(cfg.path_of("C:/x/y.nvfsave").unwrap(), PathBuf::from("C:/x/y.nvfsave"));
         assert!(cfg.path_of("bad:name").is_err());

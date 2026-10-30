@@ -259,8 +259,15 @@ pub fn add_special_points(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
 
 /// `SetSPECIALPoints n`: opens the S.P.E.C.I.A.L. menu, which may be left once the
 /// attributes add up to n [documented: GECK wiki SetSPECIALPoints].
-pub fn set_special_points(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.ui.special = Some(SpecialMenu::Set(a.int(0)?));
+pub fn set_special_points(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let mut n = a.int(0)?;
+    // The character revision keeps the attributes (`crate::revision`): the menu opens on
+    // them with the points they add up to, so the player moves points around.
+    let sum: i32 = crate::chargen::SpecialSheet::of_player(g).values.iter().sum();
+    if crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the S.P.E.C.I.A.L. ({sum} points, not {n})")) {
+        n = n.max(sum);
+    }
+    g.ui.special = Some(SpecialMenu::Set(n));
     g.open_menu(menus::LOVE_TESTER);
     none()
 }

@@ -338,6 +338,28 @@ impl Game<'_> {
         // The body gets its death item before OnDeath runs [hypothesis: the order]
         // (`crate::death_items`).
         self.give_death_items(r, killer);
+        // OnDeath waits for the script that killed to finish (`Game::on_death`).
+        if self.in_script() {
+            self.defer_death(r, killer);
+        } else {
+            self.on_death(r, killer);
+        }
+        // Its effects end, but those whose base effect has "No Death Dispel" (a flamer's
+        // burning) and abilities (docs/spec-notes/hit-effects.md §4).
+        let data = self.data;
+        self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
+        self.death_line(r, killer);
+        true
+    }
+
+    /// The OnDeath of `r`: the extender's handlers, then the block. A death inside a
+    /// script run (KillActor) runs it once the outermost script has finished, not in the
+    /// middle of the killing script [hypothesis: One for My Baby's victim scripts call
+    /// `KillActor` and only then set Boone's `bGotRevenge`, while their OnDeath clears
+    /// the accused (`nAccusedIndex`) when `bGotRevenge` is still 0; run at once, every
+    /// revenge kill would clear it and Boone's "I found the bill of sale" line, which
+    /// needs it, would never show].
+    pub(crate) fn on_death(&mut self, r: FormId, killer: Option<FormId>) {
         // The extender's OnDeath handlers, before the block [hypothesis on the order;
         // docs/spec-notes/ext-events.md].
         let killer_val = fnv_script::vm::XVal::Ref(killer.map_or(0, |k| k.0));
@@ -349,12 +371,6 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.teammate = false;
         }
-        // Its effects end, but those whose base effect has "No Death Dispel" (a flamer's
-        // burning) and abilities (docs/spec-notes/hit-effects.md §4).
-        let data = self.data;
-        self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
-        self.death_line(r, killer);
-        true
     }
 
     /// The share (0–1) of a harmful effect's magnitude the target resists: its value of
@@ -392,6 +408,15 @@ impl Game<'_> {
         Some((d.unarmed_effect?, d.unarmed_anim.as_deref()))
     }
 
+    /// Whether a kill by `killer` earns the player experience: the player's, and a hired
+    /// companion's (a teammate's), the same experience as the player's own kill [owner,
+    /// 2026-10-27: "companion kills should net you experience if they are hired"]. Their
+    /// damage counts together towards the share kill XP asks for ([`Game::kill_xp`])
+    /// [design].
+    pub fn kill_earns_xp(&self, killer: FormId) -> bool {
+        killer == FormId::PLAYER_REF || self.is_teammate(killer)
+    }
+
     /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an
     /// essential actor (who falls unconscious) and killing the others at 0, the effect's
     /// caster the killer (docs/spec-notes/hit-effects.md §4).
@@ -406,9 +431,10 @@ impl Game<'_> {
         let amount = amount * self.damage_mult(caster, target);
         let dealt = amount.max(0.0).min((before - floor).max(0.0));
         actor::add_damage(self, target, HEALTH, dealt);
+        let players_side = caster.is_some_and(|c| self.kill_earns_xp(c));
         {
             let e = self.extra.entry(target).or_default();
-            if caster == Some(FormId::PLAYER_REF) {
+            if players_side {
                 e.player_damage += dealt;
             }
             e.total_damage += dealt;
@@ -416,7 +442,7 @@ impl Game<'_> {
         if before - dealt <= floor {
             if essential {
                 self.knock_out(target, crate::unconscious::Cause::Essential, caster);
-            } else if self.kill(target, caster) && caster == Some(FormId::PLAYER_REF) {
+            } else if self.kill(target, caster) && caster.is_some_and(|c| self.kill_earns_xp(c)) {
                 let xp = self.kill_xp(target);
                 crate::experience::award(self, crate::experience::Source::Kill, xp);
             }
@@ -452,10 +478,11 @@ impl Game<'_> {
         self.jip.hits.insert(target, rec);
         self.jip_event("hit", Some(target), Vec::new());
         actor::add_damage(self, target, HEALTH, dealt);
+        let players_side = info.attacker.is_some_and(|a| self.kill_earns_xp(a));
         {
             let e = self.extra.entry(target).or_default();
             e.last_hit = Some(crate::game::LastHit { attacker: info.attacker, weapon: info.weapon, location: info.location, critical: info.critical });
-            if Some(FormId::PLAYER_REF) == info.attacker {
+            if players_side {
                 e.player_damage += dealt;
             }
             e.total_damage += dealt;
@@ -509,7 +536,7 @@ impl Game<'_> {
                 if out.died {
                     out.overkill = (damage - dealt).max(0.0);
                 }
-                if out.died && info.attacker == Some(FormId::PLAYER_REF) {
+                if out.died && info.attacker.is_some_and(|a| self.kill_earns_xp(a)) {
                     let xp = self.kill_xp(target);
                     out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
                 }

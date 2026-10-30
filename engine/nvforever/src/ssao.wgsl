@@ -5,6 +5,7 @@
 // multiplies the picture by it. An engineering choice, not the original game's.
 
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+#import nvf_assets::first_person_depth::unsqueeze
 
 struct Ao {
     // x: radius (game units), y: strength, z: the projection's near plane, w: the
@@ -37,9 +38,11 @@ fn dims() -> vec2<i32> {
     return vec2<i32>(textureDimensions(depth));
 }
 
-// The depth prepass's value at a pixel (reverse z: 0 is the far plane, the sky).
+// The depth prepass's value at a pixel (reverse z: 0 is the far plane, the sky), the
+// first-person arms and weapon at the depth they were squeezed from (nvf_assets
+// nif_material.rs "First-person depth").
 fn depth_at(p: vec2<i32>) -> f32 {
-    return textureLoad(depth, clamp(p, vec2(0), dims() - 1), 0);
+    return unsqueeze(textureLoad(depth, clamp(p, vec2(0), dims() - 1), 0));
 }
 
 // The view-space position of pixel `p` at depth value `d` (reverse infinite z:

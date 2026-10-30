@@ -1,0 +1,29 @@
+{
+  "format": "fnv.sim.cases/1",
+  "seed": 0,
+  "cases": [
+    {
+      "label": "LootAmmo10mm x10, ScroungerOdds 100 (Use All list given a count, sublists each item in count)",
+      "list": "LootAmmo10mm",
+      "level": 1,
+      "count": 10,
+      "globals": {"ScroungerOdds": 100},
+      "samples": 20000
+    },
+    {
+      "label": "LootAmmo10mm x1, ScroungerOdds 100 (same list, no count: control)",
+      "list": "LootAmmo10mm",
+      "level": 1,
+      "count": 1,
+      "globals": {"ScroungerOdds": 100},
+      "samples": 20000
+    },
+    {
+      "label": "WithAmmo10mmPistolLoot x1 (Use All: pistol, round, 10 rolls Ammo10mm75, 5 rolls Case10mm75)",
+      "list": "WithAmmo10mmPistolLoot",
+      "level": 1,
+      "count": 1,
+      "samples": 20000
+    }
+  ]
+}

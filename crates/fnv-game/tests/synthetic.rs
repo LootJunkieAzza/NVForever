@@ -148,6 +148,9 @@ const ACT_SCRIPT: u32 = 0x902;
 const ACTIVATOR: u32 = 0x903;
 const TRIG_SCRIPT: u32 = 0x904;
 const TRIGGER: u32 = 0x905;
+const MARKER: u32 = 0x906;
+const WEAPON: u32 = 0x907;
+const WEAPON_SCRIPT: u32 = 0x908;
 const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
@@ -163,6 +166,7 @@ const ACT_REF: u32 = 0x300;
 const TRIG_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
+const PATROL_REF: u32 = 0x330;
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -263,6 +267,8 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"SCPT", 0, TRIG_SCRIPT, &trigscript),
         record(b"SCPT", 0, ACT_SCRIPT, &actscript),
         record(b"SCPT", 0, NPC_SCRIPT, &npcscript),
+        // Weapon script: begin OnFire / set TestGlobal to 9 / end.
+        record(b"SCPT", 0, WEAPON_SCRIPT, &[vec![sub(b"EDID", z("WeaponScript"))], unit(0, &script(&[(0x24, None, set(var(b'G', 1), ex(&[a("9")])))]), &[], &[GLOBAL])].concat()),
     ]
     .concat();
     // The quest: start game enabled, delay 0.5 s.
@@ -386,14 +392,29 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto].concat()));
+    // A patrol point with a patrol script (after XPPA) that sets TestGlobal to 8, on an
+    // unscripted marker base.
+    let marker = record(b"ACTI", 0, MARKER, &[sub(b"EDID", z("TestMarker"))]);
+    let patrol_ref = record(
+        b"REFR",
+        0,
+        PATROL_REF,
+        &[
+            &[sub(b"EDID", z("TestPatrolPointREF")), sub(b"NAME", MARKER.to_le_bytes().to_vec()), sub(b"XPPA", vec![])][..],
+            &unit(0, &set(var(b'G', 1), ex(&[a("8")])), &[], &[GLOBAL]),
+            &[sub(b"DATA", vec![0; 24])],
+        ]
+        .concat(),
+    );
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
-        top(b"ACTI", &[acti, trig].concat()),
+        top(b"ACTI", &[acti, trig, marker].concat()),
         top(b"NPC_", &[npc, npc_auto].concat()),
+        top(b"WEAP", &record(b"WEAP", 0, WEAPON, &[sub(b"EDID", z("TestWeapon")), sub(b"SCRI", WEAPON_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])])),
         top(b"PACK", &pack),
         top(b"QUST", &qust),
         top(b"DIAL", &dial),
@@ -629,6 +650,61 @@ fn snapshots_round_trip() {
     assert_eq!(g.instances, h.instances);
 }
 
+/// Players 2–4 of a co-op game (docs/design/coop-save.md): each keeps its own actor
+/// (inventory, place), values (health damage), character and effects through a save,
+/// apart from the game's own player and from each other; the quests stay shared.
+#[test]
+fn coop_players_round_trip_apart_from_the_player() {
+    use fnv_game::coop::{CoopError, CoopPlayer};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    // A one-player snapshot writes no `coop`.
+    assert!(!serde_json::to_string(&g.snapshot()).unwrap().contains("\"coop\""));
+    let health = 16u16;
+    let mut p2 = CoopPlayer::copy_of_player(&g, 2).unwrap();
+    p2.character.name = Some("Second".into());
+    p2.character.xp = 250.0;
+    p2.character.perks.insert(FormId(0xABC), 1);
+    p2.actor.pos = [10.0, 20.0, 30.0];
+    p2.actor.inventory.get_or_insert_with(fnv_sim::Inventory::new).add(FormId(0x4242), 3);
+    p2.extra.av_damage.insert(health, 40.0);
+    p2.heading_deg = 90.0;
+    let mut p4 = CoopPlayer::copy_of_player(&g, 4).unwrap();
+    p4.character.name = Some("Fourth".into());
+    p4.extra.dead = true;
+    g.set_coop_player(p4).unwrap();
+    g.set_coop_player(p2.clone()).unwrap();
+    assert_eq!(g.coop.iter().map(|p| p.slot).collect::<Vec<_>>(), vec![2, 4]);
+    assert_eq!(g.set_coop_player(CoopPlayer { slot: 1, ..p2.clone() }), Err(CoopError::BadSlot(1)));
+    assert_eq!(g.set_coop_player(CoopPlayer { slot: 5, ..p2.clone() }), Err(CoopError::BadSlot(5)));
+    g.set_stage(FormId(QUEST), 10);
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.coop, g.coop);
+    assert_eq!(h.coop_player(2), Some(&p2));
+    assert!(h.coop_player(3).is_none());
+    assert!(h.coop_player(4).unwrap().extra.dead);
+    // The game's own player kept none of it.
+    assert_eq!(h.player.name, g.player.name);
+    assert!(h.player.perks.is_empty());
+    assert!(!h.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.dead || e.av_damage.contains_key(&health)));
+    assert_ne!(h.world.peek(FormId::PLAYER_REF).unwrap().pos, [10.0, 20.0, 30.0]);
+    // The quests are saved once, not per player.
+    assert_eq!(h.quests, g.quests);
+    assert_eq!(text.matches("\"quests\"").count(), 1);
+    // A snapshot naming one slot twice is refused.
+    let mut twice = back.clone();
+    twice.coop.push(twice.coop[0].clone());
+    let world = World::restore(&f.forms, &f.refs, &twice.sim).unwrap();
+    assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
+}
+
 #[test]
 fn a_save_made_with_another_load_order_drops_the_missing_plugins_forms() {
     // docs/design/save-load.md §4.1. The save was made with [Test.esm, Extra.esm] and is
@@ -690,7 +766,7 @@ fn the_runner_follows_the_actions_contract() {
             {"op": "get_quest", "quest": "Q", "fields": ["running", "stage", "done.10"], "label": "before"},
             {"op": "player_activate", "target": "TestActivatorREF"},
             {"op": "set_stage_read", "quest": "Q", "stage": 20, "field": "completed", "label": "read in the same script"},
-            {"op": "get_quest", "quest": "Q", "fields": ["running", "stage", "objective.10.displayed", "var.bRun", "var.nope"], "label": "after"},
+            {"op": "get_quest", "quest": "Q", "fields": ["running", "stage", "completed", "failed", "objective.10.displayed", "var.bRun", "var.nope"], "label": "after"},
             {"op": "set_local", "type": "short", "value": 3000000000.5, "label": "short"},
             {"op": "set_local", "type": "float", "value": -3000000000.0, "label": "float"},
             {"op": "press_button", "button": 1},
@@ -708,6 +784,8 @@ fn the_runner_follows_the_actions_contract() {
     let after = by("after");
     assert_eq!(after["running"], true);
     assert_eq!(after["stage"], 20);
+    assert_eq!(after["completed"], true);
+    assert_eq!(after["failed"], false);
     assert_eq!(after["objective.10.displayed"], true);
     assert!(after["errors"]["var.nope"].is_string());
     assert_eq!(by("short")["value"], -2147483648.0);
@@ -989,6 +1067,112 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
 }
 
 #[test]
+fn the_runner_reaches_a_patrol_point_and_runs_its_script() {
+    let f = fixture();
+    assert!(f.data.patrol_scripts.contains_key(&FormId(PATROL_REF)));
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "patrol_point", "actor": "TestNpcREF", "point": "TestPatrolPointREF"},
+            {"op": "get_global", "name": "TestGlobal", "label": "after"},
+            {"op": "patrol_point", "actor": "TestNpcREF", "point": "TestActivatorREF"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    assert!(steps[0].get("error").is_none(), "{}", out["steps"]);
+    // A reference with no patrol script and no topic is refused.
+    assert!(steps[2].get("error").is_some(), "{}", out["steps"]);
+    let obs = out["observations"].as_array().unwrap();
+    assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 8.0);
+}
+
+/// `go_to_cell` (the console's coc) is a cell change: the teammate comes along
+/// ("Changing cells will teleport the teammate to the player" [documented: GECK wiki
+/// SetPlayerTeammate notes]).
+#[test]
+fn the_runners_go_to_cell_brings_the_teammate() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": "TestNpcREF.SetPlayerTeammate 1"},
+            {"op": "get_ref", "of": "TestNpcREF", "label": "before"},
+            {"op": "go_to_cell", "cell": "TestCell"},
+            {"op": "get_ref", "of": "TestNpcREF", "label": "after"},
+            {"op": "get_ref", "of": "player", "label": "player"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{}", out["steps"]);
+    let obs = out["observations"].as_array().unwrap();
+    let pos = |l: &str| -> Vec<f64> { obs.iter().find(|o| o["label"] == l).unwrap()["pos"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect() };
+    let dist = |a: &[f64], b: &[f64]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+    assert!(dist(&pos("after"), &pos("player")) < 200.0, "{obs:?}");
+    assert_ne!(pos("before"), pos("after"), "{obs:?}");
+}
+
+#[test]
+fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "fire", "weapon": "TestWeapon", "actor": "TestNpcREF"},
+            {"op": "add_item", "to": "TestNpcREF", "item": "TestWeapon", "count": 1},
+            {"op": "fire", "weapon": "TestWeapon", "actor": "TestNpcREF"},
+            {"op": "get_global", "name": "TestGlobal", "label": "after"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    // Not carried: refused; carried: OnFire runs.
+    assert!(steps[0].get("error").is_some(), "{}", out["steps"]);
+    assert!(steps[2].get("error").is_none(), "{} {}", out["steps"], out["events"]);
+    let obs = out["observations"].as_array().unwrap();
+    assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 9.0);
+}
+
+/// `save_load`: the game is written into a save's bytes and restored from them; what a
+/// save keeps (globals, reference variables, an item given) is there after it, the
+/// frame does not move, and the trace goes on in one piece.
+#[test]
+fn the_runner_saves_and_loads_in_place() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "set_global", "name": "TestGlobal", "value": 4},
+            {"op": "set_ref_var", "ref": "TestActivatorREF", "var": "nUsed", "value": 3},
+            {"op": "add_item", "to": "TestNpcREF", "item": "TestWeapon", "count": 1},
+            {"op": "save_load", "label": "saved"},
+            {"op": "get_global", "name": "TestGlobal", "label": "global"},
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["var.nUsed"], "label": "ref"},
+            {"op": "fire", "weapon": "TestWeapon", "actor": "TestNpcREF"},
+            {"op": "get_global", "name": "TestGlobal", "label": "fired"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{}", out["steps"]);
+    let obs = |l: &str| out["observations"].as_array().unwrap().iter().find(|o| o["label"] == l).unwrap().clone();
+    assert!(obs("saved")["bytes"].as_u64().unwrap() > 0);
+    assert_eq!(obs("global")["value"], 4.0);
+    assert_eq!(obs("ref")["var.nUsed"], 3.0);
+    // The weapon given before the save is still carried: its OnFire runs.
+    assert_eq!(obs("fired")["value"], 9.0);
+    // No frame passes for the save: the step after it starts in the same frame.
+    assert_eq!(steps[3]["frame"], steps[4]["frame"]);
+    // The trace kept the events from before the save.
+    assert!(out["events"].as_array().unwrap().iter().any(|e| e["kind"] == "global_set"), "{}", out["events"]);
+}
+
+#[test]
 fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag() {
     let f = fixture();
     let input: fnv_game::runner::Input = serde_json::from_value(json!({
@@ -1121,6 +1305,27 @@ fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
 }
 
 #[test]
+fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
+    // Old World Blues' Think Tank and the end slides: a line whose fixed speaker (ANAM)
+    // is not the actor saying it has its voice file in the fixed speaker's folder only.
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    // Said by another base (or none): the fixed speaker's file times it.
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
+    assert_eq!(g.response_lengths_as(None, FormId(INFO_A)), vec![0.5]);
+    // A line without a fixed speaker and no file keeps the fitted length.
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC_AUTO)), FormId(INFO_B)), vec![1.2875]);
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -1241,6 +1446,36 @@ fn combat_hits_damage_health_kill_and_reward() {
     assert!(r.died && r.xp == 0.0);
 }
 
+/// A hired companion's kill earns the player the same XP as the player's own (owner,
+/// 2026-10-27); anyone else's earns none.
+#[test]
+fn a_hired_companions_kill_earns_the_player_xp() {
+    use fnv_game::combat::HitInfo;
+    let f = fixture();
+    let (npc, mate) = (FormId(NPC_REF), FormId(NPC_AUTO_REF));
+    let by_mate = HitInfo { attacker: Some(mate), weapon: None, location: 1, critical: false, limb: None };
+    // Not hired: no XP.
+    let mut g = game(&f);
+    g.new_game();
+    let r = g.hit(npc, 60.0, by_mate);
+    assert!(r.died && r.xp == 0.0 && g.player.xp == 0.0);
+    // Hired: the player's 20 XP for a level 4 NPC.
+    let mut g = game(&f);
+    g.new_game();
+    g.extra.entry(mate).or_default().teammate = true;
+    let r = g.hit(npc, 60.0, by_mate);
+    assert!(r.died && g.extra[&npc].killer == Some(mate));
+    assert_eq!((r.xp, g.player.xp), (20.0, 20.0));
+    // The player's and the companion's damage count together towards the share.
+    let mut g = game(&f);
+    g.new_game();
+    g.extra.entry(mate).or_default().teammate = true;
+    g.hit(npc, 20.0, HitInfo { attacker: Some(FormId::PLAYER_REF), ..by_mate });
+    g.hit(npc, 20.0, HitInfo { attacker: None, ..by_mate });
+    let r = g.hit(npc, 20.0, by_mate);
+    assert!(r.died && r.xp == 20.0, "{r:?}");
+}
+
 /// Gone parts: IsLimbGone, GetKillingBlowLimb, KillActor's limb, the Dismembered Limbs
 /// statistic (docs/spec-notes/dismemberment.md §5).
 #[test]
@@ -1306,6 +1541,28 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     assert!(g.extra.get(&target).is_none_or(|e| e.last_hit.is_none() && e.damage.is_none()));
     // A reference whose script has no hit block.
     assert!(!g.hit_object(FormId(NPC_REF), by_player));
+}
+
+#[test]
+fn the_runners_hit_runs_an_objects_hit_blocks() {
+    // A stand-in for a scripted shot (Lonesome Road's ED-E zapping the silo mainframe).
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "hit", "target": "TestActivatorREF", "label": "by the player"},
+            {"op": "hit", "target": "TestActivatorREF", "attacker": "TestNpcREF", "weapon": "TestMsg", "label": "by another with a weapon"},
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["var.nHit"], "label": "count"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("by the player")["ran"], true);
+    assert_eq!(by("by another with a weapon")["ran"], true);
+    // OnHit player (10), then only OnHitWith for the other attacker (1).
+    assert_eq!(by("count")["var.nHit"], 11.0);
 }
 
 #[test]

@@ -316,6 +316,32 @@ fn the_character_revision_keeps_level_perks_and_skill_points() {
     assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(barter)]), formula);
 }
 
+/// Perks are kept per actor: `<npc>.AddPerk` gives the NPC the perk (a hired companion's
+/// `AddPerk CompanionSuite`), HasPerk on it reads it, RemovePerk takes it back, and none of
+/// it touches the player's perks; a teammate also holds the teammate perks.
+#[test]
+fn npc_perks_are_kept_per_actor() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (suite, reward) = (FormId(0x0009_0002), FormId(0x0009_0003));
+    let npc = FormId(ADULT_REF);
+    assert_eq!(call(&mut g, 0x11C1, Some(ADULT_REF), &[r(suite.0)]), 0.0);
+    call(&mut g, 0x1176, Some(ADULT_REF), &[r(suite.0)]);
+    assert_eq!(call(&mut g, 0x11C1, Some(ADULT_REF), &[r(suite.0)]), 1.0, "the NPC holds it");
+    assert_eq!(call(&mut g, 0x11C1, Some(PLAYER), &[r(suite.0)]), 0.0, "the player does not");
+    assert!(g.player.perks.is_empty());
+    assert_eq!(g.held_perks(npc), vec![(suite, 1)]);
+    // A teammate perk given on the player reaches the NPC while it is a teammate.
+    call(&mut g, 0x1176, Some(PLAYER), &[r(reward.0), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11C1, Some(ADULT_REF), &[r(reward.0)]), 0.0, "not a teammate");
+    g.extra.entry(npc).or_default().teammate = true;
+    assert_eq!(call(&mut g, 0x11C1, Some(ADULT_REF), &[r(reward.0)]), 1.0, "a teammate");
+    assert_eq!(g.held_perks(npc), vec![(suite, 1), (reward, 1)]);
+    call(&mut g, 0x11A8, Some(ADULT_REF), &[r(suite.0)]);
+    assert_eq!(call(&mut g, 0x11C1, Some(ADULT_REF), &[r(suite.0)]), 0.0, "removed");
+    assert_eq!(g.player.teammate_perks.len(), 1, "the NPC's RemovePerk leaves the player's");
+}
+
 #[test]
 fn records_read_for_the_new_functions() {
     let f = fixture();
@@ -444,6 +470,21 @@ fn reputation_limits_levels_and_ignored_sizes() {
         set(&mut g, 1.0, v);
         assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(1.0)]), good, "fame {v}");
     }
+}
+
+/// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) change nothing and read
+/// 0, with no call error [hypothesis: `reputation::axis`].
+#[test]
+fn reputation_other_axes_do_nothing() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x1238, None, &[r(REP), n(1.0), n(12.0)]);
+    call(&mut g, 0x1238, None, &[r(REP), n(2.0), n(0.0)]);
+    call(&mut g, 0x1239, None, &[r(REP), n(3.0), n(1.0)]);
+    assert_eq!(g.player.reputation[&FormId(REP)], [0.0, 12.0]);
+    assert_eq!(call(&mut g, 0x123D, None, &[r(REP), n(2.0)]), 0.0);
+    assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(2.0)]), 0.0);
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(3.0)]), 0.0);
 }
 
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
@@ -1388,6 +1429,13 @@ fn script_function_audit_fixes() {
     assert_eq!(call(&mut g, 0x102F, Some(PLAYER), &[r(NOTE)]), 0.0);
     call(&mut g, 0x117D, None, &[r(NOTE)]);
     assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 0.0);
+    // A note that reached the inventory (the container menu moves it as an item) is
+    // filed with the player's notes on the next frame and is no longer carried.
+    g.world.add_item(FormId(PLAYER), FormId(NOTE), 1).unwrap();
+    g.tick();
+    assert!(g.player.notes.contains(&FormId(NOTE)));
+    assert_eq!(g.world.item_count(FormId(PLAYER), FormId(NOTE)).unwrap(), 0);
+    call(&mut g, 0x117D, None, &[r(NOTE)]);
     // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
     call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
     call(&mut g, 0x108B, Some(ADULT_REF), &[r(CHILD_REF), n(0.0), n(6.0)]);

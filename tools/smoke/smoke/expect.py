@@ -14,7 +14,8 @@ An expectation is written in the scenario file as a string or as a table:
   each, by the log's timestamps.
 - `{ json = "a.b.*.c" }` (tool scenarios, whose output is JSON): the values at that path
   in each JSON document of the log (`*` every element, `?field=value` the elements whose
-  field has that value, `#` the length of a list or object; `schema = "fnv.x/1"` only
+  field has that value, `#` the length of a list or object, a key with dots in it taken
+  whole; `schema = "fnv.x/1"` only
   documents of that schema), with `equals = value`, `null = true` or `range`; `count`/`min`/`max` count
   the values that pass; `all = true` wants every value to pass. Default: at least one.
 - `known_failing = "why"`: a failure is reported as KNOWN and does not fail the run; a
@@ -182,6 +183,11 @@ def walk(node, path: list[str]) -> list:
         return [v for k in kids for v in walk(k, rest)]
     if isinstance(node, dict) and head in node:
         return walk(node[head], rest)
+    if isinstance(node, dict):  # a key with dots in it (`done.80` in a script trace)
+        for n in range(1, len(rest) + 1):
+            key = ".".join([head, *rest[:n]])
+            if key in node:
+                return walk(node[key], rest[n:])
     if isinstance(node, list) and head.lstrip("-").isdigit() and -len(node) <= int(head) < len(node):
         return walk(node[int(head)], rest)
     return []

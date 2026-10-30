@@ -199,14 +199,15 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     s.effects = effects;
     // The hints' counts.
     let mut texts: [String; 4] = Default::default();
+    let mut counts = [0; 4];
     let dobj = forms.hint_items();
     for (i, edid) in HINT_ITEMS.iter().enumerate() {
         let id = dobj[i].map(FormId).or_else(|| sim.forms.by_edid(edid));
-        let count = id.and_then(|id| sim.world.item_count(FormId::PLAYER_REF, id).ok()).unwrap_or(0);
+        counts[i] = id.and_then(|id| sim.world.item_count(FormId::PLAYER_REF, id).ok()).unwrap_or(0);
         let name = id.and_then(|id| sim.name(id)).unwrap_or(edid).to_string();
-        texts[i] = model::hint_text(&name, count);
+        texts[i] = model::hint_text(&name, counts[i]);
     }
-    s.hints = Hints { texts };
+    s.hints = Hints { texts, counts, lit: [false; 4] };
     let xp_base = sim.forms.setting_f32("iXPBase").unwrap_or(200.0) as f64;
     let xp_bump = sim.forms.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
     // The karma titles the plugins hold (`model::karma_title`).
@@ -256,6 +257,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             if let Some((v, max)) = value(g, code).filter(|v| v.1 > 0.0) {
                 s.limbs[i] = (v / max).clamp(0.0, 1.0);
             }
+        }
+        // The CND hints lit while they would heal (`model::refusal` on the body).
+        let hardcore = g.hardcore();
+        for hint in [model::STIMPAK, model::DOCTORS_BAG] {
+            let hp = s.hp.unwrap_or((0.0, 0.0));
+            s.hints.lit[hint] = model::refusal(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore).is_none();
         }
         s.rad_resist = value(g, av::RAD_RESISTANCE).map(|v| v.0);
         s.rads = value(g, 54).map_or(0.0, |v| v.0.max(0.0));

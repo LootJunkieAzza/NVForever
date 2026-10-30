@@ -211,8 +211,9 @@ fn watch(time: Res<Time>, state: Res<State<PlayState>>, mut script: Option<ResMu
         }
         log.water_hits = e.water_hits;
     }
-    // A fading zone is logged by whole rads (a tenth would be a line every few frames).
-    let step = if e.zone.is_some() { (e.level.round() * 10.0) as i64 } else { (e.level * 10.0).round() as i64 };
+    // Logged by whole rads: a fading zone, and a marker's level as the player moves
+    // (it falls off with distance), would make a line every few frames by tenths.
+    let step = e.level.round() as i64;
     let key = (e.level > 0.0).then(|| (e.marker, e.zone, e.water.filter(|_| e.from_water > 0.0).map(|w| w.water), step));
     if key != log.shown {
         match key {
@@ -316,7 +317,9 @@ fn draw(
     texts: Query<Entity, With<Texts>>,
     mut pointer: Query<&mut Node, With<Pointer>>,
 ) {
-    let rate = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.radiation().rate);
+    // Shown while rads are taken; the number is the level after Rad Resistance, as
+    // GetRadiationLevel's (`Exposure::resisted`, untouched by fRadiationAccumulationRate).
+    let (rate, resisted) = script.as_deref().and_then(|s| s.rt.as_ref()).map_or((0.0, 0.0), |rt| (rt.game.radiation().rate, rt.game.radiation().resisted));
     let on = view.shown && rate > 0.0;
     if kit.is_none() {
         if !on {
@@ -349,7 +352,7 @@ fn draw(
     }
     let Some(kit) = kit.as_ref() else { return };
     // Whole rads a second, at least 1 while any are taken [hypothesis].
-    let value = format!("+{}", rate.round().max(1.0) as i64);
+    let value = format!("+{}", resisted.round().max(1.0) as i64);
     if shown.as_deref() == Some(value.as_str()) {
         return;
     }

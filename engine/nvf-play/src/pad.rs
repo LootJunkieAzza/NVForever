@@ -197,7 +197,7 @@ const IN_MENUS: [(GamepadButton, KeyCode); 8] = [
 /// it on the Controls tab, presses nothing); none while the Controls tab waits for a new
 /// button, which takes the buttons themselves.
 #[allow(clippy::type_complexity)]
-fn menu_keys(
+pub(crate) fn menu_keys(
     pads: Query<&Gamepad>,
     bindings: Option<Res<crate::bindings::Bindings>>,
     (state, paused, page): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Page>>),

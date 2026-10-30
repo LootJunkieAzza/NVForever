@@ -190,14 +190,18 @@ A sketch: the published mockup (the owner's review). The rules:
     sliders, one region at a time), **DETAIL** (the 26 asymmetry sliders by region),
     **SKIN** (tone and tints first, then blush, lips, lipstick, nose, naso-labial lines),
     **HAIR** (style, a strip of 16 authored colours, shade / warmth / grey fine-tuning,
-    facial hair for men, brows, then the beard and eyebrow shading sliders), **EYES**
+    facial hair for men with the beard's shading sliders under it, then the brows with
+    theirs; no Region row [owner 2026-10-23: it switched sliders out of sight and seemed
+    to do nothing]), **EYES**
     (eye colour, then eye sockets, eyelids, eyeliner, eyeshadow, the eyes' tint).
   - A line under the tabs saying what the tab is for.
   - Rows: a list row is its label, "n/m", and `< value >`; a slider row its label and
     value over a thin track with a centre mark, the race tick, an amber fill from the
     centre to the knob, and the two end words under the ends. The chosen row has a
     bar at its left and a band of dim amber, a quarter opaque (the menus' highlight fill). "more above / below" when a region has
-    more rows than fit.
+    more rows than fit, and a scrollbar in the panel's right margin (track and a thumb the
+    size of the part shown) [owner 2026-10-23: "add a scroll to show there are more
+    options"]. The list scrolls apart from the chosen row; the buttons never scroll.
   - Four buttons along the bottom: RANDOM, UNDO, RESET, DONE (outlined brighter), each
     with its key and button under it.
   - A hint in the bottom right of the picture: turning and zooming.
@@ -288,8 +292,12 @@ A sketch: the published mockup (the owner's review). The rules:
   while an idle drives the view kept it hidden [observed: a `--new-game` run, "pointer:
   hidden (an idle drives the view)" and no "shown" after "creator: open"]; the creator
   now overrides it (`player::grab_cursor`). Click a tab, a row, its arrows, a
-  hair-colour swatch or a button; press on a slider's track and drag; the wheel over
-  the panel steps the rows; over the picture, drag and the wheel move the camera (§5).
+  hair-colour swatch or a button; press on a slider's track and drag; hovering over a
+  row or button chooses it when the pointer moves or the rows scroll under it [owner
+  2026-10-23]; the wheel over the rows scrolls them (a notch a row, the chosen row
+  stays; nothing over the tabs or buttons), a click or drag on the scrollbar scrolls to
+  that place, keys that move the chosen row out of sight scroll it just into view; over
+  the picture, drag and the wheel move the camera (§5).
 - **Controller** (the menu keys of `crate::pad`: D-pad arrows, A Enter, LB / RB Page Up /
   Down): X randomise, Y undo, Back reset; the sticks and triggers move the camera (§5).
 - **Changing sex** starts the face from the race's first starting face for that sex: a

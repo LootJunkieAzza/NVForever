@@ -1,0 +1,35 @@
+{
+  "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm"],
+  "title": "Headless branch: Boulder City Showdown ended by force (VMS20 100, outcome 4: the Khans killed), and They Went That-a-Way goes on through Jessup's note (VMQ01 100, VMQTops 10)",
+  "given": [
+    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [200]},
+    {"kind": "quest", "quest": "VMQ01", "running": true, "completed": false, "stage": 50, "done": [10, 40, 50]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Starts as boulder-city.actions.json does (after Novac, VMQ01 at 50). The player walks into Boulder City and offers Monroe to deal with the Khans (VMS20 10)."},
+    {"op": "go_to_cell", "cell": "BoulderCity"},
+    {"op": "say_info", "info": "0x00116FE3", "speaker": "placed:BCLieutenantMonroe"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["running", "stage", "done.10"], "label": "milestone: VMS20 10"},
+    {"op": "note", "text": "In the ruins the player opens fire on Jessup's gang instead of talking (StartCombat stands in for the first shot: the Khans' OnStartCombat marks them hostile, VMS20 objective 50), then kills the six Khans of the gang, Jessup among them (combat stand-in: kill with the player as killer). Their OnDeath counts nDeathsGreatKhans; the sixth death ends VMS20 at 100 with outcome 4."},
+    {"op": "move_player", "to": "BCJessupRef"},
+    {"op": "call", "line": "BCJessupRef.StartCombat player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["stage", "var.bEnemyGK", "var.bEnemyNCR", "objective.50.displayed"], "label": "fight started"},
+    {"op": "kill", "actor": "BCJessupRef", "killer": "player"},
+    {"op": "kill", "actor": "0x00146D1B", "killer": "player"},
+    {"op": "kill", "actor": "0x00146CDF", "killer": "player"},
+    {"op": "kill", "actor": "0x0010C6E2", "killer": "player"},
+    {"op": "kill", "actor": "0x0010C6E4", "killer": "player"},
+    {"op": "kill", "actor": "0x001131E6", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS20", "fields": ["running", "completed", "failed", "stage", "done.100", "done.110", "var.nDeathsGreatKhans", "var.bBoulderCityOutcome"], "label": "milestone: VMS20 100 by force (outcome 4)"},
+    {"op": "note", "text": "With Jessup dead his Benny line is gone; the way on is the note he carries. The player loots his body: VMQ01's script sees the note (GetHasNote), ends VMQ01 at 100 and starts VMQTops at 10."},
+    {"op": "remove_all_items", "from": "BCJessupRef", "to": "player"},
+    {"op": "note", "text": "VMQ01's script runs at the quest's processing delay (5 s by default), so the note is seen within 5 s."},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "VMQ01", "fields": ["completed", "stage", "done.100"], "label": "final: VMQ01 100 (Jessup's note)"},
+    {"op": "get_quest", "quest": "VMQTops", "fields": ["running", "stage", "done.10", "objective.10.displayed"], "label": "final: VMQTops 10"}
+  ]
+}

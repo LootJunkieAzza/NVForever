@@ -34,12 +34,22 @@ const BUMPS: [(&str, f64); 5] = [
 /// 1.0 × the scale, and fame 1.5 of 10 was level 1, layer5-captures.md §9.3 a].
 pub const LEVEL_FRACTIONS: [f64; 3] = [0.15, 0.5, 1.0];
 
-fn rep_axis(a: &Args, i: usize) -> Result<usize, String> {
-    match a.int(i)? {
-        0 => Ok(0),
-        1 => Ok(1),
-        o => Err(format!("reputation axis {o} is not 0 (infamy) or 1 (fame)")),
-    }
+/// The axis argument: 0 infamy, 1 fame; `None` for any other.
+///
+/// FalloutNV.esm calls these functions with axes 2 and 3 too: SetReputation axis 2 in the
+/// reputation-clearing lines of Crocker's messenger and Vulpes's greeting, AddReputation
+/// axis 3 in Severus's tag trades and axis 2 in one of Boulder City Showdown's endings,
+/// GetReputation axis 2 and GetReputationThreshold axis 3 in conditions (VMS36,
+/// vFreeformTheStreet02, VDialogueBenny) [observed: the decompiled scripts and INFO
+/// conditions]. Such a call does nothing and reads 0, without a call error [hypothesis:
+/// the wiki documents only 0 and 1; observer check 30]. A refused call did the same (it
+/// reads 0 and the script goes on), so this changes only the trace.
+pub fn axis(a: &Args, i: usize) -> Result<Option<usize>, String> {
+    Ok(match a.int(i)? {
+        0 => Some(0),
+        1 => Some(1),
+        _ => None,
+    })
 }
 
 fn reputation(g: &Game, a: &Args) -> Result<FormId, String> {
@@ -139,7 +149,7 @@ fn bump(g: &Game, size: i32) -> Option<f64> {
 /// the scale [documented: GECK wiki AddReputation; observed: [`change`]].
 pub fn add_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let axis = rep_axis(a, 1)?;
+    let Some(axis) = axis(a, 1)? else { return none() };
     if let Some(p) = bump(g, a.int(2)?) {
         change(g, r, axis, p);
     }
@@ -150,7 +160,7 @@ pub fn add_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// [documented: GECK wiki RemoveReputation; observed: [`change`]].
 pub fn remove_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let axis = rep_axis(a, 1)?;
+    let Some(axis) = axis(a, 1)? else { return none() };
     if let Some(p) = bump(g, a.int(2)?) {
         change(g, r, axis, -p);
     }
@@ -162,7 +172,7 @@ pub fn remove_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, St
 /// captured].
 pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let axis = rep_axis(a, 1)?;
+    let Some(axis) = axis(a, 1)? else { return none() };
     let p = a.num(2)?;
     change(g, r, axis, p);
     none()
@@ -173,7 +183,7 @@ pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// reputation without a scale [hypothesis].
 pub fn get_reputation_pct(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let axis = rep_axis(a, 1)?;
+    let Some(axis) = axis(a, 1)? else { return Ok(Value::ZERO) };
     let s = scale(g, r);
     let v = values(g, r)[axis];
     Ok(Value::Num(if s > 0.0 { v / s } else { 0.0 }))
@@ -214,8 +224,10 @@ pub fn tiers(f: usize, i: usize) -> [i32; 3] {
 pub fn get_reputation_threshold(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
     let axis = a.int(1)?;
+    // Axis 3 (VDialogueBenny's greetings) reads 0, as an unknown axis does in the other
+    // reputation functions [hypothesis: see [`axis`]].
     if !(0..=2).contains(&axis) {
-        return Err(format!("reputation threshold axis {axis} is not 0, 1 or 2"));
+        return Ok(Value::ZERO);
     }
     let s = scale(g, r);
     let [infamy, fame] = values(g, r);

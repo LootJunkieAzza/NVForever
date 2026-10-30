@@ -126,6 +126,8 @@ pub const EXIT: &str = "Exit";
 /// dark; "Exit" there while the pointer is over the hub [observed: the owner's screenshots
 /// of 2026-10-19; the size measured on them, about 250 × 34 units].
 const BAR: [f32; 2] = [250.0, 34.0];
+/// How far the bar's lower corners keep from the top slice's edges.
+const BAR_EDGE_GAP: f32 = 4.0;
 /// A picked slice is lit at this strength [observed: fitted by eye to the same screenshot;
 /// the file's fill alpha of 32 is fainter than it shows].
 const LIT: f32 = 0.3;
@@ -423,6 +425,10 @@ fn apply(
                 }
                 s.buttons = with_world(rt, &mut sim, |rt| rt.game.wheel_buttons(c));
                 s.refreshed = time.elapsed_secs();
+                // The command took effect as the reply started (`Game::wheel_command`).
+                if let Some(b) = s.buttons.iter().find(|b| b.command == command) {
+                    info!("companion wheel: {} now shows {}", command.name(), b.label);
+                }
             }
         }
     }
@@ -581,7 +587,11 @@ fn draw(
             let words = if s.exit_hover { Some((EXIT, true)) } else { picked.map(|b| (b.label, b.enabled)) };
             if let Some((words, enabled)) = words {
                 let bar_top = PREVIEW_Y - top - (BAR[1] - kit.font3.font.size) / 2.0;
-                m.spawn((at(cx - BAR[0] / 2.0, bar_top, BAR[0], BAR[1]), BackgroundColor(bright.with_alpha(if enabled { 1.0 } else { DISABLED }))));
+                // Narrowed to stay inside the empty top slice (±30° from up): at 250 its lower
+                // corners crossed the slices' edges [observed: owner's screenshot 2026-10-27].
+                let room = 2.0 * ((cx - (bar_top + BAR[1])) * S.tan() - BAR_EDGE_GAP);
+                let bar_w = BAR[0].min(room);
+                m.spawn((at(cx - bar_w / 2.0, bar_top, bar_w, BAR[1]), BackgroundColor(bright.with_alpha(if enabled { 1.0 } else { DISABLED }))));
                 centred(m, &kit.font3, words, cx, PREVIEW_Y - top, Some(LABEL_WRAP), Color::BLACK);
             }
             if let Some(b) = picked.filter(|_| !s.exit_hover) {

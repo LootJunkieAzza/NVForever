@@ -355,8 +355,13 @@ impl Plugin for PlayerPlugin {
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
             .init_resource::<RunPace>()
             .init_resource::<PerkSpeed>()
+            .init_resource::<ReloadPace>()
             .init_resource::<Lunge>()
-            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk).chain().after(PlaySet::Input).before(PlaySet::Physics))
+            .init_resource::<crate::control::DetachedCamera>()
+            .add_systems(
+                Update,
+                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
+            )
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
@@ -368,6 +373,18 @@ impl Plugin for PlayerPlugin {
                     .after(crate::phys::PhysSystems),
             )
             .add_systems(Update, crate::control::place_camera.in_set(PlaySet::Physics).after(log_status));
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "detached-camera",
+                group: crate::pause::GROUP_MENUS,
+                label: "Detached third-person camera",
+                note: "On: in third person with your weapon away the mouse turns the camera around you, not your character, and your character turns to run whichever way you push, as the camera sees it. Drawing your weapon turns you to where the camera looks. Off: the camera stays behind you, as in the original.",
+                get: |w| w.resource::<crate::control::DetachedCamera>().0,
+                set: |w, on| w.resource_mut::<crate::control::DetachedCamera>().0 = on,
+                slider: None,
+            },
+        );
     }
 }
 
@@ -608,9 +625,20 @@ impl Default for RunPace {
     }
 }
 
+/// A share of the player's speed, walking and running, kept while a reload runs
+/// (`crate::combat::reload_pace`); 1 otherwise or with the setting off.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct ReloadPace(pub f32);
+
+impl Default for ReloadPace {
+    fn default() -> Self {
+        ReloadPace(1.0)
+    }
+}
+
 /// What slows or speeds the player's steps: crippled legs, a two-handed weapon's run, the
-/// Modify Run Speed perks.
-type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>);
+/// Modify Run Speed perks, a reload.
+type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>, Option<Res<'w, ReloadPace>>);
 
 /// The player's Modify Run Speed perks' factor on its movement, walking, running and
 /// sneaking (`crate::combat`'s `perk_speed`; perk-entry-points.md §8).
@@ -675,8 +703,9 @@ fn mouse_look(
     driven: Option<Res<ViewDriven>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
 ) {
-    // The console's free camera takes the mouse (`crate::free_cam`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) {
+    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
+    // weapon wheel while it is open (`crate::weapon_wheel`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
@@ -704,6 +733,14 @@ fn mouse_look(
         o.yaw = (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         o.pitch = pitch;
         o.moved = true;
+        return;
+    }
+    if control.orbit.free {
+        // The detached camera (`crate::control::detach_camera`): the camera turns, the
+        // player does not.
+        let (yaw, pitch) = look_with(control.orbit.yaw, player.pitch, delta, s, inv);
+        control.orbit.yaw = crate::control::wrap_angle(yaw);
+        player.pitch = pitch;
         return;
     }
     (player.heading, player.pitch) = look_with(player.heading, player.pitch, delta, s, inv);
@@ -968,7 +1005,7 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
-    (limbs, pace, perk_pace): Paces,
+    (limbs, pace, perk_pace, reload_pace): Paces,
     turbo: Option<Res<crate::script::PlayerTimeScale>>,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
@@ -988,7 +1025,9 @@ fn step(
         }
         let p = &mut *phys;
         let n = p.stepper.advance(&p.world.params, time.delta_secs());
+        let body = p.player.as_ref().map(|c| (at, c.params.radius, c.params.height));
         for _ in 0..n {
+            step_npcs_alone(&mut p.world, &mut p.npcs, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
         }
         if let Some(c) = p.player.as_mut() {
@@ -1025,6 +1064,7 @@ fn step(
             // Not falling: no fall, landing or fall damage while it flies.
             c.grounded = true;
             c.ground_gap = Some(0.0);
+            step_npcs_alone(&mut p.world, &mut p.npcs, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
         }
         if v != [0.0; 3] {
@@ -1082,6 +1122,8 @@ fn step(
             let k = if intent.walk { k } else { k * pace.as_deref().map_or(1.0, |p| p.0) };
             // The Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …).
             let k = k * perk_pace.as_deref().map_or(1.0, |p| p.0);
+            // Slower while reloading, when the setting is on (`crate::combat::reload_pace`).
+            let k = k * reload_pace.as_deref().map_or(1.0, |p| p.0);
             let [x, y] = velocity(&intent, player.heading, *speeds);
             // An attack's lunge carries the player forward (`Lunge`).
             if lunge.left > 0.0 && lunge.from.is_none() {
@@ -1170,31 +1212,7 @@ fn step(
                 b.player_held = crate::blocking::HELD_STEPS;
             }
         }
-        // The actors another system walks, by the velocity it gave each: their moves
-        // planned at once on the compute pool (`PhysWorld::plan_move`, which only reads the
-        // world), then put into the world in turn, as each would have been alone.
-        p.world.update_queries();
-        let world = &p.world;
-        let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = p.npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
-        let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
-            b.prev_feet = b.ch.feet;
-            let was_on_ground = b.ch.grounded && !b.ch.swimming;
-            let (s, push) = world.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
-            (was_on_ground, s, push)
-        };
-        let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
-            moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
-        } else {
-            moving.par_chunk_map_mut(ComputeTaskPool::get(), MOVE_CHUNK, |_, chunk| chunk.iter_mut().map(|(_, b, v)| plan(b, *v)).collect::<Vec<_>>()).into_iter().flatten().collect()
-        };
-        for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
-            p.world.apply_move(&b.ch, push);
-            let (f, from) = (b.ch.feet, b.prev_feet);
-            b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
-            if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
-                fell.write(crate::falls::Fell { actor: FormId(id), height });
-            }
-        }
+        move_npcs(&mut p.world, &mut p.npcs, walking, falls.as_deref_mut(), &mut fell, dt);
         p.world.step();
         status.record(&s, p.prev_feet, [vx, vy], dt);
     }
@@ -1211,6 +1229,86 @@ fn step(
         // Where the bodies are drawn after the steps (the drawn ground under each).
         p.update_drawn_sinks();
     }
+}
+
+/// The actors another system walks, by the velocity it gave each: their moves planned at
+/// once on the compute pool (`PhysWorld::plan_move`, which only reads the world), then put
+/// into the world in turn, as each would have been alone.
+fn move_npcs(
+    world: &mut fnv_phys::PhysWorld,
+    npcs: &mut std::collections::BTreeMap<u32, crate::phys::NpcBody>,
+    walking: Vec<[f32; 2]>,
+    mut falls: Option<&mut crate::falls::Falls>,
+    fell: &mut MessageWriter<crate::falls::Fell>,
+    dt: f32,
+) {
+    world.update_queries();
+    let reader = &*world;
+    let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
+    let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
+        b.prev_feet = b.ch.feet;
+        let was_on_ground = b.ch.grounded && !b.ch.swimming;
+        let (s, push) = reader.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+        (was_on_ground, s, push)
+    };
+    let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
+        moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
+    } else {
+        moving.par_chunk_map_mut(ComputeTaskPool::get(), MOVE_CHUNK, |_, chunk| chunk.iter_mut().map(|(_, b, v)| plan(b, *v)).collect::<Vec<_>>()).into_iter().flatten().collect()
+    };
+    for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+        world.apply_move(&b.ch, push);
+        let (f, from) = (b.ch.feet, b.prev_feet);
+        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
+        if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
+            fell.write(crate::falls::Fell { actor: FormId(id), height });
+        }
+    }
+}
+
+/// One step of the actors another system walks while the player's character is not
+/// moved by [`step`]'s own rule: held by furniture, or flying with ToggleCollision. Without
+/// it they stood still the whole time, and the residents' stuck rule moved them on along
+/// their paths every second (owner report 2026-10-27: Doc Mitchell "teleporting" to his
+/// chair with the player already on the couch). They keep apart by `crate::blocking` as in
+/// a step of the player's; the player's block is where the furniture holds it, not pushed,
+/// or none when the player passes through everything.
+fn step_npcs_alone(
+    world: &mut fnv_phys::PhysWorld,
+    npcs: &mut std::collections::BTreeMap<u32, crate::phys::NpcBody>,
+    player: Option<([f32; 3], f32, f32)>,
+    blocks: Option<&mut crate::blocking::ActorBlocks>,
+    falls: Option<&mut crate::falls::Falls>,
+    fell: &mut MessageWriter<crate::falls::Fell>,
+) {
+    use crate::blocking::{clip, Block, Push, PLAYER};
+    let dt = world.params.dt;
+    let mut walking: Vec<[f32; 2]> = npcs.values().map(|b| b.velocity).collect();
+    for n in npcs.values_mut() {
+        n.ch.passes_characters = blocks.is_some();
+    }
+    if let Some(b) = blocks {
+        let placed = b.list.len();
+        let mut all = std::mem::take(&mut b.list);
+        all.extend(npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
+        if let Some((feet, radius, height)) = player {
+            all.push(Block::character(PLAYER, feet, radius, height, false));
+        }
+        let mut pushes: Vec<Push> = Vec::new();
+        let mut stopped = false;
+        for (v, n) in walking.iter_mut().zip(npcs.values()) {
+            let asked = *v;
+            *v = clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes);
+            stopped |= *v != asked;
+        }
+        b.steps_actor_blocked += u64::from(stopped);
+        pushes.retain(|p| p.actor != PLAYER);
+        b.steps_pushing[1] += u64::from(!pushes.is_empty());
+        b.pushes.extend(pushes);
+        all.truncate(placed);
+        b.list = all;
+    }
+    move_npcs(world, npcs, walking, falls, fell, dt);
 }
 
 /// Feet, cell, heading and pitch last written to the simulation.

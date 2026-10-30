@@ -44,11 +44,20 @@ More: [docs/development.md](docs/development.md) (build, test, options, tools) Â
 [docs/status.md](docs/status.md) (what's built) Â·
 [docs/outstanding.md](docs/outstanding.md) (what's left).
 
+## Community
+
+Chat, questions and playtesting: [Discord](https://discord.gg/3HsVrsXSb).
+
 ## Bugs
 
 Report bugs and differences from the original with the
 [issue forms](https://github.com/LootJunkieAzza/NVForever/issues/new/choose). Crash
 reports are written to `Documents\My Games\NVForever\logs`. Never attach game files.
+
+## Contributing
+
+Pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the clean-room
+rules there decide what can be merged.
 
 ## Support
 

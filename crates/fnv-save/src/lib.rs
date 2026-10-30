@@ -86,6 +86,17 @@ pub struct Place {
     pub pitch_deg: f32,
 }
 
+/// One of players 2–4 of a co-op save, as the load list shows it (the game's own player is
+/// [`SaveHeader::player_name`] and [`SaveHeader::level`]); their state is in the body
+/// (docs/design/coop-save.md).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CoopEntry {
+    /// The player's number, 2–4.
+    pub slot: u8,
+    pub name: String,
+    pub level: u32,
+}
+
 /// What the load list shows, and the checks before loading.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SaveHeader {
@@ -109,6 +120,9 @@ pub struct SaveHeader {
     #[serde(default)]
     pub weather: Option<String>,
     pub plugins: Vec<PluginEntry>,
+    /// Players 2–4 of a co-op save; empty (and not written) for one player.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coop: Vec<CoopEntry>,
 }
 
 impl SaveHeader {
@@ -129,6 +143,7 @@ impl SaveHeader {
             place: Place::default(),
             weather: None,
             plugins: Vec::new(),
+            coop: Vec::new(),
         }
     }
 }
@@ -579,6 +594,23 @@ mod tests {
         assert_eq!(h.header, header());
         assert!(h.body.is_empty());
         assert_eq!(list(&d).len(), 1);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Players 2–4 of a co-op save read back; a one-player header writes no `coop` and
+    /// one written before the field existed reads as one player.
+    #[test]
+    fn coop_players_in_the_header() {
+        let mut h = header();
+        assert!(!serde_json::to_string(&h).unwrap().contains("coop"));
+        h.coop = vec![CoopEntry { slot: 2, name: "Boone".into(), level: 3 }, CoopEntry { slot: 4, name: "Cass".into(), level: 7 }];
+        let d = dir("coop");
+        let p = path_of(&d, "coop").unwrap();
+        write(&p, &h, b"", b"{}", false).unwrap();
+        assert_eq!(read_header(&p).unwrap().header, h);
+        let mut old = serde_json::to_value(&h).unwrap();
+        old.as_object_mut().unwrap().remove("coop");
+        assert!(serde_json::from_value::<SaveHeader>(old).unwrap().coop.is_empty());
         let _ = fs::remove_dir_all(&d);
     }
 

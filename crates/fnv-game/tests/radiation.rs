@@ -1,5 +1,5 @@
 //! Environment radiation on a synthetic plugin (no game data): a radiation marker's level
-//! within its radius, Rad Resistance, irradiated water by swimming and wading,
+//! falling off within its radius, Rad Resistance, irradiated water by swimming and wading,
 //! GetRadiationLevel, and the rads' stage. docs/spec-notes/radiation.md.
 
 mod common;
@@ -126,16 +126,26 @@ fn markers_and_waters_are_read() {
 #[test]
 fn a_marker_gives_rads_within_its_radius_cut_by_rad_resistance() {
     let f = fixture();
-    let mut g = game(&f, 800.0, 0.0);
+    // At the marker: its whole 10.
+    let mut g = game(&f, 1000.0, 0.0);
     g.tick();
     let e = g.radiation();
     assert_eq!((e.level, e.marker, e.rate), (10.0, Some(FormId(MARKER)), 10.0));
     assert_eq!(get_radiation_level(&mut g, P), 10.0);
-    assert!((rads(&mut g) - 10.0).abs() < 1e-6);
-    // Rad-X's 50 % halves it.
+    // 200 of its 500 units out: 10 × (1 − 200/500) = 6 (issue #894).
+    let mut g = game(&f, 800.0, 0.0);
+    g.tick();
+    let e = g.radiation();
+    assert!((e.level - 6.0).abs() < 1e-6 && (e.rate - 6.0).abs() < 1e-6 && e.marker == Some(FormId(MARKER)), "{e:?}");
+    assert!((get_radiation_level(&mut g, P) - 6.0).abs() < 1e-6);
+    assert!((rads(&mut g) - 6.0).abs() < 1e-6);
+    // Rad-X's 50 % halves the rads taken and GetRadiationLevel; the level before
+    // resistance stays.
     let mut g = game(&f, 800.0, 50.0);
     g.tick();
-    assert!((rads(&mut g) - 5.0).abs() < 1e-6);
+    assert!((rads(&mut g) - 3.0).abs() < 1e-6);
+    assert!((g.radiation().level - 6.0).abs() < 1e-6);
+    assert!((get_radiation_level(&mut g, P) - 3.0).abs() < 1e-6);
     // Out of the radius: nothing.
     let mut g = game(&f, 1600.0, 0.0);
     g.tick();

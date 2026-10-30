@@ -275,7 +275,12 @@ committed].
 
 As built (`fnv_nav::obstacles`): the navmesh, made in the editor, already has holes for
 what is always there, so only references that can be enabled or disabled cut it, and
-only while enabled [hypothesis]. A reference cuts the triangles under its bounds (OBND,
+only while enabled [hypothesis]; of those, only the ones placed Initially Disabled, as
+one placed enabled stood there when the navmesh was made too [hypothesis; observed
+2026-10-28: the sandbag 0x00168F64, placed enabled under the enable parent
+VMQ03aGrahamRadioREF, has the Hoover Dam deck triangles between Colonel Moore's patrol
+points 0x001377C5 and 0x001377C6 under its bounds; cut, they split the deck and she
+never reached Kimball's podium (smoke `scene-kimball-speech`)]. A reference cuts the triangles under its bounds (OBND,
 placed, rotated, scaled) seen from above whose heights meet the bounds from 64 under the
 base to 32 under the top [engine choice: a floor near the top is on the object]; a cut
 triangle takes no part in paths (`NavGraph::usable`). The graph learns the obstacles

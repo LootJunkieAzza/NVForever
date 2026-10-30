@@ -2012,6 +2012,8 @@ fn a_sandboxer_tells_the_game_what_it_does() {
 const PISTOL: u32 = 0xA00;
 const ROUNDS: u32 = 0xA01;
 const KNIFE: u32 = 0xA02;
+const FLAMER: u32 = 0xA03;
+const INCINERATOR: u32 = 0xA04;
 
 /// A pistol (Guns, 10 a shot, 2 a second, firing `ROUNDS`), its rounds and a knife (Melee,
 /// 60 a blow): the knife does more damage a second than the pistol.
@@ -2047,9 +2049,14 @@ fn with_arms(mut f: Fixture) -> Fixture {
     let pistol = item(ItemKind::Weapon, Some(10.0), Some(WeaponTraits { skill: Some(41), shots_per_sec: 2.0, ammo: Some(FormId(ROUNDS)), ..Default::default() }), Some(FormId(0xA0F)));
     let knife = item(ItemKind::Weapon, Some(60.0), Some(WeaponTraits { skill: Some(38), attack_mult: 1.0, ..Default::default() }), None);
     let rounds = item(ItemKind::Ammo, None, None, None);
-    // Animation types Pistol - Ballistic (1 Hand) 3 and Melee (1 Hand) 1 [documented: xEdit].
-    f.data.weapon_anim_types.extend([(FormId(PISTOL), 3), (FormId(KNIFE), 1)]);
-    for (id, sig, it) in [(PISTOL, *b"WEAP", pistol), (KNIFE, *b"WEAP", knife), (ROUNDS, *b"AMMO", rounds)] {
+    // A flamer (a flame reaching 640 units, 15 a shot at 10 a second) and an incinerator
+    // (globs exploding 150 units round, 21 a shot once a second), both on `ROUNDS`.
+    let flamer = item(ItemKind::Weapon, Some(15.0), Some(WeaponTraits { skill: Some(33), automatic: true, fire_rate: 10.0, ammo: Some(FormId(ROUNDS)), max_range: 640.0, flame: true, ..Default::default() }), Some(FormId(0xA0F)));
+    let incinerator = item(ItemKind::Weapon, Some(21.0), Some(WeaponTraits { skill: Some(33), shots_per_sec: 1.0, ammo: Some(FormId(ROUNDS)), max_range: 3000.0, blast: 150.0, ..Default::default() }), Some(FormId(0xA0F)));
+    // Animation types Pistol - Ballistic (1 Hand) 3, Melee (1 Hand) 1 and Rifle - Automatic
+    // (2 Hand) 6 [documented: xEdit].
+    f.data.weapon_anim_types.extend([(FormId(PISTOL), 3), (FormId(KNIFE), 1), (FormId(FLAMER), 6), (FormId(INCINERATOR), 6)]);
+    for (id, sig, it) in [(PISTOL, *b"WEAP", pistol), (KNIFE, *b"WEAP", knife), (ROUNDS, *b"AMMO", rounds), (FLAMER, *b"WEAP", flamer), (INCINERATOR, *b"WEAP", incinerator)] {
         let id = FormId(id);
         f.forms.sigs.insert(id, sig);
         f.forms.bases.insert(id, BaseForm { id, sig, edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
@@ -2149,4 +2156,31 @@ fn a_fighter_keeps_the_weapon_it_holds_over_its_other_carried_ones_until_it_lose
     s.game.world.remove_item(me, FormId(KNIFE), 1).unwrap();
     s.run(2.0);
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(PISTOL)), "{:?}", s.events(R_SB_NOTHING));
+}
+
+#[test]
+fn a_fighter_takes_the_incinerator_for_a_far_target_and_the_flamer_for_a_near_one() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    for (item, n) in [(FLAMER, 1), (INCINERATOR, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    assert!(s.game.world.outfit(me).unwrap());
+    s.game.world.equip(me, FormId(FLAMER)).unwrap();
+    // A target 1,500 units off: beyond the flame, so the incinerator.
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0], feet[1] + 1500.0, 0.0]);
+    s.run(1.5);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "{:?}", s.events(R_SB_NOTHING));
+    assert!(s.events(R_SB_NOTHING).iter().any(|e| matches!(e, AiEvent::RangeSwap { weapon, .. } if *weapon == FormId(INCINERATOR))));
+    // The target 100 units off: inside the incinerator's blast, so the flamer again,
+    // once the swap's 3 s have passed.
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(1.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "not before 3 s");
+    s.run(3.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(FLAMER)), "{:?}", s.events(R_SB_NOTHING));
 }

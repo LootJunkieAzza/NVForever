@@ -1,0 +1,20 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless check: the dialogue lines that call the reputation functions with axis 2 or 3 (Crocker's messenger, Vulpes's greeting at the Strip, Benny's greetings); docs/handoff/mq-walkthrough-2026-10-27.md item 10",
+  "given": [
+    {"kind": "reputation", "rep": "RepNVNCR", "fame": 0, "infamy": 30},
+    {"kind": "reputation", "rep": "RepNVCaesarsLegion", "fame": 0, "infamy": 30},
+    {"kind": "reputation", "rep": "RepNVTheStrip", "fame": 40, "infamy": 0}
+  ],
+  "actions": [
+    {"op": "note", "text": "Crocker's messenger (Kings' Gambit's NCR side) clears the player's NCR infamy: its line's end script sets infamy (axis 0) to 0, a quest variable, SetReputation axis 2 to 0, then the quest's reputation-cleared flag. The axis-2 call must not stop the flag."},
+    {"op": "say_info", "info": "0x00119094", "speaker": "placed:VStreetMPMessenger"},
+    {"op": "get_reputation", "rep": "RepNVNCR", "fields": ["infamy", "fame"], "label": "milestone: NCR infamy cleared by the messenger"},
+    {"op": "get_quest", "quest": "VMS23", "fields": ["var.bmessagedelivered", "var.breputationclear"], "label": "milestone: Kings' Gambit (VMS23) flags set after the axis-2 call"},
+    {"op": "note", "text": "Vulpes's greeting on the Strip, before Render Unto Caesar: the same clearing for the Legion (axis 0, then axis 2), then two SetEnemy calls."},
+    {"op": "say_info", "info": "0x00131F74", "speaker": "placed:VVulpesIncultaStrip"},
+    {"op": "get_reputation", "rep": "RepNVCaesarsLegion", "fields": ["infamy", "fame"], "label": "milestone: Legion infamy cleared by Vulpes"},
+    {"op": "note", "text": "Benny's two GREETING lines at the Tops compare GetReputationThreshold axis 3 of the Strip's reputation with 3 (one below, one at or above). Axis 3 reads 0, so the line for a player liked on the Strip is never chosen (observer check 30). Observed only."},
+    {"op": "get_reputation", "rep": "RepNVTheStrip", "fields": ["threshold.mixed", "threshold.good", "threshold.bad"], "label": "final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_do_nothing)"}
+  ]
+}

@@ -27,15 +27,19 @@
 //!   none there, and the badge takes its place over DAM [observed]); the container and
 //!   barter figures keep it ([`weapon_dps`]).
 //! - "Mod X)" under the Repair hint (`IM_ModButton`, 47 lower, `sInventoryMod`) for a
-//!   weapon with mod slots: bright when the player carries a mod that fits a slot not
-//!   taken yet, dim otherwise [documented: place, key; hypothesis: when it shows]. X on a
-//!   bright hint opens the mod menu (`super::item_mod`, weapon-mods.md §5); elsewhere X
-//!   drops one (design).
+//!   weapon with mod slots, always bright: the mod menu attaches and removes mods
+//!   [documented: place, key; hypothesis: when it shows; design: always bright, the
+//!   owner's rule 2026-10-27]. X on it opens the mod menu (`super::item_mod`,
+//!   weapon-mods.md §5); elsewhere X drops one (design).
 //! - A modded weapon's figures are its modded ones (`WeaponStats::modded`).
+//! - While a hotkey's key is held, the hotkey panel stands in the picture's place and a
+//!   left click (or Enter) puts the row's item in that slot (`super::hotkey_panel`).
 
 use super::frame::{self, Align, Card, Ctx, Kit, LINE, MAIN, TEXT, THICK};
+use super::hotkey_panel::HotkeyHold;
+use crate::hotkeys::Hotkeys;
 use super::{Page, PageBody, PipBoy};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{self, Category, Command, MenuModel, Mode, Row, Side};
 use crate::menu::{ActiveMenu, MenuInput};
 use crate::sim::SimState;
@@ -114,8 +118,8 @@ pub struct Info {
     pub badge: Option<String>,
     /// The skill the weapon needs, beside the badge.
     pub skill_req: Option<u32>,
-    /// A weapon with mod slots: whether the player carries a mod that fits a free one.
-    pub mod_hint: Option<bool>,
+    /// A weapon with mod slots: the "Mod X)" hint shows.
+    pub mod_hint: bool,
 }
 
 /// The badge of a weapon's skill (WEAP DNAM skill, by its name) [documented: the six
@@ -238,11 +242,9 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 if w.base_damage > 0 {
                     i.dps = Some(format!("{:.0}", weapon_dps(w, r.condition.unwrap_or(1.0))));
                 }
-                let fits: Vec<FormId> = w.mods.iter().filter(|m| r.mods & fnv_combat::data::mod_flag(m.slot) == 0).filter_map(|m| m.item).collect();
-                let slots = w.mods.iter().any(|m| m.item.is_some());
-                if slots {
-                    i.mod_hint = Some(fits.iter().any(|&m| sim.world.item_count(FormId::PLAYER_REF, m).unwrap_or(0) > 0));
-                }
+                // Always bright: the mod menu also takes mods off [design: the owner's
+                // rule, 2026-10-27].
+                i.mod_hint = w.mods.iter().any(|m| m.item.is_some());
                 let f = cf.expect("weapon stats came from it");
                 let choices = f.ammo_choices(w);
                 let carried: Vec<i32> = choices.iter().map(|&a| sim.world.item_count(FormId::PLAYER_REF, a).unwrap_or(0)).collect();
@@ -287,6 +289,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
 struct RowButton(usize);
 
 /// The ITEMS page's keys and wheel, while it is shown.
+#[allow(clippy::too_many_arguments)]
 pub fn keys(
     pip: Res<PipBoy>,
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
@@ -295,6 +298,7 @@ pub fn keys(
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
+    (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
 ) {
     use KeyCode::*;
     // The repair list and the mod menu have the keys while one is shown (`super::repair`,
@@ -319,7 +323,15 @@ pub fn keys(
         }
     }
     if keys.any_just_pressed([Enter, NumpadEnter, Space]) {
-        send(Command::One);
+        // With a hotkey's key held, Enter puts the selected item in its slot.
+        match hold.slot {
+            Some(slot) => {
+                if let Some(r) = active.0.as_ref().and_then(|m| m.selected_row(Side::Player)) {
+                    hold.said = Some(super::hotkey_panel::assign_row(&mut hotkeys, slot, r));
+                }
+            }
+            None => send(Command::One),
+        }
     }
     // Backspace leaves an open Misc folder (the "Back" row does too) [design].
     if keys.just_pressed(Backspace) {
@@ -353,9 +365,26 @@ fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RowButton>, active: Res<Act
     }
 }
 
-fn on_row_click(click: On<Pointer<Click>>, rows: Query<&RowButton>, mut out: MessageWriter<MenuInput>) {
-    if let Ok(r) = rows.get(click.entity) {
-        out.write(MenuInput(Command::Select(Side::Player, r.0)));
+/// A click selects the row (and on the selected row acts on it); with a hotkey's key held,
+/// a left click puts the row's item in that slot instead (`super::hotkey_panel`).
+fn on_row_click(
+    click: On<Pointer<Click>>,
+    rows: Query<&RowButton>,
+    active: Res<ActiveMenu>,
+    (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
+    mut out: MessageWriter<MenuInput>,
+) {
+    let Ok(r) = rows.get(click.entity) else { return };
+    match hold.slot {
+        Some(slot) if click.button == PointerButton::Primary => {
+            if let Some(row) = active.0.as_ref().and_then(|m| m.list(Side::Player).rows.get(r.0)) {
+                hold.said = Some(super::hotkey_panel::assign_row(&mut hotkeys, slot, row));
+            }
+        }
+        Some(_) => {}
+        None => {
+            out.write(MenuInput(Command::Select(Side::Player, r.0)));
+        }
     }
 }
 
@@ -375,9 +404,10 @@ pub fn draw(
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
     (repair, modding, mut script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<ResMut<crate::script::ScriptState>>),
+    (hold, hotkeys): (Res<HotkeyHold>, Res<Hotkeys>),
 ) {
     let Some((body, _)) = bodies.iter().find(|(_, b)| b.page == Page::Items) else { return };
-    if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() && !modding.is_changed() {
+    if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
         return;
     }
     if forms.is_none() {
@@ -436,12 +466,23 @@ pub fn draw(
         ];
         frame::heading(p, &mut c, Page::Items.title(), &cards);
         list(p, &mut c, m, first, &heights);
-        super::repair::draw_hint(p, &mut c, offer.as_ref());
+        // The hotkey panel hides the picture, the badge and the hints (`IM_ButtonRect`).
+        let panel = hold.slot.is_some();
+        if let (true, Some(k)) = (panel, hold.slot) {
+            info!("pipboy hotkeys: panel drawn, key {} chosen{}", k + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
+            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref());
+        } else {
+            super::repair::draw_hint(p, &mut c, offer.as_ref());
+        }
         if let Some((icon, i)) = &info {
-            item_info(p, &mut c, icon.as_deref(), i);
-            if let (Some(bright), Some(r)) = (i.mod_hint, selected) {
-                info!("pipboy items: {} Mod X){}", r.name, if bright { "" } else { " (dim)" });
-                c.text(p, 2, "Mod X)", MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y + frame::BUTTON_TEXT_Y, Align::Right, amber(if bright { TEXT } else { frame::DIMMED }));
+            if panel {
+                item_info(p, &mut c, None, &Info { badge: None, skill_req: None, ..i.clone() });
+            } else {
+                item_info(p, &mut c, icon.as_deref(), i);
+            }
+            if let (false, true, Some(r)) = (panel, i.mod_hint, selected) {
+                info!("pipboy items: {} Mod X)", r.name);
+                c.text(p, 2, "Mod X)", MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y + frame::BUTTON_TEXT_Y, Align::Right, amber(TEXT));
             }
         }
     });
@@ -634,7 +675,7 @@ mod tests {
             dps: Some("72".into()),
             badge: None,
             skill_req: None,
-            mod_hint: None,
+            mod_hint: false,
         };
         let t = info_tiles(&weapon);
         let titles: Vec<&str> = t.iter().map(|t| t.title.as_str()).collect();

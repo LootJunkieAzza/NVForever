@@ -261,6 +261,36 @@ pub fn marker(rows: usize, first: usize) -> Option<(f32, f32)> {
 
 // ---- drawing -------------------------------------------------------------------------------
 
+/// A list of whole rows' scroll bar marker: its top and height inside a track `track`
+/// high, or `None` when the `rows` fit `page` at once; one position per first row.
+pub fn rows_marker(rows: usize, first: usize, page: usize, track: f32) -> Option<(f32, f32)> {
+    if rows <= page || page == 0 {
+        return None;
+    }
+    let positions = (rows - page + 1) as f32;
+    let h = (track / positions).max(32.0).min(track);
+    let at = (first.min(rows - page) as f32) / (positions - 1.0);
+    Some((at * (track - h), h))
+}
+
+/// The container menu's scroll bar (arrows at the ends, the marker between) for another
+/// menu's list of whole rows: `BAR_W` wide at `x`, `y`, `height` high. Nothing when the
+/// list fits.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_rows_bar(p: &mut ChildSpawnerCommands, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, (x, y, height): (f32, f32, f32), rows: usize, first: usize, page: usize) {
+    let Some((my, mh)) = rows_marker(rows, first, page, height - 2.0 * BAR_ARROW) else { return };
+    let mut c = Ctx { kit, data, images, bc };
+    let bright = amber(255.0);
+    c.image(p, "arrow_up.dds", at(x, y, BAR_W, BAR_ARROW), bright);
+    c.image(p, "arrow_down.dds", at(x, y + height - BAR_ARROW, BAR_W, BAR_ARROW), bright);
+    if c.image(p, "vert_marker.dds", at(x + 12.0, y + BAR_ARROW + my, 6.0, mh), bright).is_none() {
+        p.spawn((at(x + 12.0, y + BAR_ARROW + my, 6.0, mh), BackgroundColor(bright)));
+    }
+}
+
+/// The scroll bar's width.
+pub const ROWS_BAR_W: f32 = BAR_W;
+
 struct Ctx<'a> {
     kit: &'a mut Kit,
     data: Option<&'a GameData>,
@@ -652,6 +682,17 @@ mod tests {
         h[2] = 86.0;
         assert_eq!(first_shown(&h, 0, 6), 2);
         assert_eq!(first_shown(&h, 0, 2), 0);
+    }
+
+    #[test]
+    fn the_rows_marker_runs_the_track_by_first_row() {
+        assert_eq!(rows_marker(7, 0, 7, 300.0), None);
+        let (top, h) = rows_marker(17, 0, 7, 300.0).unwrap();
+        assert_eq!((top, h), (0.0, 32.0), "11 positions in 300: the marker's least height");
+        let (end, _) = rows_marker(17, 10, 7, 300.0).unwrap();
+        assert!((end - (300.0 - h)).abs() < 1e-3);
+        // A first row past the end draws as the end.
+        assert_eq!(rows_marker(17, 40, 7, 300.0).unwrap().0, end);
     }
 
     #[test]

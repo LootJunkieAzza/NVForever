@@ -238,7 +238,10 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    reached the world, so no request a script made is still queued.
 2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
    player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
-   its own switch on the settings page (group Saving), both on by default. Their timing
+   its own switch on the settings page (group Saving), both on by default. Three more
+   switches there, on by default [owner request 2026-10-27]: Save on fast travel (after
+   a fast travel's loading screen, in place of the travel switch), Save on wait and Save
+   on sleep (when the menu closes with at least one hour passed, also after Cancel). Their timing
    against the original is still to be checked with the owner, who turned the
    original's autosaves off in its INI.
 3. **Random numbers**: a load re-seeds (a reload does not replay the same rolls); test aid
@@ -334,6 +337,13 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   every thread's stack in `<launch>.stacks.txt` (`tools/smoke/smoke/stacks.py`), so the
   next one shows where it stopped. The GRA boxes showing again after this load is
   expected: `save-write` saves before that quest shows them.
+
+### 6.0 Co-op players (2026-10-26)
+
+Saves keep players 2–4 of a co-op game beside the game's own player: each one's actor
+(inventory, place), actor values and health, character progression, effects and engine
+state; quests and the world stay shared. Optional fields, so the format versions stay.
+Design: [coop-save](coop-save.md).
 
 ### 6.1 Deleting a save (2026-10-19)
 

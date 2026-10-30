@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from stress import battle, cells, lib, tour  # noqa: E402
+from stress import battle, cells, lib, markers, soak, tour  # noqa: E402
 
 REPORT = textwrap.dedent("""\
     NVForever 0.2.0 crashed (panic)
@@ -88,6 +88,52 @@ class CellsTest(unittest.TestCase):
                  "INFO nvf_play::stress: stress cell: 2/3 skipped: not in the worldspace's grid",
                  "INFO nvf_play::stress: stress cell: 3/3 start exterior ..."]
         self.assertEqual(cells.read_batch(lines), {"loaded": {1: 1.25}, "skipped": {2: "not in the worldspace's grid"}, "last_started": 3})
+
+    def test_missing_files_and_script_errors_go_to_the_cell_being_visited(self):
+        lines = ["stress cell: 1/2 start interior 00010C0E GSGeneralStore",
+                 "WARN nvf_assets::guard: model not loaded: meshes\\x\\a.nif: no such file",
+                 "stress cell: 1/2 loaded in 1.25 s interior 00010C0E GSGeneralStore",
+                 "WARN nvf_assets::guard: texture not loaded: textures\\b.dds: bad header",
+                 "stress cell: 2/2 start interior 00010C0F Other",
+                 "WARN nvf_play::script: script error in FalloutNV.esm|SCPT 0x00012345: step budget of 100000 statements exceeded",
+                 "WARN nvf_assets::guard: model not loaded: meshes\\x\\a.nif: no such file"]
+        p = cells.read_problems(lines)
+        self.assertEqual(sorted(p), [1, 2])
+        self.assertEqual(p[1]["model"], ["meshes\\x\\a.nif: no such file"])
+        self.assertEqual(len(p[1]["texture"]), 1)
+        self.assertEqual(sorted(p[2]), ["model", "script"])
+        rows = [{"cell": "A", "status": "ok", "seconds": 1, "problems": p[1]}, {"cell": "B", "status": "ok", "seconds": 1, "problems": p[2]}]
+        s = cells.problem_summary(rows)
+        self.assertEqual((s["model"]["cells"], s["model"]["distinct"], s["model"]["top"][0]["cells"]), (2, 1, 2))
+        self.assertEqual(s["script"]["top"][0]["what"], "FalloutNV.esm|SCPT 0x00012345: step budget of # statements exceeded")
+        self.assertTrue(any("Missing files" in ln for ln in cells.report(cells.summarize(rows, [], 1))))
+
+    def test_markers_come_from_the_map_marker_references(self):
+        wl = {"worldspaces": [{"formid": "0x000DA726", "edid": "WastelandNV"}]}
+        refs = {"0x000DA726": {"refs": [{"formid": "0x00090A7B", "base": "0x00000010"}, {"formid": "0x00090A7C", "base": "0x00000011"},
+                                        {"formid": "0x00090A7D", "base": "0x00000010", "deleted": True}]}}
+        ms = markers.markers_from_json(wl, refs)
+        self.assertEqual([m.name() for m in ms], ["WastelandNV:00090A7B"])
+        a = markers.aids(ms + [markers.Marker("00090A7E", "000DA726", "WastelandNV")], every=30)
+        self.assertIn("ShowAllMapMarkers:1:1:0", a["NVF_PLAY_TEST_SCRIPT"])
+        self.assertEqual(a["NVF_PLAY_TEST_PIPBOY"].split(",")[:4], ["8:open", "8.5:page=data", "9:travel=0x00090A7B", "10:key=use"])
+        self.assertTrue(a["NVF_PLAY_TEST_PIPBOY"].split(",")[4].startswith("38:"))
+
+    def test_a_markers_log_gives_refusals_trips_arrivals_and_problems(self):
+        part = [markers.Marker("00090A7B", "000DA726", "W"), markers.Marker("00090A7C", "000DA726", "W"), markers.Marker("00090A7D", "000DA726", "W")]
+        lines = [f"INFO test aid: pipboy Travel({0x90A7B}) at 9.0 s",
+                 "INFO fast travel: to Goodsprings (00090A7B): arrive at the marker [1, 2, 3], 10 units away, 0.10 hours on the clock",
+                 "INFO loading screen up: x for worldspace 000DA726",
+                 "WARN model not loaded: meshes\\a.nif: gone",
+                 "INFO loading screen down after 3.50 s",
+                 f"INFO test aid: pipboy Travel({0x90A7C}) at 39.0 s",
+                 "INFO fast travel: to Primm (00090A7C) refused (HostilesNear); the box says \"...\"",
+                 f"INFO test aid: pipboy Travel({0x90A7D}) at 69.0 s"]
+        seen = markers.read_batch(lines, part)
+        self.assertEqual(seen[0]["arrived"], 3.5)
+        self.assertEqual(seen[0]["problems"]["model"], ["meshes\\a.nif: gone"])
+        self.assertEqual(seen[1]["refused"], "HostilesNear")
+        self.assertEqual([markers.status(seen[i]) for i in range(3)], ["ok", "refused", "no trip"])
 
     def test_a_crash_ends_its_batch_and_the_sweep_goes_on_after_the_cell(self):
         cs = fake_world()
@@ -425,6 +471,86 @@ class BattleTest(unittest.TestCase):
         self.assertEqual(c["combat_lines_per_minute"], {"Attack": 1.0})
         self.assertEqual([s["faction"] for s in c["sides"]], ["NCRFactionNV", "CaesarsLegionFaction"])
         self.assertIn("nvforever", c["system_times"])
+
+
+class SoakTest(unittest.TestCase):
+    REFS = [
+        {"formid": "0x1", "base": "0xB1", "base_type": "CONT", "base_edid": "Box", "position": [100, 0, 0]},
+        {"formid": "0x2", "base": "0xD1", "base_type": "DOOR", "base_edid": "Door", "position": [8000, 0, 0]},
+        {"formid": "0x3", "base": "0xD2", "base_type": "DOOR", "base_edid": "Gate", "position": [0, 0, 0]},
+        {"formid": "0x4", "base": "0xN1", "base_type": "NPC_", "base_edid": "LvlPowderGangerA", "persistent": True, "position": [0, 100, 0]},
+        {"formid": "0x5", "base": "0xN2", "base_type": "NPC_", "base_edid": "GoodspringsSettler", "persistent": True, "position": [0, 100, 0]},
+        {"formid": "0x6", "base": "0xB1", "base_type": "CONT", "base_edid": "Box", "position": [90000, 0, 0]},
+        {"formid": "0x7", "base": "0xB1", "base_type": "CONT", "base_edid": "Box", "position": [0, 0, 0], "initially_disabled": True},
+    ]
+
+    def test_candidates_near_the_route_by_kind(self):
+        doors = soak.teleport_bases({"doors": [{"door": "0xD1", "refs": 2, "teleport_refs": 2}, {"door": "0xD2", "refs": 3, "teleport_refs": 1}]})
+        self.assertEqual(doors, {"0xD1"})
+        c = soak.candidates(self.REFS, doors, [(0.0, 0.0), (8000.0, 0.0)])
+        self.assertEqual([x["ref"] for x in c["container"]], ["0x1"])
+        self.assertEqual([(x["ref"], x["route_point"]) for x in c["door"]], [("0x2", 1)])
+        self.assertEqual([x["ref"] for x in c["fight"]], ["0x4"])
+
+    def test_schedule_takes_turns(self):
+        c = {"container": [{"ref": "0x1", "base": "Box"}], "door": [{"ref": "0x2", "base": "Door"}], "fight": [{"ref": "0x4", "base": "G"}]}
+        steps, keys, events = soak.schedule(c, 20, 10, 50)
+        self.assertEqual([e["kind"] for e in events], ["container", "door", "fight"])
+        self.assertEqual(steps, ["20:moveto:player:0x1", "23:activate:0x1", "30:moveto:player:0x2", "33:activate:0x2",
+                                 "40:moveto:0x4:player:300:0:0", "41:combat:0x4:player", "55:kill:0x4"])
+        self.assertEqual(keys, ["26:tab"])
+        self.assertEqual(soak.schedule({"container": []}, 0, 10, 100), ([], [], []))
+
+    def test_hitches_put_down_to_the_event_before(self):
+        lines = [
+            "2026-10-27T20:00:00.000000Z  INFO nvf_play::script: test aids: clock starts when the scripts first run, at 0.0 s",
+            "2026-10-27T20:00:23.000000Z  INFO nvforever::stress_sample: stress hitch: 400 ms at t 23.0 s, 0 cells loaded in it (0 ms), 0 actors drawn in it (0 ms), at X",
+            "2026-10-27T20:00:23.100000Z  INFO nvforever::profile: profile hitch: 380 ms; spans ms: a 300.0 (1)",
+            "2026-10-27T20:00:45.000000Z  INFO nvforever::stress_sample: stress hitch: 260 ms at t 45.0 s, 1 cells loaded in it (2 ms), 0 actors drawn in it (0 ms), at Y",
+        ]
+        by = soak.attribute(lines, [{"at": 20, "kind": "door"}, {"at": 30, "kind": "fight"}])
+        self.assertEqual((by["door"]["stress"], by["door"]["profile"], by["door"]["worst_ms"]), (1, 1, 400.0))
+        self.assertEqual(by["walking"]["stress"], 1)
+        self.assertNotIn("fight", by)
+        self.assertEqual(soak.outcomes(["menu: open Container(0x1)", "x"])["containers opened"], 1)
+
+
+class PerfTest(unittest.TestCase):
+    """The span profile's own hitch lines and the frame-time budget."""
+
+    LINES = [
+        "2026-10-27T19:46:58.857134Z  INFO nvforever::profile: profile hitch: 988 ms; spans ms: update 980.1 (1), "
+        "Update 950.0 (1), world::load_cell 12.5 (3)",
+        "2026-10-27T19:46:50.000000Z  INFO nvforever::profile: profile hitch: 120 ms; spans ms: render 110.0 (1)",
+        "2026-10-27T19:46:51.000000Z  INFO nvforever::profile: profile hitch: 150 ms; no spans seen (build with --features profile)",
+    ]
+
+    def test_hitches_slowest_first_with_their_spans(self):
+        h = lib.profile_hitches(self.LINES)
+        self.assertEqual([x["ms"] for x in h], [988.0, 120.0])
+        self.assertEqual(h[0]["spans"][2], {"span": "world::load_cell", "ms": 12.5, "entries": 3})
+        rep = "\n".join(lib.profile_hitch_report(h))
+        self.assertIn("| 988 | 8.9 | update 980.1 (1); Update 950 (1); world::load_cell 12.5 (3) |", rep)
+        self.assertEqual(lib.profile_hitch_report([]), [])
+
+    def test_machine_load(self):
+        self.assertIsNone(lib.machine_load([]))
+        load = lib.machine_load([(1, 0.1, 0.5), (2, 0.1, 0.1), (3, 0.2, 0.0), (4, 0.2, 0.3)])
+        self.assertEqual(load, {"game_mean": 0.15, "others_mean": 0.225, "busy_fraction": 0.5, "busy_over": 0.25})
+        self.assertIn("The machine was busy", "\n".join(lib.load_report(load)))
+        quiet = lib.load_report(lib.machine_load([(1, 0.2, 0.01)]))
+        self.assertEqual(len(quiet), 2)
+        self.assertEqual(lib.load_report(None), [])
+
+    def test_budget(self):
+        frames = {"mean_ms": 17.0, "low1_ms": 53.0, "worst_ms": 988.0}
+        self.assertEqual(lib.over_budget(frames, lib.Budget()), [])
+        self.assertEqual(lib.over_budget(frames, lib.Budget(mean_ms=20, low1_ms=60)), [])
+        failed = lib.over_budget(frames, lib.Budget(low1_ms=33.4, worst_ms=250))
+        self.assertEqual(failed, ["1% low frame 53 ms over the budget's 33.4 ms", "worst frame 988 ms over the budget's 250 ms"])
+        self.assertEqual(lib.over_budget(None, lib.Budget(worst_ms=250)), ["no frame statistics in the log (the run ended early?)"])
+        self.assertIn("Budget: FAIL (1% low 33.4 ms, worst 250 ms)", lib.budget_report(lib.Budget(low1_ms=33.4, worst_ms=250), failed))
+        self.assertEqual(lib.budget_report(lib.Budget(worst_ms=250), []), ["", "Budget: PASS (worst 250 ms)."])
 
 
 @unittest.skipUnless(os.name == "nt", "the fake game is a .cmd")

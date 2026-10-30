@@ -236,12 +236,17 @@ fn wait_and_follow_say_the_followers_topics_and_their_results_set_waiting() {
     let b = button(&mut g, Command::StayFollow);
     assert!(b.alt && b.label == "Follow");
     frames(&mut g, 600);
-    // Let's Go clears Waiting in its end script: once the line is over, behind the wheel.
+    // Let's Go clears Waiting in its end script, which a wheel command runs as the line
+    // starts (owner, 2026-10-27), and not again when the line is over.
     let out = g.wheel_command(Command::StayFollow).unwrap();
     assert!(matches!(out, Outcome::Said { topic, .. } if topic == FormId(0xA02)), "{out:?}");
-    assert_eq!(var_of(&g, "Waiting"), 1.0);
+    assert_eq!(var_of(&g, "Waiting"), 0.0);
+    let b = button(&mut g, Command::StayFollow);
+    assert!(!b.alt && b.label == "Wait");
     assert!(g.line_goes_on_in_menu(companion()));
+    assert!(g.speech[0].end_ran, "kept from running again at the line's end");
     frames(&mut g, 600);
+    assert!(g.speech.is_empty(), "the line is over");
     assert_eq!(var_of(&g, "Waiting"), 0.0);
     assert_eq!(g.menu, Some(MENU_CODE), "the wheel stays open");
     let time = g.time;
@@ -277,6 +282,23 @@ fn talk_closes_the_wheel_and_inventory_asks_for_the_teammates_container() {
     assert!(matches!(out, Outcome::Talk { info } if info == FormId(0xB00)), "{out:?}");
     assert_eq!(g.wheel_companion(), None);
     assert!(g.dialogue.is_some());
+}
+
+#[test]
+fn the_inventory_line_goes_on_while_the_inventory_is_open() {
+    let f = fixture();
+    let mut g = hired(&f);
+    assert!(matches!(g.wheel_command(Command::OpenInventory).unwrap(), Outcome::Said { .. }));
+    // The engine closes the wheel and opens the container menu (`nvf-play` menu.rs).
+    g.close_companion_wheel();
+    g.open_menu(fnv_game::runner::CONTAINER_MENU);
+    assert!(g.line_goes_on_in_menu(companion()), "said as the inventory comes up");
+    let left = g.speech[0].remaining;
+    frames(&mut g, 10);
+    assert!(g.speech[0].remaining < left, "its time runs behind the inventory");
+    frames(&mut g, 600);
+    assert!(g.speech.is_empty());
+    assert!(!g.line_goes_on_in_menu(companion()));
 }
 
 #[test]

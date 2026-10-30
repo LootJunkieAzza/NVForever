@@ -480,19 +480,37 @@ pub struct BlastHit {
     pub force: f32,
 }
 
-/// The actors an explosion at `center` reaches: within its radius, and in line of sight
-/// of the centre unless the EXPL ignores it [documented: GECK wiki Explosion]; damage
-/// falls off with distance [design]. Only the world shields: another body in the way
-/// does not, or one creature at the front of a pack took the blast for all those
-/// behind it (the owner's playtest, a grenade into a mantis swarm) [design].
+/// How far above its centre a blast also looks out from, units: the centre lies on the
+/// surface the grenade struck, where a line along the ground can meet that same ground
+/// at once [design].
+const BLAST_LIFT: f32 = 16.0;
+
+/// The actors an explosion at `center` reaches: every one whose body lies within its
+/// radius, and in line of sight of the centre unless the EXPL ignores it [documented:
+/// GECK wiki Explosion]; damage falls off with distance [design]. Only the world shields:
+/// another body in the way does not, or one creature at the front of a pack took the
+/// blast for all those behind it (the owner's playtest, a grenade into a mantis swarm)
+/// [design]. A body is seen when any of its parts is, from the centre or from just
+/// above it, and is as far as its nearest part; one whose body reaches into the radius
+/// with every part beyond it takes the edge's damage. Grenades beside a giant radscorpion
+/// did it no harm: the centre of its bounds lay past the radius, or out of sight under
+/// the ground the line from the blast ran along (the owner, 2026-10-27) [design].
 pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, center: V3) -> Vec<BlastHit> {
     let los = !e.flags.iter().any(|f| f == "Ignore LOS Check");
+    let lifted = [center[0], center[1], center[2] + BLAST_LIFT];
+    // Not from above a ceiling or a floor it went off under.
+    let origins: Vec<V3> = if world.cover_ray(center, lifted).is_some() { vec![center] } else { vec![center, lifted] };
+    let seen = |from: V3, to: V3| {
+        let d = vec::len(vec::sub(to, from));
+        !world.cover_ray(from, to).is_some_and(|h| h.distance + NUDGE < d)
+    };
     let mut out = Vec::new();
     for (a, at) in world.actors_near(center, e.radius) {
-        let d = vec::len(vec::sub(at, center));
-        if los && world.cover_ray(center, at).is_some_and(|h| h.distance + NUDGE < d) {
+        let points: Vec<V3> = std::iter::once(at).chain(world.aim_points(a)).collect();
+        if los && !points.iter().any(|&p| origins.iter().any(|&o| seen(o, p))) {
             continue;
         }
+        let d = points.iter().map(|&p| vec::len(vec::sub(p, center))).fold(f32::INFINITY, f32::min).min(e.radius);
         let damage = explosion_damage(t, e.damage, e.radius, d);
         if damage <= 0.0 {
             continue;

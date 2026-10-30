@@ -33,8 +33,21 @@ original unless it carries a tag.
    gecko line]. The line is heard
    and shown as a SayTo line is (the subtitle of `script_hud.rs`, the voice of
    `voice.rs`); the state stays `Playing`, nothing pauses and the view is not turned
-   (§8 is for conversations). Log: `dialogue: <actor> says its greeting <line> at the
-   player (a Goodbye line: no conversation)`; `script::ByHand::Greeted`.
+   (§8 is for conversations). **The actor stops and faces the player while it says
+   it**, also when its package had it on its way: the engine holds it where it stands
+   (`Game::greets_player`, `residents.rs`), the AI turns it to the player (§9.3), and
+   its package goes on when the line is over [owner statement 2026-10-27, of the
+   Goodsprings settler's water line 0010B3D6 (VCG02GSSettler, walking home): "make her
+   stop and look at the player", the player staying free]. **Such a line is never cut**:
+   whatever stops it early (the speaker drawn into a fight (Alert, Combat, Lost), dying,
+   disabled or deleted, talked to again, another line of its own) ends it at once as if
+   said to the end, its end result script and Add Topics applying, so a reward is not
+   lost (`Game::cut_line`) [owner statement 2026-10-27: "skip to the end of the line as
+   if she finished speaking", "all the code runs", "for any reason as a catch all"]. A
+   line still going on when the player fast travels or changes cells ends on its own
+   time there. Log: `dialogue: <actor> says
+   its greeting <line> at the player (a Goodbye line: no conversation)`;
+   `script::ByHand::Greeted`.
    Checked 2026-10-10: `--cell Goodsprings --play --no-voice --run-seconds 40` with
    `NVF_PLAY_TEST_TALK="8:GoodspringsSettler04Ref=;18:EasyPeteRef=leave"`: the settler
    said 0x0015D8AF (2.21 s) with no `conversation … started` line and the run went on;
@@ -395,6 +408,15 @@ original's values, unless a line carries another tag. What is known of the origi
     [design; whether the original turns anything but the IK start node is not known].
   - The turn has no roll: it is a turn to the side and a tilt up or down in the actor's
     own space.
+  - **The animation's head movement stays under the turn** (2026-10-27): the turn aims
+    the animation's *average* head direction at the player, the average following the
+    animation over 0.8 s (`KEEP_SECONDS`), so the talk and listen clips' nods and
+    glances (0.3 to 1 s) still show on the turned head, at most 20° of them each way
+    [design]. Before, the head was aimed exactly at the eye every frame, which cancelled
+    every nod the clips carry: measured against the owner's video of the original's
+    Sunny Smiles conversation (face tracked frame by frame, in eye distances), our head
+    moved up and down at a third of the original's speed (90th percentile 0.08 against
+    0.25 eye distances a second) [observed 2026-10-27].
   - A player behind the actor (more than 135° from its front) keeps the side the head
     first turned to, so the head does not flip from one shoulder to the other [design].
   - What hangs from the head bone or is skinned to it follows: the face and its lip
@@ -730,8 +752,9 @@ conversation between actors):
   usual limits and eases it back afterwards. `--no-head-tracking` turns no head.
 - **Bodies of NPCs the AI runs** (with `--play` every actor of the loaded cells, or
   `--npc-packages`): `fnv_ai` turns them on the spot (`Ai::face`, from `Ai::social`), as
-  it did for hellos and conversations; not on furniture, not on its way, not when a
-  Dialogue package is already turning it.
+  it did for hellos and conversations; not on furniture, not on its way (except for its
+  Goodbye greeting at the player, §1, which stops it), not when a Dialogue package is
+  already turning it.
 - **Other bodies** (`--no-npc-packages`): turned on the spot by `speech_look.rs` with
   §8.1's `BodyTurn` (same speed and turn clips), once per line, when the NPC stands in
   its idle and is not in furniture, travelling, under the walk test, dead or a creature.

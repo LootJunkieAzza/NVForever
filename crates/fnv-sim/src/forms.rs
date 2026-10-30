@@ -208,6 +208,15 @@ pub struct WeaponTraits {
     pub attack_mult: f32,
     /// NAM0: the AMMO it fires, or a form list of acceptable AMMO (global FormID).
     pub ammo: Option<FormId>,
+    /// DNAM Max Range, game units (0: none).
+    pub max_range: f32,
+    /// DNAM Flags 2 "Range - Fixed": its combat style does not scale its range.
+    pub range_fixed: bool,
+    /// Its own projectile's PROJ DATA Range (0: none), explosion radius (EXPL DATA
+    /// Radius, 0 without one) and type Flame (set by the caller, which reads the PROJ).
+    pub projectile_range: f32,
+    pub blast: f32,
+    pub flame: bool,
 }
 
 impl Item {
@@ -682,8 +691,11 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                 };
                 if kind == ItemKind::Weapon {
                     let anim = first(&d, b"DNAM").and_then(|v| v.get("animation_type")).and_then(text);
-                    let explosion = i.projectile.map_or(0.0, |p| explosion_damage(lo, schema, p));
-                    i.weapon_damage = i.weapon_damage.map(|base| weapon_choice_damage(base, explosion, anim.as_deref()));
+                    let proj = i.projectile.map(|p| projectile_facts(lo, schema, p)).unwrap_or_default();
+                    i.weapon_damage = i.weapon_damage.map(|base| weapon_choice_damage(base, proj.explosion_damage, anim.as_deref()));
+                    if let Some(t) = i.weapon_traits.as_mut() {
+                        (t.projectile_range, t.blast, t.flame) = (proj.range, proj.blast, proj.flame);
+                    }
                 }
                 if let Some(t) = i.weapon_traits.as_mut() {
                     t.ammo = match t.ammo.map(|a| global(lo, pi, a.0)) {
@@ -864,6 +876,9 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
                 shots_per_sec: f("attack_shots_per_sec"),
                 attack_mult: f("attack_mult"),
                 ammo: first(d, b"NAM0").and_then(local_fid).map(FormId),
+                max_range: f("max_range"),
+                range_fixed: dn.and_then(|v| v.get("flags2")).is_some_and(|x| has_flag(x, "Range - Fixed")),
+                ..Default::default()
             }
         }),
     })
@@ -905,6 +920,25 @@ pub fn weapon_choice_damage(base: f32, explosion: f32, anim_type: Option<&str>) 
 /// flag "Explosion" and "Explosion" → EXPL DATA "Damage" [documented: xEdit PROJ, EXPL;
 /// `schemas/fnv`]. 0 when it has none or a record does not decode.
 pub fn explosion_damage(lo: &LoadOrder, schema: &Schema, proj: FormId) -> f32 {
+    projectile_facts(lo, schema, proj).explosion_damage
+}
+
+/// What the weapon choices read of a projectile (`proj`, a global FormID).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ProjectileFacts {
+    /// [`explosion_damage`].
+    pub explosion_damage: f32,
+    /// The explosion's EXPL DATA "Radius"; 0 without one.
+    pub blast: f32,
+    /// PROJ DATA "Range" (0: none).
+    pub range: f32,
+    /// PROJ DATA "Type" Flame.
+    pub flame: bool,
+}
+
+/// [`ProjectileFacts`] of `proj` [documented: xEdit PROJ, EXPL; `schemas/fnv`]; all 0 when
+/// a record does not decode.
+pub fn projectile_facts(lo: &LoadOrder, schema: &Schema, proj: FormId) -> ProjectileFacts {
     let data_of = |id: FormId, sig: &[u8; 4]| {
         let d = lo.index.get(&id.0).and_then(|defs| defs.last())?;
         let r = lo.records[d.plugin as usize][d.ordinal as usize];
@@ -914,12 +948,21 @@ pub fn explosion_damage(lo: &LoadOrder, schema: &Schema, proj: FormId) -> f32 {
         let dec = extract::decode(r, schema).ok()?;
         Some((d.plugin as usize, first(&dec, b"DATA").cloned()?))
     };
-    let Some((pi, data)) = data_of(proj, b"PROJ") else { return 0.0 };
+    let Some((pi, data)) = data_of(proj, b"PROJ") else { return ProjectileFacts::default() };
+    let mut out = ProjectileFacts {
+        range: num(&data, "range").unwrap_or(0.0).max(0.0) as f32,
+        flame: data.get("type").is_some_and(|t| text(t).as_deref() == Some("Flame") || t.as_i64() == Some(8)),
+        ..Default::default()
+    };
     if !data.get("flags").is_some_and(|f| has_flag(f, "Explosion")) {
-        return 0.0;
+        return out;
     }
-    let Some(Ok(Some(expl))) = data.get("explosion").and_then(local_fid).map(|l| global(lo, pi, l)) else { return 0.0 };
-    data_of(expl, b"EXPL").and_then(|(_, e)| num(&e, "damage")).unwrap_or(0.0).max(0.0) as f32
+    let Some(Ok(Some(expl))) = data.get("explosion").and_then(local_fid).map(|l| global(lo, pi, l)) else { return out };
+    if let Some((_, e)) = data_of(expl, b"EXPL") {
+        out.explosion_damage = num(&e, "damage").unwrap_or(0.0).max(0.0) as f32;
+        out.blast = num(&e, "radius").unwrap_or(0.0).max(0.0) as f32;
+    }
+    out
 }
 
 /// S.P.E.C.I.A.L. names in NPC_ DATA order.

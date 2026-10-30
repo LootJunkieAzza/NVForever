@@ -11,7 +11,9 @@
 //!   node's name, its place and its y axis lying along the barrel as the flash models'
 //!   length does; animation.md §9.9]. It stays for the PROJ's duration and no longer
 //!   (0.04 s for the bullet PROJs), but always for the frame it is made in, so a flash
-//!   shorter than a frame is still seen once; the light with it. Another actor's flash
+//!   shorter than a frame is still seen once; the light with it. At the first-person
+//!   weapon's muzzle it is drawn in front of the world as the weapon is
+//!   ([`first_person_model`], docs/design/first-person-depth.md). Another actor's flash
 //!   goes under its drawn weapon's muzzle marker (`weapons::Muzzle`, the same node of
 //!   its weapon model, at rest) the same way; without one (a weapon model with no
 //!   `ProjectileNode`) it stands where the shot left, its +y turned along the shot
@@ -77,6 +79,7 @@ use fnv_phys::{layers, Filter};
 use nvf_assets::anim_play::MaterialTarget;
 use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::{ModelCtx, PreparedModel};
+use nvf_assets::nif_material::NifMaterial;
 use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ExplosionLook, ImpactFx, ShotFired, ShotVisual, ShotVisuals, WATER_SURFACE_EXPLOSION};
 use nvf_play::phys::PhysState;
 use fnv_sim::FormId;
@@ -202,6 +205,10 @@ struct ShotFx {
     /// Beams that played a clip of their own, and those drawn fading.
     beams_animated: u32,
     beams_faded: u32,
+    /// Flash models as drawn at the first-person weapon's muzzle ([`first_person_model`]),
+    /// by model path, and the player's flashes drawn so.
+    first_person_models: HashMap<String, Arc<PreparedModel>>,
+    first_person_flashes: u32,
 }
 
 pub struct ShotFxPlugin;
@@ -245,6 +252,32 @@ fn spawn_model(commands: &mut Commands, parent: Entity, pm: &PreparedModel, plac
         commands.entity(s.node.map_or(holder, |n| nodes[n])).add_child(e);
     }
     holder
+}
+
+/// `pm` with each material replaced by a copy drawn as a first-person shape
+/// (`NifSurface::first_person`, nvf_assets nif_material.rs "First-person depth"): the
+/// flash at the first-person weapon's muzzle, which the squeezed weapon would hide
+/// otherwise. A material shared by several shapes gets one copy.
+fn first_person_model(pm: &PreparedModel, materials: &mut Assets<NifMaterial>) -> PreparedModel {
+    let mut copies: HashMap<AssetId<NifMaterial>, Handle<NifMaterial>> = HashMap::new();
+    let mut first_person = |m: &mut Handle<NifMaterial>| {
+        let copy = copies.entry(m.id()).or_insert_with(|| match materials.get(&*m).cloned() {
+            Some(mut c) => {
+                c.extension.first_person = true;
+                materials.add(c)
+            }
+            None => m.clone(),
+        });
+        *m = copy.clone();
+    };
+    let mut out = pm.clone();
+    for s in &mut out.shapes {
+        first_person(&mut s.material);
+    }
+    for s in out.rig.iter_mut().flat_map(|r| r.shapes.iter_mut()) {
+        first_person(&mut s.material);
+    }
+    out
 }
 
 /// Spawn an effect model under `parent` at `place`: its rig playing its effect clip when
@@ -439,7 +472,20 @@ fn flash(
             shot.at.zip(root.single().ok()).map(|(at, r)| (r, Transform::from_translation(Vec3::from_array(at)).with_rotation(shot.dir.map_or(Quat::IDENTITY, along))))
         };
         let Some((parent, place)) = place else { continue };
-        let Some(pm) = load(&mut models, &mut fx, "muzzle flash", model) else { continue };
+        let Some(mut pm) = load(&mut models, &mut fx, "muzzle flash", model) else { continue };
+        // At the first-person weapon's muzzle it is drawn in front of the world as the
+        // weapon is (`NifSurface::first_person`), else the barrel hid it.
+        if player && body.as_deref().is_some_and(PlayerBody::first_person_drawn) {
+            pm = match fx.first_person_models.get(model) {
+                Some(m) => m.clone(),
+                None => {
+                    let m = Arc::new(first_person_model(&pm, &mut models.materials));
+                    fx.first_person_models.insert(model.to_string(), m.clone());
+                    m
+                }
+            };
+            fx.first_person_flashes += 1;
+        }
         let (holder, _) = spawn_effect(&mut commands, &mut fx, parent, &pm, place, model, false);
         // Made after this frame's flashes were aged: it is drawn this frame whatever
         // its duration, and goes in the first frame its time is up.
@@ -818,6 +864,9 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
         }
         if fx.actor_flashes_muzzle + fx.actor_flashes_at_shot > 0 {
             info!("shot fx: other actors' muzzle flashes: {} at their weapon's muzzle, {} where the shot left (no muzzle node)", fx.actor_flashes_muzzle, fx.actor_flashes_at_shot);
+        }
+        if fx.first_person_flashes > 0 {
+            info!("shot fx: {} muzzle flashes drawn in front of the world with the first-person weapon", fx.first_person_flashes);
         }
         if fx.beams_animated > 0 {
             info!("shot fx: {} beams played their own animation, {} faded out over their fade duration", fx.beams_animated, fx.beams_faded);

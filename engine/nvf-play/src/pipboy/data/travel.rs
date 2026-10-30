@@ -220,6 +220,11 @@ pub fn answer(
 ) {
     let Some(&FastTravelAsk(marker)) = asks.read().last() else { return };
     let Some(mut st) = state else { return };
+    // The World Map reads the markers when first drawn; an ask from the test aid can come
+    // before the map ever was.
+    if st.markers.is_none() {
+        st.markers = Some(read::markers(world.lo, world.schema, sim.refs));
+    }
     let Some(m) = st.markers.iter().flatten().find(|m| m.form == marker).cloned() else {
         warn!("fast travel: {} is not a named map marker", FormId(marker));
         return;
@@ -347,12 +352,16 @@ pub fn depart(
     mut script: Option<ResMut<ScriptState>>,
     mut travel: MessageWriter<TravelRequest>,
     mut passed: MessageWriter<HourPassed>,
+    landing: Option<ResMut<crate::save::FastTravelLanding>>,
 ) {
     if *state.get() != PlayState::Playing {
         return;
     }
     let Some(t) = pending.0.take() else { return };
     travel.write(TravelRequest(t.travel));
+    if let Some(mut l) = landing {
+        l.0 = true;
+    }
     if t.hours > 0.0 {
         match sim.world.advance_hours(t.hours) {
             Ok(c) => info!("fast travel: {:.2} hours passed (GameHour {:.3}, GameDaysPassed {:.3})", t.hours, c.hour, c.days_passed),

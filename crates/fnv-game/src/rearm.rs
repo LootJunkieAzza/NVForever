@@ -14,6 +14,15 @@
 //!   the actor carries or can find ("they need ammo associated to be able to use it",
 //!   owner 2026-10-25). The weapon held now keeps its rank without ammunition: NPCs fire
 //!   without spending any (owner 2026-10-17).
+//! - **Distance** ([`Game::take_up_for_distance`], owner 2026-10-25: "the incinerator would
+//!   be better at a distance and the flamer up close"): a weapon with a flame or an
+//!   explosive projectile fires only within its reach (WEAP max range times the style's
+//!   Ranged Weapon Max Range Mult unless Range - Fixed, never beyond its projectile's
+//!   range) and, explosive, only beyond its explosion's radius plus [`BLAST_MARGIN`]
+//!   (the combat AI's own limits, nvforever `npc_combat::gun_reach`); other weapons work
+//!   at every distance. A fighter whose weapon does not work at its target's distance
+//!   holds the best weapon of its own class it carries that does. The weapon's own
+//!   projectile is read (an ammunition's projectile is not).
 //! - **Taking** ([`Game::take_leg`]): a weapon on the ground is picked up, one carried by
 //!   a dead actor taken from it (condition kept); ammunition is copied, one round, and
 //!   the source keeps its own ("npcs clone the ammo too, they dont take it from the
@@ -38,6 +47,17 @@ pub const MUTANT_PICKUP_IDLE: &str = "SBGroundGrab";
 
 /// CREA DATA type Super Mutant [documented: xEdit wbCreatureTypeEnum].
 pub const SUPER_MUTANT: i64 = 4;
+
+/// A gun with an explosive projectile fires only this far beyond its explosion's radius
+/// (nvforever `npc_combat::BLAST_MARGIN`).
+pub const BLAST_MARGIN: f32 = 64.0;
+
+/// A swap for the target's distance wants the new weapon to work this far inside its
+/// limits, game units, so that it is not out of them again at once [design].
+pub const RANGE_SLACK: f32 = 64.0;
+
+/// At least this long between two swaps for the target's distance, seconds [design].
+pub const RANGE_SWAP_SECONDS: f64 = 3.0;
 
 /// Copied ammunition: this many rounds [design: enough to make the gun usable, as NPCs
 /// spend none].
@@ -142,6 +162,8 @@ pub struct Rearms {
     pub given_up: BTreeMap<FormId, BTreeSet<FormId>>,
     /// When each actor looks again (game time).
     pub next_look: BTreeMap<FormId, f64>,
+    /// When each actor last swapped weapons for its target's distance (game time).
+    pub range_swapped: BTreeMap<FormId, f64>,
 }
 
 impl Rearms {
@@ -155,6 +177,7 @@ impl Rearms {
         self.fetches.remove(&actor);
         self.given_up.remove(&actor);
         self.next_look.remove(&actor);
+        self.range_swapped.remove(&actor);
     }
 }
 
@@ -302,6 +325,63 @@ impl Game<'_> {
         }
         let _ = self.world.outfit(actor);
         self.world.equip_at(actor, weapon, Pick::at(Some(condition))).or_else(|_| self.world.equip(actor, weapon)).is_ok()
+    }
+
+    /// The distances at which `weapon` fires for `actor` (module notes, "Distance"):
+    /// (nearest, farthest); `None` for a weapon that works at every distance.
+    pub fn firing_band(&self, actor: FormId, weapon: FormId) -> Option<(f32, f32)> {
+        let t = self.world.forms.item(weapon)?.weapon_traits?;
+        if !t.flame && t.blast <= 0.0 {
+            return None;
+        }
+        let mult = if t.range_fixed { 1.0 } else { self.combat_style(actor).map_or(1.0, |s| if s.range_mult.1 > 0.0 { s.range_mult.1 } else { 1.0 }) };
+        let weapon_reach = (t.max_range > 0.0).then_some(t.max_range * mult);
+        let projectile = (t.projectile_range > 0.0).then_some(t.projectile_range);
+        let far = match (weapon_reach, projectile) {
+            (Some(w), Some(p)) => w.min(p),
+            (w, p) => w.or(p).unwrap_or(f32::INFINITY),
+        };
+        let near = if t.blast > 0.0 { t.blast + BLAST_MARGIN } else { 0.0 };
+        Some((near, far))
+    }
+
+    /// Whether `weapon` fires at a target `distance` away, `slack` inside its limits.
+    pub fn works_at(&self, actor: FormId, weapon: FormId, distance: f32, slack: f32) -> bool {
+        self.firing_band(actor, weapon).is_none_or(|(near, far)| distance >= near + slack && distance <= far - slack)
+    }
+
+    /// `actor` fights a target `distance` away with a weapon that does not fire at that
+    /// distance (a flamer at a far target, an incinerator at a near one): it holds the
+    /// best weapon of its own class it carries that does, by [`RANGE_SLACK`], at most
+    /// every [`RANGE_SWAP_SECONDS`]. Returns the weapon put in its hands.
+    pub fn take_up_for_distance(&mut self, actor: FormId, distance: f32) -> Option<FormId> {
+        let (held, _) = self.held_weapon(actor)?;
+        if self.works_at(actor, held, distance, 0.0) || self.rearms.range_swapped.get(&actor).is_some_and(|t| self.time - t < RANGE_SWAP_SECONDS) {
+            return None;
+        }
+        let class = match self.actor_class(actor) {
+            Some(c) => c,
+            None => weapon_class(self.world.forms.item(held)?),
+        };
+        let carried: Vec<FormId> = {
+            let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
+            inv.iter().filter(|(i, n)| *n > 0 && *i != held).map(|(i, _)| i).collect()
+        };
+        let mut best: Option<(FormId, f32, Rank)> = None;
+        for w in carried {
+            if self.world.forms.item(w).is_none_or(|it| it.kind != ItemKind::Weapon || weapon_class(it) != class) || !self.works_at(actor, w, distance, RANGE_SLACK) {
+                continue;
+            }
+            let Some((condition, rank)) = self.best_carried_unit(actor, w) else { continue };
+            if best.is_none_or(|(_, _, b)| rank.beats(Some(b))) {
+                best = Some((w, condition, rank));
+            }
+        }
+        let (w, condition, _) = best?;
+        self.hold(actor, w, condition).then(|| {
+            self.rearms.range_swapped.insert(actor, self.time);
+            w
+        })
     }
 
     /// The pick-up idle for `actor` (module notes), when the records have it.

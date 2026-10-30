@@ -148,6 +148,19 @@ shot is leaving, so Center of Mass applies to VATS mode's shots that land while 
   no shipped script does that].
 - Checks: `fnv-game` `tests/perk_combat.rs` `teammate_perks_apply_to_teammates`; smoke
   `teammate-perk`.
+- NPC perks (2026-10-27): `<actor>.AddPerk perk` on an NPC or creature gives it the perk
+  (`RefExtra::perks`, saved with the reference; rank counted up to the PERK's ranks),
+  `RemovePerk` takes it back, `HasPerk` reads `Game::held_perks` (own perks, and the
+  teammate perks while a teammate), so its entry points and abilities apply as a
+  teammate perk's do [documented: GECK wiki AddPerk; observed: FalloutNV.esm calls
+  `<companion>.AddPerk CompanionSuite` in 25 hire lines, `RemovePerk CompanionSuite` when
+  a companion is fired (P04CompanionFireQuestSCRIPT and ~60 lines), `ActionRef.HasPerk
+  LightStep` in mine/trap scripts and `HasPerk Stonewall` of NPCs in knock-down scripts;
+  `QJDeathclawBabyScript` gives the Quarry's mother three perks; hypothesis: no Quest +
+  Stage effects for an NPC's rank, forTeammates ignored on an NPC]. Before this, each call
+  on an NPC failed (`call_failed`) or answered 0. NVSE GetPerkRank / HasPerk-for-teammates
+  readers (nvse_actor.rs) still read the player only. Check: `tests/functions.rs`
+  `npc_perks_are_kept_per_actor`.
 
 ## 7. Locks, terminals, sneaking, weight and travel (2026-10-24)
 

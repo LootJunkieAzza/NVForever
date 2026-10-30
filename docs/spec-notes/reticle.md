@@ -130,3 +130,33 @@ pixels (the font's glyphs start a little after their pen position).
   (`hud_target::AimHostile`, the enemy bar's rule).
 - Log: `reticle: plain|hostile spread <units> (cone <degrees> deg)` when the colour
   changes or the spread settles somewhere new.
+
+## 7. The gun cross (owner 2026-10-27)
+
+- [documented: `Fallout - Textures2.bsa`] The HUD folder also holds four bars,
+  `textures\interface\hud\target_top.dds`, `target_bottom.dds`, `target_left.dds` and
+  `target_right.dds`; nothing in the HUD's files read for §2 names them.
+- [observed: the textures, decoded] Each is a white bar 5 texels across with a soft
+  edge, in a picture 8 x 32 (top, bottom) or 32 x 8 (left, right): 23 texels long,
+  solid at the picture's edge toward the middle and tapering outward; its middle line is
+  texel 2 of the 8 across.
+- [design: owner 2026-10-27] With Dynamic crosshair on and a weapon with a firing cycle
+  drawn and ready (§6), the plain crosshair is these four put together as a cross, drawn
+  texel for unit in the crosshair's colour: each bar's middle line on the view's middle,
+  its solid end the spread of §6 from the middle and never nearer than 4 units. Off, or
+  with any other weapon, the arrows as before; the filled crosshair is unchanged.
+- Log: `reticle: gun cross (four bars)` and `reticle: arrows` when it changes.
+
+## 8. Empty containers and bodies; a key's sound (owner 2026-10-27)
+
+- [design: owner 2026-10-27] Over a container to open, or a dead body (or its ash or goo
+  pile) to search, that holds nothing the container menu would list (non-playable items
+  are not listed), a third line "[Empty]" stands under the name, centred as the name is,
+  one line pitch (40 units) lower. A locked container is not looked into. An untouched
+  container's contents are rolled when it is first aimed at, as opening it would roll
+  them (`activate::holds_nothing`). Log: `target … (Open, empty)`.
+- [design: owner 2026-10-27; hypothesis: that the original plays this sound for a key]
+  A lock opened with the player's key plays `UILockpickingUnlock`, the sound of a picked
+  lock (lockpicking.md §6). Only E's own default activation does so; a script's
+  `Activate` that unlocks with the key is silent. Log: `activate …: unlocked with the
+  key, the unlock sound plays`.

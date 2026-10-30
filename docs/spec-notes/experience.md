@@ -44,7 +44,11 @@ not, so the wiki's defaults hold. There is none when others did more than
 `100 − iXPDeathRewardHealthThreshold` (40) % of the damage. An actor's level is its
 record's, or the player's times its multiplier for a levelled (PC Level Mult) actor,
 within its minimum and maximum. The difficulty multipliers `fDiffMultXP…` are all 1 in the
-master. The other rewards:
+master.
+
+A hired companion's (a teammate's) kill earns the player the same XP as the player's own,
+and the player's and the companions' damage count together towards the share above
+[owner, 2026-10-27; design: the shared share] (`Game::kill_earns_xp`). The other rewards:
 
 | Source | Settings (FalloutNV.esm; default) | Where (code) |
 | --- | --- | --- |
@@ -103,8 +107,9 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
 - **Experience at the cap** still adds up (the Pip-Boy shows it) [hypothesis]; the meter
   does not show it and no level is earned.
 - **Earning a level**: when the experience reaches the next level's total below the cap,
-  the meter says LEVEL UP; the level-up menu opens once the meter is gone and the player
-  is in the world, out of every menu and conversation, and no living actor is fighting
+  the meter says LEVEL UP and plays its sound; the level-up menu opens 5 s later (the
+  wait counted while the HUD is up) [owner, 2026-10-24: "play this sound then wait 5
+  seconds before showing the level up screen"], once the player is also in the world, out of every menu and conversation, and no living actor is fighting
   the player (Combat) or searching for them (Alert, Lost: the sneak word's [CAUTION])
   with the player among its targets or an alarm the player raised [owner, 2026-10-16:
   not until the player is out of combat and not in a cautious state]
@@ -161,10 +166,13 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
   conversations).
 - **Sounds** [owner: a sound for each gain, one for a level up, a music-like one on the
   level-up screen; observed: the records and their files' lengths]: each gain
-  `UIPopUpExperienceUp` (`ui_popup_experienceup.wav`, 3.6 s); LEVEL UP the short
-  `UILevelUp` (`ui_levelup.wav`, 0.9 s); the level-up menu opening `UILevelUpText`
-  (`ui_leveluptext.wav`, 4.9 s, the music-like piece). Which record the original plays
-  at each moment is [hypothesis] beyond the owner's description.
+  `UIPopUpExperienceUp` (`ui_popup_experienceup.wav`, 3.6 s); LEVEL UP (the bar filled)
+  `UILevelUpText` (`ui_leveluptext.wav`, 4.9 s); the level-up menu opening `MUSSuccess`
+  (`fx\mus\mus_success.wav`, the archives' `.ogg`; SOUN 0x00078594) [owner, 2026-10-24:
+  "when the xp bar is filled it should play the ui_leveluptext.wav", and mus_success on
+  the level-up screen; observed: the records]. With a second level earned at once, its
+  sound plays (and the 5 s wait starts) when the first menu closes [design]. The short
+  `UILevelUp` (`ui_levelup.wav`, 0.9 s) is not played.
 - Without the game's pictures the bracket and pointer are plain blocks.
 - Log: `xp: level cap <n> (<k> story add-ons)`; `xp meter: +<n> XP (<xp> in all): level
   <l>, <p> % to <l+1>[, next level earned]`; `xp meter: sound <SOUN>`; `xp meter: LEVEL UP

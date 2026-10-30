@@ -278,6 +278,9 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
         return none();
     }
+    if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (the Vigor Tester moves points)", AV_NAMES[code as usize])) {
+        return none();
+    }
     // The player's skill keeps its part from the attributes: SetActorValue sets the rest
     // [observed: gaps6, Guns 17 (all from the attributes at level 1, untagged) reads 67
     // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same].
@@ -406,8 +409,8 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     yes(g.extra.get(&r).is_some_and(|e| e.dead))
 }
 
-/// `actor.KillActor [killer] [limb] [cause]`: the actor dies; its OnDeath blocks run
-/// [hypothesis: at once], and the kill counts for GetDeadCount of its base (`Game::kill`,
+/// `actor.KillActor [killer] [limb] [cause]`: the actor dies at once; its OnDeath blocks
+/// run when the calling script has finished [hypothesis: `Game::on_death`], and the kill counts for GetDeadCount of its base (`Game::kill`,
 /// shared with combat deaths). The cause is what GetCauseofDeath then reads [documented:
 /// GECK wiki KillActor, "See GetCauseofDeath for death values"]. A limb given (≥ 0) is
 /// dismembered, on a dead actor too ("KillActor can be called on dead actors to dismember
@@ -723,6 +726,12 @@ pub fn get_is_creature_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 /// changed by SetEssential). The reference flag cannot clear the base's [documented:
 /// catalogue notes of SetActorRefEssential].
 pub fn essential(g: &Game, r: FormId) -> bool {
+    // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
+    // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in Hardcore
+    // dies, flag or not.
+    if g.hardcore() && g.is_teammate(r) {
+        return false;
+    }
     let base = base_of(g, r);
     let base_flag = base
         .and_then(|b| g.forms.essential.get(&b).copied())

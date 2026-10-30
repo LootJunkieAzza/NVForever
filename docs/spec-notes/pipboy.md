@@ -405,15 +405,23 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   10 over the first line so its letters are not cut [design]. Our lines break exactly as
   the screenshot's [observed]. An image note shows its picture (`XNAM`) 360 square at the
   right [documented]; sound and voice notes (holotapes) play when used (a click or
-  Enter; again to stop) and show the Radio tab's wave panel, still wave while playing
+  Enter; again to pause, again to go on) and show the audio meter (time remaining and a
+  marker moving along the tick meter)
   ([holotapes](holotapes.md) §3). "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
 - **Radio**: the stations the Pip-Boy receives where the player is, by name (`crate::radio`,
   radio.md); the one playing has its square filled; a click or Enter tunes to a station,
   or turns the radio off on the one playing [hypothesis: "Tune"]. The waveform panel
   [documented]: 500, 125, 350 square, the tick meters along its foot and right side, the
   flat line (2 high, 5 short, 8 over the middle) while nothing plays [observed: the
-  screenshot, the radio off]; while one plays the original shows an animated model, here
-  a still sine wave [design].
+  screenshot, the radio off]. While one plays the original's trace moves [observed: a
+  60 fps capture of the Radio tab, 2026-10-27]: about 8 waves across the panel stand
+  nearly still while their envelope runs to the left, some 7 panel widths a second;
+  its height follows the sound (a steady tone draws even bursts with flat gaps, music
+  peaks of mixed size, a quiet stretch small ripples), up to about a third of the panel
+  either side of the line. Here the waves are two sines drawn under an envelope taken
+  from the playing file's loudness (root mean square over 2048 samples) with a slow
+  rise and fall of its own [design: whether the original draws the sound itself or a
+  model is not known].
 - **World Map**: the worldspace's picture `WRLD ICON`
   (`interface\worldmap\wasteland_nv_1024_no_map.dds`), drawn 2048 square [documented:
   `filewidth` 2048; `MNAM` usable 2048] at alpha 128 [documented]; the menu file names

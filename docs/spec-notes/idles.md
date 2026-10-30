@@ -595,8 +595,9 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
   dialogue groups gets no gesture.
 - **Lip sync and head tracking** [design]: lip sync moves the face's vertices, not
   bones, so it plays on top of whatever the head does. Head tracking (dialogue-play.md
-  §8.1) turns the head bone after the frame's animation, so the clip's head movement
-  goes on underneath the turn toward the player.
+  §8.1) turns the head bone after the frame's animation and aims only the clip's slow
+  average head direction at the player, so the clip's nods and glances go on
+  underneath the turn (until 2026-10-27 the turn cancelled them).
 - Log: one line per gesture picked, `talk gesture: <actor> talks|listens (<the other>,
   line <INFO> response <n>): <idle> by <root> > … > <idle>`; the idle itself is logged at
   debug level (`idle: … plays …`). When a new part starts and the gesture must wait:

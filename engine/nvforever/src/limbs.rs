@@ -61,6 +61,10 @@ pub const SKULL_SHARE: f32 = 0.135;
 pub struct ActorRig {
     pub reference: u32,
     pub base: u32,
+    /// The base its body comes from: a creature's Model/Animation source (a template's
+    /// pick), else `base`. Its body part data goes with the skeleton
+    /// (`CombatForms::body_parts_for`).
+    pub body: u32,
     pub skeleton: String,
     pub skel: Arc<PreparedSkeleton>,
     /// The skeleton's node entities, in `skel` order.
@@ -269,7 +273,7 @@ fn rig_limbs(mut commands: Commands, combat: Res<Combat>, rigs: Query<(Entity, &
     for (e, rig) in &rigs {
         let mut limb = LimbRig { data: FormId(0), chains: Vec::new() };
         // A body part data FormID that is missing or not a BPTD (a broken mod): no limbs.
-        let found = combat.forms.body_parts_for(FormId(rig.base), &rig.skeleton).and_then(|d| match combat.forms.body_parts.get(&d) {
+        let found = combat.forms.body_parts_for(FormId(rig.body), &rig.skeleton).and_then(|d| match combat.forms.body_parts.get(&d) {
             Some(b) => Some((d, b)),
             None => {
                 warn!("actor {:08X}: body part data {d} not found; no limbs", rig.reference);

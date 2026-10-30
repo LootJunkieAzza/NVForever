@@ -803,6 +803,23 @@ fn an_enabled_obstacle_cuts_the_navmesh_under_it() {
     assert!(g.can_reach(from, to, &PathParams::default()));
 }
 
+/// An obstacle placed enabled (with an enable parent, not Initially Disabled) stood there
+/// when the navmesh was made: it never cuts, enabled or not (the Hoover Dam sandbag on
+/// Colonel Moore's way to Kimball's podium, `crate::obstacles`).
+#[test]
+fn an_obstacle_placed_enabled_does_not_cut() {
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 1, 100.0, &[], flat), W)]);
+    let placed = crate::obstacles::Obstacle { initially_enabled: true, ..sandbags(0.0, 90.0) };
+    g.set_obstacles(vec![placed], |o| o.initially_enabled);
+    assert_eq!(g.obstacles.len(), 1, "still learnt");
+    assert_eq!(g.cut_triangles(), 0);
+    let (from, to) = (Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [950.0, 50.0, 0.0] });
+    assert!(g.can_reach(from, to, &PathParams::default()));
+    assert!(g.sync_obstacles([(0x5B0, false)]).len() == 1 && g.cut_triangles() == 0);
+    assert!(g.sync_obstacles([(0x5B0, true)]).len() == 1 && g.cut_triangles() == 0);
+    assert!(g.can_reach(from, to, &PathParams::default()));
+}
+
 /// The floor near an obstacle's top is on it, not under it, and a floor far below its
 /// base is another level: neither is cut.
 #[test]

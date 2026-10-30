@@ -828,3 +828,16 @@ fn misc_folders_and_skill_books() {
     assert_eq!(m.folder, None);
     assert_eq!(count(&mut w, 0x14, KEY_A), 1);
 }
+
+#[test]
+fn a_list_kept_in_view_moves_only_for_a_choice_out_of_it() {
+    // 20 rows, 7 shown from the 6th: any row in view (one the pointer can be over) keeps it.
+    for sel in 5..12 {
+        assert_eq!(keep_in_view(5, sel, 20, 7), 5);
+    }
+    // The keys past either end move it by as little as shows the choice.
+    assert_eq!(keep_in_view(5, 12, 20, 7), 6);
+    assert_eq!(keep_in_view(5, 4, 20, 7), 4);
+    // A shorter list (a filter, a deleted row) clamps it.
+    assert_eq!(keep_in_view(5, 2, 4, 7), 0);
+}

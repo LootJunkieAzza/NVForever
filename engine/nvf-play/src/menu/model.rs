@@ -458,6 +458,13 @@ impl Quantity {
     }
 }
 
+/// The first row shown of a list of `rows`, `page` at once: `first` moved as little as
+/// keeps `selected` in view. A row the pointer is over is already in view, so hovering
+/// never scrolls a list kept this way; only the keys and the wheel do.
+pub fn keep_in_view(first: usize, selected: usize, rows: usize, page: usize) -> usize {
+    first.max((selected + 1).saturating_sub(page)).min(selected).min(rows.saturating_sub(page))
+}
+
 /// The amount at a point of the prompt's meter (`part` of its length from the left): that
 /// part of the stack, rounded [documented: quantity_menu.xml, the drag's 0 to 1 times the
 /// stack, rounded], at least 1.

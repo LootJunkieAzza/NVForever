@@ -206,7 +206,9 @@ text the way the game's expression evaluator does; §5.5 shows that this matters
 Quest fields: `running`, `completed` (GetQuestRunning, GetQuestCompleted; bool), `stage`
 (GetStage; int), `done.<n>` (GetStageDone; bool), `objective.<n>.displayed`,
 `objective.<n>.completed` (GetObjectiveDisplayed / GetObjectiveCompleted; bool),
-`var.<name>` (the quest variable; number as stored).
+`var.<name>` (the quest variable; number as stored). The walk-through runner also reads
+`failed` (the quest's failed flag alone, which `completed` folds in, as GetQuestCompleted
+does in the engine; no script function reads it).
 
 **Frames between actions.** In the game every step takes at least one game loop, and the
 capture pauses after changes; the quest scripts run in between. The candidate advances the

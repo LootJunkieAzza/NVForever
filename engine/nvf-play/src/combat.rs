@@ -98,8 +98,8 @@
 //!   picture [design: reloading the last save is not built]. God mode ([`god_mode`]:
 //!   `--god`, the settings page's Developer switch, test aid `NVF_PLAY_TEST_GOD=1`): the
 //!   player takes no damage, so a long unattended run is not ended by a fight.
-//! - **Feedback** [design]: a hit marker at the
-//!   crosshair (red on a kill), the last target's health for a few seconds, the player's
+//! - **Feedback** [design]: no hit marker at the crosshair (owner 2026-10-27), the last
+//!   target's health for a few seconds, the player's
 //!   crippled limbs, and a line for kills with their XP. Health, condition and ammo are
 //!   on the HUD proper (`crate::hud`, [`Combat::hud_weapon`]). Developer markers, off
 //!   unless [`HitMarks`] says so: a cross at each impact and a line from the muzzle
@@ -644,9 +644,6 @@ pub fn is_dead(script: Option<&ScriptState>, form_id: u32) -> bool {
 /// What the HUD shows about hits [design].
 #[derive(Resource, Default, Debug, Clone)]
 pub struct HitFeedback {
-    /// Seconds since the last hit marker, and whether it was a kill.
-    pub marker_age: Option<f32>,
-    pub kill: bool,
     /// The last actor hit: name, health, maximum, seconds since.
     pub target: Option<(String, f32, f32, f32)>,
     /// Hits the player took since [`player_flinch`] last looked.
@@ -668,10 +665,6 @@ pub struct PlayerHit {
 
 /// Height above a destructible's position its stage explosions go off [design].
 pub(crate) const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
-
-/// Seconds the hit marker stays up [design]. (The target's health is the HUD's
-/// enemy health bar, `crate::hud`.)
-const MARKER_SECONDS: f32 = 0.18;
 
 /// How one actor's weapon wore from its own attacks (`CombatStats::npc_weapon_wear`).
 #[derive(Default, Debug, Clone, Copy)]
@@ -1112,6 +1105,11 @@ impl Combat {
         self.weapon
     }
 
+    /// The ammunition the player's weapon loads now (`None`: none, or melee).
+    pub fn player_ammo(&self) -> Option<FormId> {
+        self.ammo
+    }
+
     /// The figures of the player's weapon `id`: the equipped one's with its mods on
     /// (`WeaponStats::modded`), any other's as the record has them.
     pub fn player_stats(&self, id: FormId) -> Option<WeaponStats> {
@@ -1147,6 +1145,12 @@ impl Combat {
         let w = self.weapon.filter(|_| !self.melee)?;
         let fov = self.player_stats(w)?.sight_fov;
         (fov > 0.0).then_some((w, fov))
+    }
+
+    /// The gun in use has its scope (weapon-scopes.md §2: Has Scope, with its scope mod
+    /// when the scope comes from one).
+    pub fn player_weapon_scoped(&self) -> bool {
+        self.sight_fov().and_then(|(w, _)| self.player_stats(w)).is_some_and(|s| s.scope_model().is_some())
     }
 
     /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
@@ -1322,6 +1326,18 @@ impl Plugin for CombatPlugin {
         if std::env::var_os("NVF_PLAY_TEST_GOD").is_some_and(|v| v != "0") {
             set_god_mode(true);
         }
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "reload-slows",
+                group: crate::pause::GROUP_MENUS,
+                label: "Slower while reloading",
+                note: "On: you and the NPCs move at 75% of your speed while a reload runs. Off: reloading does not slow anyone, as in the original.",
+                get: |_| reload_slows(),
+                set: |_, on| set_reload_slows(on),
+                slider: None,
+            },
+        );
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
             .init_resource::<ShotVisuals>()
@@ -1340,12 +1356,12 @@ impl Plugin for CombatPlugin {
             .add_message::<ActorStrike>()
             .init_resource::<crate::dismember::Dismemberment>()
             .add_message::<crate::dismember::Dismembered>()
-            .add_systems(Startup, (init_combat, spawn_hit_hud))
+            .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
-            .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -1360,6 +1376,47 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
     if pace.0 != want {
         pace.0 = want;
         info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
+    }
+}
+
+/// The share of their speed the player and NPCs keep while they reload, with the
+/// settings page's `reload-slows` on [design: owner 2026-10-27, "slow the player and npc's
+/// down to about 75% move speed" during a reload; not the original's rule, which does not
+/// slow a reload]. NPCs: `nvforever` limping.rs.
+pub const RELOAD_PACE: f32 = 0.75;
+
+/// The `reload-slows` switch, for the process (NPCs are slowed by another crate); on by
+/// default [design: owner 2026-10-27].
+static RELOAD_SLOWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Whether a reload slows the one reloading.
+pub fn reload_slows() -> bool {
+    RELOAD_SLOWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Switch the reload's slowing on or off.
+pub fn set_reload_slows(on: bool) {
+    RELOAD_SLOWS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The share of its speed an actor keeps: [`RELOAD_PACE`] while it reloads with the
+/// setting on, all of it otherwise.
+pub fn reload_share(reloading: bool) -> f32 {
+    if reloading && reload_slows() {
+        RELOAD_PACE
+    } else {
+        1.0
+    }
+}
+
+/// The player moves slower while a reload runs ([`RELOAD_PACE`],
+/// `crate::player::ReloadPace`).
+fn reload_pace(c: Res<Combat>, pace: Option<ResMut<crate::player::ReloadPace>>) {
+    let Some(mut pace) = pace else { return };
+    let want = reload_share(c.cycle.as_ref().is_some_and(Cycle::reloading));
+    if pace.0 != want {
+        pace.0 = want;
+        info!("movement: moving at {:.0}% of the speed ({})", want * 100.0, if want < 1.0 { "reloading" } else { "not slowed by a reload" });
     }
 }
 
@@ -2036,8 +2093,22 @@ impl CombatWorld for PhysView<'_> {
         if len < 1e-4 {
             return None;
         }
-        // The world only: no body, living or dead, shields another from a blast.
-        let f = Filter { exclude_layers: layers::character_ignores(), no_actors: true, ..Default::default() };
+        // The world only: no body, living or dead, shields another from a blast, nor
+        // anything small or see-through (clutter, small debris, dropped weapons, fences,
+        // thin trees); walls, rocks, the ground and wrecks do (the owner, 2026-10-27).
+        let passes = layers::LayerSet::from_layers(&[
+            layers::TRANSPARENT,
+            layers::TRANSPARENT_SMALL,
+            layers::TRANSPARENT_SMALL_ANIM,
+            layers::INVISIBLE_WALL,
+            layers::CLUTTER,
+            layers::WEAPON,
+            layers::PROJECTILE,
+            layers::TREES,
+            layers::BIPED,
+            layers::DEAD_BIP,
+        ]);
+        let f = Filter { exclude_layers: layers::character_ignores().union(passes), no_actors: true, ..Default::default() };
         let h = self.q.ray(from, d, len, &f)?;
         Some(WorldHit {
             point: h.point,
@@ -2329,7 +2400,7 @@ fn weapon_sounds(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn fire(
     time: Res<Time>,
     mut c: ResMut<Combat>,
@@ -2346,11 +2417,14 @@ pub(crate) fn fire(
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
     mut loops: MessageWriter<LoopSound>,
-    (mut hud, mut vats): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>),
+    (mut hud, mut vats, lens_sway): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
     c.time += dt;
+    // Where the gun points: the view, turned by a 3D scope's sway (the view itself sways
+    // otherwise).
+    let gun_dir = lens_sway.as_deref().map_or_else(|| player.look_dir(), |s| s.look_dir(player.heading, player.pitch));
     // The attack clip passed its `Eject` key since the last frame (the casing is thrown
     // below, with the weapon's effects at hand).
     let eject_now = anim.ejects != c.ejects_seen;
@@ -2605,16 +2679,16 @@ pub(crate) fn fire(
                             if vec::len(d) > 1e-3 {
                                 vec::normalize(d)
                             } else {
-                                player.look_dir()
+                                gun_dir
                             }
                         }
                         Some(cross) => {
-                            let (start, dir) = crate::control::Crosshair::ray(Some(cross), eye, player.look_dir());
+                            let (start, dir) = crate::control::Crosshair::ray(Some(cross), eye, gun_dir);
                             let end = vec::add(start, vec::scale(dir, reach));
                             let hit = world.ray(start, end, &[PLAYER]).map(|h| h.point);
                             crate::control::Crosshair::aim_from(eye, start, dir, reach, hit)
                         }
-                        None => player.look_dir(),
+                        None => gun_dir,
                     };
                     shot::leaving(&world, eye, aim, anim.muzzle, reach, Some(PLAYER), control.third_person_view())
                 };
@@ -2943,7 +3017,6 @@ fn strike_weapon(
     forms: &CombatForms,
     sim: &mut SimState,
     stats: &mut CombatStats,
-    feedback: &mut HitFeedback,
     hud: Option<&mut HudMessage>,
     broken: &mut MessageWriter<WeaponBroken>,
     script: Option<&mut ScriptState>,
@@ -2957,8 +3030,6 @@ fn strike_weapon(
         let _ = sim.world.add_item(target, item, 1);
     }
     stats.weapon_hits += 1;
-    feedback.marker_age = Some(0.0);
-    feedback.kill = false;
     match wear_weapon(forms, sim, stats, hud, Some(broken), script, target, item, points, Some(at)) {
         Some(w) => info!("combat: hit {target}'s {} for {points:.1}: condition {:.1}% -> {:.1}%", item_name(sim, item), w.before * 100.0, w.after * 100.0),
         None => info!("combat: hit {target}'s {} ({item}): it does not wear", item_name(sim, item)),
@@ -3008,10 +3079,15 @@ pub(crate) fn apply_hit(
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback);
     }
     // The hit's effects go on before its damage (`hit_effects`).
+    let span = info_span!("combat::hit_effects").entered();
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
+    drop(span);
+    let span = info_span!("combat::game_hit").entered();
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
+    drop(span);
     let name = sim.ref_name(Some(&rt.game), target.0).map_or_else(|| target.to_string(), str::to_string);
     if let Some((spell, on_death)) = crit.filter(|_| info.critical && !r.immune) {
+        let _span = info_span!("combat::crit_effect").entered();
         let done = with_world(rt, sim, |rt| rt.game.apply_crit_effect(target, spell, on_death, r.died, info.attacker));
         if let fnv_game::ash_piles::CritEffect::Applied(ids) = done {
             let spell_name = rt.game.data.name(spell);
@@ -3054,8 +3130,6 @@ pub(crate) fn apply_hit(
     if !r.immune {
         let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(target, fnv_game::combat::TORSO));
         if mine {
-            feedback.marker_age = Some(0.0);
-            feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
         messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken, weapon: info.weapon });
@@ -3321,7 +3395,7 @@ fn melee(
             let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, Some(target));
             if hit.part == Some(WEAPON_PART) {
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
-                strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
+                strike_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
                 continue;
             }
             let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
@@ -4220,7 +4294,7 @@ fn fly(
         let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, Some(target));
         if p.part == Some(WEAPON_PART) {
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
-            strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
+            strike_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
             continue;
         }
         // A piece of gore (an exploded part's bits, dismemberment.md §6) is seen hit, no more.
@@ -4429,43 +4503,6 @@ fn watch_hit_effects(script: Option<Res<ScriptState>>, mut stats: ResMut<CombatS
     if !stats.player_died && rt.game.is_dead(FormId::PLAYER_REF) {
         stats.player_died = true;
         info!("combat: the player died (no hit: an effect's drain)");
-    }
-}
-
-#[derive(Component)]
-struct HitMarker;
-
-fn spawn_hit_hud(mut commands: Commands) {
-    // The hit marker: a small square ring around the crosshair.
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Percent(50.0),
-            top: Val::Percent(50.0),
-            width: Val::Px(14.0),
-            height: Val::Px(14.0),
-            margin: UiRect { left: Val::Px(-7.0), top: Val::Px(-7.0), ..default() },
-            border: UiRect::all(Val::Px(2.0)),
-            ..default()
-        },
-        BorderColor::all(Color::NONE),
-        HitMarker,
-    ));
-}
-
-/// The hit marker [design]. The player's crippled limbs are `crate::hud_limbs`' picture.
-fn update_hit_hud(time: Res<Time>, state: Res<State<PlayState>>, mut fb: ResMut<HitFeedback>, mut marker: Query<&mut BorderColor, With<HitMarker>>) {
-    let dt = time.delta_secs();
-    let playing = *state.get() == PlayState::Playing;
-    let mut col = Color::NONE;
-    if let Some(a) = fb.marker_age.as_mut() {
-        *a += dt;
-        if *a < MARKER_SECONDS && playing {
-            col = if fb.kill { Color::srgb(1.0, 0.25, 0.2) } else { Color::srgba(1.0, 1.0, 1.0, 0.9) };
-        }
-    }
-    if let Ok(mut b) = marker.single_mut() {
-        *b = BorderColor::all(col);
     }
 }
 

@@ -1,5 +1,6 @@
 {
   "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm"],
   "title": "Headless intro chain from the new-game save's facts: VCG00 90 -> VCG01 -> VCG02 / VCG03 (docs/spec-notes/scripts.md section 9)",
   "save": "nvfnew",
   "given": [

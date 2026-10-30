@@ -23,9 +23,12 @@ const DOOR: u32 = 0x700;
 const TRAP: u32 = 0x710;
 const NPC: u32 = 0x720;
 const ITEM: u32 = 0x730;
+const BOX: u32 = 0x740;
 const DOOR_REF: u32 = 0x300;
+const BOX_REF: u32 = 0x302;
 const TRAP_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
+const KILL_ACTOR: u16 = 0x108B;
 
 fn r(i: u16) -> Vec<u8> {
     [vec![b'r'], le16(i)].concat()
@@ -34,6 +37,11 @@ fn r(i: u16) -> Vec<u8> {
 /// `set <var i> to <var i> + 1`.
 fn bump(i: u16) -> Vec<u8> {
     set(var(b's', i), ex(&[var(b's', i), a("1"), a("+")]))
+}
+
+/// A function call statement with no parameters.
+fn call0(op: u16) -> Vec<u8> {
+    st(op, &le16(0))
 }
 
 /// A block with one form parameter (the unit's reference `i`).
@@ -53,7 +61,8 @@ fn placed(sig: &[u8; 4], fid: u32, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     // Door: nOpened (1), nClosed (2). Trap: nBurnt (1), nOther (2). NPC: nPowder (1),
-    // nBurnt (2), nSold (3).
+    // nBurnt (2), nSold (3), nKilled (4), nSeen (5): OnActivate kills it and then sets
+    // nKilled, OnDeath copies nKilled into nSeen.
     let scripts = [
         record(b"SCPT", 0, DOOR_SCRIPT, &[vec![sub(b"EDID", z("DoorScript"))], unit(0, &script(&[(event::ON_OPEN, None, bump(1)), (event::ON_CLOSE, None, bump(2))]), &[(1, "nOpened", 1), (2, "nClosed", 1)], &[])].concat()),
         record(
@@ -68,13 +77,26 @@ fn plugin_bytes() -> Vec<u8> {
             NPC_SCRIPT,
             &[
                 vec![sub(b"EDID", z("NpcScript"))],
-                unit(0, &script(&[(event::ON_ACTOR_EQUIP, on(1), bump(1)), (event::ON_MAGIC_EFFECT_HIT, on(2), bump(2)), (event::ON_SELL, None, bump(3))]), &[(1, "nPowder", 1), (2, "nBurnt", 1), (3, "nSold", 1)], &[ITEM, BURN_FX]),
+                unit(
+                    0,
+                    &script(&[
+                        (event::ON_ACTOR_EQUIP, on(1), bump(1)),
+                        (event::ON_MAGIC_EFFECT_HIT, on(2), bump(2)),
+                        (event::ON_SELL, None, bump(3)),
+                        (event::ON_ACTIVATE, None, [call0(KILL_ACTOR), set(var(b's', 4), ex(&[a("1")]))].concat()),
+                        (event::ON_DEATH, None, set(var(b's', 5), ex(&[var(b's', 4)]))),
+                    ]),
+                    &[(1, "nPowder", 1), (2, "nBurnt", 1), (3, "nSold", 1), (4, "nKilled", 1), (5, "nSeen", 1)],
+                    &[ITEM, BURN_FX],
+                ),
             ]
             .concat(),
         ),
     ]
     .concat();
     let door = record(b"DOOR", 0, DOOR, &[sub(b"EDID", z("TestDoor")), sub(b"SCRI", DOOR_SCRIPT.to_le_bytes().to_vec())]);
+    // A container running the door's script (nOpened, nClosed).
+    let cont = record(b"CONT", 0, BOX, &[sub(b"EDID", z("TestBox")), sub(b"SCRI", DOOR_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", [vec![0], 0f32.to_le_bytes().to_vec()].concat())]);
     let trap = record(b"ACTI", 0, TRAP, &[sub(b"EDID", z("TestTrap")), sub(b"SCRI", TRAP_SCRIPT.to_le_bytes().to_vec())]);
     let item = record(b"MISC", 0, ITEM, &[sub(b"EDID", z("TestPowder"))]);
     let npc = record(
@@ -91,7 +113,7 @@ fn plugin_bytes() -> Vec<u8> {
     let mut ench = vec![sub(b"EDID", z("Burning")), sub(b"ENIT", [u32s(&[2, 0, 0]), vec![0; 4]].concat())];
     ench.extend([sub(b"EFID", BURN_FX.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[1, 0, 5, 1]), 16i32.to_le_bytes().to_vec()].concat())]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(b"REFR", DOOR_REF, DOOR), placed(b"REFR", TRAP_REF, TRAP), placed(b"ACHR", NPC_REF, NPC)].concat()));
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(b"REFR", DOOR_REF, DOOR), placed(b"REFR", TRAP_REF, TRAP), placed(b"REFR", BOX_REF, BOX), placed(b"ACHR", NPC_REF, NPC)].concat()));
     [
         tes4(),
         top(b"MGEF", &[mgef(BURN_FX, "Burn"), mgef(OTHER_FX, "Other")].concat()),
@@ -99,6 +121,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"SCPT", &scripts),
         top(b"MISC", &item),
         top(b"ACTI", &trap),
+        top(b"CONT", &cont),
         top(b"DOOR", &door),
         top(b"NPC_", &npc),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -170,6 +193,25 @@ fn a_queued_open_runs_on_the_next_frame() {
 }
 
 #[test]
+fn the_runners_player_activation_of_a_container_runs_its_on_open_and_on_close() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "player_activate", "target": format!("0x{BOX_REF:08X}"), "label": "open"},
+            {"op": "get_ref", "ref": format!("0x{BOX_REF:08X}"), "fields": ["var.nOpened", "var.nClosed"], "label": "after"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("open")["opened"], format!("0x{BOX_REF:08X}"));
+    assert_eq!(by("after")["var.nOpened"], 1.0);
+    assert_eq!(by("after")["var.nClosed"], 1.0);
+}
+
+#[test]
 fn a_magic_effect_hit_runs_the_block_of_that_effect() {
     let f = fixture();
     let mut g = game(&f);
@@ -195,4 +237,17 @@ fn on_actor_equip_runs_on_the_actor_and_on_sell_never_runs() {
     // Nothing in the engine fires OnSell; the frames do not run it either.
     g.frames(5);
     assert_eq!(count(&g, NPC_REF, 3), 0.0);
+}
+
+#[test]
+fn on_death_of_a_kill_actor_waits_for_the_killing_script_to_finish() {
+    // One for My Baby: the victim's script calls KillActor and then sets Boone's
+    // bGotRevenge; its OnDeath clears the accused when bGotRevenge is still 0. OnDeath
+    // runs after the killing script, so it sees what the script set after KillActor.
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.ref_event(FormId(NPC_REF), event::ON_ACTIVATE, None, None));
+    assert!(g.is_dead(FormId(NPC_REF)));
+    assert_eq!(count(&g, NPC_REF, 4), 1.0);
+    assert_eq!(count(&g, NPC_REF, 5), 1.0, "OnDeath ran before the rest of the killing block");
 }

@@ -282,6 +282,9 @@ pub enum AiEvent {
     FetchGot { item: FormId, from: FormId, take: fnv_game::rearm::Take, got: bool },
     /// It gives up its fetch at `from` (`why`).
     FetchDropped { from: FormId, why: &'static str },
+    /// Its weapon does not fire at its target `distance` away: it holds `weapon`, which
+    /// does (`crate::rearm`).
+    RangeSwap { weapon: FormId, distance: f32 },
     /// It has nowhere to flee to and stays where it is; whether it hides there crouched.
     Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).

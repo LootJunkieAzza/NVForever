@@ -101,3 +101,36 @@ whenever `IsAnimPlaying` is 0, and on load. Nothing plays `Forward` or `Backward
 - **Not built**: lights spawned disabled (`spawn_dormant`, the Vault 34 arcs while their
   enable parent is off) keep a still colour, since their model is drawn later by
   `script_draw.rs`; spot lights a model drives keep their place (none in the base game).
+
+## 4. Lights on an `AttachLight` node without a sequence
+
+Placed LIGH references whose base has a model [observed 2026-10-27, `fnvtool world refs`
+over `FalloutNV.esm`, interiors and WastelandNV]: six models. Five are the sequence-driven
+ones of §1 (their lights move under their node once the rig is drawn, so the rule below
+only sets where they start); the sixth is `clutter\barrel02firelight.nif` (226
+references, every `Barrel02Fire*`, `Barrel03Fire1024`, `FireBarrelSwitching` and
+`OVSewerBarrel02Fire*` light).
+
+The fire barrel's model holds no light block, only an `NiNode` named `AttachLight` at
+(−0.4, 0.8, 102.1), at the height of its flames, beside `AddOnNode14` (the
+`MPSFireSmall01` flames, 72.5 up) [observed: `fnvtool nif decode`]. The record radius is
+small (`Barrel02Fire128`: 128 units, colour (255, 159, 64), flicker).
+
+**Rule** [hypothesis: the node's name and height; the GECK wiki export has no page on it]:
+the reference's light sits on the model's `AttachLight` node (name `AttachLight` or
+`AttachLight<n>`, any case), placed through the reference's own transform (scale
+included), else at the reference's origin (`nvf_assets::model::attach_light`, nvforever
+`lights.rs` `spawn_light`). Before the rule the barrel's light sat at the barrel's foot, so
+a 128-unit light lit only the floor around it (owner report 2026-10-27: the Abandoned
+Shack's barrel, `GSAbandonedShack`, gives off very little light).
+
+**Reach** [hypothesis, fitted to the owner's frames of the original, 2026-10-27, five
+frames of the shack]: in the original the barrel's warm light covers the wall behind it
+and the floor round it out to about 190 units from the flames, steady across the frames,
+while the record radius is 128. Flickering lights (Flicker, Flicker Slow) therefore reach
+1.5 × their radius (`lights.rs` `FLAME_REACH`) and dim to 0.8 of their brightness at
+most (`FLICKER_LOW`, 0.55 before). The room's own lighting stays as it is: the original's
+interiors are brighter overall (lit floors), and the owner prefers ours (2026-10-27).
+Smoke scenario `fire-barrel-light`. The capture plugin's screenshots failed three times
+that day (`StretchBlt failed`, even with the game in front); the owner took the frames
+by hand.

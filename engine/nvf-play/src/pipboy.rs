@@ -41,6 +41,7 @@
 
 pub mod data;
 pub mod frame;
+pub mod hotkey_panel;
 pub mod items;
 pub mod item_mod;
 pub mod repair;
@@ -290,6 +291,7 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<repair::PipRepair>()
             .add_message::<repair::RepairInput>()
             .init_resource::<item_mod::PipItemMod>()
+            .init_resource::<hotkey_panel::HotkeyHold>()
             .add_message::<item_mod::ModInput>()
             .add_message::<PipBoyInput>()
             .add_message::<stats::UseHint>()
@@ -297,6 +299,7 @@ impl Plugin for PipBoyPlugin {
             .add_message::<data::travel::FastTravelAsk>()
             .add_message::<data::travel::FastTravelGo>()
             .init_resource::<data::travel::Pending>()
+            .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
             .add_systems(
                 Update,
@@ -306,6 +309,7 @@ impl Plugin for PipBoyPlugin {
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
                     repair::keys.run_if(takes_keys),
                     item_mod::keys.run_if(takes_keys),
+                    hotkey_panel::track,
                     items::keys.run_if(takes_keys),
                     report_menu,
                     advance,
@@ -313,6 +317,7 @@ impl Plugin for PipBoyPlugin {
                     flat_screen,
                     frame::draw,
                     (stats::draw, items::draw, data::draw),
+                    data::wave_moves,
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),

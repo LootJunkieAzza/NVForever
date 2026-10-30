@@ -246,6 +246,11 @@ pub struct Standing {
 pub struct Hints {
     /// Stimpak, Doctor's Bag, RadAway, Rad-X: the text without the key.
     pub texts: [String; 4],
+    /// How many the player carries.
+    pub counts: [i32; 4],
+    /// Drawn bright: the item would be used if chosen now ([`refusal`] on the body)
+    /// [design: owner's request 2026-10-27, the CND hints lit while usable].
+    pub lit: [bool; 4],
 }
 
 /// Everything the page draws, compared frame to frame to know when to draw it again.

@@ -263,14 +263,25 @@ impl Weapon {
     /// The model for the view (`first_person`) with the mods `flags` on: the combination's
     /// own model when the record has one, else the plain one (weapon-mods.md §2).
     pub fn model_for(&self, first_person: bool, flags: u8) -> Option<&str> {
-        let i = (flags & 7) as usize;
         let third = self.held_world_model.as_deref().or(self.model.as_deref());
         let plain = if first_person { self.first_person_model.as_deref().or(self.model.as_deref()) } else { third };
+        self.modded_model(first_person, flags).or(plain)
+    }
+
+    /// The combination's own model for the view with the mods `flags` on, if the record
+    /// has one. A weapon without a first-person form draws its third-person models in
+    /// first person, so its `MWD` models stand for the missing `WNM` forms there
+    /// (weapon-mods.md §2).
+    pub fn modded_model(&self, first_person: bool, flags: u8) -> Option<&str> {
+        let i = (flags & 7) as usize;
         if i == 0 {
-            return plain;
+            return None;
         }
-        let modded = if first_person { &self.mod_first_person_models[i - 1] } else { &self.mod_models[i - 1] };
-        modded.as_deref().or(plain)
+        let third = self.mod_models[i - 1].as_deref();
+        if !first_person {
+            return third;
+        }
+        self.mod_first_person_models[i - 1].as_deref().or(third.filter(|_| self.first_person_model.is_none()))
     }
 }
 
@@ -488,9 +499,7 @@ impl ActorForms {
     /// casing, scope and world models].
     pub fn weapon_alt_textures(&self, id: FormId, first_person: bool, flags: u8) -> &[fnv_world::alt_textures::AltTexture] {
         let Some(w) = self.weapons.get(&id) else { return &[] };
-        let i = (flags & 7) as usize;
-        let modded = if first_person { w.mod_first_person_models.get(i.wrapping_sub(1)) } else { w.mod_models.get(i.wrapping_sub(1)) };
-        if i != 0 && modded.is_some_and(Option::is_some) {
+        if w.modded_model(first_person, flags).is_some() {
             return &[];
         }
         match (first_person, w.first_person.filter(|_| w.first_person_model.is_some())) {
@@ -798,6 +807,19 @@ mod tests {
         assert_eq!(w.model_for(false, 4), Some("custom.nif"));
         assert_eq!(w.model_for(false, 1), Some("ext.nif"));
         assert_eq!(w.model_for(true, 0), Some("1st.nif"));
+    }
+
+    #[test]
+    fn a_weapon_without_first_person_forms_shows_its_mods_in_first_person() {
+        // As a mod's weapon may be: MODL and MWD models, no WNAM or WNM forms.
+        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default(), held_world_model: None, grip: None, hide_backpack: false };
+        w.mod_models[3] = Some("ext.nif".into());
+        assert_eq!(w.model_for(true, 0), Some("plain.nif"));
+        assert_eq!(w.model_for(true, 4), Some("ext.nif"));
+        assert_eq!(w.model_for(true, 2), Some("plain.nif"));
+        // Its own WNM form still wins.
+        w.mod_first_person_models[3] = Some("1st_ext.nif".into());
+        assert_eq!(w.model_for(true, 4), Some("1st_ext.nif"));
     }
 
     #[test]

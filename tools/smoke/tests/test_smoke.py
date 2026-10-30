@@ -137,6 +137,7 @@ class JsonExpectTests(unittest.TestCase):
         '{"schema":"fnv.nav.walk/1","summary":{"outcome":"stuck","seconds":3.0}}',
         '{"schema":"fnv.actor.detect/1","situations":[{"situation":"sneaking, lit","detected_out_to":1840.0},'
         '{"situation":"sneaking, dark","detected_out_to":null}],"actors":[{"actor":"c","factions":[1,2,3,4]}]}',
+        '{"format":"fnv.script.trace/1","observations":[{"label":"final: Q 80","stage":80,"done.80":true,"var.a.b":2}]}',
     ]
 
     def ok(self, item):
@@ -153,6 +154,9 @@ class JsonExpectTests(unittest.TestCase):
         self.assertFalse(self.ok({"json": "situations.?situation=sneaking, lit.detected_out_to", "null": True}))
         self.assertTrue(self.ok({"json": "situations.*.situation", "count": 2}))
         self.assertTrue(self.ok({"json": "actors.?actor=c.factions.#", "equals": 4}))
+        self.assertTrue(self.ok({"json": "observations.?label=final: Q 80.done.80", "equals": True}))
+        self.assertTrue(self.ok({"json": "observations.?label=final: Q 80.var.a.b", "equals": 2}))
+        self.assertTrue(self.ok({"json": "observations.?label=final: Q 80.stage", "equals": 80}))
         o = check_one(Expect.parse({"json": "nope.x", "equals": 1}), self.OUT)
         self.assertEqual((o.ok, o.what), (False, "missing"))
         o = check_one(Expect.parse({"json": "summary.outcome", "equals": "lost"}), self.OUT)

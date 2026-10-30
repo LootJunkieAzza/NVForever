@@ -35,7 +35,7 @@
 
 use super::frame::{self, Align, Card, Ctx, LINE, MAIN, TEXT};
 use super::{Page, PipBoy};
-use crate::interface::{amber, at};
+use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{Mode, Side};
 use crate::menu::ActiveMenu;
 use crate::script::ScriptState;
@@ -58,6 +58,9 @@ const BAR: Rect = Rect { min: Vec2::new(320.0, 20.0), max: Vec2::new(380.0, 36.0
 const MARK: Rect = Rect { min: Vec2::new(15.0, 17.5), max: Vec2::new(40.0, 42.5) };
 /// Rows as the ITEMS list's [hypothesis: the barter menu's measure, barter-menu.md §3].
 const ROW_H: f32 = super::items::ROW_H;
+/// The rows the keys keep the choice among: the window moves when the choice would leave
+/// the eight from the first shown (as many single-line rows as the list holds).
+const SHOWN: usize = 8;
 const LINE_PITCH: f32 = 35.0;
 /// The picture and the figures [documented: `RM_ItemIcon`, `RM_CompareRect`].
 const ICON: Rect = Rect { min: Vec2::new(450.0, 20.0), max: Vec2::new(850.0, 420.0) };
@@ -145,6 +148,9 @@ pub struct Session {
     /// The player's Repair skill when the list opened, and the settings.
     pub skill: f32,
     pub settings: MergeSettings,
+    /// The list's first row shown: moved only to keep the choice in view (the keys), so
+    /// the pointer never scrolls the list.
+    pub first: usize,
     /// 0: the item itself; else the part at this place, less one.
     pub selected: usize,
 }
@@ -288,11 +294,17 @@ pub fn keys(
                     o.parts.iter().map(|p| format!("{} {}%", p.name, fnv_combat::condition::percent(p.condition))).collect::<Vec<_>>().join(", ")
                 );
                 let settings = MergeSettings::from_settings(|n| sim.forms.setting_f32(n));
-                repair.0 = Some(Session { offer: o, skill, settings, selected: 0 });
+                repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0 });
             }
             (None, _) => {}
-            (Some(s), RepairInput::Up) => s.selected = s.selected.saturating_sub(1),
-            (Some(s), RepairInput::Down) => s.selected = (s.selected + 1).min(s.offer.parts.len()),
+            (Some(s), RepairInput::Up) => {
+                s.selected = s.selected.saturating_sub(1);
+                s.first = crate::menu::model::keep_in_view(s.first, s.selected, s.offer.parts.len() + 1, SHOWN);
+            }
+            (Some(s), RepairInput::Down) => {
+                s.selected = (s.selected + 1).min(s.offer.parts.len());
+                s.first = crate::menu::model::keep_in_view(s.first, s.selected, s.offer.parts.len() + 1, SHOWN);
+            }
             (Some(s), RepairInput::Hover(i)) => s.selected = i.min(s.offer.parts.len()),
             (Some(_), RepairInput::Click(_)) => {}
             (Some(_), RepairInput::Cancel) => {
@@ -384,7 +396,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let rows: Vec<(&str, f32, bool)> = std::iter::once((o.name.as_str(), o.condition, o.extra.equipped)).chain(o.parts.iter().map(|q| (q.name.as_str(), q.condition, q.extra.equipped))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
-    let first = s.selected.saturating_sub(7);
+    let first = s.first;
     for (i, (name, cond, worn)) in rows.iter().enumerate().skip(first) {
         let lines = c.lines(2, name, Some(WRAP));
         let h = ROW_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;

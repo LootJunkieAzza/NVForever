@@ -566,6 +566,11 @@ impl Fighters {
         self.poses.get(&actor).map(|p| p.distance)
     }
 
+    /// Whether a fighting actor reloads (it moves slower then, limping.rs).
+    pub fn reloading(&self, actor: u32) -> bool {
+        self.fighters.get(&actor).and_then(|f| f.cycle.as_ref()).is_some_and(|c| c.reloading())
+    }
+
     /// Whether a fighting actor reloads or has a blow on its way (it does not start using
     /// a stimpak then, `npc_stimpaks.rs`).
     pub fn busy(&self, actor: u32) -> bool {

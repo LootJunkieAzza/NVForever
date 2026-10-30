@@ -217,7 +217,7 @@ pub fn early_exit(why: &str) {
 /// (a test aid drives them; they would wait on it) or in a handoff's new run, whose old
 /// run shows the reason it reads from this run's log (handoff.rs).
 pub fn tell_player_at_start(text: &str, handoff: bool) {
-    if handoff || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_"))) {
+    if handoff || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
         return;
     }
     // rfd is a Windows-only dependency; elsewhere the error line carries the reason.

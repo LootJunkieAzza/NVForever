@@ -14,6 +14,11 @@
 //! profile`); without it the lines say no spans were seen. The layer is installed only
 //! when the variable is set.
 //!
+//! A frame of 100 ms or more ([`HITCH_MS`], real time from one frame's report to the
+//! next) also logs `profile hitch: <ms> ms; spans ms: <span> <ms> (<entries>), …`: the
+//! spans that ended in it, over every thread, so a single stall is not lost in a window's
+//! means.
+//!
 //! Each window also logs `profile scene: <n> mesh entities (<v> visible, <c> moved this
 //! frame), <m> distinct meshes, <u> distinct materials in use (<a> material assets)`: what
 //! the renderer batches by, and how many entities it extracts again because their
@@ -40,6 +45,13 @@ use std::time::Instant;
 /// Spans listed in a line, the most costly first.
 const LISTED: usize = 40;
 
+/// A frame at least this long (milliseconds of real time from one report to the next)
+/// logs its own spans (`profile hitch:`), which a window's means would hide.
+const HITCH_MS: f64 = 100.0;
+
+/// Spans listed in a hitch's line.
+const LISTED_HITCH: usize = 25;
+
 /// The window in seconds, when `NVF_PLAY_TEST_PROFILE` asks for a profile.
 pub fn interval() -> Option<f32> {
     static EVERY: OnceLock<Option<f32>> = OnceLock::new();
@@ -48,6 +60,16 @@ pub fn interval() -> Option<f32> {
 
 /// Time per span key in the current window: (seconds, entries).
 static TOTALS: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
+
+/// The render world's pipeline cache, as of its last frame: pipelines made, and those
+/// still waiting to compile ([`pipeline_counts`]); a hitch line gives both, so a stall can
+/// be told apart from one that waited on pipelines compiling (2026-10-28: material writes
+/// and the window's frame took 100-500 ms on long tours with nothing else in them).
+static PIPELINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PIPELINES_WAITING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Time per span key since the last frame's report: (seconds, entries).
+static FRAME: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
 
 /// The layer, when the profile is asked for.
 pub fn layer() -> Option<BoxedLayer> {
@@ -112,6 +134,11 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for SpanTimes {
         let e = totals.get_or_insert_with(HashMap::new).entry(t.key.clone()).or_default();
         e.0 += secs;
         e.1 += 1;
+        drop(totals);
+        let mut frame = FRAME.lock().unwrap_or_else(|e| e.into_inner());
+        let e = frame.get_or_insert_with(HashMap::new).entry(t.key.clone()).or_default();
+        e.0 += secs;
+        e.1 += 1;
     }
 }
 
@@ -134,8 +161,11 @@ impl Plugin for ProfilePlugin {
     fn build(&self, app: &mut App) {
         let Some(every) = interval() else { return };
         info!("test aid NVF_PLAY_TEST_PROFILE: a span profile every {every} s");
-        app.insert_resource(ProfileWindow { every, ..default() }).add_systems(Last, report);
+        // GPU time per render pass (timestamp queries, Vulkan and DX12): `profile gpu:`.
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+        app.insert_resource(ProfileWindow { every, ..default() }).init_resource::<AssetChanges>().add_systems(Last, (count_asset_changes, report).chain());
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render.add_systems(bevy::render::Render, pipeline_counts.in_set(bevy::render::RenderSystems::Render));
             render.add_systems(bevy::render::Render, (move |mut last: Local<Option<Instant>>, shadow: Res<ViewBinnedRenderPhases<bevy::pbr::Shadow>>, opaque: Res<ViewBinnedRenderPhases<Opaque3d>>, mask: Res<ViewBinnedRenderPhases<AlphaMask3d>>, prepass: Res<ViewBinnedRenderPhases<Opaque3dPrepass>>, mask_prepass: Res<ViewBinnedRenderPhases<AlphaMask3dPrepass>>| {
                 // The render world has no clock of its own: real time.
                 let now = Instant::now();
@@ -158,6 +188,13 @@ impl Plugin for ProfilePlugin {
     }
 }
 
+/// Keep the pipeline counts for the main world's hitch lines.
+fn pipeline_counts(cache: Res<bevy::render::render_resource::PipelineCache>) {
+    use std::sync::atomic::Ordering::Relaxed;
+    PIPELINES.store(cache.pipelines().count() as u64, Relaxed);
+    PIPELINES_WAITING.store(cache.waiting_pipelines().count() as u64, Relaxed);
+}
+
 /// `<phase> <v> views, <m> multi-drawn sets, <b> batched bins, <u> unbatched bins`, summed
 /// over the phase's views.
 fn batches<BPI: bevy::render::render_phase::BinnedPhaseItem>(name: &str, phases: &ViewBinnedRenderPhases<BPI>) -> String {
@@ -170,6 +207,64 @@ fn batches<BPI: bevy::render::render_phase::BinnedPhaseItem>(name: &str, phases:
     format!("{name} {} views, {m} multi-drawn sets, {b} batched bins, {u} unbatched bins", phases.len())
 }
 
+/// The asset changes of a window, for `profile changes:`: each made, changed or dropped
+/// mesh, image and game material is sent to the GPU again (its staging memory included);
+/// the night stalls came with GPU memory made and freed hundreds of times a second
+/// (Nsight Systems, 2026-10-29), so this says what the frames send.
+#[derive(Resource, Default)]
+struct AssetChanges {
+    /// (added, modified, removed) per kind: meshes, images, materials.
+    counts: [[u64; 3]; 3],
+    /// Bytes of the added and modified meshes' vertices and the images' pixels.
+    mesh_bytes: u64,
+    image_bytes: u64,
+}
+
+/// Which of (made, changed, dropped) an asset event counts as.
+fn slot<A: Asset>(e: &AssetEvent<A>) -> Option<usize> {
+    match e {
+        AssetEvent::Added { .. } => Some(0),
+        AssetEvent::Modified { .. } => Some(1),
+        AssetEvent::Removed { .. } | AssetEvent::Unused { .. } => Some(2),
+        _ => None,
+    }
+}
+
+fn count_asset_changes(
+    mut c: ResMut<AssetChanges>,
+    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
+    mut image_events: MessageReader<AssetEvent<Image>>,
+    mut material_events: MessageReader<AssetEvent<nvf_assets::NifMaterial>>,
+    meshes: Res<Assets<Mesh>>,
+    images: Res<Assets<Image>>,
+) {
+    for e in mesh_events.read() {
+        if let Some(i) = slot(e) {
+            c.counts[0][i] += 1;
+        }
+        if let AssetEvent::Added { id } | AssetEvent::Modified { id } = e {
+            if let Some(m) = meshes.get(*id) {
+                c.mesh_bytes += (m.count_vertices() * m.get_vertex_size() as usize) as u64;
+            }
+        }
+    }
+    for e in image_events.read() {
+        if let Some(i) = slot(e) {
+            c.counts[1][i] += 1;
+        }
+        if let AssetEvent::Added { id } | AssetEvent::Modified { id } = e {
+            if let Some(d) = images.get(*id).and_then(|im| im.data.as_ref()) {
+                c.image_bytes += d.len() as u64;
+            }
+        }
+    }
+    for e in material_events.read() {
+        if let Some(i) = slot(e) {
+            c.counts[2][i] += 1;
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 struct ProfileWindow {
     every: f32,
@@ -180,14 +275,40 @@ struct ProfileWindow {
     frame_secs: f32,
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn report(
     time: Res<Time<Real>>,
     mut w: ResMut<ProfileWindow>,
     meshes: Query<(&Mesh3d, Option<&MeshMaterial3d<nvf_assets::NifMaterial>>, &ViewVisibility)>,
     moved: Query<(), (With<Mesh3d>, Changed<GlobalTransform>)>,
     materials: Res<Assets<nvf_assets::NifMaterial>>,
+    mut last: Local<Option<Instant>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
+    mut pipelines_before: Local<u64>,
+    (diagnostics, mut changes): (Res<bevy::diagnostic::DiagnosticsStore>, ResMut<AssetChanges>),
 ) {
+    let pipelines = PIPELINES.load(std::sync::atomic::Ordering::Relaxed);
+    let new_pipelines = pipelines.saturating_sub(*pipelines_before);
+    *pipelines_before = pipelines;
+    // A slow frame's own spans: those ended since the last report, whatever the thread.
+    let now = Instant::now();
+    let frame = FRAME.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
+    if let Some(at) = last.replace(now) {
+        let ms = now.duration_since(at).as_secs_f64() * 1000.0;
+        if ms >= HITCH_MS {
+            let line = format!(
+                "{}; pipelines {pipelines} ({new_pipelines} new since the frame before, {} waiting)",
+                hitch_line(ms, &frame),
+                PIPELINES_WAITING.load(std::sync::atomic::Ordering::Relaxed)
+            );
+            if loading.as_deref().is_some_and(nvf_play::loading::Loading::unseen_frames) {
+                // Not seen: kept apart from the hitches (`profile hitch (behind a loading screen):`).
+                info!("{}", line.replacen("profile hitch:", "profile hitch (behind a loading screen):", 1));
+            } else {
+                info!("{line}");
+            }
+        }
+    }
     let dt = time.delta_secs();
     w.since += dt;
     w.frames += 1;
@@ -220,6 +341,34 @@ fn report(
         mats.len(),
         materials.len()
     );
+    let per = |n: u64| n as f64 / frames;
+    let c = std::mem::take(&mut *changes);
+    info!(
+        "profile changes: per frame: meshes {:.1} made {:.1} changed {:.1} dropped ({:.2} MB of vertices), images {:.1} made {:.1} changed {:.1} dropped ({:.2} MB of pixels), materials {:.1} made {:.1} changed {:.1} dropped",
+        per(c.counts[0][0]),
+        per(c.counts[0][1]),
+        per(c.counts[0][2]),
+        per(c.mesh_bytes) / 1e6,
+        per(c.counts[1][0]),
+        per(c.counts[1][1]),
+        per(c.counts[1][2]),
+        per(c.image_bytes) / 1e6,
+        per(c.counts[2][0]),
+        per(c.counts[2][1]),
+        per(c.counts[2][2]),
+    );
+    // The render passes' GPU time (Bevy's render diagnostics, averaged over their last
+    // samples), the costliest first: which pass grows when the frame waits on the GPU.
+    let mut gpu: Vec<(String, f64)> = diagnostics
+        .iter()
+        .filter(|d| d.path().as_str().ends_with("/elapsed_gpu"))
+        .filter_map(|d| Some((d.path().as_str().trim_start_matches("render/").trim_end_matches("/elapsed_gpu").to_string(), d.average()?)))
+        .collect();
+    gpu.sort_by(|a, b| b.1.total_cmp(&a.1));
+    if !gpu.is_empty() {
+        let listed: Vec<String> = gpu.iter().take(16).map(|(k, ms)| format!("{k} {ms:.2}")).collect();
+        info!("profile gpu: ms a frame: {}", listed.join(", "));
+    }
     *w = ProfileWindow { every: w.every, cpu_at: cpu, ..default() };
 }
 
@@ -233,6 +382,19 @@ fn line(secs: f32, frames: u32, frame_secs: f32, totals: &HashMap<String, (f64, 
         format!("profile: {secs:.1} s, {frames} frames, frame mean {mean:.1} ms; no spans seen (build with --features profile)")
     } else {
         format!("profile: {secs:.1} s, {frames} frames, frame mean {mean:.1} ms; per frame ms: {}", listed.join(", "))
+    }
+}
+
+/// The line for one slow frame: `profile hitch: <ms> ms; spans ms: <span> <ms> (<n>), …`,
+/// each span's time in that frame and how often it was entered.
+fn hitch_line(ms: f64, frame: &HashMap<String, (f64, u64)>) -> String {
+    let mut spans: Vec<(&String, &(f64, u64))> = frame.iter().collect();
+    spans.sort_by(|a, b| b.1 .0.total_cmp(&a.1 .0));
+    let listed: Vec<String> = spans.iter().take(LISTED_HITCH).map(|(k, (s, n))| format!("{k} {:.1} ({n})", s * 1000.0)).collect();
+    if listed.is_empty() {
+        format!("profile hitch: {ms:.0} ms; no spans seen (build with --features profile)")
+    } else {
+        format!("profile hitch: {ms:.0} ms; spans ms: {}", listed.join(", "))
     }
 }
 
@@ -273,5 +435,15 @@ mod tests {
         let l = line(1.0, 10, 1.0, &t, 10.0);
         assert!(l.contains("per frame ms: b 10.00, a 1.00"), "{l}");
         assert!(line(1.0, 0, 0.0, &HashMap::new(), 1.0).contains("no spans seen"));
+    }
+
+    #[test]
+    fn a_hitch_lists_its_own_spans_costliest_first() {
+        let mut t = HashMap::new();
+        t.insert("a".to_string(), (0.010, 1));
+        t.insert("b".to_string(), (0.500, 3));
+        let l = hitch_line(612.4, &t);
+        assert!(l.starts_with("profile hitch: 612 ms; spans ms: b 500.0 (3), a 10.0 (1)"), "{l}");
+        assert!(hitch_line(150.0, &HashMap::new()).contains("no spans seen"));
     }
 }

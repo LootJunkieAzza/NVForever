@@ -34,6 +34,10 @@
 //! - A script's EnableLoadingMenu before it moves the player makes that travel's screen
 //!   one for anywhere ([`Loading::generic_next`]). The original's few seconds of screen
 //!   for the call alone, with no travel, are not built (no shipped call is alone).
+//! - While it is up the player's keys, mouse buttons and controller do nothing
+//!   ([`hold_input`]): a menu still open behind it (the main menu while a save loads)
+//!   takes no clicks, hovers or arrow keys, and a key held through the screen counts
+//!   only once it is pressed again.
 
 use crate::phys::PhysState;
 use crate::{Location, PlaySet, PlayState, PlayWorld, Travel};
@@ -183,8 +187,27 @@ impl Plugin for LoadingPlugin {
             .add_message::<CoverRequest>()
             .add_message::<Uncover>()
             .add_systems(Startup, read_screens)
+            .add_systems(
+                PreUpdate,
+                hold_input.after(bevy::input::InputSystems).after(crate::pad::menu_keys).after(crate::test_aid::real_presses).before(bevy::ui::UiSystems::Focus),
+            )
             .add_systems(Update, (send.in_set(PlaySet::Input), (begin_start, begin, hold, fit_picture).chain().in_set(PlaySet::Sync)))
             .add_systems(Last, finish);
+    }
+}
+
+/// While a screen is up nobody's input gets through (module notes): the keys and mouse
+/// buttons are let go before any system or the interface reads them (the controller's
+/// menu keys too, which `crate::pad` presses as keys). Test aids' presses are held the
+/// same way.
+fn hold_input(loading: Res<Loading>, keys: Option<ResMut<ButtonInput<KeyCode>>>, mouse: Option<ResMut<ButtonInput<MouseButton>>>) {
+    if loading.active() {
+        if let Some(mut k) = keys {
+            k.reset_all();
+        }
+        if let Some(mut m) = mouse {
+            m.reset_all();
+        }
     }
 }
 
@@ -375,6 +398,8 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
             Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), overflow: Overflow::clip(), ..default() },
             BackgroundColor(Color::BLACK),
             GlobalZIndex(200),
+            // The pointer stops here: nothing beneath is hovered or clicked.
+            bevy::ui::FocusPolicy::Block,
         ))
         .id();
     if let Some((image, size)) = picture {
@@ -640,6 +665,34 @@ mod tests {
         assert!(app.world().resource::<crate::pause::Paused>().0);
         assert!(!app.world().resource::<Loading>().active());
     }
+
+    /// A menu left open under a screen (the main menu while a save loads) gets no keys or
+    /// clicks; they count again once it is down.
+    #[test]
+    fn no_input_gets_through_a_screen() {
+        let mut app = app();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>();
+        let press = |app: &mut App| {
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::ArrowDown);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        };
+        app.update();
+        app.world_mut().write_message(CoverRequest { to: None });
+        app.update();
+        press(&mut app);
+        app.update();
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::ArrowDown));
+        assert!(!app.world().resource::<ButtonInput<MouseButton>>().just_pressed(MouseButton::Left));
+        app.world_mut().write_message(Uncover);
+        app.update();
+        app.update();
+        assert!(!app.world().resource::<Loading>().active());
+        press(&mut app);
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::ArrowDown));
+        assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
+    }
+
     /// Come down once nothing is missing, after the settle time (at most 10 s of frames).
     fn until_down(app: &mut App) {
         let t0 = std::time::Instant::now();

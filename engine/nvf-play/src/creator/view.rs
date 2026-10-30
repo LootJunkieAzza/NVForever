@@ -76,8 +76,12 @@ pub enum HitWhat {
     Track(usize),
     Swatch(usize, usize),
     Action(usize),
-    /// The panel itself (the wheel scrolls its rows; elsewhere it zooms).
+    /// The panel itself (the wheel zooms nowhere on it).
     Panel,
+    /// The rows' part of the panel: the wheel scrolls the rows (not the buttons).
+    RowsArea,
+    /// The scrollbar beside the rows: a click or drag scrolls to that place.
+    Scrollbar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -173,6 +177,10 @@ fn outline(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32, t: f32,
     fill(p, x + w - t, y + t, t, h - 2.0 * t, color);
 }
 
+/// The scrollbar beside the rows, in the panel's right margin.
+const BAR_X: f32 = PANEL_X + PANEL_W - 14.0;
+const BAR_W: f32 = 6.0;
+
 /// A row's height.
 fn height(v: &RowView) -> f32 {
     match v {
@@ -180,6 +188,37 @@ fn height(v: &RowView) -> f32 {
         RowView::Slider { .. } => 82.0,
         RowView::Swatches { .. } => 76.0,
     }
+}
+
+/// The open tab's rows' heights.
+pub fn heights(m: &Model) -> Vec<f32> {
+    m.rows().iter().map(|&r| height(&m.view(r))).collect()
+}
+
+/// The last first row worth scrolling to: from it on, the rest fit.
+pub fn max_first(heights: &[f32]) -> usize {
+    let room = ROWS_BOTTOM - ROWS_TOP;
+    let mut first = heights.len();
+    let mut used = 0.0;
+    while first > 0 && used + heights[first - 1] <= room + 0.5 {
+        used += heights[first - 1];
+        first -= 1;
+    }
+    first.min(heights.len().saturating_sub(1))
+}
+
+/// The first row shown after the chosen row moved: unchanged when the chosen row is in
+/// view, else the least scroll that shows it.
+pub fn reveal(heights: &[f32], first: usize, chosen: usize) -> usize {
+    let first = if chosen < first { chosen } else { first.max(first_shown(heights, chosen)) };
+    first.min(max_first(heights))
+}
+
+/// The first row for a place along the scrollbar (0 top, 1 bottom).
+pub fn first_at(heights: &[f32], y: f32) -> usize {
+    let f = ((y - ROWS_TOP) / (ROWS_BOTTOM - ROWS_TOP)).clamp(0.0, 1.0);
+    let last = max_first(heights);
+    (f * last as f32).round() as usize
 }
 
 /// The first row drawn, so that the chosen one is in view.
@@ -222,7 +261,8 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
     let views: Vec<RowView> = rows.iter().map(|&r| m.view(r)).collect();
     let heights: Vec<f32> = views.iter().map(height).collect();
     let chosen = m.chosen_row().map(|_| m.row());
-    let first = first_shown(&heights, chosen.unwrap_or(0));
+    let first = m.scroll().min(max_first(&heights));
+    hits.push(Hit { rect: [PANEL_X, ROWS_TOP, PANEL_W, ROWS_BOTTOM - ROWS_TOP], what: HitWhat::RowsArea });
     let mut y = ROWS_TOP;
     for (i, v) in views.iter().enumerate().skip(first) {
         let h = heights[i];
@@ -292,6 +332,21 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
     if y < ROWS_BOTTOM && views.len() > first && heights[first..].iter().sum::<f32>() > ROWS_BOTTOM - ROWS_TOP {
         text(p, &kit.body, "more below", RIGHT, ROWS_BOTTOM - 4.0, 0.55, Align::Right, bone(0.4));
     }
+    // The scrollbar, when the rows do not all fit: the thumb is the part shown.
+    let total: f32 = heights.iter().sum();
+    let room = ROWS_BOTTOM - ROWS_TOP;
+    if total > room + 0.5 {
+        let above: f32 = heights[..first].iter().sum();
+        let shown: f32 = heights[first..].iter().scan(0.0, |used, h| {
+            *used += h;
+            (*used <= room + 0.5).then_some(*h)
+        }).sum();
+        fill(p, BAR_X, ROWS_TOP, BAR_W, room, bone(0.15));
+        let top = ROWS_TOP + room * above / total;
+        let len = (room * shown / total).max(24.0);
+        fill(p, BAR_X, top.min(ROWS_BOTTOM - len), BAR_W, len, accent(0.8));
+        hits.push(Hit { rect: [BAR_X - 8.0, ROWS_TOP, BAR_W + 14.0, room], what: HitWhat::Scrollbar });
+    }
     // The buttons.
     fill(p, LEFT, ACTIONS_Y - 14.0, RIGHT - LEFT, 2.0, bone(0.18));
     let bw = (RIGHT - LEFT - 3.0 * 10.0) / ACTIONS.len() as f32;
@@ -309,7 +364,7 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
     }
     // How to look round, at the bottom of the picture.
     // Over the picture: how to look round (the mouse, then the controller).
-    for (k, line) in ["Drag: turn    Right-drag or Shift-drag: pan    Wheel: zoom    C: reset view", "Right stick: turn    Left stick: pan    Triggers: zoom    Click right stick: reset view"].iter().enumerate() {
+    for (k, line) in ["Drag: turn    Right-drag or Shift-drag: pan    Wheel over the picture: zoom    C: reset view", "Right stick: turn    Left stick: pan    Triggers: zoom    Click right stick: reset view"].iter().enumerate() {
         text(p, &kit.body, line, view_w - 40.0, 872.0 + 28.0 * k as f32, 0.6, Align::Right, bone(0.6));
     }
     hits
@@ -332,6 +387,21 @@ mod tests {
         assert_eq!(track_fraction(TRACK_X0 - 5.0), 0.0);
         assert_eq!(track_fraction(TRACK_X1 + 5.0), 1.0);
         assert!((track_fraction((TRACK_X0 + TRACK_X1) / 2.0) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_list_scrolls_no_further_than_its_last_rows() {
+        // 586 units of room hold 7 rows of 82: from row 8 on, the last 7 fit.
+        let h = vec![82.0; 15];
+        assert_eq!(max_first(&h), 8);
+        assert_eq!(max_first(&[52.0; 3]), 0);
+        // A row in view leaves the scroll alone; one out of view brings it just in.
+        assert_eq!(reveal(&h, 3, 5), 3);
+        assert_eq!(reveal(&h, 3, 1), 1);
+        assert_eq!(reveal(&h, 0, 10), 4);
+        assert_eq!(reveal(&h, 12, 14), 8);
+        assert_eq!(first_at(&h, ROWS_TOP), 0);
+        assert_eq!(first_at(&h, ROWS_BOTTOM), 8);
     }
 
     #[test]

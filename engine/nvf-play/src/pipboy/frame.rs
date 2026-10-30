@@ -9,7 +9,7 @@
 //! `vertical_fade_line.xml`, `menus\globals.xml`] unless marked otherwise.
 
 use super::{Clickable, Page, PageBody, PipBoy, PipBoyInput, PipBoyRoot, PipBoyScreen, CANVAS};
-use crate::interface::{amber, at, face, plain_font, set_line, Face, Picture, Pictures};
+use crate::interface::{pipboy_amber as amber, at, face, plain_font, set_line, Face, Picture, Pictures};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_font::{Font, Line};

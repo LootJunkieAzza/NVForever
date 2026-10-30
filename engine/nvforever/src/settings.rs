@@ -159,12 +159,36 @@ pub fn register(app: &mut App) {
         add_setting(
             app,
             Setting {
+                key: "weapon-lower",
+                group: GROUP_PICTURE,
+                label: "Lower weapon near walls",
+                note: "On: in first person a drawn weapon is lowered when a wall or a friendly person is right in front of you, and comes straight back up when you aim or fire. Off: it stays up and can poke through them, as in the original. Lower Weapon (H) lowers or raises it by hand either way. (--no-weapon-lower)",
+                get: |w| w.resource::<PlayerBody>().weapon_lower,
+                set: |w, on| w.resource_mut::<PlayerBody>().weapon_lower = on,
+                slider: None,
+            },
+        );
+        add_setting(
+            app,
+            Setting {
                 key: "true-iron-sights",
                 group: GROUP_MENUS,
                 label: "True iron sights",
                 note: "On: aiming a gun lines its sights up with your eye. The crosshair is hidden while you aim down them. Off: the gun is held low with the crosshair, as in the original. Guns with no sights to look down (laser rifle, minigun) aim as the original either way. (--no-true-iron-sights)",
                 get: |w| w.resource::<PlayerBody>().true_iron_sights,
                 set: |w, on| w.resource_mut::<PlayerBody>().true_iron_sights = on,
+                slider: None,
+            },
+        );
+        add_setting(
+            app,
+            Setting {
+                key: "scope-3d",
+                group: GROUP_MENUS,
+                label: "3D scopes (test)",
+                note: "On: aiming a scoped gun keeps the gun on screen and shows the zoomed view in its scope's lens, with the reticle; the view around it zooms only a little. Off: the full-screen scope picture with its black border, as in the original. Guns whose scope lens is not known yet keep the picture. (--scope-3d)",
+                get: |w| w.resource::<nvf_play::aim_zoom::Scope3d>().on,
+                set: |w, on| w.resource_mut::<nvf_play::aim_zoom::Scope3d>().on = on,
                 slider: None,
             },
         );
@@ -175,7 +199,7 @@ pub fn register(app: &mut App) {
             key: "sun-shadows",
             group: GROUP_PICTURE,
             label: "Sun shadows",
-            note: "On: the sun casts shadows out to --shadow-distance. The original casts none from the world. (--sun-shadows)",
+            note: "On: the sun casts shadows out to --shadow-distance. The original casts none from the world. On by default in the game. (--sun-shadows, --no-sun-shadows)",
             get: |w| w.resource::<SkyState>().shadows,
             set: crate::sky::set_shadows,
             slider: None,

@@ -1,0 +1,24 @@
+{
+  "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm", "GunRunnersArsenal.esm"],
+  "title": "Headless chain: Gun Runners' Arsenal's set-up with the vendors lost before it runs (NVDLC05MQ00 nDLCSetup 2's safeguard: the add-on containers of dead or hostile vendors go to the Gun Runners' Vendortron); docs/handoff/mq-walkthrough-2026-10-27.md",
+  "given": [
+    {"kind": "ref", "ref": "FreesideMickREF", "dead": true},
+    {"kind": "ref", "ref": "CliffBriscoeREF", "dead": true},
+    {"kind": "ref", "ref": "TorresREF", "dead": true},
+    {"kind": "quest", "quest": "vCassCompanion", "vars": {"bKilledVanGraffs": 1}}
+  ],
+  "actions": [
+    {"op": "note", "text": "A game where the add-on is installed late: Mick, Cliff Briscoe and Torres already dead and the Van Graffs killed with Cass (given). The set-up quest's second step gives their add-on containers to the Vendortron's faction and moves them under its kiosk; the vendors alive (Chet, Lacey) keep theirs. The other outcome of the set-up (vendors alive) is the gun-runners-arsenal chain."},
+    {"op": "advance_seconds", "seconds": 2},
+    {"op": "get_quest", "quest": "NVDLC05MQ00", "fields": ["running", "var.ndlcsetup"], "label": "milestone: set-up done up to the messages (nDLCSetup 4)"},
+    {"op": "get_ref", "of": "VendortronREF", "label": "the Vendortron's place"},
+    {"op": "get_ref", "of": "NVDLC05VendorContainerMickAndRalphREF", "label": "Mick and Ralph's add-on container moved to the Vendortron"},
+    {"op": "get_ref", "of": "NVDLC05VendorContainerUniqueCliffBriscoeREF", "label": "Cliff Briscoe's unique add-on container moved to the Vendortron"},
+    {"op": "get_ref", "of": "NVDLC05VendorContainerBrotherhoodREF", "label": "the Brotherhood's add-on container moved to the Vendortron"},
+    {"op": "get_ref", "of": "NVDLC05VendorContainerVanGraffsREF", "label": "the Van Graffs' add-on container moved to the Vendortron"},
+    {"op": "get_ref", "of": "NVDLC05VendorContainerChetREF", "label": "Chet's add-on container beside Chet (alive)"},
+    {"op": "go_to_cell", "cell": "Goodsprings"},
+    {"op": "wait_quest", "quest": "NVDLC05MQ00", "field": "running", "value": false, "max_frames": 1200, "label": "final: set-up quest stopped after its messages, the lost vendors' stock at the Vendortron"}
+  ]
+}

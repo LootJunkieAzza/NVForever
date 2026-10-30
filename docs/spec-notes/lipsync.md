@@ -404,7 +404,8 @@ weights (screenshots of single morphs; not a game behaviour); the expression nam
 ### 5.1 Head turn
 
 - The head channels are taken as radians (§3.3 reading (a),
-  `HEAD_RADIANS_PER_UNIT` = 1) [hypothesis], positive pitch nodding down, positive yaw
+  `HEAD_RADIANS_PER_UNIT` = 1) [hypothesis], positive pitch tipping the head up (§3.3,
+  observed with `mfg`), positive yaw
   to the actor's right, positive roll tipping to the right [hypothesis, §3.3].
 - The turn is applied to the head bone (`Bip01 Head`) in the head's own frame (its bind
   pose taken as facing the actor's +y with z up, as head tracking takes it,

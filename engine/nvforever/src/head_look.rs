@@ -337,7 +337,7 @@ fn rotation_of(m: &bevy::math::Affine3A) -> Quat {
 fn head_rig(rig: &ActorRig, combat: Option<&Combat>) -> Result<(HeadRig, String), String> {
     let skel = &rig.skel;
     // The body part head tracking is set up on, when the actor's body part data is known.
-    let data = combat.and_then(|c| c.forms.body_parts_for(FormId(rig.base), &rig.skeleton).and_then(|d| c.forms.body_parts.get(&d)));
+    let data = combat.and_then(|c| c.forms.body_parts_for(FormId(rig.body), &rig.skeleton).and_then(|d| c.forms.body_parts.get(&d)));
     let part = data.and_then(|d| d.parts.iter().find(|p| p.flags.iter().any(|f| f == HEADTRACKING_FLAG)));
     if data.is_some() && part.is_none() {
         return Err("its body part data has no head-tracking part".into());

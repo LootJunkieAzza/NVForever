@@ -18,7 +18,11 @@
 //! [`HITCH_MS`] logs `stress hitch: <ms> ms at t <s> s, <k> cells loaded in it (<ms> ms),
 //! <a> actors drawn in it (<ms> ms), at <place>`, so a stall can be told from a cell load
 //! or from actors coming into view (`readahead::clocked`; actors a cell draws count in
-//! both). The process's memory is the
+//! both). A frame behind a loading screen (`Loading::unseen_frames`) is not seen: it is
+//! left out of the frame times and its stall logged apart, `stress hitch (behind a
+//! loading screen): …`, with the count of such frames at the exit's `stress frames:`
+//! line [observed 2026-10-27: every `world::stream` stall after a door or teleport on a
+//! soak run was behind the screen, and counted as hitches]. The process's memory is the
 //! runner's to read (it has the process).
 
 use crate::limbs::ActorRig;
@@ -40,8 +44,52 @@ impl Plugin for StressSamplePlugin {
     fn build(&self, app: &mut App) {
         let Some(every) = Self::interval() else { return };
         info!("test aid NVF_PLAY_TEST_SAMPLE: a stress sample every {every} s");
-        app.insert_resource(Samples { every, ..default() }).add_systems(Last, (sample, report).chain());
+        app.insert_resource(Samples { every, ..default() }).add_systems(Last, ((sample, report).chain(), census));
     }
+}
+
+/// Seconds between entity censuses ([`census`]).
+const CENSUS_SECS: f32 = 30.0;
+
+/// Kinds listed in a census line.
+const CENSUS_LISTED: usize = 14;
+
+/// Every [`CENSUS_SECS`] of real time, `stress census: <n> entities; <count> <kind>; …`: the
+/// entities by kind, the most first, so an entity count that grows can be told by what
+/// grows [observed 2026-10-27: a two-lap soak ended its second lap with 9,900 entities
+/// against 1,907, at the same place 9,886 against 1,754]. An entity's kind is the names of
+/// the game's own components on it (`nvforever`, `nvf_*`, `fnv_*`), else of Bevy's, the
+/// first four, with `(root)` when it has no parent.
+fn census(world: &World, mut last: Local<f32>) {
+    let now = world.resource::<Time<Real>>().elapsed_secs();
+    if now - *last < CENSUS_SECS {
+        return;
+    }
+    *last = now;
+    let components = world.components();
+    let parent = world.component_id::<ChildOf>();
+    let mut kinds: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut total = 0usize;
+    for a in world.archetypes().iter() {
+        let n = a.len() as usize;
+        if n == 0 {
+            continue;
+        }
+        total += n;
+        let names: Vec<String> = a.components().iter().filter_map(|id| components.get_name(*id)).map(|n| n.to_string()).collect();
+        let ours: Vec<&String> = names.iter().filter(|n| n.starts_with("nvforever") || n.starts_with("nvf_") || n.starts_with("fnv_")).collect();
+        let pick: Vec<&String> = if ours.is_empty() { names.iter().collect() } else { ours };
+        let mut short: Vec<String> = pick.iter().map(|n| crate::profile::short_name(n)).collect();
+        short.sort();
+        short.truncate(4);
+        let rooted = parent.is_some_and(|p| a.contains(p));
+        let key = format!("{}{}", short.join("+"), if rooted { "" } else { " (root)" });
+        *kinds.entry(key).or_default() += n;
+    }
+    let mut list: Vec<(String, usize)> = kinds.into_iter().collect();
+    list.sort_by_key(|k| std::cmp::Reverse(k.1));
+    let shown: Vec<String> = list.iter().take(CENSUS_LISTED).map(|(k, n)| format!("{n} {k}")).collect();
+    info!("stress census: {total} entities; {}", shown.join("; "));
 }
 
 /// A frame slower than this (milliseconds) after start-up is logged as a hitch.
@@ -66,6 +114,8 @@ struct Samples {
     /// This window's frame times, and every frame's (milliseconds).
     window: Vec<f32>,
     all: Vec<f32>,
+    /// After start-up, frames behind a loading screen (left out of the frame times).
+    hidden: usize,
 }
 
 /// (mean, 1 % low, worst) of frame times in milliseconds: the 1 % low is the mean of the
@@ -98,6 +148,7 @@ fn sample(
     phys: Option<Res<PhysState>>,
     combat: Option<Res<nvf_play::combat::Combat>>,
     streamer: Option<Res<crate::world::Streamer>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
 ) {
     let dt = real.delta_secs();
     let ms = dt * 1000.0;
@@ -116,6 +167,12 @@ fn sample(
             let total: f32 = s.startup.iter().sum();
             let slowest = s.startup.iter().copied().fold(0.0, f32::max);
             info!("stress start-up: {} frames, {total:.0} ms, slowest {slowest:.2} ms", s.startup.len());
+        }
+    } else if loading.as_deref().is_some_and(nvf_play::loading::Loading::unseen_frames) {
+        // Behind a loading screen the player sees no frame: not a hitch, not a frame time.
+        s.hidden += 1;
+        if ms > HITCH_MS {
+            info!("stress hitch (behind a loading screen): {ms:.0} ms at t {:.1} s, {new_cells} cells loaded in it ({new_ms:.0} ms), at {}", real.elapsed_secs(), crate::crash::place_text());
         }
     } else {
         s.window.push(ms);
@@ -166,7 +223,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<Samples>) {
     }
     let (mean, low, worst) = frame_stats(&s.all);
     let fps = if low > 0.0 { 1000.0 / low } else { 0.0 };
-    info!("stress frames: {} frames, mean {mean:.2} ms, 1% low {low:.2} ms ({fps:.1} fps), worst {worst:.2} ms", s.all.len());
+    info!("stress frames: {} frames, mean {mean:.2} ms, 1% low {low:.2} ms ({fps:.1} fps), worst {worst:.2} ms; {} behind loading screens left out", s.all.len(), s.hidden);
     let f = &s.actor_frames;
     let (drawn, ms) = f.iter().fold((0, 0.0), |(n, t), &(_, k, m)| (n + k, t + m));
     let most = f.iter().map(|x| x.2).fold(0.0, f64::max);

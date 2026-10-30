@@ -768,6 +768,36 @@ fn a_swing_reaches_a_low_creature_whose_bounds_centre_is_in_the_air() {
     assert!(hits[0].1.point[2] < 30.0);
 }
 
+/// A grenade beside a giant radscorpion: the centre of its bounds high over its back and
+/// past the radius, its body (an aim point) close by. It is caught, at its body's
+/// distance; one whose body only reaches into the radius takes the edge's damage; a wall
+/// still shields it.
+#[test]
+fn a_blast_catches_a_big_creature_by_its_body() {
+    let t = CombatTuning::default();
+    let e = ExplosionStats { damage: 100.0, radius: 150.0, force: 300.0, ..ExplosionStats::default() };
+    let world = |parts, wall| Scorpion { body: Toy { actors: vec![(7, [120.0, 0.0, 40.0], 60.0)], fence: false, wall }, centre: [120.0, 0.0, 200.0], parts };
+    let b = blast(&world(true, None), &t, &e, [40.0, 0.0, 0.0]);
+    assert_eq!(b.len(), 1);
+    assert!(b[0].damage > 50.0, "{b:?}");
+    let edge = blast(&world(false, None), &t, &e, [40.0, 0.0, 0.0]);
+    assert_eq!(edge.len(), 1);
+    assert!(close(edge[0].damage, 25.0), "{edge:?}");
+    assert!(blast(&world(true, Some(80.0)), &t, &e, [40.0, 0.0, 0.0]).is_empty());
+}
+
+/// A blast on the floor, the centre of an actor's bounds a little below the floor's
+/// level (a low creature on a slope): the line to it runs straight into the floor. Its
+/// body's parts above the floor are seen.
+#[test]
+fn a_blast_on_the_ground_sees_a_body_its_centre_sunk_in_it() {
+    let t = CombatTuning::default();
+    let e = ExplosionStats { damage: 100.0, radius: 300.0, force: 300.0, ..ExplosionStats::default() };
+    let world = |parts| Scorpion { body: Toy { actors: vec![(7, [100.0, 0.0, 20.0], 20.0)], fence: false, wall: None }, centre: [100.0, 0.0, -5.0], parts };
+    assert!(blast(&world(false), &t, &e, [0.0, 0.0, 0.0]).is_empty());
+    assert_eq!(blast(&world(true), &t, &e, [0.0, 0.0, 0.0]).len(), 1);
+}
+
 fn proj(kind: &str, flags: &[&str], speed: f32, gravity: f32) -> ProjectileStats {
     ProjectileStats { kind: Some(kind.into()), flags: flags.iter().map(|s| s.to_string()).collect(), speed, gravity, range: 10_000.0, ..ProjectileStats::default() }
 }

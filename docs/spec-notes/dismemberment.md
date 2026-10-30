@@ -111,6 +111,47 @@ Meanings [hypothesis, from the names]:
 - A *torso section* (`BP_TORSOSECTION_X`, numbered X × 1000) is the strip of the body mesh that
   leaves with part X.
 
+### 2.6 Creatures [observed: the 49 BPTD records of FalloutNV.esm; creature meshes in `Fallout - Meshes.bsa`]
+
+A creature uses its own body part data (CREA `PNAM`) under the same rules. Of the 49 records, 43
+have parts that can go. Examples (S: severable, E: explodable, explode chance; * names a limb
+replacement model):
+
+| Creature | Parts that can go |
+|---|---|
+| NVGecko, NVGiantRat, MoleRat | head S E 50 (no model); legs (and the rat's tail) S only |
+| Dog, DogMeat (coyotes, mongrels) | head and legs S only: never explode |
+| Rex | head S E 100; legs S only |
+| NVNightStalker | head E 100 (no model); legs S only |
+| NVCazador | head, wings, legs S E, mostly 0–50 %; no models, no debris |
+| RadScorpion, ants, NVMantis, mirelurks | every leg, claw, stinger and head S E 30–100, insect limb models (`GoreInsectLimb.NIF`) |
+| Feral ghouls, super mutants, aliens | as people: head S E 95, limbs S E 40–50, torso E 10, human gore models |
+| NVBigHorner | head E 100*, legs S E 50 |
+| Protectron, Robobrain, Mr. Gutsy, Sentry Bot, Securitron | heads, arms, legs S E 30–100, robot limb models (`GoreRobotLimb.NIF`, `RoboBit0N.NIF`) |
+| Eyebot, ceiling turrets, NVTumbleweed, NVraven | torso E 100 (the whole thing) |
+| Bloatfly, Liberty Prime, floor turrets, spore plant, Void, Zax eye | nothing |
+
+- Debris is per kind:
+  - GoreBits01 (flesh: geckos, rats, ghouls, people);
+  - InsectGoreBits01 (0xB5B9E: scorpions, ants, mantises);
+  - RobotGoreBits01 (0xB8FF4: robots).
+- Explosions are per kind:
+  - LimbExplosion (flesh);
+  - LimbExplosionBug (0xB67B9, `Gore\FXGorePopHeadBug01.NIF`);
+  - LimbExplosionRobot (0xBB636, `Effects\ExplosionRobotLimb01.NIF`);
+  - LimbExplosionGlow (0xA18F5, glowing ones).
+
+  Several creatures' severable parts name an explosion too (0x31CF9), so a cut spurts.
+- The skins are split as people's are: every creature mesh looked at has
+  `BSDismemberSkinInstance` partitions by body part and meat-cap shapes (torso caps 2xx,
+  section caps 1xx). This holds for the gecko, dogs, the giant rat, radscorpions, ghouls, the
+  mantis, the cazador, the nightstalker, the mole rat, deathclaws, the bighorner, brahmin,
+  mirelurks, centaurs, super mutants, the Securitron, ants, the radroach, Mr. Gutsy, robobrains
+  and sentry bots. The bloatfly and the eyebot have partitions but no caps.
+
+So for a gecko, a giant rat or a mole rat an exploded head is GoreBits01 meat bits and a neck
+cap, with no limb model. Their legs, and every part of a dog, can only be cut off.
+
 ## 3. Game settings [observed: FalloutNV.esm GMST values]
 
 | Setting | Value |
@@ -184,19 +225,25 @@ kill a sneak attack critical, about 2,000 kills):
 | Varmint rifle | No Dismember/Explode | 18 | 0+0/16 | 0+0/35 | 13+0/26 | 6+0/23 |
 
 
-Standing (no sneak attack; criticals only by chance), the sessions that finished before the
-game hung on loading the save (`load nvfairport`, 2026-10-25); the rest are open (§7):
+Standing (no sneak attack; criticals only by chance, 26 % of these kills). This Machine's
+standing head session crashed the original four times at different points (its sneak torso
+session with Bloody Mess once); its row counts the kills before each crash:
 
-| Weapon | On Hit | Head | Torso | Head, Bloody Mess | Torso, Bloody Mess |
-|---|---|---|---|---|---|
-| 9mm pistol | Normal | 4+3/9 | 0+0/5 | – | – |
-| .357 revolver | Normal | 5+2/8 | 0+0/16 | – | – |
-| Lucky | Normal | 8+6/16 | 0+0/16 | – | – |
-| This Machine | Normal | 1+2/6 | 0+0/1 | – | – |
-| Anti-materiel rifle | Explode Only | – | – | – | 21+0/29 |
-| Hunting shotgun | Explode Only | – | – | 6+0/6 | 25+0/27 |
-| Laser rifle | Dismember Only | – | – | 5+7/12 | 2+2/7 |
-| Varmint rifle | No Dismember/Explode | – | – | 3+0/6 | 7+0/12 |
+| Weapon | On Hit | Dmg | Head | Torso | Head, Bloody Mess | Torso, Bloody Mess |
+|---|---|---|---|---|---|---|
+| 9mm pistol | Normal | 16 | 4+3/9 | 0+0/5 | 11+4/15 | 9+0/11 |
+| .357 revolver | Normal | 26 | 5+2/8 | 0+0/16 | 8+1/10 | 8+3/13 |
+| Lucky | Normal | 30 | 8+6/16 | 0+0/16 | 8+3/13 | 15+0/19 |
+| This Machine | Normal | 55 | 9+10/26 | 0+0/21 | 11+9/20 | 18+2/26 |
+| Plasma rifle | Normal | 47 | 5+5/14 | 0+0/21 | 12+6/19 | 18+1/23 |
+| Missile launcher | Normal | 125 | 1+1/2 | 1+0/1 | – | 1+1/2 |
+| Hunting revolver | Explode Only | 58 | 7+0/11 | 0+0/16 | 13+0/13 | 18+0/24 |
+| Hunting rifle | Explode Only | 52 | 3+0/8 | 0+0/21 | 16+0/16 | 23+0/28 |
+| Sniper rifle | Explode Only | 45 | 10+0/11 | 0+0/21 | 8+0/8 | 20+0/24 |
+| Anti-materiel rifle | Explode Only | 110 | 22+0/30 | 0+0/31 | 21+0/21 | 22+0/32 |
+| Hunting shotgun | Explode Only | 70 | 4+0/4 | 0+0/28 | 6+0/6 | 25+0/27 |
+| Laser rifle | Dismember Only | 22 | 4+3/10 | 0+0/17 | 5+7/12 | 2+2/7 |
+| Varmint rifle | No Dismember/Explode | 18 | 0+0/4 | 0+0/15 | 3+0/6 | 7+0/12 |
 
 What the counts say:
 
@@ -204,16 +251,20 @@ What the counts say:
   band of overkill ÷ the head's health share, from under 0.5 to over 4; so did kills that did
   not cripple the head (19 of 27). The owner's "overkill explodes a limb" (§1) is the high
   damage weapons being Explode Only (§2.1), not the damage.
-- **Without Bloody Mess the torso never goes** (1 of 340 bullet kills, a plasma kill), and the
-  head goes about three times in four: Normal weapons 87 of 123 (71 %), Explode Only 85 of 110
-  (77 %); standing, 31 of 39. Arms hit by the killing shot went 5 of 9.
+- **Without Bloody Mess the torso never goes** (1 of 340 bullet kills sneaking, a plasma kill;
+  0 of 175 standing), and the head goes about three times in four: sneaking, Normal weapons 87
+  of 123 (71 %) and Explode Only 85 of 110 (77 %); standing, 47 of 59 (80 %) and 46 of 64 (72 %).
+  Arms hit by the killing shot went 5 of 9. Sneak attacks and criticals change none of it.
 - **The weapon's On Hit decides the way**, not its ammunition: the .308 This Machine (Normal)
   severed 7 of the 25 heads it took, the .308 hunting and sniper rifles (Explode Only) none.
-  Normal weapons sever 23 % of the parts they take (20 of 87; standing 13 of 31: open).
-  No Dismember/Explode (the varmint rifle) took nothing in 51 kills.
-- **Bloody Mess** takes the head every time (Normal 110 of 110, Explode Only 172 of 174;
-  Normal severs 30 % of them) and the torso: 168 of 211 (80 %) when the hit crippled it, 16 of 75
-  (21 %) when it did not. It overrides No Dismember/Explode at about half the rate: the varmint
+  Normal weapons (9mm, .357, Lucky, This Machine) sever 91 of the 299 head parts they take
+  (30 %), with or without the perk, sneaking or standing. One cell stands out: standing kills
+  that were not criticals, 16 of 30 severed; no trend with overkill or damage explains it
+  (30 %, 33 %, 18 %, 34 % across the overkill bands), so it is taken as chance. No
+  Dismember/Explode (the varmint rifle) took nothing in 70 kills.
+- **Bloody Mess** takes the head every time (sneaking, Normal 110 of 110, Explode Only 172 of
+  174; standing 55 of 58 and 64 of 64) and the torso: sneaking 168 of 211 (80 %) when the hit
+  crippled it, 16 of 75 (21 %) when it did not; standing 163 of 204 (80 %) all told. It overrides No Dismember/Explode at about half the rate: the varmint
   rifle exploded 13 of 26 heads and 6 of 23 torsos.
 - **Energy weapons** kill with their critical effects: every plasma sneak kill was in the goo
   stage and every laser one disintegrated (IsInCriticalStage), so their "gone" counts are not
@@ -249,8 +300,8 @@ one roll decides, with these odds [observed, §4.1, unless tagged]:
    the torso (its condition at or below 0 after the hit), 20 % if not.
 3. **No Dismember/Explode** weapons: nothing without Bloody Mess; with it half the odds above.
 4. **Which way**: Explode Only explodes; Dismember Only severs [hypothesis for the rate: the
-   laser's kills were disintegrations]; Normal severs a quarter of the parts it takes and
-   explodes the rest; Bloody Mess explodes what the weapon could not take otherwise (No
+   laser's kills were disintegrations]; Normal severs 30 % of the parts it takes and explodes
+   the rest; Bloody Mess explodes what the weapon could not take otherwise (No
    Dismember/Explode, the torso).
 5. The part and every severable or explodable part sharing its actor value are gone (§2.2).
    Only the Explodable ones among them explode; the others are severed.
@@ -365,12 +416,11 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
 ## 7. Not built
 
-- The standing cells not measured: sessions 61–99 of `dismember_odds` (This Machine and the
-  plasma rifle onward without the perk, every weapon but four with it) did not run: the game
-  hung loading the save twice. Run them with `observe.py run … --only <name>` and add them to
-  §4.1; the Normal sever share (23 % sneaking, 13 of 31 standing) wants them.
 - A blast takes several parts at once in the original (§4.1); NVForever judges one part per blast.
-- Melee odds (blades, hammers) are not measured (§4.1).
+- Melee odds (blades, hammers) are not measured (§4.1; the owner set them aside, 2026-10-25).
+  How to drive them: `player.PlayGroup AttackRight 1` / `AttackPower 1` play the swing but never
+  hit, and FireWeapon with a machete does nothing; with the game window held in front (both game
+  locks taken, no smoke run) `TapControl 4` swings land (a machete trial killed a target).
 
 - Decals (blood on the ground and walls).
 - Pins Limbs projectiles (two in the masters) pinning a severed part to a wall.

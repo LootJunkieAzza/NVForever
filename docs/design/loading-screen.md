@@ -79,6 +79,11 @@ A travel asked for under it goes out behind it and is waited for too.
 - Everything driven by `Time`: animations, doors, travelling NPCs, the sky's clock,
   on-screen messages, the `NVF_PLAY_TEST_*` aids and `--run-seconds` (a run lasts its
   seconds of game, plus the loading).
+- All input (owner 2026-10-27: New Game could be clicked and the arrow keys moved the
+  main menu while a save loaded): `loading::hold_input` lets go of every key and mouse
+  button in `PreUpdate`, after the controller's menu keys and the test aids' presses and
+  before the interface reads the pointer, and the screen blocks the pointer from what
+  is under it. A key held through the screen counts only once pressed again.
 - Not on hold: streaming (render and physics), distant LOD generation, and a voice line
   already playing (as under the pause menu; voice.rs).
 

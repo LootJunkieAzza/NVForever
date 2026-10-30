@@ -1689,3 +1689,33 @@ fn a_static_reference_cannot_be_held() {
     assert!(w.grab(GripOn::Ref(7), [60.0, 0.0, 6.0], HoldParams::default()).is_none());
     assert!(w.holding().is_none());
 }
+
+/// Loose items in water float or sink by their Havok material (docs/spec-notes/ragdoll.md
+/// §8, captures fl_items_lake and fl_heavy_lake): a wooden one under the surface rises
+/// and floats there, a metal one sinks to the bed at a pace slowed by the water, and an
+/// item out of water falls as before.
+#[test]
+fn loose_items_float_or_sink_by_material() {
+    let mut w = ground();
+    w.set_water(WaterArea::Exterior(0, 0), Some(400.0));
+    let item = |material: u32| CollisionObject { material: Some(material), ..object(boxed([4.0, 4.0, 2.0]), Motion::Dynamic) };
+    w.add_ref(&at(1, [100.0, 100.0, 250.0]), &[item(9)]); // wood
+    w.add_ref(&at(2, [200.0, 100.0, 250.0]), &[item(5)]); // metal
+    w.add_ref(&at(3, [300.0, 100.0, 250.0]), &[item(24)]); // bottle
+    w.add_ref(&at(4, [-200.0, -200.0, 250.0]), &[item(9)]); // wood, out of the water (cell -1, -1)
+    let z = |w: &PhysWorld, id: u32| w.ref_bodies(id)[0].translation[2];
+    let mut metal_low_at = None;
+    for i in 0..(20.0 * 60.0) as usize {
+        w.step();
+        if metal_low_at.is_none() && z(&w, 2) < 20.0 {
+            metal_low_at = Some(i as f32 / 60.0);
+        }
+    }
+    for id in [1, 3] {
+        assert!((z(&w, id) - 400.0).abs() < 6.0, "item {id} floats at the surface: z {}", z(&w, id));
+    }
+    // 250 units down at about 170 a second, not the free fall's 0.85 s.
+    let t = metal_low_at.expect("the metal item reaches the bed");
+    assert!(t > 1.2 && t < 3.0, "the metal item reached the bed after {t} s");
+    assert!(z(&w, 4) < 20.0, "out of water the wooden item lies on the ground: z {}", z(&w, 4));
+}

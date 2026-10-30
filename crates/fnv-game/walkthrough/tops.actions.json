@@ -1,0 +1,42 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless main-quest chain: the Strip gate (the Securitron's credit check) and Ring-a-Ding-Ding (VMQTops 10 -> 80, Benny met, invited to the presidential suite, killed there, the Platinum Chip taken); docs/handoff/mq-walkthrough-2026-10-27.md",
+  "given": [
+    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [200]},
+    {"kind": "quest", "quest": "VMQ01", "running": false, "completed": true, "stage": 100, "done": [10, 40, 50, 100]},
+    {"kind": "quest", "quest": "VMQTops", "running": true, "completed": false, "stage": 10, "done": [10]},
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 60}
+  ],
+  "actions": [
+    {"op": "note", "text": "Starts where boulder-city.actions.json ends: VMQ01 done, VMQTops at 10 (find Benny at the Tops). The player has 2000 caps for the Strip's credit check and Speech 60 for Benny's suite invitation."},
+    {"op": "add_item", "to": "player", "item": "Caps001", "count": 2000},
+    {"op": "go_to_cell", "cell": "FreesideNorthGate"},
+    {"op": "call", "line": "0x00116425.GetLocked", "label": "Strip gate locked before the check"},
+    {"op": "note", "text": "The Securitron greeter at the north gate: the player shows 2000 caps (the line for the player's sex is the one that passes). Its end script unlocks the gate and marks the player as cleared."},
+    {"op": "say_first", "speaker": "placed:VFSSecuritronGreeter", "infos": ["0x0011977D", "0x0011977E"], "label": "Strip gate: credit check passed"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "call", "line": "0x00116425.GetLocked", "label": "milestone: Strip gate unlocked"},
+    {"op": "get_quest", "quest": "VFreeformFreeside", "fields": ["var.playerpassport", "var.securitronsangry"], "label": "milestone: Strip gate passport"},
+    {"op": "note", "text": "On the Strip: the player walks into the trigger by the gate where Victor first greets the player (VMQTops 5 only when VMQTops 10 is not shown; here it is). Then into the Tops' lobby trigger (VMQTops 10 again, Benny's package re-evaluated)."},
+    {"op": "trigger_enter", "trigger": "scripted:0x0011A066"},
+    {"op": "trigger_enter", "trigger": "scripted:0x001190A3"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMQTops", "fields": ["stage", "done.5", "done.10"], "label": "milestone: VMQTops on the Strip"},
+    {"op": "note", "text": "Benny on the casino floor: the player takes his invitation to the presidential suite (Speech 60). Its end script sets stage 20, gives the suite key and sends Benny up (bennygotopresidential)."},
+    {"op": "say_info", "info": "0x0011984B", "speaker": "0x00101CA0"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMQTops", "fields": ["stage", "done.20", "var.bennygotopresidential", "var.bennyambush"], "label": "milestone: VMQTops 20 (invited to the suite)"},
+    {"op": "get_item_count", "of": "player", "item": "0x00115F06", "label": "Benny's suite key"},
+    {"op": "note", "text": "The player rides up and steps out of the lift (the elevator trigger completes objective 20). Benny waits in the suite; the player kills him there (combat's end as a stand-in). His OnDeath block puts the Platinum Chip on him and sets stage 43."},
+    {"op": "trigger_enter", "trigger": "scripted:0x0006919D"},
+    {"op": "kill", "actor": "0x00101CA0", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMQTops", "fields": ["stage", "done.43", "objective.20.completed", "objective.43.displayed"], "label": "milestone: VMQTops 43 (Benny dead)"},
+    {"op": "get_item_count", "of": "0x00101CA0", "item": "VPlatinumChip", "label": "the chip on Benny"},
+    {"op": "note", "text": "The player loots Benny's body: everything he carries moves to the player, the chip's OnAdd block sets stage 80 and adds its note."},
+    {"op": "remove_all_items", "from": "0x00101CA0", "to": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_item_count", "of": "player", "item": "VPlatinumChip", "label": "the chip on the player"},
+    {"op": "get_quest", "quest": "VMQTops", "fields": ["stage", "done.80", "objective.40.completed"], "label": "final: VMQTops 80"}
+  ]
+}

@@ -47,10 +47,24 @@ textures come from a Texture Set (TXST) the record names per shape. ESM gap audi
   2, it is the fifth shape; the vault gear door `VGearDoor01b:5` given 30, it is at 28) and
   89 name a shape the model does not have (`MS18RangerBattlearmor` `Arms1`) [observed;
   hypothesis: records made against an older mesh].
-- Rule built [hypothesis]: the name decides (without regard to case); among shapes of that
-  name the one at the index is taken; if none of them sits at the index, every shape of
-  the name; a name the model lacks changes nothing (logged). The index alone is never
-  used, so a stale list cannot put a texture on an unrelated shape.
+- The index decides, not the name [observed 2026-10-26, the owner: the blue dress
+  NVForever drew on Jeannie May Crawford is wrong. Her `OutfitPrewarCasualwear2Dirty`
+  (female model `1950stylecasual01\f\outfit.nif`) lists `arms` 2, `pipboyoff` 7,
+  `pipboyon` 8 and `pipboyoff` 9; the model's shape 9 is `UpperBody`, the dress, so only
+  the index puts the list's brown `outfit02fold.dds` on it as on her arms. The name-first
+  rule built before left the dress its own blue `outfit01f.dds`]. The same stale names
+  sit on the dress or body of every `OutfitPrewarCasualwear2*`, the female Vault
+  87/92/106/112 suits (`PipboyOn` at 6, their `UpperBody`), the RobCo jumpsuits and the
+  1950s suits (`Arms` against `Arms:0`) [observed, `fnvtool world alt-textures`].
+- Rule built: the shape at the index, whatever its name; only when no shape sits there
+  (the beards' index -1, an index past the last shape) every shape of the entry's name,
+  without regard to case; neither: nothing (logged) [hypothesis for the fallback]. Some
+  first-person weapon lists are off by one or two against their meshes
+  (`32snubnose.nif`, `dynamite.nif`) and now go to the neighbouring shape by index, as
+  the rule says the game does [hypothesis: not captured]. Over the ten masters' 2,589
+  entries: 2,301 name the shape at their index, 229 go to it by index alone (81 of them
+  only a `:0` suffix apart), 14 by name and 45 to nothing [observed, `fnvtool world
+  alt-textures`; before, 89 went by name and 199 to nothing].
 
 ## 3. What the swap does
 
@@ -87,8 +101,8 @@ textures come from a Texture Set (TXST) the record names per shape. ESM gap audi
 
 ## 5. Open
 
-- Whether the game applies a list whose name is missing by index alone, and what a TXST
-  slot without a file does (§2, §3): a capture of `MS18RangerBattlearmor` and a door with
+- Whether the game falls back to the name when the index finds no shape, and what a TXST
+  slot without a file does (§2, §3): a capture of `VaultSuit108` (index past its shapes) and a door with
   `NullTextureSet` (`REPCONNMidToBasementDoor`) would show it.
 - Scripts' SwapTexture (`engine/nvforever/src/texture_swap.rs`) is separate and works on
   drawn materials; it is unchanged.

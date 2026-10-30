@@ -83,22 +83,23 @@ pub fn alt_textures_of(lo: &LoadOrder, schema: &Schema, fid: u32, model_sub: &[u
 }
 
 /// Which shapes an entry applies to, given each shape of the model as its name and its
-/// geometry index (`fnv_nif::scene::geometry_order`): the shape with the entry's name at the entry's
-/// index; when no shape of that name sits there, every shape of that name; when no shape
-/// has the name, none. Names compare without regard to case.
-/// [observed: in the models checked the index is the named shape's depth-first geometry
-/// position, and several shapes may share a name (`outfitf.nif` has two `UpperBody`, at
-/// 12 and 13, each listed); but `dynamite.nif`'s entries give `Dynamite:0` index 2 where
-/// it is the fifth shape; hypothesis: the name decides and the index only picks among
-/// shapes of the same name, texture-swaps.md §2]
+/// geometry index (`fnv_nif::scene::geometry_order`): the shape at the entry's index,
+/// whatever its name; when no shape sits there (index -1 or past the last shape), every
+/// shape of the entry's name (without regard to case); otherwise none.
+/// [observed: the original draws Jeannie May Crawford's dress (`OutfitPrewarCasualwear2Dirty`
+/// MO3S, female `1950stylecasual01\f\outfit.nif`) with the texture set of the entry named
+/// `pipboyoff` at index 9, where the model's `UpperBody` is (`pipboyoff` is at 7, listed
+/// too), so the index wins over the name; the Vault 87/92/106/112 suits' female lists name
+/// `PipboyOn` at their `UpperBody` the same way; the 3D Index is the name's depth-first
+/// geometry position in 2,301 of 2,589 entries of the ten masters. Hypothesis: the name
+/// is only used when the index finds no shape (the beards' entries carry -1),
+/// texture-swaps.md §2]
 pub fn targets(entry: &AltTexture, shapes: &[(Option<&str>, usize)]) -> Vec<usize> {
-    let named: Vec<usize> = (0..shapes.len()).filter(|&i| shapes[i].0.is_some_and(|n| n.eq_ignore_ascii_case(entry.shape.trim()))).collect();
-    let at: Vec<usize> = named.iter().copied().filter(|&i| entry.index >= 0 && shapes[i].1 == entry.index as usize).collect();
-    if at.is_empty() {
-        named
-    } else {
-        at
+    let at: Vec<usize> = (0..shapes.len()).filter(|&i| entry.index >= 0 && shapes[i].1 == entry.index as usize).collect();
+    if !at.is_empty() {
+        return at;
     }
+    (0..shapes.len()).filter(|&i| shapes[i].0.is_some_and(|n| n.eq_ignore_ascii_case(entry.shape.trim()))).collect()
 }
 
 #[cfg(test)]
@@ -110,13 +111,16 @@ mod tests {
     }
 
     #[test]
-    fn the_name_decides_and_the_index_picks_among_namesakes() {
+    fn the_index_decides_and_the_name_only_without_a_shape_there() {
         let shapes = [(Some("arms"), 0), (Some("UpperBody"), 12), (Some("UpperBody"), 13), (None, 14)];
         assert_eq!(targets(&entry("UpperBody", 13), &shapes), vec![2]);
         assert_eq!(targets(&entry("upperbody", 12), &shapes), vec![1]);
-        // No namesake at the index: every shape of the name.
+        // A stale name: the shape at the index all the same (Jeannie May's dress).
+        assert_eq!(targets(&entry("pipboyoff", 12), &shapes), vec![1]);
+        assert_eq!(targets(&entry("Arms:0", 0), &shapes), vec![0]);
+        // No shape at the index: every shape of the name.
         assert_eq!(targets(&entry("UpperBody", 7), &shapes), vec![1, 2]);
-        assert_eq!(targets(&entry("Arms", 5), &shapes), vec![0]);
-        assert!(targets(&entry("legs", 0), &shapes).is_empty());
+        assert_eq!(targets(&entry("Arms", -1), &shapes), vec![0]);
+        assert!(targets(&entry("legs", 30), &shapes).is_empty());
     }
 }

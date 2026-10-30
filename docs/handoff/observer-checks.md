@@ -362,3 +362,62 @@ The numbers above stay put so links to them hold; each item here gives its own p
     StartMenu tree, SetUIFloat on a trait with an expression and on a missing one, and
     SetUIFloat against SetUIFloatAlt on a templated list row (the "children tiles" bug
     MCM depends on). ([menu-xml §8](../spec-notes/menu-xml.md))
+
+## Added 2026-10-27 (first-person depth)
+
+27. **Does the original's first-person weapon go into walls?** (P3: one look in every
+    close fight indoors.) Ours draws the arms and weapon in front of the world whatever
+    is nearer (first-person-depth.md §1, [hypothesis] that the original does the same).
+    To check: in the Prospector Saloon, a varmint rifle drawn nose to the east wall
+    (the `first-person-depth` smoke spot, feet at 469, 244, 3457 facing 80°), a screenshot
+    hip-fired and one at the sights; then the same against a standing NPC. If the barrel
+    is cut by the wall there, the original draws it with the world.
+    ([first-person-depth](../design/first-person-depth.md))
+
+## Added 2026-10-27 (main-quest walkthroughs)
+
+28. **Does a SayTo that finds no line still end with SayToDone?** (P1: every ending.)
+    Ours now runs the speaker's SayToDone blocks for the topic in the next frame
+    [hypothesis]: the narrator's end-slide chain (SCPT 0x00161EB4) calls topics that have
+    no line for some endings (VEndingBrotherhood for the NCR ending with the Brotherhood
+    never met) and must still reach VEndingConclusion. To check: a query script that
+    SayTos a topic whose lines all fail, and a SayToDone block that sets a variable; read
+    it one and ten frames later. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** (P2.) 262 lines name a
+    fixed speaker other than the actor of their own GetIsID condition (167 end slides:
+    a Boomer, Nolan McNamara ... as speaker, GetIsID Narrator). Ours now lets that
+    condition decide when the line has one [hypothesis]. To check: the end slides of a
+    finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
+    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator).
+    ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+30. **Reputation axes outside 0-2.** Scripts call SetReputation RepNVNCR with axis 2
+    (Crocker's messenger, Vulpes's greeting) and conditions use GetReputationThreshold
+    axis 3 (VDialogueBenny) and GetReputation axis 2 (VMS36); the wiki documents 0/1
+    (fame/infamy) and 0-2 (mixed/good/bad). Ours does nothing and reads 0 (reputation.rs
+    `axis`), so Benny's greeting for a player liked on the Strip (axis 3 >= 3) is never
+    chosen. To check: GetReputation and GetReputationThreshold
+    with those axes after SetReputation X 2 5 on a fresh save.
+31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
+    mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
+    GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
+    To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
+32. **An expression that leaves extra values** (`GetStage Q N == 1`, compiled with two
+    arguments for GetStage): three begin scripts (e.g. INFO 0x00160731) stop with "2 values
+    left on the stack" in ours. To check: what Side Bets' report line does in the original
+    (it sets nothing on the canonical path).
+
+## Added 2026-10-29 (radiation falloff, issue #894)
+
+33. **Does a radiation marker fall off linearly with distance, and does Rad Resistance cut
+    GetRadiationLevel?** (P2: every irradiated place.) Ours now gives a marker's XRAD ×
+    (1 − d ÷ XRDS), d the 3-D distance from GetPos, and GetRadiationLevel and the HUD
+    that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
+    693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
+    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player.
+    To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
+    marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
+    (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours
+    4.115). Then, for overlapping markers (strongest or sum), on the Camp Searchlight
+    crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
+    point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
+    at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
