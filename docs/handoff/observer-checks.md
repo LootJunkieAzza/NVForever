@@ -465,10 +465,23 @@ The numbers above stay put so links to them hold; each item here gives its own p
     line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
 41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
     the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)
+42. **Does a stage result script's reference-less RemoveSpell act on the player?** (P1 if
+    yes: the doctors' addiction cure does nothing headless.) Get addicted to Jet, have Ada
+    Straus cure it (VDoctors 20): is the withdrawal gone from the player's effects? (§10
+    stall 1.)
+43. **Does a newly started quest's script run before its first delay?** (P2.) Old World
+    Blues: wake in the Think Tank and talk to Dr. Klein at once. Do the Big Empty's random
+    encounters (NVDLC03Enc 10) start? (§10 stall 2.)
+44. **What does `RemoveItem <item> 0` do?** (P3.) Fix Nellis' arrays by hand, then take
+    Loyal's Sunshine Boogie reward: any error, anything removed? (§10 stall 3.)
+45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
+    stall 4.)
+46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
+    (P3; §10 stall 5.)
 
 ## Added 2026-10-30 (the enemy bar's show rule, issue #935)
 
-42. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
+47. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
     looked at.) The hurt settler's bar was still up 16-18 s after the player turned away
     in hud_enemy5 a1-a3a, where the watch ended; a restrained hostile gecko's went after
     about 5.5 s (b2). Ours lingers 5.5 s for every actor (`hud_target::LINGER_SECONDS`)
@@ -478,7 +491,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     for 40-60 s with no MoveTo; then the same on a hurt restrained gecko, and on each
     after showing the bar 1 s against 10 s before the turn (hostility or the time shown
     are the candidates). ([hud §8](../spec-notes/hud.md))
-43. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
+48. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
     the player starts.) No capture had the weapon out (IsWeaponOut read 0 after the
     script's Ready taps), so no shot hit. Ours keeps its earlier guess: 5 s after the
     player hits an actor it has the bar, aimed at or not and prompt or not, while it is
