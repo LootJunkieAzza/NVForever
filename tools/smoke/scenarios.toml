@@ -12896,3 +12896,45 @@ expect = [
   { json = "given_errors.*", count = 0, label = "fail-beyond-the-beef: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 5, issue #932)"
+
+[[scenario]]
+name = "mq-old-world-blues-setups"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues-setups.actions.json (OldWorldBlues.esm): the Sonic Emitter chain's X-8 and the main chain's X-13, then X-8's set-up (both tests replayed with the unusual specimen released, the specimen results: NVDLC03X8Setup 100), X-13's (advanced, expert and robot compliance tests, the robobrains deactivated with Robot Compliance's activate choice: NVDLC03X13Setup 100), NVDLC03Enc 10 and Implant GRX's two ranks (NVDLC03GenericPerkQUEST 10, 11)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/old-world-blues-setups.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/functions/senses.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/old-world-blues-setups.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Sonic Emitter Upgrade done.completed", equals = true, label = "old-world-blues-setups milestone: Sonic Emitter Upgrade done: completed = true" },
+  { json = "observations.?label=NVDLC03Enc 10 (encounters on).stage", equals = 10, label = "old-world-blues-setups NVDLC03Enc 10: stage = 10" },
+  { json = "observations.?label=research count after the advanced replay.var.nResearchCompleted", equals = 2, label = "old-world-blues-setups research count after the advanced replay: var.nResearchCompleted = 2" },
+  { json = "observations.?label=milestone: X-8 setup done (unusual specimen results).stage", equals = 100, label = "old-world-blues-setups milestone: X-8 setup done: stage = 100" },
+  { json = "observations.?label=milestone: X-8 setup done (unusual specimen results).completed", equals = true, label = "old-world-blues-setups milestone: X-8 setup done: completed = true" },
+  { json = "observations.?label=milestone: MQ04 done (X-13 stealth suit).completed", equals = true, label = "old-world-blues-setups milestone: MQ04 done: completed = true" },
+  { json = "observations.?label=milestone: X-13 setup done (robot compliance).stage", equals = 100, label = "old-world-blues-setups milestone: X-13 setup done: stage = 100" },
+  { json = "observations.?label=milestone: X-13 setup done (robot compliance).completed", equals = true, label = "old-world-blues-setups milestone: X-13 setup done: completed = true" },
+  { json = "observations.?label=GenericPerkQUEST 11 (Implant GRX rank 2).stage", equals = 11, label = "old-world-blues-setups GenericPerkQUEST 11: stage = 11" },
+  { json = "steps.*.error", count = 0, label = "old-world-blues-setups: no step fails" },
+  { json = "given_errors.*", count = 0, label = "old-world-blues-setups: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the add-ons group report of issue #932 (walk5-addons)"
+
+[[scenario]]
+name = "mq-lonesome-road-launch"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-launch.actions.json (LonesomeRoad.esm): the Lonesome Road chain to the Temple of the Union, then the missiles launched at both (the launch terminal's message boxes), the temple exit, the end slides and the completion trigger at the Canyon Wreckage: NVDLC04MQ04 100 and Dead Man's Burden"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-launch.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/voice.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-launch.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: MQ03a done (The Courier).completed", equals = true, label = "lonesome-road-launch milestone: MQ03a done: completed = true" },
+  { json = "observations.?label=MQ04 10 (missiles launched at both).stage", equals = 10, label = "lonesome-road-launch MQ04 10: stage = 10" },
+  { json = "observations.?label=MQ03b 255, target 3.var.nMissileTarget", equals = 3, label = "lonesome-road-launch MQ03b 255: var.nMissileTarget = 3" },
+  { json = "observations.?label=milestone: end slides said, player back at the Canyon Wreckage.frames", min = 1, label = "lonesome-road-launch end slides said: the call passed" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at both).stage", equals = 100, label = "lonesome-road-launch final: MQ04 100: stage = 100" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at both).completed", equals = true, label = "lonesome-road-launch final: MQ04 100: completed = true" },
+  { json = "observations.?label=Dead Man's Burden.value", equals = 1, label = "lonesome-road-launch Dead Man's Burden: value = 1" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-launch: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-launch: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the add-ons group report of issue #932 (walk5-addons)"
