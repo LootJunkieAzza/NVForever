@@ -252,6 +252,26 @@ fn every_observed_file_string_is_written_even_when_hidden() {
 }
 
 #[test]
+fn a_scripts_need_word_lasts_until_the_huds_word_changes() {
+    // [observed: jip-probes gaps1, SetUIString on HardcoreMode/Dehydration read back in
+    // later steps; #1026].
+    let mut ui = fixture();
+    let path = "HUDMainMenu/HardcoreMode/Dehydration/string";
+    ui_hud::write(&mut ui, all_shown(), &texts());
+    assert!(ui.set(path, fnv_ui::Value::Str("NVF one".into())));
+    for _ in 0..3 {
+        ui_hud::write(&mut ui, all_shown(), &texts());
+        ui.update();
+    }
+    assert_eq!(ui.get_string(path).as_deref(), Some("NVF one"), "the HUD's word did not change");
+    let mut changed = texts();
+    changed.needs[0] = "H2O!".into();
+    ui_hud::write(&mut ui, all_shown(), &changed);
+    ui.update();
+    assert_eq!(ui.get_string(path).as_deref(), Some("H2O!"), "a new word is written");
+}
+
+#[test]
 fn standing_and_losing_the_prompt_keep_the_last_strings() {
     let mut ui = fixture();
     let current = Texts { sneak: Some("[CAUTION]".into()), prompt_key: Some("E)".into()), prompt_verb: Some("Talk".into()), ..texts() };

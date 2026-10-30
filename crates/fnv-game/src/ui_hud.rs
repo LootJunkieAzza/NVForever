@@ -170,11 +170,6 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         ("RadiationMeter/radiation_text_value", Some(texts.radiation_value.as_str())),
         ("XPMeter/XPLabel", Some(texts.xp_label.as_str())),
         ("XPMeter/XPLevelUp", Some(texts.xp_level_up.as_str())),
-        ("HardcoreMode/Dehydration", Some(texts.needs[0].as_str())),
-        ("HardcoreMode/Hunger", Some(texts.needs[1].as_str())),
-        ("HardcoreMode/Sleep", Some(texts.needs[2].as_str())),
-        ("HardcoreMode/Rads", Some(texts.needs[3].as_str())),
-        ("HardcoreMode/LMBs", Some(texts.needs[4].as_str())),
         ("SneakMeter/sneak_nif", texts.sneak.as_deref()),
         ("Info/justify_center_hotrect/PCShortcutLabel", texts.prompt_key.as_deref()),
         ("Info/justify_center_hotrect", texts.prompt_verb.as_deref()),
@@ -184,6 +179,15 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
             if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) {
                 ui.set_trait(tile, "string", Value::Str(value.to_string()));
             }
+        }
+    }
+    // The need words are written when their text changes, not every frame: a script's
+    // SetUIString on one lasts until the HUD's own word changes [observed: the jip-probes
+    // set gaps1, "NVF one" then "NVF 2" read back in later steps, "H20" only after the
+    // probe wrote it; hypothesis: written on change, the stage changes not yet probed].
+    for (name, word) in ["Dehydration", "Hunger", "Sleep", "Rads", "LMBs"].iter().zip(&texts.needs) {
+        if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/HardcoreMode/{name}")) {
+            ui.write_changed(tile, "string", Value::Str(word.clone()));
         }
     }
     copies::write(ui, shown, texts);

@@ -494,9 +494,32 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `rLogBlocker.GetInSameCell` inside an `&&`; ours evaluates both sides and logs an
     empty-reference error each frame near ED-E in Primm. (§11 stall 4.)
 
+## Added 2026-10-30 (the enemy bar's show rule, issue #935)
+
+52. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
+    looked at.) The hurt settler's bar was still up 16-18 s after the player turned away
+    in hud_enemy5 a1-a3a, where the watch ended; a restrained hostile gecko's went after
+    about 5.5 s (b2). Ours lingers 5.5 s for every actor (`hud_target::LINGER_SECONDS`):
+    a known divergence for a neutral. To check: hurt a neutral settler by script (DamageAV
+    Health), turn the player onto him from 350 units (not the activation target, no
+    prompt), then 180 degrees away, and read `EnemyHealth`'s three children every 50 ms
+    for 40-60 s with no MoveTo; then the same on a hurt restrained gecko, and on each
+    after showing the bar 1 s against 10 s before the turn (hostility or the time shown
+    are the candidates). ([hud §8](../spec-notes/hud.md))
+53. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
+    the player starts.) No capture had the weapon out (IsWeaponOut read 0 after the
+    script's Ready taps), so no shot hit. Ours keeps its earlier guess: 5 s after the
+    player hits an actor it has the bar, aimed at or not and prompt or not, while it is
+    hurt (`hud_target::HIT_SECONDS`) [hypothesis]. To check: with a weapon drawn (EquipItem
+    and a Ready tap confirmed by IsWeaponOut 1), shoot a neutral settler once from 350
+    units with the crosshair on him, turn away at once, and read the three children every
+    50 ms for 20 s; then the same with the crosshair off him at the moment of the hit (a
+    shot from a script, or a grenade), and at 120 units where he is the activation target.
+    ([hud §8](../spec-notes/hud.md))
+
 ## Added 2026-10-30 (UI tile tree T8: the pointer and keys)
 
-52. **The pointer on menu tiles** (P2: every menu drawn from its file, MCM's page, 16
+54. **The pointer on menu tiles** (P2: every menu drawn from its file, MCM's page, 16
     plugins of the modlist scan). Ours (fnv-ui `input`):
     - where two targets overlap, the highest summed `depth` takes the pointer (a tie to
       the one drawn later), and a menu opened later is over an earlier one;
