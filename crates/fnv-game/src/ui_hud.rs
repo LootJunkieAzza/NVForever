@@ -184,19 +184,40 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     copies::write(ui, shown, texts);
 }
 
-/// Keeps this frame's writes for [`flush`] instead of making them, for a frame where
-/// nothing reads the HUD's traits (no tile-drawn HUD, no mod tiles, no script has called
-/// a UI function): such a frame does no tree work [design: maintainer's review of #902].
-pub fn defer(game: &mut Game, shown: Shown, texts: Texts) {
-    game.ui_hud_pending = Some(Box::new((shown, texts)));
+/// Measures a text: font number (0 when absent) and string to its width in interface
+/// units, as [`write_text_widths`] takes it. The engine's fonts behind it, owned, so the
+/// game holds no engine types [design].
+pub type Measure = std::sync::Arc<dyn Fn(f64, &str) -> f64 + Send + Sync>;
+
+/// A frame's HUD writes kept back by [`defer`]: what [`write`] and [`write_text_widths`]
+/// would have made.
+pub struct Pending {
+    pub shown: Shown,
+    pub texts: Texts,
+    /// The text widths' measure, `None` when the frame would have written no widths (no
+    /// game fonts) [design].
+    pub widths: Option<Measure>,
 }
 
-/// Makes the writes [`defer`] kept, before a UI function reads or changes the tree, so a
-/// script reads this frame's values as it would had they been written [design].
+/// Keeps this frame's writes for [`flush`] instead of making them, for a frame where
+/// nothing reads the HUD's traits (no tile-drawn HUD, no mod tiles, no script has called
+/// a UI function on the HUD): such a frame does no tree work [design: maintainer's review
+/// of #902]. The widths are kept as their measure: they are measured from the strings
+/// [`write`] puts in the tree, which are not there yet.
+pub fn defer(game: &mut Game, shown: Shown, texts: Texts, widths: Option<Measure>) {
+    game.ui_hud_pending = Some(Box::new(Pending { shown, texts, widths }));
+}
+
+/// Makes the writes [`defer`] kept, before a UI function reads or changes the HUD, in a
+/// frame's order (the strings, then the widths measured from them), so a script reads
+/// this frame's values as it would had they been written [design].
 pub fn flush(game: &mut Game) {
     if let Some(pending) = game.ui_hud_pending.take() {
-        let (shown, texts) = *pending;
+        let Pending { shown, texts, widths } = *pending;
         write(&mut game.ui_tree, shown, &texts);
+        if let Some(measure) = widths {
+            write_text_widths(&mut game.ui_tree, &*measure);
+        }
     }
 }
 

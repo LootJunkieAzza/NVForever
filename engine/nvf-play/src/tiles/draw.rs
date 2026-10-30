@@ -79,6 +79,9 @@ pub fn measure(font: &Font, text: &str, wrap: Option<f64>) -> (f64, f64) {
 #[derive(Resource, Default)]
 pub struct TileFonts {
     faces: HashMap<u8, Face>,
+    /// The faces' fonts, owned, for the text widths a frame keeps back
+    /// ([`fnv_game::ui_hud::defer`]); made again when a face is read.
+    measure: Option<fnv_game::ui_hud::Measure>,
 }
 
 #[derive(SystemParam)]
@@ -96,6 +99,7 @@ impl FontKit<'_> {
             let bc = bc_supported(self.formats.as_deref());
             let f = face(FONT_FILES[n as usize - 1], plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
             self.fonts.faces.insert(n, f);
+            self.fonts.measure = None;
         }
     }
 
@@ -121,25 +125,37 @@ impl FontKit<'_> {
         self.face(7.0).map_or(0.0, |face| measure(&face.font, text, None).0 as f32)
     }
 
-    /// Write the HUD text tiles' measured widths into the tree
-    /// ([`fnv_game::ui_hud::write_text_widths`]); only with the game's own fonts, a stand-in
-    /// font would write made-up widths [design].
-    pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
+    /// The measure of the HUD text tiles' widths ([`fnv_game::ui_hud::write_text_widths`]);
+    /// only with the game's own fonts, a stand-in font would write made-up widths, so
+    /// `None` when a text tile's font is not read [design]. The text tiles' fonts are the
+    /// same before and after [`fnv_game::ui_hud::write`], which sets no fonts.
+    pub(crate) fn widths(&mut self, ui: &Ui) -> Option<fnv_game::ui_hud::Measure> {
         if self.data.is_none() {
-            return;
+            return None;
         }
         let fonts: Vec<f64> = fnv_game::ui_hud::measured_texts(ui).into_iter()
             .map(|t| ui.tile(t).get("font").map_or(0.0, Value::num)).collect();
         if fonts.is_empty() {
-            return;
+            return None;
         }
         for &f in &fonts {
             self.load(f);
         }
         if fonts.iter().any(|&f| self.face(f).is_none_or(|face| face.image.is_none())) {
-            return;
+            return None;
         }
-        fnv_game::ui_hud::write_text_widths(ui, &|font, text| self.face(font).map_or(0.0, |f| measure(&f.font, text, None).0));
+        if self.fonts.measure.is_none() {
+            let owned: HashMap<u8, Font> = self.fonts.faces.iter().map(|(&n, face)| (n, face.font.clone())).collect();
+            self.fonts.measure = Some(std::sync::Arc::new(move |font: f64, text: &str| owned.get(&font_number(font)).map_or(0.0, |f| measure(f, text, None).0)));
+        }
+        self.fonts.measure.clone()
+    }
+
+    /// Write the HUD text tiles' measured widths into the tree ([`FontKit::widths`]).
+    pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
+        if let Some(measure) = self.widths(ui) {
+            fnv_game::ui_hud::write_text_widths(ui, &*measure);
+        }
     }
 }
 

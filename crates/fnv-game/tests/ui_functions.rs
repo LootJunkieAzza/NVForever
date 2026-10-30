@@ -128,7 +128,7 @@ fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
         frame: Default::default(),
     };
     // Nothing read the tree: the frame's writes wait, the tree keeps the file's text.
-    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts);
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
     assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("file"));
     assert!(!g.ui_used);
     // MenuTapKey reads no tree: still waiting.
@@ -137,6 +137,42 @@ fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
     // A script's read makes them first, and the engine writes every frame from then on.
     assert_eq!(run(&mut g, "GetUIString", &[s("HUDMainMenu/RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
     assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+#[test]
+fn deferred_hud_writes_carry_the_measured_text_widths() {
+    use fnv_game::ui_hud::{self, Measure, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    // The prompt's verb tile as the file has it: "Button Text", 156 wide [observed:
+    // hud.md §14.1].
+    let hud = MemSource::default().with(
+        "menus\\hud_main_menu.xml",
+        r#"<menu name="HUDMainMenu"> <rect name="Info"> <rect name="justify_center_hotrect"> <text name="button_text"> <string> Button Text </string> <font> 7 </font> <width> 156 </width> </text> </rect> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&hud, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: Some("Talk".into()),
+        frame: Default::default(),
+    };
+    // A stand-in for the engine's fonts: 13.5 units a letter in font 7, so "Talk" is 54
+    // as the original measured it [observed: hud.md §14.1].
+    let measure: Measure = std::sync::Arc::new(|font: f64, text: &str| if font == 7.0 { 13.5 * text.chars().count() as f64 } else { 0.0 });
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, Some(measure));
+    let path = "HUDMainMenu/Info/justify_center_hotrect/button_text/width";
+    assert_eq!(g.ui_tree.get_float(path), Some(156.0));
+    // The script's first read makes the strings and then the widths measured from them,
+    // as a frame writes them: the measured width, not the file's.
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s(path)])), 54.0);
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/Info/justify_center_hotrect/button_text/string").as_deref(), Some("Talk"));
 }
 
 /// A query script compiled from source and run by the VM, as a mod's script runs: the

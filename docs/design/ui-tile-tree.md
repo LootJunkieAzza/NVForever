@@ -131,7 +131,11 @@ or holds no `<menu>` is an error for that menu only.
    script that has called a UI function. Otherwise the frame keeps them
    (`ui_hud::defer`), and the first UI function call makes them before it reads
    (`ui_hud::flush`); from then on they are written every frame [design: maintainer's
-   review of #902, so the default game does no tree work a frame].
+   review of #902, so the default game does no tree work a frame]. The measured text
+   widths are kept with them as their measure (the engine's fonts, owned, a
+   `ui_hud::Measure`): they are measured from the strings the write puts in the tree, so
+   the flush makes the strings and then the widths, in a frame's order (#936). The
+   corners are written only with the tile-drawn HUD, when nothing is kept back.
 2. **Scripts run**, and their Set/Mod/Inject calls land in the tree at once (the
    functions read what they set in the same frame).
 3. **`Ui::update()`** works out every trait whose sources changed, until nothing

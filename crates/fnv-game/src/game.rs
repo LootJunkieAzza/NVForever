@@ -1074,7 +1074,7 @@ pub struct Game<'a> {
     /// This frame's HUD writes, kept back while nothing reads the HUD's traits
     /// (`crate::ui_hud::defer`); the first UI function call makes them
     /// (`crate::ui_hud::flush`).
-    pub ui_hud_pending: Option<Box<(crate::ui_hud::Shown, crate::ui_hud::Texts)>>,
+    pub ui_hud_pending: Option<Box<crate::ui_hud::Pending>>,
     /// A script called a UI function that reads or changes the tree: the engine writes
     /// the HUD every frame from then on.
     pub ui_used: bool,
