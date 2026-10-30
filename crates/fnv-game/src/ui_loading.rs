@@ -8,7 +8,56 @@ use fnv_ui::{
 };
 use fnv_vfs::Vfs;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+/// Where a headless run (`runner::run`, as `fnvtool ext queries`) reads the menus: the
+/// files and the menu paths, made from the run's world. Without it the tree stays empty
+/// and GetUIFloat reads -999 as for a menu not loaded [design].
+pub type HeadlessMenus = Arc<dyn Fn(&World<'_>) -> Option<(Box<dyn Source + Send + Sync>, Vec<String>)> + Send + Sync>;
+
+static HEADLESS: Mutex<Option<HeadlessMenus>> = Mutex::new(None);
+
+/// Set where headless runs read the menus from (the tool's archives).
+pub fn set_headless_menus(f: HeadlessMenus) {
+    *HEADLESS.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
+}
+
+/// Load the always-loaded menus into a headless run's tree, as the engine does at its
+/// start ([`load`]), when [`set_headless_menus`] gave the files.
+pub(crate) fn load_headless(game: &mut Game<'_>) -> Option<LoadReport> {
+    let f = HEADLESS.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let (files, paths) = f(&game.world)?;
+    let report = load(game, files, paths);
+    headless_hud(game);
+    Some(report)
+}
+
+/// The HUD as the engine writes it in GameMode with nothing to show beyond the HUD itself
+/// (no sneaking, radiation, prompt or target), once: a headless run has no frames of the
+/// engine's HUD [design]. The need words from their settings; every other text as the
+/// menu file left it.
+fn headless_hud(game: &mut Game<'_>) {
+    use crate::ui_hud::{Shown, Texts, NEED_WORDS};
+    let needs = NEED_WORDS.map(|(setting, word)| match game.world.setting_value(setting) {
+        Some(Setting::Str(v)) if !v.is_empty() => v.clone(),
+        _ => word.to_string(),
+    });
+    let ui = &mut game.ui_tree;
+    let text = |p: &str| ui.get_string(&format!("HUDMainMenu/{p}/string")).unwrap_or_default();
+    let texts = Texts {
+        radiation_word: text("RadiationMeter/radiation_text"),
+        radiation_value: text("RadiationMeter/radiation_text_value"),
+        xp_label: text("XPMeter/XPLabel"),
+        xp_level_up: text("XPMeter/XPLevelUp"),
+        needs,
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+        frame: Default::default(),
+    };
+    let shown = Shown { root: true, corners: true, reticle: true, ..Default::default() };
+    crate::ui_hud::write(ui, shown, &texts);
+}
 
 /// Menus kept for the run [documented: InjectUIXML notes, ui-tile-tree.md §3.3].
 pub const ALWAYS_LOADED: &[&str] = &["HUDMainMenu", "InventoryMenu", "MapMenu", "RepairMenu", "StatsMenu", "ItemModMenu"];

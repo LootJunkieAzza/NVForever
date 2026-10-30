@@ -177,6 +177,16 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             });
             let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(move |p: &str| v2.as_ref().as_ref().and_then(|v| v.read(p)).and_then(Result::ok));
             fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![lo.data_dir.clone()], config, write: None, lookup: Some(lookup), reader: Some(reader) });
+            // The menus' tile tree, as the engine loads it at its start, so the UI
+            // functions read the HUD's traits (ui_loading::load).
+            if let Ok(v) = fnv_vfs::Vfs::open_for_plugins(&lo.data_dir, &lo.plugins) {
+                let v = std::sync::Arc::new(v);
+                fnv_game::ui_loading::set_headless_menus(std::sync::Arc::new(move |w: &fnv_sim::World<'_>| {
+                    let files = fnv_game::ui_loading::UiFiles::new(v.clone(), w);
+                    let paths = files.menu_paths();
+                    Some((Box::new(files) as Box<dyn fnv_ui::Source + Send + Sync>, paths))
+                }));
+            }
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let jtext = std::fs::read_to_string(&steps).with_context(|| steps.display().to_string())?;
             let job: Value = serde_json::from_str(&jtext).with_context(|| steps.display().to_string())?;
