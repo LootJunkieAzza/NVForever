@@ -492,6 +492,15 @@ impl Ui {
         self.walk_to_trait(root, rest, name)
     }
 
+    /// A trait by a path under a tile: `Tile/…/trait` from `at`'s children, or a trait of
+    /// `at` itself when the path is one segment (SortUIListBox's keys, read on each item)
+    /// [design].
+    pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
+        let segs = split(path);
+        let (name, tiles) = segs.split_last()?;
+        self.walk_to_trait(at, tiles, name)
+    }
+
     fn root_named(&self, seg: &str) -> Option<TileId> {
         self.roots.iter().copied().find(|&r| self.tile(r).live && self.tile(r).name.eq_ignore_ascii_case(seg))
     }

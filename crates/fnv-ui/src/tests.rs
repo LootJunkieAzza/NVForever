@@ -364,3 +364,17 @@ fn a_loose_replacement_draws_only_what_the_archived_file_lacks() {
     assert!(!ui.mod_tile_drawn(code, Some(&vanilla)));
     assert!(Ui::file_name_paths(&MemSource::default(), "menus/m.xml").is_none());
 }
+
+#[test]
+fn a_trait_by_a_path_under_a_tile() {
+    let src = MemSource::default().with("menus/m9.xml", r#"<menu name="M"> <rect name="Item"> <_y> 4 </_y> <text name="Label"> <string> a </string> </text> </rect> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/m9.xml").unwrap();
+    let item = ui.find_tile("M/Item").unwrap();
+    let (t, k) = ui.find_trait_in(item, "_y").unwrap();
+    assert_eq!((t, ui.tile(t).traits[k].value.num()), (item, 4.0));
+    let (t, k) = ui.find_trait_in(item, "Label/string").unwrap();
+    assert_eq!(ui.tile(t).traits[k].value.text(), "a");
+    assert!(ui.find_trait_in(item, "Label/nope").is_none());
+    assert!(ui.find_trait_in(item, "").is_none());
+}
