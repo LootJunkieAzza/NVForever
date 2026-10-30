@@ -53,6 +53,8 @@ pub struct OtherState {
     pub lev_actors: HashMap<FormId, crate::nvse_leveled::LevList>,
     /// Generic*Form's changed lists, by (list code, form) (`Game::generic_list`).
     pub generic: HashMap<(i64, FormId), Vec<FormId>>,
+    /// SetOwningFactionRequiredRank's ranks, by reference (over the record's XRNK).
+    pub owner_ranks: HashMap<FormId, i32>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -102,7 +104,7 @@ fn alt_groups(ex: bool, args: &[XVal], dflt: [bool; 7], short: [bool; 7]) -> [bo
 impl<'a> Game<'a> {
     /// Change a package for the session: a copy of its definition, changed, takes its
     /// place for every reader (`Game::package_def`).
-    fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
+    pub(crate) fn change_package(&mut self, p: FormId, change: impl FnOnce(&mut crate::package::PackageDef)) {
         let Some(def) = self.package_def(&p) else { return };
         let mut new = def.clone();
         change(&mut new);

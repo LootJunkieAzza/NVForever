@@ -1,7 +1,8 @@
 # The remaining xNVSE functions: tasks
 
-*2026-10-26: every family here is built; the next batch for the whole extender
-integration is docs/handoff/nvse-next-batch.md.*
+*2026-10-30: core xNVSE is built but for three names (§3); what is left is the plugin
+libraries (JIP LN, JohnnyGuitar, ShowOff, SUP, …), counted in §3. The next batch for the
+whole extender integration is docs/handoff/nvse-next-batch.md.*
 
 Written 2026-10-26, after the core plan (docs/handoff/extender-core-tasks.md, D1–D6) and
 next to the JIP plan (jip-tasks.md). Same rules: no extender source; behaviour from the
@@ -41,29 +42,36 @@ GetEquipType, GetRepairList, GetModelPath, GetIconPath; the input functions
 ToLower, CharToAscii, AsciiToChar, Get/Set/ClearBit, shifts, Logical…, IntToBin),
 GetBaseObject, ListGetCount, GetNumItems, IsFormValid, IsReference, the D1–D5 tables.
 
-## 3. Not built, by family (catalogue origins NVSE and FOSE1), recounted 2026-10-26
+## 3. Not built: the census (2026-10-30)
 
-189 left (198 on 2026-10-26, less the nine UI functions built 2026-10-28), counted from `schemas/script/functions.json` against the names the VM and the
-fnv-game nvse*.rs files handle (a setter counts as built when its getter is). Every
-family built so far was checked against the peer session's in-game probe sets (#828,
-L5.ext.nvse.*); all match except rows that depend on the owner's save.
+Counted by calling every extender function of the catalogue once
+(`cargo test --release -p fnv-game --test synthetic -- --ignored extender_census
+--nocapture`; the names go to `target/tmp/extender-census.txt`). A function counts as
+not built when the call ends in "not built yet"; 31 names do not compile with the
+census's placeholder arguments and are counted apart (statements such as `let`, `while`,
+and functions whose parameters the catalogue gets wrong).
 
-| Family | Count | Functions |
-|---|---|---|
-| other | 76 | AddItemHealthPercentOwner, AddItemOwnership, AddSpellNS, BuildRef, CompareScripts, CopyIR, CopyIRAlt, CreateTempRef, EndVATScam, EquipItem2, EquipMe, ForEachInList, GetAgeClass, GetBaseSpellListLevSpells, GetConsoleEcho, GetConsoleOutputFilename, GetCrosshairRef, GetCurrentHealth, GetCurrentObjective, GetCurrentQuestObjectiveTeleportLinks, GetCurrentScript, GetDefaultForms, GetDoorTeleportX/Y/Z/Rot, GetEquippedCurrentHealth, GetEquippedWeaponCanUseAmmo, GetEquippedWeaponUsesAmmoList, GetFOSEBeta, GetFOSERevision, GetFOSEVersion, GetFalloutDirectory, GetGridsToLoad, GetHeadParts, GetHeadingAngleX, GetInGrid, GetInGridInCell, GetLevCharacterRefs, GetLevCreatureRefs, GetLocalRefIndex, GetNthDefaultForm, GetNthExplicitRef, GetNumExplicitRefs, GetPaired, GetParentCellOwningFactionRequiredRank, GetPermanent, GetPlayerCurrentAmmo, GetPlayerCurrentAmmoRounds, GetSelfAlt, GetSoldItemInvRef, GetTFC, GetWeaponCanUseAmmo, HasAmmoEquipped, HasConsoleOutputFileName, HasScriptCommand, IsEquippedAmmoInList, OutputLocalMapPicturesOverride, RemoveMeIR, RemoveScript, ResetAllVariables, RunScript, SetConsoleEcho, SetCurrentHealth, SetDoorTeleport, SetEditorID, SetEquippedCurrentHealth, SetIsPlayable, SetIsPowerArmor, SetNameEx, SetNthDefaultForm, SetNthFactionRankNameEx, SetOutputLocalMapPicturesGrids, SetPermanent, SetPlayerCurrentAmmoRounds, SetQuestItem, Sv_Set, UnequipMe, Update3D |
-| console | 21 | Con_Inv, Con_SCOF, Con_SQV, Con_SetUFOCamSpeedMult, Con_ShowVars, Con_TCL, Con_TDT, Con_TFC, Con_TFIK, Con_ToggleMenus, con_CloseAllMenus, con_GetINISetting, con_LoadGame, con_QuitGame, con_RefreshINI, con_Save, con_SaveINI, con_SetCameraFOV, con_SetGameSetting, con_SetINISetting, con_SetVel |
-| debug and docs | 15 | Ar_DumpF, Ar_DumpID, Assert, CompileScript, DebugPrintVar, DecompileScript, DumpCommandWikiDoc, DumpDocs, GetCommandOpcode, GetDebugMode, GetDebugSelection, PrintDebug, PrintDebugF, PrintF, PrintVar |
-| UI (tile tree, 2026-10-28: the others are built, `fnv_game::ui_functions`) | 6 | GetUIFloatInherited, MenuHoldKey, MenuReleaseKey, PrintActiveTile, ShowLevelUpMenu, SortUIListBox |
-| input | 12 | ClearHotkey, DisablePlayerControlsAlt, DisablePlayerControlsAltEx, EnablePlayerControlsAlt, EnablePlayerControlsAltEx, GetHotkeyItem, GetOpenKey, GetPlayerControlsDisabledAlt, GetPlayerControlsDisabledAltEx, SetHotkeyItem, SetIsControl, SetOpenKey |
-| flags | 10 | GetEquippedWeaponModFlags, GetEyesFlags, GetFlagsHigh, GetFlagsLow, GetHairFlags, SetEquippedWeaponModFlags, SetEyesFlags, SetFlagsHigh, SetFlagsLow, SetHairFlags |
-| quaternion Ex forms | 9 | QFromAxisAngleEx, QFromEulerEx, QInterpolateEx, QMultQuatQuatEx, QMultQuatVector3Ex, QNormalizeEx, QToEulerEx, V3CrossproductEx, V3NormalizeEx |
-| packages | 8 | AddPackageAt, GetPackageLocation, GetPackageLocationRadius, RemoveAllPackages, RemovePackageAt, SetPackageLocationRadius, SetPackageLocationReference, SetPackageTargetReference |
-| paths | 7 | GetBipedIconPath, GetScopeModelPath, SetBipedIconPathEx, SetBipedModelPathEx, SetIconPathEx, SetModelPathEx, SetScopeModelPath |
-| event-handler lists | 6 | DumpEventHandlers, GetEventHandlers, GetHigherPriorityEventHandlers, GetLowerPriorityEventHandlers, IsEventHandlerFirst, IsEventHandlerLast |
-| settings and INI | 6 | GetNumericINISetting, GetNumericIniSetting, GetStringIniSetting, SetNumericINISetting, SetStringGameSettingEx, SetStringIniSetting |
-| tokens | 5 | GetTokenRef, GetTokenValue, SetTokenRef, SetTokenValue, SetTokenValueAndRef |
-| animations | 4 | AddAnimation, DelAnimation, DelAnimations, GetNthAnimation |
-| generic forms | 4 | GenericAddForm, GenericDeleteForm, GenericGetForm, GenericReplaceForm |
+**Core xNVSE (origins NVSE and FOSE1): 3 of 609 left, none buildable now.**
+- `eval`: if-statement syntax, built in the compiler (the census calls it as a function).
+- `SetNthPackage`: its page names no arguments ("Sets and returns the Nth package"), so
+  there is nothing to build from [documented: SetNthPackage].
+- `PrintActiveTile`: the name of the tile under the pointer; the tile tree has no
+  pointer state headless, and the engine's menus do not report one yet.
+
+Built in the 2026-10-30 batch (`nvse_rest.rs`, the VM, `ui_functions.rs`): SetEyes,
+SetHairLength, SetNPCWeight, SetActorBaseFlagsHigh, SetOwningFactionRequiredRank,
+SetPackageTargetDistance, SetRefCount, SetCurrentQuest, SetStringGameSettingEx,
+SetAltControl, MenuHoldKey, MenuReleaseKey, ShowLevelUpMenu, GetUIFloatInherited,
+CompileScript, PrintVar, DebugPrintVar; PrintF, PrintDebugF, Ar_DumpF, DecompileScript,
+DumpDocs and DumpCommandWikiDoc write nothing [decision: NVForever writes nothing beside
+the game]; GetFontFile and GetNthPerkEntryString (JIP and LU).
+
+**The plugin libraries: 1,561 left.** JIP LN 390 of 768, JohnnyGuitar 314 of 359, SUP
+182 of 184, LU 145 of 283, ShowOff 136 of 173, ITR 119 of 119, One111 54, CacheUI 45,
+PP 45 of 52, Anh 34 of 46, vheyes 21, NX 18, kNVSE 16 of 28, JIPPPLN 10, Command
+Extender 8, Overcharge 6, and 18 more in plugins with four or fewer. The next batches
+should follow what mods call: `fnvtool ext scan` over a mod list counts the functions
+their scripts use (docs/handoff/nvse-next-batch.md).
 
 ## 4. Order
 

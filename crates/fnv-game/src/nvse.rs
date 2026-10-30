@@ -171,6 +171,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_other::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_rest::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_console::call(g, name, subject, args) {
         return Some(r);
     }
@@ -256,6 +259,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             "getarmorarmorrating" => Some(("DNAM", "dr")),
             "getarmordt" => Some(("DNAM", "dt")),
             "getammoconsumedpercent" => Some(("DAT2", "consumed_percentage")),
+            // [documented: SetHairLength; SetNPCWeight] the NPC base's LNAM and NAM7.
+            "gethairlength" => Some(("LNAM", "")),
+            "getnpcweight" => Some(("NAM7", "")),
             // [observed: nvse-setters, SetObjectHealth 123 then GetBaseHealth 123].
             "getobjecthealth" => Some(("DATA", "health")),
             // A creature's attack damage is not set [observed: atk1, SetAttackDamage 50 on
@@ -604,7 +610,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // [documented: GetParentCellOwner; GetOwningFactionRequiredRank] the cell's owner
         // and the faction rank a reference's owner needs.
         "getparentcellowner" => XVal::Ref(subject.and_then(|r| g.cell_of(r)).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
-        "getowningfactionrequiredrank" => XVal::Num(subject.and_then(|r| g.data.owner_ranks.get(&r)).map_or(0.0, |&r| f64::from(r))),
+        "getowningfactionrequiredrank" => XVal::Num(subject.and_then(|r| g.other.owner_ranks.get(&r).or_else(|| g.data.owner_ranks.get(&r))).map_or(0.0, |&r| f64::from(r))),
         // `GetBipedModelPath which [form]`: 0 male biped (MODL), 1 female biped (MOD3),
         // 2 male ground (MOD2), 3 female ground (MOD4) [observed: nvse-misc, leather armor].
         "getbipedmodelpath" => {
