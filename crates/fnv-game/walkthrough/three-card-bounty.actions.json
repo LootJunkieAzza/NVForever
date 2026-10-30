@@ -1,0 +1,245 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Three-Card Bounty (VMS12): Major Dhatri's three Fiend bounties, Violet, Cook-Cook and Driver Nephi, from the offer (5) to the last payment (100)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Major Dhatri at Camp McCarran offers the Fiend bounties (VMS12 started, 5); Violet, Cook-Cook and Driver Nephi are killed, each corpse holds its head (the OnDeath scripts add it); Dhatri pays for each head (nKillCount), and with all three in (nKillCount 3) his closing line (INFO 0x000F7EA3, said in the third payment conversation) sets 100 (Complete Quest). Stages 10-60 are set by nothing in FalloutNV.esm (the quest runs on objectives); First Recon's help and Queenie are not run."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk to McCarran's concourse."
+  },
+  {
+   "op": "move_player",
+   "to": "MajorDhatriRef"
+  },
+  {
+   "op": "talk",
+   "actor": "MajorDhatriRef",
+   "label": "dhatri bounties"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran31EMajorDhatriTopic000",
+   "label": "dhatri bounties 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran31EMajorDhatriTopic003",
+   "label": "dhatri bounties 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS12",
+   "fields": [
+    "running",
+    "stage",
+    "done.5"
+   ],
+   "label": "milestone: VMS12 5"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the fight at the Fiends' camp: violet dies by the player's hand, and the player loots the corpse (its head, which the OnDeath script added)."
+  },
+  {
+   "op": "move_player",
+   "to": "FiendVioletRef"
+  },
+  {
+   "op": "kill",
+   "actor": "FiendVioletRef",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "remove_all_items",
+   "from": "FiendVioletRef",
+   "to": "player"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "HeadViolet",
+   "label": "violet head"
+  },
+  {
+   "op": "move_player",
+   "to": "MajorDhatriRef"
+  },
+  {
+   "op": "talk",
+   "actor": "MajorDhatriRef",
+   "label": "violet bounty"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran31EMajorDhatriTopic016",
+   "label": "violet bounty 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS12",
+   "fields": [
+    "var.nKillCount"
+   ],
+   "label": "violet paid"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the fight at the Fiends' camp: cook-cook dies by the player's hand, and the player loots the corpse (its head, which the OnDeath script added)."
+  },
+  {
+   "op": "move_player",
+   "to": "FiendCookCookRef"
+  },
+  {
+   "op": "kill",
+   "actor": "FiendCookCookRef",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "remove_all_items",
+   "from": "FiendCookCookRef",
+   "to": "player"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "HeadCookCook",
+   "label": "cook-cook head"
+  },
+  {
+   "op": "move_player",
+   "to": "MajorDhatriRef"
+  },
+  {
+   "op": "talk",
+   "actor": "MajorDhatriRef",
+   "label": "cook-cook bounty"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran31EMajorDhatriTopic016",
+   "label": "cook-cook bounty 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS12",
+   "fields": [
+    "var.nKillCount"
+   ],
+   "label": "cook-cook paid"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the fight at the Fiends' camp: driver nephi dies by the player's hand, and the player loots the corpse (its head, which the OnDeath script added)."
+  },
+  {
+   "op": "move_player",
+   "to": "FiendDriverNephiRef"
+  },
+  {
+   "op": "kill",
+   "actor": "FiendDriverNephiRef",
+   "killer": "player"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "remove_all_items",
+   "from": "FiendDriverNephiRef",
+   "to": "player"
+  },
+  {
+   "op": "get_item_count",
+   "of": "player",
+   "item": "HeadDriverNephi",
+   "label": "driver nephi head"
+  },
+  {
+   "op": "move_player",
+   "to": "MajorDhatriRef"
+  },
+  {
+   "op": "talk",
+   "actor": "MajorDhatriRef",
+   "label": "driver nephi bounty"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformMcCarran31EMajorDhatriTopic016",
+   "label": "driver nephi bounty 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS12",
+   "fields": [
+    "var.nKillCount"
+   ],
+   "label": "driver nephi paid"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS12",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed",
+    "var.nKillCount"
+   ],
+   "label": "final: VMS12 100"
+  }
+ ]
+}
