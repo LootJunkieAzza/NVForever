@@ -125,6 +125,7 @@ Notes [observed]:
     greeting (0x001164F1, shared by GetIsID OR) once (dialogue.md question 13).
 12. `GetStage Q N == 1` compiled with an extra argument leaves two values on the stack.
     Three begin scripts (e.g. INFO 0x00160731) stop there; ours gives a script error.
+    Settled 2026-10-30: the original stops them too (scripts.md §4.2, issue #908).
 13. A line with both a follow-up and choices (0x00158A3D, Topic056) plays the follow-up and
     never offers Topic068 [observed in the runner; the original's order is not known].
 
@@ -237,7 +238,8 @@ Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
   was refused; fixed by the companions walkthrough (perks kept per actor), which brought
   the totals to 386 failed calls in 54 causes and 114 line scripts with a problem.
 - **`GetStage Q N == 1` with an extra argument** (3 lines, e.g. INFO 0x001588E5): a script
-  error stops the begin script before its SetStage; item 12 of §2, observer check 32.
+  error stops the begin script before its SetStage; item 12 of §2. The original stops it
+  the same way [observed 2026-10-30; scripts.md §4.2].
 
 The commonest call failures:
 
@@ -303,7 +305,9 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
    `intercom-trigger-activate`.
 3. Possibly hard: dialogue conditions with a null form fail with "parameter 1 is not a form"
    (GetQuestVariable on INFO 0x0014B595-7, GetIsID on 0x000FF5BA) [observed]; if the original
-   says those lines they are lost.
+   says those lines they are lost. Settled 2026-10-30: the original reads 0 for both
+   (dialogue.md §4, issue #907); ours now gives 0 without a failed call, which keeps the
+   lines chosen as before.
 4. Soft: AddScriptPackage is built (`functions/actor.rs`, one slot per actor); whether ED-E's
    Lonesome Road packages then run headless is unchecked;
    dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
