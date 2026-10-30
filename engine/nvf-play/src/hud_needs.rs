@@ -19,7 +19,7 @@
 //! - [`need_look`] and [`limb_look`] are pure, tested without the game.
 
 use crate::combat::PlayerLimbs;
-use crate::hud::{HudSet, HudView, FONT};
+use crate::hud::{HudSet, HudView, FONT, HP_PANEL, MARGIN_X, MARGIN_Y};
 use crate::interface::{amber, bc_supported, face, plain_font, set_text, u, Face, Set};
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
@@ -38,6 +38,18 @@ const FADED: f32 = 124.0 / 255.0;
 /// Fixed piece and word places [observed: private job hud_hardcore2, hc0-hc11]. Previously
 /// font spaces after HP and compacted outside Hardcore [hypothesis].
 const WORD_X: [f32; 5] = [0.0, 55.0, 109.0, 162.0, 218.0];
+/// The words' piece, `HardcoreMode`'s rect [documented: hud_main_menu.xml, HardcoreMode].
+const PIECE: Vec2 = Vec2::new(386.0, 20.0);
+
+/// The piece's left and bottom in interface units: the original's places of
+/// `HardcoreMode` from `HitPoints` ([`fnv_game::ui_hud::HARDCORE_MODE_AT`], 150 to the
+/// right, the same top [observed: hud.md §14]) taken from the hand-built HP piece, so the
+/// words stay in line with "HP" whatever its margins (`crate::hud::MARGIN_X`, `MARGIN_Y`).
+fn piece_place() -> (f32, f32) {
+    use fnv_game::ui_hud::{HARDCORE_MODE_AT as HC, HIT_POINTS_AT as HP};
+    let (dx, dy) = ((HC.0 - HP.0) as f32, (HC.1 - HP.1) as f32);
+    (MARGIN_X + dx, MARGIN_Y + HP_PANEL.y - dy - PIECE.y)
+}
 /// The words are drawn at the font's own size, as tall as "HP", whatever their `zoom` 75
 /// [observed: hud_compare needs_limbs at 1280 x 720, the original's words 17 pixels tall
 /// (y 603-619) as its "HP", their right ends at x 145, 186, 226, 266, 308; the tiles'
@@ -233,7 +245,8 @@ fn draw(
         let face_: Face = face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref()));
         let font = &face_.font;
         let texts = texts(&sim);
-        let piece = Node { position_type: PositionType::Absolute, left: u(190.0), top: u(803.0), width: u(386.0), height: u(20.0), ..default() };
+        let (left, bottom) = piece_place();
+        let piece = Node { position_type: PositionType::Absolute, left: u(left), bottom: u(bottom), width: u(PIECE.x), height: u(PIECE.y), ..default() };
         commands.spawn((WordsRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
             for (i, t) in texts.iter().enumerate() {
                 let node = Node { position_type: PositionType::Absolute, left: u(WORD_X[i]), top: u(0.0), width: u(0.0), height: u(0.0), ..default() };
@@ -281,6 +294,13 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_words_piece_stands_at_the_originals_place() {
+        // The view is 960 units high: (190, 803) from its top left [observed: hud.md §14].
+        let (left, bottom) = piece_place();
+        assert_eq!((left, 960.0 - bottom - PIECE.y), (190.0, 803.0));
+    }
 
     /// T12e: the words at the font's own size (the original's are as tall as "HP" with
     /// their zoom 75), right-justified at their x, the line `TEXT_BASE` under the top.

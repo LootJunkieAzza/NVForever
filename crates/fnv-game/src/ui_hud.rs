@@ -51,6 +51,13 @@ pub struct Texts {
     pub frame: Frame,
 }
 
+/// `HitPoints`' place in interface units, from the view's top left [observed: hud.md §14,
+/// the pieces' place table].
+pub const HIT_POINTS_AT: (f64, f64) = (40.0, 803.0);
+/// `HardcoreMode`'s place, the need words' piece [observed: hud.md §14, the pieces' place
+/// table; private job hud_hardcore2, hc0-hc11, the same in every mode].
+pub const HARDCORE_MODE_AT: (f64, f64) = (190.0, 803.0);
+
 /// Called after menu lifetime sync, before scripts [design: ui-tile-tree.md §4.1].
 pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     let Some(root) = ui.find_tile("HUDMainMenu") else { return };
@@ -70,9 +77,9 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         let (right, middle) = (w.floor(), (w / 2.0).floor());
         // Every place below [observed: hud.md §14, every piece's place table].
         for (name, x, y) in [
-            ("HitPoints", 40.0, 803.0),
+            ("HitPoints", HIT_POINTS_AT.0, HIT_POINTS_AT.1),
             ("ActionPoints", right - 386.0, 803.0),
-            ("HardcoreMode", 190.0, 803.0),
+            ("HardcoreMode", HARDCORE_MODE_AT.0, HARDCORE_MODE_AT.1),
             ("SneakMeter", middle, 30.0),
             ("ReticleCenter", middle - 34.5, 439.5),
             ("EnemyHealth", middle - 175.0, 843.0),
