@@ -41,7 +41,7 @@ fn files() -> MemSource {
             r#"<menu name="HUDMenu"> <rect name="Bars"> <width> 300 </width>
                <image name="Fill"> <width> <copy src="parent()" trait="width"/> <mul src="io()" trait="_Health"/> </width> </image>
                <template name="pip"> <image name="Pip"> <alpha> 255 </alpha> </image> </template>
-               </rect> <_Health> 1 </_Health> </menu>"#,
+               </rect> <text name="Label"> <string> HP </string> </text> <_Health> 1 </_Health> </menu>"#,
         )
         .with("menus\\prefabs\\mod\\gauge.xml", "<text name=\"ModText\"> <string> hello </string> </text>")
 }
@@ -109,14 +109,78 @@ fn injection_and_loading() {
 }
 
 #[test]
+fn deferred_hud_writes_are_made_before_a_script_reads_the_tree() {
+    use fnv_game::ui_hud::{self, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    let hud = MemSource::default().with("menus\\hud_main_menu.xml", r#"<menu name="HUDMainMenu"> <rect name="RadiationMeter"> <text name="radiation_text"> <string> file </string> </text> </rect> </menu>"#);
+    g.ui_tree.load_menu(&hud, "menus\\hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let texts = Texts {
+        radiation_word: "RAD/SEC".into(),
+        radiation_value: "+0".into(),
+        xp_label: "XP".into(),
+        xp_level_up: "LEVEL UP".into(),
+        needs: ["H20", "FOD", "SLP", "RAD", "LMB"].map(String::from),
+        sneak: None,
+        prompt_key: None,
+        prompt_verb: None,
+        frame: Default::default(),
+    };
+    // Nothing read the tree: the frame's writes wait, the tree keeps the file's text.
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts);
+    assert_eq!(g.ui_tree.get_string("HUDMainMenu/RadiationMeter/radiation_text/string").as_deref(), Some("file"));
+    assert!(!g.ui_used);
+    // MenuTapKey reads no tree: still waiting.
+    run(&mut g, "MenuTapKey", &[XVal::Num(28.0)]);
+    assert!(g.ui_hud_pending.is_some());
+    // A script's read makes them first, and the engine writes every frame from then on.
+    assert_eq!(run(&mut g, "GetUIString", &[s("HUDMainMenu/RadiationMeter/radiation_text/string")]), s("RAD/SEC"));
+    assert!(g.ui_used && g.ui_hud_pending.is_none());
+}
+
+/// A query script compiled from source and run by the VM, as a mod's script runs: the
+/// value it sets with SetFunctionValue.
+fn query(g: &mut Game, body: &str) -> XVal {
+    g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default()).expect("the query runs")
+}
+
+#[test]
+fn compiled_scripts_reach_the_tree() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Set and read back by path through the VM and the extender's name lookup.
+    let v = query(&mut g, "SetUIFloat \"HUDMenu/Bars/width\" 120
+SetFunctionValue (GetUIFloat \"HUDMenu/Bars/width\")");
+    assert_eq!(n(v), 120.0);
+    assert_eq!(n(query(&mut g, "SetFunctionValue (GetUIFloatAlt \"HUDMenu/Bars/Nope\")")), NOT_FOUND);
+    // The format string's values are filled in before the tree gets the text.
+    let v = query(&mut g, "SetUIStringEx \"HUDMenu/Label/string\" \"HP %g\" 50
+SetFunctionValue (GetUIString \"HUDMenu/Label/string\")");
+    assert_eq!(v, s("HP 50"));
+    assert_eq!(n(query(&mut g, "SetFunctionValue (AddTileFromTemplate \"HUDMenu/Bars|pip|Pip%g\" 3)")), 1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/Bars/Pip3/alpha")])), 255.0);
+    // `%q` is a quote [documented: InjectUIComponent's example; String Formatting].
+    let v = query(&mut g, "SetFunctionValue (InjectUIComponent \"HUDMenu\" \"<rect name=%qAdded%g%q> <x> %g </x> </rect>\" 2 9)");
+    assert_eq!(n(v), 1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/Added2/x")])), 9.0);
+}
+
+#[test]
 fn mcm_functions_stand_for_start_menu_traits() {
     let f = fixture();
     let mut g = game(&f);
+    // `*:N` counts from zero from the last child (menu-xml.md §3, "name:N / *:N
+    // counting" [observed]): `*:1/*:1` is the second-last child's second-last child, so
+    // the mod's rect and its option stand before their siblings here.
     let src = MemSource::default().with(
         "menus\\start.xml",
-        r#"<menu name="StartMenu"> <rect name="MCM"> <rect name="Mods"/>
-           <rect name="Mod"> <rect name="Title"/> <rect name="Option"> <_enable> 1 </_enable> <string> off </string> </rect> </rect>
-           </rect> </menu>"#,
+        r#"<menu name="StartMenu"> <rect name="MCM">
+           <rect name="Mod"> <rect name="Option"> <_enable> 1 </_enable> <string> off </string> </rect> <rect name="Title"/> </rect>
+           <rect name="Mods"/> </rect> </menu>"#,
     );
     g.ui_tree.load_menu(&src, "menus\\start.xml").unwrap();
     g.ui_tree.update();

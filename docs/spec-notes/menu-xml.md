@@ -4,8 +4,8 @@ How the game's menu files are written and how NVForever reads them into the tile
 (`crates/fnv-ui`, [design](../design/ui-tile-tree.md)). Written from the files in the
 owner's install (read with `fnvtool ui`, never copied into the repo), from mods' files in
 the owner's Mod Organizer folders, and from the GECK wiki export's UI function pages.
-No file text is reproduced here; names of tags and traits are given so the engine can
-find them.
+[design] Only short UIO data-list excerpts are quoted below; no menu XML or complete
+mod file is shipped.
 
 Tools: `fnvtool ui menus --data <Data> [--overlay <mod folder>]…` builds every menu and
 lists counts and every spot the reader mended (`fnv.ui.menus/1`); `fnvtool ui tree
@@ -112,15 +112,20 @@ Entities without a minus are constants: 94 different names in the vanilla files
 - each menu's class (`&HUDMainMenu;`, `&BarterMenu;`, … in `<class>`);
 - `&does_not_stack;` `&no_click_past;` `&nosound;`.
 
-**Their numbers are not known.** NVForever keeps each as a named constant
-(`Value::Sym`): two compare equal when their names do, so `<eq> &center; </eq>` works
-without a number. Only where a number is needed is one guessed [hypothesis]:
+NVForever keeps each as a named constant (`Value::Sym`): two compare equal when
+their names do, so `<eq> &center; </eq>` works without a number. The 40 menu class
+constants also read as numbers [documented: GECK wiki, Hardcoded UI Shortcuts,
+revision 39903 (2026-04-02; the same rows as revision 30746), only the "Menu class ID"
+rows]. These are MenuMode's
+codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]:
 
 - `&true;` 1 and `&false;` 0: the meter prefab picks its picture as `_filename_` + its
   `_SolidMeter`, with `_filename_1` the solid one and a comment saying a true
   `_SolidMeter` draws solid;
 - `&xbox;` `&console;` `&xenon;` 0, the PC build;
-- every other constant reads 0 as a number.
+- `&hudmain;` 1, `&hudalt;` 2 [observed: private job hud_jip file_0032;
+  hud_hardcore2 hc2-hc5; hud.md §14.8];
+- every other constant reads 0 as a number [hypothesis].
 
 ### 2.4 Game setting strings
 
@@ -158,6 +163,204 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 `systemcolor` `clicksound` `mouseoversound`, and the menu-level `class`
 `stackingtype` `menufade` `explorefade`. Input: `xbuttona` …, `xdefault`, `xup` `xdown`
 `xleft` `xright`, `_PCButton_*`, `wheelable`, `draggable`.
+
+### 3.1.1 Layout interpretation (T5 part A)
+
+- [design] `nvf-play/src/tiles/layout.rs` produces screen-unit rectangles without
+  loading assets or drawing. A subtree root retains the contributions of all its
+  ancestors. Hidden items remain in the result with `visible = false`.
+- [hypothesis] `x` and `y` add to the parent's top-left; missing values are zero.
+  `width` and `height` are the box's size, with zero for missing non-text dimensions.
+  No conversion between window pixels and the original's interface units is inferred.
+- [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
+  children; siblings sort by increasing depth, preserving file order for ties. Neither
+  this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+- [hypothesis] `alpha` is 0–255, defaults to 255, and multiplies through ancestors as
+  fractions of 255. [design] Clamp each local alpha to that range and retain fractional
+  results without rounding.
+- [hypothesis] A false `visible` hides the entire subtree; missing means true. A true
+  child cannot override a hidden parent.
+- [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
+  clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
+- [design] `menu` and `hotrect` contribute layout to children but emit no drawing item;
+  hotrect input is T8. `rect`, `image`, `text`, `nif`, `radial` and `window` retain
+  distinct kinds; producing a layout item does not implement model or radial drawing.
+- [design] Image `filename` is passed through (empty if absent); `texatlas` is retained
+  as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
+  [hypothesis] Missing `zoom` means 100 percent. [design] Explicit `zoom`, `tile`,
+  `cropx` and `cropy` are passed as numbers without changing the box; absent tile/crop
+  inputs remain absent. Their effects on texture sampling await the renderer.
+- [design] Text `string` (empty if absent), numeric `font` (zero if absent) and optional
+  `wrapwidth` go to a caller's measuring callback. Only absent width/height are replaced
+  by the measured dimensions; explicit zero dimensions stay zero.
+- [hypothesis] Named `justify` constants `&left;`, `&center;`, `&right;` anchor the text
+  box's left, centre or right edge at x, leaving y at the top. [design] Numeric `justify`
+  is retained for the renderer; its unknown mapping is not invented. Missing, unknown
+  or numeric justification uses a left anchor. Named constants also retain their
+  alignment separately from their numeric view (§2.3).
+- [hypothesis] Local `red`, `green`, `blue` and `brightness` default to 255.
+  [design] RGB clamps to 0–255; brightness passes unchanged. Colour does not multiply
+  through ancestors. Numeric `systemcolor` is retained for the renderer to map; unknown
+  named constants retain their names as well, and absence stays absent.
+- [design] `locus`, `id`, `target`, input traits, menu fades and stacking traits have
+  no extra layout effect yet. No undocumented meaning is assigned to them.
+
+### 3.1.2 Drawing interpretation (T5 part C)
+
+`nvf-play/src/tiles/draw.rs` draws the tiles mods added to `HUDMainMenu` over
+NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mean:
+
+- [documented: hud.md §14] Places are interface units, 960 to the view's height at
+  every size (`screen()` is 960 × width/height wide); [design] one unit is
+  height/960 window pixels (`interface::u`), as the current HUD.
+- [design] Which tiles: §7's `mod_added_tiles` roots, and inside them each tile
+  `mod_tile_drawn` accepts: Injected and Template always, Code never, File tiles only
+  against the archived file's name paths. In the game no File tile draws in v1:
+  `fnv_vfs::Vfs` keeps one location per path, so the archived copy under a loose file
+  cannot be read [documented: crates/fnv-vfs/src/lib.rs, `Vfs::open`]. `fnvtool ui
+  mod-tiles` makes the comparison where overlays and archives are separate (2026-10-29,
+  over the test install [observed]: vanilla 0 tiles, Clean Vanilla Hud's loose HUD 0,
+  Vanilla UI Plus 5, its `VUI+` outline tiles in the prompt box).
+- [design] A `rect` draws a filled box only when it sets `red`, `green` or `blue`
+  itself; otherwise it only places its children. `nif`, `radial` and `window` tiles,
+  and empty pictures and strings, draw nothing in v1.
+- [design] An `image` is its `filename` stretched over its box: the piece of
+  `interfaceshared.tai` of that file name when the atlas has it, else the file under
+  `textures\` (`interface::Pictures`). Another `.tai` named by `texatlas`, and `zoom`,
+  `tile`, `cropx`, `cropy`, are not applied to the mods' tiles in v1 (the whole HUD's
+  drawing applies `texatlas`, `zoom` and `tile`, §3.1.3).
+- [hypothesis] `font`: 1 to 9 is the INI's `sFontFile_N` [documented:
+  Fallout_default.ini]; none, 0 or another number is font 1. The sneak word's tile has no
+  `font`, and the original's widths for it (hud.md §14.1: 106 "[HIDDEN]", 136, 14) are
+  font 1's glyph advances summed for "[HIDDEN]", "[DETECTED]" and one space [observed:
+  the font files, 2026-10-29].
+- [observed: the font files against hud.md §14.1] A text's width is the sum of its
+  glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
+  and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
+  `button_text` has 0 and measured one line). [hypothesis] A text's height is its lines
+  times the font's line height; each line is set left, centred or right inside the box by
+  `justify`, one line height under the last.
+- [hypothesis, T12c] A text's first line stands `draw::TEXT_BASE`, 24 units, under its
+  top whatever its font. On the original's screenshots texts set at one `y` stand on one
+  line: `RadiationMeter`'s `radiation_text` (font 7) and `radiation_text_value` (font 8),
+  both at y 65, stand on one line 23.7 under it; the sneak word (font 1, `SneakMeter` y
+  30) 22 under its top; the prompt's verb, name and figures (font 7) 24.5-25.5 under the
+  places the captures read for their tiles, against the hand-built prompt's lines
+  measured on the owner's screenshots (`reticle.rs`) [observed: private shots
+  `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn; hud.md §14.8's places]. Until
+  T12c each font's tallest glyph set the line (`interface::line_base`: 28, 33, 48 for
+  fonts 1, 7, 8), which put `+14` 15 units under `RAD/SEC`. What the original's distance
+  is made of is not known; 24 is the font-7 readings' middle.
+- [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
+  when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
+  HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
+  assign"; T12c: until then its own, white, which drew `AmmoTypeLabel`, a menu child with
+  no colour above it, white].
+  `&hudmain;` is the HUD's colour (`interface::hud_rgb`, the settings'), `&pipboy;` the
+  Pip-Boy's, `&nosystemcolor;` and `&uselocalcolor;` the tile's own, other names and
+  unknown non-zero numbers the HUD's [hypothesis]; numeric 1/2 map to hudmain/hudalt
+  [observed: private job hud_jip file_0032; hud_hardcore2 hc4-hc5]. `&hudalt;` is 255 67 42 [observed: Fallout_default.ini
+  `iSystemColorHUDAlt*`, radiation.md §6]. `brightness` (clamped to 0–255) scales the
+  colour, `alpha` (§3.1.1's product) is its opacity.
+- [hypothesis] Stacking: the pieces draw in order of their summed `depth`, ties in
+  layout order; all over NVForever's HUD and its messages, under the dialogue menu and
+  the Pip-Boy [design: `GlobalZIndex` 60]. `clips` crops through a clipping node at the
+  clip rectangle.
+- [observed: hud.md §14.1, the font files] The code writes three HUD text tiles' `width`
+  as their text's measured width, before scripts: `SneakMeter/sneak_nif`,
+  `Info/justify_center_hotrect/button_text` (its hotrect's width follows by the
+  prefab's own expression, the child's width plus `_horbuf` [documented: text_box.xml])
+  and `RadiationMeter/radiation_text_value` (`fnv_game::ui_hud::write_text_widths`),
+  only with the game's fonts. A tile without a `string` keeps its width [design].
+
+### 3.1.3 The whole menu, `zoom`, `tile`, `texatlas` (T12a)
+
+With `[UI] TileMenus=HUDMainMenu` (ui-tile-tree.md §6.2; hud.md §14.7) the renderer draws
+every tile of the HUD, not only the mods' (`nvf-play/src/tiles/draw.rs`,
+`Select::Whole`); then, and only then, it applies these. With the switch off §3.1.2
+stands unchanged: every picture stretched, the shared atlas only.
+
+- [documented: GECK wiki Zoom, revision 39942] `zoom` multiplies an image's size and
+  "cannot exceed the specified height and width"; the default is 100; -1 is free scaling
+  ("Scales any texture to 256x256 regardless its source size"). [hypothesis] A number
+  draws the picture at its texels' size times `zoom` / 100, one texel one interface unit
+  at 100, from the box's top left, cut to the box: the compass window (345 x 64, zoom 100)
+  then shows 345 of the 1024-texel strip, which turns 1024 units [observed: hud.md §14.4
+  `filewidth` 1024, §14.5 the scale]. The anchor is not observed.
+- [hypothesis, T12c] No `zoom` (`draw::Fit::Natural`, `draw::placed`): an atlas piece
+  is stretched over its box, a picture read from its own file stands at its texels' size
+  (zoom's default 100) from the box's top left, cut to the box. The corner brackets'
+  atlas pieces are 255 x 127 texels [observed: interfaceshared.tai, an atlas of 1024 x
+  1024 by its heading] in 512 x 256 boxes the original fills on the screen; the
+  radiation pointer's 63 x 31 piece is drawn shrunk in its 46 x 24 box (its triangle
+  about 10 pixels across at 720 lines, 15 at its texels' size); the radiation bracket,
+  its own 512 x 128 file in a 567 x 120 box, stands unstretched: its notches 60 units
+  apart where its file has them 60 texels apart, its upright at W - 57 on the screen,
+  where x -135 + 494 texels puts it (stretched it stood at the view's edge, T12b)
+  [observed: private shot `hud_corners` rad_coc_spot]. Until T12c every unzoomed picture
+  was stretched.
+  [hypothesis] `&scale;` (number 0, §2.3) stretches: its pictures (the compass ticks
+  32 x 32 in 32 x 32 boxes, the condition arrows, the sneak bracket) fit their boxes.
+- [hypothesis] `tile` true repeats the picture over the box from its top left at its
+  texels' size times a numeric `zoom` / 100 (100 without one), both ways: the bars'
+  8-texel tick picture in widths the code sets in steps of 8 [observed: hud.md §14.3];
+  the template's `_ImageWidth` 8 says the same [documented: hudtemplates.xml
+  `template_meter`]. Zoom as a multiplier of the picture's size [documented: GECK wiki
+  Zoom]; no vanilla tiled picture has a zoom; T12c's condition fill is given one
+  (`vanilla::CONDITION_FILL_ZOOM`, hud.md §14.7) [design].
+  [design, T12d] The repeats are drawn as one image: the picture's texels (its atlas
+  piece's or its own file's, decoded on the CPU) repeated into an RGBA image the box's
+  size in whole texels, stretched over the box (cut to it) and sampled linearly
+  (`nvf-play/src/repeat.rs`), so a repeat stands `width x scale` pixels from the next at
+  any window size; a repeat per quad (Bevy's `NodeImageMode::Tiled`, T12a-T12c) put each
+  on whole pixels, the bars' 8-unit ticks 6 and 7 pixels apart by turns at 1280 x 800
+  [observed: the owner, T12d; hypothesis: the original's even, slightly soft ticks are
+  one repeated texture filtered across the bar, hud.md §14.9]. A box over 4M texels, or
+  a picture whose texels cannot be read, keeps Bevy's tiles.
+- [design, T12d; maintainer's review of #902] The renderer keeps each piece's nodes in a
+  slot of its own (by tile, stacked by the piece's place in the list) and compares the
+  pieces with the last frame's one by one (`draw::change`): a piece that only moved or
+  changed colour (the compass marks every frame while the player turns, the fades and
+  flashes) has its nodes moved and recoloured; a piece of another look or size is
+  spawned again alone; a piece that comes or goes adds or removes its slot.
+- [observed, T12c] An image without `texatlas` reads its own file, not the shared atlas
+  (`draw::Source::Own`): the radiation bracket, whose file comments its `texatlas` line
+  out (radiation.md §6), shows its own file's slanted ends and single line on the
+  original's screenshots, where the shared atlas's piece of that name has square ends
+  and a doubled line. The mods' tiles with the switch off keep §3.1.2's lookup.
+- [observed, T12c] **The atlas pieces are other art than the pictures' own files**, not
+  smaller copies: the corner brackets' pieces have cut corners, stepped arrow ends and a
+  doubled long line, the compass strip's a doubled line beside the letters and thick
+  middles, where the own files have square corners and single lines (both decoded from
+  `Fallout - Textures2.bsa`). The original's screenshots of the corners (`hud_corners2`
+  c0, c4) show the atlas pieces' shapes, as corner-messages.md §2.2 found for the
+  message bracket; the tile drawing draws them. The hand-built HUD (`hud.rs`) draws the
+  own files.
+- [documented: GECK wiki Texatlas; interfaceshared.tai's heading] `texatlas` names a
+  `.tai` index under `textures\`; each line gives a picture's file name, the atlas file
+  (`InterfaceShared<idx>.dds`) and its place as parts of the atlas. Any index a tile names
+  is read once and kept (`interface::Pictures::locate`); [hypothesis] its atlas textures
+  stand in the index's folder, as the shared one's. [design] A picture the named index
+  lacks is looked up in the shared index, then as its own file.
+- [design] `clips` as §3.1.2, a clipping node; the HUD's own clip tiles (`compass_icon`)
+  clip their children only.
+- [hypothesis, T12e] A text's `zoom` scales neither its glyphs nor its laid-out box: the
+  Hardcore words read zoom 75 [observed: private job hud_hardcore2 hc0-hc11] and their
+  tiles' widths are font 7's at 100 (45 for "H20", as `HitPoints`' "HP" 30) [observed:
+  the capture, the font file], and on the original's screen they are as tall as "HP"
+  (17 pixels at 720 lines) [observed: hud_compare needs_limbs, hud.md §13]. T12b scaled
+  both by zoom/100 [hypothesis, corrected T12e]. The trait is kept as read
+  (`layout::Text::zoom`).
+- [design] The compass strip is the one picture moved by code with no trait (hud.md
+  §14.4): `HUDMainMenu/HitPoints/compass_window`'s picture is drawn twice side by side
+  and moved by the heading as the hand-built HUD moves its own (1024 units a turn, the
+  marks' heading at x 148 of the window [observed: hud.md §14.5], the strip's N at 154 at
+  heading 0 [observed: hud.md §14.10, T12e]), faded out from x 273 to 341 of the window
+  as the original's [observed: hud.md §14.10]: the window's part of the strip baked into
+  one image with each texel column's alpha on the ramp, as the hand-built HUD's
+  (`crate::compass_strip`) [design: one image, no seams between parts].
+- [design] `nif` tiles (the HUD's one, the breath meter) are still not drawn; the
+  hand-built breath meter stays.
 
 ## 4. Operators
 
@@ -243,8 +446,10 @@ pages]
 - A path is `MenuName/Tile/…/Tile/trait`, segments split by `/` or `\`, names without
   case.
 - `*` matches any child; `name:N` matches the N-th child of that name and `*:N` the
-  N-th child, counting from 0 [documented: "`*:0/*:5/*:9`"; counting among the children
-  of that name for `name:N` is a hypothesis].
+  N-th child [documented: "`*:0/*:5/*:9`"]. Both count from zero **from the last
+  matching child**, reversing file/creation order [observed: private jobs hud_hardcore
+  hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
+  searches in file order [hypothesis].
 - With `*`, the first child that leads to a full match is taken [hypothesis].
 - GetUIFloat returns -999 when the trait is not found [documented: GetUIFloat];
   SetUIFloatAlt, ModUIFloat return 1 on a change and 0 otherwise [documented].
@@ -271,20 +476,81 @@ menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 
 2. **An include the replaced file adds**: MCM's `start_menu.xml` includes
    `includes_StartMenu.xml`, which includes `MCM\MCM.xml`, so other mods can add to the
    same `includes_` file.
-3. **UIO (User Interface Organizer)**, an xNVSE plugin that adds includes at load time
-   from text files, with no menu file replaced. From its data files only (not its
-   code):
-   - `uio\public\*.txt`, one per mod; `uio\supported.txt` for mods UIO knows;
-   - each entry is two lines: `<file under menus\prefabs>::<target>`, then a condition;
-   - the target is a menu name (`HUDMainMenu`), or `@Prefabs\<file>.xml` for a prefab
-     file, either with `::<tile name>` to put the include in that tile;
-   - the condition is `true`; `?Plugin.esp` (that plugin loaded); `#path` (that file
-     there); `!` before one to negate it; `&&` between them; or a bare word like
-     `darnui`, apparently another UIO mod's name;
-   - `supported.txt` writes one `:` between file and menu.
+3. **UIO include lists.** [observed: the data files below, read 2026-10-29 from
+   `E:\Games\Viva New Vegas\mods`; no DLL or source read] The lists pair an include
+   line with a condition. Folder case varies (`UIO\Public`, `uio\public`, `Menus`).
+   Short literal pairs from those files:
 
-   JAM, MCM Extender, UI Improvements, Pip-Boy UI Tweaks and Sleep Wait Hardcore Needs
-   use it.
+   ```text
+   ; UIO - User Interface Organizer/uio/supported.txt
+   wmm\wmm.xml:inventorymenu:glow_branch
+   ?The Weapon Mod Menu.esp
+   mcm\mcm.xml:startmenu
+   ?The Mod Configuration Menu.esp	||	?Project Nevada - Core.esm
+   jetpack\b3jetpack_hud.xml:hudmainmenu
+   ?Jetpack.esp	&&	!darnui
+   ; Just Assorted Mods/uio/public/JHM.txt
+   JHM\JHM.xml::HUDMainMenu
+   true
+   ; MCM Extender/UIO/Public/MCMExtender.txt
+   MCMExtender\ListRect\text.xml::@Prefabs\MCM\ListRect.xml::text
+   true
+   ; UI Improvements/uio/public/UII.txt
+   UII\CharGenBox.xml::CharGenMenu::TM_DescriptionBox
+   true
+   ; Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt
+   Stentorious\PipBoyUITweaks\_ySI\ButtonIcon.xml::@Prefabs\UII\PerkBrowser.xml::PerkBrowser
+   #UII\PerkBrowser.xml && #..\ySI\ySI.xml
+   ```
+
+   [observed: those lists] Both `:` and `::` separate include, target and optional
+   tile name. Targets are menu names in mixed case or `@Prefabs\...` paths. `;`
+   lines and blank lines separate groups. Conditions contain `true`, `?plugin`,
+   `#path`, `!`, `&&`, and also `||` (the MCM alternative in supported.txt).
+   [observed: Just Assorted Mods/Menus/Prefabs/JHM/JHM.xml;
+   MCM Extender/Menus/Prefabs/MCMExtender/ListRect/text.xml;
+   UI Improvements/menus/prefabs/UII/CharGenBox.xml] Include names resolve below
+   `menus\prefabs`. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
+   Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt] The `#UII\PerkBrowser.xml`
+   operand names an existing file there. The advrecon/primaryneedshud/filmgrain
+   operands of supported.txt have no matching files in the inspected mod folders.
+   [hypothesis] `#` uses that same prefab base, with `..` resolved before the VFS
+   lookup; `#..\ySI\ySI.xml` is consistent with a sibling directory under menus,
+   but that optional file is absent here.
+
+   [observed: MCMExtender.txt and supported.txt; directory listing of the installed
+   mods' uio/public files] `darnui` is used both positive and negated; no
+   `uio\public\darnui.txt` was found. [hypothesis] Its meaning remains unknown;
+   NVForever treats the atom as false and logs it even in a short-circuited branch
+   (`!darnui` therefore evaluates true). No filename-based alias is assumed.
+
+   [design] `fnv_ui::uio::{Lists, Condition, Report}` parses forgivingly, records
+   malformed lines with list/line locations, and evaluates against a `Source` plus
+   an active-plugin predicate. `Source::list(dir)` defaults empty; `MemSource`, the
+   game's `UiFiles` and fnvtool's overlay source discover files recursively with
+   case/slash-insensitive paths. supported.txt goes first, then immediate
+   public/*.txt alphabetically. Identical normalized include/target/tile/condition
+   entries occur once. Negation binds before AND before OR [hypothesis: precedence
+   for mixed expressions is not established by these lists].
+
+   [design] `Ui::configure_uio` runs before loading menus. Menu entries apply after
+   the file's ordinary includes; prefab entries modify the fragment before expansion,
+   including template bodies. Named targets use the first matching tile in file order
+   [hypothesis: duplicate-name selection is unmeasured]. An untargeted entry appends
+   to the menu root or prefab fragment; a named one appends within that tile
+   [hypothesis: UIO's insertion position is unmeasured; appending preserves existing
+   order and allows later included traits to override earlier ones]. Includes retain
+   their own `Origin::File { path, loose }`. A loose UIO addition and its file
+   descendants pass `mod_tile_drawn` without an archived name comparison, including
+   name collisions; the archived baseline is built without UIO [design].
+
+   [design] Reports distinguish unique applied entries from application counts
+   (prefabs can be read repeatedly), and skip reasons condition false, file missing,
+   target missing. Target missing also means not loaded yet in the current tree.
+   The game uses `GameData::load_order` and logs decisions at startup and new
+   applications during menu lifetime sync. `fnvtool ui menus|tree|mod-tiles` includes
+   a `uio` report; it discovers top-level .esm/.esp names in Data and overlays for
+   `?`, or uses an explicit repeatable `--plugin` set. Overlays count for `#`.
 4. **Scripts at run time**: JIP's `InjectUIXML "path" "data\menus\…xml"` and
    `InjectUIComponent "path" "<xml with %g>"` put XML into a loaded menu
    [documented: InjectUIXML, InjectUIComponent]. Most menus are loaded only while open
@@ -292,17 +558,40 @@ menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 
    `RepairMenu`, `StatsMenu` and `ItemModMenu` stay loaded [documented].
 5. **Trait functions**: SetUIFloat, SetUIString and friends on paths (§5).
 
+- [design] `Tile::origin` distinguishes `File { path, loose }`, `Injected`, `Template`
+  and `Code`. Menu loading and ordinary includes record the exact path passed to
+  `Source::read`, with each included file's own provenance. Injection and template
+  creation stamp every tile they create, including included descendants, with their
+  creator's origin; later trait writes do not change it. Pseudo-tiles start as Code;
+  loading globals records its file origin.
+- [documented: crates/fnv-vfs/src/lib.rs, Vfs::source_of] The VFS exposes whether the
+  winning source is loose. [design] `Source::is_loose(&self, path: &str) -> bool`
+  defaults to false; `UiFiles` implements it using that VFS query. The result is stored
+  at load time, so the source need not remain available to classify tiles later.
+- [design] `Ui::mod_added_tiles(&self, menu: TileId) -> Vec<TileId>` lists top-most
+  live Injected, Template or loose File tiles in tree order, including the menu itself
+  when loose. Descendants of a returned root are not listed separately; unloaded tiles
+  and other menus are excluded. Loose-file replacement selects the whole replaced
+  subtree; it is not a comparison against the vanilla file's contents.
+- [design] `Ui::add_code_tile_from_template(&mut self, src: &dyn Source, at: &str,
+  template: &str, name: Option<&str>) -> Option<TileId>` makes all copies from the body
+  Code, including multiple top-level tiles, and returns the first as `add_from_template`
+  does. Code tiles are not mod roots; injections underneath them can be. A future
+  renderer drawing selected subtrees must still exclude Code items inside those roots.
+
 ## 8. Observer checks
 
 What the original can settle (copied to docs/handoff/observer-checks.md):
 
-1. **The numbers of `&true;` and `&false;`.** `GetUIFloat` on a trait the file sets to
+1. **The numbers of `&true;` and `&false;`.** Answered 2026-10-28: 1 and 0, and
+   `&does_not_stack;` 6008 [observed: hud.md §14]. `GetUIFloat` on a trait the file sets to
    `&true;` and nothing changes (e.g. `HUDMainMenu/locus`), and on one set to `&false;`
    (`HUDMainMenu/_CrosshairVisible` before any aiming). Also `&center;`, `&right;` (a
    `justify`) and `&scale;` while there.
-2. **How the original reads mismatched end tags.** JIP's `DumpTileInfo` (or
-   `GetUIFloat` with `:N` paths) on `QuestAddedMenu`'s two buttons and on MCM's
-   `StartMenu/MCM` tree: which tile ends up holding what.
+2. **How the original reads mismatched end tags.** SUP's `DumpTileInfo`
+   [documented: DumpTileInfo, origin SUP] (or `GetUIFloat` with `:N` paths) on
+   `QuestAddedMenu`'s two buttons and on MCM's `StartMenu/MCM` tree: which tile ends up
+   holding what.
 3. **Whether a set trait holds.** `SetUIFloat` on a trait that has operators (a HUD
    piece's `x`), then change what it reads (a screen size change will do), and read it
    again.
@@ -312,5 +601,9 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    GetUIFloat and SetUIStringEx are "bugged for templated children tiles" and MCM
    depends on the bug, but its "Bug: Children Tiles" page is not in the export. Compare
    SetUIFloat and SetUIFloatAlt on a list item made from a template (`BarterMenu` rows).
-6. **`name:N` counting**: `GetUIFloat` with `RepairServicesMenu/…/RSM_RepairListTemplateRect:0`
-   against the first row's name.
+6. **`name:N` / `*:N` counting: answered 2026-10-29.** Last matching child first,
+   zero-based [observed: private jobs hud_hardcore hc0 (LMBs *:0), hud_xp_limbs all
+   (Right_Leg/XPLevelUp *:0), hud_prompt2 p0-p8 (VAL left:0, WG left:1, hotrect *:8);
+   hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
+   parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
+   was established by these captures; other menus/scripts still need checking.

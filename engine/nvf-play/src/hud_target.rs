@@ -72,6 +72,10 @@ pub struct TargetHealth {
     pub form_id: u32,
     pub name: String,
     pub health: f32,
+    /// Colour follows the shown actor [observed: private job hud_enemy3, n2_away,
+    /// g2_gecko_half]: in combat with the player or `Game::would_attack`. Only the
+    /// colour; whether it shows is [`why_shown`]'s, where hostility is no input [design].
+    pub hostile: bool,
     /// With Living Anatomy: its health and DT.
     pub anatomy: Option<(f32, f32)>,
 }
@@ -262,6 +266,7 @@ fn aim(
             let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
             let max = g.max_health(r);
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
+            let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
             let case = Case {
                 hurt: health < max,
                 dead: false,
@@ -273,7 +278,7 @@ fn aim(
                 since_aimed: kept.filter(|h| h.0 == id).map(|h| h.1),
             };
             let why = why_shown(&case)?;
-            Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }, health as f32, why))
+            Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }, health as f32, hostile, why))
         });
         let anatomy = found.is_some() && rt.game.player_has_entry(fnv_game::perks::SEE_ENEMY_HEALTH);
         (found, foe, anatomy)
@@ -284,9 +289,9 @@ fn aim(
         _ => None,
     };
     *held = held_next(kept, found.map(|f| f.0), aimed);
-    let now = found.map(|(form_id, health, hp, _)| {
+    let now = found.map(|(form_id, health, hp, hostile, _)| {
         let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
-        TargetHealth { form_id, name, health, anatomy: dt.map(|dt| (hp, dt)) }
+        TargetHealth { form_id, name, health, hostile, anatomy: dt.map(|dt| (hp, dt)) }
     });
     let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32, t.anatomy_line()));
     if key(&target.0) != key(&now) {
@@ -299,7 +304,7 @@ fn aim(
         }
     }
     // Once when a bar comes to be held by the linger alone.
-    let linger = found.filter(|f| f.3 == Why::Linger).map(|f| f.0);
+    let linger = found.filter(|f| f.4 == Why::Linger).map(|f| f.0);
     if linger != *lingering {
         if let Some(t) = now.as_ref().filter(|_| linger.is_some()) {
             info!("hud: enemy health {} 0x{:08X} held by the linger (the crosshair left it; {LINGER_SECONDS} s)", t.name, t.form_id);
@@ -315,7 +320,7 @@ mod tests {
 
     #[test]
     fn living_anatomy_reads_as_the_original() {
-        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, anatomy };
+        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, hostile: true, anatomy };
         assert_eq!(t(Some((250.0, 15.0))).anatomy_line().as_deref(), Some("HP:250 DT:15.00"));
         assert_eq!(t(Some((-3.0, 0.5))).anatomy_line().as_deref(), Some("HP:0 DT:0.50"));
         assert_eq!(t(None).anatomy_line(), None);

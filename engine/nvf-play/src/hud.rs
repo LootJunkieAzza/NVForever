@@ -18,13 +18,16 @@
 //!   view's size (§4).
 
 use crate::combat::{Combat, HudWeapon};
+use crate::compass_strip::{StripNode, StripTexels, StripWindow};
 use crate::control::ControlLocks;
 use crate::hud_target::HudTarget;
 use crate::player::Player;
+use crate::repeat::Repeats;
 use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
-use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
+use crate::tiles::vanilla::{DrawnByTiles, EnemyPiece};
+use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face, Picture, Pictures};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -49,14 +52,31 @@ const TICK: Vec2 = Vec2::new(8.0, 20.0);
 /// The tick picture's block: 6 texels wide, then 2 clear [observed: `hud_tick_mark.dds`,
 /// its opacity rising from top to bottom].
 const TICK_BLOCK: f32 = 6.0;
+/// The health and action points ticks' brightness [hypothesis: brightness.xml's "meter
+/// and compass in HUD" 175, as the enemy bar's meter reads (hud.md §14.8); the
+/// original's ticks are about 0.7 of its lines' colour at their full rows, hud.md
+/// §14.9]. The tile HUD writes it too (`tiles::vanilla::write_corners`).
+pub(crate) const METER_BRIGHTNESS: f32 = 175.0;
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
 pub const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
+/// The heading's x in compass-window units: where a mark straight ahead stands
+/// [observed: hud.md §14.5].
+pub const COMPASS_HEADING: f32 = 148.0;
+/// Where the strip's own heading (its letter N at heading 0) stands in the window: 6 units
+/// right of the marks' [observed: hud_compare compass-north at 1280 x 720, heading 0, the
+/// original's N centred at x 159.5 pixels, both NVForever drawings' at 155 with the strip at
+/// 148; hud.md §14.5, N's middle about 172 of `HitPoints` on the heading-0 shot, 4 right of
+/// the bearing-0 tick's 168]. Until T12e the strip shared the marks' 148 [design].
+pub const STRIP_HEADING: f32 = COMPASS_HEADING + 6.0;
 /// The whole strip, north to north: 1024 texels for 360 degrees [observed: the texture].
 pub const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
 /// The solid bar's ground (weapon condition): length and height [documented: the file
 /// puts it at x 90 of a frame the code sets; where it stands is measured, below].
 const CND_BAR: Vec2 = Vec2::new(60.0, 20.0);
+/// The condition fill's full width, starting at the ground's x [observed: hud.md §14,
+/// §14.3].
+const CND_FILL_WIDTH: f32 = 59.0;
 /// The condition's arrows, `CNDArrows`: a 16 x 16 picture, placed by the code
 /// [documented: hud_main_menu.xml]; black arrows at the picture's top and bottom edges
 /// pointing in, their middle 3.5 texels from its left [observed: the texture].
@@ -77,7 +97,9 @@ const ARROWS_BLEED: f32 = 1.0;
 /// hudtemplates.xml].
 const ENEMY: Vec2 = Vec2::new(350.0, 52.0);
 const ENEMY_BRACKET_AT: Vec2 = Vec2::new(-7.0, 3.0);
-const ENEMY_BRACKET: Vec2 = Vec2::new(512.0, 64.0);
+/// [documented: hudtemplates.xml, template_enemy_health_bracket; observed: private
+/// jobs hud_enemy2, e5_back; hud_enemy3, g2_gecko_half]. Previously 512 wide [design].
+const ENEMY_BRACKET: Vec2 = Vec2::new(500.0, 64.0);
 /// The sneak piece, `SneakMeter`: width and height [documented: hud_main_menu.xml].
 const SNEAK: Vec2 = Vec2::new(356.0, 34.0);
 
@@ -105,12 +127,21 @@ const ENEMY_LINE_Y: f32 = 23.0;
 /// `METER_GAP` over it as the player's bars do [observed: `Target healthbar` screenshot;
 /// at `METER_GAP` a 3-pixel strip showed at 1080 lines, owner's playtest 2026-10-16].
 const ENEMY_METER_GAP: f32 = 2.0;
-const ENEMY_MARKS: (f32, f32) = (56.0, 307.0);
+/// Texture columns scaled to the measured 500-wide bracket [design; observed: private
+/// job hud_enemy3, g2_gecko_half]. Previously unscaled (56, 307).
+const ENEMY_MARKS: (f32, f32) = (56.0 * 500.0 / 512.0, 307.0 * 500.0 / 512.0);
 
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
 
 /// From the view's side and bottom edges to the pieces.
 pub(crate) const MARGIN_X: f32 = 40.0;
+/// The right bracket's atlas piece stands this far right of the right piece's corner
+/// [observed: hud_compare at 1280 x 720 (needs_off, ammo-label, limbs_hidden, xp_meter):
+/// the piece drawn at the corner put the divider at x 1111-1113, the upright from 1231-1232
+/// and the step cap at 998, the original's at 1114-1116, 1234 and 1001-1002: 3 pixels, 4
+/// units]. The tile HUD's `ActionPoints/right_bracket` stands as far in
+/// (`tiles::vanilla::RIGHT_BRACKET_X`).
+pub(crate) const RIGHT_BRACKET_X: f32 = 4.0;
 pub(crate) const MARGIN_Y: f32 = 30.0;
 /// The bars stand this far above the long line.
 const METER_GAP: f32 = 4.0;
@@ -118,9 +149,14 @@ const METER_GAP: f32 = 4.0;
 const LABEL_GAP: f32 = 6.0;
 /// The line the texts of the lower row stand on.
 const LOWER_BASE: f32 = 106.0;
-/// The ground of the condition bar is this much of the bar's own brightness
-/// [hypothesis: as `meter.xml`'s ground, a quarter].
-const GROUND: f32 = 0.25;
+/// The condition bar's fill and its ground: the HUD's colour at brightness 175 and an
+/// opaque 100 [observed: the original's at 175/255 and 100/255 of its colour on the private
+/// shots `hud_corners2` c0, c4 (T12c, hud.md §14.7); hud_compare hud-ammo-label, the fill
+/// (175, 125, 45)]. Until T12e the fill at 255 over the fill's colour at a quarter's alpha
+/// [hypothesis: as `meter.xml`'s ground]. The tile HUD writes the same
+/// (`tiles::vanilla::write_corners`).
+pub(crate) const CONDITION_BRIGHTNESS: f32 = 175.0;
+pub(crate) const GROUND_BRIGHTNESS: f32 = 100.0;
 
 // ---- measured on the owner's 1920 x 1080 screenshot of the original [observed, §4] -----
 
@@ -132,11 +168,15 @@ const METER_WIDTH: f32 = PIPS as f32 * TICK.x;
 /// corner mark on the left piece, the upright on the right): the first tick starts at
 /// the upright's inside edge, the last ends clear of the mark and of the upright
 /// [observed: 3 pixels at 1080 lines against the `Target healthbar` screenshot, owner's
-/// playtest 2026-10-16]. The action points bar 1 less: its ticks stood 2 pixels left of
-/// the original's at 1080 lines, the last one clear of the upright where the original's
-/// meets it [observed: the same screenshot, tick edges 1520 … 1844 against 1518 … 1842,
-/// 2026-10-16].
-const METER_SHIFT: f32 = 3.0;
+/// playtest 2026-10-16, after the ticks ran into the mark]. The health bar at x 20 of
+/// `HitPoints`, 4 left [observed: hud.md §14, the bar's tile read at x 20; hud_compare
+/// needs_off at 1280 x 720, the original's first tick at x 45 pixels and its last ending
+/// at 265, a pixel before the step cap at 267, where 21 put them at 46 and 266, against
+/// the cap]; 3 until T12e. The action points bar 2: its ticks stood 2 pixels left of the
+/// original's at 1080 lines [observed: the same screenshot, tick edges 1520 … 1844
+/// against 1518 … 1842, 2026-10-16]; its last tick now ends the tick's clear strip short
+/// of the upright, as the original's at 720 lines ([`row_ticks`]).
+const METER_SHIFT: f32 = 4.0;
 const AP_METER_SHIFT: f32 = 2.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
 /// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
@@ -148,14 +188,21 @@ const AP_LABEL_END: f32 = 355.0;
 /// above the line "CND" stands on; "CND" ends this far before the bar [observed: on the
 /// `Target healthbar` screenshot the bar starts about 8 pixels after the "D" and is about
 /// as high as the letters; owner's playtest 2026-10-16, after 15 / 0 / 6 left 2 pixels
-/// between "D" and the bar and the bar lower than the letters].
-const CND_BEFORE_DIVIDER: f32 = 10.0;
+/// between "D" and the bar and the bar lower than the letters]. The bar ends 17 before
+/// the divider [observed: hud_weapon capture 2026-10-28, hud.md §14: the 60 x 20 ground's
+/// GetUIFloatInherited x 1410 with the divider at 1487, and on its screenshot the bar at
+/// 1058-1102 of 1280 pixels; 10, from the screenshot of 2026-10-16, stood 7 too far right,
+/// the label with it].
+const CND_BEFORE_DIVIDER: f32 = 17.0;
 const CND_RAISE: f32 = 2.0;
 const CND_LABEL_GAP: f32 = 11.0;
 /// The ammo type's abbreviation starts here, just right of the divider, whatever the
 /// counter's length [observed: the owner's screenshot 2026-10-25 of the original marks
 /// its room at about x 1680-1765 of 1920 at 1080 lines, the divider at 1672: 214-290
-/// units; owner 2026-10-25: anchored to the divider, not against the counter].
+/// units; owner 2026-10-25: anchored to the divider, not against the counter; commit
+/// 5887ee0e "at the owner's request"]. The maintainer's choice, kept (T12e): the
+/// original draws it left of the divider, right-justified at `AmmoTypeLabel`'s W - 236,
+/// and moves the condition row left to make room (hud.md §4; the tile HUD does that).
 const AMMO_LABEL_X: f32 = 214.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
@@ -245,8 +292,8 @@ impl Sneak {
 }
 
 /// The sneak word from the game's detection states (`fnv_game::awareness`) and the
-/// latest detection values (`Game::detection`).
-fn sneak_now(g: &fnv_game::Game) -> Sneak {
+/// latest detection values (`Game::detection`) [design: shared by drawing and tree].
+pub(crate) fn sneak_now(g: &fnv_game::Game) -> Sneak {
     let me = FormId::PLAYER_REF;
     let (mut fighting, mut searching) = (false, false);
     for (id, a) in &g.awareness.actors {
@@ -265,23 +312,31 @@ fn sneak_now(g: &fnv_game::Game) -> Sneak {
 
 // ---- layout --------------------------------------------------------------------------
 
-/// How many of a bar's `count` ticks are lit at `value` (0 to 1): a tick for any part of
-/// its share [hypothesis], none at 0 or below.
+/// How many of a bar's `count` ticks are lit at `value` (0 to 1): rounded down for the
+/// health and action points bars [observed: hud.md §14.3]. None at 0 or below, or for
+/// non-finite values [design: bounded shares].
 pub fn lit(value: f32, count: usize) -> usize {
     if value.is_finite() {
-        ((value.clamp(0.0, 1.0) * count as f32).ceil() as usize).min(count)
+        ((value.clamp(0.0, 1.0) * count as f32).floor() as usize).min(count)
     } else {
         0
     }
 }
 
-/// The ticks lit of a bar that empties from both ends towards its middle (the enemy's,
-/// owner's playtest list 5, item 32): from and to (exclusive), counted from the left. An
-/// odd tick left over goes from the right end first.
+/// The ticks lit of a bar that empties from both ends towards its middle (the enemy's
+/// [observed: owner's playtest list 5, item 32]): from and to (exclusive), counted from
+/// the left. An odd tick left over goes from the right end first [design: centred ticks].
+/// The count is a tick for any part of its share, kept with the 31 ticks [hypothesis;
+/// the original's differs, hud.md §8]: an actor still alive keeps a lit tick.
 pub fn lit_middle(value: f32, count: usize) -> (usize, usize) {
-    let n = lit(value, count);
+    let n = if value.is_finite() { ((value.clamp(0.0, 1.0) * count as f32).ceil() as usize).min(count) } else { 0 };
     let from = (count - n) / 2;
     (from, from + n)
+}
+
+/// The condition fill's width in whole interface units [observed: hud.md §14.3].
+fn condition_width(value: f32) -> f32 {
+    (value.clamp(0.0, 1.0) * CND_FILL_WIDTH).round()
 }
 
 /// A tick's step and width in whole pixels for a view `height` pixels high, so that every
@@ -309,11 +364,45 @@ pub fn tick_lefts(length: f32, width: f32, count: usize) -> (Vec<f32>, f32) {
     ((0..count).map(|i| (i as f32 * pitch).round()).collect(), width)
 }
 
+/// The compass strip fades out towards the window's right end: full to this x of the
+/// window, nothing from that, linearly between [observed: hud_compare needs_off and
+/// xp_meter at 1280 x 720, the original's strip line at about 0.68 of its colour over the
+/// ground at x 266 pixels, 0.38 at 280, 0.21 at 290, 0.05 at 298, the letters there dim:
+/// full at about 250 and gone at about 300.5 pixels, the window from 45 to 303.75; its
+/// left end and the marks over it (the quest marker at SE, needs_limbs) are not faded;
+/// hypothesis: linear]. Nothing in the menu files says how: `hud_compass_alphamap.dds` is
+/// a white band of 20 texels and black [observed: the texture]. Both drawings bake the
+/// window's strip into one image, each texel column's alpha on this ramp
+/// (`crate::compass_strip`) [design]. Until T12e the strip ran at full strength to the
+/// window's end [design].
+pub const STRIP_FADE: (f32, f32) = (273.0, 341.0);
+
+/// A bar's ticks in a row `room` pixels long, `step` and `width` from [`tick_pixels`]:
+/// where the first stands, every tick's left from it, and their width. A full row runs
+/// the whole room but the clear strip after its last tick, each tick's block at the start
+/// of its step as in the picture (`hud_tick_mark.dds`, texels 6-7 clear) [observed: the
+/// texture; §4: at 1080 lines the first health tick at the upright, the last 2 pixels short
+/// of the mark]: the health and action points bars alike, so the action points' last tick
+/// stands that strip clear of the upright [observed: hud_compare needs_off at 1280 x 720,
+/// the original's last tick at x 1229-1232, a pixel clear of the upright at 1234]. Until
+/// T12e the action points' row put the strip before its first tick instead, mirrored, and
+/// its last tick met the upright [design: after "the last meets the upright", measured by
+/// eye on the 1080-line `Target healthbar` screenshot]. The enemy's stand in the middle.
+fn row_ticks(bar: Bar, room: f32, step: f32, width: f32, count: usize) -> (f32, Vec<f32>, f32) {
+    let clear = (step - width).max(1.0);
+    let (lefts, width) = tick_lefts((room - clear).round(), width, count);
+    let first = match bar {
+        Bar::Health | Bar::ActionPoints => 0.0,
+        Bar::Enemy => (clear / 2.0).round(),
+    };
+    (first, lefts, width)
+}
+
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
-/// (degrees) is in the window's middle (§4).
+/// (degrees) stands at [`STRIP_HEADING`] [observed: hud.md §14.5].
 pub fn strip_left(heading: f32) -> f32 {
-    let middle = heading.rem_euclid(360.0) / 360.0 * STRIP.x;
-    -(middle - COMPASS.x / 2.0).rem_euclid(STRIP.x)
+    let at = heading.rem_euclid(360.0) / 360.0 * STRIP.x;
+    -(at - STRIP_HEADING).rem_euclid(STRIP.x)
 }
 
 /// The ammo counter's text: rounds in the weapon / rounds carried besides.
@@ -367,6 +456,18 @@ impl Places {
     }
 }
 
+/// Where this HUD sets its corner labels, for the tile tree's code-made copies while the HUD
+/// is drawn from tiles (`crate::tiles::vanilla::write_corners`; the captures give none of
+/// their places, hud.md §14.6) [design]: "HP"'s start, the ends of "AP", "CND" and the
+/// ammo counter, each with the line it stands on, from its corner piece's top left (the
+/// right piece's as drawn here, [`MARGIN_X`] in from the view's edge). The ammo
+/// abbreviation is not among them: the tile HUD keeps `AmmoTypeLabel` at its captured
+/// place, where the original draws it (T12e; this HUD's [`AMMO_LABEL_X`] is the owner's).
+pub(crate) fn label_places(font: &Font) -> [(f32, f32); 4] {
+    let p = Places::new(font);
+    [(p.hp_label, UPPER_BASE), (AP_LABEL_END, UPPER_BASE), (p.cnd_x - CND_LABEL_GAP, LOWER_BASE), (p.ammo_right, LOWER_BASE)]
+}
+
 // ---- reading the game ------------------------------------------------------------------
 
 /// Read what the HUD shows. Health and action points come from the script runtime's
@@ -413,6 +514,12 @@ fn gather(
             let temporary = |g: &fnv_game::Game, code| fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, code);
             let max = rt.game.max_health(FormId::PLAYER_REF) + temporary(&rt.game, fnv_game::actor_values::HEALTH);
             let health = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
+            let health_share = if max > 0.0 { (health / max) as f32 } else { 0.0 };
+            // Log tick changes even under the console [design: smoke hud-bars-partial].
+            let n = lit(health_share, PIPS);
+            if n != lit(view.health, PIPS) {
+                info!("hud: bars health {n} of 37 ({health:.0} of {max:.0})");
+            }
             // Base, permanent and temporary modifiers, damage: the bar is what is left of
             // the first three.
             let ap = match fnv_game::functions::actor_value_parts(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS) {
@@ -421,15 +528,21 @@ fn gather(
                     // VATS mode's marks hold their AP: the bar shows what is left after
                     // them (docs/design/vats-mode.md §8) [design].
                     let reserved = vats.as_ref().map_or(0.0, |v| v.reserved() as f64);
-                    if whole > 0.0 {
+                    let share = if whole > 0.0 {
                         ((whole - damage - reserved) / whole).max(0.0)
                     } else {
                         1.0
+                    };
+                    let n = lit(share as f32, PIPS);
+                    if n != lit(view.action_points, PIPS) {
+                        let current = (whole - damage - reserved).max(0.0);
+                        info!("hud: bars action points {n} of 37 ({current:.0} of {whole:.0})");
                     }
+                    share
                 }
                 _ => 1.0,
             };
-            (if max > 0.0 { (health / max) as f32 } else { 0.0 }, ap as f32)
+            (health_share, ap as f32)
         });
     } else {
         now.sneak = sneaking.then_some(Sneak::Hidden);
@@ -458,28 +571,53 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin))
-            .add_systems(Update, (gather, draw, pips, texts).chain().in_set(HudSet).in_set(PlaySet::Ui));
+            .add_systems(Update, (gather, draw, pips, texts, enemy_colours).chain().in_set(HudSet).in_set(PlaySet::Ui));
     }
 }
 
 /// What the HUD is drawn with.
 struct Art {
     font: Face,
-    left_bracket: Option<Handle<Image>>,
-    right_bracket: Option<Handle<Image>>,
+    left_bracket: Option<Picture>,
+    right_bracket: Option<Picture>,
     enemy_bracket: Option<Handle<Image>>,
-    strip: Option<Handle<Image>>,
+    strip: Option<Picture>,
+    /// The strip's texels for its baked window (`crate::compass_strip`), taken when the
+    /// HUD is spawned.
+    strip_texels: Option<StripTexels>,
     arrows: Option<Handle<Image>>,
 }
 
+/// The corner brackets and the compass strip are their pieces of the interface's atlas
+/// (`interfaceshared.tai`), as the HUD's files name them with `texatlas` [documented:
+/// hudtemplates.xml, `template_left_bracket`, `template_right_bracket`,
+/// `template_compass_window`], each stretched over its box: the original draws those
+/// pieces, with their stepped end caps, the health underline's hard end and the strip's
+/// thick bars between the letters [observed: hud_compare at 1280 x 720 against the tile
+/// HUD, which draws the pieces; the private shots `hud_corners2` c0, c4, T12c]; their own
+/// files are other art (square corners, single lines, a triangle cap, evenly spaced
+/// ticks) [observed: menu-xml.md §3.1.3]. Until T12e this HUD drew the own files [design:
+/// no owner request]. Without the atlas, the own files.
 fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Art {
+    let mut pictures = Pictures::load(data);
+    let mut piece = |name: &str| pictures.picture(&format!("interface\\hud\\{name}.dds"), data, images, bc);
+    let (left_bracket, right_bracket) = (piece("glow_hud_left_seperatorglow"), piece("glow_hud_right_seperatorglow"));
+    let strip_name = "interface\\hud\\glow_hud_comp_direction_strip.dds";
+    let strip = piece("glow_hud_comp_direction_strip");
+    let strip_texels = match (&strip, data) {
+        (Some((_, rect)), Some(data)) => StripTexels::read(&mut pictures, strip_name, None, *rect, &mut Repeats::default(), data),
+        _ => None,
+    };
     let mut read = |path: &str| data.and_then(|d| texture(path, d, images, bc)).map(|t| t.0);
     let hud = |name: &str| format!("{HUD_TEXTURES}{name}.dds");
-    let (left_bracket, right_bracket) = (read(&hud("glow_hud_left_seperatorglow")), read(&hud("glow_hud_right_seperatorglow")));
     let enemy_bracket = read(&hud("glow_enemy_health_seperator"));
-    let strip = read(&hud("glow_hud_comp_direction_strip"));
     let arrows = read(CND_ARROWS);
-    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, arrows }
+    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, strip_texels, arrows }
+}
+
+/// A picture over a node's box: its atlas piece's part of the texture, stretched.
+fn picture_node(picture: &Picture, color: Color) -> ImageNode {
+    ImageNode { color, rect: picture.1, image_mode: NodeImageMode::Stretch, ..ImageNode::new(picture.0.clone()) }
 }
 
 #[derive(Component)]
@@ -513,9 +651,10 @@ struct Pip {
     index: usize,
 }
 
-/// The doubled compass strip in its window.
+/// The compass window's strip: one baked image, or the doubled strip moved by the
+/// heading without its texels (`crate::compass_strip`).
 #[derive(Component)]
-struct Strip;
+struct Strip(StripNode);
 
 /// The marks over the compass (`crate::compass` fills it): the window's place and size,
 /// clipped at its sides only, as the marks reach above and below the strip.
@@ -530,9 +669,7 @@ struct ConditionRow;
 #[derive(Component)]
 struct AmmoText;
 
-/// The enemy's health piece, and the node that holds its name's letters.
-#[derive(Component)]
-struct EnemyPiece;
+/// The node that holds the enemy name's letters.
 #[derive(Component)]
 struct EnemyName;
 /// Holds Living Anatomy's line under the name (`crate::hud_target::TargetHealth::anatomy_line`).
@@ -549,11 +686,12 @@ fn spawn_row(p: &mut ChildSpawnerCommands, bar: Bar, x: f32, y: f32, width: f32,
     p.spawn((PipRow { bar, color, width, count }, at(x, y, width, TICK.y)));
 }
 
-/// A bracket: the game's picture, or plain lines where its lines are.
-fn spawn_bracket(p: &mut ChildSpawnerCommands, image: &Option<Handle<Image>>, uprights: &[f32], color: Color) {
+/// A bracket: the game's picture `x` right of its piece's corner, or plain lines where its
+/// lines are.
+fn spawn_bracket(p: &mut ChildSpawnerCommands, image: &Option<Picture>, x: f32, uprights: &[f32], color: Color) {
     match image {
         Some(image) => {
-            p.spawn((at(0.0, 0.0, BRACKET.x, BRACKET.y), ImageNode { color, ..ImageNode::new(image.clone()) }));
+            p.spawn((at(x, 0.0, BRACKET.x, BRACKET.y), picture_node(image, color)));
         }
         None => {
             p.spawn((at(LEFT_UPRIGHT, LINE_Y, RIGHT_UPRIGHT - LEFT_UPRIGHT, 2.0), BackgroundColor(color)));
@@ -564,7 +702,9 @@ fn spawn_bracket(p: &mut ChildSpawnerCommands, image: &Option<Handle<Image>>, up
     }
 }
 
-fn spawn_hud(commands: &mut Commands, art: &Art) {
+fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>, heading: f32) {
+    let window = art.strip_texels.take().and_then(|t| StripWindow::new(t, COMPASS.x, heading, images));
+    let art = &*art;
     let places = Places::new(&art.font.font);
     let color = amber(255.0);
     let font = &art.font.font;
@@ -575,28 +715,43 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
     commands.spawn((HudRoot, screen, Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
-        root.spawn(piece).with_children(|p| {
-            spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
+        root.spawn((piece, DrawnByTiles)).with_children(|p| {
+            spawn_bracket(p, &art.left_bracket, 0.0, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
-            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, color);
-            let mut window = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
-            window.overflow = Overflow::clip();
-            p.spawn(window).with_children(|w| {
-                w.spawn((Strip, at(0.0, 0.0, 2.0 * STRIP.x, STRIP.y))).with_children(|s| {
-                    if let Some(image) = &art.strip {
-                        for i in 0..2 {
-                            s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), ImageNode { color, ..ImageNode::new(image.clone()) }));
+            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
+            info!("compass: heading at x {x} of {w}, the strip's N at {n}, fading from {f}", x = COMPASS_HEADING, w = COMPASS.x, n = STRIP_HEADING, f = STRIP_FADE.0);
+            let mut window_node = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
+            window_node.overflow = Overflow::clip();
+            p.spawn(window_node).with_children(|w| match window {
+                // One image of the window's strip, its right end faded
+                // (`crate::compass_strip`).
+                Some(window) => {
+                    let (tw, th) = window.texels();
+                    info!("compass: the strip baked into one window image of {tw} x {th} texels, faded from {f} to {t}", f = STRIP_FADE.0, t = STRIP_FADE.1);
+                    let size = window.size();
+                    let image = ImageNode { color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(window.image()) };
+                    w.spawn((Strip(StripNode::Baked(window)), at(0.0, 0.0, size.x, size.y), image));
+                }
+                // Without the strip's texels: the doubled strip moved by the heading,
+                // unfaded.
+                None => {
+                    info!("compass: the strip drawn unfaded (its texels not read)");
+                    w.spawn((Strip(StripNode::Moving), at(strip_left(heading), 0.0, 2.0 * STRIP.x, STRIP.y))).with_children(|s| {
+                        if let Some(image) = &art.strip {
+                            for i in 0..2 {
+                                s.spawn((at(i as f32 * STRIP.x, 0.0, STRIP.x, STRIP.y), picture_node(image, color)));
+                            }
+                        } else {
+                            // The eight directions' letters, 45 degrees apart.
+                            for i in 0..16 {
+                                let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][i % 8];
+                                let line = font.lines(name, None).remove(0);
+                                let x = i as f32 * STRIP.x / 8.0 - line.width / 2.0;
+                                set_line(s, &art.font, &line, x, 44.0, color);
+                            }
                         }
-                    } else {
-                        // The eight directions' letters, 45 degrees apart.
-                        for i in 0..16 {
-                            let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][i % 8];
-                            let line = font.lines(name, None).remove(0);
-                            let x = i as f32 * STRIP.x / 8.0 - line.width / 2.0;
-                            set_line(s, &art.font, &line, x, 44.0, color);
-                        }
-                    }
-                });
+                    });
+                }
             });
             let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             marks.overflow = Overflow::clip_x();
@@ -604,14 +759,14 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         });
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
-        root.spawn(piece).with_children(|p| {
-            spawn_bracket(p, &art.right_bracket, &[RIGHT_UPRIGHT, DIVIDER], color);
-            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, color);
+        root.spawn((piece, DrawnByTiles)).with_children(|p| {
+            spawn_bracket(p, &art.right_bracket, RIGHT_BRACKET_X, &[RIGHT_UPRIGHT, DIVIDER], color);
+            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             label(p, AP, places.ap_label, UPPER_BASE);
             p.spawn((ConditionRow, at(0.0, 0.0, DIVIDER, AP_PANEL.y), Visibility::Inherited)).with_children(|row| {
                 label(row, CND, places.cnd_label, LOWER_BASE);
-                row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color.with_alpha(GROUND))));
-                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color)));
+                row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(amber(GROUND_BRIGHTNESS))));
+                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_FILL_WIDTH, CND_BAR.y), BackgroundColor(amber(CONDITION_BRIGHTNESS))));
                 // The jamming threshold's two arrows, over the bar (§4).
                 match &art.arrows {
                     Some(image) => {
@@ -661,7 +816,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         });
         // The sneak word, top middle.
         let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };
-        root.spawn((SneakText, piece));
+        root.spawn((SneakText, piece, DrawnByTiles));
     });
 }
 
@@ -678,13 +833,13 @@ fn draw(
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
     mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
-    mut strip: Query<&mut Node, (With<Strip>, Without<ConditionBar>)>,
+    mut strip: Query<(&mut Strip, &mut Node), Without<ConditionBar>>,
 ) {
     if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
         if view.shown {
-            let loaded = load_art(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
-            spawn_hud(&mut commands, &loaded);
+            let mut loaded = load_art(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
+            spawn_hud(&mut commands, &mut loaded, &mut images, view.heading);
             *art = Some(loaded);
         }
         return;
@@ -702,17 +857,14 @@ fn draw(
     for mut v in &mut enemy {
         v.set_if_neq(show(target.0.is_some()));
     }
-    let width = u(view.weapon.condition.unwrap_or(0.0).clamp(0.0, 1.0) * CND_BAR.x);
+    let width = u(condition_width(view.weapon.condition.unwrap_or(0.0)));
     for mut node in &mut bar {
         if node.width != width {
             node.width = width;
         }
     }
-    let left = u(strip_left(view.heading));
-    for mut node in &mut strip {
-        if node.left != left {
-            node.left = left;
-        }
+    for (mut strip, node) in &mut strip {
+        strip.0.follow(view.heading, node, &mut images);
     }
 }
 
@@ -748,19 +900,7 @@ fn pips(
         let (step, width) = tick_pixels(height);
         let px = |v: f32| Val::Px(v / sf);
         for (e, row) in &rows {
-            let room = row.width * height / 960.0;
-            // A full row runs the whole room but the clear strip after its last tick
-            // (§4: at 1080 lines the first tick at the upright, the last 2 pixels short of
-            // the mark); the ticks fill from the bar's outer end: from the left for
-            // health, from the right for action points; the enemy's stand in the middle.
-            let clear = (step - width).max(1.0);
-            let (lefts, width) = tick_lefts((room - clear).round(), width, row.count);
-            let first = match row.bar {
-                Bar::Health => 0.0,
-                Bar::ActionPoints => clear,
-                Bar::Enemy => clear / 2.0,
-            }
-            .round();
+            let (first, lefts, width) = row_ticks(row.bar, row.width * height / 960.0, step, width, row.count);
             commands.entity(e).despawn_related::<Children>().with_children(|r| {
                 for (index, left) in lefts.iter().enumerate() {
                     let node = Node { position_type: PositionType::Absolute, left: px(first + left), top: Val::Px(0.0), width: px(width), height: Val::Percent(100.0), ..default() };
@@ -867,9 +1007,71 @@ fn texts(
     }
 }
 
+/// Every part follows the shown actor's hostility, including existing letters/ticks
+/// when only hostility changes [observed: private job hud_enemy3, n2_away (main),
+/// g2_gecko_half (alt)]. Previously always red [design]. Traverse after spawning so
+/// new and resized rows, names, anatomy and fallback blocks share the colour [design].
+#[allow(clippy::type_complexity)]
+fn enemy_colours(
+    target: Res<HudTarget>,
+    enemy: Query<Entity, With<EnemyPiece>>,
+    children: Query<&Children>,
+    mut ink: Query<(Option<&mut ImageNode>, Option<&mut TextColor>, Option<&mut BackgroundColor>)>,
+) {
+    let colour = if target.0.as_ref().is_some_and(|t| t.hostile) { crime_colour() } else { amber(255.0) };
+    // Only the hue changes: each node keeps its own alpha, so the transparent
+    // backgrounds every UI node carries stay transparent [design].
+    let hue = |old: Color| colour.with_alpha(old.alpha());
+    for root in &enemy {
+        for entity in children.iter_descendants(root) {
+            if let Ok((image, text, fill)) = ink.get_mut(entity) {
+                if let Some(mut image) = image {
+                    let new = hue(image.color);
+                    if image.color != new {
+                        image.color = new;
+                    }
+                }
+                if let Some(mut text) = text {
+                    let new = TextColor(hue(text.0));
+                    text.set_if_neq(new);
+                }
+                if let Some(mut fill) = fill {
+                    if fill.0.alpha() > 0.0 {
+                        let new = BackgroundColor(hue(fill.0));
+                        fill.set_if_neq(new);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {
+        use crate::hud_target::TargetHealth;
+        let mut app = App::new();
+        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)) })))
+            .add_systems(Update, enemy_colours);
+        let bracket = app.world_mut().spawn(ImageNode::default()).id();
+        let tick = app.world_mut().spawn(BackgroundColor(Color::WHITE)).id();
+        let name = app.world_mut().spawn(TextColor(Color::WHITE)).id();
+        // A container's transparent background (every UI node has one) stays transparent.
+        let group = app.world_mut().spawn(BackgroundColor(Color::NONE)).add_children(&[tick, name]).id();
+        app.world_mut().spawn(EnemyPiece).add_children(&[bracket, group]);
+        for hostile in [false, true, false] {
+            app.world_mut().resource_mut::<HudTarget>().0.as_mut().unwrap().hostile = hostile;
+            app.update();
+            let colour = if hostile { crime_colour() } else { amber(255.0) };
+            assert_eq!(app.world().get::<ImageNode>(bracket).unwrap().color, colour);
+            assert_eq!(app.world().get::<BackgroundColor>(tick).unwrap().0, colour);
+            assert_eq!(app.world().get::<TextColor>(name).unwrap().0, colour);
+            assert_eq!(app.world().get::<BackgroundColor>(group).unwrap().0, Color::NONE);
+        }
+    }
 
     /// Letters 15 apart, as the HUD's font sets them.
     fn font() -> Font {
@@ -877,15 +1079,37 @@ mod tests {
     }
 
     #[test]
-    fn a_bar_lights_a_tick_for_any_part_of_its_share() {
+    fn a_bar_rounds_its_lit_ticks_down() {
         assert_eq!(lit(1.0, PIPS), 37);
-        assert_eq!(lit(0.5, PIPS), 19);
-        assert_eq!(lit(0.01, PIPS), 1);
+        assert_eq!(lit(0.5, PIPS), 18);
+        assert_eq!(lit(0.01, PIPS), 0);
         assert_eq!(lit(0.0, PIPS), 0);
-        // Out of range, or not a number: an empty or a full bar, never more.
+        // Out of range or non-finite: bounded ticks [design: lit].
         assert_eq!(lit(-0.2, PIPS), 0);
         assert_eq!(lit(1.7, PIPS), 37);
         assert_eq!(lit(f32::NAN, PIPS), 0);
+        assert_eq!(lit(f32::INFINITY, PIPS), 0);
+        assert_eq!(lit(f32::NEG_INFINITY, PIPS), 0);
+        assert_eq!(lit(1.0, 0), 0);
+    }
+
+    #[test]
+    fn the_corners_match_the_observed_tick_counts() {
+        // [observed: hud.md §14.3] Health, then action points.
+        for (current, max, ticks) in [
+            (200.0, 200.0, 37), (100.0, 200.0, 18), (20.0, 200.0, 3),
+            (43.68, 80.0, 20), (52.15, 80.0, 24), (69.7, 80.0, 32), (80.0, 80.0, 37),
+        ] {
+            assert_eq!(lit(current / max, PIPS), ticks, "{current} of {max}");
+        }
+    }
+
+    #[test]
+    fn the_condition_fill_matches_the_observed_widths() {
+        // [observed: hud.md §14.3] Whole units inside the 60-wide ground.
+        for (condition, width) in [(0.999, 59.0), (0.5, 30.0), (0.4987, 29.0), (0.1, 6.0)] {
+            assert_eq!(condition_width(condition), width, "{condition}");
+        }
     }
 
     #[test]
@@ -894,6 +1118,8 @@ mod tests {
         assert_eq!(lit_middle(0.0, 31), (15, 15));
         // Half: 16 lit, 15 gone, 7 from the left and 8 from the right.
         assert_eq!(lit_middle(0.5, 31), (7, 23));
+        // Alive at 2 % (0.62 of a tick): one tick still lit.
+        assert_eq!(lit_middle(0.02, 31), (15, 16));
         for i in 0..=100 {
             let (from, to) = lit_middle(i as f32 / 100.0, 31);
             assert!(to <= 31 && (31 - to) - from <= 1, "{i}: {from}..{to}");
@@ -927,6 +1153,27 @@ mod tests {
         assert!(w == 7.0 && lefts.windows(2).all(|p| p[1] - p[0] == 9.0));
     }
 
+    /// T12e: at every size the action points' last tick ends at least a pixel short of its
+    /// row's end (the upright), as the health bar's before its corner mark.
+    #[test]
+    fn the_last_action_point_tick_stands_clear_of_the_upright() {
+        for lines in [600, 720, 768, 800, 900, 1009, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
+            let h = lines as f32;
+            let (step, width) = tick_pixels(h);
+            let room = METER_WIDTH * h / 960.0;
+            for bar in [Bar::Health, Bar::ActionPoints] {
+                let (first, lefts, w) = row_ticks(bar, room, step, width, PIPS);
+                assert_eq!(first, 0.0, "{lines} lines");
+                let end = first + lefts[PIPS - 1] + w;
+                assert!(room - end >= 0.5 && room - end <= step - w + 0.5, "{lines} lines: {bar:?} ends {end} of {room}");
+            }
+        }
+        // At 720 lines: ticks every 6 pixels, the last ending 1 pixel short (the original's
+        // 1229-1232 with the upright at 1234).
+        let (first, lefts, w) = row_ticks(Bar::ActionPoints, 222.0, 6.0, 5.0, PIPS);
+        assert_eq!((first, lefts[1], lefts[PIPS - 1] + w), (0.0, 6.0, 221.0));
+    }
+
     #[test]
     fn the_sneak_word_is_the_worst_news() {
         assert_eq!(Sneak::of(false, false, false), Sneak::Hidden);
@@ -938,14 +1185,16 @@ mod tests {
     }
 
     #[test]
-    fn the_compass_keeps_the_heading_in_the_middle() {
-        // What is in the window's middle, in texels of one strip.
-        let middle = |heading: f32| (COMPASS.x / 2.0 - strip_left(heading)).rem_euclid(STRIP.x);
-        assert!((middle(0.0) - 0.0).abs() < 1e-3 || (middle(0.0) - 1024.0).abs() < 1e-3);
-        assert!((middle(90.0) - 256.0).abs() < 1e-3);
-        assert!((middle(225.0) - 640.0).abs() < 1e-3);
-        assert!((middle(-90.0) - 768.0).abs() < 1e-3);
-        assert!((middle(450.0) - 256.0).abs() < 1e-3);
+    fn the_compass_keeps_the_heading_at_the_triangle() {
+        // Read the strip at x 154 (T12e; 148 before, 172.5 at first); its scale stays 1024
+        // per turn [observed: hud.md §14.5].
+        assert_eq!(STRIP_HEADING, 154.0);
+        let at = |heading: f32| (STRIP_HEADING - strip_left(heading)).rem_euclid(STRIP.x);
+        assert!((at(0.0) - 0.0).abs() < 1e-3 || (at(0.0) - 1024.0).abs() < 1e-3);
+        assert!((at(90.0) - 256.0).abs() < 1e-3);
+        assert!((at(225.0) - 640.0).abs() < 1e-3);
+        assert!((at(-90.0) - 768.0).abs() < 1e-3);
+        assert!((at(450.0) - 256.0).abs() < 1e-3);
         // The doubled strip always covers the window.
         for h in 0..720 {
             let left = strip_left(h as f32 * 0.5);
@@ -973,6 +1222,8 @@ mod tests {
         // A full bar ends at the corner mark on the left and starts at it on the right,
         // and runs to just inside the upright.
         assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK - METER_SHIFT);
+        // T12e: the health bar where the original's tile stands [observed: hud.md §14].
+        assert_eq!(p.hp_meter, 20.0);
         assert_eq!(p.ap_meter, RIGHT_MARK - AP_METER_SHIFT);
         assert!(p.hp_meter > LEFT_UPRIGHT && p.hp_meter - LEFT_UPRIGHT < 10.0);
         assert!(p.ap_meter + METER_WIDTH < RIGHT_UPRIGHT && RIGHT_UPRIGHT - (p.ap_meter + METER_WIDTH) < 10.0);
@@ -990,6 +1241,9 @@ mod tests {
         // The arrows' middle at three quarters of the bar.
         assert!((p.arrows_x + ARROWS_MIDDLE * (CND_BAR.y + 2.0 * ARROWS_BLEED) - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
         // The enemy's ticks fit between its bracket's marks.
-        assert!(ENEMY_PIPS as f32 * TICK.x - (TICK.x - TICK_BLOCK) <= ENEMY_MARKS.1 - ENEMY_MARKS.0);
+        // Keep the owner's 31 ticks; the row packs them into the scaled marks [design].
+        let room = ENEMY_MARKS.1 - ENEMY_MARKS.0;
+        let (lefts, width) = tick_lefts(room, TICK_BLOCK, ENEMY_PIPS);
+        assert!((lefts[ENEMY_PIPS - 1] + width - room).abs() < 0.6);
     }
 }

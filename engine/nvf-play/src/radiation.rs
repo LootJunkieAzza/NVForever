@@ -13,13 +13,14 @@
 //!   name folders of three one-second takes each, `a`, `b`, `c`; hypothesis: that they
 //!   are rising strengths, the bands and the rhythm].
 //! - **Meter** ([`draw`]): `RadiationMeter` of `menus\main\hud_main_menu.xml` while rads
-//!   are taken: the rads a second (`radiation_text_value`, font 8, right-justified at x
-//!   237) and "RADS" (`radiation_text`, font 7, from x 245), in the HUD's alternative
-//!   colour (`&hudalt;`), and the pointer (`radiation_pointer`) under the bracket's notches
-//!   at the player's rads, 0 at the left end to 1000 at the right [documented: the menu
-//!   file; hypothesis: the texts, the word, the pointer's scale]. The meter stands at the
-//!   top right, the mirror of the corner messages' bracket at the top left [owner,
-//!   2026-10-23].
+//!   are taken: the level after Rad Resistance, GetRadiationLevel's, whole
+//!   (`radiation_text_value`, font 8, right-justified at x 237) and "RAD/SEC"
+//!   (`radiation_text`, font 7, from x 245), in the HUD's alternative colour
+//!   (`&hudalt;`), and the pointer (`radiation_pointer`) under the bracket's notches
+//!   at x = 15 + 0.3 × rads [observed: private job hud_radiation2, r_in_000-r_in_990;
+//!   documented: the menu file; observed: the value's source, issue #894, radiation.md
+//!   §6; hypothesis: its rounding]. The meter stands at the top right, the mirror of the
+//!   corner messages' bracket at the top left [owner, 2026-10-23].
 //! - **Explosion zones**: `crate::combat` leaves them when an explosion with radiation
 //!   goes off (`Game::add_radiation_zone`); here they are logged as they fade away.
 //! - Logged: `radiation: level <l> rads/s (<source>), taking <r>/s (Rad Resistance
@@ -29,6 +30,7 @@
 //!   band changes, and at exit `radiation summary: …`.
 
 use crate::hud::HudView;
+use crate::tiles::vanilla::DrawnByTiles;
 use crate::interface::{at, bc_supported, face, plain_font, set_text, texture, u, Face, Set};
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
@@ -71,7 +73,10 @@ pub fn band(level: f64) -> usize {
 const PIECE: Vec2 = Vec2::new(367.0, 60.0);
 const BRACKET_PATH: &str = "textures\\interface\\hud\\glow_messages_radiation_seperator_right.dds";
 const BRACKET_AT: f32 = -135.0;
-const BRACKET: Vec2 = Vec2::new(567.0, 120.0);
+/// The file's box for the bracket, 567 x 120: the picture is not stretched to it
+/// ([`BRACKET`]).
+#[cfg(test)]
+const BRACKET_BOX: Vec2 = Vec2::new(567.0, 120.0);
 const POINTER_PATH: &str = "textures\\interface\\hud\\glow_messages_radiation_seperator_arrow.dds";
 const POINTER: Vec2 = Vec2::new(46.0, 24.0);
 const POINTER_Y: f32 = 25.0;
@@ -83,16 +88,35 @@ const WORD_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
 // ---- set here [hypothesis] ---------------------------------------------------------------
 
-/// The word [hypothesis: `sStatsRADAbbrev` is set by no master].
-const WORD: &str = "RADS";
-/// The bracket picture (512 x 128, drawn 567 x 120): its line across at rows 12–16, its
-/// upright at columns 494–499, and sixteen notches hanging from the line every 20 columns
-/// from 173 to 473, the ends slanted, the long ones at 233, 293, 353 and 413 [observed: the
-/// texture]. In the piece's units: the line's middle 13.6 under the top, the upright's
-/// middle at x 414.8, the end notches at x 57.1 and 388.3.
-const NOTCHES: (f32, f32) = (57.1, 388.3);
-/// The rads at the right end: five parts of 200 between the long notches, the sickness
-/// stages' steps (200 to 800, death at 1000) [hypothesis].
+/// The word [observed: the original's tile, hud.md §14.2;
+/// `sStatsRADAbbrev` is set by no master].
+pub(crate) const WORD: &str = "RAD/SEC";
+
+/// Whole rads a second, at least 1 while any are taken [hypothesis: existing drawing
+/// rule]; "+0" without radiation [observed: hud.md §14.2]. Given the level after Rad
+/// Resistance (`Exposure::resisted`, GetRadiationLevel's), not the rads taken: the
+/// original's +9 in the test site's shack is its 9.013784 [observed: issue #894;
+/// radiation.md]. Shared with the tree [design].
+pub(crate) fn value_text(resisted: f64) -> String {
+    let whole = if resisted > 0.0 { resisted.round().max(1.0) as i64 } else { 0 };
+    format!("+{whole}")
+}
+/// The bracket picture (512 x 128): its line across at rows 12–16, its upright at columns
+/// 494–499, and sixteen notches hanging from the line every 20 columns from 173 to 473, the
+/// ends slanted, the long ones at 233, 293, 353 and 413 [observed: the texture]. Drawn at
+/// its texels' size from x -135, as the original's: its notches every 15 pixels at 720
+/// lines and the ruler from x 978 to 1239 [observed: hud_compare environment-radiation at
+/// 1280 x 720; menu-xml.md §3.1.3, T12c, the tile HUD's rule]. In the piece's units: the
+/// line's middle 14.5 under the top, the upright's middle at x 361.5, the end notches at x
+/// 38 and 338, where the pointer's tip stands at 0 and 1000 rads ([`pointer_x`] + 23).
+/// Until T12e it was stretched to the file's 567 x 120 [design]: the ruler 30 pixels too
+/// long to the left, its notches 16.6 pixels apart and the pointer off them.
+const BRACKET: Vec2 = Vec2::new(512.0, 128.0);
+/// The bracket's line and upright in the piece, drawn so.
+const LINE_MIDDLE: f32 = 14.5;
+const UPRIGHT: f32 = BRACKET_AT + 496.5;
+/// Upper bound [hypothesis: hold the measured linear scale at 1000; captures stop at
+/// 998.4 rads, private job hud_radiation2, r_in_990]. The notches are not 200-rad steps.
 pub const FULL_RADS: f64 = 1000.0;
 /// The pointer picture (64 x 32, drawn 46 x 24) has its triangle's tip at row 8, its middle
 /// at column 32: 6 under the picture's top (just under the notches), 23 from its left
@@ -100,30 +124,37 @@ pub const FULL_RADS: f64 = 1000.0;
 const POINTER_MIDDLE: f32 = 23.0;
 /// The meter's place, the mirror of the corner messages' bracket (`corner_messages.rs`:
 /// its line across 47 under the view's top, its upright 57 from the left edge [observed:
-/// the atlas's picture as drawn there]): the piece's top 33.5 under the view's top, its
-/// right edge 105 from the view's right edge (the bracket reaches past it, the upright
-/// 57 from the edge).
-const TOP: f32 = 33.5;
-const RIGHT: f32 = 105.1;
-/// Where the pointer picture stands for the player's rads.
+/// the atlas's picture as drawn there]) [owner, 2026-10-23]: the bracket's line 47.1 under
+/// the view's top and its upright 57.3 from its right edge, as before T12e, the piece
+/// placed around the unstretched bracket (its top 32.6 under the view's top, its right
+/// edge 51.8 from the view's).
+const LINE_FROM_TOP: f32 = 47.1;
+const UPRIGHT_FROM_RIGHT: f32 = 57.3;
+const TOP: f32 = LINE_FROM_TOP - LINE_MIDDLE;
+const RIGHT: f32 = UPRIGHT_FROM_RIGHT - (PIECE.x - UPRIGHT);
+/// How far the piece moved right and up when the bracket stopped being stretched (T12e):
+/// the texts keep their places on the screen.
+const MOVED: Vec2 = Vec2::new(105.1 - RIGHT, 33.5 - TOP);
+/// Where the pointer picture stands [observed: private job hud_radiation2,
+/// r_in_000-r_in_990, linear over 2-998 rads]. Previously 34.1 + 0.3312 × rads [hypothesis].
 pub fn pointer_x(rads: f64) -> f32 {
-    let f = (rads / FULL_RADS).clamp(0.0, 1.0) as f32;
-    NOTCHES.0 + (NOTCHES.1 - NOTCHES.0) * f - POINTER_MIDDLE
+    15.0 + 0.3 * rads.clamp(0.0, FULL_RADS) as f32
 }
 
 /// The texts stand lower and further right than the file's x and y [owner, 2026-10-23:
 /// "lower and to the right against the bracket but not interfering with the notches"]:
-/// "RADS" ends just inside the upright (its middle at x 414.8, its glow from about 410;
-/// the letters' glow reaches about 10 past their width),
+/// The word ends just inside the upright (18.8 before its middle, its glow from about 4
+/// before; the letters' glow reaches about 10 past their width),
 /// the value before it with the file's gap (245 - 237); their line is 88 under the
-/// piece's top, so the value's capitals (about 36 high) start under the pointer's
-/// lowest place (y 49), clear of the notches (to y 28).
-const WORD_END: f32 = 396.0;
+/// piece's top as placed before T12e, so the value's capitals (about 36 high) start under
+/// the pointer's lowest place (y 49), clear of the notches (to y 28). Their places on the
+/// screen are unchanged by T12e ([`MOVED`]).
+const WORD_END: f32 = 396.0 - MOVED.x;
 const GAP: f32 = WORD_X - VALUE_END;
-const BASE: f32 = 88.0;
+const BASE: f32 = 88.0 + MOVED.y;
 
 /// What the last level line named: the marker, the zone's explosion, the water, and
-/// the level in tenths.
+/// the level in whole rads.
 type Shown = (Option<FormId>, Option<FormId>, Option<FormId>, i64);
 
 /// What the log and the exit summary keep.
@@ -351,8 +382,7 @@ fn draw(
         }
     }
     let Some(kit) = kit.as_ref() else { return };
-    // Whole rads a second, at least 1 while any are taken [hypothesis].
-    let value = format!("+{}", resisted.round().max(1.0) as i64);
+    let value = value_text(resisted);
     if shown.as_deref() == Some(value.as_str()) {
         return;
     }
@@ -375,7 +405,7 @@ fn draw(
 
 fn spawn(commands: &mut Commands, kit: &Kit) {
     let piece = Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(TOP), width: u(PIECE.x), height: u(PIECE.y), ..default() };
-    commands.spawn((MeterRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
+    commands.spawn((MeterRoot, piece, Visibility::Hidden, Pickable::IGNORE, DrawnByTiles)).with_children(|p| {
         if let Some(image) = &kit.bracket {
             p.spawn((at(BRACKET_AT, 0.0, BRACKET.x, BRACKET.y), ImageNode { color: crime_colour(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
         }
@@ -418,6 +448,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_drawn_value_and_tree_share_whole_rads_and_zero() {
+        assert_eq!(value_text(0.0), "+0");
+        assert_eq!(value_text(0.2), "+1");
+        assert_eq!(value_text(8.6), "+9");
+        assert_eq!(value_text(9.4), "+9");
+    }
+
+    #[test]
     fn the_counter_rises_through_its_three_bands() {
         assert_eq!(band(0.0), 0);
         assert_eq!(band(0.2), 1);
@@ -427,15 +465,34 @@ mod tests {
         assert_eq!(band(720.0), 3);
     }
 
+    /// T12e: the bracket at its texels' size; its upright and line where the owner's place
+    /// had them, the texts unmoved on the screen, the pointer's tip on the end notches at 0
+    /// and 1000 rads.
     #[test]
-    fn the_pointer_runs_from_the_first_notch_to_the_last() {
-        let tip = |rads| pointer_x(rads) + POINTER_MIDDLE;
-        assert!((tip(0.0) - NOTCHES.0).abs() < 1e-3);
-        assert!((tip(1000.0) - NOTCHES.1).abs() < 1e-3);
+    fn the_bracket_stands_unstretched_where_it_stood() {
+        // The old stretched bracket's upright and line, from the view's right and top.
+        let stretch = BRACKET_BOX.x / 512.0;
+        let old_upright = 105.1 + PIECE.x - (BRACKET_AT + 496.5 * stretch);
+        assert!((old_upright - UPRIGHT_FROM_RIGHT).abs() < 0.1, "{old_upright}");
+        assert!((RIGHT + (PIECE.x - UPRIGHT) - UPRIGHT_FROM_RIGHT).abs() < 1e-4);
+        assert!((TOP + LINE_MIDDLE - LINE_FROM_TOP).abs() < 1e-4);
+        // The word's end on the screen, from the view's right edge, as before.
+        assert!((RIGHT + PIECE.x - WORD_END - (105.1 + PIECE.x - 396.0)).abs() < 1e-3);
+        assert!((TOP + BASE - (33.5 + 88.0)).abs() < 1e-3);
+        // Notches every 20 units, the end ones under the pointer's tip at 0 and 1000 rads.
+        assert_eq!((BRACKET_AT + 173.0, BRACKET_AT + 473.0), (pointer_x(0.0) + POINTER_MIDDLE, pointer_x(1000.0) + POINTER_MIDDLE));
+    }
+
+    #[test]
+    fn the_pointer_matches_the_measured_rad_scale() {
+        // [observed: private job hud_radiation2, r_in_000-r_in_990]; up to 0.7 units
+        // below the rule because the pointer lags the actor-value read by 0-2 rads.
+        for (rads, x) in [(2.25, 15.3), (958.0, 302.1), (998.4, 314.1)] {
+            assert!((pointer_x(rads) - x).abs() <= 0.7);
+        }
+        assert_eq!(pointer_x(0.0), 15.0);
+        assert_eq!(pointer_x(1000.0), 315.0);
         assert_eq!(pointer_x(-5.0), pointer_x(0.0));
         assert_eq!(pointer_x(1500.0), pointer_x(1000.0));
-        // 200 rads: the first long notch (column 233 of the picture, 567/512 to the unit,
-        // the picture 135 left of the piece).
-        assert!((tip(200.0) - (233.0 * 567.0 / 512.0 - 135.0)).abs() < 0.5);
     }
 }

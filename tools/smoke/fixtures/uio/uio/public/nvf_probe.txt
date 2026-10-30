@@ -1,0 +1,3 @@
+; [design] Synthetic include list; no game or mod data.
+nvf_probe.xml::HUDMainMenu
+?NVFSmoke.esp && #nvf_probe.xml

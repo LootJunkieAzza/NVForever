@@ -1997,12 +1997,12 @@ order = [[
 
 [[scenario]]
 name = "xp-meter"
-source = "the HUD's XP meter and levelling by experience (docs/spec-notes/experience.md §6): RewardXP at the console shows the meter, a second reward reaches level 2, LEVEL UP, then the level-up menu opens by itself"
+source = "[observed: private job hud_xp_limbs2, x9_level_up_long] meter fade/hold/fade about 2/2/2 s, pointer moving during hold; LEVEL UP alone at about 7.2 s, up within 0.34 s, full about 1.3 s; [owner 2026-10-24] filled-bar sound and 5 s wait retained. The HUD's XP meter and levelling by experience (docs/spec-notes/experience.md §6): RewardXP at the console shows the meter, a second reward reaches level 2, LEVEL UP, then the level-up menu opens by itself"
 areas = ["levelup", "hud"]
 paths = ["engine/nvf-play/src/xp_meter.rs", "crates/fnv-game/src/experience.rs", "engine/nvf-play/src/hud.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:rewardxp 54;14.3:close;22:rewardxp 150;22.3:close", NVF_PLAY_TEST_SHOTS = "15.5:xp_meter.png,23.4:xp_level_up.png,29:xp_levelup_menu.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:rewardxp 54;14.3:close;22:rewardxp 150;22.3:close", NVF_PLAY_TEST_SHOTS = "18.5:xp_meter.png,30.3:xp_level_up.png,32.5:xp_levelup_menu.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
-run_seconds = 31
+run_seconds = 34
 order = [[
   { re = 'xp: level cap \d+ \(\d story add-ons\)' },
   "xp: +54 XP from a script",
@@ -2014,11 +2014,12 @@ order = [[
 ]]
 expect = [
   { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
+  { gap = ["xp meter: +150 XP", "xp meter: LEVEL UP"], range = [7.1, 8.0], label = "LEVEL UP follows the six-second meter and gap (console holds HUD time until 22.3 s)" },
   { text = "xp meter: sound UILevelUpText", label = "the bar filled: the level-up sound" },
   { text = "ui sounds: level up opened: MUSSuccess", label = "the level-up screen's music" },
   { gap = ["xp meter: sound UILevelUpText", "levelup: menu open"], range = [4.9, 6.0], label = "the menu opens 5 s after the level-up sound" },
 ]
-manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png the pointer at the end and LEVEL UP; xp_levelup_menu.png the level-up menu"
+manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png LEVEL UP alone, no bracket, pointer, levels or +n XP; xp_levelup_menu.png the level-up menu"
 
 [[scenario]]
 name = "xp-perks"
@@ -6113,15 +6114,45 @@ expect = [
 manual = "hud_ammo_label.png: \"HP\" just right of the divider at the bottom right, \"13/37\" at the upright"
 
 [[scenario]]
+name = "hud-compass-north"
+source = "[observed: hud.md §14.5] the original's compass puts the heading at x 148 of the 345-wide window (a bearing-0 tick's x 139 plus its bar at texel 9; N under the bracket's triangle), not the window's middle; 1024 strip units to the turn"
+note = "facing due north outdoors in Goodsprings: N stands under the bracket's downward triangle"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/repeat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:hud_compass_north.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'compass: heading at x 148(\.0)? of 345', label = "the heading stands at the bracket's triangle, not the window's middle" },
+  { re = 'compass: heading at x 148(\.0)? of 345, the strip.s N at 154(\.0)?, fading from 273(\.0)?', label = "T12e: the strip's N 6 units right of the marks' heading point, as the original's at heading 0, and the strip fading out from x 273 of the window (hud.md §4)" },
+  { re = 'compass: the strip baked into one window image of 345 x \d+ texels, faded from 273(\.0)? to 341(\.0)?', label = "the window's strip is one image, its fade in the texels' alpha, no slices (crate::compass_strip, hud.md §4)" },
+]
+manual = "hud_compass_north.png: N just right of the downward triangle of the compass's bracket line (its middle about 4 pixels right of the tip at 1280 x 720, as the original's), the strip fading out over its last 70 units on the right (the original's from x 250 to 300 pixels), the step-shaped end caps and thick bars between the letters of the atlas pieces"
+
+[[scenario]]
+name = "hud-bars-partial"
+source = "[observed: hud.md §14.3] the original's health and action points bars light floor(share x 37) ticks (100 of 200 health: 18 ticks, not 19); its condition fill is round(59 x condition) inside the 60-wide ground"
+note = "health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol of hud-ammo-label"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:hud_bars_partial.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health lights 18 ticks, rounded down" },
+]
+manual = "hud_bars_partial.png: the health bar at the bottom left lit for 18 of its 37 ticks, ending just before the middle"
+
+[[scenario]]
 name = "hud-crippled-limbs"
-source = "owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
+source = "[observed: private job hud_xp_limbs, l1_leg, l2_head; one run] whole pictures fade 0.85 s in, hold 3.3 s, fade 0.85 s out; broken-picture alpha 0-255, negative after about 4.3 s; [hypothesis] rising sawtooth with about 0.54 s period; owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
 note = "the console cripples the player's right leg at 10 s and left arm at 13 s; the second crippling starts the time again and only the arm flashes"
 areas = ["hud", "combat"]
 paths = ["engine/nvf-play/src/hud_limbs.rs", "engine/nvf-play/src/hud.rs"]
-env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV RightMobilityCondition 1000;10.5:close;13:player.DamageAV LeftAttackCondition 1000;13.5:close", NVF_PLAY_TEST_SHOTS = "11.5:limbs_leg.png,14.5:limbs_arm.png,21:limbs_hidden.png" }
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV RightMobilityCondition 1000;10.5:close;13:player.DamageAV LeftAttackCondition 1000;13.5:close", NVF_PLAY_TEST_SHOTS = "10.7:limbs_fade_in.png,11.5:limbs_leg.png,14.5:limbs_arm.png,18.1:limbs_fade_out.png,21:limbs_hidden.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 23
-manual = "limbs_leg.png: the Vault Boy at the top right, the right leg (the viewer's left) red and dashed; limbs_arm.png: the left arm red and dashed, the right leg dashed in amber; limbs_hidden.png: no Vault Boy"
+manual = "limbs_fade_in.png: whole pictures partway through the 0.85 s fade-in after the console closes at 10.5 s; limbs_fade_out.png: whole pictures partway through fade-out, the newest broken picture red at the same strength (its flash stops at 4.3 s); limbs_leg.png: the Vault Boy at the top right, the right leg (the viewer's left) red and dashed, flashing in alpha under the pictures' fade-in; whole pictures use the 0.85/3.3/0.85 s envelope; limbs_arm.png: the left arm red and dashed, the right leg dashed in amber; limbs_hidden.png: no Vault Boy"
 expect = [
   "combat: player's right leg crippled",
   { re = 'hud: crippled limbs shown, flashing right_leg \(crippled: right leg\)', label = "the leg's crippling shows the picture" },
@@ -6131,24 +6162,24 @@ expect = [
 
 [[scenario]]
 name = "hud-needs-words"
-source = "owner 2026-10-23 (screenshot of the original): H2O FOD SLP on the HP label's line in Hardcore, RAD and LMB after them; each word faded, amber, red or flashing red by the need's or radiation's stage or the crippled limbs' count; owner 2026-10-24: nothing under the first stage (200), then faded, normal, red, flashing, RAD the same; LMB hidden with no limb crippled (engine/nvf-play/src/hud_needs.rs, docs/spec-notes/hud.md §13)"
+source = "[observed: private job hud_hardcore2, hc0-hc11, hc2, hc5; hud_radiation2, r_in_200, r_in_300] fixed word places in every mode, zoom 75, faded alpha 124/255 and flashing red alpha 128/255 to 1 (period unresolved); hud.md §14.2 (observed original strings, 2026-10-29); owner 2026-10-23 (screenshot of the original): H20 FOD SLP on the HP label's line in Hardcore, RAD and LMB after them; each word faded, amber, red or flashing red by the need's or radiation's stage or the crippled limbs' count; owner 2026-10-24: nothing under the first stage (200), then faded, normal, red, flashing, RAD the same; LMB hidden with no limb crippled (engine/nvf-play/src/hud_needs.rs, docs/spec-notes/hud.md §13)"
 note = "Hardcore on at 3 s, then Dehydration 650 (Critical: red), Hunger 850 (Deadly: flashing), Sleep Deprivation 250 (Minor: faded), rads 450 (Advanced: normal); the console cripples the left arm at 10 s, the right leg at 12 s and the left leg at 14 s (LMB normal, red, flashing); Dehydration 100 at 18 s (hidden), rads 650 at 18.5 s (Critical: red), Hardcore off at 19 s (the need words hidden), rads 850 at 20 s (Deadly: flashing). RAD and LMB start hidden, as the words do, so nothing is logged for them before a change"
 areas = ["hud", "hardcore"]
 paths = ["engine/nvf-play/src/hud_needs.rs", "engine/nvf-play/src/hud.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/radiation.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:650,3.4:set_av:player:Hunger:850,3.6:set_av:player:SleepDeprivation:250,3.8:set_av:player:RadiationRads:450,18:set_av:player:Dehydration:100,18.5:set_av:player:RadiationRads:650,19:hardcore:0,20:set_av:player:RadiationRads:850", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV LeftAttackCondition 1000;10.5:close;12:player.DamageAV RightMobilityCondition 1000;12.5:close;14:player.DamageAV LeftMobilityCondition 1000;14.5:close", NVF_PLAY_TEST_SHOTS = "16:needs_limbs.png,21:needs_off.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 24
-manual = "needs_limbs.png: on the HP label's line H2O red, FOD flashing red, SLP faded, RAD amber, LMB flashing red (start-up message boxes hide the HUD before 10 s); needs_off.png: only RAD and LMB, in H2O's and FOD's places, both flashing"
+manual = "needs_limbs.png: at piece (190,803), x 0/55/109/162/218 (their right ends), as tall as \"HP\" whatever their zoom 75 (T12e; the original's 17 pixels at 1280 x 720): H20 red, FOD flashing red (alpha 128/255 to 1), SLP faded (alpha 124/255), RAD amber, LMB flashing red (start-up message boxes hide the HUD before 10 s); needs_off.png: only RAD and LMB, still at x 162 and 218 of the same piece, both flashing red in alpha"
 expect = [
   { re = 'hud needs: RAD normal \(stage 2 of 5, \w+\)', label = "Advanced radiation sickness is amber" },
   "test aid: Hardcore mode on",
-  { re = 'hud needs: H2O red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
+  { re = 'hud needs: H20 red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
   { re = 'hud needs: FOD flashing \(stage 4 of 5, \w+\)', label = "Deadly hunger flashes" },
   { re = 'hud needs: SLP faded \(stage 1 of 5, \w+\)', label = "Minor sleep deprivation is faded" },
   { re = 'hud needs: LMB normal \(1 limbs crippled\)', label = "one crippled limb shows the word" },
   { re = 'hud needs: LMB red \(2 limbs crippled\)', label = "two crippled limbs" },
   { re = 'hud needs: LMB flashing \(3 limbs crippled\)', label = "three crippled limbs flash" },
-  { re = 'hud needs: H2O hidden \(no stage\)', label = "dehydration under 200 hides the word" },
+  { re = 'hud needs: H20 hidden \(no stage\)', label = "dehydration under 200 hides the word" },
   { re = 'hud needs: RAD red \(stage 3 of 5, \w+\)', label = "Critical radiation sickness is red" },
   "test aid: Hardcore mode off",
   { re = 'hud needs: SLP hidden \(Hardcore off\)', label = "the need words go outside Hardcore" },
@@ -6158,7 +6189,7 @@ expect = [
 [[scenario]]
 name = "hardcore-setting"
 source = "owner 2026-10-25: Hardcore mode is a switch of the settings page's Gameplay group; turning it off clears the needs and their effects (engine/nvf-play/src/hardcore.rs, crates/fnv-game/src/needs.rs, docs/spec-notes/aid-items.md §11)"
-note = "The settings page turns Hardcore on at 11 s; Dehydration 650 at 13 s (Critical: H2O red, Strength down); the page turns it off at 17 s: the needs go back to 0 and the word and its effect go"
+note = "The settings page turns Hardcore on at 11 s; Dehydration 650 at 13 s (Critical: H20 red, Strength down); the page turns it off at 17 s: the needs go back to 0 and the word and its effect go"
 areas = ["hud", "hardcore", "settings"]
 paths = ["engine/nvf-play/src/hardcore.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/hud_needs.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,16:18", NVF_PLAY_TEST_SETTINGS = "11:hardcore,17:hardcore", NVF_PLAY_TEST_SCRIPT = "13:set_av:player:Dehydration:650" }
@@ -6166,9 +6197,9 @@ args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 22
 order = [[
   "hardcore: Hardcore mode on",
-  { re = 'hud needs: H2O red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
+  { re = 'hud needs: H20 red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
   "hardcore: Hardcore mode off: needs cleared",
-  { re = 'hud needs: H2O hidden', label = "the word goes with Hardcore off" },
+  { re = 'hud needs: H20 hidden', label = "the word goes with Hardcore off" },
 ]]
 forbid = [{ text = "the setting follows", label = "the switch's own change is taken as the game's" }]
 
@@ -6316,7 +6347,7 @@ source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.m
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
 run_seconds = 38
 expect = [
   { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found" },
@@ -8681,7 +8712,7 @@ expect = [
   "player controls: all held, the player is knocked down",
   { re = 'console: GetKnockedState on player >> 0\.00\b', label = "GetKnockedState reads 0 for the pushed player" },
   { re = 'player knockdown: the player gets up face (up|down) [\d.]+ s after the fall \(GetUpFace(Up|Down)\)', label = "the get-up idle of the side the body lies on" },
-  { re = 'player knockdown: laid over the ragdoll: turned -?\d+°, moved (?P<n>\d+) units', range = [0, 200], label = "the clip is laid over where the ragdoll lay", known_failing = "fails on main f7aa1dc1 too (2026-10-23, list 7 W8): no 'laid over the ragdoll' line, the player gets up and is up as before; cause not traced" },
+  { re = 'player knockdown: laid over the ragdoll: turned -?\d+°, moved (?P<n>\d+) units', range = [0, 200], label = "the clip is laid over where the ragdoll lay" },
   { re = 'player knockdown: the player is up (?P<n>[\d.]+) s after the fall; the controls and the first-person view are theirs again', range = [3.0, 12.0], label = "up again, back in first person" },
   { re = 'player knockdown: over without getting up', count = 0, label = "the knockdown ends by getting up" },
   { re = 'death camera: the player died', count = 0, label = "the player does not die" },
@@ -9289,13 +9320,13 @@ expect = [
 
 [[scenario]]
 name = "environment-radiation"
-source = "docs/spec-notes/radiation.md §2-§6: the player in the nuclear test site's shack (SLNuclearTestShackINT), 693.65 units from its radiation marker (ref 00154611, 15 rads a second at the marker falling linearly to 0 at its 2000-unit radius: 9.8 there, 9.01 after Rad Resistance 8, the original's GetRadiationLevel 9.0138 and HUD +9, issue #894): the level, the rads taken after Rad Resistance, the Geiger counter's burst, radiation sickness once the rads pass 200, and the run's summary"
+source = "[observed: private job hud_radiation2, r_in_000-r_in_990] pointer x = 15 + 0.3 * rads (linear to 998; above 1000 held at 315 [hypothesis]); docs/spec-notes/radiation.md §2-§6: the player in the nuclear test site's shack (SLNuclearTestShackINT), 693.65 units from its radiation marker (ref 00154611, 15 rads a second at the marker falling linearly to 0 at its 2000-unit radius: 9.8 there, 9.01 after Rad Resistance 8, the original's GetRadiationLevel 9.0138 and HUD +9, issue #894): the level, the rads taken after Rad Resistance, the Geiger counter's burst, radiation sickness once the rads pass 200, and the run's summary"
 areas = ["radiation", "aid", "hud", "sound"]
 paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "crates/fnv-game/src/needs.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "27:radiation_meter.png" }
 args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
-manual = "radiation_meter.png: the meter at the top right, its bracket the mirror of the corner messages' at the top left, +9 RADS under the notches and the pointer's tip just under them at the rads taken (past the first long notch, 200, by then)"
+manual = "radiation_meter.png: the meter at the top right, its bracket the mirror of the corner messages' at the top left, +9 RAD/SEC under the notches and the pointer's tip just under them at x = 15 + 0.3 * the current rads (200 rads means x 75; long notches are not 200-rad steps)"
 expect = [
   { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "the marker's level falling off with distance, cut by Rad Resistance (issue #894)" },
   { re = 'geiger: UIPipBoyRadiationB \(level 9\.8\)', label = "the counter's burst for under 10 rads a second" },
@@ -10103,6 +10134,192 @@ expect = [
   { re = 'script: print "nvf hidden"', count = 0, label = "DebugPrint is silent before SetDebugMode" },
   { re = 'script: message .*"nvf box" buttons \["Ok", "Cancel"\]', label = "MessageBoxEx shows a box with its buttons" },
 ]
+
+[[scenario]]
+name = "ui-tree-in-game"
+source = "[design] ui-tile-tree.md §3, §4.1, §6.2 step 1 (T3a): the running game's VFS loads the six persistent menus; scripts read and write an existing HUD trait"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/lib.rs",
+  "crates/fnv-game/Cargo.toml", "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/game.rs",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-game/tests/ui_loading.rs",
+  "engine/Cargo.toml", "engine/nvf-play/Cargo.toml", "engine/nvf-play/src/lib.rs",
+  "engine/nvf-play/src/script.rs", "engine/nvf-play/src/tiles/mod.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud depth %g\", (GetUIFloat \"HUDMainMenu/depth\");11:SetUIFloat \"HUDMainMenu/depth\" 37;11.5:PrintC \"nvf hud set %g\", (GetUIFloat \"HUDMainMenu/depth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'ui: 6 menus loaded \(\d+ tiles\), \d+ warnings', label = "the six menus load from the VFS" },
+  { re = 'script: print "nvf hud depth -?\d+(?:\.\d+)?"', label = "GetUIFloat prints the HUD file's depth" },
+  { re = 'script: print "nvf hud depth -999(?:\.0+)?"', count = 0, label = "the HUD depth exists" },
+  { re = 'console: SetUIFloat "HUDMainMenu/depth" 37 >> ran', label = "the console compiles and runs SetUIFloat" },
+  { re = 'script: print "nvf hud set 37"', label = "GetUIFloat reads the written depth on a later frame" },
+]
+
+[[scenario]]
+name = "ui-hud-code-traits"
+source = "[observed: hud.md §14] T4a: HUD places at 16:10 (visibility is in the unit tests: the console line runs with the console open, a PlayState::Menu that hides NVForever's HUD); [design] GetUIFloat through the console beside the current drawing"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-game/src/lib.rs", "crates/fnv-game/src/ui_hud.rs",
+  "crates/fnv-game/tests/ui_hud.rs",
+  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script_hud.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\")" }
+# Fix the view explicitly; nvforever's --size default is also 1280x800 [design].
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree matches the observed 16:10 places" },
+]
+
+[[scenario]]
+name = "ui-mod-tile-drawn"
+source = "[design] ui-tile-tree.md §6.1 (T5 part C): a tile a script injects into HUDMainMenu (InjectUIComponent, a box with a picture from the interface atlas and a text) is drawn over NVForever's HUD; the HUD's own file tiles and code-made copies are not"
+note = "the console injects the tile at 10 s and closes at 10.4 s (the open console is a PlayState::Menu, which hides the HUD and so the tile); the shot at 14 s"
+areas = ["ui", "hud", "console"]
+paths = [
+  "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs",
+  "engine/nvf-play/src/interface.rs", "crates/fnv-ui/src/tree.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:InjectUIComponent \"HUDMainMenu\" \"<rect name=%qNVFSmokeTile%q><x>80</x><y>320</y><width>360</width><height>90</height><red>20</red><green>60</green><blue>120</blue><alpha>220</alpha><image name=%qNVFSmokeBar%q><x>10</x><y>62</y><width>340</width><height>16</height><filename>solid.dds</filename><red>255</red><green>182</green><blue>66</blue></image><text name=%qNVFSmokeText%q><x>12</x><y>10</y><font>7</font><string>NVF MOD TILE</string></text></rect>\";10.4:close", NVF_PLAY_TEST_SHOTS = "14:ui_mod_tile.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes" },
+]
+forbid = [
+  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws" },
+]
+manual = "ui_mod_tile.png: at the left, about a third down, a dark blue box with 'NVF MOD TILE' in white (font 7) and an amber bar along its bottom; NVForever's HUD as on main"
+
+[[scenario]]
+name = "ui-mod-tiles-vanilla"
+kind = "tool"
+source = "[design] ui-tile-tree.md §6.1 (T5 part C): the vanilla HUD file has no mod tiles, so the tile renderer draws nothing of it (Ui::mod_added_tiles, Ui::mod_tile_drawn)"
+areas = ["ui"]
+paths = ["crates/fnv-ui/src/tree.rs", "crates/fnvtool/src/ui_cmd.rs"]
+commands = [["ui", "mod-tiles", "--data", "{data}", "--menu", "menus/main/hud_main_menu.xml"]]
+expect = [
+  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 0, label = "no tile of the vanilla HUD would draw" },
+]
+
+[[scenario]]
+name = "ui-uio-includes"
+kind = "tool"
+source = "[design] menu-xml.md §7 item 3 (T6): synthetic UIO data over vanilla, plugin and VFS file conditions, loose additions drawn without a menu replacement"
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnv-game/src/ui_loading.rs", "crates/fnvtool/src/ui_cmd.rs", "tools/smoke/fixtures/uio/"]
+commands = [["ui", "mod-tiles", "--data", "{data}", "--overlay", "{repo}/tools/smoke/fixtures/uio", "--plugin", "NVFSmoke.esp", "--menu", "menus/main/hud_main_menu.xml"]]
+expect = [
+  { json = "uio.applied", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "synthetic UIO entry applied" },
+  { json = "drawn", schema = "fnv.ui.mod_tiles/1", equals = 1, label = "only the loose UIO probe draws" },
+]
+
+[[scenario]]
+name = "tiles-hud-bars-partial"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-bars-partial with [UI] TileMenus=HUDMainMenu (the test aid): the corners drawn from HUDMainMenu's tiles, the meters' tick picture tiled over the widths the tree holds (hud.md §14.3, floor(share x 37) x 8), the hand-built corners hidden"
+note = "as hud-bars-partial: health set to 200 and 100 of it taken by the console at 10 s, with the 9mm pistol; the shot at 22 s"
+areas = ["ui", "hud"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:player.setav health 200;10.2:player.damageav health 100;10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_bars_partial.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=HUDMainMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): HUDMainMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws, its code-made copies with it" },
+  { re = 'hud: bars health 18 of 37 \(100 of 200\)', label = "half health: the tree's bar is 18 ticks wide, as the hand-built one's" },
+]
+manual = "tiles_hud_bars_partial.png: the HUD's corners drawn from tiles: the health bar lit for 18 of its 37 ticks, HP above it, the brackets, the compass strip; AP, CND, the ammo counter at the right; compare with hud_bars_partial.png"
+
+[[scenario]]
+name = "tiles-hud-compass-north"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): hud-compass-north with [UI] TileMenus=HUDMainMenu: the compass window's strip drawn from its tile and moved by the heading (no trait moves it, hud.md §14.4; 1024 units a turn, the heading at x 148 of the window, §14.5)"
+note = "as hud-compass-north: facing due north outdoors in Goodsprings, N under the bracket's downward triangle"
+areas = ["ui", "hud"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/compass_strip.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "14:tiles_hud_compass_north.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the tile-drawn strip is one baked image with its fade, as the hand-built HUD's (crate::compass_strip)" },
+]
+manual = "tiles_hud_compass_north.png: N just right of the downward triangle of the tile-drawn compass bracket (about 4 pixels at 1280 x 720, as the original's), the strip fading out at its right end with no hard end tick; compare with hud_compass_north.png"
+
+[[scenario]]
+name = "tiles-hud-ammo-label"
+source = "[observed: hud_compare hud-ammo-label, 1280 x 720, T12e] hud-ammo-label with [UI] TileMenus=HUDMainMenu: the original draws the ammo type's abbreviation right-justified at AmmoTypeLabel's captured W - 236 (just left of the divider) and moves the condition row left by the abbreviation's width + 20 (\"HP\", 30 wide: 50); the hand-built HUD keeps the owner's place right of the divider (docs/spec-notes/hud.md §4, §14.7)"
+note = "the 9mm pistol with only 9mm hollow points (QNAM HP); at 1280 x 720 W is 1706.67, ActionPoints at 1320"
+areas = ["ui", "hud", "combat"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"tiles ammo %g %g %g %g\", (GetUIFloat \"HUDMainMenu/ActionPoints/MeterBackground/x\"), (GetUIFloat \"HUDMainMenu/ActionPoints/meter:0/x\"), (GetUIFloat \"HUDMainMenu/CNDArrows/x\"), (GetUIFloat \"HUDMainMenu/AmmoTypeLabel/x\");10.4:close", NVF_PLAY_TEST_SHOTS = "22:tiles_hud_ammo_label.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { re = 'hud: ammo label HP\s*$', label = "the pistol's hollow points have the abbreviation HP" },
+  { re = 'script: print "tiles ammo 40 40 1403 1470"', label = "the condition ground, fill and arrows 50 left (90 - 30 - 20), the label at W - 236" },
+]
+manual = "tiles_hud_ammo_label.png: \"HP\" just left of the divider, \"CND\" and its bar moved left to make room, \"13/37\" alone right of the divider; compare with the original's hud-ammo-label shot"
+
+[[scenario]]
+name = "tiles-ui-hud-code-traits"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): ui-hud-code-traits with [UI] TileMenus=HUDMainMenu: the pieces' places read through GetUIFloat stay the observed 16:10 ones (hud.md §14) while the tree is drawn; the console closes at 10.4 s for a shot of the tile-drawn HUD"
+areas = ["ui", "hud", "scripts", "console"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf hud places %g %g %g %g %.1f\", (GetUIFloat \"HUDMainMenu/ActionPoints/x\"), (GetUIFloat \"HUDMainMenu/HitPoints/x\"), (GetUIFloat \"HUDMainMenu/SneakMeter/x\"), (GetUIFloat \"HUDMainMenu/RadiationMeter/x\"), (GetUIFloat \"HUDMainMenu/ReticleCenter/y\");10.4:close", NVF_PLAY_TEST_SHOTS = "14:tiles_ui_hud_code_traits.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x800"]
+run_seconds = 16
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'script: print "nvf hud places 1150 40 768 1119 439\.5"', label = "the live tree keeps the observed 16:10 places with the switch on" },
+]
+manual = "tiles_ui_hud_code_traits.png: the HUD drawn from tiles at 1280 x 800: the corners at the bottom, the crosshair in the middle, nothing doubled"
+
+[[scenario]]
+name = "tiles-environment-radiation"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T12a): environment-radiation with [UI] TileMenus=HUDMainMenu: the radiation meter drawn from RadiationMeter's four tiles in the alt colour (hud.md §14.1-§14.2: alpha 255 in radiation, \"RAD/SEC\", the value, the pointer's x), the hand-built meter hidden"
+note = "as environment-radiation: the player in the nuclear test site's shack; the shot at 27 s, as environment-radiation's, so the two shots compare"
+areas = ["ui", "hud", "radiation"]
+paths = ["crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/radiation.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "27:tiles_radiation_meter.png" }
+args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "the whole HUD tree draws" },
+  { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "in radiation (the marker's level falling off with distance, issue #894), so the meter's tiles show" },
+]
+manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
+
+[[scenario]]
+name = "ui-menu-lifetime"
+source = "[design] ui-tile-tree.md §3.3, §4.1 (T3b): a message menu builds while open, a trait of its root (the vanilla file's _MinMenuWidth) is readable, and it drops after the test aid answers"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-ui/src/index.rs", "crates/fnv-ui/src/value.rs",
+  "crates/fnv-game/src/game.rs", "crates/fnv-game/src/ui_loading.rs",
+  "crates/fnv-game/tests/ui_loading.rs",
+  "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/script.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf lifetime|Ok\";24.2:PrintC \"nvf message width %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\");26:PrintC \"nvf message closed %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 29
+expect = [
+  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the message menu builds from its indexed file" },
+  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"', label = "GetUIFloat reads a trait of the open menu's root" },
+  { re = 'script: print "nvf message width -999(?:\.0+)?"', count = 0, label = "the open menu's trait exists" },
+  { re = 'ui: dropped MessageMenu', label = "closing the message drops its tiles" },
+  { re = 'script: print "nvf message closed -999"', label = "the closed menu is absent" },
+]
+order = [[
+  { re = 'console: MessageBoxEx "nvf lifetime\|Ok" >> ran' },
+  { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)' },
+  { re = 'script: print "nvf message width -?\d+(?:\.\d+)?"' },
+  "ui: dropped MessageMenu",
+  { re = 'script: print "nvf message closed -999"' },
+]]
 
 [[scenario]]
 name = "nvse-engine-events"
@@ -11669,3 +11886,18 @@ forbid = [
   { re = 'script: VMQ03a stage (110|120|200) set', label = "the visit fails or is cancelled" },
   { re = 'combat group: .* alarms VHDKimballREF 0x0012FCD2 about the player', label = "the NCR turn on the player" },
 ]
+
+[[scenario]]
+name = "tiles-hud-hardcore"
+source = "[design] T12b part A; hud.md §14.8 [observed: private job hud_hardcore2 hc2-hc11]: tile-drawn needs use captured alphas/colours and fixed positions in both modes, last-child indexing puts LMB at *:0"
+areas = ["ui", "hud", "hardcore"]
+paths = ["engine/nvf-play/src/tiles/*", "crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/*", "crates/fnv-ui/src/tree.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:250,3.4:set_av:player:Hunger:450,3.6:set_av:player:SleepDeprivation:650,3.8:set_av:player:RadiationRads:450,14:hardcore:0", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"tiles hc %g %g %g %g %g %g %g %g\", (GetUIFloat \"HUDMainMenu/HardcoreMode/Dehydration/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Dehydration/systemcolor\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Hunger/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Hunger/systemcolor\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Sleep/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Sleep/systemcolor\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/*:0/x\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Rads/x\");10.4:close;18:PrintC \"tiles off %g %g %g %g %g\", (GetUIFloat \"HUDMainMenu/HardcoreMode/Dehydration/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Hunger/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Sleep/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Rads/alpha\"), (GetUIFloat \"HUDMainMenu/HardcoreMode/Rads/x\");18.4:close", NVF_PLAY_TEST_SHOTS = "12:tiles_hud_hardcore.png,20:tiles_hud_hardcore_off.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden but for BreathMeter, Messages, QuestReminder, Region_Location, Subtitles', label = "only the five unresolved pieces stay hand-built" },
+  { re = 'script: print "tiles hc 124 1 255 1 255 2 218 162"', label = "captured stage alphas and colours, LMB last child and RAD fixed position" },
+  { re = 'script: print "tiles off 0 0 0 255 162"', label = "only radiation remains and stays in its own place outside Hardcore" },
+]
+manual = "tiles_hud_hardcore.png: H20 dim, FOD amber, SLP red, RAD amber at their fixed positions, as tall as \"HP\" (T12e: a text's zoom 75 no longer shrinks it), no doubled words; tiles_hud_hardcore_off.png: RAD stays at x 162 within the need piece."
