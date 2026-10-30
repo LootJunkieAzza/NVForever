@@ -13332,3 +13332,25 @@ expect = [
   { json = "given_errors.*", count = 0, label = "fail-old-world-blues-think-tank: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-honest-hearts-pine-creek"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/honest-hearts-pine-creek.actions.json (HonestHearts.esm): Daniel's path with Waking Cloud taken along through White Bird's wish (NVDLC02MS01 5), Civilized Man's Burden and A Family Affair begun and left (Flight from Zion 20 fails them: MS03, MS04 255), Sanctity of the Dead begun by Dancing Flame (MQ05b 20), Retake the Bridge left (MQ05c 255), Salt-Upon-Wounds talked into leaving at Pine Creek (MQ05 35), the end slides and Departing Paradise"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/honest-hearts-pine-creek.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/honest-hearts-pine-creek.actions.json"]]
+expect = [
+  { json = "observations.?label=Rite of Passage 5 (White Bird asks for the player).stage", equals = 5, label = "honest-hearts-pine-creek Rite of Passage 5: stage = 5" },
+  { json = "observations.?label=Civilized Man's Burden after Flight from Zion 20.stage", equals = 255, label = "honest-hearts-pine-creek Civilized Man's Burden after Flight from Zion 20: stage = 255" },
+  { json = "observations.?label=A Family Affair after Flight from Zion 20.stage", equals = 255, label = "honest-hearts-pine-creek A Family Affair after Flight from Zion 20: stage = 255" },
+  { json = "observations.?label=milestone: Sanctity of the Dead 20 (the Sorrows fight).stage", equals = 20, label = "honest-hearts-pine-creek milestone: Sanctity of the Dead 20: stage = 20" },
+  { json = "observations.?label=milestone: MQ05 35 (Salt-Upon-Wounds leaves).done.35", equals = true, label = "honest-hearts-pine-creek milestone: MQ05 35: done.35 = true" },
+  { json = "observations.?label=Sanctity of the Dead at the end.completed", equals = true, label = "honest-hearts-pine-creek Sanctity of the Dead at the end: completed = true" },
+  { json = "observations.?label=Retake the Bridge failed (255).stage", equals = 255, label = "honest-hearts-pine-creek Retake the Bridge failed: stage = 255" },
+  { json = "observations.?label=milestone: Flight from Zion done.completed", equals = true, label = "honest-hearts-pine-creek milestone: Flight from Zion done: completed = true" },
+  { json = "observations.?label=final: Departing Paradise done (door to the Mojave).completed", equals = true, label = "honest-hearts-pine-creek final: Departing Paradise done: completed = true" },
+  { json = "steps.*.error", count = 0, label = "honest-hearts-pine-creek: no step fails" },
+  { json = "given_errors.*", count = 0, label = "honest-hearts-pine-creek: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
