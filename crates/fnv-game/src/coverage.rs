@@ -29,6 +29,9 @@ pub struct Coverage {
     pub infos: BTreeSet<FormId>,
     /// Unit keys of the result scripts run.
     pub results: BTreeSet<String>,
+    /// Quests the run marked completed: by a Complete Quest stage or by the script
+    /// function CompleteQuest (not by a chain's given state, not by a fail stage).
+    pub completed: BTreeSet<FormId>,
 }
 
 impl Game<'_> {
@@ -47,6 +50,12 @@ impl Game<'_> {
     pub(crate) fn cover_stage(&mut self, quest: FormId, stage: i32) {
         if let Some(c) = self.coverage.as_mut() {
             c.stages.insert((quest, stage));
+        }
+    }
+
+    pub(crate) fn cover_completed(&mut self, quest: FormId) {
+        if let Some(c) = self.coverage.as_mut() {
+            c.completed.insert(quest);
         }
     }
 
@@ -109,6 +118,7 @@ impl Coverage {
             "blocks": self.blocks.iter().map(|(k, i)| json!([unit_name(lo, k), i, block_name(k, *i)])).collect::<Vec<_>>(),
             "infos": self.infos.iter().map(|i| form_name(lo, i.0)).collect::<Vec<_>>(),
             "results": self.results.iter().map(|k| unit_name(lo, k)).collect::<Vec<_>>(),
+            "completed": self.completed.iter().map(|q| form_name(lo, q.0)).collect::<Vec<_>>(),
         })
     }
 }
@@ -120,6 +130,7 @@ struct Reached {
     blocks: BTreeSet<(String, u64)>,
     infos: BTreeSet<String>,
     results: BTreeSet<String>,
+    completed: BTreeSet<String>,
 }
 
 impl Reached {
@@ -136,6 +147,8 @@ impl Reached {
         }
         self.infos.extend(arr("infos").iter().filter_map(|i| i.as_str().map(str::to_string)));
         self.results.extend(arr("results").iter().filter_map(|i| i.as_str().map(str::to_string)));
+        // Older logs have no "completed": their quests count by the stage flags alone.
+        self.completed.extend(arr("completed").iter().filter_map(|i| i.as_str().map(str::to_string)));
         Ok(())
     }
 }
@@ -210,7 +223,9 @@ pub fn report(data: &GameData, logs: &[Json], untouched_max: usize) -> Result<Js
     let lo = &data.load_order;
     let edid = |f: FormId| data.edid_of.get(&f).cloned().unwrap_or_else(|| form_name(lo, f.0));
 
-    // Quests: stages reached, whether a stage that completes the quest was reached.
+    // Quests: stages reached; completed when a stage that completes the quest was reached
+    // or the run marked the quest completed (CompleteQuest in a script, which many quests
+    // end by instead of a flagged stage).
     let mut quests = Vec::new();
     let mut untouched: Vec<(u8, String, usize)> = Vec::new();
     let (mut stages_total, mut stages_reached, mut quests_touched, mut completed) = (0usize, 0usize, 0usize, 0usize);
@@ -222,14 +237,17 @@ pub fn report(data: &GameData, logs: &[Json], untouched_max: usize) -> Result<Js
         let reached: Vec<i32> = def.stages.keys().copied().filter(|s| r.stages.contains(&(name.clone(), *s as i64))).collect();
         let completing: Vec<i32> =
             def.stages.iter().filter(|(_, es)| es.iter().any(|e| e.flags & 1 != 0)).map(|(s, _)| *s).collect();
-        let complete = completing.iter().any(|s| reached.contains(s));
+        let complete = completing.iter().any(|s| reached.contains(s)) || r.completed.contains(&name);
         let e = def.edid.clone().unwrap_or_else(|| name.clone());
         stages_total += def.stages.len();
         stages_reached += reached.len();
-        quests_touched += usize::from(!reached.is_empty());
+        // A quest marked completed with no stage reached (one whose only stage is its
+        // fail stage, ended by CompleteQuest) was touched too.
+        let touched = !reached.is_empty() || complete;
+        quests_touched += usize::from(touched);
         completed += usize::from(complete);
         let rk = rank(data, *q, &e);
-        if reached.is_empty() {
+        if !touched {
             untouched.push((rk, e.clone(), def.stages.len()));
         }
         quests.push(json!({

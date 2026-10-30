@@ -2254,6 +2254,61 @@ fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
     assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
 }
 
+/// Script coverage counts a quest completed when a run marks it completed, by a Complete
+/// Quest stage or by the script function CompleteQuest (many quests end by the function
+/// with no flagged stage reached: VMS39, VVault21Tour; High Times and Debt Collector have
+/// only a fail stage); a chain's given state does not. A quest completed with no stage
+/// reached counts as touched.
+#[test]
+fn coverage_counts_a_quest_completed_by_complete_quest() {
+    let f = fixture();
+    let report = |cov: &fnv_game::coverage::Coverage| {
+        let log = cov.log(&f.data, "t");
+        fnv_game::coverage::report(&f.data, &[log], 10).unwrap()
+    };
+    let ctx = fnv_game::game::RunCtx::default;
+    // Stage 10 only (not flagged): touched, not completed.
+    let mut g = game(&f);
+    g.new_game();
+    g.coverage = Some(Default::default());
+    g.set_stage(q(), 10);
+    let r = report(g.coverage.as_ref().unwrap());
+    assert_eq!(r["summary"]["quests"]["touched"], json!(1));
+    assert_eq!(r["summary"]["quests"]["completed"], json!(0));
+    // A given completed state (as a chain's `given`) is not the run's: still not counted.
+    g.quest(q()).completed = true;
+    assert!(g.coverage.as_ref().unwrap().completed.is_empty());
+    g.quest(q()).completed = false;
+    // CompleteQuest with stage 20 (the flagged one) never reached: completed.
+    g.run_query("Begin Function { }
+CompleteQuest Q
+End
+", ctx()).unwrap();
+    let r = report(g.coverage.as_ref().unwrap());
+    assert_eq!(r["summary"]["quests"]["completed"], json!(1));
+    assert!(!g.coverage.as_ref().unwrap().stages.contains(&(q(), 20)));
+    // A log without the field (older runs) still reads, by the stage flags alone.
+    let mut log = g.coverage.as_ref().unwrap().log(&f.data, "old");
+    log.as_object_mut().unwrap().remove("completed");
+    let r = fnv_game::coverage::report(&f.data, &[log], 10).unwrap();
+    assert_eq!(r["summary"]["quests"]["completed"], json!(0));
+
+    // CompleteQuest alone, no stage reached: touched and completed, not untouched.
+    let mut g = game(&f);
+    g.new_game();
+    g.coverage = Some(Default::default());
+    g.run_query("Begin Function { }
+CompleteQuest Q
+End
+", ctx()).unwrap();
+    let cov = g.coverage.as_ref().unwrap();
+    assert!(!cov.stages.iter().any(|(quest, _)| *quest == q()), "no stage of Q reached");
+    let r = report(cov);
+    assert_eq!(r["summary"]["quests"]["touched"], json!(1));
+    assert_eq!(r["summary"]["quests"]["completed"], json!(1));
+    assert!(r["untouched"].as_array().unwrap().iter().all(|u| u["quest"] != "Q"));
+}
+
 /// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
 /// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
 /// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID

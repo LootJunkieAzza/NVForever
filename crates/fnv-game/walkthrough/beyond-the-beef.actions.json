@@ -1,6 +1,6 @@
 {
   "format": "fnv.script.actions/1",
-  "title": "Headless Beyond the Beef (VMS18): from Heck Gunderson's request to Ted brought back to his father (objective 80 completed)",
+  "title": "Headless Beyond the Beef (VMS18): from Heck Gunderson's request to Ted brought back to his father (objective 80 completed) and Heck's reward (quest completed)",
   "given": [],
   "actions": [
     {"op": "note", "text": "Path (Heck's side): Heck asks the player to find his son (objectives 10 and 80); Marjorie points to Mortimer; Mortimer gives the investigator's key (30); the investigator's room and body (35, 40); the steam-room contact Chauncey (50); Ted is found under the Gourmand and follows the player; he is walked back to Heck at the casino, whose reaction completes objective 80."},
@@ -71,6 +71,13 @@
     {"op": "trigger_enter", "trigger": "VMS18HeckReactToTedTriggerREF", "actor": "VMS18HeckGundersonREF"},
     {"op": "advance_seconds", "seconds": 5},
     {"op": "get_quest", "quest": "VMS18", "fields": ["objective.80.completed", "objective.90.displayed"], "label": "final: VMS18 objective 80"},
-    {"op": "get_quest", "quest": "VMS18", "fields": ["objective.79.completed"], "label": "VMS18 objective 79"}
+    {"op": "get_quest", "quest": "VMS18", "fields": ["objective.79.completed"], "label": "VMS18 objective 79"},
+    {"op": "note", "text": "Heck, with Ted back, greets the player (0x00119503) and pays him (Topic012, begin script: objective 90 completed, CompleteQuest, 500 caps). VMS18's only stage is 255 (Fail), so the success path reaches no stage."},
+    {"op": "move_player", "to": "VMS18HeckGundersonREF"},
+    {"op": "talk", "actor": "VMS18HeckGundersonREF", "label": "heck greeting"},
+    {"op": "choose", "topic": "VMS18VMS18HeckGundersonTopic012", "label": "heck reward"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS18", "fields": ["completed", "objective.90.completed", "var.bHeckRewarded"], "label": "final: VMS18 completed"}
   ]
 }

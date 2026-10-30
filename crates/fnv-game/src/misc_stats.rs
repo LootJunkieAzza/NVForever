@@ -224,6 +224,7 @@ impl Game<'_> {
     /// house before VCG01 can finish, already reads 1].
     pub(crate) fn quest_completed(&mut self, quest: FormId) {
         self.count_stat(QUESTS_COMPLETED, 1.0);
+        self.cover_completed(quest);
         self.emit(crate::trace::EventKind::QuestCompleted { quest });
         self.jg_event(crate::nvse_jip3::JgEvent::CompleteQuest, Some(quest));
     }
