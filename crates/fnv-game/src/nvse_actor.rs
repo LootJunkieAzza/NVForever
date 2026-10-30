@@ -90,13 +90,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "getracehairs" | "getraceeyes" => {
             let r = form(args, 0).unwrap_or(FormId(0));
-            let sub = if name == "getracehairs" { "HNAM" } else { "ENAM" };
-            let ids: Vec<XVal> = g
-                .data
-                .record_field(r, sub, "")
-                .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str()).filter_map(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).map(XVal::Ref).collect())
-                .unwrap_or_default();
+            let (sub, code) = if name == "getracehairs" { ("HNAM", 0) } else { ("ENAM", 1) };
+            // GenericAddForm's and the others' changes first (`crate::nvse_lists`).
+            let ids: Vec<XVal> = match g.other.generic.get(&(code, r)) {
+                Some(l) => l.iter().map(|f| XVal::Ref(f.0)).collect(),
+                None => g
+                    .data
+                    .record_field(r, sub, "")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str()).filter_map(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).map(XVal::Ref).collect())
+                    .unwrap_or_default(),
+            };
             list(g, ids)
         }
         // [documented: GetPerkRank; GetAltPerkRank] the player's rank of a perk, 0 without
@@ -174,7 +178,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 Some(t) => g.data.actors.get(&t),
                 None => def,
             };
-            let items = src.map(|d| d.spells.iter().map(|s| XVal::Ref(s.0)).collect()).unwrap_or_default();
+            // GenericAddForm's and the others' changes first (`crate::nvse_lists`).
+            let items = match g.other.generic.get(&(6, b)) {
+                Some(l) => l.iter().map(|s| XVal::Ref(s.0)).collect(),
+                None => src.map(|d| d.spells.iter().map(|s| XVal::Ref(s.0)).collect()).unwrap_or_default(),
+            };
             list(g, items)
         }
         // [documented: GetEquipmentSlotsMask; GetEquipmentBipedMask; observed: nvse-third,

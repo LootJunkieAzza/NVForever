@@ -24,12 +24,15 @@ script error in the console and the script goes on [hypothesis].
 | con_CloseAllMenus, con_QuitGame | CloseAllMenus, QuitGame | as the console |
 | con_Save, con_LoadGame | SaveGame, LoadGame | NVForever's own saves; Save's optional dump file is not written [decision: NVForever writes nothing beside the game] |
 | con_SetCameraFOV, Con_SetUFOCamSpeedMult, Con_TCL, Con_TFC, Con_ToggleMenus | SetCameraFOV, SetUFOCamSpeedMult, ToggleCollision, ToggleFlyCam, ToggleMenus | the engine's console commands |
-| con_GetINISetting, con_SetINISetting | GetINISetting, SetINISetting | the extender's INI store (`nvse_settings`); Get prints the value; Set takes a number as a number, anything else as text |
-| con_RefreshINI, con_SaveINI | RefreshINI, SaveINI | do nothing [decision: NVForever never writes or rereads the game's INI files] |
+| con_GetINISetting, con_SetINISetting | GetINISetting, SetINISetting | the extender's INI store (`nvse_settings`); Get prints `name = value`, or "No INI setting name" [design: the console's line is not documented]; Set takes a number as a number, anything else as text |
+| con_RefreshINI | RefreshINI | the store reads the files again, so the session's changes go [documented: Con RefreshINI, "Refresh INI settings from files"] |
+| con_SaveINI | SaveINI | does nothing [decision: NVForever never writes the game's INI files] |
 | Con_SCOF | SCOF (console output to a file) | keeps the file name only, for GetConsoleOutputFilename; nothing is written [decision, as above] |
-| Con_TDT, Con_TFIK, con_SetVel | ToggleDebugText, ToggleFootIK, SetVel | do nothing [hypothesis: NVForever has no debug text or foot IK switch; SetVel's physics hook is not built] |
+| Con_TFIK | ToggleFootIK | switches the feet's placing on the ground, the settings page's switch (`--no-foot-ik`) |
+| Con_TDT, con_SetVel | ToggleDebugText, SetVel | do nothing [hypothesis: NVForever has no debug text; SetVel's physics hook is not built] |
 
-Every one returns 0.
+Every one returns 0. What a script's command asks of the engine (quit, save, load, close
+the menus) is taken the same frame, as a typed console line's is.
 
 ## 2. The base actor's animation list (4)
 
@@ -69,6 +72,9 @@ generic.5.ref.0 and generic.5.base.0 both give Doc Mitchell's first package].
 - Delete takes out the form at the index and gives it [documented]; past the end, 0.
 - Replace puts the new form at the index and gives the old one [documented]
   [observed: generic.10.replace and its restore].
+- The lists' own getters read the changed list: GetRaceHairs, GetRaceEyes (0, 1),
+  GetBaseSpellListSpells (6), GetBaseSpellListLevSpells (7), GetHeadParts (10), and the
+  AI's package list and ListGetNthForm for 5 and 13 [design].
 
 Changes last for the session and are not saved [hypothesis, as ListAddForm's are
 documented to be]. A change to an actor's 3D (head parts) shows once its 3D reloads

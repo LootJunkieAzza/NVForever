@@ -11805,3 +11805,21 @@ expect = [
   { re = 'script: print "tiles off 0 0 0 255 162"', label = "only radiation remains and stays in its own place outside Hardcore" },
 ]
 manual = "tiles_hud_hardcore.png: H20 dim, FOD amber, SLP red, RAD amber at their fixed positions, as tall as \"HP\" (T12e: a text's zoom 75 no longer shrinks it), no doubled words; tiles_hud_hardcore_off.png: RAD stays at x 162 within the need piece."
+
+[[scenario]]
+name = "console-con-functions"
+source = "#913 (docs/spec-notes/ext-console-generic.md): the extender's Con_ functions run the console's commands; their lines print only with SetConsoleEcho on; Con_TFIK switches the foot IK; con_CloseAllMenus closes the console through the requests a script makes"
+areas = ["console", "scripts"]
+paths = ["crates/fnv-game/src/nvse_console.rs", "engine/nvforever/src/console_toggles.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.Con_Inv;10.5:SetConsoleEcho 1;11:player.Con_Inv;11.5:Con_TFIK;12:Con_TFIK;12.5:Con_TCL;13:Con_TCL;13.5:con_GetINISetting \"fDefaultFOV:Display\";14:con_CloseAllMenus" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'console: .*\d+ stack\(s\)', count = 1, label = "Con_Inv prints once, after SetConsoleEcho 1" },
+  "console: Foot IK off",
+  "console: Foot IK on",
+  "console: Collision off",
+  "console: Collision on",
+  { re = 'console: (fDefaultFOV:Display = \S+|No INI setting fDefaultFOV:Display)', label = "con_GetINISetting prints" },
+  "console: close",
+]
